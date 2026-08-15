@@ -241,7 +241,11 @@ export function useTaxLedgers(): {
       address: null,
       taxType,
       gstRate: null,
-      hsn: null
+      hsn: null,
+      tdsSectionId: null,
+      pan: null,
+      creditDays: null,
+      exportType: null
     })
     await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
     return created.id
@@ -262,7 +266,11 @@ export function useTaxLedgers(): {
       address: null,
       taxType: null,
       gstRate: null,
-      hsn: null
+      hsn: null,
+      tdsSectionId: null,
+      pan: null,
+      creditDays: null,
+      exportType: null
     })
     await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
     return created.id

@@ -955,7 +955,11 @@ export function QuickLedgerModal({
         address: null,
         taxType: null,
         gstRate: gstRate.trim() ? Number(gstRate) : null,
-        hsn: null
+        hsn: null,
+        tdsSectionId: null,
+        pan: null,
+        creditDays: null,
+        exportType: null
       })
       await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
       toast.push('success', `Ledger “${l.name}” created`)
@@ -1034,7 +1038,8 @@ export function QuickItemModal({
         gstRate: rate.trim() ? Number(rate) : null,
         cessRate: null,
         openingQtyMilli: 0,
-        openingValue: 0
+        openingValue: 0,
+        barcode: null
       })
       await queryClient.invalidateQueries({ queryKey: ['stockItems'] })
       toast.push('success', `Item “${item.name}” created`)

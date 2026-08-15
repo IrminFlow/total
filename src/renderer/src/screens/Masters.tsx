@@ -250,7 +250,14 @@ function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; onClose: 
         address: address.trim() || null,
         taxType: (isDuties && taxType ? taxType : null) as 'cgst' | 'sgst' | 'igst' | 'cess' | null,
         gstRate: gstRate.trim() ? Number(gstRate) : null,
-        hsn: hsn.trim() || null
+        hsn: hsn.trim() || null,
+        // TDS section / PAN / credit days / export type get dedicated form fields in a follow-up
+        // task; preserve whatever's already on the ledger (e.g. set via import) rather than
+        // silently wiping it out on every save from this form.
+        tdsSectionId: ledger?.tdsSectionId ?? null,
+        pan: ledger?.pan ?? null,
+        creditDays: ledger?.creditDays ?? null,
+        exportType: ledger?.exportType ?? null
       }
       if (ledger) await api.ledgers.update(ledger.id, data)
       else await api.ledgers.create(data)
@@ -530,7 +537,10 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         gstRate: gstRate.trim() ? Number(gstRate) : null,
         cessRate: cessRate.trim() ? Number(cessRate) : null,
         openingQtyMilli: Math.round(parseFloat(openQty || '0') * 1000),
-        openingValue: openValue ?? 0
+        openingValue: openValue ?? 0,
+        // Barcode gets a dedicated field (with scan-to-fill) in a follow-up task; preserve
+        // whatever's already set rather than clearing it on every save from this form.
+        barcode: item?.barcode ?? null
       }
       if (item) await api.stockItems.update(item.id, data)
       else await api.stockItems.create(data)

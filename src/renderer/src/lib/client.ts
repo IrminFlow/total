@@ -1,17 +1,18 @@
 import type {
-  BomLine, CompanyInfo, Currency, Employee, Godown, Group, Ledger, PayrollLine, PayrollRun,
-  StockGroup, StockItem, Unit, Voucher, VoucherType
+  BomLine, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, PayrollLine, PayrollRun,
+  StockGroup, StockItem, TdsSection, Unit, Voucher, VoucherType
 } from '@shared/domain'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, GroupTreeNode, LedgerBalanceRow,
-  LedgerStatement, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockSummaryRow, TrialBalance, VoucherListRow
+  LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockSummaryRow, TrialBalance,
+  VoucherListRow
 } from '@shared/reports'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
-  AuditListInput, BomInput, CompanyCreateInput, CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput,
-  NicCredentials, RendererLogInput, StockGroupInput, StockItemInput, UnitInput, UserInput, VoucherTypeInput,
-  VoucherInputParsed
+  AuditListInput, BomInput, CompanyCreateInput, CostCentreInput, CurrencyInput, EmployeeInput, GodownInput,
+  GroupInput, LedgerInput, NicCredentials, RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput,
+  UnitInput, UserInput, VoucherTypeInput, VoucherInputParsed
 } from '@shared/schemas'
 import type { Registry } from '../types'
 
@@ -75,6 +76,45 @@ export interface AuditRow {
   afterJson: string | null
   userName: string | null
   appVersion: string | null
+}
+
+/** Mirrors src/main/services/tds.ts's TdsSuggestion shape (kept local — that file is main-process only). */
+export interface TdsSuggestion {
+  sectionId: number
+  code: string
+  rate: number
+  tdsPaise: number
+  payableLedgerId: number
+  panAvailable: boolean
+  thresholdCrossed: boolean
+}
+
+/** Mirrors src/main/services/tds.ts's TdsSummaryRow shape (kept local — that file is main-process only). */
+export interface TdsSummaryRow {
+  sectionCode: string
+  quarter: string
+  deductees: number
+  base: number
+  tds: number
+}
+
+/** Mirrors src/main/services/costCentres.ts's CcReportRow shape (kept local — that file is main-process only). */
+export interface CcReportRow {
+  costCentreId: number
+  name: string
+  income: number
+  expense: number
+  net: number
+}
+
+/** Mirrors src/main/services/costCentres.ts's CcStatementRow shape (kept local — that file is main-process only). */
+export interface CcStatementRow {
+  date: string
+  voucherId: number
+  number: string
+  ledgerName: string
+  drCr: 'dr' | 'cr'
+  amount: number
 }
 
 /** Invoke a main-process channel; throws the error message on failure. */
@@ -184,6 +224,24 @@ export const api = {
       call<RegisterMonthRow[]>('analysis:register', { kind, from, to }),
     outstandings: (side: 'receivable' | 'payable', asOn: string) =>
       call<OutstandingParty[]>('analysis:outstandings', { side, asOn })
+  },
+  bills: {
+    open: (partyLedgerId: number, asOn: string) => call<OutstandingBill[]>('bills:open', { partyLedgerId, asOn })
+  },
+  tds: {
+    sections: () => call<TdsSection[]>('tds:sections'),
+    sectionSave: (data: TdsSectionInput) => call<TdsSection>('tds:sectionSave', data),
+    suggest: (partyLedgerId: number, base: number, date: string) =>
+      call<TdsSuggestion | null>('tds:suggest', { partyLedgerId, base, date }),
+    summary: (fyStartYear: number) => call<TdsSummaryRow[]>('tds:summary', { fyStartYear }),
+    export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter })
+  },
+  cc: {
+    list: () => call<CostCentre[]>('cc:list'),
+    save: (data: CostCentreInput, id?: number) => call<CostCentre>('cc:save', { id, data }),
+    remove: (id: number) => call<null>('cc:delete', { id }),
+    report: (from: string, to: string) => call<CcReportRow[]>('cc:report', { from, to }),
+    statement: (ccId: number, from: string, to: string) => call<CcStatementRow[]>('cc:statement', { ccId, from, to })
   },
   bank: {
     ledgers: () => call<{ id: number; name: string }[]>('bank:ledgers'),

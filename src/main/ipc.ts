@@ -15,9 +15,10 @@ import { companyBackupsDir, companyDbPath, companyExportsDir, ensureCompanyTree,
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
-  backupFileSchema, companyCreateSchema, godownInputSchema, groupInputSchema, gstr2bSchema, isoDate, ledgerInputSchema,
-  passphraseSchema, periodSchema, rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, unitInputSchema,
-  voucherInputSchema, voucherTypeInputSchema
+  backupFileSchema, billsOpenSchema, ccStatementSchema, companyCreateSchema, costCentreInputSchema, godownInputSchema,
+  groupInputSchema, gstr2bSchema, isoDate, ledgerInputSchema, passphraseSchema, periodSchema, rendererLogSchema,
+  stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
+  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
@@ -31,6 +32,8 @@ import * as invoice from './services/invoice'
 import * as extras from './services/extras'
 import * as payroll from './services/payroll'
 import * as nic from './services/nic'
+import * as tds from './services/tds'
+import * as costCentres from './services/costCentres'
 import { importTallyXml } from './services/tallyImport'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
@@ -504,6 +507,47 @@ export function registerIpc(): void {
   handle('analysis:outstandings', (p) => {
     const { side, asOn } = z.object({ side: z.enum(['receivable', 'payable']), asOn: z.string() }).parse(p)
     return analysis.outstandings(requireCompany().db, side, asOn)
+  }, 'viewer')
+
+  // ---------- outstanding bills (party picker for receipt/payment "settle against") ----------
+  handle('bills:open', (p) => {
+    const { partyLedgerId, asOn } = billsOpenSchema.parse(p)
+    return analysis.openBills(requireCompany().db, partyLedgerId, asOn)
+  }, 'viewer')
+
+  // ---------- TDS ----------
+  handle('tds:sections', () => tds.listSections(requireCompany().db), 'viewer')
+  handle('tds:sectionSave', (p) => tds.saveSection(requireCompany().db, tdsSectionInputSchema.parse(p)), 'owner')
+  handle('tds:suggest', (p) => {
+    const { partyLedgerId, base, date } = tdsSuggestSchema.parse(p)
+    return tds.tdsSuggestion(requireCompany().db, partyLedgerId, base, date)
+  })
+  handle('tds:summary', (p) => {
+    const { fyStartYear } = tdsSummarySchema.parse(p)
+    return tds.tdsSummary(requireCompany().db, fyStartYear)
+  }, 'viewer')
+  handle('tds:export26q', (p) => {
+    const { fyStartYear, quarter } = tdsExport26qSchema.parse(p)
+    const c = requireCompany()
+    const path = tds.export26qCsv(c.db, c.info, c.slug, fyStartYear, quarter as 1 | 2 | 3 | 4)
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- cost centres ----------
+  handle('cc:list', () => costCentres.listCostCentres(requireCompany().db), 'viewer')
+  handle('cc:save', (p) => {
+    const { id, data } = z.object({ id: z.number().int().positive().optional(), data: costCentreInputSchema }).parse(p)
+    return costCentres.saveCostCentre(requireCompany().db, data, id)
+  })
+  handle('cc:delete', (p) => costCentres.deleteCostCentre(requireCompany().db, idSchema.parse(p).id))
+  handle('cc:report', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return costCentres.ccReport(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('cc:statement', (p) => {
+    const { ccId, from, to } = ccStatementSchema.parse(p)
+    return costCentres.ccStatement(requireCompany().db, ccId, from, to)
   }, 'viewer')
 
   // ---------- banking ----------
