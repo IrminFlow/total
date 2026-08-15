@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNav, useScreen, useSession } from './state/stores'
-import { Toasts } from './components/ui'
+import { Button, Modal, Toasts } from './components/ui'
 import { CompanySelect } from './screens/CompanySelect'
 import { Shell } from './components/Shell'
 import { Gateway } from './screens/Gateway'
@@ -26,7 +26,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { LockScreen } from './components/LockScreen'
 
 export default function App(): React.JSX.Element {
-  const { slug, locked } = useSession()
+  const { slug, locked, integrityWarning, setIntegrityWarning } = useSession()
   const screen = useScreen()
   const nav = useNav()
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -58,9 +58,17 @@ export default function App(): React.JSX.Element {
     queryClient.invalidateQueries()
   }, [screen.name, queryClient])
 
+  // Rendered once, below, regardless of which of the three layouts is active — so it survives
+  // any navigation or lock-state flip that would otherwise unmount whatever triggered it (see
+  // the session store's `integrityWarning` doc comment).
+  const integrityModal = integrityWarning && (
+    <IntegrityWarningModal warning={integrityWarning} onClose={() => setIntegrityWarning(null)} />
+  )
+
   if (!slug) return (
     <>
       <CompanySelect />
+      {integrityModal}
       <Toasts />
     </>
   )
@@ -68,6 +76,7 @@ export default function App(): React.JSX.Element {
   if (locked) return (
     <>
       <LockScreen />
+      {integrityModal}
       <Toasts />
     </>
   )
@@ -97,7 +106,33 @@ export default function App(): React.JSX.Element {
         </ErrorBoundary>
       </Shell>
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      {integrityModal}
       <Toasts />
     </>
+  )
+}
+
+function IntegrityWarningModal({
+  warning,
+  onClose
+}: {
+  warning: { quickCheck: string; unbalancedVoucherIds: number[]; context: string }
+  onClose: () => void
+}): React.JSX.Element {
+  return (
+    <Modal title="Integrity warning" onClose={onClose}>
+      <p className="text-[13px] text-cr">
+        Integrity check found an issue: {warning.quickCheck}
+        {warning.unbalancedVoucherIds.length ? ` — ${warning.unbalancedVoucherIds.length} unbalanced voucher(s)` : ''}
+      </p>
+      <p className="mt-2 text-[12.5px] text-muted">
+        The books were {warning.context}. Review the Day Book and Trial Balance carefully before continuing.
+      </p>
+      <div className="mt-4 flex justify-end">
+        <Button variant="primary" onClick={onClose}>
+          Continue
+        </Button>
+      </div>
+    </Modal>
   )
 }

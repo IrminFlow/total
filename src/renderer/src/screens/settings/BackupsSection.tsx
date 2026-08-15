@@ -24,30 +24,37 @@ interface RestoreResult {
 
 export function BackupsSection(): React.JSX.Element {
   const { data } = useQuery({ queryKey: ['backups'], queryFn: api.backups.list })
-  const { user, setUser, setLocked } = useSession()
+  const { user, setUser, setLocked, setIntegrityWarning } = useSession()
   const toast = useToasts()
   const queryClient = useQueryClient()
   const [restoring, setRestoring] = useState<BackupInfo | null>(null)
   const [exporting, setExporting] = useState(false)
   const [runningBackup, setRunningBackup] = useState(false)
-  // Set only when a restore came back with an integrity problem — held here (not inside
-  // RestoreModal) so the warning survives closing that modal, and the session-lock transition
-  // (which can unmount this whole screen via LockScreen) is deferred until it's acknowledged.
-  const [pendingRestore, setPendingRestore] = useState<RestoreResult | null>(null)
   const rows = data ?? []
   const isOwner = user?.role === 'owner'
   const canBackup = user?.role !== 'viewer'
 
-  // Applies the session-lock transition (if any) BEFORE invalidating queries, and only after
-  // any integrity warning has been acknowledged — see the RestoreModal/IntegrityWarningModal
-  // wiring below.
+  // Runs FULLY and UNCONDITIONALLY, synchronously with the restore response — nothing here is
+  // deferred for later acknowledgment. A restore very often also flips `locked`, which unmounts
+  // whatever's showing this screen (Settings) in the same render batch; any component-local
+  // "wait for the user to dismiss a warning first" state would be discarded right along with it.
+  // The integrity warning itself is pushed to the session store instead of shown inline — see
+  // App.tsx, which renders it once, above both the locked and unlocked layouts, so no navigation
+  // or unmount can make it disappear before it's dismissed.
   const commitRestore = async (result: RestoreResult): Promise<void> => {
     if (result.locked) {
       setUser(null)
       setLocked(true)
     }
     await queryClient.invalidateQueries()
-    toast.push('success', `Backup restored from ${result.dateLabel}`)
+    toast.push('success', 'Backup restored')
+    if (!result.integrity.ok) {
+      setIntegrityWarning({
+        quickCheck: result.integrity.quickCheck,
+        unbalancedVoucherIds: result.integrity.unbalancedVoucherIds,
+        context: `restored from ${result.dateLabel}`
+      })
+    }
   }
 
   const backupNow = async (): Promise<void> => {
@@ -127,27 +134,11 @@ export function BackupsSection(): React.JSX.Element {
           onClose={() => setRestoring(null)}
           onRestored={(result) => {
             setRestoring(null)
-            if (!result.integrity.ok) {
-              // Hold here for acknowledgment — the session-lock transition (and the possible
-              // unmount that follows it) waits until the user has seen this.
-              setPendingRestore(result)
-            } else {
-              void commitRestore(result)
-            }
-          }}
-        />
-      )}
-      {exporting && <ExportEncryptedModal onClose={() => setExporting(false)} />}
-      {pendingRestore && (
-        <IntegrityWarningModal
-          integrity={pendingRestore.integrity}
-          onContinue={() => {
-            const result = pendingRestore
-            setPendingRestore(null)
             void commitRestore(result)
           }}
         />
       )}
+      {exporting && <ExportEncryptedModal onClose={() => setExporting(false)} />}
     </div>
   )
 }
@@ -170,8 +161,8 @@ function RestoreModal({
     setBusy(true)
     try {
       const r = await api.backups.restore(backup.file)
-      // Session-lock transition and query invalidation happen in the parent — deferred until
-      // after any integrity warning is acknowledged. See BackupsSection's commitRestore.
+      // Session-lock transition, query invalidation, and any integrity warning are all applied
+      // synchronously by the parent's commitRestore — see there for why.
       onRestored({ locked: r.locked, integrity: r.integrity, dateLabel })
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -193,31 +184,6 @@ function RestoreModal({
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="danger" disabled={confirmText !== 'RESTORE' || busy} onClick={() => void restore()}>
           {busy ? 'Restoring…' : 'Restore'}
-        </Button>
-      </div>
-    </Modal>
-  )
-}
-
-function IntegrityWarningModal({
-  integrity,
-  onContinue
-}: {
-  integrity: IntegrityResult
-  onContinue: () => void
-}): React.JSX.Element {
-  return (
-    <Modal title="Restored — integrity warning" onClose={onContinue}>
-      <p className="text-[13px] text-cr">
-        Integrity check found an issue: {integrity.quickCheck}
-        {integrity.unbalancedVoucherIds.length ? ` — ${integrity.unbalancedVoucherIds.length} unbalanced voucher(s)` : ''}
-      </p>
-      <p className="mt-2 text-[12.5px] text-muted">
-        The books were restored anyway. Review the Day Book and Trial Balance carefully before continuing.
-      </p>
-      <div className="mt-4 flex justify-end">
-        <Button variant="primary" onClick={onContinue}>
-          Continue
         </Button>
       </div>
     </Modal>

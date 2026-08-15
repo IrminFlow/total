@@ -56,12 +56,20 @@ interface SessionState {
   user: SessionUser | null
   /** True when the open company has users and no one has signed in yet — LockScreen shows. */
   locked: boolean
+  /** Set immediately (synchronously, alongside the rest of the commit) after a Settings →
+   *  Backups restore whose post-restore integrity check found a problem. Deliberately store-level
+   *  rather than local component state: a restore very often also flips `locked`, which unmounts
+   *  whatever screen triggered it (Settings) in the same render — component-local state would be
+   *  discarded right along with it. App.tsx renders the warning once, above both the locked and
+   *  unlocked layouts, so no navigation or unmount can make it disappear before it's dismissed. */
+  integrityWarning: { quickCheck: string; unbalancedVoucherIds: number[]; context: string } | null
   setCompany: (slug: string, info: CompanyInfo, locked?: boolean) => void
   clearCompany: () => void
   setPeriod: (from: string, to: string) => void
   setWorkingDate: (date: string) => void
   setUser: (user: SessionUser | null) => void
   setLocked: (locked: boolean) => void
+  setIntegrityWarning: (warning: SessionState['integrityWarning']) => void
 }
 
 const fy = fyOf(todayISO())
@@ -74,12 +82,14 @@ export const useSession = create<SessionState>((set) => ({
   workingDate: todayISO(),
   user: null,
   locked: false,
+  integrityWarning: null,
   setCompany: (slug, info, locked = false) => set({ slug, info, locked }),
-  clearCompany: () => set({ slug: null, info: null, user: null, locked: false }),
+  clearCompany: () => set({ slug: null, info: null, user: null, locked: false, integrityWarning: null }),
   setPeriod: (from, to) => set({ from, to }),
   setWorkingDate: (workingDate) => set({ workingDate }),
   setUser: (user) => set({ user }),
-  setLocked: (locked) => set({ locked })
+  setLocked: (locked) => set({ locked }),
+  setIntegrityWarning: (integrityWarning) => set({ integrityWarning })
 }))
 
 // ---------- theme ----------
