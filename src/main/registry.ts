@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, renameSync } from 'fs'
 import type { CompanySummary } from '@shared/domain'
 import { registryPath, ensureDataTree } from './paths'
 
@@ -25,7 +25,10 @@ export function readRegistry(): Registry {
 
 export function writeRegistry(registry: Registry): void {
   ensureDataTree()
-  writeFileSync(registryPath(), JSON.stringify(registry, null, 2))
+  const path = registryPath()
+  const tmpPath = `${path}.tmp`
+  writeFileSync(tmpPath, JSON.stringify(registry, null, 2))
+  renameSync(tmpPath, path)
 }
 
 export function upsertCompany(summary: CompanySummary): void {

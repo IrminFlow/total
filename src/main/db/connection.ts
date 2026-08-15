@@ -10,6 +10,7 @@ export function openCompanyDb(slug: string): DB {
   ensureCompanyTree(slug)
   const db = new Database(companyDbPath(slug))
   db.pragma('journal_mode = WAL')
+  db.pragma('busy_timeout = 5000')
   db.pragma('foreign_keys = ON')
   migrate(db)
   return db
