@@ -4,6 +4,8 @@ import { mkdirSync } from 'fs'
 
 /** Root of all Total data: ~/Documents/total */
 export function dataRoot(): string {
+  // Hermetic override for CI/smoke tests: an absolute TOTAL_DATA_DIR is used verbatim.
+  if (process.env.TOTAL_DATA_DIR) return process.env.TOTAL_DATA_DIR
   return join(app.getPath('documents'), 'total')
 }
 

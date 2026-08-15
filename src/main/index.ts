@@ -19,7 +19,13 @@ if (!gotSingleInstanceLock) {
 let syncWarningShown = false
 let iCloudDesktopWarningShown = false
 
+// Automated drivers (CI smoke test, Playwright scripts) set this to skip the native
+// dialog.showMessageBox() calls below — on macOS an unattended modal alert can wedge the
+// main-thread run loop that also pumps CDP messages, hanging Playwright's electron.launch().
+const SUPPRESS_SYNC_WARNINGS = process.env.TOTAL_SUPPRESS_SYNC_WARNING === '1'
+
 function warnIfSyncedFolder(): void {
+  if (SUPPRESS_SYNC_WARNINGS) return
   const marker = syncFolderWarning(dataRoot())
   if (marker && !syncWarningShown) {
     syncWarningShown = true

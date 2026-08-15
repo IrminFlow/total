@@ -1,0 +1,84 @@
+# Runs on every push/PR to main: pure-TS + DB-layer tests on Linux, a hermetic Electron IPC
+# smoke test on macOS, and a Windows build sanity check. Separate from release.yml (tag-triggered
+# publish pipeline) — this workflow never publishes anything.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests (pure engine, no DB)
+        run: npm test
+
+      - name: DB-layer tests (Electron-as-Node — headless-safe, no display needed)
+        run: npm run test:db
+
+  smoke-mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Hermetic IPC smoke test
+        run: npm run smoke
+        env:
+          TOTAL_DATA_DIR: ${{ runner.temp }}/total-data
+          SMOKE_OUT: ${{ runner.temp }}/smoke
+
+      - name: Upload smoke screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-shots
+          path: ${{ runner.temp }}/smoke
+
+  build-win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Electron-builder dir build (no publish)
+        run: npx electron-builder --win --dir --publish never
