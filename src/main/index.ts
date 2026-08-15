@@ -3,10 +3,11 @@ import { join } from 'path'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { registerIpc, closeCurrentCompany } from './ipc'
+import { registerIpc, closeCurrentCompany, getCurrentCompany } from './ipc'
 import { ensureDataTree, dataRoot } from './paths'
 import { initUpdater } from './updater'
 import { initLogging, log } from './log'
+import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
 import { syncFolderWarning } from '@shared/syncpath'
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -99,6 +100,7 @@ if (gotSingleInstanceLock) {
     app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
     ensureDataTree()
     registerIpc()
+    startBackupScheduler(getCurrentCompany)
     createWindow()
     warnIfSyncedFolder()
     initUpdater()
@@ -113,6 +115,7 @@ if (gotSingleInstanceLock) {
   })
 
   app.on('before-quit', () => {
+    backupOnQuit(getCurrentCompany)
     closeCurrentCompany()
   })
 }

@@ -14,6 +14,7 @@ export function CompanySelect(): React.JSX.Element {
   const { setCompany } = useSession()
   const toast = useToasts()
   const [creating, setCreating] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   const companies = registry?.companies ?? []
 
@@ -65,9 +66,12 @@ export function CompanySelect(): React.JSX.Element {
           ))}
         </div>
 
-        <div className="mt-4 flex justify-center">
+        <div className="mt-4 flex justify-center gap-2">
           <Button variant="primary" onClick={() => setCreating(true)}>
             Create company
+          </Button>
+          <Button variant="ghost" onClick={() => setImporting(true)}>
+            Import encrypted backup…
           </Button>
         </div>
       </div>
@@ -82,7 +86,80 @@ export function CompanySelect(): React.JSX.Element {
           }}
         />
       )}
+
+      {importing && (
+        <ImportBackupModal
+          onClose={() => setImporting(false)}
+          onImported={async (slug) => {
+            setImporting(false)
+            await queryClient.invalidateQueries({ queryKey: ['registry'] })
+            await open(slug)
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+function ImportBackupModal({
+  onClose,
+  onImported
+}: {
+  onClose: () => void
+  onImported: (slug: string) => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const [passphrase, setPassphrase] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const doImport = async (): Promise<void> => {
+    if (passphrase.length < 8) {
+      toast.push('error', 'Passphrase must be at least 8 characters')
+      return
+    }
+    setBusy(true)
+    try {
+      const result = await api.backups.importEncrypted(passphrase)
+      if (!result) {
+        setBusy(false)
+        return // dialog cancelled
+      }
+      toast.push('success', `${result.name} imported`)
+      onImported(result.slug)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="Import encrypted backup" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <p className="text-[13px] text-muted">
+          Choose a <span className="num">.totalbak</span> file and enter the passphrase it was exported with.
+        </p>
+        <Field label="Passphrase">
+          <TextInput
+            autoFocus
+            type="password"
+            value={passphrase}
+            onChange={(e) => setPassphrase(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void doImport()
+            }}
+            placeholder="At least 8 characters"
+          />
+        </Field>
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={() => void doImport()} disabled={busy}>
+            {busy ? 'Importing…' : 'Choose file & import'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

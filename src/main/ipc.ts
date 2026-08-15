@@ -1,15 +1,20 @@
 import { dialog, ipcMain, shell } from 'electron'
-import { readFileSync } from 'fs'
+import { readFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { z } from 'zod'
+import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
 import { backupCompany, openCompanyDb } from './db/connection'
+import { backupStamp, listBackupsIn, snapshotSync, type BackupInfo } from './db/backup'
+import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, touchLastOpened, upsertCompany } from './registry'
-import { companyDbPath, companyExportsDir, ensureCompanyTree, slugify } from './paths'
+import { companyBackupsDir, companyDbPath, companyExportsDir, ensureCompanyTree, slugify } from './paths'
 import { log, revealLogs } from './log'
 import {
-  companyCreateSchema, godownInputSchema, groupInputSchema, ledgerInputSchema, periodSchema,
-  rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, unitInputSchema, voucherInputSchema,
+  backupFileSchema, companyCreateSchema, godownInputSchema, groupInputSchema, ledgerInputSchema, passphraseSchema,
+  periodSchema, rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, unitInputSchema, voucherInputSchema,
   voucherTypeInputSchema
 } from '@shared/schemas'
 import * as masters from './services/masters'
@@ -28,10 +33,9 @@ import { importTallyXml } from './services/tallyImport'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema
 } from '@shared/schemas'
-import { existsSync } from 'fs'
 import type { CompanyInfo } from '@shared/domain'
 
-interface OpenCompany {
+export interface OpenCompany {
   slug: string
   db: DB
   info: CompanyInfo
@@ -42,6 +46,19 @@ let current: OpenCompany | null = null
 function requireCompany(): OpenCompany {
   if (!current) throw new Error('No company is open')
   return current
+}
+
+/** Accessor for the currently-open company, used by the backup scheduler (backup-scheduler.ts). */
+export function getCurrentCompany(): OpenCompany | null {
+  return current
+}
+
+/** Move a file into place. Copy+delete rather than fs.renameSync, since the source (os.tmpdir())
+ *  and destination (~/Documents/total) may be on different filesystems (EXDEV). */
+function renameFile(src: string, dest: string): void {
+  rmSync(dest, { force: true })
+  copyFileSync(src, dest)
+  unlinkSync(src)
 }
 
 export function closeCurrentCompany(): void {
@@ -91,14 +108,15 @@ export function registerIpc(): void {
     return { slug }
   })
 
-  handle('company:open', (payload) => {
+  handle('company:open', async (payload) => {
     const { slug } = z.object({ slug: z.string().min(1) }).parse(payload)
     if (!existsSync(companyDbPath(slug))) throw new Error('Company database not found')
     closeCurrentCompany()
-    backupCompany(slug, 'open')
     const db = openCompanyDb(slug)
     const info = readCompanyInfo(db)
     current = { slug, db, info }
+    // Online backup needs an open handle, so this runs after open (not before, as it used to).
+    await backupCompany(db, slug, 'open')
     touchLastOpened(slug)
     return { slug, info }
   })
@@ -120,15 +138,112 @@ export function registerIpc(): void {
     return info
   })
 
-  handle('company:backup', () => {
+  const runManualBackup = async (): Promise<{ path: string }> => {
     const c = requireCompany()
-    return { path: backupCompany(c.slug, 'manual') }
-  })
+    return { path: await backupCompany(c.db, c.slug, 'manual') }
+  }
+  // 'company:backup' is kept as an alias of 'backup:run' for existing callers.
+  handle('company:backup', runManualBackup)
 
   handle('company:revealExports', () => {
     const c = requireCompany()
     shell.openPath(companyExportsDir(c.slug))
     return null
+  })
+
+  // ---------- backups: list/run/restore + encrypted export/import ----------
+  handle('backup:list', (): BackupInfo[] => {
+    const c = requireCompany()
+    return listBackupsIn(companyBackupsDir(c.slug))
+  })
+
+  handle('backup:run', runManualBackup)
+
+  handle('backup:restore', async (payload) => {
+    const { file } = z.object({ file: backupFileSchema }).parse(payload)
+    const c = requireCompany()
+    const { slug } = c
+    const backupPath = join(companyBackupsDir(slug), file)
+    if (!existsSync(backupPath)) throw new Error('Backup file not found')
+
+    // Flush the WAL into the main file so the pre-restore safety copy is self-contained.
+    c.db.pragma('wal_checkpoint(TRUNCATE)')
+    snapshotSync(c.db, join(companyBackupsDir(slug), `${backupStamp()}-pre-restore.db`))
+
+    closeCurrentCompany()
+    const dbPath = companyDbPath(slug)
+    copyFileSync(backupPath, dbPath)
+    rmSync(`${dbPath}-wal`, { force: true })
+    rmSync(`${dbPath}-shm`, { force: true })
+
+    const db = openCompanyDb(slug) // migrates if the backup predates the current schema
+    const info = readCompanyInfo(db)
+    current = { slug, db, info }
+    touchLastOpened(slug)
+    return { info }
+  })
+
+  handle('backup:exportEncrypted', async (payload) => {
+    const { passphrase } = z.object({ passphrase: passphraseSchema }).parse(payload)
+    const c = requireCompany()
+    const tempPath = join(companyExportsDir(c.slug), `.export-tmp-${backupStamp()}.db`)
+    snapshotSync(c.db, tempPath)
+    const destPath = join(companyExportsDir(c.slug), `total-${c.slug}-${backupStamp()}.totalbak`)
+    try {
+      await encryptFile(tempPath, destPath, passphrase)
+    } finally {
+      unlinkSync(tempPath)
+    }
+    shell.showItemInFolder(destPath)
+    return { path: destPath }
+  })
+
+  // No requireCompany() — importing an encrypted backup works with no company open.
+  handle('backup:importEncrypted', async (payload) => {
+    const { passphrase } = z.object({ passphrase: passphraseSchema }).parse(payload)
+    const picked = await dialog.showOpenDialog({
+      title: 'Choose a Total encrypted backup',
+      filters: [{ name: 'Total backup', extensions: ['totalbak'] }],
+      properties: ['openFile']
+    })
+    if (picked.canceled || !picked.filePaths[0]) return null
+
+    const tempDir = mkdtempSync(join(tmpdir(), 'total-import-'))
+    const tempDbPath = join(tempDir, 'restored.db')
+    try {
+      await decryptFile(picked.filePaths[0], tempDbPath, passphrase)
+    } catch {
+      throw new Error('Wrong passphrase or corrupted file')
+    }
+
+    let info: CompanyInfo
+    try {
+      const check = new Database(tempDbPath, { readonly: true })
+      try {
+        const result = check.pragma('quick_check') as Array<{ quick_check: string }>
+        if (result[0]?.quick_check !== 'ok') throw new Error('bad')
+        info = readCompanyInfo(check)
+      } finally {
+        check.close()
+      }
+    } catch {
+      throw new Error("This file doesn't look like a Total company backup")
+    }
+
+    let slug = slugify(info.name)
+    let n = 2
+    while (existsSync(companyDbPath(slug))) slug = `${slugify(info.name)}-${n++}`
+    ensureCompanyTree(slug)
+
+    const dbPath = companyDbPath(slug)
+    try {
+      renameFile(tempDbPath, dbPath)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+
+    upsertCompany({ slug, name: info.name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: new Date().toISOString() })
+    return { slug, name: info.name }
   })
 
   // ---------- masters ----------
@@ -372,7 +487,7 @@ export function registerIpc(): void {
       if (picked.canceled || !picked.filePaths[0]) return null
       xml = readFileSync(picked.filePaths[0], 'utf8')
     }
-    backupCompany(c.slug, 'pre-tally-import')
+    await backupCompany(c.db, c.slug, 'pre-tally-import')
     return importTallyXml(c.db, xml)
   })
 

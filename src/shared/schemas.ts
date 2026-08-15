@@ -175,6 +175,12 @@ export const nicCredentialsSchema = z.object({
 })
 export type NicCredentials = z.infer<typeof nicCredentialsSchema>
 
+/** Backup filename as offered back by backup:list — no path traversal. */
+export const backupFileSchema = z.string().regex(/^[A-Za-z0-9._-]+\.db$/, 'Invalid backup filename')
+
+/** Passphrase for encrypted export/import. */
+export const passphraseSchema = z.string().min(8, 'Passphrase must be at least 8 characters')
+
 /** Renderer-side crash report sent to the main process for logging. */
 export const rendererLogSchema = z.object({
   message: z.string(),
