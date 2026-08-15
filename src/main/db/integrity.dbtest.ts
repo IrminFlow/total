@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { seededDb, postSimpleVoucher } from './testdb'
+import { freshDb, seededDb, postSimpleVoucher } from './testdb'
 import { checkIntegrity } from './integrity'
 
 describe('checkIntegrity', () => {
@@ -31,5 +31,17 @@ describe('checkIntegrity', () => {
     expect(result.quickCheck).toBe('ok')
     expect(result.unbalancedVoucherIds).toEqual([voucher.id])
     expect(result.ok).toBe(false)
+  })
+
+  it('never throws — reports a failed check if the balance query itself errors', () => {
+    const db = freshDb()
+    // Simulates the corruption this feature exists to detect: quick_check can pass clean while
+    // a later read over real table pages still throws (e.g. a malformed voucher_lines table).
+    db.exec('DROP TABLE voucher_lines')
+
+    const result = checkIntegrity(db)
+    expect(result.ok).toBe(false)
+    expect(result.quickCheck.startsWith('error')).toBe(true)
+    expect(result.unbalancedVoucherIds).toEqual([])
   })
 })
