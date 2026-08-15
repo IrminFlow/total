@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
@@ -92,8 +92,14 @@ export function Gstr2bScreen(): React.JSX.Element {
     enabled: !!imported
   })
 
+  // Toast only once per newly-imported JSON — react-query gives back a fresh `data` object on
+  // every refetch (e.g. month change, window refocus) even when the underlying import hasn't
+  // changed, so gate on a ref of the last jsonText we've already toasted for.
+  const lastToastedRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!data) return
+    if (!data || !imported) return
+    if (lastToastedRef.current === imported.jsonText) return
+    lastToastedRef.current = imported.jsonText
     if (data.errors.length) {
       toast.push('warning', `${data.errors.length} entr${data.errors.length > 1 ? 'ies' : 'y'} in the 2B JSON could not be parsed and were skipped`)
     }
@@ -101,7 +107,7 @@ export function Gstr2bScreen(): React.JSX.Element {
       toast.push('warning', `The JSON is for period ${data.period}, but ${month.label} is selected — showing figures for the selected month`)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data])
+  }, [data, imported])
 
   const doPick = async (): Promise<void> => {
     try {

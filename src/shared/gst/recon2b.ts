@@ -101,6 +101,16 @@ function fromPortalDate(s: unknown): string | null {
   return `${y}-${mo}-${d}`
 }
 
+/**
+ * A portal 'b2b' entry (invoice) can only correspond to a book 'purchase' voucher; a portal
+ * 'cdnr' entry (credit/debit note) can only correspond to a book 'debit_note' voucher. Without
+ * this guard, a same-normalized-number collision across kinds (e.g. an invoice and an unrelated
+ * debit note sharing a number) would pair incompatible documents.
+ */
+function kindsCompatible(portal: PortalInvoice, book: PurchaseDoc): boolean {
+  return (portal.kind === 'b2b' && book.kind === 'purchase') || (portal.kind === 'cdnr' && book.kind === 'debit_note')
+}
+
 function daysBetween(a: string, b: string): number {
   const ms = Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)
   return Math.round(Math.abs(ms) / 86_400_000)
@@ -167,8 +177,9 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
   for (const grp of b2bGroups) {
     if (!grp || typeof grp !== 'object') { errors.push('b2b: skipped a malformed supplier group'); continue }
     const g = grp as Record<string, unknown>
-    const gstin = typeof g.ctin === 'string' ? g.ctin : typeof g.gstin === 'string' ? g.gstin : null
-    if (!gstin) { errors.push('b2b: skipped a supplier group with no GSTIN (ctin)'); continue }
+    const gstinRaw = typeof g.ctin === 'string' ? g.ctin : typeof g.gstin === 'string' ? g.gstin : null
+    if (!gstinRaw) { errors.push('b2b: skipped a supplier group with no GSTIN (ctin)'); continue }
+    const gstin = gstinRaw.toUpperCase()
     const invList = Array.isArray(g.inv) ? g.inv : []
     for (const inv of invList) {
       try {
@@ -204,8 +215,9 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
   for (const grp of cdnrGroups) {
     if (!grp || typeof grp !== 'object') { errors.push('cdnr: skipped a malformed supplier group'); continue }
     const g = grp as Record<string, unknown>
-    const gstin = typeof g.ctin === 'string' ? g.ctin : typeof g.gstin === 'string' ? g.gstin : null
-    if (!gstin) { errors.push('cdnr: skipped a supplier group with no GSTIN (ctin)'); continue }
+    const gstinRaw = typeof g.ctin === 'string' ? g.ctin : typeof g.gstin === 'string' ? g.gstin : null
+    if (!gstinRaw) { errors.push('cdnr: skipped a supplier group with no GSTIN (ctin)'); continue }
+    const gstin = gstinRaw.toUpperCase()
     const ntList = Array.isArray(g.nt) ? g.nt : []
     for (const nt of ntList) {
       try {
@@ -220,6 +232,9 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
         const items = n.items ?? n.itms
         const sums = sumItems(items)
         const noteType: 'C' | 'D' = n.typ === 'D' ? 'D' : 'C'
+        if (n.typ !== 'C' && n.typ !== 'D') {
+          errors.push(`cdnr/${gstin}: note ${number} has unrecognized typ ${JSON.stringify(n.typ)} — defaulted to 'C'`)
+        }
         invoices.push({
           gstin,
           number,
@@ -285,7 +300,11 @@ export function reconcile2b(portal: PortalInvoice[], books: PurchaseDoc[], opts:
   for (const p of portal) {
     const key = normalizeInvoiceNumber(p.number)
     const match = books.find(
-      (b) => !consumedBooks.has(b) && (b.partyGstin ?? '') === p.gstin && normalizeInvoiceNumber(b.supplierRef ?? b.number) === key
+      (b) =>
+        !consumedBooks.has(b) &&
+        (b.partyGstin ?? '') === p.gstin &&
+        kindsCompatible(p, b) &&
+        normalizeInvoiceNumber(b.supplierRef ?? b.number) === key
     )
     if (match) {
       consumedPortal.add(p)
@@ -299,7 +318,7 @@ export function reconcile2b(portal: PortalInvoice[], books: PurchaseDoc[], opts:
   for (const p of portal) {
     if (consumedPortal.has(p)) continue
     for (const b of books) {
-      if (consumedBooks.has(b) || (b.partyGstin ?? '') !== p.gstin) continue
+      if (consumedBooks.has(b) || (b.partyGstin ?? '') !== p.gstin || !kindsCompatible(p, b)) continue
       const valueDiff = Math.abs(p.value - b.invoiceValue)
       const dateDiff = daysBetween(p.date, b.date)
       if (valueDiff <= tol && dateDiff <= dateWindowDays) candidates.push({ p, b, valueDiff, dateDiff })

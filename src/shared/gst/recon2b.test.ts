@@ -138,6 +138,39 @@ describe('parseGstr2b', () => {
     expect(invoices[0]!.cess).toBe(0) // missing csamt -> 0
   })
 
+  it('uppercases the supplier GSTIN (ctin) at parse time', () => {
+    const json = JSON.stringify({
+      data: {
+        docdata: {
+          b2b: [
+            { ctin: '27abcde1234f1z5', inv: [{ inum: 'INV-1', idt: '01-06-2026', val: 100, items: [] }] }
+          ]
+        }
+      }
+    })
+    const { invoices } = parseGstr2b(json)
+    expect(invoices[0]!.gstin).toBe('27ABCDE1234F1Z5')
+  })
+
+  it('records an error (but still defaults noteType) when cdnr typ is not C or D', () => {
+    const json = JSON.stringify({
+      data: {
+        docdata: {
+          cdnr: [
+            {
+              ctin: '27ABCDE1234F1Z5',
+              nt: [{ nt_num: 'CN-99', typ: 'X', nt_dt: '01-06-2026', val: 100, items: [] }]
+            }
+          ]
+        }
+      }
+    })
+    const { invoices, errors } = parseGstr2b(json)
+    expect(invoices).toHaveLength(1)
+    expect(invoices[0]!.noteType).toBe('C')
+    expect(errors.some((e) => e.includes('CN-99') && e.includes('typ'))).toBe(true)
+  })
+
   it('parses cdnr notes, carrying noteType through', () => {
     const json = JSON.stringify({
       data: {
@@ -256,6 +289,40 @@ describe('reconcile2b', () => {
     const consumedBookPairs = result.pairs.filter((x) => x.book === b)
     expect(consumedBookPairs).toHaveLength(1)
     expect(result.buckets.missingInBooks.count).toBe(1) // the other portal invoice has nothing left to match
+  })
+
+  it('does not match a b2b invoice to a debit_note with the same normalized number', () => {
+    const p = portalInv({ kind: 'b2b', number: 'INV-100', value: 118000, date: '2026-06-05' })
+    const b = bookDoc({ kind: 'debit_note', number: 'DN/1', supplierRef: 'INV-100', invoiceValue: 118000, date: '2026-06-05' })
+    const result = reconcile2b([p], [b], OPTS)
+    expect(result.pairs).toHaveLength(2)
+    expect(result.buckets.missingInBooks.count).toBe(1)
+    expect(result.buckets.missingInPortal.count).toBe(1)
+    expect(result.pairs.find((x) => x.portal === p)?.bucket).toBe('missingInBooks')
+    expect(result.pairs.find((x) => x.book === b)?.bucket).toBe('missingInPortal')
+  })
+
+  it('does not fuzzy-match a b2b invoice to a debit_note either (kind guard applies to both passes)', () => {
+    const p = portalInv({ kind: 'b2b', number: 'INV-ZZZ', value: 118000, date: '2026-06-05' })
+    const b = bookDoc({ kind: 'debit_note', number: 'DN/2', supplierRef: 'UNRELATED', invoiceValue: 118000, date: '2026-06-05' })
+    const result = reconcile2b([p], [b], OPTS)
+    expect(result.pairs.find((x) => x.portal === p)?.bucket).toBe('missingInBooks')
+    expect(result.pairs.find((x) => x.book === b)?.bucket).toBe('missingInPortal')
+  })
+
+  it('matches cdnr entries only against debit_note books, never purchase', () => {
+    const cdnr = portalInv({ kind: 'cdnr', noteType: 'C', number: 'CN-1', value: 11800, date: '2026-06-10' })
+    const wrongKindBook = bookDoc({ kind: 'purchase', number: 'PUR/CN', supplierRef: 'CN-1', invoiceValue: 11800, date: '2026-06-10' })
+    const rightKindBook = bookDoc({ voucherId: 2, kind: 'debit_note', number: 'DN/CN', supplierRef: 'CN-1', invoiceValue: 11800, date: '2026-06-10' })
+
+    const withOnlyWrongKind = reconcile2b([cdnr], [wrongKindBook], OPTS)
+    expect(withOnlyWrongKind.buckets.missingInBooks.count).toBe(1)
+    expect(withOnlyWrongKind.buckets.missingInPortal.count).toBe(1)
+
+    const withRightKind = reconcile2b([cdnr], [wrongKindBook, rightKindBook], OPTS)
+    const matchedPair = withRightKind.pairs.find((x) => x.portal === cdnr)
+    expect(matchedPair?.book?.voucherId).toBe(2)
+    expect(withRightKind.buckets.missingInPortal.count).toBe(1) // the purchase-kind book is left over
   })
 
   it('sums bucket totals from the portal side when present, else the book side', () => {
