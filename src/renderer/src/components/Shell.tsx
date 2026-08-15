@@ -128,8 +128,8 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           <button
             className="rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
             onClick={async () => {
-              const r = await api.company.backup()
-              toast.push('success', r.path ? 'Backup saved' : 'Nothing to back up')
+              await api.company.backup()
+              toast.push('success', 'Backup saved')
             }}
           >
             Back up now

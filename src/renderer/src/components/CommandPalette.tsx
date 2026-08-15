@@ -43,8 +43,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       {
         label: 'Back up company now',
         run: async () => {
-          const r = await api.company.backup()
-          toast.push('success', r.path ? 'Backup saved' : 'Nothing to back up')
+          await api.company.backup()
+          toast.push('success', 'Backup saved')
         }
       },
       {

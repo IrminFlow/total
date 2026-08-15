@@ -6,7 +6,7 @@ import { z } from 'zod'
 import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
 import { backupCompany, openCompanyDb } from './db/connection'
-import { backupStamp, listBackupsIn, snapshotSync, type BackupInfo } from './db/backup'
+import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, type BackupInfo } from './db/backup'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, touchLastOpened, upsertCompany } from './registry'
@@ -116,7 +116,12 @@ export function registerIpc(): void {
     const info = readCompanyInfo(db)
     current = { slug, db, info }
     // Online backup needs an open handle, so this runs after open (not before, as it used to).
-    await backupCompany(db, slug, 'open')
+    // A backup failure here must never fail — or desync — the open itself.
+    try {
+      await backupCompany(db, slug, 'open')
+    } catch (err) {
+      log('warn', 'backup-on-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
     touchLastOpened(slug)
     return { slug, info }
   })
@@ -164,23 +169,48 @@ export function registerIpc(): void {
     const c = requireCompany()
     const { slug } = c
     const backupPath = join(companyBackupsDir(slug), file)
-    if (!existsSync(backupPath)) throw new Error('Backup file not found')
+    const dbPath = companyDbPath(slug)
 
-    // Flush the WAL into the main file so the pre-restore safety copy is self-contained.
-    c.db.pragma('wal_checkpoint(TRUNCATE)')
-    snapshotSync(c.db, join(companyBackupsDir(slug), `${backupStamp()}-pre-restore.db`))
+    // Validates the chosen backup (quick_check + shape), takes a pre-restore safety snapshot,
+    // and atomically swaps it into place. Throws — leaving the live DB completely untouched —
+    // if the backup fails validation. `current`/`c.db` are still fully intact at that point,
+    // since we haven't closed anything yet.
+    const { preRestoreSnapshotPath } = restoreCompanyDb(c.db, dbPath, backupPath, companyBackupsDir(slug))
 
     closeCurrentCompany()
-    const dbPath = companyDbPath(slug)
-    copyFileSync(backupPath, dbPath)
-    rmSync(`${dbPath}-wal`, { force: true })
-    rmSync(`${dbPath}-shm`, { force: true })
+    const reopen = (): OpenCompany => {
+      const db = openCompanyDb(slug) // migrates if the backup predates the current schema
+      const info = readCompanyInfo(db)
+      return { slug, db, info }
+    }
 
-    const db = openCompanyDb(slug) // migrates if the backup predates the current schema
-    const info = readCompanyInfo(db)
-    current = { slug, db, info }
-    touchLastOpened(slug)
-    return { info }
+    try {
+      current = reopen()
+    } catch (err) {
+      // The swap already happened on disk, but the result won't open (e.g. a corrupted or
+      // incompatible backup that still passed quick_check). Roll back to the pre-restore
+      // snapshot so the app is never left with no company open and no path back.
+      const message = err instanceof Error ? err.message : String(err)
+      log('error', 'backup-restore-reopen-failed', { slug, error: message })
+      try {
+        rollbackRestore(dbPath, preRestoreSnapshotPath)
+        current = reopen()
+      } catch (rollbackErr) {
+        current = null
+        log('error', 'backup-restore-rollback-failed', {
+          slug,
+          error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)
+        })
+      }
+      throw new Error(`Restore failed and was rolled back to the pre-restore snapshot: ${message}`)
+    }
+
+    try {
+      touchLastOpened(slug)
+    } catch {
+      // Best-effort — the restore itself already succeeded regardless of this.
+    }
+    return { info: current.info }
   })
 
   handle('backup:exportEncrypted', async (payload) => {

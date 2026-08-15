@@ -1,6 +1,7 @@
 // Path-parameterized, Electron-free backup primitives (dbtest-able; better-sqlite3 objects are
 // passed in from callers that already opened them with the Electron ABI).
-import { existsSync, readdirSync, statSync, unlinkSync } from 'fs'
+import Database from 'better-sqlite3'
+import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync } from 'fs'
 import { join, basename } from 'path'
 import type { DB } from './connection'
 
@@ -83,4 +84,82 @@ export function pruneBackupsIn(dir: string, keep: number): void {
       unlinkSync(join(dir, b.file))
     }
   }
+}
+
+/**
+ * Reject anything that isn't a healthy, readable Total company database — a corrupted or
+ * unrelated file must never be allowed to overwrite a live company DB. Checks both SQLite-level
+ * integrity (quick_check) and that it has the shape of a Total company DB (a `meta.company` row).
+ */
+export function assertValidCompanyDb(path: string): void {
+  let check: Database.Database
+  try {
+    check = new Database(path, { readonly: true, fileMustExist: true })
+  } catch {
+    throw new Error('That file is not a valid Total backup')
+  }
+  try {
+    const result = check.pragma('quick_check') as Array<{ quick_check: string }>
+    if (result[0]?.quick_check !== 'ok') throw new Error('failed quick_check')
+    const row = check.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string } | undefined
+    if (!row) throw new Error('no company meta row')
+    JSON.parse(row.value)
+  } catch {
+    throw new Error('That file is not a valid Total backup')
+  } finally {
+    check.close()
+  }
+}
+
+/**
+ * Copy `sourcePath` into place at `dbPath` via a same-directory temp file + atomic rename.
+ * A same-directory rename is atomic on POSIX, so a crash or error mid-copy can never leave
+ * `dbPath` itself corrupted or partially written — it's either the old file or the new one.
+ * Also clears any -wal/-shm siblings, since they'd otherwise refer to the now-stale content.
+ */
+function swapInPlace(sourcePath: string, dbPath: string): void {
+  const tempPath = `${dbPath}.swap-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  copyFileSync(sourcePath, tempPath)
+  renameSync(tempPath, dbPath)
+  rmSync(`${dbPath}-wal`, { force: true })
+  rmSync(`${dbPath}-shm`, { force: true })
+}
+
+export interface RestoreResult {
+  /** Path of the pre-restore safety snapshot taken before the live DB was overwritten. */
+  preRestoreSnapshotPath: string
+}
+
+/**
+ * File-level restore orchestration, Electron-free and dbtest-able. Does NOT close or reopen
+ * `db` — the caller owns that lifecycle (it also owns any in-memory "currently open company"
+ * bookkeeping). Order of operations matters for safety:
+ *
+ *  1. Validate the chosen backup file BEFORE touching the live DB at all — a corrupted or
+ *     unrelated file throws here and `dbPath` is never touched.
+ *  2. Checkpoint the live DB's WAL and take a pre-restore safety snapshot, so there's always a
+ *     way back even after step 3 below.
+ *  3. Atomically swap the backup into place at `dbPath` (see swapInPlace).
+ *
+ * If this throws, `dbPath` on disk is guaranteed untouched. If it succeeds but the caller then
+ * fails to reopen `dbPath` (e.g. the backup predates a schema this build can't migrate from),
+ * the caller can roll back with `rollbackRestore(dbPath, result.preRestoreSnapshotPath)`.
+ */
+export function restoreCompanyDb(db: DB, dbPath: string, backupPath: string, backupsDir: string): RestoreResult {
+  if (!existsSync(backupPath)) throw new Error('Backup file not found')
+
+  assertValidCompanyDb(backupPath)
+
+  db.pragma('wal_checkpoint(TRUNCATE)')
+  const preRestoreSnapshotPath = join(backupsDir, `${backupStamp()}-pre-restore.db`)
+  snapshotSync(db, preRestoreSnapshotPath)
+
+  swapInPlace(backupPath, dbPath)
+
+  return { preRestoreSnapshotPath }
+}
+
+/** Roll `dbPath` back to a previously-taken snapshot (e.g. after a failed restore/reopen). */
+export function rollbackRestore(dbPath: string, snapshotPath: string): void {
+  swapInPlace(snapshotPath, dbPath)
 }

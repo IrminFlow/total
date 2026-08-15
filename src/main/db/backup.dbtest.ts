@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import Database from 'better-sqlite3'
-import { mkdtempSync, copyFileSync, writeFileSync, utimesSync } from 'fs'
+import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, utimesSync, existsSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { migrate } from './migrate'
 import { seedCompany } from './seed'
 import { TEST_INFO, postSimpleVoucher } from './testdb'
-import { snapshotTo, listBackupsIn, pruneBackupsIn, tagOf, backupStamp } from './backup'
+import {
+  snapshotTo, listBackupsIn, pruneBackupsIn, tagOf, backupStamp, restoreCompanyDb, rollbackRestore
+} from './backup'
 
 function tmpDir(): string {
   return mkdtempSync(join(tmpdir(), 'total-backup-'))
@@ -105,5 +107,134 @@ describe('pruneBackupsIn', () => {
     expect(remaining.has('2025-01-01T00-00-00-auto.db')).toBe(false) // pruned
     expect(remaining.has('2025-01-01T02-00-00-auto.db')).toBe(false) // pruned
     expect(remaining.has('2025-01-01T03-00-00-open.db')).toBe(false) // pruned
+  })
+})
+
+/** Build a standalone, valid Total company DB file at `path` with `voucherCount` vouchers. */
+function makeCompanyDbFile(path: string, voucherCount: number): void {
+  const db = new Database(path)
+  migrate(db)
+  seedCompany(db, TEST_INFO)
+  for (let i = 0; i < voucherCount; i++) {
+    postSimpleVoucher(db, { date: '2025-04-10', amount: 1000 * (i + 1), kind: 'receipt' })
+  }
+  db.close()
+}
+
+function voucherCountOf(path: string): number {
+  const db = new Database(path, { readonly: true })
+  const n = (db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n
+  db.close()
+  return n
+}
+
+describe('restoreCompanyDb', () => {
+  it('happy path: swaps the backup into place, and reopening dbPath afterwards has the restored data', () => {
+    const dir = tmpDir()
+    const dbPath = join(dir, 'company.db')
+    const backupsDir = join(dir, 'backups')
+    mkdirSync(backupsDir)
+
+    // Live DB has 2 vouchers, posted without checkpointing (WAL-only content).
+    const db = new Database(dbPath)
+    db.pragma('journal_mode = WAL')
+    migrate(db)
+    seedCompany(db, TEST_INFO)
+    postSimpleVoucher(db, { date: '2025-04-10', amount: 10000, kind: 'receipt' })
+    postSimpleVoucher(db, { date: '2025-04-11', amount: 20000, kind: 'receipt' })
+
+    // The chosen backup has different (5-voucher) content.
+    const backupPath = join(dir, 'chosen-backup.db')
+    makeCompanyDbFile(backupPath, 5)
+
+    const { preRestoreSnapshotPath } = restoreCompanyDb(db, dbPath, backupPath, backupsDir)
+    db.close() // the caller (ipc.ts) closes the live handle right after restoreCompanyDb returns
+
+    // The pre-restore safety snapshot captured the live DB's state (2 vouchers) before the swap.
+    expect(existsSync(preRestoreSnapshotPath)).toBe(true)
+    expect(voucherCountOf(preRestoreSnapshotPath)).toBe(2)
+
+    // Reopening dbPath now sees the restored (backup's) data, not the live DB's original data.
+    expect(voucherCountOf(dbPath)).toBe(5)
+
+    // No stale WAL/SHM siblings left pointing at pre-swap content.
+    expect(existsSync(`${dbPath}-wal`)).toBe(false)
+    expect(existsSync(`${dbPath}-shm`)).toBe(false)
+  })
+
+  it('rejects a corrupted backup file BEFORE the live DB is touched', () => {
+    const dir = tmpDir()
+    const dbPath = join(dir, 'company.db')
+    const backupsDir = join(dir, 'backups')
+    mkdirSync(backupsDir)
+
+    const db = new Database(dbPath)
+    db.pragma('journal_mode = WAL')
+    migrate(db)
+    seedCompany(db, TEST_INFO)
+    postSimpleVoucher(db, { date: '2025-04-10', amount: 10000, kind: 'receipt' })
+    const liveBytesBefore = readFileSync(dbPath)
+
+    const corruptBackupPath = join(dir, 'corrupt.db')
+    writeFileSync(corruptBackupPath, 'this is not a sqlite database file at all')
+
+    expect(() => restoreCompanyDb(db, dbPath, corruptBackupPath, backupsDir)).toThrow(
+      'That file is not a valid Total backup'
+    )
+
+    // The live DB file on disk is byte-for-byte unchanged — validation happened first.
+    expect(readFileSync(dbPath).equals(liveBytesBefore)).toBe(true)
+    // Nothing was checkpointed/snapshotted either, since we bailed before that step.
+    expect(listBackupsIn(backupsDir)).toHaveLength(0)
+    // The live handle is still fully open and usable — it was never closed or touched.
+    expect((db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n).toBe(1)
+
+    db.close()
+  })
+
+  it('also rejects a well-formed but unrelated SQLite file (no meta.company row)', () => {
+    const dir = tmpDir()
+    const dbPath = join(dir, 'company.db')
+    const backupsDir = join(dir, 'backups')
+    mkdirSync(backupsDir)
+
+    const db = new Database(dbPath)
+    migrate(db)
+    seedCompany(db, TEST_INFO)
+
+    const unrelatedPath = join(dir, 'unrelated.db')
+    const unrelated = new Database(unrelatedPath)
+    unrelated.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, text TEXT)')
+    unrelated.close()
+
+    expect(() => restoreCompanyDb(db, dbPath, unrelatedPath, backupsDir)).toThrow(
+      'That file is not a valid Total backup'
+    )
+    db.close()
+  })
+})
+
+describe('rollbackRestore', () => {
+  it('restores dbPath back to a previously-taken snapshot', () => {
+    const dir = tmpDir()
+    const dbPath = join(dir, 'company.db')
+    const backupsDir = join(dir, 'backups')
+    mkdirSync(backupsDir)
+
+    const db = new Database(dbPath)
+    db.pragma('journal_mode = WAL')
+    migrate(db)
+    seedCompany(db, TEST_INFO)
+    postSimpleVoucher(db, { date: '2025-04-10', amount: 10000, kind: 'receipt' })
+
+    const backupPath = join(dir, 'chosen-backup.db')
+    makeCompanyDbFile(backupPath, 9)
+
+    const { preRestoreSnapshotPath } = restoreCompanyDb(db, dbPath, backupPath, backupsDir)
+    db.close()
+    expect(voucherCountOf(dbPath)).toBe(9) // restored
+
+    rollbackRestore(dbPath, preRestoreSnapshotPath)
+    expect(voucherCountOf(dbPath)).toBe(1) // back to the pre-restore state
   })
 })
