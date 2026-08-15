@@ -39,6 +39,9 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
   release-win:
+    # Runs after the mac job so both publish into the SAME release —
+    # parallel jobs each create their own release for the tag (learned the hard way).
+    needs: release-mac
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
