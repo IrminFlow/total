@@ -65,7 +65,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "irminlabs",
+        "owner": "IrminFlow",
         "repo": "total"
       }
     ]

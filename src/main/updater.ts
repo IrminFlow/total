@@ -14,8 +14,10 @@ import electronUpdater from 'electron-updater'
 
 const { autoUpdater } = electronUpdater
 
-export const GITHUB_REPO = 'irminlabs/total'
+export const GITHUB_REPO = 'IrminFlow/total'
 const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases/latest`
+/** The marketing site proxies release info for the private repo (see site/app/api/latest). */
+const SITE_LATEST_URL = 'https://total-site.vercel.app/api/latest'
 
 let fallbackDone = false
 
@@ -28,30 +30,50 @@ function isNewer(remote: string, local: string): boolean {
   return false
 }
 
-/** Manual fallback: compare versions via the GitHub API and point at the release page. */
-async function manualCheck(): Promise<void> {
-  if (fallbackDone) return
-  fallbackDone = true
+interface LatestInfo {
+  version: string
+  downloadUrl: string
+}
+
+/** The site's /api/latest works even while the repo is private; GitHub's API is the public-repo fallback. */
+async function fetchLatest(): Promise<LatestInfo | null> {
+  try {
+    const res = await fetch(SITE_LATEST_URL)
+    if (res.ok) {
+      const data = (await res.json()) as { version?: string; downloadUrl?: string }
+      if (data.version) return { version: data.version, downloadUrl: data.downloadUrl ?? SITE_LATEST_URL.replace('/api/latest', '/api/download') }
+    }
+  } catch {
+    // Site unreachable — try GitHub directly.
+  }
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
       headers: { Accept: 'application/vnd.github+json' }
     })
-    if (!res.ok) return
+    if (!res.ok) return null
     const release = (await res.json()) as { tag_name?: string; html_url?: string }
-    const remote = release.tag_name ?? ''
-    if (!remote || !isNewer(remote, app.getVersion())) return
-    const choice = await dialog.showMessageBox({
-      type: 'info',
-      message: `Total ${remote.replace(/^v/, '')} is available`,
-      detail: `You're on ${app.getVersion()}. Download the new version from the release page — your data in ~/Documents/total is untouched by updates.`,
-      buttons: ['Download update', 'Later'],
-      defaultId: 0,
-      cancelId: 1
-    })
-    if (choice.response === 0) shell.openExternal(release.html_url ?? RELEASES_URL)
+    if (!release.tag_name) return null
+    return { version: release.tag_name, downloadUrl: release.html_url ?? RELEASES_URL }
   } catch {
-    // Offline or rate-limited — try again next launch.
+    return null
   }
+}
+
+/** Manual fallback: compare versions and point at a download the user can reach. */
+async function manualCheck(): Promise<void> {
+  if (fallbackDone) return
+  fallbackDone = true
+  const latest = await fetchLatest()
+  if (!latest || !isNewer(latest.version, app.getVersion())) return
+  const choice = await dialog.showMessageBox({
+    type: 'info',
+    message: `Total ${latest.version.replace(/^v/, '')} is available`,
+    detail: `You're on ${app.getVersion()}. Download the new version — your data in ~/Documents/total is untouched by updates.`,
+    buttons: ['Download update', 'Later'],
+    defaultId: 0,
+    cancelId: 1
+  })
+  if (choice.response === 0) shell.openExternal(latest.downloadUrl)
 }
 
 export function initUpdater(): void {

@@ -1,8 +1,9 @@
 import { redirect } from 'next/navigation'
-import { latestRelease, RELEASES_PAGE } from '@/lib/release'
+import { latestRelease, resolveDownloadUrl, RELEASES_PAGE } from '@/lib/release'
 
-/** /api/download → the latest DMG asset, or the releases page if none is published yet. */
+/** /api/download → the latest DMG (works for the private repo via a short-lived asset URL). */
 export async function GET(): Promise<never> {
   const release = await latestRelease()
-  redirect(release?.dmgUrl ?? RELEASES_PAGE)
+  if (!release) redirect(RELEASES_PAGE)
+  redirect(await resolveDownloadUrl(release))
 }

@@ -28,18 +28,15 @@
 
 One repo holds both the app and the marketing site (`site/`, Next.js).
 
-1. **GitHub** — create a repo named `total` under your account and push. If you pick a different owner/name, change it in two places: `build.publish` in `package.json` and `GITHUB_REPO` in `src/main/updater.ts` (the site reads a `GITHUB_REPO` env var instead).
-   ```bash
-   git remote add origin git@github.com:irminlabs/total.git
-   git push -u origin main
-   ```
-2. **Releases (auto-update feed)** — pushing a version tag makes GitHub Actions build the DMG+ZIP and attach them to a release (`.github/workflows/release.yml`):
+The repo lives (private) at `IrminFlow/total`. If the owner/name ever changes, update `build.publish` in `package.json`, `GITHUB_REPO` + `SITE_LATEST_URL` in `src/main/updater.ts`, and the `GITHUB_REPO` env on Vercel.
+
+1. **Releases (auto-update feed)** — pushing a version tag makes GitHub Actions build the DMG+ZIP and attach them to a release (`.github/workflows/release.yml`):
    ```bash
    npm version patch        # bumps package.json, commits, tags v0.1.1
    git push --follow-tags
    ```
-   Installed apps check this feed on launch (packaged builds only). While builds are unsigned, macOS won't install updates silently — the app then offers the release page to download instead. Add `CSC_LINK`/`CSC_KEY_PASSWORD` secrets (Apple Developer ID) to the workflow and updates become fully automatic.
-3. **Vercel** — import the GitHub repo at vercel.com/new and set **Root Directory to `site`**; everything else is zero-config. Optional env vars: `GITHUB_REPO` (owner/repo, if different) and `NEXT_PUBLIC_SITE_URL` (your domain, for social cards). The site shows the latest release version and `/api/download` redirects to the newest DMG.
+2. **Vercel** — import the repo and set **Root Directory to `site`**. Required env var while the repo is private: `GITHUB_TOKEN` — a fine-grained PAT with *read* access to this repo's contents, so the site can show the latest version and serve `/api/download` (it exchanges the asset for a short-lived public URL; the token never reaches the browser). Optional: `NEXT_PUBLIC_SITE_URL` (your domain, for social cards), `GITHUB_REPO` (owner/repo override).
+3. **How updates reach users** — installed apps check the site's `/api/latest` on launch (this works while the repo is private) and offer the new DMG via `/api/download`. Unsigned builds always use this prompt-to-download path; once you add `CSC_LINK`/`CSC_KEY_PASSWORD` secrets (Apple Developer ID) *and* the repo/releases are public, electron-updater's silent in-place updates take over. If `src/main/updater.ts`'s `SITE_LATEST_URL` doesn't match your real Vercel domain, update it.
 
 ## Development
 
