@@ -99,9 +99,11 @@ async function manualCheck(): Promise<void> {
   await checkAndOffer()
 }
 
-/** Interactive check triggered from Settings → About. Always runs (bypasses the
- *  startup-fallback dedupe guard) and resets that guard afterwards so a later
- *  autoUpdater 'error' event can still trigger its own one-shot manual fallback. */
+/** Interactive check triggered from Settings → About. Clears the startup-fallback dedupe
+ *  guard before running, so this always performs a real check regardless of whether the
+ *  automatic startup check (or its fallback) already ran — and leaves the guard clear
+ *  afterward too, so a later autoUpdater 'error' event can still trigger its own one-shot
+ *  manual fallback rather than finding the guard already tripped. */
 export async function checkForUpdatesInteractive(): Promise<UpdateCheckResult> {
   if (!app.isPackaged) return { status: 'dev', current: app.getVersion() }
   fallbackDone = false

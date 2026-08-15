@@ -12,7 +12,13 @@ export function BinSection(): React.JSX.Element {
   const queryClient = useQueryClient()
   const [purging, setPurging] = useState<BinRow | null>(null)
   const rows = data ?? []
-  const canEdit = user?.role !== 'viewer'
+  // voucher:restore has no explicit minRole (defaults to accountant); voucher:purge is
+  // owner-only (see ipc.ts). `user == null` covers the no-users bootstrap window, where every
+  // IPC call is ungated. Showing a button a viewer/accountant can't actually use would just be
+  // a doomed round-trip to a permission error.
+  const canRestore = user == null || user.role !== 'viewer'
+  const canPurge = user == null || user.role === 'owner'
+  const showActions = canRestore || canPurge
 
   const restore = async (row: BinRow): Promise<void> => {
     try {
@@ -41,7 +47,7 @@ export function BinSection(): React.JSX.Element {
                 <th>Account</th>
                 <th className="r w-28">Amount</th>
                 <th className="w-24">Deleted</th>
-                {canEdit && <th className="r w-36"></th>}
+                {showActions && <th className="r w-36"></th>}
               </tr>
             </thead>
             <tbody>
@@ -55,14 +61,18 @@ export function BinSection(): React.JSX.Element {
                     <Money paise={r.amount} />
                   </td>
                   <td className="num text-muted">{toDisplayDate(r.deletedAt.slice(0, 10))}</td>
-                  {canEdit && (
+                  {showActions && (
                     <td className="r whitespace-nowrap">
-                      <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => void restore(r)}>
-                        Restore
-                      </button>
-                      <button className="text-[12px] text-cr hover:underline" onClick={() => setPurging(r)}>
-                        Delete forever
-                      </button>
+                      {canRestore && (
+                        <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => void restore(r)}>
+                          Restore
+                        </button>
+                      )}
+                      {canPurge && (
+                        <button className="text-[12px] text-cr hover:underline" onClick={() => setPurging(r)}>
+                          Delete forever
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>

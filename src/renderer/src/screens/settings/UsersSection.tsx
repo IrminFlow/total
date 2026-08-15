@@ -7,22 +7,35 @@ import { Button, EmptyState, Field, Modal, Panel, SectionTitle, Select, TextInpu
 const ROLES: Role[] = ['owner', 'accountant', 'viewer']
 
 export function UsersSection(): React.JSX.Element {
-  const { data } = useQuery({ queryKey: ['users'], queryFn: api.users.list })
   const { user, setUser } = useSession()
+  const isOwner = user?.role === 'owner'
+  // users:list/save/deactivate are owner-gated server-side, EXCEPT while the company has zero
+  // users at all — that gate is off entirely then (see ipc.ts's UNGATED_CHANNELS / `usersExist`
+  // check), which is how the bootstrap-owner flow (user == null) reaches this screen and query.
+  // A signed-in non-owner (accountant/viewer) would just get "You do not have permission" back,
+  // so don't even fire the query for them — show the same message the server would.
+  const canManage = user == null || isOwner
+  const { data } = useQuery({ queryKey: ['users'], queryFn: api.users.list, enabled: canManage })
   const toast = useToasts()
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<UserRow | null>(null)
   const [deactivating, setDeactivating] = useState<UserRow | null>(null)
   const rows = data ?? []
-  const isViewer = user?.role === 'viewer'
-  // Reachable with zero users only for a brand-new, not-yet-locked company (see ipc.ts's
-  // UNGATED_CHANNELS gate) — that's the bootstrap-owner flow.
   const bootstrap = rows.length === 0
+
+  if (!canManage) {
+    return (
+      <div>
+        <SectionTitle>Users</SectionTitle>
+        <EmptyState title="Only the owner can manage users." />
+      </div>
+    )
+  }
 
   return (
     <div>
-      <SectionTitle right={!isViewer ? <Button variant="primary" onClick={() => setAdding(true)}>Add user</Button> : undefined}>
+      <SectionTitle right={<Button variant="primary" onClick={() => setAdding(true)}>Add user</Button>}>
         Users
       </SectionTitle>
       <Panel>
@@ -35,7 +48,7 @@ export function UsersSection(): React.JSX.Element {
                 <th>Name</th>
                 <th className="w-28">Role</th>
                 <th className="w-24">Status</th>
-                {!isViewer && <th className="r w-32"></th>}
+                <th className="r w-32"></th>
               </tr>
             </thead>
             <tbody>
@@ -52,18 +65,16 @@ export function UsersSection(): React.JSX.Element {
                       {u.active ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  {!isViewer && (
-                    <td className="r whitespace-nowrap">
-                      <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => setEditing(u)}>
-                        Edit
+                  <td className="r whitespace-nowrap">
+                    <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => setEditing(u)}>
+                      Edit
+                    </button>
+                    {u.active && (
+                      <button className="text-[12px] text-cr hover:underline" onClick={() => setDeactivating(u)}>
+                        Deactivate
                       </button>
-                      {u.active && (
-                        <button className="text-[12px] text-cr hover:underline" onClick={() => setDeactivating(u)}>
-                          Deactivate
-                        </button>
-                      )}
-                    </td>
-                  )}
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

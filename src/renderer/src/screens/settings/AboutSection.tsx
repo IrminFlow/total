@@ -4,6 +4,8 @@ import { api } from '../../lib/client'
 import { useToasts, type Toast } from '../../state/stores'
 import { Button, Panel, SectionTitle } from '../../components/ui'
 
+const PLATFORM_LABELS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }
+
 function statusToast(r: { status: 'dev' | 'available' | 'up-to-date' | 'error'; current: string; latest?: string }): {
   kind: Toast['kind']
   text: string
@@ -44,7 +46,8 @@ export function AboutSection(): React.JSX.Element {
       <Panel className="p-5">
         <p className="font-serif text-[17px] font-semibold">Total</p>
         <p className="mt-1 text-[13px] text-muted">
-          Version <span className="num">{info?.version ?? '—'}</span> · {info?.platform ?? '—'}
+          Version <span className="num">{info?.version ?? '—'}</span> ·{' '}
+          {info ? (PLATFORM_LABELS[info.platform] ?? info.platform) : '—'}
         </p>
         <div className="mt-4 flex gap-2">
           <Button disabled={checking} onClick={() => void checkUpdates()}>
