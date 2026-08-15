@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/client'
+import { api, type IntegrityResult } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, Field, Modal, Select, TextInput, useKeyNav } from '../components/ui'
 import { GST_STATES } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
 import { fyOf, todayISO } from '@shared/dates'
 import type { CompanyCreateInput } from '@shared/schemas'
+import type { CompanyInfo } from '@shared/domain'
 
 export function CompanySelect(): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -15,12 +16,20 @@ export function CompanySelect(): React.JSX.Element {
   const toast = useToasts()
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [integrityIssue, setIntegrityIssue] = useState<{
+    pending: { slug: string; info: CompanyInfo }
+    integrity: IntegrityResult
+  } | null>(null)
 
   const companies = registry?.companies ?? []
 
   const open = async (slug: string): Promise<void> => {
     try {
       const r = await api.company.open(slug)
+      if (!r.integrity.ok) {
+        setIntegrityIssue({ pending: { slug: r.slug, info: r.info }, integrity: r.integrity })
+        return
+      }
       setCompany(r.slug, r.info)
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -97,7 +106,67 @@ export function CompanySelect(): React.JSX.Element {
           }}
         />
       )}
+
+      {integrityIssue && (
+        <IntegrityIssueModal
+          integrity={integrityIssue.integrity}
+          onOpenAnyway={() => {
+            const { pending } = integrityIssue
+            setIntegrityIssue(null)
+            setCompany(pending.slug, pending.info)
+          }}
+          onCancel={async () => {
+            setIntegrityIssue(null)
+            try {
+              await api.company.close()
+            } catch (err) {
+              toast.push('error', (err as Error).message)
+            }
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+function IntegrityIssueModal({
+  integrity,
+  onOpenAnyway,
+  onCancel
+}: {
+  integrity: IntegrityResult
+  onOpenAnyway: () => void
+  onCancel: () => void
+}): React.JSX.Element {
+  return (
+    <Modal title="Database check found problems" onClose={onCancel}>
+      <div className="flex flex-col gap-4">
+        <p className="text-[13px] text-muted">
+          This company's database failed an integrity check. You can open it anyway, or cancel and restore an
+          earlier backup.
+        </p>
+        <ul className="flex flex-col gap-1 text-[13px]">
+          {integrity.quickCheck !== 'ok' && (
+            <li className="rounded-md border border-line bg-canvas px-3 py-2">
+              <span className="text-muted">quick_check:</span> <span className="num">{integrity.quickCheck}</span>
+            </li>
+          )}
+          {integrity.unbalancedVoucherIds.length > 0 && (
+            <li className="rounded-md border border-line bg-canvas px-3 py-2">
+              <span className="text-muted">Unbalanced vouchers:</span>{' '}
+              <span className="num">{integrity.unbalancedVoucherIds.join(', ')}</span>
+            </li>
+          )}
+        </ul>
+        <div className="flex justify-end gap-2">
+          {/* TODO(task-1.10): navigate to Settings → Backups */}
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button variant="danger" onClick={onOpenAnyway}>
+            Open anyway
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

@@ -7,6 +7,7 @@ import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
 import { backupCompany, openCompanyDb } from './db/connection'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, type BackupInfo } from './db/backup'
+import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, touchLastOpened, upsertCompany } from './registry'
@@ -122,8 +123,12 @@ export function registerIpc(): void {
     } catch (err) {
       log('warn', 'backup-on-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
+    const integrity = checkIntegrity(db)
+    if (!integrity.ok) {
+      log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
+    }
     touchLastOpened(slug)
-    return { slug, info }
+    return { slug, info, integrity }
   })
 
   handle('company:close', () => {
@@ -210,7 +215,11 @@ export function registerIpc(): void {
     } catch {
       // Best-effort — the restore itself already succeeded regardless of this.
     }
-    return { info: current.info }
+    const integrity = checkIntegrity(current.db)
+    if (!integrity.ok) {
+      log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
+    }
+    return { info: current.info, integrity }
   })
 
   handle('backup:exportEncrypted', async (payload) => {

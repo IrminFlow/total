@@ -21,6 +21,13 @@ export interface BackupInfo {
   tag: string
 }
 
+/** Mirrors src/main/db/integrity.ts's IntegrityResult shape (kept local — main-process only). */
+export interface IntegrityResult {
+  ok: boolean
+  quickCheck: string
+  unbalancedVoucherIds: number[]
+}
+
 /** Invoke a main-process channel; throws the error message on failure. */
 async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
@@ -32,7 +39,8 @@ export const api = {
   company: {
     list: () => call<Registry>('company:list'),
     create: (input: CompanyCreateInput) => call<{ slug: string }>('company:create', input),
-    open: (slug: string) => call<{ slug: string; info: CompanyInfo }>('company:open', { slug }),
+    open: (slug: string) =>
+      call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult }>('company:open', { slug }),
     close: () => call<null>('company:close'),
     current: () => call<{ slug: string; info: CompanyInfo } | null>('company:current'),
     updateInfo: (input: CompanyCreateInput) => call<CompanyInfo>('company:updateInfo', input),
@@ -42,7 +50,8 @@ export const api = {
   backups: {
     list: () => call<BackupInfo[]>('backup:list'),
     run: () => call<{ path: string }>('backup:run'),
-    restore: (file: string) => call<{ info: CompanyInfo }>('backup:restore', { file }),
+    restore: (file: string) =>
+      call<{ info: CompanyInfo; integrity: IntegrityResult }>('backup:restore', { file }),
     exportEncrypted: (passphrase: string) => call<{ path: string }>('backup:exportEncrypted', { passphrase }),
     importEncrypted: (passphrase: string) =>
       call<{ slug: string; name: string } | null>('backup:importEncrypted', { passphrase })
