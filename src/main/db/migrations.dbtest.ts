@@ -91,4 +91,20 @@ describe('migrate', () => {
       db.prepare("INSERT INTO users (name, pin_hash, role) VALUES ('alice', 'x', 'accountant')").run()
     ).toThrow()
   })
+
+  it('creates the covering perf indexes and drops the superseded single-column ledger index', () => {
+    const db = freshDb()
+    const indexNames = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[]
+    ).map((r) => r.name)
+    expect(indexNames).toEqual(
+      expect.arrayContaining([
+        'idx_lines_ledger_voucher',
+        'idx_lines_voucher_drcr_amount',
+        'idx_vouchers_type_date',
+        'idx_vouchers_party'
+      ])
+    )
+    expect(indexNames).not.toContain('idx_lines_ledger')
+  })
 })

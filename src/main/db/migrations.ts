@@ -221,5 +221,13 @@ export const MIGRATIONS: string[] = [
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- perf hardening (task 1.11): covering indexes for the hot report queries, replacing the
+  -- narrower single-column ledger index from 001 (idx_lines_ledger_voucher covers it too).
+  CREATE INDEX idx_lines_ledger_voucher ON voucher_lines(ledger_id, voucher_id);
+  CREATE INDEX idx_lines_voucher_drcr_amount ON voucher_lines(voucher_id, dr_cr, amount);
+  CREATE INDEX idx_vouchers_type_date ON vouchers(voucher_type_id, date);
+  CREATE INDEX idx_vouchers_party ON vouchers(party_ledger_id);
+  DROP INDEX idx_lines_ledger;
   `
 ]

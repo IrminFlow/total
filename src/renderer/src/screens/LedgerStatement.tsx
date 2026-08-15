@@ -1,22 +1,80 @@
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession } from '../state/stores'
-import { EmptyState, Money, Panel, SectionTitle, useKeyNav } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, useKeyNav } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
+import type { LedgerStatementRow } from '@shared/reports'
+
+const PAGE = 500
+
+const LedgerStatementRowView = memo(function LedgerStatementRowView({
+  row,
+  index,
+  isActive,
+  onHover,
+  onOpen
+}: {
+  row: LedgerStatementRow
+  index: number
+  isActive: boolean
+  onHover: (i: number) => void
+  onOpen: (voucherId: number) => void
+}): React.JSX.Element {
+  return (
+    <tr
+      data-active={isActive}
+      className="kbar-row cursor-pointer"
+      onMouseEnter={() => onHover(index)}
+      onClick={() => onOpen(row.voucherId)}
+    >
+      <td className="num text-muted">{toDisplayDate(row.date)}</td>
+      <td className="max-w-64 truncate">{row.particulars}</td>
+      <td className="num text-[12px] text-muted">
+        {row.voucherType} {row.number}
+      </td>
+      <td className="r">
+        <Money paise={row.debit} />
+      </td>
+      <td className="r">
+        <Money paise={row.credit} />
+      </td>
+      <td className="r">
+        <Money paise={row.running} signed />
+      </td>
+    </tr>
+  )
+})
 
 export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React.JSX.Element {
   const { from, to } = useSession()
   const nav = useNav()
+  const [limit, setLimit] = useState(PAGE)
   const { data } = useQuery({
     queryKey: ['ledgerStatement', ledgerId, from, to],
     queryFn: () => api.reports.ledger(ledgerId, from, to)
   })
 
   const rows = data?.rows ?? []
-  const { active, setActive } = useKeyNav(rows.length, (i) => {
-    const r = rows[i]
+
+  useEffect(() => {
+    setLimit(PAGE)
+  }, [ledgerId, from, to])
+
+  const displayRows = useMemo(() => rows.slice(0, limit), [rows, limit])
+  const remaining = rows.length - displayRows.length
+
+  const { active, setActive } = useKeyNav(displayRows.length, (i) => {
+    const r = displayRows[i]
     if (r) nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
   })
+
+  const openRow = useCallback(
+    (voucherId: number) => {
+      nav.go({ name: 'voucher-entry', voucherId })
+    },
+    [nav]
+  )
 
   if (!data) return <p className="text-muted">Loading…</p>
 
@@ -49,30 +107,25 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
-                <tr
+              {displayRows.map((r, i) => (
+                <LedgerStatementRowView
                   key={i}
-                  data-active={i === active}
-                  className="kbar-row cursor-pointer"
-                  onMouseEnter={() => setActive(i)}
-                  onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
-                >
-                  <td className="num text-muted">{toDisplayDate(r.date)}</td>
-                  <td className="max-w-64 truncate">{r.particulars}</td>
-                  <td className="num text-[12px] text-muted">
-                    {r.voucherType} {r.number}
-                  </td>
-                  <td className="r">
-                    <Money paise={r.debit} />
-                  </td>
-                  <td className="r">
-                    <Money paise={r.credit} />
-                  </td>
-                  <td className="r">
-                    <Money paise={r.running} signed />
+                  row={r}
+                  index={i}
+                  isActive={i === active}
+                  onHover={setActive}
+                  onOpen={openRow}
+                />
+              ))}
+              {remaining > 0 && (
+                <tr>
+                  <td colSpan={6} className="py-2 text-center">
+                    <Button variant="ghost" onClick={() => setLimit((l) => l + PAGE)}>
+                      Show 500 more ({remaining} remaining)
+                    </Button>
                   </td>
                 </tr>
-              ))}
+              )}
               <tr className="total-row">
                 <td colSpan={3}>Closing balance</td>
                 <td className="r">
