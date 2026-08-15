@@ -4,7 +4,7 @@
   "description": "Total — fully offline accounting for macOS. Tally-grade books, modern experience.",
   "main": "out/main/index.js",
   "author": "Irmin Labs",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",
