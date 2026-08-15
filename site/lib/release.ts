@@ -35,7 +35,7 @@ export async function latestRelease(): Promise<ReleaseInfo | null> {
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
       headers: githubHeaders(),
-      next: { revalidate: 3600 }
+      next: { revalidate: 300 }
     })
     if (!res.ok) return null
     const data = (await res.json()) as {
