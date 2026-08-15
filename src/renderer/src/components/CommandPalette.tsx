@@ -33,6 +33,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'Stock summary', run: go({ name: 'stock-summary' }) },
       { label: 'GSTR-1', run: go({ name: 'gstr1' }) },
       { label: 'GSTR-3B', run: go({ name: 'gstr3b' }) },
+      { label: 'GSTR-2B reconciliation', run: go({ name: 'gstr2b' }) },
       { label: 'e-Invoice & e-Way bill', run: go({ name: 'edocs' }) },
       { label: 'Sales register', run: go({ name: 'registers' }) },
       { label: 'Outstandings & ageing', run: go({ name: 'outstandings' }) },

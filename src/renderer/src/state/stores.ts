@@ -17,6 +17,7 @@ export type Screen =
   | { name: 'ledger-statement'; ledgerId: number }
   | { name: 'gstr1' }
   | { name: 'gstr3b' }
+  | { name: 'gstr2b' }
   | { name: 'edocs' }
   | { name: 'registers' }
   | { name: 'outstandings' }
