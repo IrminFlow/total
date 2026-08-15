@@ -6,3 +6,6 @@ dist/
 site/.next/
 site/next-env.d.ts
 *.tsbuildinfo
+.vercel/
+.vercel
+.env*
