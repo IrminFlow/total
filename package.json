@@ -62,6 +62,15 @@
         "zip"
       ]
     },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "deleteAppDataOnUninstall": false
+    },
     "publish": [
       {
         "provider": "github",

@@ -67,7 +67,11 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
 
   return (
     <div className="flex h-full flex-col">
-      <header className="drag-region flex h-12 shrink-0 items-center gap-3 border-b border-line bg-panel pr-4 pl-24 panel-shadow">
+      <header
+        className={`drag-region flex h-12 shrink-0 items-center gap-3 border-b border-line bg-panel pr-4 panel-shadow ${
+          window.total.platform === 'darwin' ? 'pl-24' : 'pl-4'
+        }`}
+      >
         <button className="flex items-baseline gap-2" onClick={() => nav.go({ name: 'company-info' })} title="Company details">
           <span className="font-serif text-[15px] font-semibold tracking-tight">{info?.name}</span>
           {info?.gstin && <span className="num text-[10.5px] text-muted">{info.gstin}</span>}

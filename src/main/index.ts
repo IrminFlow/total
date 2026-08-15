@@ -6,6 +6,7 @@ import { ensureDataTree } from './paths'
 import { initUpdater } from './updater'
 
 function createWindow(): void {
+  const isMac = process.platform === 'darwin'
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -13,8 +14,7 @@ function createWindow(): void {
     minHeight: 700,
     show: false,
     title: 'Total',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 18, y: 16 },
+    ...(isMac ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 18, y: 16 } } : {}),
     backgroundColor: '#f4f4ef',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

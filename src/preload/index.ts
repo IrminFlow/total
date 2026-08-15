@@ -7,6 +7,7 @@ export interface IpcResult<T = unknown> {
 }
 
 const api = {
+  platform: process.platform,
   invoke: (channel: string, payload?: unknown): Promise<IpcResult> => {
     if (!/^[a-zA-Z0-9:._-]+$/.test(channel)) {
       return Promise.resolve({ ok: false, error: 'Bad channel' })

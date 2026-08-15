@@ -17,7 +17,7 @@ const { autoUpdater } = electronUpdater
 export const GITHUB_REPO = 'IrminFlow/total'
 const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases/latest`
 /** The marketing site proxies release info for the private repo (see site/app/api/latest). */
-const SITE_LATEST_URL = 'https://total-site.vercel.app/api/latest'
+const SITE_LATEST_URL = 'https://devjindal.tech/api/latest'
 
 let fallbackDone = false
 
