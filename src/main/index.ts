@@ -4,6 +4,7 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { registerIpc, closeCurrentCompany } from './ipc'
 import { ensureDataTree } from './paths'
 import { initUpdater } from './updater'
+import { initLogging, log } from './log'
 
 function createWindow(): void {
   const isMac = process.platform === 'darwin'
@@ -39,6 +40,8 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  initLogging()
+  log('info', 'app-start', { version: app.getVersion(), platform: process.platform })
   electronApp.setAppUserModelId('com.irminlabs.total')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
   ensureDataTree()

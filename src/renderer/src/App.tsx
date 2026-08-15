@@ -21,6 +21,7 @@ import { BankingScreen } from './screens/Banking'
 import { EdocsScreen } from './screens/Edocs'
 import { PayrollScreen } from './screens/Payroll'
 import { CommandPalette } from './components/CommandPalette'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 export default function App(): React.JSX.Element {
   const { slug } = useSession()
@@ -65,23 +66,25 @@ export default function App(): React.JSX.Element {
   return (
     <>
       <Shell onOpenPalette={() => setPaletteOpen(true)}>
-        {screen.name === 'gateway' && <Gateway />}
-        {screen.name === 'daybook' && <DayBook />}
-        {screen.name === 'voucher-entry' && <VoucherEntry key={screen.voucherId ?? 'new'} voucherId={screen.voucherId} kindHint={screen.kindHint} />}
-        {screen.name === 'masters' && <Masters tab={screen.tab} />}
-        {screen.name === 'trial-balance' && <TrialBalanceScreen />}
-        {screen.name === 'profit-loss' && <ProfitLossScreen />}
-        {screen.name === 'balance-sheet' && <BalanceSheetScreen />}
-        {screen.name === 'stock-summary' && <StockSummaryScreen />}
-        {screen.name === 'ledger-statement' && <LedgerStatementScreen ledgerId={screen.ledgerId} />}
-        {screen.name === 'gstr1' && <Gstr1Screen />}
-        {screen.name === 'gstr3b' && <Gstr3bScreen />}
-        {screen.name === 'edocs' && <EdocsScreen />}
-        {screen.name === 'registers' && <RegistersScreen />}
-        {screen.name === 'outstandings' && <OutstandingsScreen />}
-        {screen.name === 'banking' && <BankingScreen />}
-        {screen.name === 'payroll' && <PayrollScreen />}
-        {screen.name === 'company-info' && <CompanyInfoScreen />}
+        <ErrorBoundary key={screen.name} screen={screen.name}>
+          {screen.name === 'gateway' && <Gateway />}
+          {screen.name === 'daybook' && <DayBook />}
+          {screen.name === 'voucher-entry' && <VoucherEntry key={screen.voucherId ?? 'new'} voucherId={screen.voucherId} kindHint={screen.kindHint} />}
+          {screen.name === 'masters' && <Masters tab={screen.tab} />}
+          {screen.name === 'trial-balance' && <TrialBalanceScreen />}
+          {screen.name === 'profit-loss' && <ProfitLossScreen />}
+          {screen.name === 'balance-sheet' && <BalanceSheetScreen />}
+          {screen.name === 'stock-summary' && <StockSummaryScreen />}
+          {screen.name === 'ledger-statement' && <LedgerStatementScreen ledgerId={screen.ledgerId} />}
+          {screen.name === 'gstr1' && <Gstr1Screen />}
+          {screen.name === 'gstr3b' && <Gstr3bScreen />}
+          {screen.name === 'edocs' && <EdocsScreen />}
+          {screen.name === 'registers' && <RegistersScreen />}
+          {screen.name === 'outstandings' && <OutstandingsScreen />}
+          {screen.name === 'banking' && <BankingScreen />}
+          {screen.name === 'payroll' && <PayrollScreen />}
+          {screen.name === 'company-info' && <CompanyInfoScreen />}
+        </ErrorBoundary>
       </Shell>
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
       <Toasts />

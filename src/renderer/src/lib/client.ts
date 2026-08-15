@@ -9,7 +9,7 @@ import type {
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type {
   BomInput, CompanyCreateInput, CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput,
-  NicCredentials, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput, VoucherInputParsed
+  NicCredentials, RendererLogInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput, VoucherInputParsed
 } from '@shared/schemas'
 import type { Registry } from '../types'
 
@@ -163,5 +163,9 @@ export const api = {
       call<{ ledgerId: number; name: string; groupName: string; uses: number }[]>('intel:suggestLedgers', { kind, query }),
     anomaly: (ledgerId: number, amount: number) =>
       call<{ unusual: boolean; typicalAmount: number | null }>('intel:anomaly', { ledgerId, amount })
+  },
+  log: {
+    renderer: (input: RendererLogInput) => call<null>('log:renderer', input),
+    reveal: () => call<null>('log:reveal')
   }
 }

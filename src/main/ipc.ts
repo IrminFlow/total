@@ -6,9 +6,11 @@ import { backupCompany, openCompanyDb } from './db/connection'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, touchLastOpened, upsertCompany } from './registry'
 import { companyDbPath, companyExportsDir, ensureCompanyTree, slugify } from './paths'
+import { log, revealLogs } from './log'
 import {
   companyCreateSchema, godownInputSchema, groupInputSchema, ledgerInputSchema, periodSchema,
-  stockGroupInputSchema, stockItemInputSchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
+  rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, unitInputSchema, voucherInputSchema,
+  voucherTypeInputSchema
 } from '@shared/schemas'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
@@ -61,6 +63,8 @@ function handle(channel: string, fn: Handler): void {
         : err instanceof Error
           ? err.message
           : String(err)
+      // Never log payloads — only the channel name and the error message.
+      log('error', 'ipc-handler', { channel, error: message })
       return { ok: false, error: message }
     }
   })
@@ -407,5 +411,16 @@ export function registerIpc(): void {
   handle('intel:anomaly', (p) => {
     const { ledgerId, amount } = z.object({ ledgerId: z.number().int().positive(), amount: z.number().int() }).parse(p)
     return intel.anomalyCheck(requireCompany().db, ledgerId, amount)
+  })
+
+  // ---------- logging ----------
+  handle('log:renderer', (p) => {
+    const { message, stack, componentStack, screen } = rendererLogSchema.parse(p)
+    log('error', 'renderer-error', { message, stack, componentStack, screen })
+    return null
+  })
+  handle('log:reveal', () => {
+    revealLogs()
+    return null
   })
 }

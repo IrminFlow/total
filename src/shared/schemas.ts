@@ -174,3 +174,12 @@ export const nicCredentialsSchema = z.object({
   publicKeyPem: z.string().trim().default('')
 })
 export type NicCredentials = z.infer<typeof nicCredentialsSchema>
+
+/** Renderer-side crash report sent to the main process for logging. */
+export const rendererLogSchema = z.object({
+  message: z.string(),
+  stack: z.string().optional(),
+  componentStack: z.string().optional(),
+  screen: z.string().optional()
+})
+export type RendererLogInput = z.infer<typeof rendererLogSchema>

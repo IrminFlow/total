@@ -11,6 +11,7 @@
  */
 import { app, dialog, shell } from 'electron'
 import electronUpdater from 'electron-updater'
+import { log } from './log'
 
 const { autoUpdater } = electronUpdater
 
@@ -43,8 +44,9 @@ async function fetchLatest(): Promise<LatestInfo | null> {
       const data = (await res.json()) as { version?: string; downloadUrl?: string }
       if (data.version) return { version: data.version, downloadUrl: data.downloadUrl ?? SITE_LATEST_URL.replace('/api/latest', '/api/download') }
     }
-  } catch {
+  } catch (err) {
     // Site unreachable — try GitHub directly.
+    log('warn', 'updater', { error: String(err) })
   }
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
@@ -54,7 +56,8 @@ async function fetchLatest(): Promise<LatestInfo | null> {
     const release = (await res.json()) as { tag_name?: string; html_url?: string }
     if (!release.tag_name) return null
     return { version: release.tag_name, downloadUrl: release.html_url ?? RELEASES_URL }
-  } catch {
+  } catch (err) {
+    log('warn', 'updater', { error: String(err) })
     return null
   }
 }
@@ -63,17 +66,21 @@ async function fetchLatest(): Promise<LatestInfo | null> {
 async function manualCheck(): Promise<void> {
   if (fallbackDone) return
   fallbackDone = true
-  const latest = await fetchLatest()
-  if (!latest || !isNewer(latest.version, app.getVersion())) return
-  const choice = await dialog.showMessageBox({
-    type: 'info',
-    message: `Total ${latest.version.replace(/^v/, '')} is available`,
-    detail: `You're on ${app.getVersion()}. Download the new version — your data in ~/Documents/total is untouched by updates.`,
-    buttons: ['Download update', 'Later'],
-    defaultId: 0,
-    cancelId: 1
-  })
-  if (choice.response === 0) shell.openExternal(latest.downloadUrl)
+  try {
+    const latest = await fetchLatest()
+    if (!latest || !isNewer(latest.version, app.getVersion())) return
+    const choice = await dialog.showMessageBox({
+      type: 'info',
+      message: `Total ${latest.version.replace(/^v/, '')} is available`,
+      detail: `You're on ${app.getVersion()}. Download the new version — your data in ~/Documents/total is untouched by updates.`,
+      buttons: ['Download update', 'Later'],
+      defaultId: 0,
+      cancelId: 1
+    })
+    if (choice.response === 0) shell.openExternal(latest.downloadUrl)
+  } catch (err) {
+    log('warn', 'updater', { error: String(err) })
+  }
 }
 
 export function initUpdater(): void {
@@ -97,8 +104,9 @@ export function initUpdater(): void {
       })
   })
 
-  autoUpdater.on('error', () => {
+  autoUpdater.on('error', (err) => {
     // Unsigned builds can check but not install silently — offer the release page instead.
+    log('warn', 'updater', { error: String(err) })
     void manualCheck()
   })
 
