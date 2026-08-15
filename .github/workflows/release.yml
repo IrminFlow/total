@@ -1,0 +1,39 @@
+# Build the macOS app and publish it to GitHub Releases whenever a version tag is pushed.
+# Tag with:  npm version patch && git push --follow-tags
+# electron-updater in the app reads these releases to auto-update installed copies.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build and publish DMG + ZIP to the release
+        run: npm run build && npx electron-builder --mac --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Unsigned beta builds: users right-click → Open on first launch, and the
+          # in-app updater falls back to a "download the new version" prompt.
+          # When you have an Apple Developer ID, add CSC_LINK + CSC_KEY_PASSWORD
+          # secrets here and auto-update becomes fully silent.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'

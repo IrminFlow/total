@@ -1,0 +1,125 @@
+import { create } from 'zustand'
+import type { CompanyInfo } from '@shared/domain'
+import { fyOf, todayISO } from '@shared/dates'
+
+// ---------- navigation ----------
+
+export type Screen =
+  | { name: 'gateway' }
+  | { name: 'daybook' }
+  | { name: 'voucher-entry'; voucherId?: number; kindHint?: string }
+  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' }
+  | { name: 'trial-balance' }
+  | { name: 'profit-loss' }
+  | { name: 'balance-sheet' }
+  | { name: 'stock-summary' }
+  | { name: 'ledger-statement'; ledgerId: number }
+  | { name: 'gstr1' }
+  | { name: 'gstr3b' }
+  | { name: 'edocs' }
+  | { name: 'registers' }
+  | { name: 'outstandings' }
+  | { name: 'banking' }
+  | { name: 'payroll' }
+  | { name: 'company-info' }
+
+interface NavState {
+  stack: Screen[]
+  go: (screen: Screen) => void
+  replace: (screen: Screen) => void
+  back: () => void
+  home: () => void
+}
+
+export const useNav = create<NavState>((set) => ({
+  stack: [{ name: 'gateway' }],
+  go: (screen) => set((s) => ({ stack: [...s.stack, screen] })),
+  replace: (screen) => set((s) => ({ stack: [...s.stack.slice(0, -1), screen] })),
+  back: () => set((s) => (s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s)),
+  home: () => set({ stack: [{ name: 'gateway' }] })
+}))
+
+export const useScreen = (): Screen => useNav((s) => s.stack[s.stack.length - 1]!)
+
+// ---------- session (open company + working period) ----------
+
+interface SessionState {
+  slug: string | null
+  info: CompanyInfo | null
+  from: string
+  to: string
+  /** Context date for smart date entry — last used voucher date. */
+  workingDate: string
+  setCompany: (slug: string, info: CompanyInfo) => void
+  clearCompany: () => void
+  setPeriod: (from: string, to: string) => void
+  setWorkingDate: (date: string) => void
+}
+
+const fy = fyOf(todayISO())
+
+export const useSession = create<SessionState>((set) => ({
+  slug: null,
+  info: null,
+  from: fy.from,
+  to: fy.to,
+  workingDate: todayISO(),
+  setCompany: (slug, info) => set({ slug, info }),
+  clearCompany: () => set({ slug: null, info: null }),
+  setPeriod: (from, to) => set({ from, to }),
+  setWorkingDate: (workingDate) => set({ workingDate })
+}))
+
+// ---------- theme ----------
+
+export type Theme = 'light' | 'dark'
+
+interface ThemeState {
+  theme: Theme
+  toggle: () => void
+}
+
+export function applyTheme(theme: Theme): void {
+  document.documentElement.dataset.theme = theme
+  localStorage.setItem('total-theme', theme)
+}
+
+export function initialTheme(): Theme {
+  const stored = localStorage.getItem('total-theme')
+  return stored === 'dark' ? 'dark' : 'light'
+}
+
+export const useTheme = create<ThemeState>((set) => ({
+  theme: initialTheme(),
+  toggle: () =>
+    set((s) => {
+      const next: Theme = s.theme === 'light' ? 'dark' : 'light'
+      applyTheme(next)
+      return { theme: next }
+    })
+}))
+
+// ---------- toasts ----------
+
+export interface Toast {
+  id: number
+  kind: 'info' | 'success' | 'error' | 'warning'
+  text: string
+}
+
+interface ToastState {
+  toasts: Toast[]
+  push: (kind: Toast['kind'], text: string) => void
+  dismiss: (id: number) => void
+}
+
+let toastId = 0
+export const useToasts = create<ToastState>((set) => ({
+  toasts: [],
+  push: (kind, text) => {
+    const id = ++toastId
+    set((s) => ({ toasts: [...s.toasts, { id, kind, text }] }))
+    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), kind === 'error' ? 6000 : 3500)
+  },
+  dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+}))

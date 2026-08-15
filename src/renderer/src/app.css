@@ -1,0 +1,190 @@
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-serif/500.css';
+@import '@fontsource/ibm-plex-serif/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import 'tailwindcss';
+
+/* ---------- theme tokens: light (default) and dark ---------- */
+
+:root {
+  --t-bg: #f4f4ef;
+  --t-panel: #ffffff;
+  --t-panel2: #f6f7fa;
+  --t-line: #dcdfe6;
+  --t-ink: #21263a;
+  --t-muted: #6a7186;
+  --t-amber: #b97f0a;
+  --t-amber-bar: #f5b82e;
+  --t-amber-soft: rgba(245, 184, 46, 0.18);
+  --t-dr: #157a53;
+  --t-cr: #bb4433;
+  --t-blue: #1f5fc2;
+  --t-shadow: 0 1px 2px rgba(30, 35, 60, 0.06), 0 4px 16px rgba(30, 35, 60, 0.05);
+  --t-rule: #3a4053;
+}
+
+[data-theme='dark'] {
+  --t-bg: #0e1220;
+  --t-panel: #151b2c;
+  --t-panel2: #1b2338;
+  --t-line: #273049;
+  --t-ink: #e9e9e2;
+  --t-muted: #8c94ab;
+  --t-amber: #f0b429;
+  --t-amber-bar: #f0b429;
+  --t-amber-soft: rgba(240, 180, 41, 0.14);
+  --t-dr: #6ec6a0;
+  --t-cr: #e4796b;
+  --t-blue: #6e8ef5;
+  --t-shadow: none;
+  --t-rule: #e9e9e2;
+}
+
+@theme inline {
+  --color-bg: var(--t-bg);
+  --color-panel: var(--t-panel);
+  --color-panel2: var(--t-panel2);
+  --color-line: var(--t-line);
+  --color-ink: var(--t-ink);
+  --color-muted: var(--t-muted);
+  --color-amber: var(--t-amber);
+  --color-amberbar: var(--t-amber-bar);
+  --color-dr: var(--t-dr);
+  --color-cr: var(--t-cr);
+  --color-blue: var(--t-blue);
+
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-serif: 'IBM Plex Serif', Georgia, serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--t-bg);
+  color: var(--t-ink);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-shadow {
+  box-shadow: var(--t-shadow);
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+.drag-region button,
+.drag-region input,
+.drag-region select {
+  -webkit-app-region: no-drag;
+}
+
+/* ---------- amber keyboard bar — the signature ---------- */
+
+.kbar-row {
+  position: relative;
+}
+.kbar-row[data-active='true'] {
+  background: var(--t-amber-soft);
+}
+.kbar-row[data-active='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--t-amber-bar);
+}
+/* On table rows a ::before would become a phantom first cell — use an inset bar instead. */
+tr.kbar-row::before,
+tr.kbar-row[data-active='true']::before {
+  content: none;
+}
+tr.kbar-row[data-active='true'] td:first-child {
+  box-shadow: inset 3px 0 0 0 var(--t-amber-bar);
+}
+
+/* ---------- ledger tables: hand-rules + double-rule totals ---------- */
+
+.ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ledger-table th {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t-muted);
+  text-align: left;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--t-line);
+  background: var(--t-panel2);
+}
+.ledger-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in oklab, var(--t-line) 60%, transparent);
+}
+.ledger-table tr.total-row td {
+  border-top: 1px solid var(--t-rule);
+  border-bottom: 3px double var(--t-rule);
+  font-weight: 600;
+  background: var(--t-panel2);
+}
+.ledger-table th.r,
+.ledger-table td.r {
+  text-align: right;
+}
+.ledger-table tbody tr:hover td {
+  background: color-mix(in oklab, var(--t-panel2) 70%, transparent);
+}
+
+input,
+select,
+textarea {
+  user-select: text;
+}
+
+:focus-visible {
+  outline: 2px solid var(--t-amber-bar);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--t-line);
+  border-radius: 6px;
+  border: 2px solid var(--t-bg);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

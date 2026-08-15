@@ -1,0 +1,80 @@
+{
+  "name": "total",
+  "version": "0.1.0",
+  "description": "Total — fully offline accounting for macOS. Tally-grade books, modern experience.",
+  "main": "out/main/index.js",
+  "author": "Irmin Labs",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "postinstall": "electron-builder install-app-deps",
+    "build:mac": "electron-vite build && electron-builder --mac"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/ibm-plex-serif": "^5.3.0",
+    "better-sqlite3": "^12.2.0",
+    "electron-updater": "^6.8.9",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "@tanstack/react-query": "^5.62.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.6.0",
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.0",
+    "playwright-core": "^1.62.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0",
+    "zustand": "^5.0.0"
+  },
+  "build": {
+    "appId": "com.irminlabs.total",
+    "productName": "Total",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "irminlabs",
+        "repo": "total"
+      }
+    ]
+  },
+  "allowScripts": {
+    "electron@37.10.3": true,
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "electron-winstaller@5.4.0": true
+  }
+}
