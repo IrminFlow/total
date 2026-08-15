@@ -32,7 +32,35 @@ export interface Ledger {
   gstRate: number | null
   /** HSN/SAC for service ledgers billed without stock items. */
   hsn: string | null
+  /** Section this party is flagged for TDS deduction under, if any. */
+  tdsSectionId: number | null
+  /** Deductee's Income Tax PAN (drives the no-PAN 20% TDS rate). */
+  pan: string | null
+  /** Default bill-to-bill credit period in days, used when a bill has no explicit due date. */
+  creditDays: number | null
+  /** SEZ/export classification for GST e-invoicing (task 2.8); null for a normal domestic party. */
+  exportType: 'sez_wp' | 'sez_wop' | 'exp_wp' | 'exp_wop' | null
   isSystem: boolean
+}
+
+export interface TdsSection {
+  id: number
+  /** e.g. "194C" */
+  code: string
+  description: string
+  /** Percent. */
+  rate: number
+  /** Paise; 0 = no single-transaction threshold. */
+  thresholdSingle: number
+  /** Paise; 0 = no FY-cumulative threshold. */
+  thresholdAnnual: number
+}
+
+export interface CostCentre {
+  id: number
+  name: string
+  parentId: number | null
+  active: boolean
 }
 
 export type VoucherKind =
@@ -57,6 +85,11 @@ export interface VoucherType {
   isSystem: boolean
 }
 
+export interface VoucherLineCostAllocation {
+  costCentreId: number
+  amount: number
+}
+
 export interface VoucherLine {
   id: number
   ledgerId: number
@@ -65,6 +98,21 @@ export interface VoucherLine {
   amount: number
   /** Bank statement date once reconciled (bank ledger lines only). */
   bankDate: string | null
+  /** Optional split of this line's amount across cost centres. */
+  costAllocations: VoucherLineCostAllocation[]
+}
+
+export interface VoucherBillRef {
+  kind: 'new' | 'against'
+  name: string
+  amount: number
+  dueDate: string | null
+}
+
+export interface VoucherTds {
+  sectionId: number
+  baseAmount: number
+  tdsAmount: number
 }
 
 export interface InventoryLine {
@@ -109,6 +157,10 @@ export interface Voucher {
   deletedAt: string | null
   lines: VoucherLine[]
   inventory: InventoryLine[]
+  /** Bill-by-bill references against the party ledger line. */
+  billRefs: VoucherBillRef[]
+  /** TDS deducted on this voucher, if any. */
+  tds: VoucherTds | null
   createdAt: string
   updatedAt: string
 }
@@ -139,6 +191,8 @@ export interface StockItem {
   cessRate: number | null
   openingQtyMilli: number
   openingValue: number
+  /** Scannable barcode/SKU (unique when set). */
+  barcode: string | null
 }
 
 export interface Godown {

@@ -1,0 +1,189 @@
+import { describe, it, expect } from 'vitest'
+import { allocateBills, buildReminder, type BillEvent } from './outstanding'
+
+describe('allocateBills — refless legacy inference (byte-identical to the pre-refactor algorithm)', () => {
+  it('one bill, no settlement: stays open in full', () => {
+    const events: BillEvent[] = [{ voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000, refs: [] }]
+    const { bills, unappliedCredit } = allocateBills(events, '2025-06-01', null)
+    expect(bills).toHaveLength(1)
+    expect(bills[0]).toMatchObject({ voucherId: 1, number: 'INV-1', amount: 10000, pending: 10000, ageDays: 31 })
+    expect(unappliedCredit).toBe(0)
+  })
+
+  it('two bills, oldest settled first (FIFO), remainder stays open', () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000, refs: [] },
+      { voucherId: 2, date: '2025-05-10', number: 'INV-2', amount: 5000, refs: [] },
+      { voucherId: 3, date: '2025-05-15', number: 'RCPT-1', amount: -12000, refs: [] }
+    ]
+    const { bills, unappliedCredit } = allocateBills(events, '2025-06-01', null)
+    expect(bills).toHaveLength(1)
+    expect(bills[0]).toMatchObject({ number: 'INV-2', amount: 5000, pending: 3000 })
+    expect(unappliedCredit).toBe(0)
+  })
+
+  it('a settlement larger than every open bill becomes an advance credit', () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000, refs: [] },
+      { voucherId: 2, date: '2025-05-05', number: 'RCPT-1', amount: -15000, refs: [] }
+    ]
+    const { bills, unappliedCredit } = allocateBills(events, '2025-06-01', null)
+    expect(bills).toHaveLength(0)
+    expect(unappliedCredit).toBe(5000)
+  })
+
+  it('an advance credit nets off the next bill automatically', () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'ADV', amount: -4000, refs: [] }, // advance receipt, no bill yet
+      { voucherId: 2, date: '2025-05-10', number: 'INV-1', amount: 10000, refs: [] }
+    ]
+    const { bills, unappliedCredit } = allocateBills(events, '2025-06-01', null)
+    expect(bills).toHaveLength(1)
+    expect(bills[0]).toMatchObject({ number: 'INV-1', amount: 10000, pending: 6000 })
+    expect(unappliedCredit).toBe(0)
+  })
+
+  it('a zero-amount event is a no-op', () => {
+    const events: BillEvent[] = [{ voucherId: 1, date: '2025-05-01', number: 'X', amount: 0, refs: [] }]
+    const { bills, unappliedCredit } = allocateBills(events, '2025-06-01', null)
+    expect(bills).toHaveLength(0)
+    expect(unappliedCredit).toBe(0)
+  })
+
+  it('ageDays and overdueDays are equal when there is no due date (matches the old age-from-bill-date bucketing)', () => {
+    const events: BillEvent[] = [{ voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000, refs: [] }]
+    const { bills } = allocateBills(events, '2025-07-15', null)
+    expect(bills[0]!.ageDays).toBe(bills[0]!.overdueDays)
+  })
+})
+
+describe('allocateBills — named bill refs', () => {
+  it("'new' opens a named bill; 'against' settles it exactly by name", () => {
+    const events: BillEvent[] = [
+      {
+        voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000,
+        refs: [{ kind: 'new', name: 'INV-1', amount: 10000, dueDate: null }]
+      },
+      {
+        voucherId: 2, date: '2025-05-20', number: 'RCPT-1', amount: -10000,
+        refs: [{ kind: 'against', name: 'INV-1', amount: 10000, dueDate: null }]
+      }
+    ]
+    const { bills } = allocateBills(events, '2025-06-01', null)
+    expect(bills).toHaveLength(0)
+  })
+
+  it("a partial 'against' settlement leaves the named bill open for the remainder", () => {
+    const events: BillEvent[] = [
+      {
+        voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000,
+        refs: [{ kind: 'new', name: 'INV-1', amount: 10000, dueDate: null }]
+      },
+      {
+        voucherId: 2, date: '2025-05-20', number: 'RCPT-1', amount: -4000,
+        refs: [{ kind: 'against', name: 'INV-1', amount: 4000, dueDate: null }]
+      }
+    ]
+    const { bills } = allocateBills(events, '2025-06-01', null)
+    expect(bills).toHaveLength(1)
+    expect(bills[0]).toMatchObject({ number: 'INV-1', pending: 6000 })
+  })
+
+  it("'against' a bill name that isn't open falls back to FIFO", () => {
+    const events: BillEvent[] = [
+      {
+        voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000,
+        refs: [{ kind: 'new', name: 'INV-1', amount: 10000, dueDate: null }]
+      },
+      {
+        voucherId: 2, date: '2025-05-20', number: 'RCPT-1', amount: -3000,
+        refs: [{ kind: 'against', name: 'UNKNOWN-99', amount: 3000, dueDate: null }]
+      }
+    ]
+    const { bills } = allocateBills(events, '2025-06-01', null)
+    expect(bills).toHaveLength(1)
+    expect(bills[0]).toMatchObject({ number: 'INV-1', pending: 7000 }) // FIFO fallback still hit INV-1
+  })
+
+  it('two named bills settled independently and out of order', () => {
+    const events: BillEvent[] = [
+      {
+        voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000,
+        refs: [{ kind: 'new', name: 'INV-1', amount: 10000, dueDate: null }]
+      },
+      {
+        voucherId: 2, date: '2025-05-05', number: 'INV-2', amount: 6000,
+        refs: [{ kind: 'new', name: 'INV-2', amount: 6000, dueDate: null }]
+      },
+      {
+        voucherId: 3, date: '2025-05-20', number: 'RCPT-1', amount: -6000,
+        refs: [{ kind: 'against', name: 'INV-2', amount: 6000, dueDate: null }]
+      }
+    ]
+    const { bills } = allocateBills(events, '2025-06-01', null)
+    expect(bills).toHaveLength(1)
+    expect(bills[0]).toMatchObject({ number: 'INV-1', pending: 10000 })
+  })
+})
+
+describe('allocateBills — due dates', () => {
+  it('explicit ref due date wins over party credit days', () => {
+    const events: BillEvent[] = [
+      {
+        voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000,
+        refs: [{ kind: 'new', name: 'INV-1', amount: 10000, dueDate: '2025-05-10' }]
+      }
+    ]
+    const { bills } = allocateBills(events, '2025-06-01', 30)
+    expect(bills[0]!.dueDate).toBe('2025-05-10')
+    // overdue from 2025-05-10 to 2025-06-01 = 22 days
+    expect(bills[0]!.overdueDays).toBe(22)
+  })
+
+  it('falls back to date + party credit days when no explicit due date is given', () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000, refs: [] }
+    ]
+    const { bills } = allocateBills(events, '2025-06-15', 15)
+    expect(bills[0]!.dueDate).toBe('2025-05-16')
+    // overdue from 2025-05-16 to 2025-06-15 = 30 days
+    expect(bills[0]!.overdueDays).toBe(30)
+  })
+
+  it('has no due date at all when neither a ref date nor credit days is available', () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000, refs: [] }
+    ]
+    const { bills } = allocateBills(events, '2025-06-01', null)
+    expect(bills[0]!.dueDate).toBeNull()
+  })
+
+  it('is not overdue before the due date', () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000, refs: [] }
+    ]
+    const { bills } = allocateBills(events, '2025-05-05', 30) // due 2025-05-31, well after asOn
+    expect(bills[0]!.overdueDays).toBe(0)
+  })
+})
+
+describe('buildReminder', () => {
+  it('builds a subject/body/mailto summarizing the open bills', () => {
+    const bills = allocateBills(
+      [{ voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 25000, refs: [] }],
+      '2025-06-01',
+      null
+    ).bills
+    const r = buildReminder({ name: 'Demo Traders' }, { name: 'Umbrella Retail', email: 'ap@umbrella.test' }, bills)
+    expect(r.subject).toContain('Demo Traders')
+    expect(r.body).toContain('INV-1')
+    expect(r.body).toContain('250.00')
+    expect(r.mailto.startsWith('mailto:ap@umbrella.test?subject=')).toBe(true)
+    expect(r.mailto).toContain(encodeURIComponent(r.subject))
+  })
+
+  it('leaves the mailto address blank (not "null") when the party has no email', () => {
+    const r = buildReminder({ name: 'Demo Traders' }, { name: 'Umbrella Retail', email: null }, [])
+    expect(r.mailto.startsWith('mailto:?subject=')).toBe(true)
+  })
+})

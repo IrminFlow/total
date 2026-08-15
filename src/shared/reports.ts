@@ -162,6 +162,10 @@ export interface OutstandingBill {
   /** Still-unsettled portion (paise). */
   pending: number
   ageDays: number
+  /** Named due date (explicit ref, or date + party credit_days); null when neither is known. */
+  dueDate: string | null
+  /** Days past dueDate (or past the bill date when dueDate is null); 0 when not yet due. */
+  overdueDays: number
 }
 
 export interface OutstandingParty {

@@ -118,9 +118,13 @@ export function validateVoucher(
     if (input.partyLedgerId === null) {
       errors.push({ code: 'bill_refs_no_party', message: 'Bill references require a party ledger' })
     } else {
-      const partyLine = input.lines.find((l) => l.ledgerId === input.partyLedgerId)
+      // Sum EVERY line posted to the party ledger, not just the first — a voucher can legitimately
+      // split the party's amount across multiple lines (e.g. part cash-part-credit journals).
+      const partyLinesTotal = input.lines
+        .filter((l) => l.ledgerId === input.partyLedgerId)
+        .reduce((s, l) => s + l.amount, 0)
       const billRefsTotal = billRefs.reduce((s, b) => s + b.amount, 0)
-      if (!partyLine || billRefsTotal !== partyLine.amount) {
+      if (partyLinesTotal === 0 || billRefsTotal !== partyLinesTotal) {
         errors.push({ code: 'bill_refs_mismatch', message: "Bill references must add up to the party ledger's amount" })
       }
     }

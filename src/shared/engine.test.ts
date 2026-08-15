@@ -286,6 +286,20 @@ describe('voucher posting rules', () => {
     expect(validateVoucher(v, 'journal', resolve).map((e) => e.code)).toContain('bill_refs_mismatch')
   })
 
+  it('sums ALL lines on the party ledger for bill_refs_mismatch, not just the first (2.0 regression)', () => {
+    const v = {
+      ...base,
+      partyLedgerId: 3,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 2000 },
+        { ledgerId: 3, drCr: 'dr' as const, amount: 3000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ],
+      billRefs: [{ kind: 'new' as const, name: 'INV-1', amount: 5000, dueDate: null }]
+    }
+    expect(validateVoucher(v, 'journal', resolve)).toEqual([])
+  })
+
   it('flags cost allocations exceeding the line amount, tagged with the line index', () => {
     const v = {
       ...base,

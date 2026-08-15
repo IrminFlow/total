@@ -60,7 +60,11 @@ export const ledgerInputSchema = z.object({
   address: z.string().trim().max(500).nullable().default(null),
   taxType: z.enum(['cgst', 'sgst', 'igst', 'cess']).nullable().default(null),
   gstRate: z.number().min(0).max(100).nullable().default(null),
-  hsn: z.string().trim().nullable().default(null)
+  hsn: z.string().trim().nullable().default(null),
+  tdsSectionId: id.nullable().default(null),
+  pan: panSchema,
+  creditDays: z.number().int().min(0).max(365).nullable().default(null),
+  exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null)
 })
 export type LedgerInput = z.infer<typeof ledgerInputSchema>
 
@@ -86,7 +90,14 @@ export const stockItemInputSchema = z.object({
   gstRate: z.number().min(0).max(100).nullable().default(null),
   cessRate: z.number().min(0).max(300).nullable().default(null),
   openingQtyMilli: z.number().int().min(0).default(0),
-  openingValue: paise.min(0).default(0)
+  openingValue: paise.min(0).default(0),
+  barcode: z
+    .string()
+    .trim()
+    .max(64)
+    .nullable()
+    .default(null)
+    .transform((s) => (s === '' ? null : s))
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
 
@@ -258,3 +269,48 @@ export const rendererLogSchema = z.object({
   screen: z.string().optional()
 })
 export type RendererLogInput = z.infer<typeof rendererLogSchema>
+
+// ---------- TDS ----------
+
+export const tdsSectionInputSchema = z.object({
+  id: id.optional(),
+  code: z.string().trim().min(1).max(20).transform((s) => s.toUpperCase()),
+  description: z.string().trim().min(1).max(200),
+  rate: z.number().min(0).max(100),
+  thresholdSingle: paise.min(0).default(0),
+  thresholdAnnual: paise.min(0).default(0)
+})
+export type TdsSectionInput = z.infer<typeof tdsSectionInputSchema>
+
+export const tdsSuggestSchema = z.object({
+  partyLedgerId: id,
+  base: positivePaise,
+  date: isoDate
+})
+export type TdsSuggestInput = z.infer<typeof tdsSuggestSchema>
+
+export const tdsSummarySchema = z.object({ fyStartYear: z.number().int().min(1990).max(2100) })
+export type TdsSummaryInput = z.infer<typeof tdsSummarySchema>
+
+export const tdsExport26qSchema = z.object({
+  fyStartYear: z.number().int().min(1990).max(2100),
+  quarter: z.number().int().min(1).max(4)
+})
+export type TdsExport26qInput = z.infer<typeof tdsExport26qSchema>
+
+// ---------- cost centres ----------
+
+export const costCentreInputSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  parentId: id.nullable().default(null),
+  active: z.boolean().default(true)
+})
+export type CostCentreInput = z.infer<typeof costCentreInputSchema>
+
+export const ccStatementSchema = z.object({ ccId: id, from: isoDate, to: isoDate })
+export type CcStatementInput = z.infer<typeof ccStatementSchema>
+
+// ---------- outstandings / bill reminders ----------
+
+export const billsOpenSchema = z.object({ partyLedgerId: id, asOn: isoDate })
+export type BillsOpenInput = z.infer<typeof billsOpenSchema>
