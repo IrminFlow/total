@@ -229,5 +229,76 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_vouchers_type_date ON vouchers(voucher_type_id, date);
   CREATE INDEX idx_vouchers_party ON vouchers(party_ledger_id);
   DROP INDEX idx_lines_ledger;
+  `,
+  // 005 — TDS (Tax Deducted at Source): sections seeded with standard FY rates/thresholds
+  // (paise), the ledger fields that flag a party for TDS, and the per-voucher deduction record
+  // that feeds the quarterly summary + 26Q export (task 2.2).
+  `
+  CREATE TABLE tds_sections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    rate REAL NOT NULL,
+    threshold_single INTEGER NOT NULL DEFAULT 0,
+    threshold_annual INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO tds_sections (code, description, rate, threshold_single, threshold_annual) VALUES
+    ('194C', 'Payments to contractors', 2, 3000000, 10000000),
+    ('194J', 'Fees for professional or technical services', 10, 3000000, 3000000),
+    ('194I', 'Rent', 10, 0, 24000000),
+    ('194H', 'Commission or brokerage', 2, 0, 1500000),
+    ('194A', 'Interest other than on securities', 10, 0, 500000);
+
+  ALTER TABLE ledgers ADD COLUMN tds_section_id INTEGER REFERENCES tds_sections(id);
+  ALTER TABLE ledgers ADD COLUMN pan TEXT;
+
+  CREATE TABLE tds_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    section_id INTEGER NOT NULL REFERENCES tds_sections(id),
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    pan TEXT,
+    base_amount INTEGER NOT NULL,
+    tds_amount INTEGER NOT NULL
+  );
+  CREATE INDEX idx_tds_entries_voucher ON tds_entries(voucher_id);
+  CREATE INDEX idx_tds_entries_party_section ON tds_entries(party_ledger_id, section_id);
+  `,
+  // 006 — cost centres (with per-voucher-line allocations), bill-by-bill references, ledger
+  // credit terms, stock-item barcodes, and party export type for e-invoicing (DDL only here —
+  // the live e-doc logic lands in task 2.8). Everything in this batch belongs to task 2.2.
+  `
+  CREATE TABLE cost_centres (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    parent_id INTEGER REFERENCES cost_centres(id),
+    active INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE voucher_line_cost_allocations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_line_id INTEGER NOT NULL REFERENCES voucher_lines(id) ON DELETE CASCADE,
+    cost_centre_id INTEGER NOT NULL REFERENCES cost_centres(id),
+    amount INTEGER NOT NULL CHECK (amount > 0)
+  );
+  CREATE INDEX idx_vlca_cc ON voucher_line_cost_allocations(cost_centre_id);
+
+  CREATE TABLE bill_refs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    kind TEXT NOT NULL CHECK (kind IN ('new', 'against')),
+    name TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    due_date TEXT
+  );
+  CREATE INDEX idx_bill_refs_party ON bill_refs(party_ledger_id);
+
+  ALTER TABLE ledgers ADD COLUMN credit_days INTEGER;
+
+  ALTER TABLE stock_items ADD COLUMN barcode TEXT;
+  CREATE UNIQUE INDEX idx_stock_items_barcode ON stock_items(barcode) WHERE barcode IS NOT NULL;
+
+  ALTER TABLE ledgers ADD COLUMN export_type TEXT CHECK (export_type IN ('sez_wp', 'sez_wop', 'exp_wp', 'exp_wop'));
   `
 ]

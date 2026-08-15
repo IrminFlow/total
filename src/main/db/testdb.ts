@@ -52,7 +52,11 @@ function ledgerIdByName(db: DB, name: string): number {
     address: null,
     taxType: null,
     gstRate: null,
-    hsn: null
+    hsn: null,
+    tdsSectionId: null,
+    pan: null,
+    creditDays: null,
+    exportType: null
   })
   return ledger.id
 }

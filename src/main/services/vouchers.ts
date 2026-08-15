@@ -57,6 +57,30 @@ export function getVoucher(db: DB, id: number): Voucher | null {
   const inventory = db
     .prepare('SELECT id, stock_item_id, godown_id, qty_milli, rate_paise, amount, direction FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as { id: number; stock_item_id: number; godown_id: number | null; qty_milli: number; rate_paise: number; amount: number; direction: 'in' | 'out' }[]
+
+  const costAllocRows = lines.length
+    ? (db
+        .prepare(
+          `SELECT voucher_line_id, cost_centre_id, amount FROM voucher_line_cost_allocations
+           WHERE voucher_line_id IN (${lines.map(() => '?').join(',')})`
+        )
+        .all(...lines.map((l) => l.id)) as { voucher_line_id: number; cost_centre_id: number; amount: number }[])
+    : []
+  const allocByLine = new Map<number, { costCentreId: number; amount: number }[]>()
+  for (const r of costAllocRows) {
+    const list = allocByLine.get(r.voucher_line_id) ?? []
+    list.push({ costCentreId: r.cost_centre_id, amount: r.amount })
+    allocByLine.set(r.voucher_line_id, list)
+  }
+
+  const billRefRows = db
+    .prepare('SELECT kind, name, amount, due_date FROM bill_refs WHERE voucher_id = ? ORDER BY id')
+    .all(id) as { kind: 'new' | 'against'; name: string; amount: number; due_date: string | null }[]
+
+  const tdsRow = db
+    .prepare('SELECT section_id, base_amount, tds_amount FROM tds_entries WHERE voucher_id = ?')
+    .get(id) as { section_id: number; base_amount: number; tds_amount: number } | undefined
+
   return {
     id: v.id,
     voucherTypeId: v.voucher_type_id,
@@ -80,13 +104,20 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     deletedAt: v.deleted_at,
     createdAt: v.created_at,
     updatedAt: v.updated_at,
-    lines: lines.map((l): VoucherLine => ({ id: l.id, ledgerId: l.ledger_id, drCr: l.dr_cr, amount: l.amount, bankDate: l.bank_date })),
+    lines: lines.map(
+      (l): VoucherLine => ({
+        id: l.id, ledgerId: l.ledger_id, drCr: l.dr_cr, amount: l.amount, bankDate: l.bank_date,
+        costAllocations: allocByLine.get(l.id) ?? []
+      })
+    ),
     inventory: inventory.map(
       (l): InventoryLine => ({
         id: l.id, stockItemId: l.stock_item_id, godownId: l.godown_id,
         qtyMilli: l.qty_milli, ratePaise: l.rate_paise, amount: l.amount, direction: l.direction
       })
-    )
+    ),
+    billRefs: billRefRows.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.due_date })),
+    tds: tdsRow ? { sectionId: tdsRow.section_id, baseAmount: tdsRow.base_amount, tdsAmount: tdsRow.tds_amount } : null
   }
 }
 
@@ -151,7 +182,6 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
   if (errors.length) {
     throw new Error(errors.map((e) => e.message).join('; '))
   }
-  // billRefs/costAllocations/tds are validated here but persisted from Task 2.2 (tables in migrations 005/006)
 
   const number =
     vt.numbering === 'manual'
@@ -195,7 +225,16 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
     const insertLine = db.prepare(
       'INSERT INTO voucher_lines (voucher_id, ledger_id, dr_cr, amount, line_order) VALUES (?, ?, ?, ?, ?)'
     )
-    input.lines.forEach((l, i) => insertLine.run(voucherId, l.ledgerId, l.drCr, l.amount, i))
+    const insertCostAlloc = db.prepare(
+      'INSERT INTO voucher_line_cost_allocations (voucher_line_id, cost_centre_id, amount) VALUES (?, ?, ?)'
+    )
+    input.lines.forEach((l, i) => {
+      const res = insertLine.run(voucherId, l.ledgerId, l.drCr, l.amount, i)
+      const lineId = Number(res.lastInsertRowid)
+      for (const alloc of l.costAllocations ?? []) {
+        insertCostAlloc.run(lineId, alloc.costCentreId, alloc.amount)
+      }
+    })
 
     const insertInv = db.prepare(
       `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, qty_milli, rate_paise, amount, direction, line_order)
@@ -204,6 +243,30 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
     input.inventory.forEach((l, i) =>
       insertInv.run(voucherId, l.stockItemId, l.godownId, l.qtyMilli, l.ratePaise, l.amount, l.direction, i)
     )
+
+    // Bill refs and TDS ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade
+    // their deletion the way replacing the line set does — clear and reinsert explicitly.
+    db.prepare('DELETE FROM bill_refs WHERE voucher_id = ?').run(voucherId)
+    db.prepare('DELETE FROM tds_entries WHERE voucher_id = ?').run(voucherId)
+
+    if (input.billRefs.length > 0) {
+      const insertBillRef = db.prepare(
+        'INSERT INTO bill_refs (voucher_id, party_ledger_id, kind, name, amount, due_date) VALUES (?, ?, ?, ?, ?, ?)'
+      )
+      for (const ref of input.billRefs) {
+        insertBillRef.run(voucherId, input.partyLedgerId, ref.kind, ref.name, ref.amount, ref.dueDate)
+      }
+    }
+
+    if (input.tds) {
+      const party = input.partyLedgerId
+        ? (db.prepare('SELECT pan FROM ledgers WHERE id = ?').get(input.partyLedgerId) as { pan: string | null } | undefined)
+        : undefined
+      db.prepare(
+        'INSERT INTO tds_entries (voucher_id, section_id, party_ledger_id, pan, base_amount, tds_amount) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(voucherId, input.tds.sectionId, input.partyLedgerId, party?.pan ?? null, input.tds.baseAmount, input.tds.tdsAmount)
+    }
+
     return voucherId
   })
 

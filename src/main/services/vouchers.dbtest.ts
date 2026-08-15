@@ -34,7 +34,11 @@ describe('saveVoucher / getVoucher round-trip', () => {
       address: null,
       taxType: null,
       gstRate: null,
-      hsn: null
+      hsn: null,
+      tdsSectionId: null,
+      pan: null,
+      creditDays: null,
+      exportType: null
     })
 
     const created = saveVoucher(db, {

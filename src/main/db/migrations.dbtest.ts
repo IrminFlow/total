@@ -22,6 +22,11 @@ const EXPECTED_TABLES = [
   'payroll_runs',
   'payroll_lines',
   'users',
+  'tds_sections',
+  'tds_entries',
+  'cost_centres',
+  'voucher_line_cost_allocations',
+  'bill_refs',
   'migrations'
 ]
 
@@ -106,5 +111,76 @@ describe('migrate', () => {
       ])
     )
     expect(indexNames).not.toContain('idx_lines_ledger')
+  })
+
+  it('seeds the five standard tds_sections with the plan\'s rates/thresholds (paise)', () => {
+    const db = freshDb()
+    const rows = (
+      db.prepare('SELECT code, description, rate, threshold_single, threshold_annual FROM tds_sections ORDER BY code').all() as {
+        code: string; description: string; rate: number; threshold_single: number; threshold_annual: number
+      }[]
+    )
+    expect(rows.map((r) => r.code)).toEqual(['194A', '194C', '194H', '194I', '194J'])
+    const byCode = new Map(rows.map((r) => [r.code, r]))
+    expect(byCode.get('194C')).toMatchObject({ rate: 2, threshold_single: 3000000, threshold_annual: 10000000 })
+    expect(byCode.get('194J')).toMatchObject({ rate: 10, threshold_single: 3000000, threshold_annual: 3000000 })
+    expect(byCode.get('194I')).toMatchObject({ rate: 10, threshold_single: 0, threshold_annual: 24000000 })
+    expect(byCode.get('194H')).toMatchObject({ rate: 2, threshold_single: 0, threshold_annual: 1500000 })
+    expect(byCode.get('194A')).toMatchObject({ rate: 10, threshold_single: 0, threshold_annual: 500000 })
+  })
+
+  it('adds tds_section_id/pan/credit_days/export_type to ledgers and barcode to stock_items', () => {
+    const db = freshDb()
+    const ledgerColumns = (db.prepare('PRAGMA table_info(ledgers)').all() as { name: string }[]).map((c) => c.name)
+    expect(ledgerColumns).toEqual(
+      expect.arrayContaining(['tds_section_id', 'pan', 'credit_days', 'export_type'])
+    )
+    const itemColumns = (db.prepare('PRAGMA table_info(stock_items)').all() as { name: string }[]).map((c) => c.name)
+    expect(itemColumns).toContain('barcode')
+  })
+
+  it('creates the cost-centre / bill-ref indexes and the partial unique barcode index', () => {
+    const db = freshDb()
+    const indexNames = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[]
+    ).map((r) => r.name)
+    expect(indexNames).toEqual(
+      expect.arrayContaining([
+        'idx_vlca_cc',
+        'idx_bill_refs_party',
+        'idx_stock_items_barcode',
+        'idx_tds_entries_voucher',
+        'idx_tds_entries_party_section'
+      ])
+    )
+  })
+
+  it('barcode uniqueness only applies to non-null values', () => {
+    const db = freshDb()
+    const unitId = db.prepare("INSERT INTO units (name, symbol, decimals, uqc) VALUES ('Nos','Nos',0,'NOS')").run()
+      .lastInsertRowid
+    db.prepare('INSERT INTO stock_items (name, unit_id, barcode) VALUES (?, ?, NULL)').run('Item A', unitId)
+    db.prepare('INSERT INTO stock_items (name, unit_id, barcode) VALUES (?, ?, NULL)').run('Item B', unitId)
+    db.prepare('INSERT INTO stock_items (name, unit_id, barcode) VALUES (?, ?, ?)').run('Item C', unitId, '12345')
+    expect(() =>
+      db.prepare('INSERT INTO stock_items (name, unit_id, barcode) VALUES (?, ?, ?)').run('Item D', unitId, '12345')
+    ).toThrow()
+  })
+
+  it('export_type is constrained to the four SEZ/export codes', () => {
+    const db = freshDb() // no seed data — groups is empty until a company is seeded, so insert one
+    const groupId = Number(
+      db.prepare("INSERT INTO groups (name, nature, is_system) VALUES ('Test Group', 'liability', 0)").run().lastInsertRowid
+    )
+    expect(() =>
+      db
+        .prepare("INSERT INTO ledgers (name, group_id, export_type) VALUES ('Bad Party', ?, 'not_a_type')")
+        .run(groupId)
+    ).toThrow()
+    expect(() =>
+      db
+        .prepare("INSERT INTO ledgers (name, group_id, export_type) VALUES ('SEZ Party', ?, 'sez_wp')")
+        .run(groupId)
+    ).not.toThrow()
   })
 })

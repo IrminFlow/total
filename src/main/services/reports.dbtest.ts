@@ -19,7 +19,11 @@ describe('trialBalance / ledgerStatement', () => {
       address: null,
       taxType: null,
       gstRate: null,
-      hsn: null
+      hsn: null,
+      tdsSectionId: null,
+      pan: null,
+      creditDays: null,
+      exportType: null
     })
     createLedger(db, {
       name: "Owner's Capital",
@@ -30,7 +34,11 @@ describe('trialBalance / ledgerStatement', () => {
       address: null,
       taxType: null,
       gstRate: null,
-      hsn: null
+      hsn: null,
+      tdsSectionId: null,
+      pan: null,
+      creditDays: null,
+      exportType: null
     })
 
     postSimpleVoucher(db, { date: '2025-04-05', amount: 50000, kind: 'receipt' })
