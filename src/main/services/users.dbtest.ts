@@ -23,6 +23,19 @@ describe('users service', () => {
     expect(names).toEqual(['Priya', 'Rahul'])
   })
 
+  // ipc.ts's users:save handler auto-authenticates the caller as this bootstrap owner (a
+  // sessionUser assignment that lives in ipc.ts's Electron-side module state, so it isn't
+  // reachable from this DB-only test). What *is* testable here — and what that auto-login
+  // depends on — is that the bootstrap saveUser() return carries everything needed to build a
+  // session (`{ id, name, role }`) straight off the returned row, with no extra lookup.
+  it("the bootstrap saveUser() return has everything ipc.ts needs to build a session", () => {
+    const db = freshDb()
+    const first = saveUser(db, { name: 'Priya', role: 'viewer', pin: '1111' })
+    expect(first).toMatchObject({ id: expect.any(Number), name: 'Priya', role: 'owner' })
+    // And login() with the same PIN authenticates as that exact user — proof the id round-trips.
+    expect(login(db, first.id, '1111')).toEqual({ id: first.id, name: 'Priya', role: 'owner' })
+  })
+
   it('creating a user without a PIN is rejected', () => {
     const db = freshDb()
     expect(() => saveUser(db, { name: 'NoPin', role: 'accountant' })).toThrow('PIN is required')

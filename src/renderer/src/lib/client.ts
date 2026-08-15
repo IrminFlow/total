@@ -90,7 +90,7 @@ export const api = {
     open: (slug: string) =>
       call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('company:open', { slug }),
     close: () => call<null>('company:close'),
-    current: () => call<{ slug: string; info: CompanyInfo } | null>('company:current'),
+    current: () => call<{ slug: string; info: CompanyInfo; locked: boolean } | null>('company:current'),
     updateInfo: (input: CompanyCreateInput) => call<CompanyInfo>('company:updateInfo', input),
     backup: () => call<{ path: string }>('company:backup'),
     revealExports: () => call<null>('company:revealExports')
@@ -99,7 +99,7 @@ export const api = {
     list: () => call<BackupInfo[]>('backup:list'),
     run: () => call<{ path: string }>('backup:run'),
     restore: (file: string) =>
-      call<{ info: CompanyInfo; integrity: IntegrityResult }>('backup:restore', { file }),
+      call<{ info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('backup:restore', { file }),
     exportEncrypted: (passphrase: string) => call<{ path: string }>('backup:exportEncrypted', { passphrase }),
     importEncrypted: (passphrase: string) =>
       call<{ slug: string; name: string } | null>('backup:importEncrypted', { passphrase })
@@ -255,7 +255,7 @@ export const api = {
   },
   users: {
     list: () => call<UserRow[]>('users:list'),
-    save: (data: UserInput, id?: number) => call<UserRow>('users:save', { data, id }),
+    save: (data: UserInput, id?: number) => call<UserRow & { locked: boolean }>('users:save', { data, id }),
     deactivate: (id: number) => call<null>('users:deactivate', { id })
   }
 }

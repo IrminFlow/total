@@ -92,6 +92,9 @@ const UNGATED_CHANNELS = new Set([
   'company:create',
   'company:open',
   'company:current',
+  // Deliberate: a locked session (or one with no session at all) must still be able to back
+  // out to the company picker rather than getting stuck behind the gate it can't pass.
+  'company:close',
   'auth:users',
   'auth:login',
   'auth:logout',
@@ -109,7 +112,12 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
       // A brand-new company with zero users is intentionally wide open: that's how the very
       // first (owner) user gets created via users:save without a chicken-and-egg deadlock.
       if (!UNGATED_CHANNELS.has(channel) && current && current.usersExist) {
-        if (!roleAllows(sessionUser?.role ?? null, minRole)) {
+        if (!sessionUser) {
+          // Distinct from the role-denied case below: the renderer can route this specifically
+          // to the lock screen instead of a generic permission toast.
+          throw new Error('Locked — sign in first')
+        }
+        if (!roleAllows(sessionUser.role, minRole)) {
           throw new Error('You do not have permission to do that')
         }
       }
@@ -179,7 +187,11 @@ export function registerIpc(): void {
     return null
   })
 
-  handle('company:current', () => (current ? { slug: current.slug, info: current.info } : null))
+  handle('company:current', () =>
+    current
+      ? { slug: current.slug, info: current.info, locked: current.usersExist && !sessionUser }
+      : null
+  )
 
   handle('company:updateInfo', (payload) => {
     const c = requireCompany()
@@ -264,7 +276,9 @@ export function registerIpc(): void {
     if (!integrity.ok) {
       log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
     }
-    return { info: current.info, integrity }
+    // closeCurrentCompany() above already cleared sessionUser, so this is realistically always
+    // `current.usersExist` — spelled out in full to match the other two locked-flag call sites.
+    return { info: current.info, integrity, locked: current.usersExist && !sessionUser }
   }, 'owner')
 
   handle('backup:exportEncrypted', async (payload) => {
@@ -645,11 +659,16 @@ export function registerIpc(): void {
   handle('users:save', (p) => {
     const { data, id } = z.object({ data: userInputSchema, id: z.number().int().positive().optional() }).parse(p)
     const c = requireCompany()
+    const bootstrap = id === undefined && !c.usersExist
     const before = id ? users.getUser(c.db, id) : null
     const saved = users.saveUser(c.db, data, id)
     c.usersExist = users.usersExist(c.db)
+    // The bootstrap owner (the very first user of a fresh company) is auto-authenticated as
+    // themselves — they just proved they're standing at the machine by creating the account,
+    // and forcing them to immediately re-enter the PIN they picked a second ago would be theatre.
+    if (bootstrap) sessionUser = { id: saved.id, name: saved.name, role: saved.role }
     writeAudit(c.db, 'user', saved.id, id ? 'update' : 'create', before, saved)
-    return saved
+    return { ...saved, locked: c.usersExist && !sessionUser }
   }, 'owner')
   handle('users:deactivate', (p) => {
     const { id } = idSchema.parse(p)
