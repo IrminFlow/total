@@ -1,9 +1,20 @@
 import { redirect } from 'next/navigation'
-import { latestRelease, resolveDownloadUrl, RELEASES_PAGE } from '@/lib/release'
+import type { NextRequest } from 'next/server'
+import { latestRelease, resolveDownloadUrl, RELEASES_PAGE, type Platform } from '@/lib/release'
 
-/** /api/download → the latest DMG (works for the private repo via a short-lived asset URL). */
-export async function GET(): Promise<never> {
+/**
+ * /api/download → the latest installer (private-repo assets served via short-lived URLs).
+ * Platform comes from ?platform=mac|win, else from the browser's User-Agent (default mac).
+ */
+export async function GET(request: NextRequest): Promise<never> {
   const release = await latestRelease()
   if (!release) redirect(RELEASES_PAGE)
-  redirect(await resolveDownloadUrl(release))
+  const param = request.nextUrl.searchParams.get('platform')
+  const platform: Platform =
+    param === 'win' || param === 'mac'
+      ? param
+      : (request.headers.get('user-agent') ?? '').includes('Windows')
+        ? 'win'
+        : 'mac'
+  redirect(await resolveDownloadUrl(release, platform))
 }

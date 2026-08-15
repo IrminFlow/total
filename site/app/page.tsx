@@ -44,8 +44,11 @@ export default async function Home(): Promise<React.JSX.Element> {
             required.
           </p>
           <div className="hero-ctas">
-            <a className="btn" href="/api/download">
+            <a className="btn" href="/api/download?platform=mac">
               Download for macOS
+            </a>
+            <a className="btn ghost" href="/api/download?platform=win">
+              Windows
             </a>
             <a className="btn ghost" href="#ledger">
               See what&rsquo;s inside
@@ -204,13 +207,19 @@ export default async function Home(): Promise<React.JSX.Element> {
         <div className="get" id="get">
           <h2 className="serif">Open your books tonight</h2>
           <p className="sub">
-            One DMG, Apple Silicon, free while in beta. Create a company and post your first voucher in under a minute.
+            macOS (Apple Silicon) and Windows, free while in beta. Create a company and post your first voucher in under
+            a minute.
           </p>
-          <a className="btn" href="/api/download">
-            Download Total for macOS
-          </a>
+          <div className="hero-ctas" style={{ justifyContent: 'center' }}>
+            <a className="btn" href="/api/download?platform=mac">
+              Download for macOS
+            </a>
+            <a className="btn ghost" href="/api/download?platform=win">
+              Download for Windows
+            </a>
+          </div>
           <p className="fine num">
-            {release ? `Total ${release.version} · auto-updates from GitHub releases` : 'your data never leaves the machine'}
+            {release ? `Total ${release.version} · auto-updates itself` : 'your data never leaves the machine'}
           </p>
         </div>
 

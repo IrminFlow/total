@@ -16,12 +16,18 @@ export function githubHeaders(accept = 'application/vnd.github+json'): HeadersIn
   return headers
 }
 
+export type Platform = 'mac' | 'win'
+
+interface AssetRef {
+  id: number
+  /** Direct asset URL — only downloadable without auth when the repo is public. */
+  publicUrl: string
+}
+
 export interface ReleaseInfo {
   version: string
   htmlUrl: string
-  dmgAssetId: number | null
-  /** Direct asset URL — only downloadable without auth when the repo is public. */
-  dmgPublicUrl: string | null
+  assets: Partial<Record<Platform, AssetRef>>
 }
 
 /** Latest release, or null when the repo has no releases yet / token is missing on a private repo. */
@@ -38,12 +44,14 @@ export async function latestRelease(): Promise<ReleaseInfo | null> {
       assets?: { id: number; name: string; browser_download_url: string }[]
     }
     if (!data.tag_name) return null
-    const dmg = data.assets?.find((a) => a.name.endsWith('.dmg'))
+    const find = (suffix: string): AssetRef | undefined => {
+      const asset = data.assets?.find((a) => a.name.endsWith(suffix))
+      return asset ? { id: asset.id, publicUrl: asset.browser_download_url } : undefined
+    }
     return {
       version: data.tag_name.replace(/^v/, ''),
       htmlUrl: data.html_url ?? RELEASES_PAGE,
-      dmgAssetId: dmg?.id ?? null,
-      dmgPublicUrl: dmg?.browser_download_url ?? null
+      assets: { mac: find('.dmg'), win: find('.exe') }
     }
   } catch {
     return null
@@ -55,11 +63,12 @@ export async function latestRelease(): Promise<ReleaseInfo | null> {
  * for the asset as octet-stream returns a redirect to a short-lived unauthenticated
  * URL — we hand that to the visitor.
  */
-export async function resolveDownloadUrl(release: ReleaseInfo): Promise<string> {
-  if (!TOKEN) return release.dmgPublicUrl ?? release.htmlUrl
-  if (release.dmgAssetId == null) return release.htmlUrl
+export async function resolveDownloadUrl(release: ReleaseInfo, platform: Platform): Promise<string> {
+  const asset = release.assets[platform]
+  if (!asset) return release.htmlUrl
+  if (!TOKEN) return asset.publicUrl
   try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${release.dmgAssetId}`, {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${asset.id}`, {
       headers: githubHeaders('application/octet-stream'),
       redirect: 'manual',
       cache: 'no-store'
@@ -69,5 +78,5 @@ export async function resolveDownloadUrl(release: ReleaseInfo): Promise<string> 
   } catch {
     // fall through
   }
-  return release.dmgPublicUrl ?? release.htmlUrl
+  return asset.publicUrl
 }
