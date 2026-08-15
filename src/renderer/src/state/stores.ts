@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { CompanyInfo } from '@shared/domain'
 import { fyOf, todayISO } from '@shared/dates'
+import type { SessionUser } from '../lib/client'
 
 // ---------- navigation ----------
 
@@ -50,10 +51,16 @@ interface SessionState {
   to: string
   /** Context date for smart date entry — last used voucher date. */
   workingDate: string
-  setCompany: (slug: string, info: CompanyInfo) => void
+  /** The signed-in local user for the open company, or null before login / after Lock. */
+  user: SessionUser | null
+  /** True when the open company has users and no one has signed in yet — LockScreen shows. */
+  locked: boolean
+  setCompany: (slug: string, info: CompanyInfo, locked?: boolean) => void
   clearCompany: () => void
   setPeriod: (from: string, to: string) => void
   setWorkingDate: (date: string) => void
+  setUser: (user: SessionUser | null) => void
+  setLocked: (locked: boolean) => void
 }
 
 const fy = fyOf(todayISO())
@@ -64,10 +71,14 @@ export const useSession = create<SessionState>((set) => ({
   from: fy.from,
   to: fy.to,
   workingDate: todayISO(),
-  setCompany: (slug, info) => set({ slug, info }),
-  clearCompany: () => set({ slug: null, info: null }),
+  user: null,
+  locked: false,
+  setCompany: (slug, info, locked = false) => set({ slug, info, locked }),
+  clearCompany: () => set({ slug: null, info: null, user: null, locked: false }),
   setPeriod: (from, to) => set({ from, to }),
-  setWorkingDate: (workingDate) => set({ workingDate })
+  setWorkingDate: (workingDate) => set({ workingDate }),
+  setUser: (user) => set({ user }),
+  setLocked: (locked) => set({ locked })
 }))
 
 // ---------- theme ----------

@@ -17,7 +17,7 @@ export function CompanySelect(): React.JSX.Element {
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [integrityIssue, setIntegrityIssue] = useState<{
-    pending: { slug: string; info: CompanyInfo }
+    pending: { slug: string; info: CompanyInfo; locked: boolean }
     integrity: IntegrityResult
   } | null>(null)
 
@@ -27,10 +27,10 @@ export function CompanySelect(): React.JSX.Element {
     try {
       const r = await api.company.open(slug)
       if (!r.integrity.ok) {
-        setIntegrityIssue({ pending: { slug: r.slug, info: r.info }, integrity: r.integrity })
+        setIntegrityIssue({ pending: { slug: r.slug, info: r.info, locked: r.locked }, integrity: r.integrity })
         return
       }
-      setCompany(r.slug, r.info)
+      setCompany(r.slug, r.info, r.locked)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -113,7 +113,7 @@ export function CompanySelect(): React.JSX.Element {
           onOpenAnyway={() => {
             const { pending } = integrityIssue
             setIntegrityIssue(null)
-            setCompany(pending.slug, pending.info)
+            setCompany(pending.slug, pending.info, pending.locked)
           }}
           onCancel={async () => {
             setIntegrityIssue(null)

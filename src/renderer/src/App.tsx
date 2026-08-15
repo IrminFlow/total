@@ -22,9 +22,10 @@ import { EdocsScreen } from './screens/Edocs'
 import { PayrollScreen } from './screens/Payroll'
 import { CommandPalette } from './components/CommandPalette'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { LockScreen } from './components/LockScreen'
 
 export default function App(): React.JSX.Element {
-  const { slug } = useSession()
+  const { slug, locked } = useSession()
   const screen = useScreen()
   const nav = useNav()
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -59,6 +60,13 @@ export default function App(): React.JSX.Element {
   if (!slug) return (
     <>
       <CompanySelect />
+      <Toasts />
+    </>
+  )
+
+  if (locked) return (
+    <>
+      <LockScreen />
       <Toasts />
     </>
   )

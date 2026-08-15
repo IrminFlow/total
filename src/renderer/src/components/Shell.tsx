@@ -58,7 +58,7 @@ const NAV: NavSection[] = [
 ]
 
 export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpenPalette: () => void }): React.JSX.Element {
-  const { info, from, to, clearCompany } = useSession()
+  const { info, from, to, clearCompany, user, setUser, setLocked } = useSession()
   const screen = useScreen()
   const nav = useNav()
   const toast = useToasts()
@@ -97,6 +97,23 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         >
           Anywhere <Kbd>⌘K</Kbd>
         </button>
+        {user && (
+          <>
+            <span className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted capitalize">
+              {user.name} · {user.role}
+            </span>
+            <button
+              className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+              onClick={async () => {
+                await api.auth.logout()
+                setUser(null)
+                setLocked(true)
+              }}
+            >
+              Lock
+            </button>
+          </>
+        )}
       </header>
 
       <div className="flex min-h-0 flex-1">

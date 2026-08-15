@@ -190,6 +190,24 @@ export const auditListSchema = z.object({
 })
 export type AuditListInput = z.infer<typeof auditListSchema>
 
+/** users:save input — pin is digits-only, 4-12 long; required on create, optional on update
+ *  (an update without a pin keeps the existing hash). Role requests are honored except for the
+ *  very first user of a company, which the service always forces to 'owner'. */
+export const userInputSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  role: z.enum(['owner', 'accountant', 'viewer']),
+  pin: z.string().regex(/^\d{4,12}$/, 'PIN must be 4-12 digits').optional(),
+  active: z.boolean().default(true)
+})
+export type UserInput = z.infer<typeof userInputSchema>
+
+/** auth:login input. */
+export const authLoginSchema = z.object({
+  userId: id,
+  pin: z.string().min(1).max(20)
+})
+export type AuthLoginInput = z.infer<typeof authLoginSchema>
+
 /** Renderer-side crash report sent to the main process for logging. */
 export const rendererLogSchema = z.object({
   message: z.string(),

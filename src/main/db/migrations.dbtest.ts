@@ -21,6 +21,7 @@ const EXPECTED_TABLES = [
   'employees',
   'payroll_runs',
   'payroll_lines',
+  'users',
   'migrations'
 ]
 
@@ -68,5 +69,26 @@ describe('migrate', () => {
     expect(columns).toEqual(
       expect.arrayContaining(['id', 'entity', 'entity_id', 'action', 'at', 'before_json', 'after_json', 'user_name', 'app_version'])
     )
+  })
+
+  it('creates the users table with the expected columns and role CHECK constraint', () => {
+    const db = freshDb()
+    const columns = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name)
+    expect(columns).toEqual(
+      expect.arrayContaining(['id', 'name', 'pin_hash', 'role', 'active', 'created_at'])
+    )
+
+    db.prepare("INSERT INTO users (name, pin_hash, role) VALUES ('Owner', 'x', 'owner')").run()
+    expect(() =>
+      db.prepare("INSERT INTO users (name, pin_hash, role) VALUES ('Bad', 'x', 'superuser')").run()
+    ).toThrow()
+  })
+
+  it('users.name is unique case-insensitively', () => {
+    const db = freshDb()
+    db.prepare("INSERT INTO users (name, pin_hash, role) VALUES ('Alice', 'x', 'owner')").run()
+    expect(() =>
+      db.prepare("INSERT INTO users (name, pin_hash, role) VALUES ('alice', 'x', 'accountant')").run()
+    ).toThrow()
   })
 })

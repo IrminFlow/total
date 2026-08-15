@@ -200,7 +200,7 @@ export const MIGRATIONS: string[] = [
     net INTEGER NOT NULL
   );
   `,
-  // 004 — soft delete (+ later tasks will extend this same 004 string in follow-up commits — just write the deleted_at DDL now)
+  // 004 — soft delete, full audit trail, local users/PIN/roles. This migration is now complete.
   `
   ALTER TABLE vouchers ADD COLUMN deleted_at TEXT;
   CREATE INDEX idx_vouchers_deleted ON vouchers(deleted_at) WHERE deleted_at IS NOT NULL;
@@ -210,5 +210,16 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE audit_log ADD COLUMN app_version TEXT;
   CREATE INDEX idx_audit_at ON audit_log(at);
   CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
+
+  -- local users + PIN + roles (task 1.9): a company with zero rows here is unlocked (no gate);
+  -- the first user created is always forced to 'owner' regardless of requested role.
+  CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    pin_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('owner','accountant','viewer')),
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   `
 ]

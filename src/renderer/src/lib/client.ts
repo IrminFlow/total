@@ -9,9 +9,24 @@ import type {
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type {
   AuditListInput, BomInput, CompanyCreateInput, CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput,
-  NicCredentials, RendererLogInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput, VoucherInputParsed
+  NicCredentials, RendererLogInput, StockGroupInput, StockItemInput, UnitInput, UserInput, VoucherTypeInput,
+  VoucherInputParsed
 } from '@shared/schemas'
 import type { Registry } from '../types'
+
+export type Role = 'owner' | 'accountant' | 'viewer'
+
+export interface SessionUser {
+  id: number
+  name: string
+  role: Role
+}
+
+export interface LoginName {
+  id: number
+  name: string
+  role: Role
+}
 
 /** Mirrors src/main/db/backup.ts's BackupInfo shape (kept local — that file is main-process only). */
 export interface BackupInfo {
@@ -39,6 +54,15 @@ export interface BinRow {
   deletedAt: string
 }
 
+/** Mirrors src/main/services/users.ts's User shape (kept local — that file is main-process only). */
+export interface UserRow {
+  id: number
+  name: string
+  role: Role
+  active: boolean
+  createdAt: string
+}
+
 /** Mirrors src/main/services/audit.ts's AuditRow shape (kept local — that file is main-process only). */
 export interface AuditRow {
   id: number
@@ -64,7 +88,7 @@ export const api = {
     list: () => call<Registry>('company:list'),
     create: (input: CompanyCreateInput) => call<{ slug: string }>('company:create', input),
     open: (slug: string) =>
-      call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult }>('company:open', { slug }),
+      call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('company:open', { slug }),
     close: () => call<null>('company:close'),
     current: () => call<{ slug: string; info: CompanyInfo } | null>('company:current'),
     updateInfo: (input: CompanyCreateInput) => call<CompanyInfo>('company:updateInfo', input),
@@ -222,5 +246,16 @@ export const api = {
   },
   audit: {
     list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number }>('audit:list', query)
+  },
+  auth: {
+    users: () => call<LoginName[]>('auth:users'),
+    login: (userId: number, pin: string) => call<SessionUser>('auth:login', { userId, pin }),
+    logout: () => call<null>('auth:logout'),
+    current: () => call<SessionUser | null>('auth:current')
+  },
+  users: {
+    list: () => call<UserRow[]>('users:list'),
+    save: (data: UserInput, id?: number) => call<UserRow>('users:save', { data, id }),
+    deactivate: (id: number) => call<null>('users:deactivate', { id })
   }
 }

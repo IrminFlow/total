@@ -5,11 +5,13 @@ export type AuditAction = 'create' | 'update' | 'delete'
 export interface AuditContext {
   /** Current app version, stamped onto every audit row (electron-builder's package.json version). */
   appVersion: string
-  /** Resolves the signed-in user's display name. Returns null until task 1.9 wires up real auth. */
+  /** Resolves the signed-in user's display name, or null when the company has no users yet
+   *  (unlocked) or no one is signed in. */
   getUserName: () => string | null
 }
 
-// TODO(task-1.9): getUserName becomes real once user accounts land; stubbed to null until then.
+// Default before registerIpc() installs the real context (see ipc.ts) or in any test that
+// doesn't call setAuditContext itself.
 let context: AuditContext = { appVersion: '', getUserName: () => null }
 
 /** Module-level audit context, set once at app startup (see ipc.ts's registerIpc). */
