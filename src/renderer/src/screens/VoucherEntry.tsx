@@ -182,18 +182,19 @@ function InvoiceEntry({ typeId, kind }: { typeId: number; kind: VoucherKind }): 
       const lines: VoucherInputParsed['lines'] = []
       // Which way the party faces, per voucher kind.
       const partyDr = kind === 'sales' || kind === 'debit_note'
-      lines.push({ ledgerId: partyId, drCr: partyDr ? 'dr' : 'cr', amount: rounded })
+      lines.push({ ledgerId: partyId, drCr: partyDr ? 'dr' : 'cr', amount: rounded, costAllocations: [] })
       const counter = partyDr ? 'cr' : 'dr'
-      lines.push({ ledgerId: accountId, drCr: counter, amount: gst.taxable })
-      if (gst.cgst > 0) lines.push({ ledgerId: await ensureTax('cgst'), drCr: counter, amount: gst.cgst })
-      if (gst.sgst > 0) lines.push({ ledgerId: await ensureTax('sgst'), drCr: counter, amount: gst.sgst })
-      if (gst.igst > 0) lines.push({ ledgerId: await ensureTax('igst'), drCr: counter, amount: gst.igst })
-      if (gst.cess > 0) lines.push({ ledgerId: await ensureTax('cess'), drCr: counter, amount: gst.cess })
+      lines.push({ ledgerId: accountId, drCr: counter, amount: gst.taxable, costAllocations: [] })
+      if (gst.cgst > 0) lines.push({ ledgerId: await ensureTax('cgst'), drCr: counter, amount: gst.cgst, costAllocations: [] })
+      if (gst.sgst > 0) lines.push({ ledgerId: await ensureTax('sgst'), drCr: counter, amount: gst.sgst, costAllocations: [] })
+      if (gst.igst > 0) lines.push({ ledgerId: await ensureTax('igst'), drCr: counter, amount: gst.igst, costAllocations: [] })
+      if (gst.cess > 0) lines.push({ ledgerId: await ensureTax('cess'), drCr: counter, amount: gst.cess, costAllocations: [] })
       if (roundDiff !== 0) {
         lines.push({
           ledgerId: await ensureRoundOff(),
           drCr: roundDiff > 0 ? counter : partyDr ? 'dr' : 'cr',
-          amount: Math.abs(roundDiff)
+          amount: Math.abs(roundDiff),
+          costAllocations: []
         })
       }
       // A round-down leaves the counter side heavier — the Round Off line balances the party side.
@@ -223,7 +224,9 @@ function InvoiceEntry({ typeId, kind }: { typeId: number; kind: VoucherKind }): 
           ratePaise: d.ratePaise,
           amount: d.amount,
           direction: goodsIn ? ('in' as const) : ('out' as const)
-        }))
+        })),
+        billRefs: [],
+        tds: null
       }
       const dupes = await api.vouchers.duplicates(input)
       if (dupes.length > 0) {
@@ -568,7 +571,9 @@ function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Element {
             amount: producedValue,
             direction: 'in' as const
           }
-        ]
+        ],
+        billRefs: [],
+        tds: null
       })
       toast.push('success', `Manufacture ${saved.number} saved — ${formatPaise(producedValue, { symbol: true })} into stock`)
       setWorkingDate(date)
@@ -708,7 +713,7 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
     if (saving) return
     const lines = rows
       .filter((r) => r.ledgerId != null && r.amount != null && r.amount > 0)
-      .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount! }))
+      .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount!, costAllocations: [] as never[] }))
     if (lines.length < 2) return void toast.push('error', 'Enter at least one debit and one credit')
     setSaving(true)
     try {
@@ -729,7 +734,9 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
         inventory: existing?.inventory.map((l) => ({
           stockItemId: l.stockItemId, godownId: l.godownId, qtyMilli: l.qtyMilli,
           ratePaise: l.ratePaise, amount: l.amount, direction: l.direction
-        })) ?? []
+        })) ?? [],
+        billRefs: [],
+        tds: null
       }
       // Anomaly nudge on the largest line — a quiet second look, never a block.
       const largest = [...lines].sort((a, b) => b.amount - a.amount)[0]!

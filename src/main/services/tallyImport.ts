@@ -148,7 +148,7 @@ export function importTallyXml(db: DB, xml: string): ImportSummary {
         transportDistanceKm: null,
         currencyCode: null,
         exchangeRate: null,
-        lines: v.lines.map((l) => ({ ledgerId: ledgerId(l.ledger)!, drCr: l.drCr, amount: l.amount })),
+        lines: v.lines.map((l) => ({ ledgerId: ledgerId(l.ledger)!, drCr: l.drCr, amount: l.amount, costAllocations: [] })),
         inventory: v.inventory
           .filter((inv) => itemId(inv.item))
           .map((inv) => ({
@@ -158,7 +158,9 @@ export function importTallyXml(db: DB, xml: string): ImportSummary {
             ratePaise: inv.qtyMilli > 0 ? Math.round((inv.amount * 1000) / inv.qtyMilli) : 0,
             amount: inv.amount,
             direction: goodsIn ? ('in' as const) : ('out' as const)
-          }))
+          })),
+        billRefs: [],
+        tds: null
       })
       counts.vouchers++
     } catch (err) {

@@ -22,6 +22,24 @@ interface VoucherRow {
 /** Greppable filter for every query joining `vouchers` as `v` that must exclude binned vouchers. */
 export const NOT_DELETED = 'v.deleted_at IS NULL'
 
+/** Books-locked-up-to date (inclusive): vouchers dated on or before this date can't be
+ *  saved/deleted/restored. Stored in `meta` under key 'lock_before'; null/absent = no lock. */
+export function getLockDate(db: DB): string | null {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'lock_before'").get() as { value: string } | undefined
+  return row ? row.value : null
+}
+
+/** Set (or clear, with null) the period lock date. Audit-logged against the 'company' entity. */
+export function setLockDate(db: DB, date: string | null): void {
+  const old = getLockDate(db)
+  if (date === null) {
+    db.prepare("DELETE FROM meta WHERE key = 'lock_before'").run()
+  } else {
+    db.prepare("INSERT INTO meta (key, value) VALUES ('lock_before', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(date)
+  }
+  writeAudit(db, 'company', 0, 'update', { lockBefore: old }, { lockBefore: date })
+}
+
 function getVoucherType(db: DB, id: number): VoucherType {
   const row = db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as
     | { id: number; name: string; kind: VoucherType['kind']; numbering: 'auto' | 'manual'; prefix: string; is_system: number }
@@ -133,6 +151,7 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
   if (errors.length) {
     throw new Error(errors.map((e) => e.message).join('; '))
   }
+  // billRefs/costAllocations/tds are validated here but persisted from Task 2.2 (tables in migrations 005/006)
 
   const number =
     vt.numbering === 'manual'
@@ -142,6 +161,11 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
   const before = existingId ? getVoucher(db, existingId) : null
   if (existingId && !before) throw new Error('Voucher not found')
   if (before?.deletedAt) throw new Error('Voucher is in the bin; restore it first')
+
+  const lock = getLockDate(db)
+  if (lock && (input.date <= lock || (before && before.date <= lock))) {
+    throw new Error(`Books are locked up to ${lock}`)
+  }
 
   const run = db.transaction((): number => {
     let voucherId: number
@@ -193,6 +217,8 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
 export function deleteVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
+  const lock = getLockDate(db)
+  if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
   db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(id)
   writeAudit(db, 'voucher', id, 'delete', before, null)
 }
@@ -202,6 +228,8 @@ export function restoreVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
   if (!before.deletedAt) throw new Error('Voucher is not in the bin')
+  const lock = getLockDate(db)
+  if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
   db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
   writeAudit(db, 'voucher', id, 'update', before, { restored: true })
 }

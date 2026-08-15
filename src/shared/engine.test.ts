@@ -231,6 +231,93 @@ describe('voucher posting rules', () => {
     }
     expect(validateVoucher(receiptGood, 'receipt', resolve)).toEqual([])
   })
+
+  it('requires a party ledger when billRefs are given', () => {
+    const v = {
+      ...base,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ],
+      billRefs: [{ kind: 'new' as const, name: 'INV-1', amount: 5000, dueDate: null }]
+    }
+    expect(validateVoucher(v, 'journal', resolve).map((e) => e.code)).toContain('bill_refs_no_party')
+  })
+
+  it('requires billRefs to sum to the party ledger line amount', () => {
+    const v = {
+      ...base,
+      partyLedgerId: 3,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ],
+      billRefs: [{ kind: 'new' as const, name: 'INV-1', amount: 4000, dueDate: null }]
+    }
+    expect(validateVoucher(v, 'journal', resolve).map((e) => e.code)).toContain('bill_refs_mismatch')
+  })
+
+  it('accepts billRefs summing to the party ledger line amount', () => {
+    const v = {
+      ...base,
+      partyLedgerId: 3,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ],
+      billRefs: [
+        { kind: 'new' as const, name: 'INV-1', amount: 3000, dueDate: null },
+        { kind: 'against' as const, name: 'INV-0', amount: 2000, dueDate: '2025-09-01' }
+      ]
+    }
+    expect(validateVoucher(v, 'journal', resolve)).toEqual([])
+  })
+
+  it('flags a bill_refs_mismatch when there is no line on the party ledger at all', () => {
+    const v = {
+      ...base,
+      partyLedgerId: 3,
+      lines: [
+        { ledgerId: 1, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ],
+      billRefs: [{ kind: 'new' as const, name: 'INV-1', amount: 5000, dueDate: null }]
+    }
+    expect(validateVoucher(v, 'journal', resolve).map((e) => e.code)).toContain('bill_refs_mismatch')
+  })
+
+  it('flags cost allocations exceeding the line amount, tagged with the line index', () => {
+    const v = {
+      ...base,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 5000, costAllocations: [{ costCentreId: 1, amount: 6000 }] },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ]
+    }
+    const errors = validateVoucher(v, 'journal', resolve)
+    const err = errors.find((e) => e.code === 'over_allocated')
+    expect(err).toBeDefined()
+    expect(err!.line).toBe(0)
+  })
+
+  it('accepts cost allocations that sum to at most the line amount', () => {
+    const v = {
+      ...base,
+      lines: [
+        {
+          ledgerId: 3,
+          drCr: 'dr' as const,
+          amount: 5000,
+          costAllocations: [
+            { costCentreId: 1, amount: 2000 },
+            { costCentreId: 2, amount: 3000 }
+          ]
+        },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ]
+    }
+    expect(validateVoucher(v, 'journal', resolve)).toEqual([])
+  })
 })
 
 describe('seed data', () => {

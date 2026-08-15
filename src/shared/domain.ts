@@ -157,6 +157,10 @@ export interface CompanyInfo {
   booksFrom: number
   email: string | null
   phone: string | null
+  /** Company's Income Tax PAN, e.g. "ABCDE1234F". */
+  pan: string | null
+  /** Company's TAN (for TDS filings), e.g. "ABCD12345E". */
+  tan: string | null
 }
 
 export interface CompanySummary {

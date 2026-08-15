@@ -7,6 +7,7 @@ import type { EmployeeInput } from '@shared/schemas'
 import { computeMonthlyPay, daysInMonth } from '@shared/payroll'
 import { amountInWords, formatPaise } from '@shared/money'
 import { deleteVoucher, saveVoucher } from './vouchers'
+import { findOrCreateLedger } from './masters'
 import { companyExportsDir } from '../paths'
 import { writeAudit } from './audit'
 
@@ -76,15 +77,6 @@ export function previewRun(db: DB, month: string, days: { employeeId: number; pa
     })
 }
 
-function findOrCreateLedger(db: DB, name: string, groupName: string): number {
-  const existing = db.prepare('SELECT id FROM ledgers WHERE name = ? COLLATE NOCASE').get(name) as { id: number } | undefined
-  if (existing) return existing.id
-  const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(groupName) as { id: number } | undefined
-  if (!group) throw new Error(`Group ${groupName} missing`)
-  const res = db.prepare('INSERT INTO ledgers (name, group_id, is_system) VALUES (?, ?, 0)').run(name, group.id)
-  return Number(res.lastInsertRowid)
-}
-
 /** Post the month's payroll: stores the run + lines and books one balanced Journal voucher. */
 export function commitRun(db: DB, month: string, days: { employeeId: number; payableDays: number }[]): PayrollRun {
   const existing = db.prepare('SELECT id FROM payroll_runs WHERE month = ?').get(month) as { id: number } | undefined
@@ -103,9 +95,9 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
 
   const journal = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal' AND is_system = 1").get() as { id: number }
 
-  const voucherLines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[] = []
+  const voucherLines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; costAllocations: never[] }[] = []
   const push = (name: string, group: string, drCr: 'dr' | 'cr', amount: number): void => {
-    if (amount > 0) voucherLines.push({ ledgerId: findOrCreateLedger(db, name, group), drCr, amount })
+    if (amount > 0) voucherLines.push({ ledgerId: findOrCreateLedger(db, name, group), drCr, amount, costAllocations: [] })
   }
   push('Salaries', 'Indirect Expenses', 'dr', gross)
   push('Employer PF Contribution', 'Indirect Expenses', 'dr', pfEr)
@@ -130,7 +122,9 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
     currencyCode: null,
     exchangeRate: null,
     lines: voucherLines,
-    inventory: []
+    inventory: [],
+    billRefs: [],
+    tds: null
   })
 
   const run = db.transaction((): number => {

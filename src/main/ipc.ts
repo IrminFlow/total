@@ -15,7 +15,7 @@ import { companyBackupsDir, companyDbPath, companyExportsDir, ensureCompanyTree,
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
-  backupFileSchema, companyCreateSchema, godownInputSchema, groupInputSchema, ledgerInputSchema, passphraseSchema,
+  backupFileSchema, companyCreateSchema, godownInputSchema, groupInputSchema, isoDate, ledgerInputSchema, passphraseSchema,
   periodSchema, rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, unitInputSchema, voucherInputSchema,
   voucherTypeInputSchema
 } from '@shared/schemas'
@@ -219,6 +219,13 @@ export function registerIpc(): void {
     shell.openPath(companyExportsDir(c.slug))
     return null
   })
+
+  handle('company:lock:get', () => ({ date: vouchers.getLockDate(requireCompany().db) }), 'viewer')
+  handle('company:lock:set', (payload) => {
+    const { date } = z.object({ date: isoDate.nullable() }).parse(payload)
+    vouchers.setLockDate(requireCompany().db, date)
+    return { date }
+  }, 'owner')
 
   // ---------- backups: list/run/restore + encrypted export/import ----------
   handle('backup:list', (): BackupInfo[] => {

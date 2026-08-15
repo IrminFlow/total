@@ -15,6 +15,22 @@ const paise = z.number().int().safe()
 const positivePaise = paise.positive()
 const id = z.number().int().positive()
 
+/** Optional identifier field: uppercases, treats an empty/blank string as absent (null), and
+ *  regex-validates whatever's left. Used for PAN/TAN, which are optional on a company. */
+const optionalIdSchema = (regex: RegExp, message: string) =>
+  z
+    .string()
+    .trim()
+    .transform((s) => s.toUpperCase())
+    .nullable()
+    .optional()
+    .default(null)
+    .transform((s) => (s === '' ? null : s))
+    .refine((s) => s === null || regex.test(s), message)
+
+export const panSchema = optionalIdSchema(/^[A-Z]{5}\d{4}[A-Z]$/, 'Invalid PAN')
+export const tanSchema = optionalIdSchema(/^[A-Z]{4}\d{5}[A-Z]$/, 'Invalid TAN')
+
 export const companyCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
   stateCode: stateCodeSchema,
@@ -23,7 +39,9 @@ export const companyCreateSchema = z.object({
   address: z.string().trim().max(500).default(''),
   booksFrom: z.number().int().min(1990).max(2100),
   email: z.string().trim().email().nullable(),
-  phone: z.string().trim().max(20).nullable()
+  phone: z.string().trim().max(20).nullable(),
+  pan: panSchema,
+  tan: tanSchema
 })
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>
 
@@ -77,10 +95,29 @@ export const godownInputSchema = z.object({
 })
 export type GodownInput = z.infer<typeof godownInputSchema>
 
+export const costAllocationSchema = z.object({
+  costCentreId: id,
+  amount: positivePaise
+})
+
 export const voucherLineSchema = z.object({
   ledgerId: id,
   drCr: z.enum(['dr', 'cr']),
-  amount: positivePaise
+  amount: positivePaise,
+  costAllocations: z.array(costAllocationSchema).max(20).default([])
+})
+
+export const billRefSchema = z.object({
+  kind: z.enum(['new', 'against']),
+  name: z.string().trim().min(1).max(80),
+  amount: positivePaise,
+  dueDate: isoDate.nullable().default(null)
+})
+
+export const tdsSchema = z.object({
+  sectionId: id,
+  baseAmount: positivePaise,
+  tdsAmount: positivePaise
 })
 
 export const inventoryLineSchema = z.object({
@@ -107,7 +144,9 @@ export const voucherInputSchema = z.object({
   currencyCode: z.string().trim().length(3).transform((s) => s.toUpperCase()).nullable().default(null),
   exchangeRate: z.number().positive().max(100000).nullable().default(null),
   lines: z.array(voucherLineSchema).max(200),
-  inventory: z.array(inventoryLineSchema).max(200).default([])
+  inventory: z.array(inventoryLineSchema).max(200).default([]),
+  billRefs: z.array(billRefSchema).max(50).default([]),
+  tds: tdsSchema.nullable().default(null)
 })
 export type VoucherInputParsed = z.infer<typeof voucherInputSchema>
 

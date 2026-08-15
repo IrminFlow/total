@@ -17,7 +17,9 @@ export const TEST_INFO: CompanyInfo = {
   address: '',
   booksFrom: 2025,
   email: null,
-  phone: null
+  phone: null,
+  pan: null,
+  tan: null
 }
 
 /** An in-memory DB with the schema migrated but no seed data. */
@@ -88,9 +90,11 @@ export function postSimpleVoucher(db: DB, opts: SimpleVoucherOpts): Voucher {
     currencyCode: null,
     exchangeRate: null,
     lines: [
-      { ledgerId: drId, drCr: 'dr', amount: opts.amount },
-      { ledgerId: crId, drCr: 'cr', amount: opts.amount }
+      { ledgerId: drId, drCr: 'dr', amount: opts.amount, costAllocations: [] },
+      { ledgerId: crId, drCr: 'cr', amount: opts.amount, costAllocations: [] }
     ],
-    inventory: []
+    inventory: [],
+    billRefs: [],
+    tds: null
   })
 }

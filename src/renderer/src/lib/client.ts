@@ -93,7 +93,9 @@ export const api = {
     current: () => call<{ slug: string; info: CompanyInfo; locked: boolean } | null>('company:current'),
     updateInfo: (input: CompanyCreateInput) => call<CompanyInfo>('company:updateInfo', input),
     backup: () => call<{ path: string }>('company:backup'),
-    revealExports: () => call<null>('company:revealExports')
+    revealExports: () => call<null>('company:revealExports'),
+    lockGet: () => call<{ date: string | null }>('company:lock:get'),
+    lockSet: (date: string | null) => call<{ date: string | null }>('company:lock:set', { date })
   },
   backups: {
     list: () => call<BackupInfo[]>('backup:list'),

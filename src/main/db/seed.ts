@@ -37,7 +37,9 @@ export function seedCompany(db: DB, info: CompanyInfo): void {
 
 export function readCompanyInfo(db: DB): CompanyInfo {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string }
-  return JSON.parse(row.value) as CompanyInfo
+  const parsed = JSON.parse(row.value) as CompanyInfo
+  // Older companies were seeded before pan/tan existed — default them in so callers never see undefined.
+  return { ...parsed, pan: parsed.pan ?? null, tan: parsed.tan ?? null }
 }
 
 export function writeCompanyInfo(db: DB, info: CompanyInfo): void {

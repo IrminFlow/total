@@ -51,10 +51,12 @@ describe('saveVoucher / getVoucher round-trip', () => {
       currencyCode: null,
       exchangeRate: null,
       lines: [
-        { ledgerId: cashId, drCr: 'dr', amount: 10000 },
-        { ledgerId: otherLedger.id, drCr: 'cr', amount: 10000 }
+        { ledgerId: cashId, drCr: 'dr', amount: 10000, costAllocations: [] },
+        { ledgerId: otherLedger.id, drCr: 'cr', amount: 10000, costAllocations: [] }
       ],
-      inventory: []
+      inventory: [],
+      billRefs: [],
+      tds: null
     })
 
     const updated = saveVoucher(
@@ -73,10 +75,12 @@ describe('saveVoucher / getVoucher round-trip', () => {
         currencyCode: null,
         exchangeRate: null,
         lines: [
-          { ledgerId: cashId, drCr: 'dr', amount: 25000 },
-          { ledgerId: otherLedger.id, drCr: 'cr', amount: 25000 }
+          { ledgerId: cashId, drCr: 'dr', amount: 25000, costAllocations: [] },
+          { ledgerId: otherLedger.id, drCr: 'cr', amount: 25000, costAllocations: [] }
         ],
-        inventory: []
+        inventory: [],
+        billRefs: [],
+        tds: null
       },
       created.id
     )
@@ -110,8 +114,10 @@ describe('saveVoucher / getVoucher round-trip', () => {
         transportDistanceKm: null,
         currencyCode: null,
         exchangeRate: null,
-        lines: saved.lines.map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount })),
-        inventory: []
+        lines: saved.lines.map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount, costAllocations: [] })),
+        inventory: [],
+        billRefs: [],
+        tds: null
       },
       saved.id
     )

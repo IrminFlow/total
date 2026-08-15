@@ -2,6 +2,7 @@ import type { DB } from '../db/connection'
 import type { BankLineRow, BankRecon } from '@shared/reports'
 import { descendantIdsByName } from './masters'
 import { isValidISODate } from '@shared/dates'
+import { parseCsvLine } from '@shared/csv'
 import { NOT_DELETED } from './vouchers'
 import { writeAudit } from './audit'
 
@@ -110,26 +111,11 @@ function parseAmountCell(cell: string): number | null {
   return Math.round(n * 100)
 }
 
-function splitCsvLine(line: string): string[] {
-  const cells: string[] = []
-  let current = ''
-  let inQuotes = false
-  for (const ch of line) {
-    if (ch === '"') inQuotes = !inQuotes
-    else if (ch === ',' && !inQuotes) {
-      cells.push(current)
-      current = ''
-    } else current += ch
-  }
-  cells.push(current)
-  return cells
-}
-
 /** Parse a bank statement CSV: finds date/debit/credit (or signed amount) columns from the header. */
 export function parseStatementCsv(csv: string): StatementRow[] {
   const lines = csv.split(/\r?\n/).filter((l) => l.trim() !== '')
   if (lines.length < 2) return []
-  const header = splitCsvLine(lines[0]!).map((h) => h.trim().toLowerCase())
+  const header = parseCsvLine(lines[0]!).map((h) => h.trim().toLowerCase())
   const dateIdx = header.findIndex((h) => h.includes('date'))
   const debitIdx = header.findIndex((h) => h.includes('debit') || h.includes('withdraw'))
   const creditIdx = header.findIndex((h) => h.includes('credit') || h.includes('deposit'))
@@ -139,7 +125,7 @@ export function parseStatementCsv(csv: string): StatementRow[] {
 
   const rows: StatementRow[] = []
   for (const line of lines.slice(1)) {
-    const cells = splitCsvLine(line)
+    const cells = parseCsvLine(line)
     const date = parseDateCell(cells[dateIdx] ?? '')
     if (!date) continue
     let deposit = 0

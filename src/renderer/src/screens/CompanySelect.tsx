@@ -259,7 +259,9 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
         address,
         booksFrom,
         email: null,
-        phone: null
+        phone: null,
+        pan: null,
+        tan: null
       }
       if (!input.name) {
         toast.push('error', 'Company name is required')

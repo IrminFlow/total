@@ -118,6 +118,17 @@ export function cashBankGroupIds(db: DB): Set<number> {
   return descendantIdsByName(db, CASH_BANK_GROUPS)
 }
 
+/** Find a ledger by name (case-insensitive), creating it under `groupName` if it doesn't exist yet.
+ *  Used by services that auto-book system ledgers (e.g. payroll's Salaries/PF Payable/...). */
+export function findOrCreateLedger(db: DB, name: string, groupName: string): number {
+  const existing = db.prepare('SELECT id FROM ledgers WHERE name = ? COLLATE NOCASE').get(name) as { id: number } | undefined
+  if (existing) return existing.id
+  const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(groupName) as { id: number } | undefined
+  if (!group) throw new Error(`Group ${groupName} missing`)
+  const res = db.prepare('INSERT INTO ledgers (name, group_id, is_system) VALUES (?, ?, 0)').run(name, group.id)
+  return Number(res.lastInsertRowid)
+}
+
 // ---------- ledgers ----------
 
 export function listLedgers(db: DB): Ledger[] {

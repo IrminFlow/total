@@ -129,8 +129,10 @@ describe('soft delete + bin', () => {
           transportDistanceKm: null,
           currencyCode: null,
           exchangeRate: null,
-          lines: v.lines.map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount })),
-          inventory: []
+          lines: v.lines.map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount, costAllocations: [] })),
+          inventory: [],
+          billRefs: [],
+          tds: null
         },
         v.id
       )

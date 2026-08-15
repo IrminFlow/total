@@ -5,6 +5,9 @@ import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../compon
 import { GST_STATES } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
 
+const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
+const TAN_RE = /^[A-Z]{4}\d{5}[A-Z]$/
+
 export function CompanyInfoScreen(): React.JSX.Element {
   const { info, slug, setCompany } = useSession()
   const toast = useToasts()
@@ -15,13 +18,19 @@ export function CompanyInfoScreen(): React.JSX.Element {
   const [address, setAddress] = useState(info?.address ?? '')
   const [email, setEmail] = useState(info?.email ?? '')
   const [phone, setPhone] = useState(info?.phone ?? '')
+  const [pan, setPan] = useState(info?.pan ?? '')
+  const [tan, setTan] = useState(info?.tan ?? '')
 
   const gstinCheck = gstin.trim() ? validateGstin(gstin) : null
   const gstinError = gstinCheck && !gstinCheck.valid ? 'Invalid GSTIN — check each character' : null
+  const panError = pan.trim() && !PAN_RE.test(pan.trim()) ? 'Invalid PAN (e.g. ABCDE1234F)' : null
+  const tanError = tan.trim() && !TAN_RE.test(tan.trim()) ? 'Invalid TAN (e.g. ABCD12345E)' : null
 
   const save = async (): Promise<void> => {
     try {
       if (gstinError) return void toast.push('error', gstinError)
+      if (panError) return void toast.push('error', panError)
+      if (tanError) return void toast.push('error', tanError)
       const updated = await api.company.updateInfo({
         name: name.trim(),
         stateCode,
@@ -30,7 +39,9 @@ export function CompanyInfoScreen(): React.JSX.Element {
         address,
         booksFrom: info?.booksFrom ?? 2025,
         email: email.trim() || null,
-        phone: phone.trim() || null
+        phone: phone.trim() || null,
+        pan: pan.trim() ? pan.trim().toUpperCase() : null,
+        tan: tan.trim() ? tan.trim().toUpperCase() : null
       })
       if (slug) setCompany(slug, updated)
       toast.push('success', 'Company details saved')
@@ -76,6 +87,14 @@ export function CompanyInfoScreen(): React.JSX.Element {
           </Field>
           <Field label="Phone">
             <TextInput value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="PAN" error={panError} hint="Company's Income Tax PAN">
+            <TextInput value={pan} onChange={(e) => setPan(e.target.value.toUpperCase())} className="num" maxLength={10} />
+          </Field>
+          <Field label="TAN" error={tanError} hint="Needed for TDS filings">
+            <TextInput value={tan} onChange={(e) => setTan(e.target.value.toUpperCase())} className="num" maxLength={10} />
           </Field>
         </div>
         <div className="flex justify-between">
