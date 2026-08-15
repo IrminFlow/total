@@ -6,7 +6,7 @@ import type { CompanyInfo, Employee, PayrollLine, PayrollRun } from '@shared/dom
 import type { EmployeeInput } from '@shared/schemas'
 import { computeMonthlyPay, daysInMonth } from '@shared/payroll'
 import { amountInWords, formatPaise } from '@shared/money'
-import { saveVoucher } from './vouchers'
+import { deleteVoucher, saveVoucher } from './vouchers'
 import { companyExportsDir } from '../paths'
 
 // ---------- employees ----------
@@ -183,7 +183,7 @@ export function deleteRun(db: DB, id: number): void {
   if (!run) throw new Error('Pay run not found')
   const del = db.transaction(() => {
     db.prepare('DELETE FROM payroll_runs WHERE id = ?').run(id)
-    if (run.voucherId) db.prepare('DELETE FROM vouchers WHERE id = ?').run(run.voucherId)
+    if (run.voucherId) deleteVoucher(db, run.voucherId)
   })
   del()
 }

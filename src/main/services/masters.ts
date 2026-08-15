@@ -165,7 +165,7 @@ export function ledgerBalances(db: DB, asOn: string, includeZero = false): Ledge
        LEFT JOIN (
          SELECT vl.ledger_id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS movement
          FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-         WHERE v.date <= ?
+         WHERE v.date <= ? AND v.deleted_at IS NULL
          GROUP BY vl.ledger_id
        ) m ON m.ledger_id = l.id
        ORDER BY l.name`

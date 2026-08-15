@@ -2,6 +2,7 @@ import type { DB } from '../db/connection'
 import type { BankLineRow, BankRecon } from '@shared/reports'
 import { descendantIdsByName } from './masters'
 import { isValidISODate } from '@shared/dates'
+import { NOT_DELETED } from './vouchers'
 
 export function bankLedgers(db: DB): { id: number; name: string }[] {
   const ids = descendantIdsByName(db, ['Bank Accounts', 'Bank OD A/c'])
@@ -26,7 +27,7 @@ export function bankRecon(db: DB, ledgerId: number, from: string, to: string): B
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ?
+       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
        ORDER BY v.date, v.id`
     )
     .all(ledgerId, from, to) as (Omit<BankLineRow, 'deposit' | 'withdrawal'> & { drCr: 'dr' | 'cr'; amount: number })[]
@@ -48,7 +49,7 @@ export function bankRecon(db: DB, ledgerId: number, from: string, to: string): B
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND v.date <= ?`
+       WHERE vl.ledger_id = ? AND v.date <= ? AND ${NOT_DELETED}`
     )
     .get(ledgerId, to) as { m: number }
   const bookBalance = ledger.opening_balance + bookRow.m
@@ -168,7 +169,7 @@ export function importStatement(db: DB, ledgerId: number, csv: string): ImportRe
     .prepare(
       `SELECT vl.id AS lineId, v.date, vl.dr_cr AS drCr, vl.amount
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND vl.bank_date IS NULL`
+       WHERE vl.ledger_id = ? AND vl.bank_date IS NULL AND ${NOT_DELETED}`
     )
     .all(ledgerId) as { lineId: number; date: string; drCr: 'dr' | 'cr'; amount: number }[]
 

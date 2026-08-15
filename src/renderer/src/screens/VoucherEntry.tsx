@@ -772,9 +772,9 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
-    if (!window.confirm('Delete this voucher? The audit log keeps a copy.')) return
+    if (!window.confirm('Move to Bin? You can restore it from the bin for 30 days.')) return
     await api.vouchers.remove(voucherId)
-    toast.push('success', 'Voucher deleted')
+    toast.push('success', 'Moved to Bin')
     await queryClient.invalidateQueries()
     nav.back()
   }

@@ -127,6 +127,8 @@ export function registerIpc(): void {
     if (!integrity.ok) {
       log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
     }
+    const purged = vouchers.purgeOldDeleted(db, 30)
+    if (purged > 0) log('info', 'bin-purge', { purged })
     touchLastOpened(slug)
     return { slug, info, integrity }
   })
@@ -339,6 +341,9 @@ export function registerIpc(): void {
     return vouchers.saveVoucher(requireCompany().db, data, id)
   })
   handle('voucher:delete', (p) => vouchers.deleteVoucher(requireCompany().db, idSchema.parse(p).id))
+  handle('voucher:bin', () => vouchers.listBin(requireCompany().db))
+  handle('voucher:restore', (p) => vouchers.restoreVoucher(requireCompany().db, idSchema.parse(p).id))
+  handle('voucher:purge', (p) => vouchers.purgeVoucher(requireCompany().db, idSchema.parse(p).id))
   handle('voucher:nextNumber', (p) => {
     const { voucherTypeId, date, excludeId } = z
       .object({ voucherTypeId: z.number().int().positive(), date: z.string(), excludeId: z.number().int().positive().optional() })

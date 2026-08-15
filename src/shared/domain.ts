@@ -105,6 +105,8 @@ export interface Voucher {
   irnAckDate: string | null
   ewbNo: string | null
   ewbValidUpto: string | null
+  /** Set once the voucher is moved to the bin (soft delete); null while active. */
+  deletedAt: string | null
   lines: VoucherLine[]
   inventory: InventoryLine[]
   createdAt: string

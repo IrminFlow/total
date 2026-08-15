@@ -6,6 +6,7 @@ import type { EdocListRow } from '@shared/reports'
 import { buildEInvoiceJson, buildEwbJson, type EdocCompany, type EdocInvoice, type EdocItem } from '@shared/gst/edocs'
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
 import { companyExportsDir } from '../paths'
+import { NOT_DELETED } from './vouchers'
 
 export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow[] {
   return db
@@ -19,7 +20,7 @@ export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        LEFT JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
          ON t.voucher_id = v.id
-       WHERE vt.kind = 'sales' AND v.date BETWEEN ? AND ?
+       WHERE vt.kind = 'sales' AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
        ORDER BY v.date, v.id`
     )
     .all(from, to)
@@ -37,7 +38,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        WHERE vt.kind = 'sales' AND v.date BETWEEN ? AND ?
-         AND (? IS NULL OR v.id = ?)
+         AND (? IS NULL OR v.id = ?) AND ${NOT_DELETED}
        ORDER BY v.date, v.id`
     )
     .all(from, to, voucherId ?? null, voucherId ?? null) as {

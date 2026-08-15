@@ -6,6 +6,7 @@ import { buildGstr1, buildGstr3b, type GstDoc, type GstDocRateItem, type GstHsnL
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
 import { descendantIdsByName } from './masters'
 import { companyExportsDir } from '../paths'
+import { NOT_DELETED } from './vouchers'
 
 interface DocVoucherRow {
   id: number; date: string; number: string; kind: 'sales' | 'credit_note'
@@ -27,7 +28,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind IN ('sales', 'credit_note') AND v.date BETWEEN ? AND ?
+       WHERE vt.kind IN ('sales', 'credit_note') AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as DocVoucherRow[]
@@ -140,7 +141,7 @@ export function inwardSummary(db: DB, from: string, to: string): InwardSummary {
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ?
+       WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
        GROUP BY l.tax_type`
     )
     .all(from, to) as { taxType: 'cgst' | 'sgst' | 'igst' | 'cess'; amount: number }[]

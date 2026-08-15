@@ -5,7 +5,7 @@ import type {
 } from '@shared/reports'
 import type { Group, Nature } from '@shared/domain'
 import { listGroups, descendantIdsByName } from './masters'
-import { listVouchers } from './vouchers'
+import { listVouchers, NOT_DELETED } from './vouchers'
 
 // ---------- shared helpers ----------
 
@@ -15,7 +15,7 @@ function movements(db: DB, from: string, to: string): Map<number, number> {
     .prepare(
       `SELECT vl.ledger_id AS id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS m
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE v.date BETWEEN ? AND ? GROUP BY vl.ledger_id`
+       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED} GROUP BY vl.ledger_id`
     )
     .all(from, to) as { id: number; m: number }[]
   return new Map(rows.map((r) => [r.id, r.m]))
@@ -28,7 +28,7 @@ function closingBalances(db: DB, asOn: string): Map<number, number> {
       `SELECT l.id, l.opening_balance + COALESCE((
          SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END)
          FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-         WHERE vl.ledger_id = l.id AND v.date <= ?
+         WHERE vl.ledger_id = l.id AND v.date <= ? AND ${NOT_DELETED}
        ), 0) AS bal
        FROM ledgers l`
     )
@@ -107,7 +107,7 @@ export function stockSummary(db: DB, asOn: string): StockSummaryRow[] {
                 SUM(CASE WHEN il.direction = 'in' THEN il.amount ELSE 0 END) AS in_val,
                 SUM(CASE WHEN il.direction = 'out' THEN il.qty_milli ELSE 0 END) AS out_qty
          FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-         WHERE v.date <= ?
+         WHERE v.date <= ? AND ${NOT_DELETED}
          GROUP BY il.stock_item_id
        ) m ON m.stock_item_id = si.id
        ORDER BY si.name`
@@ -176,7 +176,7 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND v.date < ?`
+       WHERE vl.ledger_id = ? AND v.date < ? AND ${NOT_DELETED}`
     )
     .get(ledgerId, from) as { m: number }
   const opening = ledger.opening_balance + beforeRow.m
@@ -191,7 +191,7 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ?
+       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
        ORDER BY v.date, v.id, vl.line_order`
     )
     .all(ledgerId, from, to) as {
@@ -369,7 +369,7 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
          JOIN voucher_types vt ON vt.id = v.voucher_type_id
          JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
            ON t.voucher_id = v.id
-         WHERE vt.kind = ? AND v.date BETWEEN ? AND ?`
+         WHERE vt.kind = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
       )
       .get(kind, from, to) as { s: number }
     return row.s

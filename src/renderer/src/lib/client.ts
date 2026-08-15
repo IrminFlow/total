@@ -28,6 +28,17 @@ export interface IntegrityResult {
   unbalancedVoucherIds: number[]
 }
 
+/** Mirrors src/main/services/vouchers.ts's BinRow shape (kept local — that file is main-process only). */
+export interface BinRow {
+  id: number
+  date: string
+  number: string
+  voucherType: string
+  account: string
+  amount: number
+  deletedAt: string
+}
+
 /** Invoke a main-process channel; throws the error message on failure. */
 async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
@@ -102,7 +113,10 @@ export const api = {
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),
     duplicates: (data: VoucherInputParsed, excludeId?: number) =>
-      call<{ voucherId: number; number: string; date: string }[]>('voucher:duplicates', { data, excludeId })
+      call<{ voucherId: number; number: string; date: string }[]>('voucher:duplicates', { data, excludeId }),
+    bin: () => call<BinRow[]>('voucher:bin'),
+    restore: (id: number) => call<null>('voucher:restore', { id }),
+    purge: (id: number) => call<null>('voucher:purge', { id })
   },
   reports: {
     dayBook: (from: string, to: string) => call<DayBookRow[]>('report:dayBook', { from, to }),

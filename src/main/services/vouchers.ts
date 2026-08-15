@@ -14,8 +14,12 @@ interface VoucherRow {
   currency_code: string | null; exchange_rate: number | null
   irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null
   ewb_no: string | null; ewb_valid_upto: string | null
+  deleted_at: string | null
   created_at: string; updated_at: string
 }
+
+/** Greppable filter for every query joining `vouchers` as `v` that must exclude binned vouchers. */
+export const NOT_DELETED = 'v.deleted_at IS NULL'
 
 function getVoucherType(db: DB, id: number): VoucherType {
   const row = db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as
@@ -54,6 +58,7 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     irnAckDate: v.irn_ack_date,
     ewbNo: v.ewb_no,
     ewbValidUpto: v.ewb_valid_upto,
+    deletedAt: v.deleted_at,
     createdAt: v.created_at,
     updatedAt: v.updated_at,
     lines: lines.map((l): VoucherLine => ({ id: l.id, ledgerId: l.ledger_id, drCr: l.dr_cr, amount: l.amount, bankDate: l.bank_date })),
@@ -100,7 +105,8 @@ export function findDuplicates(db: DB, input: VoucherInputParsed, excludeId?: nu
          ON t.voucher_id = v.id
        WHERE v.voucher_type_id = ? AND t.total = ?
          AND v.party_ledger_id IS ? AND v.id IS NOT ?
-         AND julianday(v.date) BETWEEN julianday(?) - 3 AND julianday(?) + 3`
+         AND julianday(v.date) BETWEEN julianday(?) - 3 AND julianday(?) + 3
+         AND ${NOT_DELETED}`
     )
     .all(input.voucherTypeId, total, input.partyLedgerId, excludeId ?? -1, input.date, input.date) as DuplicateWarning[]
   return rows
@@ -139,6 +145,7 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
 
   const before = existingId ? getVoucher(db, existingId) : null
   if (existingId && !before) throw new Error('Voucher not found')
+  if (before?.deletedAt) throw new Error('Voucher is in the bin; restore it first')
 
   const run = db.transaction((): number => {
     let voucherId: number
@@ -186,11 +193,75 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
   return after
 }
 
+/** Move a voucher to the bin (soft delete). Report queries exclude it; restoreVoucher undoes this. */
 export function deleteVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
-  db.prepare('DELETE FROM vouchers WHERE id = ?').run(id)
+  db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(id)
   audit(db, 'voucher', id, 'delete', before, null)
+}
+
+/** Reinstate a binned voucher so it counts in reports again. */
+export function restoreVoucher(db: DB, id: number): void {
+  const before = getVoucher(db, id)
+  if (!before) throw new Error('Voucher not found')
+  if (!before.deletedAt) throw new Error('Voucher is not in the bin')
+  db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
+  audit(db, 'voucher', id, 'update', before, { restored: true })
+}
+
+/** Permanently remove a voucher that is already in the bin. Irreversible. */
+export function purgeVoucher(db: DB, id: number): void {
+  const before = getVoucher(db, id)
+  if (!before) throw new Error('Voucher not found')
+  if (!before.deletedAt) throw new Error('Voucher must be in the bin before it can be purged')
+  db.prepare('DELETE FROM vouchers WHERE id = ?').run(id)
+  audit(db, 'voucher', id, 'delete', { ...before, purged: true }, null)
+}
+
+/** Vouchers auto-purged after sitting in the bin longer than `days` (default 30). Returns the count purged. */
+export function purgeOldDeleted(db: DB, days = 30): number {
+  const rows = db
+    .prepare(`SELECT id FROM vouchers WHERE deleted_at IS NOT NULL AND deleted_at <= datetime('now', ?)`)
+    .all(`-${days} days`) as { id: number }[]
+  for (const r of rows) purgeVoucher(db, r.id)
+  return rows.length
+}
+
+export interface BinRow {
+  id: number
+  date: string
+  number: string
+  voucherType: string
+  account: string
+  amount: number
+  deletedAt: string
+}
+
+/** Binned vouchers, most recently deleted first. Mirrors listVouchers' account/amount derivation. */
+export function listBin(db: DB): BinRow[] {
+  const rows = db
+    .prepare(
+      `SELECT v.id, v.date, vt.name AS voucherType, v.number,
+              COALESCE(pl.name, fl.name, '') AS account,
+              COALESCE(t.total, 0) AS amount,
+              v.deleted_at AS deletedAt
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
+       LEFT JOIN (
+         SELECT voucher_id, MIN(id) AS first_line FROM voucher_lines GROUP BY voucher_id
+       ) f ON f.voucher_id = v.id
+       LEFT JOIN voucher_lines fvl ON fvl.id = f.first_line
+       LEFT JOIN ledgers fl ON fl.id = fvl.ledger_id
+       LEFT JOIN (
+         SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id
+       ) t ON t.voucher_id = v.id
+       WHERE v.deleted_at IS NOT NULL
+       ORDER BY v.deleted_at DESC`
+    )
+    .all() as BinRow[]
+  return rows
 }
 
 export function listVouchers(db: DB, from: string, to: string, voucherTypeId?: number): VoucherListRow[] {
@@ -210,7 +281,7 @@ export function listVouchers(db: DB, from: string, to: string, voucherTypeId?: n
        LEFT JOIN (
          SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id
        ) t ON t.voucher_id = v.id
-       WHERE v.date BETWEEN ? AND ? ${voucherTypeId ? 'AND v.voucher_type_id = ?' : ''}
+       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED} ${voucherTypeId ? 'AND v.voucher_type_id = ?' : ''}
        ORDER BY v.date, v.id`
     )
     .all(...(voucherTypeId ? [from, to, voucherTypeId] : [from, to])) as VoucherListRow[]

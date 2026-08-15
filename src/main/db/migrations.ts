@@ -199,5 +199,10 @@ export const MIGRATIONS: string[] = [
     pt INTEGER NOT NULL,
     net INTEGER NOT NULL
   );
+  `,
+  // 004 — soft delete (+ later tasks will extend this same 004 string in follow-up commits — just write the deleted_at DDL now)
+  `
+  ALTER TABLE vouchers ADD COLUMN deleted_at TEXT;
+  CREATE INDEX idx_vouchers_deleted ON vouchers(deleted_at) WHERE deleted_at IS NOT NULL;
   `
 ]

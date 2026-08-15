@@ -46,4 +46,12 @@ describe('migrate', () => {
     const names = rows.map((r) => r.name).sort()
     expect(names).toEqual([...EXPECTED_TABLES].sort())
   })
+
+  it('creates the partial index backing the bin (deleted_at lookups)', () => {
+    const db = freshDb()
+    const row = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_vouchers_deleted'")
+      .get() as { name: string } | undefined
+    expect(row?.name).toBe('idx_vouchers_deleted')
+  })
 })

@@ -1,6 +1,7 @@
 import type { DB } from '../db/connection'
 import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@shared/reports'
 import { descendantIdsByName } from './masters'
+import { NOT_DELETED } from './vouchers'
 
 /** Monthly sales/purchase register: voucher count, taxable, tax and invoice totals per month. */
 export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string, to: string): RegisterMonthRow[] {
@@ -15,7 +16,7 @@ export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN voucher_lines vl ON vl.voucher_id = v.id
        JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE vt.kind = ? AND v.date BETWEEN ? AND ?`
+       WHERE vt.kind = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
     )
     .all(kind, from, to) as { month: string; voucherId: number; amount: number; groupId: number; taxType: string | null; drCr: string }[]
 
@@ -60,7 +61,7 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
         `SELECT v.id AS voucherId, v.date, v.number,
                 SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
          FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-         WHERE vl.ledger_id = ? AND v.date <= ?
+         WHERE vl.ledger_id = ? AND v.date <= ? AND ${NOT_DELETED}
          GROUP BY v.id ORDER BY v.date, v.id`
       )
       .all(party.id, asOn) as { voucherId: number; date: string; number: string; net: number }[]
