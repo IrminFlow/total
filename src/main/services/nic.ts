@@ -10,6 +10,7 @@ import type { CompanyInfo } from '@shared/domain'
 import { nicCredentialsSchema, type NicCredentials } from '@shared/schemas'
 import { buildEInvoiceJson, type EdocCompany } from '@shared/gst/edocs'
 import { extractEdocInvoices } from './edocs'
+import { writeAudit } from './audit'
 
 // ---------- credential storage ----------
 
@@ -26,6 +27,8 @@ export function readNicCredentials(db: DB): NicCredentials {
 export function writeNicCredentials(db: DB, creds: NicCredentials): void {
   db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
     .run('nic', JSON.stringify(creds))
+  // Credentials (incl. password) never go into the audit trail — before/after are always null.
+  writeAudit(db, 'nic_credentials', 0, 'update', null, null)
 }
 
 export function nicConfigured(db: DB): boolean {
@@ -170,6 +173,7 @@ export async function generateIrn(db: DB, company: CompanyInfo, voucherId: numbe
   const ackDate = String(result.AckDt ?? '')
   db.prepare('UPDATE vouchers SET irn = ?, irn_ack_no = ?, irn_ack_date = ? WHERE id = ?')
     .run(irn, ackNo, ackDate, voucherId)
+  writeAudit(db, 'voucher', voucherId, 'update', null, { irn })
   return { irn, ackNo, ackDate }
 }
 
@@ -204,6 +208,7 @@ export async function generateEwbByIrn(db: DB, company: CompanyInfo, voucherId: 
   if (!ewbNo) throw new Error('Portal returned no e-way bill number')
   const validUpto = String(result.EwbValidTill ?? '')
   db.prepare('UPDATE vouchers SET ewb_no = ?, ewb_valid_upto = ? WHERE id = ?').run(ewbNo, validUpto, voucherId)
+  writeAudit(db, 'voucher', voucherId, 'update', null, { ewbNo })
   return { ewbNo, validUpto }
 }
 

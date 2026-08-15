@@ -5,6 +5,7 @@ import type { VoucherListRow } from '@shared/reports'
 import { validateVoucher, type LedgerFacts } from '@shared/posting'
 import { fyOf } from '@shared/dates'
 import { cashBankGroupIds } from './masters'
+import { writeAudit } from './audit'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
@@ -126,11 +127,6 @@ function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
   }
 }
 
-function audit(db: DB, entity: string, entityId: number, action: 'create' | 'update' | 'delete', before: unknown, after: unknown): void {
-  db.prepare('INSERT INTO audit_log (entity, entity_id, action, before_json, after_json) VALUES (?, ?, ?, ?, ?)')
-    .run(entity, entityId, action, before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null)
-}
-
 export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: number): Voucher {
   const vt = getVoucherType(db, input.voucherTypeId)
   const errors = validateVoucher(input, vt.kind, ledgerFactsResolver(db))
@@ -189,7 +185,7 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
 
   const voucherId = run()
   const after = getVoucher(db, voucherId)!
-  audit(db, 'voucher', voucherId, existingId ? 'update' : 'create', before, after)
+  writeAudit(db, 'voucher', voucherId, existingId ? 'update' : 'create', before, after)
   return after
 }
 
@@ -198,7 +194,7 @@ export function deleteVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
   db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(id)
-  audit(db, 'voucher', id, 'delete', before, null)
+  writeAudit(db, 'voucher', id, 'delete', before, null)
 }
 
 /** Reinstate a binned voucher so it counts in reports again. */
@@ -207,7 +203,7 @@ export function restoreVoucher(db: DB, id: number): void {
   if (!before) throw new Error('Voucher not found')
   if (!before.deletedAt) throw new Error('Voucher is not in the bin')
   db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
-  audit(db, 'voucher', id, 'update', before, { restored: true })
+  writeAudit(db, 'voucher', id, 'update', before, { restored: true })
 }
 
 /** Permanently remove a voucher that is already in the bin. Irreversible. */
@@ -216,7 +212,7 @@ export function purgeVoucher(db: DB, id: number): void {
   if (!before) throw new Error('Voucher not found')
   if (!before.deletedAt) throw new Error('Voucher must be in the bin before it can be purged')
   db.prepare('DELETE FROM vouchers WHERE id = ?').run(id)
-  audit(db, 'voucher', id, 'delete', { ...before, purged: true }, null)
+  writeAudit(db, 'voucher', id, 'delete', { ...before, purged: true }, null)
 }
 
 /** Vouchers auto-purged after sitting in the bin longer than `days` (default 30). Returns the count purged. */

@@ -181,6 +181,15 @@ export const backupFileSchema = z.string().regex(/^[A-Za-z0-9._-]+\.db$/, 'Inval
 /** Passphrase for encrypted export/import. */
 export const passphraseSchema = z.string().min(8, 'Passphrase must be at least 8 characters')
 
+/** audit:list query — entity/date range are optional filters; page is server-paged at 100 rows. */
+export const auditListSchema = z.object({
+  entity: z.string().trim().min(1).optional(),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+  page: z.number().int().min(0).default(0)
+})
+export type AuditListInput = z.infer<typeof auditListSchema>
+
 /** Renderer-side crash report sent to the main process for logging. */
 export const rendererLogSchema = z.object({
   message: z.string(),

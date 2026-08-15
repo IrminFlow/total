@@ -1,4 +1,4 @@
-import { dialog, ipcMain, shell } from 'electron'
+import { app, dialog, ipcMain, shell } from 'electron'
 import { readFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -31,8 +31,9 @@ import * as extras from './services/extras'
 import * as payroll from './services/payroll'
 import * as nic from './services/nic'
 import { importTallyXml } from './services/tallyImport'
+import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import {
-  bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema
+  bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
 
@@ -92,6 +93,9 @@ const idSchema = z.object({ id: z.number().int().positive() })
 const withIdSchema = <T extends z.ZodTypeAny>(schema: T) => z.object({ id: z.number().int().positive(), data: schema })
 
 export function registerIpc(): void {
+  // TODO(task-1.9): getUserName becomes real once user accounts land; stubbed to null until then.
+  setAuditContext({ appVersion: app.getVersion(), getUserName: () => null })
+
   // ---------- company ----------
   handle('company:list', () => readRegistry())
 
@@ -142,11 +146,13 @@ export function registerIpc(): void {
 
   handle('company:updateInfo', (payload) => {
     const c = requireCompany()
+    const before = c.info
     const input = companyCreateSchema.parse(payload)
     const info: CompanyInfo = { ...input }
     writeCompanyInfo(c.db, info)
     c.info = info
     upsertCompany({ slug: c.slug, name: info.name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: new Date().toISOString() })
+    writeAudit(c.db, 'company', 0, 'update', before, info)
     return info
   })
 
@@ -570,6 +576,12 @@ export function registerIpc(): void {
   handle('intel:anomaly', (p) => {
     const { ledgerId, amount } = z.object({ ledgerId: z.number().int().positive(), amount: z.number().int() }).parse(p)
     return intel.anomalyCheck(requireCompany().db, ledgerId, amount)
+  })
+
+  // ---------- audit ----------
+  handle('audit:list', (p) => {
+    const { entity, from, to, page } = auditListSchema.parse(p)
+    return listAudit(requireCompany().db, { entity, from, to, page })
   })
 
   // ---------- logging ----------

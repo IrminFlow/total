@@ -8,7 +8,7 @@ import type {
 } from '@shared/reports'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type {
-  BomInput, CompanyCreateInput, CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput,
+  AuditListInput, BomInput, CompanyCreateInput, CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput,
   NicCredentials, RendererLogInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput, VoucherInputParsed
 } from '@shared/schemas'
 import type { Registry } from '../types'
@@ -37,6 +37,19 @@ export interface BinRow {
   account: string
   amount: number
   deletedAt: string
+}
+
+/** Mirrors src/main/services/audit.ts's AuditRow shape (kept local — that file is main-process only). */
+export interface AuditRow {
+  id: number
+  entity: string
+  entityId: number
+  action: 'create' | 'update' | 'delete'
+  at: string
+  beforeJson: string | null
+  afterJson: string | null
+  userName: string | null
+  appVersion: string | null
 }
 
 /** Invoke a main-process channel; throws the error message on failure. */
@@ -206,5 +219,8 @@ export const api = {
   log: {
     renderer: (input: RendererLogInput) => call<null>('log:renderer', input),
     reveal: () => call<null>('log:reveal')
+  },
+  audit: {
+    list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number }>('audit:list', query)
   }
 }

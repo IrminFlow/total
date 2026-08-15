@@ -3,6 +3,7 @@ import type { Godown, Group, Ledger, StockGroup, StockItem, Unit, VoucherType } 
 import type { GroupInput, GodownInput, LedgerInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput } from '@shared/schemas'
 import type { GroupTreeNode, LedgerBalanceRow } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
+import { writeAudit } from './audit'
 
 // ---------- row mappers ----------
 
@@ -57,7 +58,9 @@ export function createGroup(db: DB, input: GroupInput): Group {
   const res = db
     .prepare('INSERT INTO groups (name, parent_id, nature, affects_gross_profit, is_system) VALUES (?, ?, ?, ?, 0)')
     .run(input.name, input.parentId, parent.nature, parent.affects_gross_profit)
-  return mapGroup(db.prepare('SELECT * FROM groups WHERE id = ?').get(res.lastInsertRowid) as GroupRow)
+  const created = mapGroup(db.prepare('SELECT * FROM groups WHERE id = ?').get(res.lastInsertRowid) as GroupRow)
+  writeAudit(db, 'group', created.id, 'create', null, created)
+  return created
 }
 
 export function updateGroup(db: DB, id: number, input: GroupInput): Group {
@@ -69,7 +72,9 @@ export function updateGroup(db: DB, id: number, input: GroupInput): Group {
   if (!parent) throw new Error('Parent group not found')
   db.prepare('UPDATE groups SET name = ?, parent_id = ?, nature = ?, affects_gross_profit = ? WHERE id = ?')
     .run(input.name, input.parentId, parent.nature, parent.affects_gross_profit, id)
-  return mapGroup(db.prepare('SELECT * FROM groups WHERE id = ?').get(id) as GroupRow)
+  const updated = mapGroup(db.prepare('SELECT * FROM groups WHERE id = ?').get(id) as GroupRow)
+  writeAudit(db, 'group', id, 'update', mapGroup(existing), updated)
+  return updated
 }
 
 export function deleteGroup(db: DB, id: number): void {
@@ -80,6 +85,7 @@ export function deleteGroup(db: DB, id: number): void {
   const ledgerCount = db.prepare('SELECT COUNT(*) AS n FROM ledgers WHERE group_id = ?').get(id) as { n: number }
   if (childCount.n > 0 || ledgerCount.n > 0) throw new Error('Group is in use')
   db.prepare('DELETE FROM groups WHERE id = ?').run(id)
+  writeAudit(db, 'group', id, 'delete', mapGroup(existing), null)
 }
 
 /** All ids in the subtrees rooted at the given group ids (inclusive). */
@@ -131,7 +137,9 @@ export function createLedger(db: DB, input: LedgerInput): Ledger {
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
       input.taxType, input.gstRate, input.hsn)
-  return getLedger(db, Number(res.lastInsertRowid))!
+  const created = getLedger(db, Number(res.lastInsertRowid))!
+  writeAudit(db, 'ledger', created.id, 'create', null, created)
+  return created
 }
 
 export function updateLedger(db: DB, id: number, input: LedgerInput): Ledger {
@@ -142,7 +150,9 @@ export function updateLedger(db: DB, id: number, input: LedgerInput): Ledger {
      address = ?, tax_type = ?, gst_rate = ?, hsn = ? WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
     input.taxType, input.gstRate, input.hsn, id)
-  return getLedger(db, id)!
+  const updated = getLedger(db, id)!
+  writeAudit(db, 'ledger', id, 'update', existing, updated)
+  return updated
 }
 
 export function deleteLedger(db: DB, id: number): void {
@@ -152,6 +162,7 @@ export function deleteLedger(db: DB, id: number): void {
   const used = db.prepare('SELECT COUNT(*) AS n FROM voucher_lines WHERE ledger_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Ledger has vouchers; delete those first')
   db.prepare('DELETE FROM ledgers WHERE id = ?').run(id)
+  writeAudit(db, 'ledger', id, 'delete', existing, null)
 }
 
 /** Closing balances (opening + movements up to `asOn` inclusive), only non-zero unless includeZero. */
@@ -186,7 +197,9 @@ export function listVoucherTypes(db: DB): VoucherType[] {
 export function createVoucherType(db: DB, input: VoucherTypeInput): VoucherType {
   const res = db.prepare('INSERT INTO voucher_types (name, kind, numbering, prefix, is_system) VALUES (?, ?, ?, ?, 0)')
     .run(input.name, input.kind, input.numbering, input.prefix)
-  return mapVt(db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(res.lastInsertRowid) as VtRow)
+  const created = mapVt(db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(res.lastInsertRowid) as VtRow)
+  writeAudit(db, 'voucherType', created.id, 'create', null, created)
+  return created
 }
 
 export function updateVoucherType(db: DB, id: number, input: VoucherTypeInput): VoucherType {
@@ -195,7 +208,9 @@ export function updateVoucherType(db: DB, id: number, input: VoucherTypeInput): 
   const kind = existing.is_system ? existing.kind : input.kind
   db.prepare('UPDATE voucher_types SET name = ?, kind = ?, numbering = ?, prefix = ? WHERE id = ?')
     .run(existing.is_system ? existing.name : input.name, kind, input.numbering, input.prefix, id)
-  return mapVt(db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as VtRow)
+  const updated = mapVt(db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as VtRow)
+  writeAudit(db, 'voucherType', id, 'update', mapVt(existing), updated)
+  return updated
 }
 
 // ---------- inventory masters ----------
@@ -210,7 +225,9 @@ export function listUnits(db: DB): Unit[] {
 export function createUnit(db: DB, input: UnitInput): Unit {
   const res = db.prepare('INSERT INTO units (name, symbol, decimals, uqc) VALUES (?, ?, ?, ?)')
     .run(input.name, input.symbol, input.decimals, input.uqc)
-  return mapUnit(db.prepare('SELECT * FROM units WHERE id = ?').get(res.lastInsertRowid) as UnitRow)
+  const created = mapUnit(db.prepare('SELECT * FROM units WHERE id = ?').get(res.lastInsertRowid) as UnitRow)
+  writeAudit(db, 'unit', created.id, 'create', null, created)
+  return created
 }
 
 interface StockGroupRow { id: number; name: string; parent_id: number | null }
@@ -223,7 +240,9 @@ export function listStockGroups(db: DB): StockGroup[] {
 export function createStockGroup(db: DB, input: StockGroupInput): StockGroup {
   const res = db.prepare('INSERT INTO stock_groups (name, parent_id) VALUES (?, ?)').run(input.name, input.parentId)
   const r = db.prepare('SELECT * FROM stock_groups WHERE id = ?').get(res.lastInsertRowid) as StockGroupRow
-  return { id: r.id, name: r.name, parentId: r.parent_id }
+  const created = { id: r.id, name: r.name, parentId: r.parent_id }
+  writeAudit(db, 'stockGroup', created.id, 'create', null, created)
+  return created
 }
 
 interface StockItemRow {
@@ -245,7 +264,9 @@ export function createStockItem(db: DB, input: StockItemInput): StockItem {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
     input.openingQtyMilli, input.openingValue)
-  return mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(res.lastInsertRowid) as StockItemRow)
+  const created = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(res.lastInsertRowid) as StockItemRow)
+  writeAudit(db, 'stockItem', created.id, 'create', null, created)
+  return created
 }
 
 export function updateStockItem(db: DB, id: number, input: StockItemInput): StockItem {
@@ -256,13 +277,18 @@ export function updateStockItem(db: DB, id: number, input: StockItemInput): Stoc
      opening_qty_milli = ?, opening_value = ? WHERE id = ?`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
     input.openingQtyMilli, input.openingValue, id)
-  return mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow)
+  const updated = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow)
+  writeAudit(db, 'stockItem', id, 'update', mapItem(existing), updated)
+  return updated
 }
 
 export function deleteStockItem(db: DB, id: number): void {
+  const existing = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow | undefined
+  if (!existing) throw new Error('Stock item not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM inventory_lines WHERE stock_item_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Stock item has vouchers; delete those first')
   db.prepare('DELETE FROM stock_items WHERE id = ?').run(id)
+  writeAudit(db, 'stockItem', id, 'delete', mapItem(existing), null)
 }
 
 export function listGodowns(db: DB): Godown[] {
@@ -271,5 +297,7 @@ export function listGodowns(db: DB): Godown[] {
 
 export function createGodown(db: DB, input: GodownInput): Godown {
   const res = db.prepare('INSERT INTO godowns (name) VALUES (?)').run(input.name)
-  return db.prepare('SELECT * FROM godowns WHERE id = ?').get(res.lastInsertRowid) as Godown
+  const created = db.prepare('SELECT * FROM godowns WHERE id = ?').get(res.lastInsertRowid) as Godown
+  writeAudit(db, 'godown', created.id, 'create', null, created)
+  return created
 }

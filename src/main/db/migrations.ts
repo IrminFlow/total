@@ -204,5 +204,11 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE vouchers ADD COLUMN deleted_at TEXT;
   CREATE INDEX idx_vouchers_deleted ON vouchers(deleted_at) WHERE deleted_at IS NOT NULL;
+
+  -- full audit trail (task 1.8): who made the change and which build wrote it
+  ALTER TABLE audit_log ADD COLUMN user_name TEXT;
+  ALTER TABLE audit_log ADD COLUMN app_version TEXT;
+  CREATE INDEX idx_audit_at ON audit_log(at);
+  CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
   `
 ]

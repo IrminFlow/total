@@ -8,6 +8,7 @@ import { computeMonthlyPay, daysInMonth } from '@shared/payroll'
 import { amountInWords, formatPaise } from '@shared/money'
 import { deleteVoucher, saveVoucher } from './vouchers'
 import { companyExportsDir } from '../paths'
+import { writeAudit } from './audit'
 
 // ---------- employees ----------
 
@@ -30,6 +31,7 @@ export function listEmployees(db: DB): Employee[] {
 }
 
 export function saveEmployee(db: DB, input: EmployeeInput, id?: number): Employee {
+  const before = id ? db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as EmployeeRow | undefined : undefined
   if (id) {
     db.prepare(
       `UPDATE employees SET name = ?, code = ?, designation = ?, joined = ?, pan = ?, uan = ?, esic_no = ?,
@@ -44,13 +46,18 @@ export function saveEmployee(db: DB, input: EmployeeInput, id?: number): Employe
       input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, +input.active)
     id = Number(res.lastInsertRowid)
   }
-  return mapEmployee(db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as EmployeeRow)
+  const saved = mapEmployee(db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as EmployeeRow)
+  writeAudit(db, 'employee', id, before ? 'update' : 'create', before ? mapEmployee(before) : null, saved)
+  return saved
 }
 
 export function deleteEmployee(db: DB, id: number): void {
+  const existing = db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as EmployeeRow | undefined
+  if (!existing) throw new Error('Employee not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM payroll_lines WHERE employee_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Employee has payroll history; mark them inactive instead')
   db.prepare('DELETE FROM employees WHERE id = ?').run(id)
+  writeAudit(db, 'employee', id, 'delete', mapEmployee(existing), null)
 }
 
 // ---------- pay runs ----------
@@ -140,7 +147,9 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
     return runId
   })
   const runId = run()
-  return getRun(db, runId)!
+  const created = getRun(db, runId)!
+  writeAudit(db, 'payroll_run', runId, 'create', null, created)
+  return created
 }
 
 interface RunRow { id: number; month: string; voucher_id: number | null; created_at: string }
@@ -186,6 +195,7 @@ export function deleteRun(db: DB, id: number): void {
     if (run.voucherId) deleteVoucher(db, run.voucherId)
   })
   del()
+  writeAudit(db, 'payroll_run', id, 'delete', run, null)
 }
 
 // ---------- payslip PDF ----------

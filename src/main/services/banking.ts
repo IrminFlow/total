@@ -3,6 +3,7 @@ import type { BankLineRow, BankRecon } from '@shared/reports'
 import { descendantIdsByName } from './masters'
 import { isValidISODate } from '@shared/dates'
 import { NOT_DELETED } from './vouchers'
+import { writeAudit } from './audit'
 
 export function bankLedgers(db: DB): { id: number; name: string }[] {
   const ids = descendantIdsByName(db, ['Bank Accounts', 'Bank OD A/c'])
@@ -70,8 +71,13 @@ export function bankRecon(db: DB, ledgerId: number, from: string, to: string): B
 
 export function setBankDate(db: DB, lineId: number, bankDate: string | null): void {
   if (bankDate !== null && !isValidISODate(bankDate)) throw new Error('Invalid bank date')
+  const before = db.prepare('SELECT bank_date AS bankDate FROM voucher_lines WHERE id = ?').get(lineId) as
+    | { bankDate: string | null }
+    | undefined
+  if (!before) throw new Error('Entry not found')
   const res = db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(bankDate, lineId)
   if (res.changes === 0) throw new Error('Entry not found')
+  writeAudit(db, 'voucher_line', lineId, 'update', { bankDate: before.bankDate }, { bankDate })
 }
 
 // ---------- statement CSV import ----------

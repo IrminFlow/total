@@ -54,4 +54,19 @@ describe('migrate', () => {
       .get() as { name: string } | undefined
     expect(row?.name).toBe('idx_vouchers_deleted')
   })
+
+  it('creates the audit_log indexes and the user_name/app_version columns', () => {
+    const db = freshDb()
+    const indexNames = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'audit_log'").all() as {
+        name: string
+      }[]
+    ).map((r) => r.name)
+    expect(indexNames).toEqual(expect.arrayContaining(['idx_audit_at', 'idx_audit_entity']))
+
+    const columns = (db.prepare('PRAGMA table_info(audit_log)').all() as { name: string }[]).map((c) => c.name)
+    expect(columns).toEqual(
+      expect.arrayContaining(['id', 'entity', 'entity_id', 'action', 'at', 'before_json', 'after_json', 'user_name', 'app_version'])
+    )
+  })
 })
