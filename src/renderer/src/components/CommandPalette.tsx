@@ -40,6 +40,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'Payroll — employees & runs', run: go({ name: 'payroll' }) },
       { label: 'New manufacture (stock journal)', run: go({ name: 'voucher-entry', kindHint: 'stock_journal' }) },
       { label: 'Company details', run: go({ name: 'company-info' }) },
+      { label: 'Settings', run: go({ name: 'settings' }) },
+      { label: 'Backups', run: go({ name: 'settings', tab: 'backups' }) },
+      { label: 'Bin', run: go({ name: 'settings', tab: 'bin' }) },
+      { label: 'Audit trail', run: go({ name: 'settings', tab: 'audit' }) },
+      { label: 'Users', run: go({ name: 'settings', tab: 'users' }) },
       {
         label: 'Back up company now',
         run: async () => {

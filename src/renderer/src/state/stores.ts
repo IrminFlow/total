@@ -23,6 +23,7 @@ export type Screen =
   | { name: 'banking' }
   | { name: 'payroll' }
   | { name: 'company-info' }
+  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'about' }
 
 interface NavState {
   stack: Screen[]

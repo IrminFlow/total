@@ -20,6 +20,7 @@ import { OutstandingsScreen } from './screens/Outstandings'
 import { BankingScreen } from './screens/Banking'
 import { EdocsScreen } from './screens/Edocs'
 import { PayrollScreen } from './screens/Payroll'
+import { Settings } from './screens/Settings'
 import { CommandPalette } from './components/CommandPalette'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LockScreen } from './components/LockScreen'
@@ -92,6 +93,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'banking' && <BankingScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}
           {screen.name === 'company-info' && <CompanyInfoScreen />}
+          {screen.name === 'settings' && <Settings key={screen.tab ?? 'backups'} tab={screen.tab} />}
         </ErrorBoundary>
       </Shell>
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}

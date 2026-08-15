@@ -13,6 +13,7 @@ import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, touchLastOpened, upsertCompany } from './registry'
 import { companyBackupsDir, companyDbPath, companyExportsDir, ensureCompanyTree, slugify } from './paths'
 import { log, revealLogs } from './log'
+import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, companyCreateSchema, godownInputSchema, groupInputSchema, ledgerInputSchema, passphraseSchema,
   periodSchema, rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, unitInputSchema, voucherInputSchema,
@@ -101,7 +102,8 @@ const UNGATED_CHANNELS = new Set([
   'auth:current',
   'log:renderer',
   'log:reveal',
-  'backup:importEncrypted'
+  'backup:importEncrypted',
+  'app:info'
 ])
 
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
@@ -690,4 +692,8 @@ export function registerIpc(): void {
     revealLogs()
     return null
   })
+
+  // ---------- app info + updates ----------
+  handle('app:info', () => ({ version: app.getVersion(), platform: process.platform }))
+  handle('app:checkUpdates', () => checkForUpdatesInteractive(), 'viewer')
 }

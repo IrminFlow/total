@@ -62,25 +62,50 @@ async function fetchLatest(): Promise<LatestInfo | null> {
   }
 }
 
-/** Manual fallback: compare versions and point at a download the user can reach. */
-async function manualCheck(): Promise<void> {
-  if (fallbackDone) return
-  fallbackDone = true
+export interface UpdateCheckResult {
+  status: 'dev' | 'available' | 'up-to-date' | 'error'
+  current: string
+  latest?: string
+}
+
+/** Shared fetch+compare+offer-download logic behind both the silent startup fallback
+ *  (manualCheck) and the interactive Settings → About "Check for updates" button. */
+async function checkAndOffer(): Promise<UpdateCheckResult> {
+  const current = app.getVersion()
   try {
     const latest = await fetchLatest()
-    if (!latest || !isNewer(latest.version, app.getVersion())) return
+    if (!latest) return { status: 'error', current }
+    if (!isNewer(latest.version, current)) return { status: 'up-to-date', current }
     const choice = await dialog.showMessageBox({
       type: 'info',
       message: `Total ${latest.version.replace(/^v/, '')} is available`,
-      detail: `You're on ${app.getVersion()}. Download the new version — your data in ~/Documents/total is untouched by updates.`,
+      detail: `You're on ${current}. Download the new version — your data in ~/Documents/total is untouched by updates.`,
       buttons: ['Download update', 'Later'],
       defaultId: 0,
       cancelId: 1
     })
     if (choice.response === 0) shell.openExternal(latest.downloadUrl)
+    return { status: 'available', current, latest: latest.version }
   } catch (err) {
     log('warn', 'updater', { error: String(err) })
+    return { status: 'error', current }
   }
+}
+
+/** Manual fallback: compare versions and point at a download the user can reach. */
+async function manualCheck(): Promise<void> {
+  if (fallbackDone) return
+  fallbackDone = true
+  await checkAndOffer()
+}
+
+/** Interactive check triggered from Settings → About. Always runs (bypasses the
+ *  startup-fallback dedupe guard) and resets that guard afterwards so a later
+ *  autoUpdater 'error' event can still trigger its own one-shot manual fallback. */
+export async function checkForUpdatesInteractive(): Promise<UpdateCheckResult> {
+  if (!app.isPackaged) return { status: 'dev', current: app.getVersion() }
+  fallbackDone = false
+  return checkAndOffer()
 }
 
 export function initUpdater(): void {

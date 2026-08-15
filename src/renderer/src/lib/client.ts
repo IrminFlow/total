@@ -257,5 +257,12 @@ export const api = {
     list: () => call<UserRow[]>('users:list'),
     save: (data: UserInput, id?: number) => call<UserRow & { locked: boolean }>('users:save', { data, id }),
     deactivate: (id: number) => call<null>('users:deactivate', { id })
+  },
+  app: {
+    info: () => call<{ version: string; platform: string }>('app:info'),
+    checkUpdates: () =>
+      call<{ status: 'dev' | 'available' | 'up-to-date' | 'error'; current: string; latest?: string }>(
+        'app:checkUpdates'
+      )
   }
 }

@@ -54,6 +54,10 @@ const NAV: NavSection[] = [
       { label: 'GSTR-3B', screen: { name: 'gstr3b' } },
       { label: 'e-Invoice & e-Way', screen: { name: 'edocs' } }
     ]
+  },
+  {
+    title: 'System',
+    items: [{ label: 'Settings', screen: { name: 'settings' } }]
   }
 ]
 
