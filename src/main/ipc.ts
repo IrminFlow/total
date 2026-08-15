@@ -15,9 +15,9 @@ import { companyBackupsDir, companyDbPath, companyExportsDir, ensureCompanyTree,
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
-  backupFileSchema, companyCreateSchema, godownInputSchema, groupInputSchema, isoDate, ledgerInputSchema, passphraseSchema,
-  periodSchema, rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, unitInputSchema, voucherInputSchema,
-  voucherTypeInputSchema
+  backupFileSchema, companyCreateSchema, godownInputSchema, groupInputSchema, gstr2bSchema, isoDate, ledgerInputSchema,
+  passphraseSchema, periodSchema, rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, unitInputSchema,
+  voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
@@ -481,6 +481,20 @@ export function registerIpc(): void {
     shell.showItemInFolder(jsonPath)
     return { jsonPath }
   })
+  handle('gst:recon2b', (p) => {
+    const { jsonText, from, to } = gstr2bSchema.parse(p)
+    return gst.recon2b(requireCompany().db, jsonText, from, to)
+  }, 'viewer')
+  handle('gst:recon2bPickFile', async () => {
+    const picked = await dialog.showOpenDialog({
+      title: 'Choose a GSTR-2B JSON (downloaded from the GST portal)',
+      filters: [{ name: 'GSTR-2B JSON', extensions: ['json'] }],
+      properties: ['openFile']
+    })
+    if (picked.canceled || !picked.filePaths[0]) return null
+    const jsonText = readFileSync(picked.filePaths[0], 'utf8')
+    return { jsonText, fileName: picked.filePaths[0].split('/').pop() ?? 'gstr2b.json' }
+  }, 'viewer')
 
   // ---------- analysis ----------
   handle('analysis:register', (p) => {

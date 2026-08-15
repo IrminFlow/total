@@ -7,6 +7,7 @@ import type {
   LedgerStatement, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockSummaryRow, TrialBalance, VoucherListRow
 } from '@shared/reports'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
+import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
   AuditListInput, BomInput, CompanyCreateInput, CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput,
   NicCredentials, RendererLogInput, StockGroupInput, StockItemInput, UnitInput, UserInput, VoucherTypeInput,
@@ -173,7 +174,10 @@ export const api = {
     exportGstr1: (from: string, to: string, period: string) =>
       call<{ jsonPath: string; csvPath: string }>('gst:exportGstr1', { from, to, period }),
     exportGstr3b: (from: string, to: string, period: string) =>
-      call<{ jsonPath: string }>('gst:exportGstr3b', { from, to, period })
+      call<{ jsonPath: string }>('gst:exportGstr3b', { from, to, period }),
+    recon2b: (jsonText: string, from: string, to: string) =>
+      call<{ result: Recon2bResult; errors: string[]; period: string | null }>('gst:recon2b', { jsonText, from, to }),
+    recon2bPickFile: () => call<{ jsonText: string; fileName: string } | null>('gst:recon2bPickFile')
   },
   analysis: {
     register: (kind: 'sales' | 'purchase', from: string, to: string) =>

@@ -4,6 +4,7 @@ import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { buildGstr1, buildGstr3b, type GstDoc, type GstDocRateItem, type GstHsnLine, type Gstr1Result, type Gstr3bResult, type InwardSummary } from '@shared/gst/returns'
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
+import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bResult } from '@shared/gst/recon2b'
 import { descendantIdsByName } from './masters'
 import { companyExportsDir } from '../paths'
 import { NOT_DELETED } from './vouchers'
@@ -148,6 +149,106 @@ export function inwardSummary(db: DB, from: string, to: string): InwardSummary {
   const s: InwardSummary = { igst: 0, cgst: 0, sgst: 0, cess: 0 }
   for (const r of rows) s[r.taxType] += r.amount
   return s
+}
+
+interface PurchaseVoucherRow {
+  id: number; date: string; number: string; reference: string | null; kind: 'purchase' | 'debit_note'
+  partyLedgerId: number | null; partyName: string | null; partyGstin: string | null
+}
+
+/**
+ * Extract purchase-side documents (purchase invoices + debit notes) for a period, for GSTR-2B
+ * reconciliation. Mirrors extractOutwardDocs: taxable value from inventory lines when present,
+ * otherwise from purchase-side ledger lines (dr side on purchase / cr on debit_note, ledgers
+ * under Purchase Accounts / Direct Expenses / Indirect Expenses). Tax components are per-voucher
+ * sums of lines whose ledger tax_type is cgst/sgst/igst/cess — the actual booked tax, not a
+ * recomputation, so entry errors surface in the reconciliation. supplierRef is the supplier's
+ * own invoice number as entered (vouchers.reference); invoiceValue is the party ledger's line
+ * amount (cr on purchase, dr on debit_note), falling back to the total debit if that's zero.
+ */
+export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseDoc[] {
+  const vouchers = db
+    .prepare(
+      `SELECT v.id, v.date, v.number, v.reference, v.party_ledger_id AS partyLedgerId, vt.kind,
+              p.name AS partyName, p.gstin AS partyGstin
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       LEFT JOIN ledgers p ON p.id = v.party_ledger_id
+       WHERE vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       ORDER BY v.date, v.id`
+    )
+    .all(from, to) as PurchaseVoucherRow[]
+
+  const purchaseGroupIds = descendantIdsByName(db, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses'])
+
+  const invStmt = db.prepare(`SELECT il.amount FROM inventory_lines il WHERE il.voucher_id = ?`)
+  const lineStmt = db.prepare(
+    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.tax_type AS taxType
+     FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+     WHERE vl.voucher_id = ? ORDER BY vl.line_order, vl.id`
+  )
+  const partyLineStmt = db.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS t FROM voucher_lines WHERE voucher_id = ? AND ledger_id = ? AND dr_cr = ?`
+  )
+  const totalDrStmt = db.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS t FROM voucher_lines WHERE voucher_id = ? AND dr_cr = 'dr'`
+  )
+
+  return vouchers.map((v) => {
+    const inv = invStmt.all(v.id) as { amount: number }[]
+    const lines = lineStmt.all(v.id) as { amount: number; drCr: 'dr' | 'cr'; groupId: number; taxType: string | null }[]
+
+    let taxable = 0
+    if (inv.length > 0) {
+      taxable = inv.reduce((s, l) => s + l.amount, 0)
+    } else {
+      const purchaseSide = v.kind === 'purchase' ? 'dr' : 'cr'
+      for (const line of lines) {
+        if (line.drCr === purchaseSide && purchaseGroupIds.has(line.groupId)) taxable += line.amount
+      }
+    }
+
+    let igst = 0, cgst = 0, sgst = 0, cess = 0
+    for (const line of lines) {
+      if (line.taxType === 'igst') igst += line.amount
+      else if (line.taxType === 'cgst') cgst += line.amount
+      else if (line.taxType === 'sgst') sgst += line.amount
+      else if (line.taxType === 'cess') cess += line.amount
+    }
+
+    const partySide = v.kind === 'purchase' ? 'cr' : 'dr'
+    let invoiceValue = v.partyLedgerId != null ? (partyLineStmt.get(v.id, v.partyLedgerId, partySide) as { t: number }).t : 0
+    if (!invoiceValue) invoiceValue = (totalDrStmt.get(v.id) as { t: number }).t
+
+    return {
+      voucherId: v.id,
+      kind: v.kind,
+      date: v.date,
+      number: v.number,
+      supplierRef: v.reference,
+      partyName: v.partyName,
+      partyGstin: v.partyGstin,
+      invoiceValue,
+      taxable,
+      igst,
+      cgst,
+      sgst,
+      cess
+    }
+  })
+}
+
+/** Parse a downloaded GSTR-2B JSON and reconcile it against the books for the same period. */
+export function recon2b(
+  db: DB,
+  jsonText: string,
+  from: string,
+  to: string
+): { result: Recon2bResult; errors: string[]; period: string | null } {
+  const parsed = parseGstr2b(jsonText)
+  const books = extractPurchaseDocs(db, from, to)
+  const result = reconcile2b(parsed.invoices, books, { amountTolerancePaise: 100, dateWindowDays: 7 })
+  return { result, errors: parsed.errors, period: parsed.period }
 }
 
 export function gstr1(db: DB, company: CompanyInfo, from: string, to: string, period: string): Gstr1Result {
