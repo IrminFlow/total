@@ -176,6 +176,11 @@ h1 .quiet { color: var(--muted); }
 .shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
 .caption { text-align: center; color: var(--muted); font-size: 13px; margin-top: 14px; }
 
+/* ---------- proof section (2-up screenshots) ---------- */
+.shots-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 34px; }
+.shots-grid img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+@media (max-width: 800px) { .shots-grid { grid-template-columns: 1fr; } }
+
 /* ---------- sections ---------- */
 section { padding: 88px 0 0; }
 h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.01em; line-height: 1.12; text-wrap: balance; margin-bottom: 10px; }

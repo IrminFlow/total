@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { latestRelease } from '@/lib/release'
 import gatewayLight from '@/public/gateway-light.jpg'
 import voucherDark from '@/public/voucher-dark.jpg'
+import gstr1Light from '@/public/gstr1-light.jpg'
 
 const FEATURES: { f: string; p: string }[] = [
   { f: 'Vouchers', p: 'Contra to credit note, invoice mode with live GST, audit log on every change' },
@@ -128,6 +129,29 @@ export default async function Home(): Promise<React.JSX.Element> {
                 </tr>
               </tbody>
             </table>
+          </div>
+        </section>
+
+        <section id="proof">
+          <h2 className="serif">Proof, not promises</h2>
+          <p className="sub">Two screens from the app itself, running on the same demo books as the ledger above.</p>
+          <div className="shots-grid">
+            <figure>
+              <Image
+                src={gstr1Light}
+                alt="GSTR-1 return screen showing B2B, B2C and total sections computed from voucher entries"
+                sizes="(max-width: 800px) 100vw, 486px"
+              />
+              <figcaption className="caption">GSTR-1 computed from your books — no separate filing sheet, nothing re-keyed.</figcaption>
+            </figure>
+            <figure>
+              <Image
+                src={voucherDark}
+                alt="Sales voucher entry in dark theme with the party ledger picker open"
+                sizes="(max-width: 800px) 100vw, 486px"
+              />
+              <figcaption className="caption">Dark theme, mid-entry — the ledger picker suggests as you type.</figcaption>
+            </figure>
           </div>
         </section>
       </div>
