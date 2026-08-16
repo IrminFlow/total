@@ -26,9 +26,12 @@ interface ItemRow {
   itemId: number | null
   qtyText: string
   rate: number | null
+  /** Per-line trade discount (paise, in the invoice currency like `rate`). Display + gross
+   *  only — the line amount sent to the books is already post-discount (migration 017). */
+  discount: number | null
 }
 
-const blankItemRow = (): ItemRow => ({ key: nextLineKey(), itemId: null, qtyText: '', rate: null })
+const blankItemRow = (): ItemRow => ({ key: nextLineKey(), itemId: null, qtyText: '', rate: null, discount: null })
 
 export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKind; draft?: VoucherDraft }): React.JSX.Element {
   const { info, workingDate, setWorkingDate } = useSession()
@@ -128,12 +131,15 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         const item = r.itemId ? itemMap.get(r.itemId) : null
         const qtyMilli = Math.round(parseFloat(r.qtyText || '0') * 1000)
         if (!item || !Number.isFinite(qtyMilli) || qtyMilli <= 0 || r.rate == null) return null
-        // Rates are typed in the invoice currency; books stay in ₹.
+        // Rates (and discounts) are typed in the invoice currency; books stay in ₹.
         const baseRate = fxActive ? Math.round(r.rate * fxRate!) : r.rate
-        const amount = Math.round((qtyMilli * baseRate) / 1000)
+        const gross = Math.round((qtyMilli * baseRate) / 1000)
+        const discountPaise = Math.min(gross, fxActive ? Math.round((r.discount ?? 0) * fxRate!) : (r.discount ?? 0))
+        // `amount` is the post-discount taxable value — GST buckets below stay correct by construction.
+        const amount = gross - discountPaise
         const rate = item.gstRate ?? account?.gstRate ?? 0
         const cessRate = item.cessRate ?? 0
-        return { item, qtyMilli, ratePaise: baseRate, amount, rate, cessRate }
+        return { item, qtyMilli, ratePaise: baseRate, discountPaise, amount, rate, cessRate }
       })
       .filter((d): d is NonNullable<typeof d> => d !== null)
 
@@ -218,6 +224,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         godownId: null,
         qtyMilli: d.qtyMilli,
         ratePaise: d.ratePaise,
+        discountPaise: d.discountPaise,
         amount: d.amount,
         direction: goodsIn ? ('in' as const) : ('out' as const)
       })),
@@ -411,6 +418,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
             <th>Item</th>
             <th className="r w-28">Qty</th>
             <th className="r w-32">Rate</th>
+            <th className="r w-28">Disc.</th>
             <th className="r w-24">GST %</th>
             <th className="r w-36">Amount</th>
           </tr>
@@ -419,15 +427,31 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
           {rows.map((r, i) => {
             const item = r.itemId ? itemMap.get(r.itemId) : null
             const qty = parseFloat(r.qtyText || '0')
-            const amount = item && qty > 0 && r.rate != null ? Math.round(qty * r.rate) : 0
+            const amount =
+              item && qty > 0 && r.rate != null ? Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0)) : 0
             return (
               <tr key={r.key}>
                 <td>
                   <ItemPicker
                     value={r.itemId}
                     onPick={(id) => {
-                      const picked = id ? itemMap.get(id) : null
-                      setRow(i, { itemId: id, rate: r.rate ?? (picked ? undefined : null) })
+                      setRow(i, { itemId: id })
+                      // Price-level autofill: the party's price list fills an empty Rate cell.
+                      // Price-list rates are ₹, so skip while a foreign currency is active.
+                      if (id != null && r.rate == null && !fxActive && party?.priceLevelId != null) {
+                        const rowKey = r.key
+                        void api.priceLevels
+                          .rateFor(party.priceLevelId, id, date)
+                          .then((rate) => {
+                            if (rate == null) return
+                            setRows((rs) =>
+                              rs.map((row) =>
+                                row.key === rowKey && row.itemId === id && row.rate == null ? { ...row, rate } : row
+                              )
+                            )
+                          })
+                          .catch(() => {}) // a missing rate just leaves the cell for the user
+                      }
                     }}
                     onCreateRequest={(name) => setQuickItem({ name, row: i })}
                   />
@@ -446,6 +470,14 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                 </td>
                 <td className="r">
                   <AmountInput paise={r.rate} onPaise={(p) => setRow(i, { rate: p })} />
+                </td>
+                <td className="r">
+                  <AmountInput
+                    paise={r.discount}
+                    onPaise={(p) => setRow(i, { discount: p })}
+                    placeholder="0"
+                    testId="input-line-discount"
+                  />
                 </td>
                 <td className="r">
                   <span className="num text-[12.5px] text-muted">{item ? `${item.gstRate ?? account?.gstRate ?? 0}%` : ''}</span>
