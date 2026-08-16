@@ -204,7 +204,11 @@ function ItemDetail({
     queryKey: ['stockBatches', asOn, stockItemId],
     queryFn: () => api.stock.batches(asOn, stockItemId)
   })
-  const godownRows = (godowns ?? []).filter((g) => g.stockItemId === stockItemId && g.closingQtyMilli !== 0)
+  // Untracked stock lands in a null-godown bucket — showing it as a nameless row reads like a
+  // rendering bug, and a breakdown with ONLY that bucket adds nothing over the summary row.
+  const godownRows = (godowns ?? []).filter(
+    (g) => g.stockItemId === stockItemId && g.closingQtyMilli !== 0 && g.godownId !== null
+  )
   const batchRows = (batches ?? []).filter((b) => b.closingQtyMilli !== 0)
   if (loadingGodowns || loadingBatches) return <p className="px-6 py-2 text-[12px] text-muted">Loading breakdown…</p>
   if (godownRows.length === 0 && batchRows.length === 0) {
