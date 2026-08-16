@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { seededDb } from '../db/testdb'
 import type { DB } from '../db/connection'
-import { saveVoucher, checkStock, type SaveVoucherResult } from './vouchers'
-import { createStockItem, createUnit, createGodown, updateGodown, deleteGodown, createBatch, listBatches } from './masters'
+import { saveVoucher, checkStock, getVoucher, maturePostDated, pdcRegister, type SaveVoucherResult } from './vouchers'
+import {
+  createStockItem, createUnit, createGodown, updateGodown, deleteGodown, createBatch, listBatches, createLedger
+} from './masters'
+import { setBom } from './extras'
+import { savePriceLevel, saveRate, rateFor, deletePriceLevel } from './priceLevels'
 import { setFeatures } from './config'
 import { DEFAULT_FEATURES } from '@shared/features'
 import * as stockAnalysis from './stockAnalysis'
@@ -276,5 +280,255 @@ describe('batches', () => {
       [later.id, 'later']
     ])
     expect(rows.find((r) => r.batchId === empty.id)).toBeUndefined()
+  })
+})
+
+// ---------- I3 helpers ----------
+
+function makeLedgerIn(db: DB, name: string, groupName: string, extra: { creditLimit?: number | null; priceLevelId?: number | null } = {}): number {
+  const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(groupName) as { id: number } | undefined
+  if (!group) throw new Error(`Seeded group '${groupName}' not found`)
+  return createLedger(db, {
+    name, groupId: group.id, openingBalance: 0, gstin: null, stateCode: null, address: null,
+    taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null,
+    exportType: null, priceLevelId: extra.priceLevelId ?? null, creditLimit: extra.creditLimit ?? null
+  }).id
+}
+
+interface LedgerLine {
+  ledgerId: number
+  drCr: 'dr' | 'cr'
+  amount: number
+}
+
+function postLedgerVoucher(
+  db: DB,
+  kind: 'sales' | 'journal' | 'stock_journal',
+  date: string,
+  partyLedgerId: number | null,
+  lines: LedgerLine[],
+  opts: { postDated?: boolean; isOptional?: boolean; inventory?: StockLine[]; existingId?: number } = {}
+): SaveVoucherResult {
+  const vt = db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(kind) as { id: number }
+  return saveVoucher(
+    db,
+    {
+      voucherTypeId: vt.id,
+      date,
+      partyLedgerId,
+      narration: null,
+      reference: null,
+      instrumentNo: null,
+      instrumentDate: null,
+      transporterId: null,
+      vehicleNo: null,
+      transportDistanceKm: null,
+      currencyCode: null,
+      exchangeRate: null,
+      postDated: opts.postDated,
+      isOptional: opts.isOptional,
+      lines: lines.map((l) => ({ ...l, costAllocations: [] })),
+      inventory: (opts.inventory ?? []).map((l) => ({
+        stockItemId: l.stockItemId,
+        godownId: l.godownId ?? null,
+        batchId: l.batchId ?? null,
+        qtyMilli: l.qtyMilli,
+        ratePaise: 0,
+        amount: l.amount ?? 0,
+        direction: l.direction,
+        isAbsolute: l.isAbsolute ?? false
+      })),
+      billRefs: [],
+      tds: null
+    },
+    opts.existingId
+  )
+}
+
+const postSales = (db: DB, date: string, partyId: number, salesId: number, amount: number, opts: { postDated?: boolean; isOptional?: boolean } = {}) =>
+  postLedgerVoucher(db, 'sales', date, partyId, [
+    { ledgerId: partyId, drCr: 'dr', amount },
+    { ledgerId: salesId, drCr: 'cr', amount }
+  ], opts)
+
+// ---------- I3: price levels ----------
+
+describe('price levels — date-effective rates', () => {
+  it('rateFor returns the latest rate with effective_from ≤ date, null before any', () => {
+    const db = seededDb()
+    const item = makeItem(db, 'Priced', 'weighted_avg')
+    const level = savePriceLevel(db, { name: 'Wholesale' })
+    saveRate(db, { priceLevelId: level.id, stockItemId: item, rate: 10000, effectiveFrom: '2025-04-01' })
+    saveRate(db, { priceLevelId: level.id, stockItemId: item, rate: 12000, effectiveFrom: '2025-06-01' })
+    expect(rateFor(db, level.id, item, '2025-03-31')).toBeNull()
+    expect(rateFor(db, level.id, item, '2025-04-01')).toBe(10000)
+    expect(rateFor(db, level.id, item, '2025-05-15')).toBe(10000)
+    expect(rateFor(db, level.id, item, '2025-06-01')).toBe(12000)
+    expect(rateFor(db, level.id, item, '2026-01-01')).toBe(12000)
+  })
+
+  it('upserts on the same (level, item, effective_from) and blocks deleting an assigned level', () => {
+    const db = seededDb()
+    const item = makeItem(db, 'Priced2', 'weighted_avg')
+    const level = savePriceLevel(db, { name: 'Retail' })
+    saveRate(db, { priceLevelId: level.id, stockItemId: item, rate: 5000, effectiveFrom: '2025-04-01' })
+    saveRate(db, { priceLevelId: level.id, stockItemId: item, rate: 5500, effectiveFrom: '2025-04-01' })
+    expect(rateFor(db, level.id, item, '2025-04-02')).toBe(5500)
+
+    makeLedgerIn(db, 'Priced Party', 'Sundry Debtors', { priceLevelId: level.id })
+    expect(() => deletePriceLevel(db, level.id)).toThrow(/assigned/)
+  })
+})
+
+// ---------- I3: credit limits ----------
+
+describe('credit limit on saveVoucher', () => {
+  it('warns when the party outstanding incl. this voucher exceeds the limit; blocks under F11', () => {
+    const db = seededDb()
+    const party = makeLedgerIn(db, 'Limited Party', 'Sundry Debtors', { creditLimit: 100000 })
+    const sales = makeLedgerIn(db, 'Sales A/c', 'Sales Accounts')
+
+    const ok = postSales(db, '2025-05-01', party, sales, 60000)
+    expect(ok.warnings.creditLimitExceeded).toBeNull()
+
+    const over = postSales(db, '2025-05-02', party, sales, 50000)
+    expect(over.warnings.creditLimitExceeded).toEqual({
+      ledgerId: party, ledgerName: 'Limited Party', creditLimit: 100000, outstanding: 110000
+    })
+
+    setFeatures(db, { ...DEFAULT_FEATURES, enforceCreditLimit: true })
+    const countBefore = (db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n
+    expect(() => postSales(db, '2025-05-03', party, sales, 10000)).toThrow(/Credit limit exceeded/)
+    const countAfter = (db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n
+    expect(countAfter).toBe(countBefore) // rolled back
+  })
+
+  it('post-dated and optional vouchers never trip the limit', () => {
+    const db = seededDb()
+    const party = makeLedgerIn(db, 'PDC Party', 'Sundry Debtors', { creditLimit: 1000 })
+    const sales = makeLedgerIn(db, 'Sales B', 'Sales Accounts')
+    expect(postSales(db, '2025-05-01', party, sales, 50000, { postDated: true }).warnings.creditLimitExceeded).toBeNull()
+    expect(postSales(db, '2025-05-01', party, sales, 50000, { isOptional: true }).warnings.creditLimitExceeded).toBeNull()
+  })
+})
+
+// ---------- I3: post-dated + optional vouchers ----------
+
+describe('post-dated and optional vouchers', () => {
+  it('keeps PDC/optional inventory out of the books until maturity', () => {
+    const db = seededDb()
+    const item = makeItem(db, 'PDC Item', 'weighted_avg', 10000, 100000)
+    postLedgerVoucher(db, 'stock_journal', '2025-05-01', null, [], {
+      postDated: true, inventory: [{ stockItemId: item, qtyMilli: 4000, direction: 'out' }]
+    })
+    postLedgerVoucher(db, 'stock_journal', '2025-05-01', null, [], {
+      isOptional: true, inventory: [{ stockItemId: item, qtyMilli: 3000, direction: 'out' }]
+    })
+    expect(rowFor(db, item, '2025-05-31').closingQtyMilli).toBe(10000)
+
+    const matured = maturePostDated(db, '2025-05-31')
+    expect(matured).toHaveLength(1)
+    // The PDC now counts; the optional voucher still doesn't.
+    expect(rowFor(db, item, '2025-05-31').closingQtyMilli).toBe(6000)
+  })
+
+  it('pdcRegister lists live PDCs; maturePostDated flips only due ones and audits each', () => {
+    const db = seededDb()
+    const party = makeLedgerIn(db, 'Register Party', 'Sundry Debtors')
+    const sales = makeLedgerIn(db, 'Sales C', 'Sales Accounts')
+    const due = postSales(db, '2025-05-10', party, sales, 12345, { postDated: true })
+    const future = postSales(db, '2025-07-10', party, sales, 500, { postDated: true })
+
+    const reg = pdcRegister(db)
+    expect(reg.map((r) => [r.id, r.amount, r.partyName])).toEqual([
+      [due.id, 12345, 'Register Party'],
+      [future.id, 500, 'Register Party']
+    ])
+
+    const matured = maturePostDated(db, '2025-06-01')
+    expect(matured).toEqual([due.id])
+    expect(getVoucher(db, due.id)!.postDated).toBe(false)
+    expect(getVoucher(db, future.id)!.postDated).toBe(true)
+    expect(pdcRegister(db).map((r) => r.id)).toEqual([future.id])
+    const audits = db
+      .prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'voucher' AND entity_id = ? AND action = 'update'")
+      .get(due.id) as { n: number }
+    expect(audits.n).toBeGreaterThanOrEqual(1)
+  })
+
+  it('editing a voucher without mentioning the flags preserves them', () => {
+    const db = seededDb()
+    const party = makeLedgerIn(db, 'Edit Party', 'Sundry Debtors')
+    const sales = makeLedgerIn(db, 'Sales D', 'Sales Accounts')
+    const v = postSales(db, '2025-06-15', party, sales, 700, { postDated: true })
+    const edited = postLedgerVoucher(db, 'sales', '2025-06-16', party, [
+      { ledgerId: party, drCr: 'dr', amount: 800 },
+      { ledgerId: sales, drCr: 'cr', amount: 800 }
+    ], { existingId: v.id })
+    expect(edited.postDated).toBe(true)
+    expect(edited.isOptional).toBe(false)
+  })
+})
+
+// ---------- I3: BOM cycles + manufacture additional cost ----------
+
+describe('BOM multi-level cycle detection', () => {
+  it('rejects a BOM that would close a loop through existing BOMs', () => {
+    const db = seededDb()
+    const a = makeItem(db, 'Assembly A', 'weighted_avg')
+    const b = makeItem(db, 'Part B', 'weighted_avg')
+    const c = makeItem(db, 'Part C', 'weighted_avg')
+    setBom(db, { itemId: a, lines: [{ componentId: b, qtyMilliPerUnit: 1000 }] })
+    setBom(db, { itemId: b, lines: [{ componentId: c, qtyMilliPerUnit: 1000 }] })
+    expect(() => setBom(db, { itemId: c, lines: [{ componentId: a, qtyMilliPerUnit: 1000 }] })).toThrow(/cycle/)
+    expect(() => setBom(db, { itemId: c, lines: [{ componentId: c, qtyMilliPerUnit: 1000 }] })).toThrow(/own component/)
+    // Replacing A's BOM is allowed even though A currently points at B.
+    setBom(db, { itemId: a, lines: [{ componentId: c, qtyMilliPerUnit: 2000 }] })
+  })
+})
+
+describe('manufacture additional-cost lines', () => {
+  it("loads the stock journal's ledger cost into the produced item's value", () => {
+    const db = seededDb()
+    const component = makeItem(db, 'Raw', 'weighted_avg', 5000, 50000)
+    const produced = makeItem(db, 'Finished', 'weighted_avg')
+    const freight = makeLedgerIn(db, 'Freight Inward', 'Indirect Expenses')
+    const cash = db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }
+
+    postLedgerVoucher(db, 'stock_journal', '2025-05-05', null, [
+      { ledgerId: freight, drCr: 'dr', amount: 500 },
+      { ledgerId: cash.id, drCr: 'cr', amount: 500 }
+    ], {
+      inventory: [
+        { stockItemId: component, qtyMilli: 2000, direction: 'out' },
+        { stockItemId: produced, qtyMilli: 1000, amount: 20000, direction: 'in' }
+      ]
+    })
+
+    // Produced: base 20000 + 500 additional cost. Component: 2 of 5 consumed at avg ₹10.
+    expect(rowFor(db, produced, '2025-05-31').closingValue).toBe(20500)
+    expect(rowFor(db, component, '2025-05-31').closingValue).toBe(30000)
+  })
+
+  it('splits the extra pro-rata across inward lines, conserving every paisa', () => {
+    const db = seededDb()
+    const p1 = makeItem(db, 'Out One', 'weighted_avg')
+    const p2 = makeItem(db, 'Out Two', 'weighted_avg')
+    const freight = makeLedgerIn(db, 'Labour', 'Indirect Expenses')
+    const cash = db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }
+    postLedgerVoucher(db, 'stock_journal', '2025-05-05', null, [
+      { ledgerId: freight, drCr: 'dr', amount: 101 },
+      { ledgerId: cash.id, drCr: 'cr', amount: 101 }
+    ], {
+      inventory: [
+        { stockItemId: p1, qtyMilli: 1000, amount: 1000, direction: 'in' },
+        { stockItemId: p2, qtyMilli: 1000, amount: 2000, direction: 'in' }
+      ]
+    })
+    const v1 = rowFor(db, p1, '2025-05-31').closingValue
+    const v2 = rowFor(db, p2, '2025-05-31').closingValue
+    expect(v1 + v2).toBe(3101)
+    expect(v1).toBe(1034) // floor(101/3)=33 +1 largest-remainder
+    expect(v2).toBe(2067)
   })
 })

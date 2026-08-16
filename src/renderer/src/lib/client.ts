@@ -1,6 +1,7 @@
 import type {
   Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
-  PayrollLine, PayrollRun, RecurringTemplate, StockGroup, StockItem, TdsSection, Unit, Voucher, VoucherType
+  PayrollLine, PayrollRun, PriceLevel, PriceListRate, RecurringTemplate, StockGroup, StockItem, TdsSection, Unit,
+  Voucher, VoucherType
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
@@ -12,7 +13,8 @@ import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
   AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
-  CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput, NicCredentials, RecurringInput,
+  CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput, NicCredentials, PriceLevelInput,
+  PriceRateInput, RecurringInput,
   RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTypeInput,
   VoucherInputParsed
 } from '@shared/schemas'
@@ -235,6 +237,24 @@ export interface ExpiryAgeingRow extends BatchStockRow {
   bucket: 'none' | 'expired' | 'within30' | 'within90' | 'later'
 }
 
+/** Mirrors priceLevels.PriceRateRow (main-process only). */
+export interface PriceRateRow extends PriceListRate {
+  itemName: string
+  unitSymbol: string
+}
+
+/** Mirrors vouchers.PdcRow (main-process only). */
+export interface PdcRow {
+  id: number
+  date: string
+  number: string
+  voucherTypeName: string
+  partyName: string | null
+  instrumentNo: string | null
+  instrumentDate: string | null
+  amount: number
+}
+
 async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
   if (!result.ok) throw new Error(result.error ?? 'Unknown error')
@@ -316,6 +336,21 @@ export const api = {
     batches: (asOn: string, stockItemId?: number) => call<BatchStockRow[]>('stock:batches', { asOn, stockItemId }),
     expiry: (asOn: string) => call<ExpiryAgeingRow[]>('stock:expiry', { asOn }),
     negative: (asOn: string) => call<NegativeStockWarning[]>('stock:negative', { asOn })
+  },
+  priceLevels: {
+    list: () => call<PriceLevel[]>('master:priceLevels:list'),
+    create: (data: PriceLevelInput) => call<PriceLevel>('master:priceLevels:create', data),
+    update: (id: number, data: PriceLevelInput) => call<PriceLevel>('master:priceLevels:update', { id, data }),
+    remove: (id: number) => call<null>('master:priceLevels:delete', { id }),
+    rates: (priceLevelId: number) => call<PriceRateRow[]>('priceLevels:rates', { priceLevelId }),
+    saveRate: (data: PriceRateInput) => call<PriceListRate>('priceLevels:saveRate', data),
+    deleteRate: (id: number) => call<null>('priceLevels:deleteRate', { id }),
+    /** Rate in force for (level, item) on `date`, or null when no row applies. */
+    rateFor: (priceLevelId: number, stockItemId: number, date: string) =>
+      call<number | null>('priceLevels:rateFor', { priceLevelId, stockItemId, date })
+  },
+  pdc: {
+    list: () => call<PdcRow[]>('pdc:list')
   },
   vouchers: {
     list: (from: string, to: string, voucherTypeId?: number) =>

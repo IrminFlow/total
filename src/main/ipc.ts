@@ -17,7 +17,7 @@ import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
-  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
+  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
@@ -39,6 +39,7 @@ import * as nic from './services/nic'
 import * as tds from './services/tds'
 import * as costCentres from './services/costCentres'
 import * as stockAnalysis from './services/stockAnalysis'
+import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
 import * as yearEnd from './services/yearEnd'
@@ -233,6 +234,9 @@ export function registerIpc(): void {
     }
     const purged = vouchers.purgeOldDeleted(db, 30)
     if (purged > 0) log('info', 'bin-purge', { purged })
+    // Post-dated vouchers whose date has arrived flip into the books (audited per voucher).
+    const matured = vouchers.maturePostDated(db, todayISO())
+    if (matured.length > 0) log('info', 'pdc-mature', { count: matured.length, ids: matured })
     touchLastOpened(slug)
     return { slug, info, integrity, locked: current.usersExist }
   })
@@ -499,6 +503,24 @@ export function registerIpc(): void {
     const { asOn } = stockQuerySchema.parse(p)
     return stockAnalysis.negativeStock(requireCompany().db, asOn)
   }, 'viewer')
+  handle('master:priceLevels:list', () => priceLevels.listPriceLevels(requireCompany().db), 'viewer')
+  handle('master:priceLevels:create', (p) => priceLevels.savePriceLevel(requireCompany().db, priceLevelInputSchema.parse(p)))
+  handle('master:priceLevels:update', (p) => {
+    const { id, data } = withIdSchema(priceLevelInputSchema).parse(p)
+    return priceLevels.savePriceLevel(requireCompany().db, data, id)
+  })
+  handle('master:priceLevels:delete', (p) => priceLevels.deletePriceLevel(requireCompany().db, idSchema.parse(p).id))
+  handle('priceLevels:rates', (p) => {
+    const { priceLevelId } = z.object({ priceLevelId: z.number().int().positive() }).parse(p)
+    return priceLevels.listRates(requireCompany().db, priceLevelId)
+  }, 'viewer')
+  handle('priceLevels:saveRate', (p) => priceLevels.saveRate(requireCompany().db, priceRateInputSchema.parse(p)))
+  handle('priceLevels:deleteRate', (p) => priceLevels.deleteRate(requireCompany().db, idSchema.parse(p).id))
+  handle('priceLevels:rateFor', (p) => {
+    const q = z.object({ priceLevelId: z.number().int().positive(), stockItemId: z.number().int().positive(), date: isoDate }).parse(p)
+    return priceLevels.rateFor(requireCompany().db, q.priceLevelId, q.stockItemId, q.date)
+  }, 'viewer')
+  handle('pdc:list', () => vouchers.pdcRegister(requireCompany().db), 'viewer')
 
   // ---------- search ----------
   handle('search:global', (p) => globalSearch(requireCompany().db, searchGlobalSchema.parse(p).q), 'viewer')

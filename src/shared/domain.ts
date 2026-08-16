@@ -40,6 +40,11 @@ export interface Ledger {
   creditDays: number | null
   /** SEZ/export classification for GST e-invoicing (task 2.8); null for a normal domestic party. */
   exportType: 'sez_wp' | 'sez_wop' | 'exp_wp' | 'exp_wop' | null
+  /** Price level whose rates prefill this party's invoice lines; null = item base rate. */
+  priceLevelId: number | null
+  /** Credit limit in paise; null = no limit. saveVoucher warns (or blocks, under F11
+   *  enforceCreditLimit) when the party's outstanding would exceed it. */
+  creditLimit: number | null
   isSystem: boolean
 }
 

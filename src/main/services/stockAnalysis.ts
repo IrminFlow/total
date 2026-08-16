@@ -1,6 +1,9 @@
 import type { DB } from '../db/connection'
 import type { StockSummaryRow } from '@shared/reports'
-import { valueStock, expiryBucketOf, type ExpiryBucket, type StockMovement, type ValuationMethod } from '@shared/valuation'
+import {
+  valueStock, expiryBucketOf, allocateAdditionalCost,
+  type ExpiryBucket, type StockMovement, type ValuationMethod
+} from '@shared/valuation'
 import { IN_BOOKS, checkStock } from './vouchers'
 import type { NegativeStockWarning } from '@shared/domain'
 
@@ -25,6 +28,7 @@ interface ItemRow {
 }
 
 interface MovementRow {
+  lineId: number
   stockItemId: number
   godownId: number | null
   batchId: number | null
@@ -32,6 +36,38 @@ interface MovementRow {
   amount: number
   direction: 'in' | 'out'
   isAbsolute: number
+}
+
+/**
+ * Manufacture additional costs (task 79): a stock journal's balanced ledger lines
+ * (e.g. Dr Freight Inward / Cr Cash) represent cost loaded into what it produces. The debit
+ * total (== credit total — the voucher balances) is split across the voucher's inward
+ * inventory lines pro-rata by base amount (largest-remainder, every paisa conserved), so the
+ * produced item's cost includes freight/labour. Returns extra paise per inventory_lines.id.
+ */
+function additionalCostByLine(db: DB, asOn: string): Map<number, number> {
+  const extraByLine = new Map<number, number>()
+  const costRows = db
+    .prepare(
+      `SELECT v.id AS voucherId,
+              (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr') AS extra
+       FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE vt.kind = 'stock_journal' AND v.date <= ? AND ${IN_BOOKS}
+         AND EXISTS (SELECT 1 FROM voucher_lines WHERE voucher_id = v.id)`
+    )
+    .all(asOn) as { voucherId: number; extra: number }[]
+  const inLinesStmt = db.prepare(
+    `SELECT id, amount FROM inventory_lines
+     WHERE voucher_id = ? AND direction = 'in' AND is_absolute = 0 ORDER BY line_order, id`
+  )
+  for (const { voucherId, extra } of costRows) {
+    if (extra <= 0) continue
+    const inLines = inLinesStmt.all(voucherId) as { id: number; amount: number }[]
+    if (inLines.length === 0) continue
+    const shares = allocateAdditionalCost(inLines.map((l) => l.amount), extra)
+    inLines.forEach((l, i) => extraByLine.set(l.id, shares[i]!))
+  }
+  return extraByLine
 }
 
 function listItems(db: DB): ItemRow[] {
@@ -50,13 +86,20 @@ function movementsByItem(db: DB, asOn: string, godownId?: number): Map<number, M
   const godownFilter = godownId ? 'AND il.godown_id = ?' : ''
   const rows = db
     .prepare(
-      `SELECT il.stock_item_id AS stockItemId, il.godown_id AS godownId, il.batch_id AS batchId,
+      `SELECT il.id AS lineId, il.stock_item_id AS stockItemId, il.godown_id AS godownId, il.batch_id AS batchId,
               il.qty_milli AS qtyMilli, il.amount, il.direction, il.is_absolute AS isAbsolute
        FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
        WHERE v.date <= ? AND ${IN_BOOKS} ${godownFilter}
        ORDER BY v.date, v.id, il.line_order, il.id`
     )
     .all(...(godownId ? [asOn, godownId] : [asOn])) as MovementRow[]
+  const extraByLine = additionalCostByLine(db, asOn)
+  if (extraByLine.size > 0) {
+    for (const r of rows) {
+      const extra = extraByLine.get(r.lineId)
+      if (extra) r.amount += extra
+    }
+  }
   const byItem = new Map<number, MovementRow[]>()
   for (const r of rows) {
     const list = byItem.get(r.stockItemId) ?? []

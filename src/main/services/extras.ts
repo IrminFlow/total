@@ -1,6 +1,7 @@
 import type { DB } from '../db/connection'
 import type { BomLine, Currency } from '@shared/domain'
 import type { BomInput, CurrencyInput } from '@shared/schemas'
+import { wouldCreateBomCycle, type BomEdge } from '@shared/valuation'
 import { writeAudit } from './audit'
 
 // ---------- currencies ----------
@@ -45,6 +46,14 @@ export function getBom(db: DB, itemId: number): BomLine[] {
 export function setBom(db: DB, input: BomInput): BomLine[] {
   if (input.lines.some((l) => l.componentId === input.itemId)) {
     throw new Error('An item cannot be its own component')
+  }
+  // Multi-level cycle detection (task 79): DFS through the existing BOM graph — saving this
+  // BOM must not make any component (transitively) contain the item itself.
+  const edges = db
+    .prepare('SELECT item_id AS itemId, component_id AS componentId FROM bom_lines')
+    .all() as BomEdge[]
+  if (wouldCreateBomCycle(input.itemId, input.lines.map((l) => l.componentId), edges)) {
+    throw new Error('This BOM would create a cycle — a component already contains this item')
   }
   const before = getBom(db, input.itemId)
   const run = db.transaction(() => {

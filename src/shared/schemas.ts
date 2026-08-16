@@ -64,7 +64,11 @@ export const ledgerInputSchema = z.object({
   tdsSectionId: id.nullable().default(null),
   pan: panSchema,
   creditDays: z.number().int().min(0).max(365).nullable().default(null),
-  exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null)
+  exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null),
+  /** Price level whose rates prefill this party's invoice lines; absent/null = item base rate. */
+  priceLevelId: id.nullable().optional(),
+  /** Credit limit in paise; absent/null = no limit. */
+  creditLimit: paise.min(0).nullable().optional()
 })
 export type LedgerInput = z.infer<typeof ledgerInputSchema>
 
@@ -166,6 +170,10 @@ export const voucherInputSchema = z.object({
   transportDistanceKm: z.number().int().min(0).max(10000).nullable().default(null),
   currencyCode: z.string().trim().length(3).transform((s) => s.toUpperCase()).nullable().default(null),
   exchangeRate: z.number().positive().max(100000).nullable().default(null),
+  /** Post-dated: kept out of the books until the date arrives (auto-matures on company open). */
+  postDated: z.boolean().optional(),
+  /** Optional (memorandum) voucher: never counts toward the books. */
+  isOptional: z.boolean().optional(),
   lines: z.array(voucherLineSchema).max(200),
   inventory: z.array(inventoryLineSchema).max(200).default([]),
   billRefs: z.array(billRefSchema).max(50).default([]),

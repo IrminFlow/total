@@ -21,12 +21,14 @@ interface LedgerRow {
   gstin: string | null; state_code: string | null; address: string | null
   tax_type: Ledger['taxType']; gst_rate: number | null; hsn: string | null; is_system: number
   tds_section_id: number | null; pan: string | null; credit_days: number | null; export_type: Ledger['exportType']
+  price_level_id: number | null; credit_limit: number | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
   gstin: r.gstin, stateCode: r.state_code, address: r.address,
   taxType: r.tax_type, gstRate: r.gst_rate, hsn: r.hsn, isSystem: !!r.is_system,
-  tdsSectionId: r.tds_section_id, pan: r.pan, creditDays: r.credit_days, exportType: r.export_type
+  tdsSectionId: r.tds_section_id, pan: r.pan, creditDays: r.credit_days, exportType: r.export_type,
+  priceLevelId: r.price_level_id, creditLimit: r.credit_limit
 })
 
 // ---------- groups ----------
@@ -146,11 +148,12 @@ export function createLedger(db: DB, input: LedgerInput): Ledger {
   const res = db
     .prepare(
       `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, tax_type, gst_rate, hsn,
-        tds_section_id, pan, credit_days, export_type, is_system)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+        tds_section_id, pan, credit_days, export_type, price_level_id, credit_limit, is_system)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType)
+      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+      input.priceLevelId ?? null, input.creditLimit ?? null)
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
@@ -161,10 +164,13 @@ export function updateLedger(db: DB, id: number, input: LedgerInput): Ledger {
   if (!existing) throw new Error('Ledger not found')
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
-     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?
+     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
+     price_level_id = ?, credit_limit = ?
      WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType, id)
+    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+    input.priceLevelId === undefined ? existing.priceLevelId : input.priceLevelId,
+    input.creditLimit === undefined ? existing.creditLimit : input.creditLimit, id)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
   return updated

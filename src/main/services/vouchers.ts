@@ -280,6 +280,11 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
 
   const warnings: SaveVoucherWarnings = { negativeStock: [], creditLimitExceeded: null }
 
+  // Post-dated / optional flags (tasks 77–78): absent on the input = keep the stored value
+  // (an edit that doesn't mention them mustn't silently mature a PDC).
+  const postDated = input.postDated ?? before?.postDated ?? false
+  const isOptional = input.isOptional ?? before?.isOptional ?? false
+
   const run = db.transaction((): number => {
     let voucherId: number
     if (existingId) {
@@ -287,21 +292,23 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
         `UPDATE vouchers SET voucher_type_id = ?, date = ?, number = ?, party_ledger_id = ?,
          narration = ?, reference = ?, instrument_no = ?, instrument_date = ?,
          transporter_id = ?, vehicle_no = ?, transport_distance = ?,
-         currency_code = ?, exchange_rate = ?, updated_at = datetime('now') WHERE id = ?`
+         currency_code = ?, exchange_rate = ?, post_dated = ?, is_optional = ?,
+         updated_at = datetime('now') WHERE id = ?`
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
-        input.currencyCode, input.exchangeRate, existingId)
+        input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0, existingId)
       db.prepare('DELETE FROM voucher_lines WHERE voucher_id = ?').run(existingId)
       db.prepare('DELETE FROM inventory_lines WHERE voucher_id = ?').run(existingId)
       voucherId = existingId
     } else {
       const res = db.prepare(
         `INSERT INTO vouchers (voucher_type_id, date, number, party_ledger_id, narration, reference,
-          instrument_no, instrument_date, transporter_id, vehicle_no, transport_distance, currency_code, exchange_rate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          instrument_no, instrument_date, transporter_id, vehicle_no, transport_distance, currency_code, exchange_rate,
+          post_dated, is_optional)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
-        input.currencyCode, input.exchangeRate)
+        input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0)
       voucherId = Number(res.lastInsertRowid)
     }
 
@@ -392,6 +399,41 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
       throw new Error(`Insufficient stock for: ${names}`)
     }
 
+    // Credit limit (task 76): with this voucher's lines now in the books, the party's
+    // dr-positive balance IS "outstanding + this invoice". Warn past the ledger's limit;
+    // block (roll back) under F11 enforceCreditLimit. Post-dated/optional vouchers are out
+    // of the books, so they never trip the limit.
+    if (input.partyLedgerId !== null && !postDated && !isOptional) {
+      const party = db
+        .prepare('SELECT id, name, opening_balance, credit_limit FROM ledgers WHERE id = ?')
+        .get(input.partyLedgerId) as
+        | { id: number; name: string; opening_balance: number; credit_limit: number | null }
+        | undefined
+      if (party && party.credit_limit !== null) {
+        const { bal } = db
+          .prepare(
+            `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS bal
+             FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+             WHERE vl.ledger_id = ? AND ${IN_BOOKS}`
+          )
+          .get(party.id) as { bal: number }
+        const outstanding = party.opening_balance + bal
+        if (outstanding > party.credit_limit) {
+          warnings.creditLimitExceeded = {
+            ledgerId: party.id,
+            ledgerName: party.name,
+            creditLimit: party.credit_limit,
+            outstanding
+          }
+          if (features.enforceCreditLimit) {
+            throw new Error(
+              `Credit limit exceeded for ${party.name}: outstanding ${outstanding} > limit ${party.credit_limit} paise`
+            )
+          }
+        }
+      }
+    }
+
     return voucherId
   })
 
@@ -420,6 +462,56 @@ export function restoreVoucher(db: DB, id: number): void {
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
   db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
   writeAudit(db, 'voucher', id, 'update', before, { restored: true })
+}
+
+// ---------- post-dated vouchers (lane I, task 77) ----------
+
+/** Flip matured post-dated vouchers (date ≤ `today`) into the books. Runs on company open;
+ *  each maturation is audit-logged individually. Returns the matured voucher ids. */
+export function maturePostDated(db: DB, today: string): number[] {
+  const rows = db
+    .prepare(`SELECT v.id FROM vouchers v WHERE v.post_dated = 1 AND v.date <= ? AND ${NOT_DELETED}`)
+    .all(today) as { id: number }[]
+  if (rows.length === 0) return []
+  const flip = db.prepare("UPDATE vouchers SET post_dated = 0, updated_at = datetime('now') WHERE id = ?")
+  const run = db.transaction(() => {
+    for (const { id } of rows) {
+      const before = getVoucher(db, id)!
+      flip.run(id)
+      writeAudit(db, 'voucher', id, 'update', before, { ...before, postDated: false, matured: true })
+    }
+  })
+  run()
+  return rows.map((r) => r.id)
+}
+
+export interface PdcRow {
+  id: number
+  date: string
+  number: string
+  voucherTypeName: string
+  partyName: string | null
+  instrumentNo: string | null
+  instrumentDate: string | null
+  /** Voucher total (sum of debit lines), paise. */
+  amount: number
+}
+
+/** PDC register (Banking view): every live post-dated voucher, soonest maturity first.
+ *  Deliberately NOT filtered by IN_BOOKS — this is the one listing that shows PDCs. */
+export function pdcRegister(db: DB): PdcRow[] {
+  return db
+    .prepare(
+      `SELECT v.id, v.date, v.number, vt.name AS voucherTypeName, l.name AS partyName,
+              v.instrument_no AS instrumentNo, v.instrument_date AS instrumentDate,
+              (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr') AS amount
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       LEFT JOIN ledgers l ON l.id = v.party_ledger_id
+       WHERE v.post_dated = 1 AND ${NOT_DELETED}
+       ORDER BY v.date, v.id`
+    )
+    .all() as PdcRow[]
 }
 
 /** Permanently remove a voucher that is already in the bin. Irreversible. */
