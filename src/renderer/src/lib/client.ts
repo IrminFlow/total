@@ -446,6 +446,8 @@ export const api = {
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),
+    numberExists: (voucherTypeId: number, number: string, excludeId?: number) =>
+      call<boolean>('voucher:numberExists', { voucherTypeId, number, excludeId }),
     duplicates: (data: VoucherInputParsed, excludeId?: number) =>
       call<{ voucherId: number; number: string; date: string }[]>('voucher:duplicates', { data, excludeId }),
     bin: () => call<BinRow[]>('voucher:bin'),

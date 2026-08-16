@@ -236,6 +236,29 @@ export function ScrollList({
   )
 }
 
+/** ScrollList that only clips once `active` — for tables whose rows contain absolutely-
+ *  positioned TypeAhead dropdowns, which any overflow container would clip while the table
+ *  is short enough not to need scrolling (voucher entry line grids). */
+export function LineTableScroller({
+  active,
+  children,
+  className = '',
+  maxH = '340px'
+}: {
+  active: boolean
+  children: ReactNode
+  className?: string
+  maxH?: string
+}): React.JSX.Element {
+  return active ? (
+    <ScrollList maxH={maxH} className={className}>
+      {children}
+    </ScrollList>
+  ) : (
+    <div className={className}>{children}</div>
+  )
+}
+
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -243,6 +266,13 @@ const FOCUSABLE =
  *  (e.g. a ConfirmModal over a form modal) close one at a time. */
 let modalSeq = 0
 const modalStack: number[] = []
+
+/** True while any Modal is mounted — screens use it to suppress their own global shortcuts
+ *  (Gateway single-letter keys, VoucherEntry F-keys / ⌘↵) so keys aimed at a dialog never
+ *  leak through to the screen underneath. useKeyNav already checks this internally. */
+export function isAnyModalOpen(): boolean {
+  return modalStack.length > 0
+}
 
 export function Modal({
   title,

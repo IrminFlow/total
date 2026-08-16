@@ -190,6 +190,19 @@ export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, e
   return `${vt.prefix}${padded}${vt.suffix}`
 }
 
+/** True when another live voucher of this type already carries `number` — the renderer's
+ *  pre-save confirm for a manually typed number (the post-save duplicateNumber flag on
+ *  SavedVoucher stays as the belt-and-braces warning for races). Binned vouchers don't
+ *  count: restoring one back into a clash is already the restore flow's problem. */
+export function voucherNumberExists(db: DB, voucherTypeId: number, number: string, excludeId?: number): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id IS NOT ? AND ${NOT_DELETED} LIMIT 1`
+    )
+    .get(voucherTypeId, number, excludeId ?? -1)
+  return !!row
+}
+
 export interface DuplicateWarning {
   voucherId: number
   number: string

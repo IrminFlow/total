@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { Button, Money, Panel, ScrollList, Skeleton } from '../components/ui'
+import { Button, isAnyModalOpen, Money, Panel, ScrollList, Skeleton } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { useFeatures } from '../lib/useFeatures'
@@ -29,6 +29,9 @@ export function Gateway(): React.JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
+      // A key aimed at an open dialog (ConfirmModal "y", PromptModal text…) must never
+      // double as a Gateway navigation shortcut underneath it.
+      if (isAnyModalOpen()) return
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
       const card = cards.find((c) => c.key.toLowerCase() === e.key.toLowerCase())
@@ -99,8 +102,11 @@ export function Gateway(): React.JSX.Element {
         ))}
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-3">
+      {/* Fixed row height: long receivable/payable lists scroll inside their panels instead of
+          stretching the row — which would also stretch the sparkline opposite and make its
+          aspect depend on how many debtors the company has. */}
+      <div className="mt-6 grid h-[420px] grid-cols-2 gap-3">
+        <div className="flex min-h-0 flex-col gap-3">
           <TopLedgersPanel title="Top receivables" rows={data?.topReceivables ?? []} />
           <TopLedgersPanel title="Top payables" rows={data?.topPayables ?? []} />
         </div>
@@ -234,6 +240,7 @@ function CompliancePanel({
   const nav = useNav()
   const { info, slug } = useSession()
   const today = todayISO()
+  const [showAll, setShowAll] = useState(false)
   const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
 
   const deadlines = useMemo(
@@ -270,13 +277,22 @@ function CompliancePanel({
         </button>
       </div>
       <div>
-        {deadlines.slice(0, 6).map((d) => (
+        {(showAll ? deadlines : deadlines.slice(0, 6)).map((d) => (
           <div key={d.id} className="flex items-center gap-4 border-b border-line/40 px-5 py-2 last:border-b-0">
             <span className="num w-20 text-[12px] text-muted">{toDisplayDate(d.date)}</span>
             <span className="w-28 text-[12.5px] text-muted">{d.form}</span>
             <span className="flex-1 truncate text-[13px]">{d.title}</span>
           </div>
         ))}
+        {deadlines.length > 6 && (
+          <button
+            data-testid="btn-gateway-compliance-all"
+            className="w-full px-5 py-2 text-left text-[11.5px] text-blue hover:underline"
+            onClick={() => setShowAll((v) => !v)}
+          >
+            {showAll ? 'Show fewer' : `Show all ${deadlines.length}`}
+          </button>
+        )}
       </div>
     </Panel>
   )
@@ -336,14 +352,14 @@ function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; it
 function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] }): React.JSX.Element {
   const nav = useNav()
   return (
-    <Panel className="flex-1">
-      <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+    <Panel className="flex min-h-0 flex-1 flex-col">
+      <p className="shrink-0 border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
         {title}
       </p>
       {rows.length === 0 ? (
         <p className="px-5 py-6 text-center text-[12.5px] text-muted">Nothing outstanding</p>
       ) : (
-        <ScrollList maxH="15rem">
+        <ScrollList maxH="340px" className="min-h-0 flex-1">
           {rows.map((r) => (
             <button
               key={r.ledgerId}
@@ -361,37 +377,68 @@ function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] 
 }
 
 /** Inline SVG polyline — no chart library. `viewBox` is normalized to the point count so the
- *  path always fills the panel regardless of how many trailing days actually had data. */
+ *  path always fills the panel regardless of how many trailing days actually had data. The
+ *  panel row it sits in is fixed-height, so the drawn aspect never shifts as sibling panels'
+ *  content grows. Hovering reads out the date + balance under the cursor. */
 function CashSparklinePanel({ points }: { points: CashSparkPoint[] }): React.JSX.Element {
   const w = 100
   const h = 32
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
   const values = points.map((p) => p.balance)
   const min = Math.min(0, ...values)
   const max = Math.max(0, ...values)
   const range = max - min || 1
-  const coords = points
-    .map((p, i) => {
-      const x = points.length > 1 ? (i / (points.length - 1)) * w : 0
-      const y = h - ((p.balance - min) / range) * h
-      return `${x.toFixed(2)},${y.toFixed(2)}`
-    })
-    .join(' ')
-  const last = points[points.length - 1]
+  const xAt = (i: number): number => (points.length > 1 ? (i / (points.length - 1)) * w : w / 2)
+  const yAt = (i: number): number => h - ((points[i]!.balance - min) / range) * h
+  const coords = points.map((_, i) => `${xAt(i).toFixed(2)},${yAt(i).toFixed(2)}`).join(' ')
+  const readout = hoverIdx != null ? points[hoverIdx] : points[points.length - 1]
 
   return (
-    <Panel className="flex flex-1 flex-col p-5">
-      <div className="flex items-center justify-between">
+    <Panel className="flex min-h-0 flex-col p-5">
+      <div className="flex shrink-0 items-center justify-between">
         <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Cash + bank · 30 days</p>
-        {last && <Money paise={last.balance} className="text-[13px]" />}
+        {readout && (
+          <p className="num text-[13px]">
+            {hoverIdx != null && <span className="mr-2 text-muted">{toDisplayDate(readout.date)}</span>}
+            <Money paise={readout.balance} />
+          </p>
+        )}
       </div>
-      <svg
-        viewBox={`0 0 ${w} ${h}`}
-        preserveAspectRatio="none"
-        className="mt-4 h-24 w-full flex-1 text-blue"
-        aria-hidden="true"
-      >
-        <polyline points={coords} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      </svg>
+      {points.length > 0 && (
+        <svg
+          viewBox={`0 0 ${w} ${h}`}
+          preserveAspectRatio="none"
+          className="mt-4 min-h-0 w-full flex-1 text-blue"
+          data-testid="spark-cash"
+          role="img"
+          aria-label="Cash and bank balance, last 30 days"
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect()
+            const frac = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0
+            const idx = Math.round(frac * (points.length - 1))
+            setHoverIdx(Math.max(0, Math.min(points.length - 1, idx)))
+          }}
+          onMouseLeave={() => setHoverIdx(null)}
+        >
+          {points.length === 1 ? (
+            // A one-point polyline draws nothing — show a flat line at the lone balance instead.
+            <line x1={0} y1={yAt(0)} x2={w} y2={yAt(0)} stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+          ) : (
+            <polyline points={coords} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+          )}
+          {hoverIdx != null && (
+            <line
+              x1={xAt(hoverIdx)}
+              y1={0}
+              x2={xAt(hoverIdx)}
+              y2={h}
+              stroke="var(--t-amber)"
+              strokeWidth="1"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+        </svg>
+      )}
     </Panel>
   )
 }
