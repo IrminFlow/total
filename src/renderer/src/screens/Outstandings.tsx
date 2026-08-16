@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import { TabBar } from '../components/TabBar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -75,18 +76,15 @@ export function OutstandingsScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
-            <div className="flex gap-1">
-              {(['receivable', 'payable'] as const).map((s) => (
-                <button
-                  key={s}
-                  data-testid={`tab-outstandings-${s}`}
-                  onClick={() => setSide(s)}
-                  className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${side === s ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
-                >
-                  {s}s
-                </button>
-              ))}
-            </div>
+            <TabBar
+              screen="outstandings"
+              tabs={[
+                { id: 'receivable', label: 'Receivables' },
+                { id: 'payable', label: 'Payables' }
+              ]}
+              active={side}
+              onSelect={setSide}
+            />
             <Button
               variant="ghost"
               onClick={() =>

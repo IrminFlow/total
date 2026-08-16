@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { parseRupees, formatPaise, percentOf, roundToRupee, amountInWords, plainRupees, plainMilli } from './money'
-import { fyOf, parseSmartDate, gstPeriodOf, toPortalDate, isValidISODate } from './dates'
+import { fyOf, parseSmartDate, gstPeriodOf, toPortalDate, isValidISODate, toDisplayDateTime } from './dates'
 import { validateGstin, gstinCheckChar, validateHsn } from './gst/validate'
 import { computeGst, supplyTypeFor } from './gst/calc'
 import { validateVoucher, type VoucherInput, type LedgerFacts } from './posting'
@@ -89,6 +89,11 @@ describe('dates', () => {
   it('formats GST portal periods and dates', () => {
     expect(gstPeriodOf('2025-08-15')).toBe('082025')
     expect(toPortalDate('2025-08-15')).toBe('15-08-2025')
+  })
+
+  it('formats display timestamps as DD-MMM-YY HH:MM', () => {
+    expect(toDisplayDateTime(new Date(2026, 7, 15, 9, 5))).toBe('15-Aug-26 09:05')
+    expect(toDisplayDateTime(new Date(2025, 0, 2, 23, 59))).toBe('02-Jan-25 23:59')
   })
 
   it('rejects impossible calendar dates', () => {

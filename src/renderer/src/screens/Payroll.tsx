@@ -6,9 +6,15 @@ import { todayISO } from '@shared/dates'
 import { api } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
 import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, SkeletonRows, TextInput } from '../components/ui'
+import { TabBar } from '../components/TabBar'
 import { confirmDialog } from '../lib/dialogs'
 
 type Tab = 'employees' | 'runs'
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'employees', label: 'Employees' },
+  { id: 'runs', label: 'Pay runs' }
+]
 
 export function PayrollScreen(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('employees')
@@ -16,16 +22,7 @@ export function PayrollScreen(): React.JSX.Element {
     <div className="mx-auto max-w-5xl">
       <div className="mb-4 flex items-center gap-1">
         <h2 className="mr-4 font-serif text-[19px] font-semibold tracking-tight">Payroll</h2>
-        {(['employees', 'runs'] as const).map((t) => (
-          <button
-            key={t}
-            data-testid={`tab-payroll-${t}`}
-            onClick={() => setTab(t)}
-            className={`rounded-md px-3 py-1.5 text-[13px] capitalize ${tab === t ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'}`}
-          >
-            {t === 'runs' ? 'Pay runs' : 'Employees'}
-          </button>
-        ))}
+        <TabBar screen="payroll" tabs={TABS} active={tab} onSelect={setTab} />
       </div>
       {tab === 'employees' ? <EmployeesTab /> : <RunsTab />}
       <p className="mt-3 text-[11.5px] text-muted">

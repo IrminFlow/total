@@ -124,7 +124,7 @@ export default function App(): React.JSX.Element {
               draft={screen.draft}
             />
           )}
-          {screen.name === 'masters' && <Masters tab={screen.tab} />}
+          {screen.name === 'masters' && <Masters key={screen.tab ?? 'ledgers'} tab={screen.tab} />}
           {screen.name === 'trial-balance' && <TrialBalanceScreen />}
           {screen.name === 'profit-loss' && <ProfitLossScreen />}
           {screen.name === 'balance-sheet' && <BalanceSheetScreen />}

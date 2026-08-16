@@ -66,12 +66,15 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'masters',
-    keywords: ['ledgers', 'items', 'groups', 'units', 'voucher types', 'currencies'],
+    keywords: ['ledgers', 'items', 'groups', 'units', 'voucher types', 'currencies', 'godowns', 'stock groups'],
     title: 'Masters',
     screen: { name: 'masters' },
     navSection: 'top',
     card: { sub: 'Ledgers, items, groups', key: 'M' },
-    invalidates: ['ledgers', 'groups', 'groupTree', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom']
+    invalidates: [
+      'ledgers', 'groups', 'groupTree', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
+      'godowns', 'stockGroups', 'priceLevels', 'priceRates', 'batches'
+    ]
   },
   {
     name: 'recurring',
@@ -253,7 +256,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'system',
     invalidates: [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
-      'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock'
+      'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig'
     ]
   },
 

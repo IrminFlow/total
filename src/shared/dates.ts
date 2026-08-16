@@ -55,6 +55,13 @@ export function toDisplayDate(date: string): string {
   return `${d.toString().padStart(2, '0')}-${months[m - 1]}-${(y % 100).toString().padStart(2, '0')}`
 }
 
+/** 'DD-MMM-YY HH:MM' (24h, local time) for on-screen timestamps — audit trail, backup list.
+ *  Takes a Date so both ISO strings (`new Date(iso)`) and epoch ms (`new Date(mtime)`) share it. */
+export function toDisplayDateTime(d: Date): string {
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return `${toDisplayDate(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 /**
  * Tally-style smart date entry, resolved against a context date (usually the last voucher date
  * or today). Accepts:

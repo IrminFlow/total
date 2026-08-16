@@ -300,7 +300,9 @@ export const auditListSchema = z.object({
   entity: z.string().trim().min(1).optional(),
   from: isoDate.optional(),
   to: isoDate.optional(),
-  page: z.number().int().min(0).default(0)
+  page: z.number().int().min(0).default(0),
+  /** Rows per page; server defaults to AUDIT_PAGE_SIZE (100) when absent. */
+  pageSize: z.number().int().min(10).max(500).optional()
 })
 export type AuditListInput = z.infer<typeof auditListSchema>
 
