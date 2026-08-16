@@ -557,6 +557,10 @@ export function registerIpc(): void {
     return priceLevels.rateFor(requireCompany().db, q.priceLevelId, q.stockItemId, q.date)
   }, 'viewer')
   handle('pdc:list', () => vouchers.pdcRegister(requireCompany().db), 'viewer')
+  handle('pdc:mature', (p) => {
+    vouchers.maturePdcNow(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
 
   // ---------- search ----------
   handle('search:global', (p) => globalSearch(requireCompany().db, searchGlobalSchema.parse(p).q), 'viewer')

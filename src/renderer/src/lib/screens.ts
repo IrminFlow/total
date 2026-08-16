@@ -187,12 +187,12 @@ export const SCREENS: ScreenDef[] = [
 
   {
     name: 'banking',
-    keywords: ['bank reconciliation', 'brs'],
-    title: 'Bank reconciliation',
+    keywords: ['bank reconciliation', 'brs', 'post-dated', 'pdc'],
+    title: 'Banking — reconciliation, BRS & post-dated',
     screen: { name: 'banking' },
     navSection: 'banking',
     navLabel: 'Reconciliation',
-    invalidates: ['bankLedgers', 'bankRecon', 'bankRules', 'chequeConfig']
+    invalidates: ['bankLedgers', 'bankRecon', 'bankRules', 'chequeConfig', 'brs', 'pdc']
   },
 
   {

@@ -435,7 +435,9 @@ export const api = {
       call<number | null>('priceLevels:rateFor', { priceLevelId, stockItemId, date })
   },
   pdc: {
-    list: () => call<PdcRow[]>('pdc:list')
+    list: () => call<PdcRow[]>('pdc:list'),
+    /** Flip one post-dated voucher into the books now (early clearance). */
+    mature: (id: number) => call<null>('pdc:mature', { id })
   },
   vouchers: {
     list: (from: string, to: string, voucherTypeId?: number) =>
