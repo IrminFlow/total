@@ -202,16 +202,23 @@ export function ledgerBalances(db: DB, asOn: string, includeZero = false): Ledge
 
 // ---------- voucher types ----------
 
-interface VtRow { id: number; name: string; kind: VoucherType['kind']; numbering: 'auto' | 'manual'; prefix: string; is_system: number }
-const mapVt = (r: VtRow): VoucherType => ({ id: r.id, name: r.name, kind: r.kind, numbering: r.numbering, prefix: r.prefix, isSystem: !!r.is_system })
+interface VtRow {
+  id: number; name: string; kind: VoucherType['kind']; numbering: 'auto' | 'manual'; prefix: string
+  suffix: string; pad_width: number; restart_fy: number; is_system: number
+}
+const mapVt = (r: VtRow): VoucherType => ({
+  id: r.id, name: r.name, kind: r.kind, numbering: r.numbering, prefix: r.prefix,
+  suffix: r.suffix, padWidth: r.pad_width, restartFy: !!r.restart_fy, isSystem: !!r.is_system
+})
 
 export function listVoucherTypes(db: DB): VoucherType[] {
   return (db.prepare('SELECT * FROM voucher_types ORDER BY id').all() as VtRow[]).map(mapVt)
 }
 
 export function createVoucherType(db: DB, input: VoucherTypeInput): VoucherType {
-  const res = db.prepare('INSERT INTO voucher_types (name, kind, numbering, prefix, is_system) VALUES (?, ?, ?, ?, 0)')
-    .run(input.name, input.kind, input.numbering, input.prefix)
+  const res = db
+    .prepare('INSERT INTO voucher_types (name, kind, numbering, prefix, suffix, pad_width, restart_fy, is_system) VALUES (?, ?, ?, ?, ?, ?, ?, 0)')
+    .run(input.name, input.kind, input.numbering, input.prefix, input.suffix, input.padWidth, input.restartFy ? 1 : 0)
   const created = mapVt(db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(res.lastInsertRowid) as VtRow)
   writeAudit(db, 'voucherType', created.id, 'create', null, created)
   return created
@@ -221,8 +228,8 @@ export function updateVoucherType(db: DB, id: number, input: VoucherTypeInput): 
   const existing = db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as VtRow | undefined
   if (!existing) throw new Error('Voucher type not found')
   const kind = existing.is_system ? existing.kind : input.kind
-  db.prepare('UPDATE voucher_types SET name = ?, kind = ?, numbering = ?, prefix = ? WHERE id = ?')
-    .run(existing.is_system ? existing.name : input.name, kind, input.numbering, input.prefix, id)
+  db.prepare('UPDATE voucher_types SET name = ?, kind = ?, numbering = ?, prefix = ?, suffix = ?, pad_width = ?, restart_fy = ? WHERE id = ?')
+    .run(existing.is_system ? existing.name : input.name, kind, input.numbering, input.prefix, input.suffix, input.padWidth, input.restartFy ? 1 : 0, id)
   const updated = mapVt(db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as VtRow)
   writeAudit(db, 'voucherType', id, 'update', mapVt(existing), updated)
   return updated

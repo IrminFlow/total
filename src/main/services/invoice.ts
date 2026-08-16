@@ -3,31 +3,67 @@ import { writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
+import type { EdocInvoice } from '@shared/gst/edocs'
 import { amountInWords, formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { GST_STATES } from '@shared/gst/states'
+import type { InvoiceConfig } from '@shared/invoiceConfig'
 import { companyExportsDir } from '../paths'
 import { extractEdocInvoices } from './edocs'
+import { getInvoiceConfig } from './config'
 
 const esc = (s: string | null): string =>
   (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 const money = (paise: number): string => formatPaise(paise)
 
-export function invoiceHtml(db: DB, company: CompanyInfo, voucherId: number): { html: string; number: string } {
-  const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
-  if (!inv) throw new Error('Invoice not found (only sales vouchers can be printed)')
+/** Hardcoded so the print-config preview (invoice:previewHtml with no voucherId) works with zero
+ *  vouchers in the books — mirrors the shape extractEdocInvoices produces for a real one. Exported
+ *  for invoice.test.ts (buildInvoiceHtml is pure — no DB — so it's tested directly there). */
+export const SAMPLE_INVOICE: EdocInvoice = {
+  number: 'SAMPLE-1',
+  date: '2025-04-01',
+  partyName: 'Sample Buyer Pvt Ltd',
+  partyGstin: '27AAAAA0000A1Z5',
+  partyAddress: '123 Sample Street, Sample City',
+  partyStateCode: '27',
+  pos: '27',
+  items: [
+    {
+      name: 'Sample product', hsn: '8471', qtyMilli: 2000, uqc: 'NOS',
+      unitPricePaise: 500000, taxablePaise: 1000000, rate: 18, cessRate: 0,
+      cgst: 90000, sgst: 90000, igst: 0, cess: 0, isService: false
+    }
+  ],
+  taxable: 1000000,
+  cgst: 90000,
+  sgst: 90000,
+  igst: 0,
+  cess: 0,
+  roundOff: 0,
+  total: 1180000,
+  transporterId: null,
+  vehicleNo: null,
+  distanceKm: null
+}
 
+/** Pure HTML builder — no DB access — so the live preview and the real/sample invoice paths share
+ *  one renderer. Prints one page per `config.copyLabels` entry. */
+export function buildInvoiceHtml(company: CompanyInfo, config: InvoiceConfig, inv: EdocInvoice): string {
   const isIntra = inv.igst === 0
+  const showHsn = config.showHsn
+  const showDiscount = config.showDiscount
+
   const itemRows = inv.items
     .map(
       (item, i) => `
       <tr>
         <td class="c">${i + 1}</td>
         <td>${esc(item.name)}</td>
-        <td class="c num">${esc(item.hsn)}</td>
+        ${showHsn ? `<td class="c num">${esc(item.hsn)}</td>` : ''}
         <td class="r num">${item.qtyMilli / 1000} ${esc(item.uqc)}</td>
         <td class="r num">${money(item.unitPricePaise)}</td>
+        ${showDiscount ? `<td class="r num">–</td>` : ''}
         <td class="c num">${item.rate}%</td>
         <td class="r num">${money(item.taxablePaise)}</td>
       </tr>`
@@ -42,11 +78,96 @@ export function invoiceHtml(db: DB, company: CompanyInfo, voucherId: number): { 
     inv.roundOff !== 0 ? `<tr><td>Round off</td><td class="r num">${money(inv.roundOff)}</td></tr>` : ''
   ].join('')
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${esc(inv.number)}</title>
+  const logoBlock = config.logoDataUrl
+    ? `<img src="${config.logoDataUrl.replace(/"/g, '&quot;')}" style="max-height:60px;max-width:220px;object-fit:contain;margin-bottom:6px" />`
+    : ''
+
+  const bankBlock = config.bankDetails
+    ? `<div style="margin-top:10px" class="lbl">Bank details</div>
+       <div style="font-size:10.5px">${esc(config.bankDetails.name)}<br/>A/c ${esc(config.bankDetails.account)} · IFSC ${esc(config.bankDetails.ifsc)}<br/>${esc(config.bankDetails.branch)}</div>`
+    : ''
+
+  const termsBlock = config.terms.trim()
+    ? `<div style="margin-top:10px" class="lbl">Terms</div><div style="font-size:10.5px">${esc(config.terms).replace(/\n/g, '<br/>')}</div>`
+    : ''
+
+  const sheet = `
+    <div class="sheet">
+      <div class="head">
+        <div>
+          ${logoBlock}
+          <h1>${esc(company.name)}</h1>
+          <div>${esc(company.address)}</div>
+          <div class="num">GSTIN: ${esc(company.gstin ?? 'Unregistered')} · ${esc(GST_STATES[company.stateCode] ?? company.stateCode)}</div>
+        </div>
+        <div class="tag">
+          <b>${esc(config.title)}</b>
+        </div>
+      </div>
+      <div class="meta">
+        <div>
+          <div class="lbl">Billed to</div>
+          <div><b>${esc(inv.partyName ?? 'Cash sale')}</b></div>
+          <div>${esc(inv.partyAddress)}</div>
+          <div class="num">${inv.partyGstin ? 'GSTIN: ' + esc(inv.partyGstin) : 'Unregistered'}</div>
+        </div>
+        <div>
+          <div class="lbl">Invoice</div>
+          <div>No: <b class="num">${esc(inv.number)}</b></div>
+          <div>Date: <span class="num">${toDisplayDate(inv.date)}</span></div>
+          <div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>
+          ${inv.vehicleNo ? `<div>Vehicle: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}
+        </div>
+      </div>
+      <table class="items">
+        <thead><tr>
+          <th class="c" style="width:34px">#</th><th>Description</th>
+          ${showHsn ? '<th class="c" style="width:80px">HSN</th>' : ''}
+          <th class="r" style="width:90px">Qty</th><th class="r" style="width:100px">Rate</th>
+          ${showDiscount ? '<th class="r" style="width:80px">Discount</th>' : ''}
+          <th class="c" style="width:60px">GST</th><th class="r" style="width:110px">Amount</th>
+        </tr></thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+      <div class="bottom">
+        <div class="words">
+          <div class="lbl">Amount in words</div>
+          <div><i>${esc(amountInWords(inv.total))}</i></div>
+          <div style="margin-top:10px" class="lbl">Declaration</div>
+          <div style="font-size:10.5px">${esc(config.declaration)}</div>
+          ${bankBlock}
+          ${termsBlock}
+        </div>
+        <table class="tot">
+          <tr><td>Taxable value</td><td class="r num">${money(inv.taxable)}</td></tr>
+          ${taxRows}
+          <tr class="grand"><td>Total</td><td class="r num">₹ ${money(inv.total)}</td></tr>
+        </table>
+      </div>
+      <div class="sig">
+        <div>Receiver's signature</div>
+        <div class="for">For <b>${esc(company.name)}</b><br/><br/><br/>${esc(config.signatory)}</div>
+      </div>
+    </div>`
+
+  const copies = config.copyLabels
+    .map(
+      (label) => `
+      <div class="copy">
+        <div class="copy-label">${esc(label)}</div>
+        ${sheet}
+      </div>`
+    )
+    .join('')
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${esc(inv.number)}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font: 12px/1.45 'Helvetica Neue', Arial, sans-serif; color: #16181f; padding: 28px; }
+    body { font: 12px/1.45 'Helvetica Neue', Arial, sans-serif; color: #16181f; }
     .num { font-variant-numeric: tabular-nums; font-family: 'SF Mono', Menlo, monospace; font-size: 11.5px; }
+    .copy { padding: 28px; page-break-after: always; }
+    .copy:last-child { page-break-after: auto; }
+    .copy-label { text-align: right; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #555; margin-bottom: 6px; }
     .sheet { border: 1.5px solid #16181f; }
     .head { display: flex; justify-content: space-between; border-bottom: 1.5px solid #16181f; padding: 14px 16px; }
     h1 { font-size: 20px; letter-spacing: 0.02em; }
@@ -67,64 +188,33 @@ export function invoiceHtml(db: DB, company: CompanyInfo, voucherId: number): { 
     table.tot tr.grand td { border-top: 1px solid #16181f; border-bottom: 3px double #16181f; font-weight: 700; font-size: 13px; }
     .sig { display: flex; justify-content: space-between; padding: 26px 16px 12px; border-top: 1.5px solid #16181f; font-size: 11px; }
     .sig .for { text-align: right; }
-    @media print { body { padding: 0; } }
-  </style></head><body>
-  <div class="sheet">
-    <div class="head">
-      <div>
-        <h1>${esc(company.name)}</h1>
-        <div>${esc(company.address)}</div>
-        <div class="num">GSTIN: ${esc(company.gstin ?? 'Unregistered')} · ${esc(GST_STATES[company.stateCode] ?? company.stateCode)}</div>
-      </div>
-      <div class="tag">
-        <b>TAX INVOICE</b>
-        <div style="margin-top:6px">Original for recipient</div>
-      </div>
-    </div>
-    <div class="meta">
-      <div>
-        <div class="lbl">Billed to</div>
-        <div><b>${esc(inv.partyName ?? 'Cash sale')}</b></div>
-        <div>${esc(inv.partyAddress)}</div>
-        <div class="num">${inv.partyGstin ? 'GSTIN: ' + esc(inv.partyGstin) : 'Unregistered'}</div>
-      </div>
-      <div>
-        <div class="lbl">Invoice</div>
-        <div>No: <b class="num">${esc(inv.number)}</b></div>
-        <div>Date: <span class="num">${toDisplayDate(inv.date)}</span></div>
-        <div>Place of supply: <span class="num">${esc(inv.pos)}-${esc(GST_STATES[inv.pos] ?? '')}</span></div>
-        ${inv.vehicleNo ? `<div>Vehicle: <span class="num">${esc(inv.vehicleNo)}</span></div>` : ''}
-      </div>
-    </div>
-    <table class="items">
-      <thead><tr>
-        <th class="c" style="width:34px">#</th><th>Description</th><th class="c" style="width:80px">HSN</th>
-        <th class="r" style="width:90px">Qty</th><th class="r" style="width:100px">Rate</th>
-        <th class="c" style="width:60px">GST</th><th class="r" style="width:110px">Amount</th>
-      </tr></thead>
-      <tbody>${itemRows}</tbody>
-    </table>
-    <div class="bottom">
-      <div class="words">
-        <div class="lbl">Amount in words</div>
-        <div><i>${esc(amountInWords(inv.total))}</i></div>
-        <div style="margin-top:10px" class="lbl">Declaration</div>
-        <div style="font-size:10.5px">We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.</div>
-      </div>
-      <table class="tot">
-        <tr><td>Taxable value</td><td class="r num">${money(inv.taxable)}</td></tr>
-        ${taxRows}
-        <tr class="grand"><td>Total</td><td class="r num">₹ ${money(inv.total)}</td></tr>
-      </table>
-    </div>
-    <div class="sig">
-      <div>Receiver's signature</div>
-      <div class="for">For <b>${esc(company.name)}</b><br/><br/><br/>Authorised signatory</div>
-    </div>
-  </div>
-  </body></html>`
+  </style></head><body>${copies}</body></html>`
+}
 
-  return { html, number: inv.number }
+export function invoiceHtml(db: DB, company: CompanyInfo, voucherId: number): { html: string; number: string } {
+  const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
+  if (!inv) throw new Error('Invoice not found (only sales vouchers can be printed)')
+  const config = getInvoiceConfig(db)
+  return { html: buildInvoiceHtml(company, config, inv), number: inv.number }
+}
+
+/** invoice:previewHtml — renders the current (unsaved) print config against a real voucher when
+ *  `voucherId` is given, or the built-in sample invoice otherwise, so Settings → Invoice can show
+ *  a live preview with zero vouchers in the books. `configOverride` lets the renderer preview
+ *  edits before they're saved. */
+export function invoicePreviewHtml(
+  db: DB,
+  company: CompanyInfo,
+  voucherId?: number,
+  configOverride?: InvoiceConfig
+): { html: string } {
+  const config = configOverride ?? getInvoiceConfig(db)
+  if (voucherId != null) {
+    const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
+    if (!inv) throw new Error('Invoice not found (only sales vouchers can be printed)')
+    return { html: buildInvoiceHtml(company, config, inv) }
+  }
+  return { html: buildInvoiceHtml(company, config, SAMPLE_INVOICE) }
 }
 
 /** Render the invoice to a PDF in the company's exports folder. Returns the file path. */

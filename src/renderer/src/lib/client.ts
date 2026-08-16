@@ -14,6 +14,8 @@ import type {
   GroupInput, LedgerInput, NicCredentials, RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput,
   UnitInput, UserInput, VoucherTypeInput, VoucherInputParsed
 } from '@shared/schemas'
+import type { CompanyFeatures } from '@shared/features'
+import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -261,7 +263,18 @@ export const api = {
       call<{ path: string; count: number }>('edoc:exportEwb', { from, to, period })
   },
   invoice: {
-    pdf: (voucherId: number) => call<{ path: string }>('invoice:pdf', { voucherId })
+    pdf: (voucherId: number) => call<{ path: string }>('invoice:pdf', { voucherId }),
+    previewHtml: (voucherId?: number) => call<{ html: string }>('invoice:previewHtml', { voucherId })
+  },
+  config: {
+    features: {
+      get: () => call<CompanyFeatures>('config:features:get'),
+      set: (data: CompanyFeatures) => call<CompanyFeatures>('config:features:set', data)
+    },
+    invoice: {
+      get: () => call<InvoiceConfig>('config:invoice:get'),
+      set: (data: InvoiceConfig) => call<InvoiceConfig>('config:invoice:set', data)
+    }
   },
   currencies: {
     list: () => call<Currency[]>('currency:list'),

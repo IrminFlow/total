@@ -42,10 +42,16 @@ export function setLockDate(db: DB, date: string | null): void {
 
 function getVoucherType(db: DB, id: number): VoucherType {
   const row = db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as
-    | { id: number; name: string; kind: VoucherType['kind']; numbering: 'auto' | 'manual'; prefix: string; is_system: number }
+    | {
+        id: number; name: string; kind: VoucherType['kind']; numbering: 'auto' | 'manual'; prefix: string
+        suffix: string; pad_width: number; restart_fy: number; is_system: number
+      }
     | undefined
   if (!row) throw new Error('Voucher type not found')
-  return { id: row.id, name: row.name, kind: row.kind, numbering: row.numbering, prefix: row.prefix, isSystem: !!row.is_system }
+  return {
+    id: row.id, name: row.name, kind: row.kind, numbering: row.numbering, prefix: row.prefix,
+    suffix: row.suffix, padWidth: row.pad_width, restartFy: !!row.restart_fy, isSystem: !!row.is_system
+  }
 }
 
 export function getVoucher(db: DB, id: number): Voucher | null {
@@ -121,20 +127,35 @@ export function getVoucher(db: DB, id: number): Voucher | null {
   }
 }
 
-/** Next auto number for a voucher type in the FY containing `date`: prefix + (count within FY + 1). */
+/**
+ * Next auto number for a voucher type: prefix + zero-padded sequence + suffix.
+ * The scan window is the FY containing `date` (restartFy true, the default — Tally-style numbering
+ * that resets to 1 each financial year), or every voucher of this type ever (restartFy false — one
+ * running sequence across FYs). Either way, binned (soft-deleted) vouchers still count toward the
+ * max — same as before this task, deliberately: a deleted number must never be reissued.
+ */
 export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, excludeVoucherId?: number): string {
   const vt = getVoucherType(db, voucherTypeId)
-  const fy = fyOf(date)
-  const rows = db
-    .prepare('SELECT number FROM vouchers WHERE voucher_type_id = ? AND date BETWEEN ? AND ? AND id IS NOT ?')
-    .all(voucherTypeId, fy.from, fy.to, excludeVoucherId ?? -1) as { number: string }[]
+  const rows = vt.restartFy
+    ? (db
+        .prepare('SELECT number FROM vouchers WHERE voucher_type_id = ? AND date BETWEEN ? AND ? AND id IS NOT ?')
+        .all(voucherTypeId, fyOf(date).from, fyOf(date).to, excludeVoucherId ?? -1) as { number: string }[])
+    : (db
+        .prepare('SELECT number FROM vouchers WHERE voucher_type_id = ? AND id IS NOT ?')
+        .all(voucherTypeId, excludeVoucherId ?? -1) as { number: string }[])
   let max = 0
   for (const r of rows) {
-    const numeric = r.number.startsWith(vt.prefix) ? r.number.slice(vt.prefix.length) : r.number
+    // Strip the prefix and suffix (if present) before parsing, so e.g. "INV-007/24-25" with
+    // prefix "INV-" and suffix "/24-25" reads as 7, not NaN.
+    let numeric = r.number
+    if (numeric.startsWith(vt.prefix)) numeric = numeric.slice(vt.prefix.length)
+    if (vt.suffix && numeric.endsWith(vt.suffix)) numeric = numeric.slice(0, numeric.length - vt.suffix.length)
     const n = parseInt(numeric, 10)
     if (Number.isFinite(n) && n > max) max = n
   }
-  return `${vt.prefix}${max + 1}`
+  const seq = max + 1
+  const padded = vt.padWidth > 0 ? String(seq).padStart(vt.padWidth, '0') : String(seq)
+  return `${vt.prefix}${padded}${vt.suffix}`
 }
 
 export interface DuplicateWarning {

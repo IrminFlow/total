@@ -20,6 +20,7 @@ import {
   stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
+import * as configSvc from './services/config'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
 import * as reports from './services/reports'
@@ -43,6 +44,8 @@ import {
   userInputSchema, authLoginSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
+import { featuresSchema } from '@shared/features'
+import { invoiceConfigSchema } from '@shared/invoiceConfig'
 
 export interface OpenCompany {
   slug: string
@@ -605,6 +608,17 @@ export function registerIpc(): void {
     shell.openPath(path)
     return { path }
   })
+  handle('invoice:previewHtml', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive().optional() }).default({}).parse(p ?? {})
+    const c = requireCompany()
+    return invoice.invoicePreviewHtml(c.db, c.info, voucherId)
+  }, 'viewer')
+
+  // ---------- F11 features + F12 invoice print config ----------
+  handle('config:features:get', () => configSvc.getFeatures(requireCompany().db), 'viewer')
+  handle('config:features:set', (p) => configSvc.setFeatures(requireCompany().db, featuresSchema.parse(p)), 'owner')
+  handle('config:invoice:get', () => configSvc.getInvoiceConfig(requireCompany().db), 'viewer')
+  handle('config:invoice:set', (p) => configSvc.setInvoiceConfig(requireCompany().db, invoiceConfigSchema.parse(p)), 'owner')
 
   // ---------- currencies + BOM ----------
   handle('currency:list', () => extras.listCurrencies(requireCompany().db), 'viewer')
