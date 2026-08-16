@@ -10,6 +10,7 @@ import { TRADING_KINDS } from './voucher/hooks'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
 import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureEntry } from './voucher/ManufactureEntry'
+import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
 
 const FKEYS: Record<string, VoucherKind> = {
   F4: 'contra', F5: 'payment', F6: 'receipt', F7: 'journal', F8: 'sales', F9: 'purchase'
@@ -75,6 +76,7 @@ export function VoucherEntry({
   const currentType = types.find((t) => t.id === typeId) ?? types[0]!
   const invoiceMode = !voucherId && TRADING_KINDS.includes(currentType.kind)
   const manufactureMode = !voucherId && currentType.kind === 'stock_journal'
+  const physicalMode = !voucherId && currentType.kind === 'physical_stock'
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -99,7 +101,7 @@ export function VoucherEntry({
         </h2>
         {!voucherId &&
           types
-            .filter((t) => t.kind !== 'physical_stock' && (features.inventory || t.kind !== 'stock_journal'))
+            .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
             .map((t) => (
             <button
               key={t.id}
@@ -117,6 +119,8 @@ export function VoucherEntry({
         <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
       ) : manufactureMode ? (
         <ManufactureEntry key={currentType.id} typeId={currentType.id} />
+      ) : physicalMode ? (
+        <PhysicalStockEntry key={currentType.id} typeId={currentType.id} />
       ) : (
         <AccountingEntry
           key={voucherId ?? currentType.id}
