@@ -32,7 +32,12 @@ export default function GstReturnsPage(): React.JSX.Element {
       <ol>
         <li>Review GSTR-1 and GSTR-3B on screen — press <kbd>1</kbd> or <kbd>3</kbd> from the Gateway.</li>
         <li>Import the GSTR-2B JSON from the portal and reconcile against your purchases.</li>
-        <li>Export GSTR-1 / GSTR-3B as JSON.</li>
+        <li>
+          Clear the <b>validation panel</b> — export stays disabled while anything blocking remains (missing HSN,
+          invalid buyer GSTINs, duplicate invoice numbers, booked totals that don&rsquo;t tie to computed tax). Each
+          issue drills straight into the offending vouchers.
+        </li>
+        <li>Export GSTR-1 / GSTR-3B as JSON — the GSTR-1 file carries the full table set, including the HSN summary (Table 12), documents issued (Table 13), advances (11A/11B) and nil-rated (Table 8).</li>
         <li>Upload that JSON through the GST portal&rsquo;s offline tool, the same way offline Tally users always have.</li>
       </ol>
       <p className="muted">
@@ -45,7 +50,10 @@ export default function GstReturnsPage(): React.JSX.Element {
       <p>
         Every e-invoice and e-way bill goes through the same offline-first path: Total builds the JSON payload the
         NIC schema expects — including credit/debit note references (CRN/DBN) and SEZ/export supply types — that you
-        can upload through the NIC&rsquo;s own offline tools.
+        can upload through the NIC&rsquo;s own offline tools. E-way bills export both ways: one combined bulk file
+        for the period, and a <b>separate JSON per consignment</b> (the portal&rsquo;s bulk tool processes one bill
+        per file), each carrying the mandatory from/to place, PIN codes and transaction type from the voucher&rsquo;s
+        transport details.
       </p>
       <p>
         There is also a <b>live filing</b> path that talks to the NIC APIs directly and returns an IRN or e-way bill
