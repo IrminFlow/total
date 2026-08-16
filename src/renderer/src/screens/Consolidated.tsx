@@ -21,7 +21,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
 
   const slugs = useMemo(() => companies.map((c) => c.slug).filter((s) => selected.has(s)), [companies, selected])
 
-  const { data, refetch, isFetching } = useQuery({
+  const { data, error, refetch, isFetching } = useQuery({
     queryKey: ['consolidated', slugs, kind, from, to],
     queryFn: () => api.consolidated.run(slugs, kind, from, to),
     enabled: false
@@ -42,11 +42,10 @@ export function ConsolidatedScreen(): React.JSX.Element {
       return
     }
     setRanOnce(true)
-    try {
-      await refetch()
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
+    // refetch() never throws — it resolves with the failure inside the result — so surface
+    // the error from the query result (and it stays rendered below via `error`).
+    const result = await refetch()
+    if (result.error) toast.push('error', result.error.message)
   }
 
   const exportCsv = async (): Promise<void> => {
@@ -114,6 +113,12 @@ export function ConsolidatedScreen(): React.JSX.Element {
           {data && <Button onClick={() => void exportCsv()}>Export CSV</Button>}
         </div>
       </Panel>
+
+      {ranOnce && error && (
+        <div className="mb-4 rounded-md border border-cr/50 bg-cr/10 px-3 py-2 text-[12.5px] text-cr">
+          Couldn&apos;t run the consolidation: {error.message}
+        </div>
+      )}
 
       {data && data.warnings.length > 0 && (
         <div className="mb-4 rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2 text-[12.5px] text-ink">

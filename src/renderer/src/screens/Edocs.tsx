@@ -180,7 +180,12 @@ export function EdocsScreen(): React.JSX.Element {
                         Generate EWB
                       </button>
                     )}
-                    <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => void api.invoice.pdf(r.voucherId)}>
+                    <button
+                      className="mr-2 text-[12px] text-blue hover:underline"
+                      onClick={() => {
+                        api.invoice.pdf(r.voucherId).catch((err: Error) => toast.push('error', err.message))
+                      }}
+                    >
                       PDF
                     </button>
                     <button className="text-[12px] text-muted hover:text-ink" onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}>

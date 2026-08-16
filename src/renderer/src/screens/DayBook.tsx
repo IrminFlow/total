@@ -117,10 +117,13 @@ export function DayBook(): React.JSX.Element {
     [nav]
   )
 
-  const openPdf = useCallback((voucherId: number, e: React.MouseEvent) => {
-    e.stopPropagation()
-    void api.invoice.pdf(voucherId)
-  }, [])
+  const openPdf = useCallback(
+    (voucherId: number, e: React.MouseEvent) => {
+      e.stopPropagation()
+      api.invoice.pdf(voucherId).catch((err: Error) => toast.push('error', err.message))
+    },
+    [toast]
+  )
 
   // Date and Narration always show; the rest follow the F12 column config.
   const colCount =

@@ -69,9 +69,13 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
             <button
               className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
               onClick={async () => {
-                await api.auth.logout()
-                setUser(null)
-                setLocked(true)
+                try {
+                  await api.auth.logout()
+                  setUser(null)
+                  setLocked(true)
+                } catch (err) {
+                  toast.push('error', (err as Error).message)
+                }
               }}
             >
               Lock
@@ -109,8 +113,12 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           <button
             className="rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
             onClick={async () => {
-              await api.company.backup()
-              toast.push('success', 'Backup saved')
+              try {
+                await api.company.backup()
+                toast.push('success', 'Backup saved')
+              } catch (err) {
+                toast.push('error', (err as Error).message)
+              }
             }}
           >
             Back up now
@@ -118,9 +126,13 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           <button
             className="rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
             onClick={async () => {
-              await api.company.close()
-              clearCompany()
-              nav.home()
+              try {
+                await api.company.close()
+                clearCompany()
+                nav.home()
+              } catch (err) {
+                toast.push('error', (err as Error).message)
+              }
             }}
           >
             Switch company

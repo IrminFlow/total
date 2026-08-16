@@ -247,9 +247,11 @@ function CompliancePanel({
     notifiedCompanies.add(slug)
     const soon = upcomingDeadlines(today, gstRegistrationType, hasEmployees, 3)
     if (soon.length) {
-      void api.app.notifyDeadlines(
-        soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` }))
-      )
+      // Deliberately fire-and-forget: an OS notification failing is not worth interrupting
+      // the Gateway for — swallow the rejection.
+      void api.app
+        .notifyDeadlines(soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` })))
+        .catch(() => {})
     }
     // Deliberately no dependency-driven re-fire within a company: the module set above is the
     // real guard, this effect just needs to run once `info`/`dashboardLoaded` are available.
