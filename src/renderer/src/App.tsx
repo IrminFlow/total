@@ -24,6 +24,7 @@ import { EdocsScreen } from './screens/Edocs'
 import { PayrollScreen } from './screens/Payroll'
 import { TdsScreen } from './screens/Tds'
 import { CostCentresScreen } from './screens/CostCentres'
+import { YearEndScreen } from './screens/YearEnd'
 import { Settings } from './screens/Settings'
 import { CommandPalette } from './components/CommandPalette'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -116,6 +117,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'payroll' && <PayrollScreen />}
           {screen.name === 'tds' && <TdsScreen />}
           {screen.name === 'cost-centres' && <CostCentresScreen />}
+          {screen.name === 'year-end' && <YearEndScreen />}
           {screen.name === 'company-info' && <CompanyInfoScreen />}
           {screen.name === 'settings' && <Settings key={screen.tab ?? 'backups'} tab={screen.tab} />}
         </ErrorBoundary>

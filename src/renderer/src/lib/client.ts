@@ -16,6 +16,7 @@ import type {
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
+import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -306,6 +307,12 @@ export const api = {
     runs: () => call<PayrollRun[]>('payroll:runs'),
     removeRun: (id: number) => call<null>('payroll:deleteRun', { id }),
     payslip: (runId: number, employeeId: number) => call<{ path: string }>('payroll:payslip', { runId, employeeId })
+  },
+  yearEnd: {
+    preview: (fyStartYear: number) =>
+      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean }>('yearend:preview', { fyStartYear }),
+    close: (fyStartYear: number) =>
+      call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
   },
   tally: {
     import: () =>

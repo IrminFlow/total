@@ -51,6 +51,7 @@ export type Screen =
   | { name: 'tds' }
   | { name: 'cost-centres' }
   | { name: 'company-info' }
+  | { name: 'year-end' }
   | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'about' }
 
 interface NavState {

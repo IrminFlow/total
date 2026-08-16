@@ -36,7 +36,8 @@ const NAV: NavSection[] = [
       { label: 'Trial balance', screen: { name: 'trial-balance' } },
       { label: 'Profit & Loss', screen: { name: 'profit-loss' } },
       { label: 'Balance sheet', screen: { name: 'balance-sheet' } },
-      { label: 'Stock summary', screen: { name: 'stock-summary' }, feature: 'inventory' }
+      { label: 'Stock summary', screen: { name: 'stock-summary' }, feature: 'inventory' },
+      { label: 'Year-end close', screen: { name: 'year-end' } }
     ]
   },
   {

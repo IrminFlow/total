@@ -36,6 +36,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'Profit & Loss', run: go({ name: 'profit-loss' }) },
       { label: 'Balance sheet', run: go({ name: 'balance-sheet' }) },
       { label: 'Stock summary', feature: 'inventory', run: go({ name: 'stock-summary' }) },
+      { label: 'Year-end close', run: go({ name: 'year-end' }) },
       { label: 'GSTR-1', run: go({ name: 'gstr1' }) },
       { label: 'GSTR-3B', run: go({ name: 'gstr3b' }) },
       { label: 'GSTR-2B reconciliation', run: go({ name: 'gstr2b' }) },

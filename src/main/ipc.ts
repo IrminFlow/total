@@ -36,6 +36,7 @@ import * as nic from './services/nic'
 import * as tds from './services/tds'
 import * as costCentres from './services/costCentres'
 import * as recurring from './services/recurring'
+import * as yearEnd from './services/yearEnd'
 import { importTallyXml } from './services/tallyImport'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
@@ -232,6 +233,18 @@ export function registerIpc(): void {
     const { date } = z.object({ date: isoDate.nullable() }).parse(payload)
     vouchers.setLockDate(requireCompany().db, date)
     return { date }
+  }, 'owner')
+
+  // ---------- year-end close ----------
+  const fyStartYearSchema = z.object({ fyStartYear: z.number().int().min(1990).max(2100) })
+  handle('yearend:preview', (p) => {
+    const { fyStartYear } = fyStartYearSchema.parse(p)
+    return yearEnd.closePreview(requireCompany().db, fyStartYear)
+  }, 'viewer')
+  handle('yearend:close', (p) => {
+    const { fyStartYear } = fyStartYearSchema.parse(p)
+    const c = requireCompany()
+    return yearEnd.postClose(c.db, c.info, fyStartYear)
   }, 'owner')
 
   // ---------- backups: list/run/restore + encrypted export/import ----------
