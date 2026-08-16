@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre } from '@shared/domain'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
+import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, SkeletonRows, TextInput } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import { confirmDialog } from '../lib/dialogs'
 
@@ -147,8 +147,22 @@ function DrillRows({
   to: string
   onOpenVoucher: (voucherId: number) => void
 }): React.JSX.Element {
-  const { data } = useQuery({ queryKey: ['ccStatement', ccId, from, to], queryFn: () => api.cc.statement(ccId, from, to) })
+  const { data, isLoading } = useQuery({ queryKey: ['ccStatement', ccId, from, to], queryFn: () => api.cc.statement(ccId, from, to) })
   const rows = data ?? []
+  if (isLoading) {
+    // Loading is not "no postings" — show placeholder rows until the statement arrives.
+    return (
+      <>
+        {[0, 1].map((i) => (
+          <tr key={i} className="bg-panel2/50">
+            <td colSpan={4} className="pl-9">
+              <Skeleton className={`h-3 ${i === 0 ? 'w-56' : 'w-40'}`} />
+            </td>
+          </tr>
+        ))}
+      </>
+    )
+  }
   if (!rows.length) {
     return (
       <tr className="bg-panel2/50">

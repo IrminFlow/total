@@ -36,15 +36,35 @@ function CountsGrid({ summary }: { summary: TallyImportSummary }): React.JSX.Ele
   )
 }
 
+const WARNINGS_PREVIEW = 8
+
 function WarningsBox({ warnings }: { warnings: string[] }): React.JSX.Element | null {
+  const [expanded, setExpanded] = useState(false)
   if (warnings.length === 0) return null
+  const shown = expanded ? warnings : warnings.slice(0, WARNINGS_PREVIEW)
+  const hidden = warnings.length - shown.length
   return (
     <div className="mt-4 max-h-56 overflow-auto rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2">
-      {warnings.map((w, i) => (
+      <p className="flex items-center gap-2 py-0.5 text-[12.5px] font-medium text-ink">
+        <span data-testid="badge-import-tally-warnings" className="rounded bg-amberbar/40 px-1.5 py-0.5 num text-[11px]">
+          {warnings.length}
+        </span>
+        warning{warnings.length > 1 ? 's' : ''}
+      </p>
+      {shown.map((w, i) => (
         <p key={i} className="py-0.5 text-[12.5px] text-ink">
           {w}
         </p>
       ))}
+      {hidden > 0 && (
+        <button
+          data-testid="btn-import-tally-warnings-more"
+          className="py-0.5 text-[12.5px] text-blue hover:underline"
+          onClick={() => setExpanded(true)}
+        >
+          {hidden} more…
+        </button>
+      )}
     </div>
   )
 }
@@ -211,7 +231,7 @@ function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGatew
         </div>
       </div>
 
-      <Panel className="mt-3">
+      <Panel className="mt-3" scroll={{ maxH: '60vh' }}>
         {rows.length === 0 ? (
           <EmptyState title="No balances yet" />
         ) : (

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type IntegrityResult } from '../lib/client'
-import { useSession, useToasts } from '../state/stores'
-import { Button, Field, Modal, Select, TextInput, useKeyNav } from '../components/ui'
+import { useNav, useSession, useToasts } from '../state/stores'
+import { Button, Field, Modal, ScrollList, Select, TextInput, useKeyNav } from '../components/ui'
 import { GST_STATES } from '@shared/gst/states'
-import { validateGstin } from '@shared/gst/validate'
+import { gstinErrorMessage } from '../lib/gstinError'
 import { fyOf, todayISO } from '@shared/dates'
 import type { CompanyCreateInput } from '@shared/schemas'
 import type { CompanyInfo, CompanySummary } from '@shared/domain'
@@ -13,6 +13,7 @@ export function CompanySelect(): React.JSX.Element {
   const queryClient = useQueryClient()
   const { data: registry } = useQuery({ queryKey: ['registry'], queryFn: api.company.list })
   const { setCompany } = useSession()
+  const nav = useNav()
   const toast = useToasts()
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -57,6 +58,7 @@ export function CompanySelect(): React.JSX.Element {
         </p>
 
         <div className="overflow-hidden rounded-xl border border-line bg-panel">
+          <ScrollList maxH="50vh">
           {companies.length === 0 && (
             <p className="px-6 py-10 text-center text-[13.5px] text-muted">
               No companies yet. Create your first — books open in seconds.
@@ -81,8 +83,9 @@ export function CompanySelect(): React.JSX.Element {
                 <span className="text-[11.5px] text-muted">Enter ↵</span>
                 <button
                   type="button"
+                  data-testid={`btn-company-delete-${c.slug}`}
                   title={`Delete ${c.name}`}
-                  className="rounded px-1.5 py-0.5 text-[13px] text-muted opacity-0 transition-opacity hover:border hover:border-cr/50 hover:text-cr group-hover:opacity-100"
+                  className="rounded px-1.5 py-0.5 text-[13px] text-muted opacity-0 transition-opacity hover:border hover:border-cr/50 hover:text-cr group-hover:opacity-100 focus-visible:opacity-100 focus-visible:text-cr focus-visible:outline-2 focus-visible:outline-cr/60"
                   onClick={(e) => {
                     e.stopPropagation()
                     setDeleting(c)
@@ -93,6 +96,7 @@ export function CompanySelect(): React.JSX.Element {
               </div>
             </div>
           ))}
+          </ScrollList>
         </div>
 
         <div className="mt-4 flex justify-center gap-2">
@@ -165,6 +169,13 @@ export function CompanySelect(): React.JSX.Element {
             setIntegrityIssue(null)
             setCompany(pending.slug, pending.info, pending.locked)
           }}
+          onGoBackups={() => {
+            // Restoring a backup needs the company open — open it and land on Settings → Backups.
+            const { pending } = integrityIssue
+            setIntegrityIssue(null)
+            setCompany(pending.slug, pending.info, pending.locked)
+            nav.go({ name: 'settings', tab: 'backups' })
+          }}
           onCancel={async () => {
             setIntegrityIssue(null)
             try {
@@ -182,10 +193,13 @@ export function CompanySelect(): React.JSX.Element {
 function IntegrityIssueModal({
   integrity,
   onOpenAnyway,
+  onGoBackups,
   onCancel
 }: {
   integrity: IntegrityResult
   onOpenAnyway: () => void
+  /** Opens the company anyway and lands straight on Settings → Backups to restore from. */
+  onGoBackups: () => void
   onCancel: () => void
 }): React.JSX.Element {
   return (
@@ -209,9 +223,11 @@ function IntegrityIssueModal({
           )}
         </ul>
         <div className="flex justify-end gap-2">
-          {/* TODO(task-1.10): navigate to Settings → Backups */}
           <Button onClick={onCancel}>Cancel</Button>
-          <Button variant="danger" onClick={onOpenAnyway}>
+          <Button data-testid="btn-integrity-go-backups" onClick={onGoBackups}>
+            Go to Backups
+          </Button>
+          <Button variant="danger" data-testid="btn-integrity-open-anyway" onClick={onOpenAnyway}>
             Open anyway
           </Button>
         </div>
@@ -378,13 +394,7 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
   const [address, setAddress] = useState('')
   const [booksFrom, setBooksFrom] = useState(fyOf(todayISO()).startYear)
 
-  const gstinCheck = gstin.trim() ? validateGstin(gstin) : null
-  const gstinError =
-    gstinCheck && !gstinCheck.valid
-      ? { length: 'A GSTIN has 15 characters', format: 'That doesn’t look like a GSTIN', state_code: 'Unknown state code', checksum: 'Check digit doesn’t match — one character is off' }[gstinCheck.error!]
-      : gstinCheck?.valid && gstinCheck.stateCode !== stateCode
-        ? `GSTIN says ${GST_STATES[gstinCheck.stateCode!] ?? gstinCheck.stateCode} but the state above differs`
-        : null
+  const gstinError = gstinErrorMessage(gstin, stateCode)
 
   const save = async (): Promise<void> => {
     try {

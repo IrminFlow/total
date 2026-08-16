@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useIsFetching, useQuery } from '@tanstack/react-query'
 import { api, type LoginName } from '../lib/client'
-import { useSession } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, TextInput, useKeyNav } from './ui'
 
 /** Full-viewport PIN lock, shown whenever a company has users but no one has signed in yet
@@ -9,7 +9,9 @@ import { Button, TextInput, useKeyNav } from './ui'
 export function LockScreen(): React.JSX.Element {
   const { data: userList } = useQuery({ queryKey: ['auth-users'], queryFn: api.auth.users })
   const fetching = useIsFetching()
-  const { setUser, setLocked } = useSession()
+  const { setUser, setLocked, clearCompany } = useSession()
+  const nav = useNav()
+  const toast = useToasts()
   const list: LoginName[] = userList ?? []
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -106,7 +108,25 @@ export function LockScreen(): React.JSX.Element {
           </div>
         )}
 
-        <p className="mt-8 text-center text-[11px] text-muted/70">
+        <div className="mt-6 flex justify-center">
+          <button
+            data-testid="btn-lock-switch-company"
+            className="rounded-md px-3 py-1.5 text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
+            onClick={async () => {
+              try {
+                await api.company.close()
+                clearCompany()
+                nav.home()
+              } catch (err) {
+                toast.push('error', (err as Error).message)
+              }
+            }}
+          >
+            ← Switch company
+          </button>
+        </div>
+
+        <p className="mt-4 text-center text-[11px] text-muted/70">
           PINs are a convenience lock — for at-rest protection use Settings → Encrypted export.
         </p>
       </div>

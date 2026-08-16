@@ -457,7 +457,8 @@ export const api = {
     purge: (id: number) => call<null>('voucher:purge', { id })
   },
   reports: {
-    dayBook: (from: string, to: string) => call<DayBookRow[]>('report:dayBook', { from, to }),
+    dayBook: (from: string, to: string, includeOutOfBooks?: boolean) =>
+      call<DayBookRow[]>('report:dayBook', { from, to, includeOutOfBooks }),
     ledger: (ledgerId: number, from: string, to: string, groupBy?: 'month') =>
       call<LedgerStatement>('report:ledger', { ledgerId, from, to, groupBy }),
     trialBalance: (asOn: string) => call<TrialBalance>('report:trialBalance', { asOn }),

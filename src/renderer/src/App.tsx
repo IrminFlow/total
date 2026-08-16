@@ -114,7 +114,7 @@ export default function App(): React.JSX.Element {
       <Shell onOpenPalette={() => setPaletteOpen(true)}>
         <ErrorBoundary key={screen.name} screen={screen.name}>
           {screen.name === 'gateway' && <Gateway />}
-          {screen.name === 'daybook' && <DayBook />}
+          {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'voucher-entry' && (
             <VoucherEntry

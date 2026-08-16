@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, useKeyNav } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useKeyNav } from '../components/ui'
 import { csvReport, printReport, slugFilename } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -17,6 +17,20 @@ const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Credit', align: 'r' },
   { label: 'Balance', align: 'r' }
 ]
+
+const MONTHLY_COLUMNS: PdfColumn[] = [
+  { label: 'Month', align: 'l' },
+  { label: 'Debit', align: 'r' },
+  { label: 'Credit', align: 'r' },
+  { label: 'Closing', align: 'r' }
+]
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split('-').map(Number) as [number, number]
+  return `${MONTH_NAMES[(m ?? 1) - 1]} ${y}`
+}
 
 const PAGE = 500
 
@@ -64,24 +78,31 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   const nav = useNav()
   const toast = useToasts()
   const [limit, setLimit] = useState(PAGE)
-  const { data } = useQuery({
-    queryKey: ['ledgerStatement', ledgerId, from, to],
-    queryFn: () => api.reports.ledger(ledgerId, from, to)
+  // Columnar month mode (v0.3 #55): one row per month with period totals + closing balance.
+  const [mode, setMode] = useState<'detail' | 'monthly'>('detail')
+  const { data, isLoading } = useQuery({
+    queryKey: ['ledgerStatement', ledgerId, from, to, mode],
+    queryFn: () => api.reports.ledger(ledgerId, from, to, mode === 'monthly' ? 'month' : undefined)
   })
 
   const rows = data?.rows ?? []
+  const months = data?.months ?? []
 
   useEffect(() => {
     setLimit(PAGE)
-  }, [ledgerId, from, to])
+  }, [ledgerId, from, to, mode])
 
   const displayRows = useMemo(() => rows.slice(0, limit), [rows, limit])
   const remaining = rows.length - displayRows.length
 
-  const { active, setActive } = useKeyNav(displayRows.length, (i) => {
-    const r = displayRows[i]
-    if (r) nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
-  })
+  const { active, setActive } = useKeyNav(
+    displayRows.length,
+    (i) => {
+      const r = displayRows[i]
+      if (r) nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
+    },
+    mode === 'detail'
+  )
 
   const openRow = useCallback(
     (voucherId: number) => {
@@ -90,43 +111,86 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
     [nav]
   )
 
-  if (!data) return <p className="text-muted">Loading…</p>
+  if (!data) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <Panel>
+          <SkeletonRows />
+        </Panel>
+      </div>
+    )
+  }
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
-  const exportRows: PdfRow[] = [
-    ...rows.map((r) => ({
-      cells: [
-        toDisplayDate(r.date),
-        r.particulars,
-        `${r.voucherType} ${r.number}`,
-        formatPaise(r.debit, { zeroDash: true }),
-        formatPaise(r.credit, { zeroDash: true }),
-        formatPaise(r.running, { zeroDash: true })
-      ]
-    })),
-    {
-      cells: [
-        '',
-        'Closing balance',
-        '',
-        formatPaise(data.totalDebit, { zeroDash: true }),
-        formatPaise(data.totalCredit, { zeroDash: true }),
-        formatPaise(data.closing, { zeroDash: true })
-      ],
-      bold: true,
-      rule: true
-    }
-  ]
+  const exportColumns = mode === 'monthly' ? MONTHLY_COLUMNS : EXPORT_COLUMNS
+  const exportRows: PdfRow[] =
+    mode === 'monthly'
+      ? [
+          ...months.map((m) => ({
+            cells: [
+              monthLabel(m.month),
+              formatPaise(m.debit, { zeroDash: true }),
+              formatPaise(m.credit, { zeroDash: true }),
+              formatPaise(m.closing, { zeroDash: true })
+            ]
+          })),
+          {
+            cells: [
+              'Closing balance',
+              formatPaise(data.totalDebit, { zeroDash: true }),
+              formatPaise(data.totalCredit, { zeroDash: true }),
+              formatPaise(data.closing, { zeroDash: true })
+            ],
+            bold: true,
+            rule: true
+          }
+        ]
+      : [
+          ...rows.map((r) => ({
+            cells: [
+              toDisplayDate(r.date),
+              r.particulars,
+              `${r.voucherType} ${r.number}`,
+              formatPaise(r.debit, { zeroDash: true }),
+              formatPaise(r.credit, { zeroDash: true }),
+              formatPaise(r.running, { zeroDash: true })
+            ]
+          })),
+          {
+            cells: [
+              '',
+              'Closing balance',
+              '',
+              formatPaise(data.totalDebit, { zeroDash: true }),
+              formatPaise(data.totalCredit, { zeroDash: true }),
+              formatPaise(data.closing, { zeroDash: true })
+            ],
+            bold: true,
+            rule: true
+          }
+        ]
 
   return (
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              {(['detail', 'monthly'] as const).map((m) => (
+                <button
+                  key={m}
+                  data-testid={`tab-ledger-statement-${m}`}
+                  onClick={() => setMode(m)}
+                  className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${mode === m ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                >
+                  {m === 'detail' ? 'Vouchers' : 'Monthly'}
+                </button>
+              ))}
+            </div>
             <Button
               variant="ghost"
               onClick={() =>
-                void printReport({ title: data.ledgerName, periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)
+                void printReport({ title: data.ledgerName, periodLabel, columns: exportColumns, rows: exportRows }, toast)
               }
             >
               PDF
@@ -135,9 +199,9 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
               variant="ghost"
               onClick={() =>
                 void csvReport(
-                  EXPORT_COLUMNS.map((c) => c.label),
+                  exportColumns.map((c) => c.label),
                   exportRows.map((r) => r.cells),
-                  `ledger-${slugFilename(data.ledgerName)}`,
+                  `ledger-${slugFilename(data.ledgerName)}${mode === 'monthly' ? '-monthly' : ''}`,
                   toast
                 )
               }
@@ -159,7 +223,52 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
             {toDisplayDate(from)} → {toDisplayDate(to)}
           </span>
         </div>
-        {rows.length === 0 ? (
+        {isLoading ? (
+          <SkeletonRows />
+        ) : mode === 'monthly' ? (
+          months.length === 0 ? (
+            <EmptyState title="No entries for this ledger in the period" />
+          ) : (
+            <table className="ledger-table">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th className="r w-36">Debit</th>
+                  <th className="r w-36">Credit</th>
+                  <th className="r w-40">Closing</th>
+                </tr>
+              </thead>
+              <tbody data-testid="rows-ledger-statement-monthly">
+                {months.map((m) => (
+                  <tr key={m.month}>
+                    <td>{monthLabel(m.month)}</td>
+                    <td className="r">
+                      <Money paise={m.debit} />
+                    </td>
+                    <td className="r">
+                      <Money paise={m.credit} />
+                    </td>
+                    <td className="r">
+                      <Money paise={m.closing} signed />
+                    </td>
+                  </tr>
+                ))}
+                <tr className="total-row">
+                  <td>Closing balance</td>
+                  <td className="r">
+                    <Money paise={data.totalDebit} />
+                  </td>
+                  <td className="r">
+                    <Money paise={data.totalCredit} />
+                  </td>
+                  <td className="r">
+                    <Money paise={data.closing} signed />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          )
+        ) : rows.length === 0 ? (
           <EmptyState title="No entries for this ledger in the period" />
         ) : (
           <table className="ledger-table">
