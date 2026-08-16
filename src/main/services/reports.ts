@@ -126,30 +126,54 @@ export function stockAgeing(db: DB, asOn: string): StockAgeingRow[] {
       openingQtyMilli: number; reorderLevelMilli: number | null
     }[]
 
+  // Line-level chronological walk (no SQL pre-grouping): physical-stock `is_absolute` lines PIN
+  // the running quantity to the counted level — they are not ordinary movements. Only the delta
+  // against the running quantity is booked (up = an adjustment inward lot dated the count day,
+  // down = an outward adjustment), mirroring checkStock and the valuation engine.
   const flows = db
     .prepare(
-      `SELECT il.stock_item_id AS itemId, v.date, il.direction, SUM(il.qty_milli) AS qty
+      `SELECT il.stock_item_id AS itemId, v.date, il.direction, il.qty_milli AS qty,
+              il.is_absolute AS isAbsolute
        FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
        WHERE v.date <= ? AND ${IN_BOOKS}
-       GROUP BY il.stock_item_id, v.date, il.direction
-       ORDER BY v.date`
+       ORDER BY v.date, v.id, il.line_order, il.id`
     )
-    .all(asOn) as { itemId: number; date: string; direction: 'in' | 'out'; qty: number }[]
+    .all(asOn) as { itemId: number; date: string; direction: 'in' | 'out'; qty: number; isAbsolute: number }[]
 
   const inLots = new Map<number, InwardLot[]>()
   const outQty = new Map<number, number>()
   const inQty = new Map<number, number>()
   const lastOut = new Map<number, string>()
+  const runningQty = new Map<number, number>()
+  for (const it of items) runningQty.set(it.stockItemId, it.openingQtyMilli)
   for (const f of flows) {
-    if (f.direction === 'in') {
-      const lots = inLots.get(f.itemId) ?? []
-      lots.push({ date: f.date, qtyMilli: f.qty })
-      inLots.set(f.itemId, lots)
-      inQty.set(f.itemId, (inQty.get(f.itemId) ?? 0) + f.qty)
+    const cur = runningQty.get(f.itemId) ?? 0
+    let inward = 0
+    let outward = 0
+    if (f.isAbsolute) {
+      const delta = f.qty - cur
+      if (delta > 0) inward = delta
+      else outward = -delta
+    } else if (f.direction === 'in') {
+      inward = f.qty
     } else {
-      outQty.set(f.itemId, (outQty.get(f.itemId) ?? 0) + f.qty)
-      lastOut.set(f.itemId, f.date) // flows are date-ordered, so the last write wins correctly
+      outward = f.qty
     }
+    if (inward > 0) {
+      const lots = inLots.get(f.itemId) ?? []
+      const last = lots[lots.length - 1]
+      if (last && last.date === f.date) last.qtyMilli += inward
+      else lots.push({ date: f.date, qtyMilli: inward })
+      inLots.set(f.itemId, lots)
+      inQty.set(f.itemId, (inQty.get(f.itemId) ?? 0) + inward)
+    }
+    if (outward > 0) {
+      outQty.set(f.itemId, (outQty.get(f.itemId) ?? 0) + outward)
+      // A physical-count write-down is a correction, not a consumption — it must not make a
+      // stale item look recently moved, so only genuine outward lines refresh lastOut.
+      if (!f.isAbsolute) lastOut.set(f.itemId, f.date) // flows are date-ordered, so the last write wins correctly
+    }
+    runningQty.set(f.itemId, cur + inward - outward)
   }
 
   const asOnMs = Date.parse(asOn)
@@ -868,7 +892,9 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
     .map((v) => ({
       voucherId: v.id, date: v.date, voucherType: v.voucherType, kind: v.kind, number: v.number,
       account: v.account, narration: v.narration, debit: v.amount, credit: v.amount,
-      isOptional: false, postDated: false
+      // Real flags (not hard-coded false): the recent list shows out-of-books vouchers too, and
+      // the renderer badges them just like the Day Book does.
+      isOptional: v.isOptional, postDated: v.postDated
     }))
 
   const partyIds = new Set([...debtorIds, ...creditorIds])

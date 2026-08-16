@@ -630,7 +630,8 @@ export function listVouchers(db: DB, from: string, to: string, voucherTypeId?: n
     .prepare(
       `SELECT v.id, v.date, vt.name AS voucherType, vt.kind, v.number, v.narration,
               COALESCE(pl.name, fl.name, '') AS account,
-              COALESCE(t.total, 0) AS amount
+              COALESCE(t.total, 0) AS amount,
+              v.is_optional AS isOptional, v.post_dated AS postDated
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
@@ -645,6 +646,9 @@ export function listVouchers(db: DB, from: string, to: string, voucherTypeId?: n
        WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED} ${voucherTypeId ? 'AND v.voucher_type_id = ?' : ''}
        ORDER BY v.date, v.id`
     )
-    .all(...(voucherTypeId ? [from, to, voucherTypeId] : [from, to])) as VoucherListRow[]
-  return rows
+    .all(...(voucherTypeId ? [from, to, voucherTypeId] : [from, to])) as (Omit<VoucherListRow, 'isOptional' | 'postDated'> & {
+      isOptional: number
+      postDated: number
+    })[]
+  return rows.map((r) => ({ ...r, isOptional: !!r.isOptional, postDated: !!r.postDated }))
 }

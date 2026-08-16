@@ -132,7 +132,15 @@ export function Gateway(): React.JSX.Element {
                   <span className="num w-20 text-[12px] text-muted">{toDisplayDate(v.date)}</span>
                   <span className="w-24 text-[12.5px] text-muted">{v.voucherType}</span>
                   <span className="num w-14 text-[12px] text-muted">{v.number}</span>
-                  <span className="flex-1 truncate text-[13px]">{v.account}</span>
+                  <span className="flex-1 truncate text-[13px]">
+                    {v.account}
+                    {v.isOptional && (
+                      <span data-testid="recent-badge-optional" className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>
+                    )}
+                    {v.postDated && (
+                      <span data-testid="recent-badge-pdc" className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>
+                    )}
+                  </span>
                   <Money paise={v.debit} className="text-[13px]" />
                 </button>
               ))}

@@ -224,6 +224,12 @@ export function stockByGodown(db: DB, asOn: string): GodownStockRow[] {
 
     // Quantity per godown: absolute (physical-count) lines pin the quantity of the godown they
     // sit on (null = the company-wide bucket).
+    // KNOWN LIMITATION (deferred, v0.3 review): PhysicalStockEntry saves counts with
+    // godownId = null, so a company-wide count pins only the no-godown bucket while
+    // godown-attributed rows keep their pre-count quantities — per-godown rows can then sum to
+    // more than the item's engine-valued closing, and the value pro-ration (below, which divides
+    // by the engine closing) skews per-row values. Fixing this properly needs per-godown counts
+    // (or distributing a null-godown count across godown buckets), tracked for a later wave.
     const qtyByGodown = new Map<number | null, number>()
     qtyByGodown.set(null, item.openingQtyMilli)
     for (const m of moves) {

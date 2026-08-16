@@ -226,6 +226,10 @@ export interface VoucherListRow {
   account: string
   narration: string | null
   amount: number
+  /** Memorandum voucher — never counts toward the books. */
+  isOptional: boolean
+  /** Post-dated and not yet matured — out of the books until its date arrives. */
+  postDated: boolean
 }
 
 export interface LedgerBalanceRow {

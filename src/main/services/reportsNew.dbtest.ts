@@ -194,6 +194,55 @@ describe('stock ageing + reorder (#58)', () => {
     expect(d.slowMoving).toBe(true)
     expect(d.belowReorder).toBe(false) // no reorder level set
   })
+
+  it('physical-stock absolute lines PIN the quantity — they are not ordinary inward movements', () => {
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const purchases = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId(db, 'Purchase Accounts'), openingBalance: 0 }).id
+    const sales = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Sales Local', groupId: groupId(db, 'Sales Accounts'), openingBalance: 0 }).id
+    const psVt = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'physical_stock'").get() as { id: number }).id
+    const count = (itemId: number, date: string, qtyMilli: number): void => {
+      saveVoucher(db, {
+        voucherTypeId: psVt, date, partyLedgerId: null, narration: null, reference: null,
+        instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
+        transportDistanceKm: null, currencyCode: null, exchangeRate: null, lines: [],
+        inventory: [{ stockItemId: itemId, godownId: null, qtyMilli, ratePaise: 0, amount: 0, direction: 'in', isAbsolute: true }],
+        billRefs: [], tds: null
+      } as VoucherInput)
+    }
+
+    // Opening 0, purchase 100 on 1 Apr, sale of 40 on 1 May, count confirms 60 on 30 Jun.
+    const widget = makeItem(db, 'Widget', 0, 0, 100000) // reorder level 100
+    postLines(db, 'purchase', '2025-04-01', [
+      { ledgerId: purchases, drCr: 'dr', amount: 5000000 }, { ledgerId: cash, drCr: 'cr', amount: 5000000 }
+    ], null, [{ stockItemId: widget, qtyMilli: 100000, ratePaise: 50000, amount: 5000000, direction: 'in' }])
+    postLines(db, 'sales', '2025-05-01', [
+      { ledgerId: cash, drCr: 'dr', amount: 3200000 }, { ledgerId: sales, drCr: 'cr', amount: 3200000 }
+    ], null, [{ stockItemId: widget, qtyMilli: 40000, ratePaise: 80000, amount: 3200000, direction: 'out' }])
+    count(widget, '2025-06-30', 60000)
+
+    // A second item whose count writes stock DOWN (shrinkage): 50 bought, count finds 45.
+    const gasket = makeItem(db, 'Gasket', 0, 0)
+    postLines(db, 'purchase', '2025-04-01', [
+      { ledgerId: purchases, drCr: 'dr', amount: 500000 }, { ledgerId: cash, drCr: 'cr', amount: 500000 }
+    ], null, [{ stockItemId: gasket, qtyMilli: 50000, ratePaise: 10000, amount: 500000, direction: 'in' }])
+    count(gasket, '2025-06-15', 45000)
+
+    const rows = stockAgeing(db, '2025-06-30')
+    const w = rows.find((r) => r.name === 'Widget')!
+    // The count PINS the level: closing is 60 (not 100 + 60 − 40 = 120), and no phantom
+    // "fresh lot" appears on the count date — all 60 still age from the 1 Apr purchase (90d).
+    expect(w.closingQtyMilli).toBe(60000)
+    expect(w.buckets).toEqual([0, 0, 60000, 0])
+    // The true closing 60 ≤ reorder 100 — the inflated 120 used to mask the breach.
+    expect(w.belowReorder).toBe(true)
+
+    const g = rows.find((r) => r.name === 'Gasket')!
+    expect(g.closingQtyMilli).toBe(45000) // 50 − 5 written off by the count
+    expect(g.buckets).toEqual([0, 0, 45000, 0])
+    // A count write-down is a correction, not a consumption — it must not reset staleness.
+    expect(g.lastOutwardDate).toBeNull()
+  })
 })
 
 describe('item-wise profitability (#59)', () => {

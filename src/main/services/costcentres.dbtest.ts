@@ -21,12 +21,17 @@ function incomeLedger(db: ReturnType<typeof seededDb>, name: string) {
   })
 }
 
-function journalVoucher(db: ReturnType<typeof seededDb>, date: string, lines: VoucherInputParsed['lines']): ReturnType<typeof saveVoucher> {
+function journalVoucher(
+  db: ReturnType<typeof seededDb>,
+  date: string,
+  lines: VoucherInputParsed['lines'],
+  flags: { postDated?: boolean; isOptional?: boolean } = {}
+): ReturnType<typeof saveVoucher> {
   const vt = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }
   return saveVoucher(db, {
     voucherTypeId: vt.id, date, number: undefined, partyLedgerId: null, narration: null, reference: null,
     instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null,
-    currencyCode: null, exchangeRate: null, lines, inventory: [], billRefs: [], tds: null
+    currencyCode: null, exchangeRate: null, ...flags, lines, inventory: [], billRefs: [], tds: null
   })
 }
 
@@ -192,5 +197,38 @@ describe('cost centres', () => {
     const rows = ccStatement(db, cc.id, '2025-04-01', '2025-06-30')
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ ledgerName: 'Travel', drCr: 'dr', amount: 3000, date: '2025-05-01' })
+  })
+
+  it('excludes optional (memorandum) and unmatured post-dated vouchers from ccReport and ccStatement (IN_BOOKS)', () => {
+    const db = seededDb()
+    const cc = saveCostCentre(db, { name: 'Delhi', parentId: null, active: true })
+    const cash = db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }
+    const expense = expenseLedger(db, 'Travel')
+
+    // Real in-books expense: ₹50 allocated to Delhi.
+    journalVoucher(db, '2025-05-01', [
+      { ledgerId: expense.id, drCr: 'dr', amount: 5000, costAllocations: [{ costCentreId: cc.id, amount: 5000 }] },
+      { ledgerId: cash.id, drCr: 'cr', amount: 5000, costAllocations: [] }
+    ])
+    // Optional (memorandum) expense of ₹100 — out of the books, must not appear.
+    journalVoucher(db, '2025-05-05', [
+      { ledgerId: expense.id, drCr: 'dr', amount: 10000, costAllocations: [{ costCentreId: cc.id, amount: 10000 }] },
+      { ledgerId: cash.id, drCr: 'cr', amount: 10000, costAllocations: [] }
+    ], { isOptional: true })
+    // Unmatured post-dated expense of ₹70 — out of the books until it matures.
+    journalVoucher(db, '2025-05-10', [
+      { ledgerId: expense.id, drCr: 'dr', amount: 7000, costAllocations: [{ costCentreId: cc.id, amount: 7000 }] },
+      { ledgerId: cash.id, drCr: 'cr', amount: 7000, costAllocations: [] }
+    ], { postDated: true })
+
+    const report = ccReport(db, '2025-04-01', '2025-06-30')
+    const row = report.find((r) => r.costCentreId === cc.id)!
+    // Ties to the P&L's ₹50 expense for the period — not ₹220.
+    expect(row.expense).toBe(5000)
+    expect(row.net).toBe(-5000)
+
+    const stmt = ccStatement(db, cc.id, '2025-04-01', '2025-06-30')
+    expect(stmt).toHaveLength(1)
+    expect(stmt[0]).toMatchObject({ amount: 5000, date: '2025-05-01' })
   })
 })

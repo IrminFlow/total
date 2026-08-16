@@ -46,10 +46,19 @@ export interface AnomalyCheck {
  *  old `LIMIT 500` sample only ever saw the 500 smallest amounts, biasing the median low for
  *  busy ledgers. */
 export function anomalyCheck(db: DB, ledgerId: number, amount: number): AnomalyCheck {
-  const { c } = db.prepare('SELECT COUNT(*) AS c FROM voucher_lines WHERE ledger_id = ?').get(ledgerId) as { c: number }
+  // Binned vouchers' lines must not skew the median (deleted entries are out of the books).
+  const { c } = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.ledger_id = ? AND ${NOT_DELETED}`
+    )
+    .get(ledgerId) as { c: number }
   if (c < 5) return { unusual: false, typicalAmount: null }
   const row = db
-    .prepare('SELECT amount FROM voucher_lines WHERE ledger_id = ? ORDER BY amount LIMIT 1 OFFSET ?')
+    .prepare(
+      `SELECT vl.amount FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.ledger_id = ? AND ${NOT_DELETED} ORDER BY vl.amount LIMIT 1 OFFSET ?`
+    )
     .get(ledgerId, Math.floor(c / 2)) as { amount: number }
   const median = row.amount
   return { unusual: amount > median * 10, typicalAmount: median }

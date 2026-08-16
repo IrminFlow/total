@@ -12,12 +12,17 @@ function expenseLedger(db: ReturnType<typeof seededDb>, name: string, groupId: n
   })
 }
 
-function journalVoucher(db: ReturnType<typeof seededDb>, date: string, lines: VoucherInputParsed['lines']) {
+function journalVoucher(
+  db: ReturnType<typeof seededDb>,
+  date: string,
+  lines: VoucherInputParsed['lines'],
+  flags: { postDated?: boolean; isOptional?: boolean } = {}
+) {
   const vt = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }
   return saveVoucher(db, {
     voucherTypeId: vt.id, date, number: undefined, partyLedgerId: null, narration: null, reference: null,
     instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null,
-    currencyCode: null, exchangeRate: null, lines, inventory: [], billRefs: [], tds: null
+    currencyCode: null, exchangeRate: null, ...flags, lines, inventory: [], billRefs: [], tds: null
   })
 }
 
@@ -120,6 +125,37 @@ describe('budgets', () => {
     const groupLine = report[2]!
     // Direct Expenses rollup: Travel (300000 + 200000) + Office (100000) = 600000, June excluded.
     expect(groupLine).toMatchObject({ targetName: 'Direct Expenses', month: null, budget: 700000, actual: 600000, variance: -100000 })
+  })
+
+  it('excludes optional (memorandum) and unmatured post-dated vouchers from actuals (IN_BOOKS)', () => {
+    const db = seededDb()
+    const directExpenses = db.prepare("SELECT id FROM groups WHERE name = 'Direct Expenses'").get() as { id: number }
+    const cash = db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }
+    const travel = expenseLedger(db, 'Travel', directExpenses.id)
+
+    // Real in-books expense: ₹1,000.
+    journalVoucher(db, '2025-04-10', [
+      { ledgerId: travel.id, drCr: 'dr', amount: 100000, costAllocations: [] },
+      { ledgerId: cash.id, drCr: 'cr', amount: 100000, costAllocations: [] }
+    ])
+    // Optional (memorandum) expense — out of the books, must not inflate actuals.
+    journalVoucher(db, '2025-04-12', [
+      { ledgerId: travel.id, drCr: 'dr', amount: 40000, costAllocations: [] },
+      { ledgerId: cash.id, drCr: 'cr', amount: 40000, costAllocations: [] }
+    ], { isOptional: true })
+    // Unmatured post-dated expense — out of the books until it matures.
+    journalVoucher(db, '2025-04-20', [
+      { ledgerId: travel.id, drCr: 'dr', amount: 30000, costAllocations: [] },
+      { ledgerId: cash.id, drCr: 'cr', amount: 30000, costAllocations: [] }
+    ], { postDated: true })
+
+    const budget = saveBudget(db, {
+      name: 'IN_BOOKS Budget', fyStartYear: 2025,
+      lines: [{ ledgerId: travel.id, groupId: null, month: '2025-04', amount: 200000 }]
+    })
+    const report = budgetVarianceReport(db, budget.id, '2025-04')
+    // Actual ties to the P&L's ₹1,000 — not the ₹1,700 that would include out-of-books entries.
+    expect(report[0]).toMatchObject({ actual: 100000, variance: -100000 })
   })
 
   it('a line with no matching postings reports zero actual (pct null stays covered by the shared budgetVariance unit tests)', () => {
