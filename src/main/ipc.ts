@@ -22,6 +22,7 @@ import {
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
+import { formatPaise } from '@shared/money'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
@@ -668,8 +669,8 @@ export function registerIpc(): void {
     return null
   })
   handle('bank:importCsv', async (p) => {
-    const { ledgerId, csvText } = z
-      .object({ ledgerId: z.number().int().positive(), csvText: z.string().optional() })
+    const { ledgerId, csvText, dryRun } = z
+      .object({ ledgerId: z.number().int().positive(), csvText: z.string().optional(), dryRun: z.boolean().optional() })
       .parse(p)
     const c = requireCompany()
     let csv = csvText
@@ -684,8 +685,8 @@ export function registerIpc(): void {
     }
     // csvText rides back on the response (not just the parsed result) so the renderer — which
     // never sees the picked file's contents when the dialog path is used — can hand the exact
-    // same text to banking:suggest right after import (see BankingScreen.doImport).
-    return { ...banking.importStatement(c.db, ledgerId, csv), csvText: csv }
+    // same text to banking:suggest (or back to an applying import after a dryRun preview).
+    return { ...banking.importStatement(c.db, ledgerId, csv, { apply: !dryRun }), csvText: csv }
   })
   handle('bankrule:list', () => banking.listRules(requireCompany().db), 'viewer')
   handle('bankrule:save', (p) => {
@@ -704,6 +705,58 @@ export function registerIpc(): void {
     const { ledgerId, csvText } = z.object({ ledgerId: z.number().int().positive(), csvText: z.string() }).parse(p)
     return banking.suggestVouchers(requireCompany().db, ledgerId, csvText)
   })
+  // statement matching v2 — read-only tolerance/many-to-one suggestions (task Y2)
+  handle('banking:matchSuggestions', (p) => {
+    const { ledgerId, csvText, tolerancePaise } = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        csvText: z.string(),
+        tolerancePaise: z.number().int().min(0).max(100_00).optional()
+      })
+      .parse(p)
+    return banking.matchSuggestions(requireCompany().db, ledgerId, csvText, tolerancePaise ?? 100)
+  }, 'viewer')
+  // bank reconciliation statement (task Y2)
+  const brsSchema = z.object({ ledgerId: z.number().int().positive(), asOn: isoDate })
+  handle('banking:brs', (p) => {
+    const { ledgerId, asOn } = brsSchema.parse(p)
+    return banking.brs(requireCompany().db, ledgerId, asOn)
+  }, 'viewer')
+  handle('banking:brsPdf', async (p) => {
+    const { ledgerId, asOn } = brsSchema.parse(p)
+    const c = requireCompany()
+    const r = banking.brs(c.db, ledgerId, asOn)
+    const money = (paise: number): string => formatPaise(paise)
+    const item = (i: banking.BrsItem): { cells: string[]; indent?: number } => ({
+      cells: [i.date, `${i.voucherType} ${i.number}`, i.instrumentNo ?? '', i.particulars, money(i.amount)],
+      indent: 1
+    })
+    const rows = [
+      { cells: ['', 'Balance as per company books', '', '', money(r.bookBalance)], bold: true },
+      { cells: ['', 'Less: deposits not yet credited by the bank', '', '', ''], bold: true },
+      ...r.uncredited.map(item),
+      { cells: ['', 'Total uncredited', '', '', money(r.uncreditedTotal)], rule: true },
+      { cells: ['', 'Add: cheques issued but not yet presented', '', '', ''], bold: true },
+      ...r.unpresented.map(item),
+      { cells: ['', 'Total unpresented', '', '', money(r.unpresentedTotal)], rule: true },
+      { cells: ['', 'Balance as per bank statement', '', '', money(r.bankBalance)], bold: true, rule: true }
+    ]
+    const html = reportHtml({
+      title: 'Bank Reconciliation Statement',
+      company: c.info,
+      periodLabel: `${r.ledgerName} · as on ${asOn}`,
+      columns: [
+        { label: 'Date', align: 'l', width: 90 },
+        { label: 'Voucher', align: 'l', width: 140 },
+        { label: 'Instrument', align: 'l', width: 100 },
+        { label: 'Particulars', align: 'l' },
+        { label: 'Amount', align: 'r', width: 110 }
+      ],
+      rows
+    })
+    const path = await writeExportPdf(c.slug, `brs-${slugify(r.ledgerName)}-${asOn}.pdf`, html, { pageSize: 'A4' })
+    return { path }
+  }, 'viewer')
 
   // ---------- e-documents + invoice printing ----------
   handle('edoc:list', (p) => {

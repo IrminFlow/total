@@ -404,6 +404,13 @@ export const bankRuleInputSchema = z.object({
   pattern: z.string().trim().min(2).max(80),
   ledgerId: id,
   kind: z.enum(['payment', 'receipt']),
+  /** Statement cell the pattern matches against; defaults to 'description' server-side. */
+  matchField: z.enum(['description', 'reference']).optional(),
+  /** Amount window (paise, inclusive); null/omitted = unbounded on that side. */
+  minAmount: paise.min(0).nullable().optional(),
+  maxAmount: paise.min(0).nullable().optional(),
+  /** Opt-in: an applying statement import auto-creates the voucher on an exact rule match. */
+  autoApply: z.boolean().optional(),
   active: z.boolean().default(true)
 })
 
