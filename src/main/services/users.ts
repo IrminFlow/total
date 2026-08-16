@@ -164,15 +164,38 @@ function clearThrottle(db: DB, userId: number): void {
   db.prepare('DELETE FROM meta WHERE key = ?').run(throttleKey(userId))
 }
 
+export const AUTH_THROTTLE_MESSAGE = 'Too many attempts — wait 30 seconds'
+
+/** True while `userId` is inside the lockout window. Exported so EVERY PIN-verification surface
+ *  (auth:login here, company:delete in companyDelete.ts) consumes the same persisted throttle —
+ *  a brute-force loop must not be able to sidestep the lockout by picking a different channel
+ *  (v0.3 review F3). */
+export function isAuthThrottled(db: DB, userId: number, now = Date.now()): boolean {
+  const state = readThrottle(db, userId)
+  return state !== null && state.until > now
+}
+
+/** Record one failed PIN attempt against `userId`: bumps the persisted consecutive-failure
+ *  counter (locking out at MAX_FAILS) and writes the 'login_failed' audit row. */
+export function recordAuthFailure(db: DB, userId: number, now = Date.now()): void {
+  const fails = (readThrottle(db, userId)?.fails ?? 0) + 1
+  writeThrottle(db, userId, { fails, until: fails >= MAX_FAILS ? now + LOCKOUT_MS : 0 })
+  writeAudit(db, 'user', userId, 'login_failed', null, null)
+}
+
+/** Reset the failure counter after a successful PIN verification. */
+export function clearAuthFailures(db: DB, userId: number): void {
+  clearThrottle(db, userId)
+}
+
 /** Verify `pin` for `userId`. Throws 'Wrong PIN' on mismatch (or unknown/inactive user), or the
  *  throttle message after 5 consecutive failures — in which case verifyPin isn't even called.
  *  Every failed attempt is audited (entity 'user', action 'login_failed', before/after null);
  *  successes are audited as action 'login'. */
 export function login(db: DB, userId: number, pin: string): LoginResult {
   const now = Date.now()
-  const state = readThrottle(db, userId)
-  if (state && state.until > now) {
-    throw new Error('Too many attempts — wait 30 seconds')
+  if (isAuthThrottled(db, userId, now)) {
+    throw new Error(AUTH_THROTTLE_MESSAGE)
   }
 
   const row = db
@@ -181,13 +204,11 @@ export function login(db: DB, userId: number, pin: string): LoginResult {
 
   const ok = row && row.active ? verifyPin(pin, row.pinHash) : false
   if (!row || !row.active || !ok) {
-    const fails = (state?.fails ?? 0) + 1
-    writeThrottle(db, userId, { fails, until: fails >= MAX_FAILS ? now + LOCKOUT_MS : 0 })
-    writeAudit(db, 'user', userId, 'login_failed', null, null)
+    recordAuthFailure(db, userId, now)
     throw new Error('Wrong PIN')
   }
 
-  clearThrottle(db, userId)
+  clearAuthFailures(db, userId)
   writeAudit(db, 'user', row.id, 'login', null, { name: row.name, role: row.role })
   return { id: row.id, name: row.name, role: row.role }
 }

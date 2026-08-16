@@ -85,6 +85,10 @@ Drop into `companies/<slug>/inbox/`:
 - `*.json` — voucher (or array). **Atomic per file**: one bad voucher rolls back the whole file.
 - `*.csv` — masters import; header row decides ledgers vs items (use the same headers as
   `import-masters` templates: `Name,Group,Opening Balance,...` / `Name,Group,Unit,HSN,...`).
+  **Atomic per file** too: one bad row rolls back the entire CSV.
+- Keep drops under **5 MB** (bigger files are rejected — split into smaller batches), and prefer
+  writing atomically: write to a temp name outside `inbox/`, then rename in. The watcher tolerates
+  in-place writers by re-reading while the file is still changing, but rename is race-free.
 
 Outcomes (watch the folder):
 

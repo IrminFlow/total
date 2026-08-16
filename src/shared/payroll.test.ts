@@ -222,6 +222,13 @@ describe('ESI upload CSV builder', () => {
     expect(lines[1]).toBe('1234567890,Asha Kumar,26,18000,0,')
     expect(lines[2]).toBe('9876543210,"Ravi, Jr",31,15500,0,')
   })
+
+  it('neutralizes formula-injection in employee names (v0.3 review F3)', () => {
+    const csv = buildEsiCsv([
+      { esicNo: '1234567890', name: '=HYPERLINK("http://evil.example")', payableDays: 26, gross: 18_000_00 }
+    ])
+    expect(csv.split('\n')[1]).toBe(`1234567890,"'=HYPERLINK(""http://evil.example"")",26,18000,0,`)
+  })
 })
 
 describe('PT return CSV builder', () => {

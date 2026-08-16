@@ -10,6 +10,7 @@
  *    defaults to the simplified Maharashtra slab.
  */
 import { roundPaise } from './money'
+import { neutralizeCsvFormula } from './csv'
 
 export const PF_WAGE_CEILING = 15_000_00
 export const ESI_GROSS_LIMIT = 21_000_00
@@ -290,7 +291,12 @@ export interface EsiInput {
   gross: number
 }
 
-const csvCell = (s: string): string => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s)
+/** Same RFC 4180 quoting as @shared/csv's writer, with the same formula-injection guard —
+ *  employee names reach the ESIC/PT portals' spreadsheets via these CSVs. */
+const csvCell = (s: string): string => {
+  const safe = neutralizeCsvFormula(s)
+  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
+}
 
 export interface PtCsvInput {
   state: string
