@@ -328,7 +328,9 @@ export function buildGstr1(
           idt: toPortalDate(d.date),
           val: toRupees(d.invoiceValue),
           // Shipping-bill details are optional on the portal (supplied later via Table 6A
-          // amendment when not yet available) — null-safe here.
+          // amendment when not yet available) — null-safe here. sbpcode (port code) has no
+          // data source in the books yet, so it is always null.
+          sbpcode: null,
           sbnum: d.shippingBill?.num ?? null,
           sbdt: d.shippingBill?.date ? toPortalDate(d.shippingBill.date) : null,
           // Exports item rows are flat (no itm_det wrapper) per the offline-tool schema.
