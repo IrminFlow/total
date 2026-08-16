@@ -16,9 +16,9 @@ import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, billsOpenSchema, ccStatementSchema, companyCreateSchema, costCentreInputSchema, godownInputSchema,
-  groupInputSchema, gstr2bSchema, isoDate, ledgerInputSchema, passphraseSchema, periodSchema, rendererLogSchema,
-  stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
-  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
+  groupInputSchema, gstr2bSchema, isoDate, ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema,
+  rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema,
+  tdsSuggestSchema, tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
@@ -35,6 +35,7 @@ import * as payroll from './services/payroll'
 import * as nic from './services/nic'
 import * as tds from './services/tds'
 import * as costCentres from './services/costCentres'
+import * as recurring from './services/recurring'
 import { importTallyXml } from './services/tallyImport'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
@@ -552,6 +553,23 @@ export function registerIpc(): void {
     const { ccId, from, to } = ccStatementSchema.parse(p)
     return costCentres.ccStatement(requireCompany().db, ccId, from, to)
   }, 'viewer')
+
+  // ---------- recurring vouchers ----------
+  handle('recurring:list', () => recurring.listTemplates(requireCompany().db), 'viewer')
+  handle('recurring:save', (p) => {
+    const { id, data } = z.object({ id: z.number().int().positive().optional(), data: recurringInputSchema }).parse(p)
+    return recurring.saveTemplate(requireCompany().db, data, id)
+  })
+  handle('recurring:delete', (p) => recurring.deleteTemplate(requireCompany().db, idSchema.parse(p).id))
+  handle('recurring:due', (p) => {
+    const { today } = z.object({ today: isoDate }).parse(p)
+    return recurring.due(requireCompany().db, today)
+  }, 'viewer')
+  handle('recurring:post', (p) => {
+    const { id, date } = z.object({ id: z.number().int().positive(), date: isoDate }).parse(p)
+    return recurring.postFromTemplate(requireCompany().db, id, date)
+  })
+  handle('recurring:skip', (p) => recurring.skip(requireCompany().db, idSchema.parse(p).id))
 
   // ---------- banking ----------
   handle('bank:ledgers', () => banking.bankLedgers(requireCompany().db), 'viewer')

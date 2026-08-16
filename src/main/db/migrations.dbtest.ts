@@ -27,6 +27,7 @@ const EXPECTED_TABLES = [
   'cost_centres',
   'voucher_line_cost_allocations',
   'bill_refs',
+  'recurring_templates',
   'migrations'
 ]
 

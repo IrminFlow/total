@@ -42,6 +42,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'e-Invoice & e-Way bill', run: go({ name: 'edocs' }) },
       { label: 'Sales register', run: go({ name: 'registers' }) },
       { label: 'Outstandings & ageing', run: go({ name: 'outstandings' }) },
+      { label: 'Recurring vouchers', run: go({ name: 'recurring' }) },
       { label: 'Cost centres', feature: 'costCentres', run: go({ name: 'cost-centres' }) },
       { label: 'TDS', feature: 'tds', run: go({ name: 'tds' }) },
       { label: 'Bank reconciliation', run: go({ name: 'banking' }) },

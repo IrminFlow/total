@@ -63,6 +63,20 @@ export interface CostCentre {
   active: boolean
 }
 
+/** A saved voucher shape (exact VoucherInputParsed JSON) that recurring:post re-validates and
+ *  re-posts on a monthly/weekly cadence (task 2.3). */
+export interface RecurringTemplate {
+  id: number
+  name: string
+  voucherJson: string
+  cadence: 'monthly' | 'weekly'
+  dayOfMonth: number | null
+  weekday: number | null
+  nextDue: string
+  lastPosted: string | null
+  active: boolean
+}
+
 export type VoucherKind =
   | 'contra'
   | 'payment'

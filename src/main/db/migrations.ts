@@ -308,5 +308,20 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE voucher_types ADD COLUMN suffix TEXT NOT NULL DEFAULT '';
   ALTER TABLE voucher_types ADD COLUMN pad_width INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE voucher_types ADD COLUMN restart_fy INTEGER NOT NULL DEFAULT 1;
+  `,
+  // 008 — recurring templates: a saved voucher shape (exact VoucherInputParsed JSON) that
+  // recurring:post re-validates and re-posts on a monthly/weekly cadence (task 2.3).
+  `
+  CREATE TABLE recurring_templates (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    voucher_json TEXT NOT NULL,
+    cadence TEXT NOT NULL CHECK (cadence IN ('monthly','weekly')),
+    day_of_month INTEGER,
+    weekday INTEGER,
+    next_due TEXT NOT NULL,
+    last_posted TEXT,
+    active INTEGER NOT NULL DEFAULT 1
+  );
   `
 ]

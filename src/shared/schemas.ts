@@ -317,3 +317,27 @@ export type CcStatementInput = z.infer<typeof ccStatementSchema>
 
 export const billsOpenSchema = z.object({ partyLedgerId: id, asOn: isoDate })
 export type BillsOpenInput = z.infer<typeof billsOpenSchema>
+
+// ---------- recurring vouchers ----------
+
+/** recurring:save input. `voucherJson` is the exact VoucherInputParsed payload for the template —
+ *  validated for JSON-parseability/shape here; the service re-validates against voucherInputSchema
+ *  itself (see recurring.ts) so schema drift is caught at save time too, not just at post time. */
+export const recurringInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    voucherJson: z.string().min(2),
+    cadence: z.enum(['monthly', 'weekly']),
+    dayOfMonth: z.number().int().min(1).max(31).optional(),
+    weekday: z.number().int().min(0).max(6).optional(),
+    nextDue: isoDate
+  })
+  .refine((v) => v.cadence !== 'monthly' || v.dayOfMonth != null, {
+    message: 'dayOfMonth is required for a monthly cadence',
+    path: ['dayOfMonth']
+  })
+  .refine((v) => v.cadence !== 'weekly' || v.weekday != null, {
+    message: 'weekday is required for a weekly cadence',
+    path: ['weekday']
+  })
+export type RecurringInput = z.infer<typeof recurringInputSchema>

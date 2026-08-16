@@ -5,7 +5,8 @@ import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
 import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
-import { toDisplayDate } from '@shared/dates'
+import { toDisplayDate, todayISO } from '@shared/dates'
+import { nextDueAfter } from '@shared/recurring'
 import { api, type TdsSuggestion } from '../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../state/stores'
 import { AmountInput, Button, DateInput, Field, Kbd, Modal, Money, Panel, Select, TextInput, inputCls } from '../components/ui'
@@ -179,6 +180,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
   const [quickLedger, setQuickLedger] = useState<{ name: string; forParty: boolean } | null>(null)
   const [quickItem, setQuickItem] = useState<{ name: string; row: number } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [showRecurring, setShowRecurring] = useState(false)
 
   const number = useVoucherNumber(typeId, date)
   const isSalesSide = kind === 'sales' || kind === 'credit_note'
@@ -277,6 +279,71 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
   const setNoteBillAmount = (name: string, amount: number): void =>
     setNoteBillRefs((refs) => refs.map((r) => (r.name === name ? { ...r, amount } : r)))
 
+  // Builds the exact VoucherInputParsed shape `save` posts — factored out so "Save as
+  // recurring…" can serialize the current form state without also saving the voucher itself.
+  // Async: computing the tax/round-off lines may create those ledgers on first use (ensureTax /
+  // ensureRoundOff), same as it does on a normal save.
+  const buildPayload = useCallback(async (): Promise<VoucherInputParsed | null> => {
+    if (!partyId || !accountId || computed.detail.length === 0) return null
+    const { gst, rounded, roundDiff } = computed
+    const lines: VoucherInputParsed['lines'] = []
+    // Which way the party faces, per voucher kind.
+    const partyDr = kind === 'sales' || kind === 'debit_note'
+    lines.push({ ledgerId: partyId, drCr: partyDr ? 'dr' : 'cr', amount: rounded, costAllocations: [] })
+    const counter = partyDr ? 'cr' : 'dr'
+    lines.push({ ledgerId: accountId, drCr: counter, amount: gst.taxable, costAllocations: [] })
+    if (gst.cgst > 0) lines.push({ ledgerId: await ensureTax('cgst'), drCr: counter, amount: gst.cgst, costAllocations: [] })
+    if (gst.sgst > 0) lines.push({ ledgerId: await ensureTax('sgst'), drCr: counter, amount: gst.sgst, costAllocations: [] })
+    if (gst.igst > 0) lines.push({ ledgerId: await ensureTax('igst'), drCr: counter, amount: gst.igst, costAllocations: [] })
+    if (gst.cess > 0) lines.push({ ledgerId: await ensureTax('cess'), drCr: counter, amount: gst.cess, costAllocations: [] })
+    if (roundDiff !== 0) {
+      lines.push({
+        ledgerId: await ensureRoundOff(),
+        drCr: roundDiff > 0 ? counter : partyDr ? 'dr' : 'cr',
+        amount: Math.abs(roundDiff),
+        costAllocations: []
+      })
+    }
+    // A round-down leaves the counter side heavier — the Round Off line balances the party side.
+    if (roundDiff < 0) {
+      const idx = lines.length - 1
+      lines[idx] = { ...lines[idx]!, drCr: partyDr ? 'dr' : 'cr' }
+    }
+    const goodsIn = kind === 'purchase' || kind === 'credit_note'
+    return {
+      voucherTypeId: typeId,
+      date,
+      partyLedgerId: partyId,
+      narration: narration.trim() || null,
+      reference: null,
+      instrumentNo: null,
+      instrumentDate: null,
+      transporterId: transporterId.trim() || null,
+      vehicleNo: vehicleNo.trim().toUpperCase() || null,
+      transportDistanceKm: distanceKm.trim() ? Number(distanceKm) : null,
+      currencyCode: fxActive ? currencyCode : null,
+      exchangeRate: fxActive ? fxRate : null,
+      lines,
+      inventory: computed.detail.map((d) => ({
+        stockItemId: d.item.id,
+        godownId: null,
+        qtyMilli: d.qtyMilli,
+        ratePaise: d.ratePaise,
+        amount: d.amount,
+        direction: goodsIn ? ('in' as const) : ('out' as const)
+      })),
+      billRefs:
+        isNoteKind && !manualNewBillMode
+          ? noteBillRefs
+          : billName.trim()
+            ? [{ kind: 'new', name: billName.trim(), amount: rounded, dueDate: billDueDate || null }]
+            : [],
+      tds: null
+    }
+  }, [partyId, accountId, computed, kind, typeId, date, narration, transporterId, vehicleNo, distanceKm, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
+
+  const formValid = !!partyId && !!accountId && computed.detail.length > 0
+
   const save = useCallback(async (andPdf = false): Promise<void> => {
     if (saving) return
     if (!partyId) return void toast.push('error', 'Pick the party account first')
@@ -284,61 +351,8 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
     if (computed.detail.length === 0) return void toast.push('error', 'Add at least one item line')
     setSaving(true)
     try {
-      const { gst, rounded, roundDiff } = computed
-      const lines: VoucherInputParsed['lines'] = []
-      // Which way the party faces, per voucher kind.
-      const partyDr = kind === 'sales' || kind === 'debit_note'
-      lines.push({ ledgerId: partyId, drCr: partyDr ? 'dr' : 'cr', amount: rounded, costAllocations: [] })
-      const counter = partyDr ? 'cr' : 'dr'
-      lines.push({ ledgerId: accountId, drCr: counter, amount: gst.taxable, costAllocations: [] })
-      if (gst.cgst > 0) lines.push({ ledgerId: await ensureTax('cgst'), drCr: counter, amount: gst.cgst, costAllocations: [] })
-      if (gst.sgst > 0) lines.push({ ledgerId: await ensureTax('sgst'), drCr: counter, amount: gst.sgst, costAllocations: [] })
-      if (gst.igst > 0) lines.push({ ledgerId: await ensureTax('igst'), drCr: counter, amount: gst.igst, costAllocations: [] })
-      if (gst.cess > 0) lines.push({ ledgerId: await ensureTax('cess'), drCr: counter, amount: gst.cess, costAllocations: [] })
-      if (roundDiff !== 0) {
-        lines.push({
-          ledgerId: await ensureRoundOff(),
-          drCr: roundDiff > 0 ? counter : partyDr ? 'dr' : 'cr',
-          amount: Math.abs(roundDiff),
-          costAllocations: []
-        })
-      }
-      // A round-down leaves the counter side heavier — the Round Off line balances the party side.
-      if (roundDiff < 0) {
-        const idx = lines.length - 1
-        lines[idx] = { ...lines[idx]!, drCr: partyDr ? 'dr' : 'cr' }
-      }
-      const goodsIn = kind === 'purchase' || kind === 'credit_note'
-      const input: VoucherInputParsed = {
-        voucherTypeId: typeId,
-        date,
-        partyLedgerId: partyId,
-        narration: narration.trim() || null,
-        reference: null,
-        instrumentNo: null,
-        instrumentDate: null,
-        transporterId: transporterId.trim() || null,
-        vehicleNo: vehicleNo.trim().toUpperCase() || null,
-        transportDistanceKm: distanceKm.trim() ? Number(distanceKm) : null,
-        currencyCode: fxActive ? currencyCode : null,
-        exchangeRate: fxActive ? fxRate : null,
-        lines,
-        inventory: computed.detail.map((d) => ({
-          stockItemId: d.item.id,
-          godownId: null,
-          qtyMilli: d.qtyMilli,
-          ratePaise: d.ratePaise,
-          amount: d.amount,
-          direction: goodsIn ? ('in' as const) : ('out' as const)
-        })),
-        billRefs:
-          isNoteKind && !manualNewBillMode
-            ? noteBillRefs
-            : billName.trim()
-              ? [{ kind: 'new', name: billName.trim(), amount: rounded, dueDate: billDueDate || null }]
-              : [],
-        tds: null
-      }
+      const input = await buildPayload()
+      if (!input) return
       const dupes = await api.vouchers.duplicates(input)
       if (dupes.length > 0) {
         const first = dupes[0]!
@@ -348,7 +362,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
         if (!proceed) return
       }
       const saved = await api.vouchers.save(input)
-      toast.push('success', `${saved.number} saved — ${formatPaise(rounded, { symbol: true })}`)
+      toast.push('success', `${saved.number} saved — ${formatPaise(computed.rounded, { symbol: true })}`)
       if (andPdf && kind === 'sales') {
         await api.invoice.pdf(saved.id)
       }
@@ -367,7 +381,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, kind, typeId, date, narration, vehicleNo, transporterId, distanceKm, fxActive, fxRate, currencyCode, isSalesSide, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff, toast, setWorkingDate, queryClient, nav])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, date, toast, setWorkingDate, queryClient])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -645,6 +659,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
       )}
 
       <div className="mt-5 flex justify-end gap-2">
+        {formValid && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
         <Button onClick={() => nav.back()}>Cancel</Button>
         {kind === 'sales' && (
           <Button disabled={saving} onClick={() => void save(true)}>
@@ -679,6 +694,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
           }}
         />
       )}
+      {showRecurring && <SaveAsRecurringModal buildPayload={buildPayload} onClose={() => setShowRecurring(false)} />}
     </Panel>
   )
 }
@@ -897,6 +913,7 @@ function AccountingEntry({
   const [quickLedger, setQuickLedger] = useState<{ name: string; row: number } | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [showRecurring, setShowRecurring] = useState(false)
   const number = useVoucherNumber(typeId, date, voucherId)
   const [draftPartyId] = useState(draft?.partyLedgerId ?? null)
 
@@ -1145,38 +1162,45 @@ function AccountingEntry({
     setBillRefs((refs) => refs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const removeManualBillRef = (i: number): void => setBillRefs((refs) => refs.filter((_, j) => j !== i))
 
-  const save = useCallback(async (): Promise<void> => {
-    if (saving) return
+  // Builds the exact VoucherInputParsed shape `save` posts — factored out so "Save as
+  // recurring…" can serialize the current form state without also saving the voucher itself.
+  const buildPayload = useCallback((): VoucherInputParsed | null => {
     const lines = rows
       .filter((r) => r.ledgerId != null && r.amount != null && r.amount > 0)
       .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount!, costAllocations: r.costAllocations }))
-    if (lines.length < 2) return void toast.push('error', 'Enter at least one debit and one credit')
+    if (lines.length < 2) return null
+    const effectivePartyId = derivedPartyId ?? existing?.partyLedgerId ?? null
+    return {
+      voucherTypeId: typeId,
+      date,
+      partyLedgerId: effectivePartyId,
+      narration: narration.trim() || null,
+      reference: null,
+      instrumentNo: instrumentNo.trim() || null,
+      instrumentDate: instrumentNo.trim() ? date : null,
+      transporterId: existing?.transporterId ?? null,
+      vehicleNo: existing?.vehicleNo ?? null,
+      transportDistanceKm: existing?.transportDistanceKm ?? null,
+      currencyCode: existing?.currencyCode ?? null,
+      exchangeRate: existing?.exchangeRate ?? null,
+      lines,
+      inventory: existing?.inventory.map((l) => ({
+        stockItemId: l.stockItemId, godownId: l.godownId, qtyMilli: l.qtyMilli,
+        ratePaise: l.ratePaise, amount: l.amount, direction: l.direction
+      })) ?? [],
+      billRefs: effectivePartyId != null ? billRefs : [],
+      tds: tds && effectivePartyId != null ? tds : null
+    }
+  }, [rows, derivedPartyId, existing, typeId, date, narration, instrumentNo, billRefs, tds])
+
+  const save = useCallback(async (): Promise<void> => {
+    if (saving) return
+    const input = buildPayload()
+    if (!input) return void toast.push('error', 'Enter at least one debit and one credit')
     setSaving(true)
     try {
-      const effectivePartyId = derivedPartyId ?? existing?.partyLedgerId ?? null
-      const input: VoucherInputParsed = {
-        voucherTypeId: typeId,
-        date,
-        partyLedgerId: effectivePartyId,
-        narration: narration.trim() || null,
-        reference: null,
-        instrumentNo: instrumentNo.trim() || null,
-        instrumentDate: instrumentNo.trim() ? date : null,
-        transporterId: existing?.transporterId ?? null,
-        vehicleNo: existing?.vehicleNo ?? null,
-        transportDistanceKm: existing?.transportDistanceKm ?? null,
-        currencyCode: existing?.currencyCode ?? null,
-        exchangeRate: existing?.exchangeRate ?? null,
-        lines,
-        inventory: existing?.inventory.map((l) => ({
-          stockItemId: l.stockItemId, godownId: l.godownId, qtyMilli: l.qtyMilli,
-          ratePaise: l.ratePaise, amount: l.amount, direction: l.direction
-        })) ?? [],
-        billRefs: effectivePartyId != null ? billRefs : [],
-        tds: tds && effectivePartyId != null ? tds : null
-      }
       // Anomaly nudge on the largest line — a quiet second look, never a block.
-      const largest = [...lines].sort((a, b) => b.amount - a.amount)[0]!
+      const largest = [...input.lines].sort((a, b) => b.amount - a.amount)[0]!
       const anomaly = await api.intel.anomaly(largest.ledgerId, largest.amount)
       if (anomaly.unusual && anomaly.typicalAmount != null) {
         const proceed = window.confirm(
@@ -1202,7 +1226,7 @@ function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, rows, typeId, date, narration, instrumentNo, existing, voucherId, derivedPartyId, billRefs, tds, toast, setWorkingDate, queryClient, nav])
+  }, [saving, buildPayload, date, voucherId, toast, setWorkingDate, queryClient, nav])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -1434,6 +1458,7 @@ function AccountingEntry({
       <div className="mt-5 flex justify-between">
         <div>{voucherId && <Button variant="danger" onClick={() => void remove()}>Delete voucher</Button>}</div>
         <div className="flex gap-2">
+          {balanced && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
           <Button onClick={() => nav.back()}>Cancel</Button>
           <Button variant="primary" disabled={!balanced || saving} onClick={() => void save()}>
             {voucherId ? 'Save changes' : 'Save voucher'} ⌘↵
@@ -1462,7 +1487,130 @@ function AccountingEntry({
           onSave={(allocations) => setRow(ccModalRow, { costAllocations: allocations })}
         />
       )}
+      {showRecurring && <SaveAsRecurringModal buildPayload={buildPayload} onClose={() => setShowRecurring(false)} />}
     </Panel>
+  )
+}
+
+// ---------- "Save as recurring…" modal (AccountingEntry + InvoiceEntry) ----------
+
+const RECURRING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** Serializes the CURRENT form state (via `buildPayload`, the same helper the Save button uses)
+ *  into a recurring template. Does NOT save the voucher itself. */
+function SaveAsRecurringModal({
+  buildPayload,
+  onClose
+}: {
+  buildPayload: () => VoucherInputParsed | null | Promise<VoucherInputParsed | null>
+  onClose: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const today = todayISO()
+  const todayDay = Number(today.slice(8, 10))
+  const todayWeekday = new Date(today + 'T00:00:00Z').getUTCDay()
+  const [name, setName] = useState('')
+  const [cadence, setCadence] = useState<'monthly' | 'weekly'>('monthly')
+  const [dayOfMonth, setDayOfMonth] = useState(todayDay)
+  const [weekday, setWeekday] = useState(todayWeekday)
+  const [nextDue, setNextDue] = useState(() => nextDueAfter('monthly', { dayOfMonth: todayDay }, today))
+  const [saving, setSaving] = useState(false)
+
+  const changeCadence = (next: 'monthly' | 'weekly'): void => {
+    setCadence(next)
+    setNextDue(
+      next === 'monthly'
+        ? nextDueAfter('monthly', { dayOfMonth }, today)
+        : nextDueAfter('weekly', { weekday }, today)
+    )
+  }
+
+  const save = async (): Promise<void> => {
+    if (!name.trim()) return void toast.push('error', 'Name is required')
+    setSaving(true)
+    try {
+      const payload = await buildPayload()
+      if (!payload) {
+        toast.push('error', 'Finish the voucher (balanced lines / party & items) before saving it as recurring')
+        return
+      }
+      await api.recurring.save({
+        name: name.trim(),
+        voucherJson: JSON.stringify(payload),
+        cadence,
+        dayOfMonth: cadence === 'monthly' ? dayOfMonth : undefined,
+        weekday: cadence === 'weekly' ? weekday : undefined,
+        nextDue
+      })
+      await queryClient.invalidateQueries()
+      toast.push('success', `Recurring template "${name.trim()}" saved`)
+      onClose()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title="Save as recurring…" onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <Field label="Name" hint="e.g. “Monthly office rent”">
+          <TextInput autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Cadence">
+            <Select value={cadence} onChange={(e) => changeCadence(e.target.value as 'monthly' | 'weekly')}>
+              <option value="monthly">Monthly</option>
+              <option value="weekly">Weekly</option>
+            </Select>
+          </Field>
+          {cadence === 'monthly' ? (
+            <Field label="Day of month" hint="Clamped to shorter months">
+              <TextInput
+                type="number"
+                min={1}
+                max={31}
+                value={dayOfMonth}
+                onChange={(e) => {
+                  const d = Math.max(1, Math.min(31, Number(e.target.value) || 1))
+                  setDayOfMonth(d)
+                  setNextDue(nextDueAfter('monthly', { dayOfMonth: d }, today))
+                }}
+                className="num"
+              />
+            </Field>
+          ) : (
+            <Field label="Weekday">
+              <Select
+                value={weekday}
+                onChange={(e) => {
+                  const w = Number(e.target.value)
+                  setWeekday(w)
+                  setNextDue(nextDueAfter('weekly', { weekday: w }, today))
+                }}
+              >
+                {RECURRING_WEEKDAYS.map((w, i) => (
+                  <option key={w} value={i}>
+                    {w}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </div>
+        <Field label="First due">
+          <DateInput value={nextDue} context={nextDue} onChange={setNextDue} />
+        </Field>
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={saving} onClick={() => void save()}>
+            Save template
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

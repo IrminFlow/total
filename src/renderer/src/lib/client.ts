@@ -1,6 +1,6 @@
 import type {
   BomLine, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, PayrollLine, PayrollRun,
-  StockGroup, StockItem, TdsSection, Unit, Voucher, VoucherType
+  RecurringTemplate, StockGroup, StockItem, TdsSection, Unit, Voucher, VoucherType
 } from '@shared/domain'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, GroupTreeNode, LedgerBalanceRow,
@@ -11,8 +11,8 @@ import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
   AuditListInput, BomInput, CompanyCreateInput, CostCentreInput, CurrencyInput, EmployeeInput, GodownInput,
-  GroupInput, LedgerInput, NicCredentials, RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput,
-  UnitInput, UserInput, VoucherTypeInput, VoucherInputParsed
+  GroupInput, LedgerInput, NicCredentials, RecurringInput, RendererLogInput, StockGroupInput, StockItemInput,
+  TdsSectionInput, UnitInput, UserInput, VoucherTypeInput, VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
@@ -244,6 +244,14 @@ export const api = {
     remove: (id: number) => call<null>('cc:delete', { id }),
     report: (from: string, to: string) => call<CcReportRow[]>('cc:report', { from, to }),
     statement: (ccId: number, from: string, to: string) => call<CcStatementRow[]>('cc:statement', { ccId, from, to })
+  },
+  recurring: {
+    list: () => call<RecurringTemplate[]>('recurring:list'),
+    save: (data: RecurringInput, id?: number) => call<RecurringTemplate>('recurring:save', { id, data }),
+    remove: (id: number) => call<null>('recurring:delete', { id }),
+    due: (today: string) => call<RecurringTemplate[]>('recurring:due', { today }),
+    post: (id: number, date: string) => call<Voucher>('recurring:post', { id, date }),
+    skip: (id: number) => call<RecurringTemplate>('recurring:skip', { id })
   },
   bank: {
     ledgers: () => call<{ id: number; name: string }[]>('bank:ledgers'),

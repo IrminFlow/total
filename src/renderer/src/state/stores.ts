@@ -45,6 +45,7 @@ export type Screen =
   | { name: 'edocs' }
   | { name: 'registers' }
   | { name: 'outstandings' }
+  | { name: 'recurring' }
   | { name: 'banking' }
   | { name: 'payroll' }
   | { name: 'tds' }

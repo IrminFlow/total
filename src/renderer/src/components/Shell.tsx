@@ -26,7 +26,8 @@ const NAV: NavSection[] = [
       { label: 'Gateway', screen: { name: 'gateway' } },
       { label: 'Voucher entry', screen: { name: 'voucher-entry' } },
       { label: 'Day book', screen: { name: 'daybook' } },
-      { label: 'Masters', screen: { name: 'masters' } }
+      { label: 'Masters', screen: { name: 'masters' } },
+      { label: 'Recurring vouchers', screen: { name: 'recurring' } }
     ]
   },
   {
