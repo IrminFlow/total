@@ -1074,6 +1074,15 @@ export function registerIpc(): void {
     return { path }
   })
   handle('payroll:ptSummary', (p) => payroll.ptSummaryForRun(requireCompany().db, payrollRunIdSchema.parse(p).runId), 'viewer')
+  handle('payroll:ptCsv', (p) => {
+    const { runId } = payrollRunIdSchema.parse(p)
+    const c = requireCompany()
+    const { filename, text } = payroll.ptCsvForRun(c.db, runId)
+    const path = join(companyExportsDir(c.slug), filename)
+    writeFileSync(path, text, 'utf8')
+    shell.showItemInFolder(path)
+    return { path }
+  })
 
   // ---------- CSV master import ----------
   const importKindSchema = z.enum(['ledgers', 'items', 'openings'])

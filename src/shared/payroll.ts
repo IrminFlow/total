@@ -292,6 +292,28 @@ export interface EsiInput {
 
 const csvCell = (s: string): string => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s)
 
+export interface PtCsvInput {
+  state: string
+  employees: number
+  /** Paise. */
+  gross: number
+  /** Paise. */
+  pt: number
+}
+
+/** State-wise professional-tax return CSV: one challan row per state plus a TOTAL row. Amounts whole rupees. */
+export function buildPtCsv(rows: PtCsvInput[]): string {
+  const header = 'State,Employees,Gross Wages,PT Payable'
+  const body = rows.map((r) => [csvCell(r.state), String(r.employees), String(rupees(r.gross)), String(rupees(r.pt))].join(','))
+  const total = [
+    'TOTAL',
+    String(rows.reduce((s, r) => s + r.employees, 0)),
+    String(rupees(rows.reduce((s, r) => s + r.gross, 0))),
+    String(rupees(rows.reduce((s, r) => s + r.pt, 0)))
+  ].join(',')
+  return [header, ...body, total].join('\n')
+}
+
 /** ESIC monthly-contribution upload CSV (the portal's MC excel template, saved as CSV). */
 export function buildEsiCsv(rows: EsiInput[]): string {
   const header = 'IP Number,IP Name,No of Days,Total Monthly Wages,Reason Code for Zero Workdays,Last Working Day'

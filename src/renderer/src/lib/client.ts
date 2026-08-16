@@ -620,7 +620,8 @@ export const api = {
     },
     ecr: (runId: number) => call<{ path: string }>('payroll:ecr', { runId }),
     esiCsv: (runId: number) => call<{ path: string }>('payroll:esi', { runId }),
-    ptSummary: (runId: number) => call<PtSummaryRow[]>('payroll:ptSummary', { runId })
+    ptSummary: (runId: number) => call<PtSummaryRow[]>('payroll:ptSummary', { runId }),
+    ptCsv: (runId: number) => call<{ path: string }>('payroll:ptCsv', { runId })
   },
   yearEnd: {
     preview: (fyStartYear: number) =>
