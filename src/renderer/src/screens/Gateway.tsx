@@ -283,7 +283,7 @@ function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; it
       label: 'Import your books from Tally',
       hint: 'Or start from scratch — either way, head to Company info',
       done: partyCount > 0 || itemCount > 0,
-      onClick: () => nav.go({ name: 'company-info' })
+      onClick: () => nav.go({ name: 'import-tally' })
     },
     {
       label: 'Add a party and an item',

@@ -30,6 +30,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'New receipt', run: go({ name: 'voucher-entry', kindHint: 'receipt' }) },
       { label: 'Gateway', run: () => nav.home() },
       { label: 'Day book', run: go({ name: 'daybook' }) },
+      { label: 'Import from Tally', run: go({ name: 'import-tally' }) },
       { label: 'Ledgers & masters', run: go({ name: 'masters' }) },
       { label: 'Stock items', feature: 'inventory', run: go({ name: 'masters', tab: 'items' }) },
       { label: 'Trial balance', run: go({ name: 'trial-balance' }) },

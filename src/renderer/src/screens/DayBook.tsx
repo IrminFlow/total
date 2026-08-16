@@ -1,11 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useNav, useSession } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle, TextInput, useKeyNav } from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
+import { csvReport, printReport } from '../lib/reportExport'
+import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
+import { formatPaise } from '@shared/money'
 import type { DayBookRow } from '@shared/reports'
 
 const PAGE = 500
@@ -73,6 +76,7 @@ const DayBookRowView = memo(function DayBookRowView({
 export function DayBook(): React.JSX.Element {
   const { from, to } = useSession()
   const nav = useNav()
+  const toast = useToasts()
   const [filter, setFilter] = useState('')
   const [limit, setLimit] = useState(PAGE)
   const { data } = useQuery({
@@ -122,6 +126,43 @@ export function DayBook(): React.JSX.Element {
   const colCount =
     2 + (visible.type ? 1 : 0) + (visible.number ? 1 : 0) + (visible.account ? 1 : 0) + (visible.debit ? 1 : 0) + (visible.credit ? 1 : 0)
 
+  const exportColumns: PdfColumn[] = [
+    { label: 'Date', align: 'l' },
+    ...(visible.type ? [{ label: 'Type', align: 'l' as const }] : []),
+    ...(visible.number ? [{ label: 'No.', align: 'l' as const }] : []),
+    ...(visible.account ? [{ label: 'Account', align: 'l' as const }] : []),
+    { label: 'Narration', align: 'l' },
+    ...(visible.debit ? [{ label: 'Debit', align: 'r' as const }] : []),
+    ...(visible.credit ? [{ label: 'Credit', align: 'r' as const }] : [])
+  ]
+  const exportRows: PdfRow[] = [
+    ...rows.map((r) => ({
+      cells: [
+        toDisplayDate(r.date),
+        ...(visible.type ? [r.voucherType] : []),
+        ...(visible.number ? [r.number] : []),
+        ...(visible.account ? [r.account] : []),
+        r.narration ?? '',
+        ...(visible.debit ? [formatPaise(r.debit, { zeroDash: true })] : []),
+        ...(visible.credit ? [formatPaise(r.credit, { zeroDash: true })] : [])
+      ]
+    })),
+    {
+      cells: [
+        `Total · ${rows.length} vouchers`,
+        ...(visible.type ? [''] : []),
+        ...(visible.number ? [''] : []),
+        ...(visible.account ? [''] : []),
+        '',
+        ...(visible.debit ? [formatPaise(rows.reduce((s, r) => s + r.debit, 0), { zeroDash: true })] : []),
+        ...(visible.credit ? [formatPaise(rows.reduce((s, r) => s + r.credit, 0), { zeroDash: true })] : [])
+      ],
+      bold: true,
+      rule: true
+    }
+  ]
+  const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
+
   return (
     <div className="mx-auto max-w-5xl">
       <SectionTitle
@@ -129,6 +170,20 @@ export function DayBook(): React.JSX.Element {
           <div className="flex items-center gap-2">
             <TextInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Type to filter…" className="w-64" />
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
+            <Button
+              variant="ghost"
+              onClick={() => void printReport({ title: 'Day book', periodLabel, columns: exportColumns, rows: exportRows }, toast)}
+            >
+              PDF
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'day-book', toast)
+              }
+            >
+              CSV
+            </Button>
           </div>
         }
       >

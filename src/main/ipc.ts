@@ -1,5 +1,5 @@
 import { app, dialog, ipcMain, Notification, shell } from 'electron'
-import { readFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
@@ -16,9 +16,9 @@ import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
-  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
-  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema,
-  stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
+  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
+  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
+  stockGroupInputSchema, stockItemInputSchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
@@ -41,10 +41,12 @@ import * as costCentres from './services/costCentres'
 import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
 import * as yearEnd from './services/yearEnd'
-import { importTallyXml } from './services/tallyImport'
+import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
 import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
+import { writeExportPdf } from './services/pdf'
+import { reportHtml } from './services/reportHtml'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
 import { roleAllows, type Role } from './services/roles'
@@ -797,9 +799,13 @@ export function registerIpc(): void {
 
   // ---------- Tally import ----------
   handle('tally:import', async (p) => {
-    const { xmlText } = z.object({ xmlText: z.string().optional() }).default({}).parse(p ?? {})
+    const { xmlText, filePath, dryRun } = tallyImportSchema.parse(p ?? {})
     const c = requireCompany()
     let xml = xmlText
+    let resolvedPath = filePath
+    if (xml === undefined && filePath !== undefined) {
+      xml = readFileSync(filePath, 'utf8')
+    }
     if (xml === undefined) {
       const picked = await dialog.showOpenDialog({
         title: 'Choose a Tally XML export (Masters and/or Vouchers)',
@@ -807,11 +813,30 @@ export function registerIpc(): void {
         properties: ['openFile']
       })
       if (picked.canceled || !picked.filePaths[0]) return null
-      xml = readFileSync(picked.filePaths[0], 'utf8')
+      resolvedPath = picked.filePaths[0]
+      xml = readFileSync(resolvedPath, 'utf8')
     }
+    // Dry run is parse-only — zero DB writes, so no backup is taken (nothing to roll back to).
+    if (dryRun) return { filePath: resolvedPath ?? null, summary: dryRunTallyXml(xml) }
     await backupCompany(c.db, c.slug, 'pre-tally-import')
-    return importTallyXml(c.db, xml)
+    return { filePath: resolvedPath ?? null, summary: importTallyXml(c.db, xml) }
   })
+
+  // ---------- report print/export (task 3.6) ----------
+  handle('report:pdf', async (p) => {
+    const { title, periodLabel, columns, rows, footNote, filename } = reportPdfSchema.parse(p)
+    const c = requireCompany()
+    const html = reportHtml({ title, company: c.info, periodLabel, columns, rows, footNote })
+    const path = await writeExportPdf(c.slug, `${filename}.pdf`, html, { pageSize: 'A4' })
+    return { path }
+  }, 'viewer')
+  handle('export:csv', (p) => {
+    const { filename, csv } = exportCsvSchema.parse(p)
+    const c = requireCompany()
+    const path = join(companyExportsDir(c.slug), `${filename}.csv`)
+    writeFileSync(path, csv, 'utf8')
+    return { path }
+  }, 'viewer')
 
   // ---------- CA export pack + Tally XML export ----------
   handle('export:caPack', (p) => {

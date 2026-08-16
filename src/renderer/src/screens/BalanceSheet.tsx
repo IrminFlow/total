@@ -1,20 +1,58 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useSession } from '../state/stores'
-import { Money, Panel, SectionTitle } from '../components/ui'
+import { useSession, useToasts } from '../state/stores'
+import { Button, Money, Panel, SectionTitle } from '../components/ui'
 import { StatementTree } from '../components/StatementTree'
+import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
+import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
+import { formatPaise } from '@shared/money'
+
+const EXPORT_COLUMNS: PdfColumn[] = [
+  { label: 'Particulars', align: 'l' },
+  { label: 'Amount', align: 'r' }
+]
 
 export function BalanceSheetScreen(): React.JSX.Element {
   const { to } = useSession()
+  const toast = useToasts()
   const { data } = useQuery({ queryKey: ['balanceSheet', to], queryFn: () => api.reports.balanceSheet(to) })
   if (!data) return <p className="text-muted">Loading…</p>
 
   const balanced = data.totalAssets === data.totalLiabilities
+  const periodLabel = `as on ${toDisplayDate(data.asOn)}`
+  const exportRows: PdfRow[] = [
+    { cells: ['Liabilities', ''], bold: true },
+    ...flattenNodes(data.liabilities, 1),
+    { cells: ['Total liabilities', formatPaise(data.totalLiabilities, { zeroDash: true })], bold: true, rule: true },
+    { cells: ['Assets', ''], bold: true },
+    ...flattenNodes(data.assets, 1),
+    { cells: ['Total assets', formatPaise(data.totalAssets, { zeroDash: true })], bold: true, rule: true }
+  ]
 
   return (
     <div className="mx-auto max-w-5xl">
-      <SectionTitle right={<span className="num text-[12px] text-muted">as on {toDisplayDate(data.asOn)}</span>}>
+      <SectionTitle
+        right={
+          <div className="flex items-center gap-2">
+            <span className="num text-[12px] text-muted">{periodLabel}</span>
+            <Button
+              variant="ghost"
+              onClick={() => void printReport({ title: 'Balance sheet', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
+            >
+              PDF
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'balance-sheet', toast)
+              }
+            >
+              CSV
+            </Button>
+          </div>
+        }
+      >
         Balance sheet
       </SectionTitle>
       <div className="grid grid-cols-2 gap-3">

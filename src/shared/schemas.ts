@@ -444,3 +444,49 @@ export const notifyDeadlinesSchema = z.object({
 })
 export type NotifyDeadlinesInput = z.infer<typeof notifyDeadlinesSchema>
 export type BankRuleInput = z.infer<typeof bankRuleInputSchema>
+
+// ---------- report print/export (task 3.6) ----------
+
+/** Filenames are slugified client-side before hitting the wire — this just double-checks it
+ *  server-side too, since the string is joined straight into an exports/<file> path. */
+const exportFilename = z.string().trim().regex(/^[a-z0-9-_]+$/, 'Filename must be lowercase letters, digits, - or _')
+
+export const reportColumnSchema = z.object({
+  label: z.string().trim().min(1).max(60),
+  align: z.enum(['l', 'r', 'c']),
+  width: z.number().positive().max(2000).optional()
+})
+
+export const reportRowSchema = z.object({
+  cells: z.array(z.string()).max(40),
+  bold: z.boolean().optional(),
+  indent: z.number().int().min(0).max(12).optional(),
+  rule: z.boolean().optional()
+})
+
+export const reportPdfSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  periodLabel: z.string().trim().max(120).default(''),
+  columns: z.array(reportColumnSchema).min(1).max(20),
+  rows: z.array(reportRowSchema).max(5000),
+  footNote: z.string().max(500).optional(),
+  filename: exportFilename
+})
+export type ReportPdfInput = z.infer<typeof reportPdfSchema>
+
+export const exportCsvSchema = z.object({
+  filename: exportFilename,
+  csv: z.string().max(2 * 1024 * 1024)
+})
+export type ExportCsvInput = z.infer<typeof exportCsvSchema>
+
+// ---------- Tally import wizard v2 (task 3.5) ----------
+
+export const tallyImportSchema = z
+  .object({
+    xmlText: z.string().optional(),
+    filePath: z.string().optional(),
+    dryRun: z.boolean().default(false)
+  })
+  .default({})
+export type TallyImportInput = z.infer<typeof tallyImportSchema>

@@ -1,10 +1,22 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useNav, useSession } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle, useKeyNav } from '../components/ui'
+import { csvReport, printReport } from '../lib/reportExport'
+import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
+import { formatPaise } from '@shared/money'
 import type { LedgerStatementRow } from '@shared/reports'
+
+const EXPORT_COLUMNS: PdfColumn[] = [
+  { label: 'Date', align: 'l' },
+  { label: 'Particulars', align: 'l' },
+  { label: 'Type · No.', align: 'l' },
+  { label: 'Debit', align: 'r' },
+  { label: 'Credit', align: 'r' },
+  { label: 'Balance', align: 'r' }
+]
 
 const PAGE = 500
 
@@ -49,6 +61,7 @@ const LedgerStatementRowView = memo(function LedgerStatementRowView({
 export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React.JSX.Element {
   const { from, to } = useSession()
   const nav = useNav()
+  const toast = useToasts()
   const [limit, setLimit] = useState(PAGE)
   const { data } = useQuery({
     queryKey: ['ledgerStatement', ledgerId, from, to],
@@ -78,9 +91,57 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
 
   if (!data) return <p className="text-muted">Loading…</p>
 
+  const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
+  const exportRows: PdfRow[] = [
+    ...rows.map((r) => ({
+      cells: [
+        toDisplayDate(r.date),
+        r.particulars,
+        `${r.voucherType} ${r.number}`,
+        formatPaise(r.debit, { zeroDash: true }),
+        formatPaise(r.credit, { zeroDash: true }),
+        formatPaise(r.running, { zeroDash: true })
+      ]
+    })),
+    {
+      cells: [
+        '',
+        'Closing balance',
+        '',
+        formatPaise(data.totalDebit, { zeroDash: true }),
+        formatPaise(data.totalCredit, { zeroDash: true }),
+        formatPaise(data.closing, { zeroDash: true })
+      ],
+      bold: true,
+      rule: true
+    }
+  ]
+
   return (
     <div className="mx-auto max-w-5xl">
-      <SectionTitle right={<Money paise={data.closing} signed className="text-[15px]" />}>
+      <SectionTitle
+        right={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void printReport({ title: data.ledgerName, periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)
+              }
+            >
+              PDF
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'ledger-statement', toast)
+              }
+            >
+              CSV
+            </Button>
+            <Money paise={data.closing} signed className="text-[15px]" />
+          </div>
+        }
+      >
         {data.ledgerName}
       </SectionTitle>
       <Panel>

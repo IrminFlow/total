@@ -3,13 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { csvReport } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
 
 type Kind = 'tb' | 'pnl'
-
-function csvCell(v: string): string {
-  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
-}
 
 export function ConsolidatedScreen(): React.JSX.Element {
   const { from, to } = useSession()
@@ -51,9 +48,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
     }
   }
 
-  // export:csv (Task 3.6) doesn't exist yet — build the CSV in the renderer and copy it
-  // to the clipboard so the user can paste straight into a spreadsheet.
-  const copyCsv = async (): Promise<void> => {
+  const exportCsv = async (): Promise<void> => {
     if (!data) return
     const header = ['Name', 'Group', ...data.columns, 'Total']
     const rows = data.rows.map((r) => [
@@ -62,13 +57,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
       ...r.perCompany.map((v) => (v == null ? '' : (v / 100).toFixed(2))),
       (r.total / 100).toFixed(2)
     ])
-    const csv = [header, ...rows].map((cells) => cells.map(csvCell).join(',')).join('\n')
-    try {
-      await navigator.clipboard.writeText(csv)
-      toast.push('success', 'CSV copied — paste into a spreadsheet')
-    } catch {
-      toast.push('error', 'Could not copy to clipboard')
-    }
+    await csvReport(header, rows, `consolidated-${kind}`, toast)
   }
 
   return (
@@ -121,7 +110,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
           <Button variant="primary" onClick={() => void run()} disabled={isFetching}>
             {isFetching ? 'Running…' : 'Run'}
           </Button>
-          {data && <Button onClick={() => void copyCsv()}>Copy CSV</Button>}
+          {data && <Button onClick={() => void exportCsv()}>Export CSV</Button>}
         </div>
       </Panel>
 

@@ -3,8 +3,20 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { csvReport, printReport } from '../lib/reportExport'
+import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
+import { toDisplayDate } from '@shared/dates'
+import { formatPaise } from '@shared/money'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+const EXPORT_COLUMNS: PdfColumn[] = [
+  { label: 'Month', align: 'l' },
+  { label: 'Vouchers', align: 'r' },
+  { label: 'Taxable value', align: 'r' },
+  { label: 'GST', align: 'r' },
+  { label: 'Invoice total', align: 'r' }
+]
 
 function monthLabel(ym: string): string {
   const [y, m] = ym.split('-').map(Number) as [number, number]
@@ -21,6 +33,30 @@ export function RegistersScreen(): React.JSX.Element {
     queryFn: () => api.analysis.register(kind, from, to)
   })
   const rows = data ?? []
+
+  const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
+  const exportRows: PdfRow[] = [
+    ...rows.map((r) => ({
+      cells: [
+        monthLabel(r.month),
+        String(r.vouchers),
+        formatPaise(r.taxable, { zeroDash: true }),
+        formatPaise(r.tax, { zeroDash: true }),
+        formatPaise(r.total, { zeroDash: true })
+      ]
+    })),
+    {
+      cells: [
+        'Total',
+        String(rows.reduce((s, r) => s + r.vouchers, 0)),
+        formatPaise(rows.reduce((s, r) => s + r.taxable, 0), { zeroDash: true }),
+        formatPaise(rows.reduce((s, r) => s + r.tax, 0), { zeroDash: true }),
+        formatPaise(rows.reduce((s, r) => s + r.total, 0), { zeroDash: true })
+      ],
+      bold: true,
+      rule: true
+    }
+  ]
 
   const runExport = async (which: 'caPack' | 'tallyXml'): Promise<void> => {
     setBusy(which)
@@ -50,6 +86,25 @@ export function RegistersScreen(): React.JSX.Element {
                 </button>
               ))}
             </div>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void printReport(
+                  { title: kind === 'sales' ? 'Sales register' : 'Purchase register', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows },
+                  toast
+                )
+              }
+            >
+              PDF
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `${kind}-register`, toast)
+              }
+            >
+              CSV
+            </Button>
             <Button disabled={busy !== null} onClick={() => void runExport('tallyXml')}>
               Tally XML
             </Button>

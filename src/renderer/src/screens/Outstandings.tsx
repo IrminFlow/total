@@ -2,10 +2,22 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
-import { EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { csvReport, printReport } from '../lib/reportExport'
+import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
+import { formatPaise } from '@shared/money'
 import { buildReminder } from '@shared/outstanding'
 import type { OutstandingBill } from '@shared/reports'
+
+const EXPORT_COLUMNS: PdfColumn[] = [
+  { label: 'Party', align: 'l' },
+  { label: '0–30 d', align: 'r' },
+  { label: '31–60 d', align: 'r' },
+  { label: '61–90 d', align: 'r' },
+  { label: '90+ d', align: 'r' },
+  { label: 'Pending', align: 'r' }
+]
 
 async function remind(companyName: string, partyName: string, bills: OutstandingBill[], toast: ToastState): Promise<void> {
   const reminder = buildReminder({ name: companyName }, { name: partyName, email: null }, bills)
@@ -32,20 +44,67 @@ export function OutstandingsScreen(): React.JSX.Element {
   const total = parties.reduce((s, p) => s + p.pending, 0)
   const bucketTotals = [0, 1, 2, 3].map((i) => parties.reduce((s, p) => s + p.buckets[i as 0 | 1 | 2 | 3], 0))
 
+  const periodLabel = `as on ${toDisplayDate(to)}`
+  const exportRows: PdfRow[] = [
+    ...parties.map((p) => ({
+      cells: [
+        p.name,
+        formatPaise(p.buckets[0], { zeroDash: true }),
+        formatPaise(p.buckets[1], { zeroDash: true }),
+        formatPaise(p.buckets[2], { zeroDash: true }),
+        formatPaise(p.buckets[3], { zeroDash: true }),
+        formatPaise(p.pending, { zeroDash: true })
+      ]
+    })),
+    {
+      cells: [
+        'Total',
+        formatPaise(bucketTotals[0]!, { zeroDash: true }),
+        formatPaise(bucketTotals[1]!, { zeroDash: true }),
+        formatPaise(bucketTotals[2]!, { zeroDash: true }),
+        formatPaise(bucketTotals[3]!, { zeroDash: true }),
+        formatPaise(total, { zeroDash: true })
+      ],
+      bold: true,
+      rule: true
+    }
+  ]
+
   return (
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <div className="flex gap-1">
-            {(['receivable', 'payable'] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setSide(s)}
-                className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${side === s ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
-              >
-                {s}s
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              {(['receivable', 'payable'] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSide(s)}
+                  className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${side === s ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                >
+                  {s}s
+                </button>
+              ))}
+            </div>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void printReport(
+                  { title: side === 'receivable' ? 'Receivables · ageing' : 'Payables · ageing', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows },
+                  toast
+                )
+              }
+            >
+              PDF
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `outstandings-${side}`, toast)
+              }
+            >
+              CSV
+            </Button>
           </div>
         }
       >

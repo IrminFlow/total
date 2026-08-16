@@ -173,6 +173,39 @@ export interface ImportResult {
 }
 
 /** Invoke a main-process channel; throws the error message on failure. */
+/** Mirrors src/main/services/reportHtml.ts's ReportColumnSpec/ReportRowSpec shapes (kept local —
+ *  that file is main-process only). Shared by every screen's PDF/CSV export buttons. */
+export interface ReportColumn {
+  label: string
+  align: 'l' | 'r' | 'c'
+  width?: number
+}
+export interface ReportRow {
+  cells: string[]
+  bold?: boolean
+  indent?: number
+  rule?: boolean
+}
+export interface ReportPdfInput {
+  title: string
+  periodLabel: string
+  columns: ReportColumn[]
+  rows: ReportRow[]
+  footNote?: string
+  filename: string
+}
+
+/** Mirrors src/main/services/tallyImport.ts's ImportSummary shape (kept local — main-process only). */
+export interface TallyImportSummary {
+  groups: number
+  ledgers: number
+  units: number
+  items: number
+  vouchers: number
+  skipped: number
+  warnings: string[]
+}
+
 async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
   if (!result.ok) throw new Error(result.error ?? 'Unknown error')
@@ -398,10 +431,10 @@ export const api = {
       call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
   },
   tally: {
-    import: () =>
-      call<{ groups: number; ledgers: number; units: number; items: number; vouchers: number; skipped: number; warnings: string[] } | null>(
-        'tally:import'
-      )
+    dryRun: (filePath?: string) =>
+      call<{ filePath: string | null; summary: TallyImportSummary } | null>('tally:import', { filePath, dryRun: true }),
+    apply: (filePath?: string) =>
+      call<{ filePath: string | null; summary: TallyImportSummary } | null>('tally:import', { filePath, dryRun: false })
   },
   importer: {
     pickCsv: () => call<{ csvText: string; fileName: string } | null>('import:pickCsv'),
@@ -412,6 +445,10 @@ export const api = {
   exporter: {
     caPack: (from: string, to: string) => call<{ path: string }>('export:caPack', { from, to }),
     tallyXml: (from: string, to: string) => call<{ path: string }>('export:tallyXml', { from, to })
+  },
+  exportReport: {
+    pdf: (input: ReportPdfInput) => call<{ path: string }>('report:pdf', input),
+    csv: (filename: string, csv: string) => call<{ path: string }>('export:csv', { filename, csv })
   },
   nic: {
     get: () => call<NicCredentials>('nic:get'),
