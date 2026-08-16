@@ -236,6 +236,16 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     try {
       const input = await buildPayload()
       if (!input) return
+      // Duplicate-number confirm — catches a manually typed number that's already on the books
+      // (and the auto-suggested one losing a race with another entry screen).
+      if (input.number && (await api.vouchers.numberExists(typeId, input.number))) {
+        const proceed = await confirmDialog({
+          title: 'Duplicate number',
+          message: `Voucher number ${input.number} is already used by another voucher of this type. Save anyway with the same number?`,
+          confirmLabel: 'Save anyway'
+        })
+        if (!proceed) return
+      }
       const dupes = await api.vouchers.duplicates(input)
       if (dupes.length > 0) {
         const first = dupes[0]!
@@ -267,7 +277,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, date, toast, setWorkingDate, queryClient, numberField.reset])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, toast, setWorkingDate, queryClient, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

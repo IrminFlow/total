@@ -364,6 +364,16 @@ export function AccountingEntry({
     if (!input) return void toast.push('error', 'Enter at least one debit and one credit')
     setSaving(true)
     try {
+      // Duplicate-number confirm — a manually typed (or race-lost auto) number that's already
+      // on the books gets one explicit "save anyway" before we commit to it.
+      if (input.number && (await api.vouchers.numberExists(typeId, input.number, voucherId))) {
+        const proceed = await confirmDialog({
+          title: 'Duplicate number',
+          message: `Voucher number ${input.number} is already used by another voucher of this type. Save anyway with the same number?`,
+          confirmLabel: 'Save anyway'
+        })
+        if (!proceed) return
+      }
       // Anomaly nudge on the largest line — a quiet second look, never a block.
       const largest = [...input.lines].sort((a, b) => b.amount - a.amount)[0]!
       const anomaly = await api.intel.anomaly(largest.ledgerId, largest.amount)
@@ -394,7 +404,7 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, buildPayload, date, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset])
+  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
