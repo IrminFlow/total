@@ -6,12 +6,19 @@ export interface DayBookRow {
   voucherId: number
   date: string
   voucherType: string
+  /** Voucher-type kind ('sales', 'payment', …) — drives kind-based affordances (invoice PDF)
+   *  without brittle voucher-type-name matching (v0.3 S5). */
+  kind: string
   number: string
   /** Primary party/account shown in the list. */
   account: string
   narration: string | null
   debit: number
   credit: number
+  /** Memorandum voucher — never counts toward the books or totals (v0.3 S5). */
+  isOptional: boolean
+  /** Post-dated and not yet matured — kept out of the books until its date arrives (v0.3 S5). */
+  postDated: boolean
 }
 
 export interface LedgerStatementRow {

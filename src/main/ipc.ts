@@ -592,8 +592,10 @@ export function registerIpc(): void {
 
   // ---------- reports ----------
   handle('report:dayBook', (p) => {
-    const { from, to } = periodSchema.parse(p)
-    return reports.dayBook(requireCompany().db, from, to)
+    const { from, to, includeOutOfBooks } = periodSchema
+      .extend({ includeOutOfBooks: z.boolean().optional() })
+      .parse(p)
+    return reports.dayBook(requireCompany().db, from, to, { includeOutOfBooks })
   }, 'viewer')
   handle('report:ledger', (p) => {
     const { ledgerId, from, to, groupBy } = periodSchema

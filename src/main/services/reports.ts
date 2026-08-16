@@ -8,7 +8,7 @@ import type { Group, Nature } from '@shared/domain'
 import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
-import { listVouchers, IN_BOOKS } from './vouchers'
+import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
 
 // ---------- shared helpers ----------
@@ -324,12 +324,24 @@ function yearBefore(date: string): string {
 
 // ---------- reports ----------
 
-export function dayBook(db: DB, from: string, to: string): DayBookRow[] {
+export function dayBook(
+  db: DB,
+  from: string,
+  to: string,
+  opts: {
+    /** Include optional (memorandum) and unmatured post-dated vouchers, flagged per row, so the
+     *  Day Book can badge/filter them (v0.3 S5). Default false keeps books-only semantics for
+     *  existing consumers (CA pack). */
+    includeOutOfBooks?: boolean
+  } = {}
+): DayBookRow[] {
+  const scope = opts.includeOutOfBooks ? NOT_DELETED : IN_BOOKS
   // v0.3 #61: real Dr/Cr split — the shown account's net signed amount lands in the column of
   // its actual side, instead of the voucher total being printed under BOTH Debit and Credit.
   const rows = db
     .prepare(
-      `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, v.number, v.narration,
+      `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, vt.kind AS kind, v.number, v.narration,
+              v.is_optional AS isOptional, v.post_dated AS postDated,
               COALESCE(pl.name, fl.name, '') AS account,
               COALESCE(anet.net, 0) AS accountNet
        FROM vouchers v
@@ -345,22 +357,26 @@ export function dayBook(db: DB, from: string, to: string): DayBookRow[] {
                 SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
          FROM voucher_lines vl GROUP BY vl.voucher_id, vl.ledger_id
        ) anet ON anet.voucher_id = v.id AND anet.ledger_id = COALESCE(pl.id, fl.id)
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE v.date BETWEEN ? AND ? AND ${scope}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as {
-      voucherId: number; date: string; voucherType: string; number: string
+      voucherId: number; date: string; voucherType: string; kind: string; number: string
       narration: string | null; account: string; accountNet: number
+      isOptional: number; postDated: number
     }[]
   return rows.map((r) => ({
     voucherId: r.voucherId,
     date: r.date,
     voucherType: r.voucherType,
+    kind: r.kind,
     number: r.number,
     account: r.account,
     narration: r.narration,
     debit: r.accountNet > 0 ? r.accountNet : 0,
-    credit: r.accountNet < 0 ? -r.accountNet : 0
+    credit: r.accountNet < 0 ? -r.accountNet : 0,
+    isOptional: !!r.isOptional,
+    postDated: !!r.postDated
   }))
 }
 
@@ -850,8 +866,9 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
     .slice(-8)
     .reverse()
     .map((v) => ({
-      voucherId: v.id, date: v.date, voucherType: v.voucherType, number: v.number,
-      account: v.account, narration: v.narration, debit: v.amount, credit: v.amount
+      voucherId: v.id, date: v.date, voucherType: v.voucherType, kind: v.kind, number: v.number,
+      account: v.account, narration: v.narration, debit: v.amount, credit: v.amount,
+      isOptional: false, postDated: false
     }))
 
   const partyIds = new Set([...debtorIds, ...creditorIds])
