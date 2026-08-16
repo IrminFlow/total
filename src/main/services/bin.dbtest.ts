@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { seededDb, postSimpleVoucher } from '../db/testdb'
-import { deleteVoucher, getVoucher, listBin, listVouchers, nextVoucherNumber, purgeOldDeleted, purgeVoucher, restoreVoucher, saveVoucher } from './vouchers'
+import { deleteVoucher, getVoucher, listBin, listVouchers, nextVoucherNumber, purgeOldDeleted, purgeVoucher, restoreVoucher, saveVoucher, setLockDate } from './vouchers'
 import { trialBalance } from './reports'
 
 describe('soft delete + bin', () => {
@@ -91,7 +91,7 @@ describe('soft delete + bin', () => {
     expect(getVoucher(db, v.id)).not.toBeNull()
   })
 
-  it('purgeOldDeleted removes only vouchers binned more than `days` ago', () => {
+  it('purgeOldDeleted removes only LOCKED-period vouchers binned more than `days` ago', () => {
     const db = seededDb()
     const recent = postSimpleVoucher(db, { date: '2025-04-05', amount: 5000, kind: 'receipt' })
     const old = postSimpleVoucher(db, { date: '2025-04-06', amount: 5000, kind: 'receipt' })
@@ -100,12 +100,47 @@ describe('soft delete + bin', () => {
     // Backdate `old`'s bin entry past the 30-day window via a raw UPDATE (simulates elapsed time).
     db.prepare("UPDATE vouchers SET deleted_at = datetime('now', '-40 days') WHERE id = ?").run(old.id)
 
+    // With NO lock date, nothing is auto-purged — GSTR-1 Table 13 (cancelled documents) and
+    // number-uniqueness still need binned rows for periods that haven't been closed/filed.
+    expect(purgeOldDeleted(db, 30)).toBe(0)
+    expect(getVoucher(db, old.id)).not.toBeNull()
+
+    setLockDate(db, '2025-04-30')
     const purged = purgeOldDeleted(db, 30)
 
     expect(purged).toBe(1)
     expect(getVoucher(db, old.id)).toBeNull()
     expect(getVoucher(db, recent.id)).not.toBeNull()
     expect(getVoucher(db, recent.id)!.deletedAt).toBeTruthy()
+  })
+
+  it('purgeOldDeleted never purges vouchers dated after the lock date, however old their bin entry', () => {
+    const db = seededDb()
+    const unlocked = postSimpleVoucher(db, { date: '2025-06-15', amount: 5000, kind: 'receipt' })
+    deleteVoucher(db, unlocked.id)
+    db.prepare("UPDATE vouchers SET deleted_at = datetime('now', '-90 days') WHERE id = ?").run(unlocked.id)
+    setLockDate(db, '2025-04-30') // books locked only through April — June stays in the bin
+
+    expect(purgeOldDeleted(db, 30)).toBe(0)
+    expect(getVoucher(db, unlocked.id)).not.toBeNull()
+  })
+
+  it('one purge-blocked voucher (payroll FK) does not stop the rest of the purge', () => {
+    const db = seededDb()
+    const blocked = postSimpleVoucher(db, { date: '2025-04-05', amount: 5000, kind: 'payment' })
+    const purgeable = postSimpleVoucher(db, { date: '2025-04-06', amount: 5000, kind: 'receipt' })
+    // payroll_runs.voucher_id references vouchers WITHOUT ON DELETE CASCADE — the classic blocker.
+    db.prepare("INSERT INTO payroll_runs (month, voucher_id) VALUES ('2025-04', ?)").run(blocked.id)
+    deleteVoucher(db, blocked.id)
+    deleteVoucher(db, purgeable.id)
+    db.prepare("UPDATE vouchers SET deleted_at = datetime('now', '-40 days')").run()
+    setLockDate(db, '2025-04-30')
+
+    const purged = purgeOldDeleted(db, 30)
+
+    expect(purged).toBe(1) // the FK-blocked voucher is skipped, not fatal
+    expect(getVoucher(db, purgeable.id)).toBeNull()
+    expect(getVoucher(db, blocked.id)).not.toBeNull() // still in the bin
   })
 
   it('saveVoucher refuses to edit a binned voucher until it is restored', () => {

@@ -3,12 +3,12 @@ import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import {
-  buildGstr1, buildGstr3b, classifyDoc,
+  buildGstr1, buildGstr3b, classifyDoc, isZeroRatedTyp,
   type GstAdvanceAgg, type GstDoc, type GstDocRateItem, type GstDocSeries, type GstHsnLine,
   type GstNilLine, type Gstr1Extras, type Gstr1Result, type Gstr3bResult, type InwardSummary,
   type ItcBreakdown, type TaxTotals
 } from '@shared/gst/returns'
-import { computeGst, supplyTypeFor } from '@shared/gst/calc'
+import { backOutAdvance, computeGst, supplyTypeFor } from '@shared/gst/calc'
 import { toUqc } from '@shared/gst/uqc'
 import { validateGstr1, type GstIssue } from '@shared/gst/validate'
 import { fyOf } from '@shared/dates'
@@ -121,7 +121,9 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
       // POS precedence: per-voucher override, then party state, then company state
       // (exports default to 96 "Other Country" when the party has no state code).
       const pos = v.posOverride ?? v.partyState ?? (isExport ? '96' : company.stateCode)
-      const supply = supplyTypeFor(company.stateCode, pos)
+      // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act) — an SEZ unit in
+      // the company's own state still gets IGST, never CGST/SGST. POS stays the real state.
+      const supply = isZeroRatedTyp(invTyp) ? 'inter' : supplyTypeFor(company.stateCode, pos)
       // Without-payment zero-rated supplies charge no tax at all.
       const zeroTax = invTyp === 'SEWOP' || invTyp === 'EXPWOP'
 
@@ -225,19 +227,23 @@ const ZERO: InwardSummary = { igst: 0, cgst: 0, sgst: 0, cess: 0 }
 
 /**
  * 3.1(d) — inward supplies liable to reverse charge: purchases from parties flagged rcm=1,
- * tax computed at master rates (item rate, else purchase-ledger rate) since RCM purchases
- * book no input-tax lines of their own.
+ * NET of purchase-return debit notes to those parties (goods returned reduce the RCM
+ * liability and the matching ISRC credit for the period). Tax is computed at master rates
+ * (item rate, else purchase-ledger rate) since RCM purchases book no input-tax lines of
+ * their own. Outward (sales-side) debit notes are excluded via outwardDebitNoteIds.
  */
 export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to: string): TaxTotals {
-  const vouchers = db
+  const outwardDbn = outwardDebitNoteIds(db, from, to)
+  const vouchers = (db
     .prepare(
       `SELECT v.id, vt.kind, p.state_code AS partyState
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind = 'purchase' AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+       WHERE vt.kind IN ('purchase', 'debit_note') AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
-    .all(from, to) as { id: number; kind: string; partyState: string | null }[]
+    .all(from, to) as { id: number; kind: 'purchase' | 'debit_note'; partyState: string | null }[])
+    .filter((v) => v.kind !== 'debit_note' || !outwardDbn.has(v.id))
 
   const purchaseGroupIds = descendantIdsByName(db, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses'])
   const invStmt = db.prepare(
@@ -253,20 +259,24 @@ export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to:
   const total: TaxTotals = { taxable: 0, ...ZERO }
   for (const v of vouchers) {
     const supply = supplyTypeFor(company.stateCode, v.partyState ?? company.stateCode)
+    // A purchase-return debit note reverses the purchase: negative sign, purchase-side
+    // value sits on the CREDIT lines (mirror of extractPurchaseDocs).
+    const sign = v.kind === 'debit_note' ? -1 : 1
+    const purchaseSide = v.kind === 'debit_note' ? 'cr' : 'dr'
     const inv = invStmt.all(v.id) as { amount: number; gstRate: number | null; cessRate: number | null }[]
     const lines =
       inv.length > 0
         ? inv.map((l) => ({ amount: l.amount, rate: l.gstRate ?? 0, cessRate: l.cessRate ?? 0 }))
         : (lineStmt.all(v.id) as { amount: number; drCr: 'dr' | 'cr'; groupId: number; gstRate: number | null }[])
-            .filter((l) => l.drCr === 'dr' && purchaseGroupIds.has(l.groupId))
+            .filter((l) => l.drCr === purchaseSide && purchaseGroupIds.has(l.groupId))
             .map((l) => ({ amount: l.amount, rate: l.gstRate ?? 0, cessRate: 0 }))
     for (const l of lines) {
       const g = computeGst(l.amount, l.rate, supply, l.cessRate)
-      total.taxable += l.amount
-      total.igst += g.igst
-      total.cgst += g.cgst
-      total.sgst += g.sgst
-      total.cess += g.cess
+      total.taxable += sign * l.amount
+      total.igst += sign * g.igst
+      total.cgst += sign * g.cgst
+      total.sgst += sign * g.sgst
+      total.cess += sign * g.cess
     }
   }
   return total
@@ -356,10 +366,11 @@ export function inwardSummary(db: DB, from: string, to: string): InwardSummary {
 
 /**
  * 11A — advances received: receipt vouchers carrying a 'new' bill reference (money received
- * against no invoice yet) from parties whose ledger carries a GST rate. The advance amount
- * is reported gross (ad_amt) with tax computed at the party ledger's rate. Receipts against
- * parties without a gst_rate can't be rate-classified and are skipped — the dedicated
- * "advance" flag on receipt entry is renderer work (S4).
+ * against no invoice yet) from parties whose ledger carries a GST rate. The money received
+ * is tax-INCLUSIVE, so the reported ad_amt is the Rule-35 backed-out taxable value and the
+ * tax is the residue (see backOutAdvance). Receipts against parties without a gst_rate
+ * can't be rate-classified and are skipped — the dedicated "advance" flag on receipt entry
+ * is renderer work (S4).
  */
 export function extractAdvances(db: DB, company: CompanyInfo, from: string, to: string): GstAdvanceAgg[] {
   const rows = db
@@ -412,8 +423,11 @@ function aggregateAdvances(
     const supply = supplyTypeFor(company.stateCode, pos)
     const key = `${pos}|${supply}|${r.gstRate}`
     const a = agg.get(key) ?? { pos, supply, rate: r.gstRate, taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0 }
-    const g = computeGst(r.amount, r.gstRate, supply, 0)
-    a.taxable += r.amount
+    // The receipt amount is money actually received — TAX-INCLUSIVE (Rule 35 CGST Rules).
+    // Back the tax out of the gross; never compute it on top (that over-reported both the
+    // taxable value and the tax on every advance).
+    const g = backOutAdvance(r.amount, r.gstRate, supply)
+    a.taxable += g.taxable
     a.cgst += g.cgst
     a.sgst += g.sgst
     a.igst += g.igst
@@ -629,11 +643,13 @@ export function gstValidate(db: DB, company: CompanyInfo, from: string, to: stri
   })
 }
 
-/** Throw (with the issue list) when blocking issues exist — the server-side export gate. */
+/** Throw (with the issue list) when blocking issues exist — the server-side export gate.
+ *  Guards BOTH return exports: GSTR-1 and GSTR-3B are computed from the same extracted
+ *  documents, so a period the app knows is unsound must not export either JSON. */
 export function assertExportable(db: DB, company: CompanyInfo, from: string, to: string): void {
   const blocking = gstValidate(db, company, from, to).filter((i) => i.severity === 'blocking')
   if (blocking.length) {
-    throw new Error(`GSTR-1 export blocked: ${blocking.map((i) => i.message).join(' | ')}`)
+    throw new Error(`GST export blocked: ${blocking.map((i) => i.message).join(' | ')}`)
   }
 }
 

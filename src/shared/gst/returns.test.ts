@@ -17,6 +17,7 @@ import {
   EWB_THRESHOLD_PAISE, type EdocCompany, type EdocInvoice
 } from './edocs'
 import { validateGstr1 } from './validate'
+import { backOutAdvance } from './calc'
 import { isUqc, toUqc, UQC_CODES } from './uqc'
 
 const fixture = (name: string): Record<string, any> =>
@@ -310,6 +311,139 @@ describe('applySetOff matrix', () => {
   })
 })
 
+// ---------- F1 regression: zero-rated docs with only rate-0 lines stay in 6A/6B ----------
+
+describe('zero-rated documents with rate-0 lines (F1 #4)', () => {
+  const expDoc = (over: Partial<GstDoc> = {}): GstDoc => ({
+    voucherId: 90, kind: 'sales', date: '2026-07-20', number: 'EXP-9',
+    partyName: 'Acme GmbH', partyGstin: null, pos: '96', invoiceValue: 500000,
+    items: [], hsnLines: [{ hsn: '1006', description: 'Rice', uqc: 'KGS', qtyMilli: 250000, rate: 0, taxable: 500000, cgst: 0, sgst: 0, igst: 0, cess: 0 }],
+    nilLines: [{ taxable: 500000 }], invTyp: 'EXPWOP', rchrg: false, validation: zeroValidation,
+    ...over
+  })
+
+  it('an EXPWOP invoice of nil-rated goods appears in Table 6A at rt 0 — never in Table 8', () => {
+    const r = buildGstr1([expDoc()], COMPANY_GSTIN, COMPANY_STATE, PERIOD)
+    const json = r.json as Record<string, any>
+    expect(json.exp).toEqual([
+      {
+        exp_typ: 'WOPAY',
+        inv: [{
+          inum: 'EXP-9', idt: '20-07-2026', val: 5000,
+          sbpcode: null, sbnum: null, sbdt: null,
+          itms: [{ txval: 5000, rt: 0, iamt: 0, csamt: 0 }]
+        }]
+      }
+    ])
+    expect(json.nil).toBeUndefined()
+    // On-screen summary agrees: value on the exports row, nothing on the nil row.
+    expect(r.summary.find((s) => s.section === 'exp')).toMatchObject({ docs: 1, taxable: 500000 })
+    expect(r.summary.find((s) => s.section === 'nil')).toMatchObject({ taxable: 0 })
+  })
+
+  it('a same-state SEZ invoice whose lines are all rate-0 stays in b2b (6B), not Table 8', () => {
+    const sez = expDoc({
+      voucherId: 91, number: 'SEZ-9', partyName: 'SEZ Unit One', partyGstin: CTIN_SEZ,
+      pos: '27', invTyp: 'SEWOP',
+      items: [{ rate: 0, taxable: 500000, cgst: 0, sgst: 0, igst: 0, cess: 0 }], nilLines: []
+    })
+    const json = buildGstr1([sez], COMPANY_GSTIN, COMPANY_STATE, PERIOD).json as Record<string, any>
+    expect(json.b2b).toHaveLength(1)
+    expect(json.b2b[0].inv[0]).toMatchObject({ inum: 'SEZ-9', inv_typ: 'SEWOP' })
+    expect(json.b2b[0].inv[0].itms[0].itm_det).toMatchObject({ rt: 0, txval: 5000 })
+    expect(json.nil).toBeUndefined()
+  })
+
+  it('GSTR-3B files the same value as zero-rated 3.1(b) — consistent with GSTR-1, not 3.1(c)', () => {
+    const r = buildGstr3b(
+      { docs: [expDoc()], itc: { impg: { igst: 0, cgst: 0, sgst: 0, cess: 0 }, isrc: { igst: 0, cgst: 0, sgst: 0, cess: 0 }, oth: { igst: 0, cgst: 0, sgst: 0, cess: 0 }, blocked: { igst: 0, cgst: 0, sgst: 0, cess: 0 } }, rcmInward: { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 } },
+      COMPANY_GSTIN, PERIOD
+    )
+    expect(r.zeroRated.taxable).toBe(500000)
+    expect(r.nilExempt.taxable).toBe(0)
+  })
+})
+
+// ---------- F1 regression: outward reverse-charge tax stays out of 3B liability ----------
+
+describe('outward RCM (rchrg) in GSTR-3B (F1 #2)', () => {
+  const rcmSale: GstDoc = {
+    voucherId: 80, kind: 'sales', date: '2026-07-21', number: 'GTA-1',
+    partyName: 'Registered Recipient', partyGstin: CTIN_29, pos: '29', invoiceValue: 105000,
+    items: [{ rate: 5, taxable: 100000, cgst: 0, sgst: 0, igst: 5000, cess: 0 }],
+    hsnLines: [{ hsn: '9965', description: 'Transport', uqc: 'OTH', qtyMilli: 0, rate: 5, taxable: 100000, cgst: 0, sgst: 0, igst: 5000, cess: 0 }],
+    nilLines: [], invTyp: 'R', rchrg: true, validation: zeroValidation
+  }
+  const emptyItc = { impg: { igst: 0, cgst: 0, sgst: 0, cess: 0 }, isrc: { igst: 0, cgst: 0, sgst: 0, cess: 0 }, oth: { igst: 0, cgst: 0, sgst: 0, cess: 0 }, blocked: { igst: 0, cgst: 0, sgst: 0, cess: 0 } }
+
+  it('3.1(a) keeps the taxable value but the recipient-payable tax never enters osup_det or netPayable', () => {
+    const r = buildGstr3b(
+      { docs: [rcmSale], itc: emptyItc, rcmInward: { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 } },
+      COMPANY_GSTIN, PERIOD
+    )
+    expect(r.outward.taxable).toBe(100000)
+    expect(r.outward.igst).toBe(0) // recipient pays via their 3.1(d) — not this supplier
+    expect(r.netPayable).toEqual({ igst: 0, cgst: 0, sgst: 0, cess: 0 })
+    const sup = (r.json as any).sup_details.osup_det
+    expect(sup).toEqual({ txval: 1000, iamt: 0, camt: 0, samt: 0, csamt: 0 })
+  })
+
+  it('GSTR-1 still reports the invoice with rchrg Y and its tax (recipient-side visibility)', () => {
+    const json = buildGstr1([rcmSale], COMPANY_GSTIN, COMPANY_STATE, PERIOD).json as Record<string, any>
+    expect(json.b2b[0].inv[0].rchrg).toBe('Y')
+    expect(json.b2b[0].inv[0].itms[0].itm_det).toMatchObject({ rt: 5, txval: 1000, iamt: 50 })
+  })
+})
+
+// ---------- F1 regression: summary/CSV must not double-count rate-0 lines ----------
+
+describe('GSTR-1 summary rate-0 double-count (F1 minor)', () => {
+  it('a mixed B2B invoice splits cleanly: rated value on the b2b row, rate-0 value only on the nil row', () => {
+    const mixed: GstDoc = {
+      voucherId: 70, kind: 'sales', date: '2026-07-22', number: 'MIX-1',
+      partyName: 'Umbrella Retail', partyGstin: CTIN_1, pos: '27', invoiceValue: 6900000,
+      items: [
+        { rate: 18, taxable: 5000000, cgst: 450000, sgst: 450000, igst: 0, cess: 0 },
+        { rate: 0, taxable: 1000000, cgst: 0, sgst: 0, igst: 0, cess: 0 }
+      ],
+      hsnLines: [], nilLines: [], invTyp: 'R', rchrg: false, validation: zeroValidation
+    }
+    const r = buildGstr1([mixed], COMPANY_GSTIN, COMPANY_STATE, PERIOD)
+    expect(r.summary.find((s) => s.section === 'b2b')).toMatchObject({ taxable: 5000000 })
+    expect(r.summary.find((s) => s.section === 'nil')).toMatchObject({ taxable: 1000000 })
+    // JSON agrees: the rt-0 line reaches Table 8, not the b2b itms.
+    const json = r.json as Record<string, any>
+    expect(json.b2b[0].inv[0].itms).toHaveLength(1)
+    expect(json.nil.inv).toEqual([{ sply_ty: 'INTRAB2B', nil_amt: 10000, expt_amt: 0, ngsup_amt: 0 }])
+  })
+})
+
+// ---------- F1 regression: Rule-35 advance back-out ----------
+
+describe('backOutAdvance (Rule 35 — advances are tax-inclusive)', () => {
+  it('₹1,18,000 received at 18% intra is ₹1,00,000 taxable + ₹9,000 CGST + ₹9,000 SGST', () => {
+    expect(backOutAdvance(11800000, 18, 'intra')).toEqual({
+      taxable: 10000000, cgst: 900000, sgst: 900000, igst: 0, cess: 0, total: 11800000
+    })
+  })
+  it('inter-state puts the whole residue in IGST', () => {
+    expect(backOutAdvance(11800000, 18, 'inter')).toEqual({
+      taxable: 10000000, cgst: 0, sgst: 0, igst: 1800000, cess: 0, total: 11800000
+    })
+  })
+  it('taxable + tax always reconstructs the gross exactly (odd paise)', () => {
+    const g = backOutAdvance(101, 18, 'intra')
+    expect(g.taxable + g.cgst + g.sgst).toBe(101)
+    // half-away rounding: 101×100/118 = 85.59… → 86; tax 15 → cgst 8 (7.5 half-away), sgst 7
+    expect(g).toEqual({ taxable: 86, cgst: 8, sgst: 7, igst: 0, cess: 0, total: 101 })
+    const i = backOutAdvance(101, 18, 'inter')
+    expect(i.taxable + i.igst).toBe(101)
+  })
+  it('rate 0 backs out nothing', () => {
+    expect(backOutAdvance(5000, 0, 'intra')).toEqual({ taxable: 5000, cgst: 0, sgst: 0, igst: 0, cess: 0, total: 5000 })
+  })
+})
+
 // ---------- e-way bill ----------
 
 const ewbCompany: EdocCompany = {
@@ -447,6 +581,21 @@ describe('e-invoice — export, service and note details (G6)', () => {
     const [doc] = buildEInvoiceJson([ewbInvoice()], ewbCompany) as any[]
     expect(doc.ShipDtls).toMatchObject({ LglNm: 'Cash buyer Whitefield', Addr1: 'Plot 9, ITPL', Loc: 'Bengaluru', Pin: 560066, Stcd: '29' })
   })
+
+  it('TranDtls.RegRev is Y for reverse-charge invoices, N otherwise', () => {
+    const [plain] = buildEInvoiceJson([ewbInvoice()], ewbCompany) as any[]
+    expect(plain.TranDtls.RegRev).toBe('N')
+    const [rcm] = buildEInvoiceJson([{ ...ewbInvoice(), rchrg: true }], ewbCompany) as any[]
+    expect(rcm.TranDtls.RegRev).toBe('Y')
+  })
+
+  it('SEZ e-way bills use IGST rates even when the SEZ unit is in the company state', () => {
+    const sez: EdocInvoice = { ...ewbInvoice(), supTyp: 'SEZWP', partyStateCode: '27', pos: '27', shipTo: null }
+    const bill = (buildEwbJson([sez], ewbCompany) as any).billLists[0]
+    expect(bill.itemList[0].igstRate).toBe(18)
+    expect(bill.itemList[0].cgstRate).toBe(0)
+    expect(bill.itemList[0].sgstRate).toBe(0)
+  })
 })
 
 // ---------- UQC ----------
@@ -522,6 +671,22 @@ describe('validateGstr1', () => {
       .find((i) => i.code === 'composition')!
     expect(issue.severity).toBe('blocking')
     expect(issue.message).toContain('CMP-08')
+  })
+
+  it('CGST/SGST on a zero-rated (SEZ/export) document blocks — legacy intra-taxed SEZ data cannot slip through', () => {
+    const docs = fixtureDocs()
+    // Simulate a doc extracted BEFORE the SEZ-inter fix: same-state SEZ carrying CGST/SGST.
+    docs.push({
+      voucherId: 99, kind: 'sales', date: '2026-07-19', number: 'SEZ-BAD',
+      partyName: 'SEZ Unit One', partyGstin: CTIN_SEZ, pos: '27', invoiceValue: 118000,
+      items: [{ rate: 18, taxable: 100000, cgst: 9000, sgst: 9000, igst: 0, cess: 0 }],
+      hsnLines: [{ hsn: '9983', description: 'Consulting SEZ', uqc: 'OTH', qtyMilli: 0, rate: 18, taxable: 100000, cgst: 9000, sgst: 9000, igst: 0, cess: 0 }],
+      nilLines: [], invTyp: 'SEWP', rchrg: false, validation: zeroValidation
+    })
+    const issue = validateGstr1(docs, company).find((i) => i.code === 'zero_rated_intra_tax')!
+    expect(issue.severity).toBe('blocking')
+    expect(issue.voucherIds).toEqual([99])
+    expect(issue.message).toMatch(/IGST/)
   })
 
   it('rate-0 lines and B2CL threshold edges warn (not block)', () => {
