@@ -13,7 +13,9 @@ src/shared/     Pure TypeScript engine — money, dates, GST calc/validators, GS
                 for pure main-side code like the CSV parser).
 src/main/       Electron main: SQLite via better-sqlite3 (main process only), migrations,
                 services (masters/vouchers/reports/gst/analysis/banking/payroll/edocs/
-                invoice/nic/tallyImport), IPC handlers with Zod validation, auto-updater.
+                invoice/nic/tallyImport, plus later additions — importers/consolidated/
+                caPack/recurring/tds/costCentres/budgets/yearEnd/audit/roles/users/etc.),
+                IPC handlers with Zod validation, auto-updater.
 src/preload/    contextBridge → window.total.invoke(channel, payload).
 src/renderer/   React + Tailwind v4 UI. Talks to main ONLY through the typed client in
                 src/renderer/src/lib/client.ts. Light theme default + dark toggle.
@@ -28,9 +30,11 @@ scripts/        drive*.mjs — Playwright _electron smoke drivers that launch th
 ```bash
 npm run dev          # app with HMR
 npm test             # vitest — engine tests (pure TS only, no DB)
+npm run test:db      # vitest for src/main/**/*.dbtest.ts, run under Electron-as-Node (ABI-matched better-sqlite3)
 npm run typecheck    # tsc for main+preload+shared and renderer projects
 npm run build        # electron-vite build → out/
 npm run build:mac    # build + electron-builder DMG → dist/
+npm run smoke        # hermetic IPC smoke test against the BUILT app (out/); run `npm run build` first
 cd site && npm run dev / npm run build   # marketing site
 node scripts/drive6.mjs                  # example smoke driver (build app first)
 ```
@@ -53,6 +57,7 @@ node scripts/drive6.mjs                  # example smoke driver (build app first
 - `tally:import` and `bank:importCsv` IPC channels accept inline `xmlText`/`csvText` payloads so drivers can test them without native file dialogs.
 - A `Demo Traders` company with sample data exists in `~/Documents/total` from verification runs.
 - The NIC live-filing client (`src/main/services/nic.ts`) is built to the published API spec (RSA + AES-ECB session crypto) but has **never run against the real portal** — no credentials. Treat as experimental; test on the NIC sandbox first.
+- `TOTAL_DATA_DIR` (absolute path, read verbatim by `dataRoot()`) and `TOTAL_SUPPRESS_SYNC_WARNING=1` point driver/CI scripts at a scratch data dir and silence startup sync warnings — set both when scripting the app (see `scripts/smoke-ci.mjs`, `*.dbtest.ts`) so runs stay hermetic and don't touch `~/Documents/total/`.
 
 ## Release steps (auto-update pipeline)
 

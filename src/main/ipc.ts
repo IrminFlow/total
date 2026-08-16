@@ -906,7 +906,7 @@ export function registerIpc(): void {
     const creds = nic.readNicCredentials(requireCompany().db)
     // Never send the password back to the UI in full.
     return { ...creds, password: creds.password ? '••••••••' : '' }
-  })
+  }, 'viewer')
   handle('nic:save', (p) => {
     const c = requireCompany()
     const incoming = nicCredentialsSchema.parse(p)

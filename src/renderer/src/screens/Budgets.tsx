@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Budget } from '@shared/domain'
 import type { BudgetLineInput } from '@shared/schemas'
 import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
+import { formatPaise } from '@shared/money'
 import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
 import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
@@ -274,7 +275,17 @@ export function BudgetsScreen(): React.JSX.Element {
                       <td className="text-muted">{v.month ? monthLabel(v.month) : 'Year'}</td>
                       <td className="r"><Money paise={v.budget} /></td>
                       <td className="r"><Money paise={v.actual} /></td>
-                      <td className="r"><Money paise={v.variance} signed /></td>
+                      <td className="r">
+                        {v.variance === 0 ? (
+                          <span className="num text-muted">–</span>
+                        ) : (
+                          <span className={`num ${v.variance > 0 ? 'text-cr' : 'text-dr'}`}>
+                            {v.variance > 0 ? '+' : '-'}
+                            {formatPaise(Math.abs(v.variance))}
+                            <span className="ml-1 text-muted">{v.variance > 0 ? 'over' : 'under'}</span>
+                          </span>
+                        )}
+                      </td>
                       <td className="r text-muted">{v.pct == null ? '—' : `${v.pct}%`}</td>
                     </tr>
                   ))}

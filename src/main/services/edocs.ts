@@ -173,7 +173,11 @@ export function exportEInvoices(db: DB, company: CompanyInfo, slug: string, from
 }
 
 export function exportEwb(db: DB, company: CompanyInfo, slug: string, from: string, to: string, period: string): { path: string; count: number } {
-  const invoices = extractEdocInvoices(db, company, from, to)
+  // EWB export includes ONLY kind === 'sales' invoices (docType INV): e-way bills accompany
+  // goods movement, and the bulk-tool docType enum is INV/BIL/BOE/CHL/OTH — CRN/DBN are
+  // e-invoice-only values and may be rejected by the EWB bulk upload tool. Credit/debit
+  // notes excluded — EWB is for goods movement; bulk-tool enum lacks CRN/DBN.
+  const invoices = extractEdocInvoices(db, company, from, to).filter((i) => i.docType === 'INV')
   const json = buildEwbJson(invoices, edocCompany(company))
   const path = join(companyExportsDir(slug), `ewaybill-${period}.json`)
   writeFileSync(path, JSON.stringify(json, null, 2))
