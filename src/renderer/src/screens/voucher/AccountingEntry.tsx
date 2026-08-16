@@ -91,6 +91,12 @@ export function AccountingEntry({
   const [billRefs, setBillRefs] = useState<VoucherBillRef[]>([])
   const [billsOpen, setBillsOpen] = useState(true)
 
+  // ---------- GST / book-keeping flags ----------
+  // Advance receipt (GSTR-1 11A): the unallocated remainder of the party line goes out as a
+  // 'new' bill ref, which is exactly what gst.extractAdvances counts. Optional = memorandum.
+  const [advanceReceipt, setAdvanceReceipt] = useState(false)
+  const [optionalVoucher, setOptionalVoucher] = useState(false)
+
   // ---------- per-line cost-centre allocation ----------
   const { data: ccList } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
   const hasCc = features.costCentres && (ccList?.length ?? 0) > 0
@@ -104,6 +110,7 @@ export function AccountingEntry({
       setInstrumentNo(existing.instrumentNo ?? '')
       setRows(existing.lines.map((l) => ({ key: nextLineKey(), drCr: l.drCr, ledgerId: l.ledgerId, amount: l.amount, costAllocations: l.costAllocations })))
       setBillRefs(existing.billRefs)
+      setOptionalVoucher(existing.isOptional)
       setTds(existing.tds)
       if (existing.tds) {
         setTdsDismissed(true)
@@ -332,6 +339,18 @@ export function AccountingEntry({
       .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount!, costAllocations: r.costAllocations }))
     if (lines.length < 2) return null
     const effectivePartyId = derivedPartyId ?? existing?.partyLedgerId ?? null
+    const refs = effectivePartyId != null ? [...billRefs] : []
+    if (kind === 'receipt' && advanceReceipt && effectivePartyId != null) {
+      const remainder = partyLineTotal - refs.reduce((s, r) => s + r.amount, 0)
+      if (remainder > 0) {
+        refs.push({
+          kind: 'new',
+          name: (voucherId ? alterNumber : numberField.forPayload).trim() || 'Advance',
+          amount: remainder,
+          dueDate: null
+        })
+      }
+    }
     return {
       voucherTypeId: typeId,
       date,
@@ -348,15 +367,16 @@ export function AccountingEntry({
       posOverride: existing?.posOverride ?? null,
       currencyCode: existing?.currencyCode ?? null,
       exchangeRate: existing?.exchangeRate ?? null,
+      isOptional: optionalVoucher,
       lines,
       inventory: existing?.inventory.map((l) => ({
         stockItemId: l.stockItemId, godownId: l.godownId, qtyMilli: l.qtyMilli,
         ratePaise: l.ratePaise, amount: l.amount, direction: l.direction
       })) ?? [],
-      billRefs: effectivePartyId != null ? billRefs : [],
+      billRefs: refs,
       tds: tds && effectivePartyId != null ? tds : null
     }
-  }, [rows, derivedPartyId, existing, typeId, date, voucherId, alterNumber, numberField.forPayload, narration, instrumentNo, billRefs, tds])
+  }, [rows, derivedPartyId, existing, kind, typeId, date, voucherId, alterNumber, numberField.forPayload, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, partyLineTotal, tds])
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
@@ -394,6 +414,8 @@ export function AccountingEntry({
         setRows([blankAcctRow('dr'), blankAcctRow('cr')])
         setNarration('')
         setBillRefs([])
+        setAdvanceReceipt(false)
+        setOptionalVoucher(false)
         setTds(null)
         setTdsSuggestion(null)
         setTdsDismissed(false)
@@ -697,6 +719,31 @@ export function AccountingEntry({
             <TextInput value={instrumentNo} onChange={(e) => setInstrumentNo(e.target.value)} className="num" />
           </Field>
         )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-6 text-[12.5px]">
+        {kind === 'receipt' && (
+          <label className={`flex items-center gap-2 ${derivedPartyId == null ? 'text-muted' : ''}`}>
+            <input
+              type="checkbox"
+              data-testid="input-advance-receipt"
+              checked={advanceReceipt}
+              disabled={derivedPartyId == null}
+              onChange={(e) => setAdvanceReceipt(e.target.checked)}
+            />
+            Advance receipt — unallocated amount is reported under GSTR-1 11A
+            {derivedPartyId == null && <span className="text-[11px]">(needs a party line)</span>}
+          </label>
+        )}
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            data-testid="input-optional-voucher"
+            checked={optionalVoucher}
+            onChange={(e) => setOptionalVoucher(e.target.checked)}
+          />
+          Optional (memorandum) voucher — never counts toward the books
+        </label>
       </div>
 
       <div className="mt-5 flex justify-between">

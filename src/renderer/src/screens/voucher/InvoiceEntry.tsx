@@ -4,6 +4,7 @@ import type { VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
+import { GST_STATES } from '@shared/gst/states'
 import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
@@ -56,6 +57,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const [saving, setSaving] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
   const [editingParty, setEditingParty] = useState(false)
+  // ---------- GST details (place-of-supply override + memorandum flag) ----------
+  const [gstOpen, setGstOpen] = useState(false)
+  const [posOverride, setPosOverride] = useState<string | null>(null)
+  const [optionalVoucher, setOptionalVoucher] = useState(false)
 
   const numberField = useVoucherNumberField(typeId, date)
   const isSalesSide = kind === 'sales' || kind === 'credit_note'
@@ -110,7 +115,8 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     enabled: !!partyId && isNoteKind && !manualNewBillMode
   })
 
-  const supply = supplyTypeFor(info!.stateCode, party?.stateCode ?? info!.stateCode)
+  // Same precedence the GSTR builders use: explicit override → party state → company state.
+  const supply = supplyTypeFor(info!.stateCode, posOverride ?? party?.stateCode ?? info!.stateCode)
 
   const fxRate = currencyCode && fxRateText.trim() ? Number(fxRateText) : null
   const fxActive = !!currencyCode && !!fxRate && Number.isFinite(fxRate) && fxRate > 0
@@ -202,10 +208,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       transporterId: transporterId.trim() || null,
       vehicleNo: vehicleNo.trim().toUpperCase() || null,
       transportDistanceKm: distanceKm.trim() ? Number(distanceKm) : null,
-      // POS override select lands with the Wave-3 "GST details" collapsible (S4).
-      posOverride: null,
+      posOverride,
       currencyCode: fxActive ? currencyCode : null,
       exchangeRate: fxActive ? fxRate : null,
+      isOptional: optionalVoucher,
       lines,
       inventory: computed.detail.map((d) => ({
         stockItemId: d.item.id,
@@ -223,7 +229,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
             : [],
       tds: null
     }
-  }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
+  }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
 
   const formValid = !!partyId && !!accountId && computed.detail.length > 0
 
@@ -267,6 +273,8 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       setNarration('')
       setVehicleNo('')
       setDistanceKm('')
+      setPosOverride(null)
+      setOptionalVoucher(false)
       setBillNameTouched(false)
       setBillDueDateTouched(false)
       setNoteBillRefs([])
@@ -486,6 +494,54 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
             <Money paise={computed.rounded} />
           </div>
         </div>
+      </div>
+
+      <div className="mt-4 border-t border-line pt-3">
+        <button
+          data-testid="btn-invoice-gst-details"
+          className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase"
+          onClick={() => setGstOpen((v) => !v)}
+        >
+          <span className="inline-block w-3 text-[10px]">{gstOpen ? '▾' : '▸'}</span>
+          GST details
+          {(posOverride || optionalVoucher) && (
+            <span className="normal-case text-muted/80">
+              {' '}
+              ·{posOverride ? ` POS ${posOverride} — ${GST_STATES[posOverride] ?? ''}` : ''}
+              {optionalVoucher ? ' optional (memorandum)' : ''}
+            </span>
+          )}
+        </button>
+        {gstOpen && (
+          <div className="mt-2 grid grid-cols-3 items-end gap-3">
+            <Field
+              label="Place of supply"
+              hint="Overrides the party state in GST returns and the CGST+SGST / IGST split"
+            >
+              <Select
+                data-testid="input-pos-override"
+                value={posOverride ?? ''}
+                onChange={(e) => setPosOverride(e.target.value || null)}
+              >
+                <option value="">Auto — {party?.stateCode ?? info!.stateCode}</option>
+                {Object.entries(GST_STATES).map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {code} — {name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <label className="col-span-2 flex items-center gap-2 pb-2 text-[12.5px]">
+              <input
+                type="checkbox"
+                data-testid="input-optional-voucher"
+                checked={optionalVoucher}
+                onChange={(e) => setOptionalVoucher(e.target.checked)}
+              />
+              Optional (memorandum) voucher — never counts toward the books or returns
+            </label>
+          </div>
+        )}
       </div>
 
       {features.billWise && partyId && (
