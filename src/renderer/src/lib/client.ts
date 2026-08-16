@@ -153,6 +153,24 @@ export interface CcStatementRow {
   amount: number
 }
 
+/** Mirrors src/main/services/importers.ts's ImportKind/ImportPreview/ImportResult shapes (kept
+ *  local — that file is main-process only). */
+export type ImportKind = 'ledgers' | 'items' | 'openings'
+
+export interface ImportPreview {
+  rows: Record<string, unknown>[]
+  total: number
+  willCreate: number
+  willUpdate: number
+  errors: { line: number; message: string }[]
+}
+
+export interface ImportResult {
+  created: number
+  updated: number
+  errors: { line: number; message: string }[]
+}
+
 /** Invoke a main-process channel; throws the error message on failure. */
 async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
@@ -379,6 +397,12 @@ export const api = {
       call<{ groups: number; ledgers: number; units: number; items: number; vouchers: number; skipped: number; warnings: string[] } | null>(
         'tally:import'
       )
+  },
+  importer: {
+    pickCsv: () => call<{ csvText: string; fileName: string } | null>('import:pickCsv'),
+    preview: (kind: ImportKind, csvText: string) => call<ImportPreview>('import:preview', { kind, csvText }),
+    apply: (kind: ImportKind, csvText: string) => call<ImportResult>('import:apply', { kind, csvText }),
+    template: (kind: ImportKind) => call<{ path: string }>('import:template', { kind })
   },
   nic: {
     get: () => call<NicCredentials>('nic:get'),

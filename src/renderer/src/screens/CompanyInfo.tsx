@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../components/ui'
@@ -139,6 +140,191 @@ export function CompanyInfoScreen(): React.JSX.Element {
       <p className="mt-3 text-[12px] text-muted">
         Books from FY {info?.booksFrom}-{((info?.booksFrom ?? 0) + 1) % 100}. Data lives in ~/Documents/total/companies/{slug} — back it up like any folder.
       </p>
+      <CsvImportCard />
     </div>
+  )
+}
+
+type ImportKind = 'ledgers' | 'items' | 'openings'
+const IMPORT_KINDS: { id: ImportKind; label: string }[] = [
+  { id: 'ledgers', label: 'Ledgers' },
+  { id: 'items', label: 'Stock items' },
+  { id: 'openings', label: 'Opening balances' }
+]
+
+interface CsvPreview {
+  rows: Record<string, unknown>[]
+  total: number
+  willCreate: number
+  willUpdate: number
+  errors: { line: number; message: string }[]
+}
+
+function CsvImportCard(): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const [kind, setKind] = useState<ImportKind>('ledgers')
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [csvText, setCsvText] = useState<string | null>(null)
+  const [preview, setPreview] = useState<CsvPreview | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const reset = (): void => {
+    setFileName(null)
+    setCsvText(null)
+    setPreview(null)
+  }
+
+  const pickAndPreview = async (): Promise<void> => {
+    try {
+      const picked = await api.importer.pickCsv()
+      if (!picked) return
+      setBusy(true)
+      const p = await api.importer.preview(kind, picked.csvText)
+      setFileName(picked.fileName)
+      setCsvText(picked.csvText)
+      setPreview(p)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const apply = async (): Promise<void> => {
+    if (!csvText) return
+    setBusy(true)
+    try {
+      const r = await api.importer.apply(kind, csvText)
+      toast.push('success', `Imported: ${r.created} created, ${r.updated} updated${r.errors.length ? `, ${r.errors.length} row${r.errors.length > 1 ? 's' : ''} skipped` : ''}`)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['ledgers'] }),
+        queryClient.invalidateQueries({ queryKey: ['stockItems'] }),
+        queryClient.invalidateQueries({ queryKey: ['groups'] }),
+        queryClient.invalidateQueries({ queryKey: ['groupTree'] })
+      ])
+      reset()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const downloadTemplate = async (): Promise<void> => {
+    try {
+      const r = await api.importer.template(kind)
+      toast.push('success', `Template saved to ${r.path}`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const errorsByLine = new Map(preview?.errors.map((e) => [e.line, e.message]) ?? [])
+  const previewRows = preview?.rows.slice(0, 50) ?? []
+  const columns = previewRows.length
+    ? Object.keys(previewRows[0]!).filter((k) => k !== 'line')
+    : []
+
+  return (
+    <Panel className="mt-4 flex flex-col gap-3 p-5">
+      <SectionTitle
+        right={
+          <Button variant="ghost" onClick={() => void downloadTemplate()}>
+            Download {IMPORT_KINDS.find((k) => k.id === kind)?.label} template
+          </Button>
+        }
+      >
+        Import from CSV
+      </SectionTitle>
+      <p className="text-[12px] text-muted">
+        Bring ledgers, stock items, or opening balances in from a spreadsheet — save your Excel sheet as CSV first, then pick it below.
+      </p>
+      <div className="flex items-end gap-3">
+        <Field label="What to import">
+          <Select
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value as ImportKind)
+              reset()
+            }}
+          >
+            {IMPORT_KINDS.map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Button onClick={() => void pickAndPreview()} disabled={busy}>
+          Pick file…
+        </Button>
+        {fileName && <span className="text-[12px] text-muted">{fileName}</span>}
+      </div>
+
+      {preview && (
+        <>
+          <div className="flex items-center gap-4 text-[12px]">
+            <span className="text-muted">{preview.total} row{preview.total === 1 ? '' : 's'} parsed</span>
+            <span className="text-dr">{preview.willCreate} to create</span>
+            <span className="text-muted">{preview.willUpdate} to update</span>
+            {preview.errors.length > 0 && (
+              <span className="rounded-full bg-cr/15 px-2 py-0.5 text-cr">{preview.errors.length} error{preview.errors.length > 1 ? 's' : ''}</span>
+            )}
+          </div>
+          <div className="max-h-80 overflow-auto rounded-md border border-line">
+            <table className="ledger-table">
+              <thead>
+                <tr>
+                  <th className="w-14">Line</th>
+                  {columns.map((c) => (
+                    <th key={c}>{c}</th>
+                  ))}
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previewRows.map((row) => {
+                  const line = row.line as number
+                  const error = errorsByLine.get(line)
+                  return (
+                    <tr key={line}>
+                      <td className="num text-muted">{line}</td>
+                      {columns.map((c) => (
+                        <td key={c}>{row[c] == null ? '' : String(row[c])}</td>
+                      ))}
+                      <td>
+                        {error ? (
+                          <span className="rounded-full bg-cr/15 px-2 py-0.5 text-[11px] text-cr">{error}</span>
+                        ) : (
+                          <span className="rounded-full bg-dr/15 px-2 py-0.5 text-[11px] text-dr">OK</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {(() => {
+            const shownLines = new Set(previewRows.map((r) => r.line as number))
+            const hiddenErrorCount = preview.errors.filter((e) => !shownLines.has(e.line)).length
+            return hiddenErrorCount > 0 ? (
+              <p className="text-[12px] text-muted">
+                {hiddenErrorCount} more error(s) beyond the rows shown above will still be skipped on apply.
+              </p>
+            ) : null
+          })()}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={reset} disabled={busy}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={() => void apply()} disabled={busy || preview.total === 0}>
+              Apply import
+            </Button>
+          </div>
+        </>
+      )}
+    </Panel>
   )
 }

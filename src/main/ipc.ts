@@ -41,6 +41,7 @@ import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
 import * as yearEnd from './services/yearEnd'
 import { importTallyXml } from './services/tallyImport'
+import * as importer from './services/importers'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
 import { roleAllows, type Role } from './services/roles'
@@ -753,6 +754,35 @@ export function registerIpc(): void {
     const c = requireCompany()
     const path = await payroll.payslipPdf(c.db, c.info, c.slug, runId, employeeId)
     shell.openPath(path)
+    return { path }
+  })
+
+  // ---------- CSV master import ----------
+  const importKindSchema = z.enum(['ledgers', 'items', 'openings'])
+  handle('import:pickCsv', async () => {
+    const picked = await dialog.showOpenDialog({
+      title: 'Choose a CSV file',
+      filters: [{ name: 'CSV', extensions: ['csv', 'txt'] }],
+      properties: ['openFile']
+    })
+    if (picked.canceled || !picked.filePaths[0]) return null
+    return { csvText: readFileSync(picked.filePaths[0], 'utf8'), fileName: picked.filePaths[0].split(/[\\/]/).pop()! }
+  })
+  handle('import:preview', (p) => {
+    const { kind, csvText } = z.object({ kind: importKindSchema, csvText: z.string() }).parse(p)
+    return importer.previewImport(requireCompany().db, kind, csvText)
+  })
+  handle('import:apply', async (p) => {
+    const { kind, csvText } = z.object({ kind: importKindSchema, csvText: z.string() }).parse(p)
+    const c = requireCompany()
+    await backupCompany(c.db, c.slug, `pre-import-${kind}`)
+    return importer.applyImport(c.db, kind, csvText)
+  })
+  handle('import:template', (p) => {
+    const { kind } = z.object({ kind: importKindSchema }).parse(p)
+    const c = requireCompany()
+    const path = importer.writeTemplateCsv(c.slug, kind)
+    shell.showItemInFolder(path)
     return { path }
   })
 
