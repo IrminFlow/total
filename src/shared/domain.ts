@@ -82,6 +82,13 @@ export interface VoucherType {
   /** 'auto' = numbered per FY from 1; 'manual' = user types the number. */
   numbering: 'auto' | 'manual'
   prefix: string
+  /** Appended after the (optionally zero-padded) sequence, e.g. '/24-25' → INV-1/24-25. */
+  suffix: string
+  /** Zero-pad width for the numeric sequence; 0 = no padding (1, 2, 3…; padWidth 3 → 001, 002…). */
+  padWidth: number
+  /** true (default) = sequence restarts at 1 each financial year; false = one running sequence
+   *  across FYs (e.g. Tally's "Prevent duplicates" numbering that never resets). */
+  restartFy: boolean
   isSystem: boolean
 }
 

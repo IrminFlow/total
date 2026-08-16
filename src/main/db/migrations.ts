@@ -300,5 +300,13 @@ export const MIGRATIONS: string[] = [
   CREATE UNIQUE INDEX idx_stock_items_barcode ON stock_items(barcode) WHERE barcode IS NOT NULL;
 
   ALTER TABLE ledgers ADD COLUMN export_type TEXT CHECK (export_type IN ('sez_wp', 'sez_wop', 'exp_wp', 'exp_wop'));
+  `,
+  // 007 — voucher-type numbering (suffix, pad, restart): task 2.12's F11/numbering config. Company
+  // feature flags and invoice print settings ride on the existing `meta` table (JSON, no DDL) —
+  // see src/main/services/config.ts.
+  `
+  ALTER TABLE voucher_types ADD COLUMN suffix TEXT NOT NULL DEFAULT '';
+  ALTER TABLE voucher_types ADD COLUMN pad_width INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE voucher_types ADD COLUMN restart_fy INTEGER NOT NULL DEFAULT 1;
   `
 ]

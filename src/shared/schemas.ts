@@ -168,7 +168,10 @@ export const voucherTypeInputSchema = z.object({
     'purchase', 'credit_note', 'debit_note', 'stock_journal', 'physical_stock'
   ]),
   numbering: z.enum(['auto', 'manual']).default('auto'),
-  prefix: z.string().trim().max(20).default('')
+  prefix: z.string().trim().max(20).default(''),
+  suffix: z.string().trim().max(20).default(''),
+  padWidth: z.number().int().min(0).max(8).default(0),
+  restartFy: z.boolean().default(true)
 })
 export type VoucherTypeInput = z.infer<typeof voucherTypeInputSchema>
 

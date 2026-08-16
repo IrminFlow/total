@@ -167,6 +167,18 @@ describe('migrate', () => {
     ).toThrow()
   })
 
+  it('adds suffix/pad_width/restart_fy to voucher_types with the documented defaults', () => {
+    const db = freshDb()
+    const columns = (db.prepare('PRAGMA table_info(voucher_types)').all() as { name: string }[]).map((c) => c.name)
+    expect(columns).toEqual(expect.arrayContaining(['suffix', 'pad_width', 'restart_fy']))
+
+    const id = db.prepare("INSERT INTO voucher_types (name, kind) VALUES ('Sales (test)', 'sales')").run().lastInsertRowid
+    const row = db
+      .prepare('SELECT suffix, pad_width, restart_fy FROM voucher_types WHERE id = ?')
+      .get(id) as { suffix: string; pad_width: number; restart_fy: number }
+    expect(row).toEqual({ suffix: '', pad_width: 0, restart_fy: 1 })
+  })
+
   it('export_type is constrained to the four SEZ/export codes', () => {
     const db = freshDb() // no seed data — groups is empty until a company is seeded, so insert one
     const groupId = Number(
