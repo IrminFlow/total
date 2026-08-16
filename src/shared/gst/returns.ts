@@ -516,6 +516,29 @@ export function buildGstr1(
     (sum, d) => sum + (d.kind === 'sales' ? 1 : noteSign(d.kind)) * d.nil.reduce((s2, l) => s2 + l.taxable, 0),
     0
   )
+
+  // Paise totals for the summary's HSN rows (the json rows above are already in rupees).
+  const hsnTotals = (docsIn: NormalizedDoc[]) => {
+    let taxable = 0, igst2 = 0, cgst2 = 0, sgst2 = 0, cess2 = 0
+    for (const d of docsIn) {
+      const sign = d.kind === 'sales' ? 1 : noteSign(d.kind)
+      for (const h of d.hsnLines) {
+        taxable += sign * h.taxable
+        igst2 += sign * h.igst
+        cgst2 += sign * h.cgst
+        sgst2 += sign * h.sgst
+        cess2 += sign * h.cess
+      }
+    }
+    return { taxable, igst: igst2, cgst: cgst2, sgst: sgst2, cess: cess2 }
+  }
+  const advTotals = (aggs: GstAdvanceAgg[]) =>
+    aggs.reduce(
+      (t, a) => ({ taxable: t.taxable + a.taxable, igst: t.igst + a.igst, cgst: t.cgst + a.cgst, sgst: t.sgst + a.sgst, cess: t.cess + a.cess }),
+      { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 }
+    )
+  const docIssueNet = (extras.docSeries ?? []).reduce((n, ser) => n + ser.totnum - ser.cancel, 0)
+
   return {
     period,
     gstin: companyGstin,
@@ -527,7 +550,12 @@ export function buildGstr1(
       s('Exports (Table 6A)', 'exp', expDocs),
       s('Credit/Debit Notes (registered)', 'cdnr', cdnrDocs),
       s('Credit/Debit Notes (unregistered)', 'cdnur', cdnurDocs),
-      { section: 'nil', label: 'Nil-rated (Table 8)', docs: 0, taxable: nilTotal, igst: 0, cgst: 0, sgst: 0, cess: 0 }
+      { section: 'nil', label: 'Nil-rated (Table 8)', docs: 0, taxable: nilTotal, igst: 0, cgst: 0, sgst: 0, cess: 0 },
+      { section: 'hsn_b2b', label: 'HSN summary — B2B (Table 12)', docs: hsnB2b.length, ...hsnTotals(all.filter((d) => d.partyGstin)) },
+      { section: 'hsn_b2c', label: 'HSN summary — B2C (Table 12)', docs: hsnB2c.length, ...hsnTotals(all.filter((d) => !d.partyGstin)) },
+      { section: 'at', label: 'Advances received (11A)', docs: at.length, ...advTotals(extras.advances ?? []) },
+      { section: 'txpd', label: 'Advances adjusted (11B)', docs: txpd.length, ...advTotals(extras.advanceAdjustments ?? []) },
+      { section: 'doc_issue', label: 'Documents issued (Table 13)', docs: docIssueNet, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 }
     ]
   }
 }
@@ -595,6 +623,12 @@ export interface Gstr3bResult {
   netPayable: InwardSummary
   /** RCM liability — payable in cash only, never settled from ITC. */
   rcmPayable: InwardSummary
+  /** 3.2 — inter-state supplies to unregistered persons by POS, paise (json holds rupees). */
+  interState: { pos: string; taxable: number; igst: number }[]
+  /** 4(A) availed split (IMPG/ISRC/OTH) + 4(D) blocked, paise — mirrors itc_elg. */
+  itcParts: ItcBreakdown
+  /** Manual adjustments applied to this build (4(B) reversals + 5.1 interest/late fee). */
+  manual: Gst3bManual
   json: Record<string, unknown>
 }
 
@@ -687,9 +721,10 @@ export function buildGstr3b(
       unregByPos.set(d.pos, agg)
     }
   }
-  const unregDetails = [...unregByPos.entries()]
+  const interState = [...unregByPos.entries()]
     .filter(([, v]) => v.txval !== 0 || v.iamt !== 0)
-    .map(([pos, v]) => ({ pos, txval: toRupees(v.txval), iamt: toRupees(v.iamt) }))
+    .map(([pos, v]) => ({ pos, taxable: v.txval, igst: v.iamt }))
+  const unregDetails = interState.map((r) => ({ pos: r.pos, txval: toRupees(r.taxable), iamt: toRupees(r.igst) }))
 
   // ITC: 4(A) availed − 4(B) reversed = 4(C) net; 4(D) ineligible reported separately.
   const itcAvailed = addItc(inputs.itc.impg, inputs.itc.isrc, inputs.itc.oth)
@@ -751,6 +786,9 @@ export function buildGstr3b(
     itc: itcNet,
     netPayable,
     rcmPayable,
+    interState,
+    itcParts: inputs.itc,
+    manual,
     json
   }
 }

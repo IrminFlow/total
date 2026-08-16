@@ -214,7 +214,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'gstr1' },
     navSection: 'gst',
     card: { sub: 'Outward supplies return', key: '1' },
-    invalidates: ['gstr1']
+    invalidates: ['gstr1', 'gstValidate']
   },
   {
     name: 'gstr3b',
@@ -222,7 +222,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'gstr3b' },
     navSection: 'gst',
     card: { sub: 'Summary return + ITC', key: '3' },
-    invalidates: ['gstr3b']
+    invalidates: ['gstr3b', 'gst3bManual']
   },
   {
     name: 'gstr2b',

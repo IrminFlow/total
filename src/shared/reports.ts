@@ -319,4 +319,9 @@ export interface EdocListRow {
   hasHsn: boolean
   irn: string | null
   ewbNo: string | null
+  /** Outward (sales-side) debit note — exports in EWB files as docType 'OTH'. */
+  outwardDbn: boolean
+  /** Why this row is NOT e-way-bill eligible; null when eligible. The ₹50,000-threshold
+   *  reason is advisory — the per-bill export overrides it. */
+  ewbReason: string | null
 }

@@ -230,7 +230,10 @@ describe('GSTR-1 golden fixture', () => {
 
   it('summary rows cover every section', () => {
     const sections = result.summary.map((s) => s.section)
-    expect(sections).toEqual(['b2b', 'b2cl', 'b2cs', 'exp', 'cdnr', 'cdnur', 'nil'])
+    expect(sections).toEqual([
+      'b2b', 'b2cl', 'b2cs', 'exp', 'cdnr', 'cdnur', 'nil',
+      'hsn_b2b', 'hsn_b2c', 'at', 'txpd', 'doc_issue'
+    ])
   })
 })
 
