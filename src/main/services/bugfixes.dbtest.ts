@@ -4,7 +4,7 @@ import type { DB } from '../db/connection'
 import { seededDb, postSimpleVoucher } from '../db/testdb'
 import { createLedger, createStockItem, listUnits } from './masters'
 import { saveVoucher } from './vouchers'
-import type { VoucherInputParsed } from '@shared/schemas'
+import type { VoucherInput } from '@shared/schemas'
 import { dayBook, trialBalance, balanceSheet, stockSummary } from './reports'
 import { outstandings } from './analysis'
 import { importItems } from './importers'
@@ -24,7 +24,7 @@ function voucherInput(
   date: string,
   lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[],
   extra: Partial<{ number: string; partyLedgerId: number | null }> = {}
-): VoucherInputParsed {
+): VoucherInput {
   const vt = db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(kind) as { id: number }
   return {
     voucherTypeId: vt.id, date, partyLedgerId: extra.partyLedgerId ?? null,
@@ -33,7 +33,7 @@ function voucherInput(
     transportDistanceKm: null, currencyCode: null, exchangeRate: null,
     lines: lines.map((l) => ({ ...l, costAllocations: [] })),
     inventory: [], billRefs: [], tds: null
-  } as VoucherInputParsed
+  } as VoucherInput
 }
 
 describe('#61 — Day Book real Dr/Cr split', () => {

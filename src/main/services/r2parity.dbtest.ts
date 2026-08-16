@@ -11,7 +11,8 @@ import type { DB } from '../db/connection'
 import { seededDb } from '../db/testdb'
 import { createLedger, updateVoucherType, listVoucherTypes } from './masters'
 import { saveVoucher, nextVoucherNumber, findDuplicates } from './vouchers'
-import type { VoucherInputParsed } from '@shared/schemas'
+import { voucherInputSchema } from '@shared/schemas'
+import type { VoucherInput } from '@shared/schemas'
 import { trialBalance, profitAndLoss, balanceSheet, ledgerStatement, stockSummary, dashboard } from './reports'
 import { outstandings, openBills, registerByMonth } from './analysis'
 import { suggestLedgers, anomalyCheck } from './intel'
@@ -33,7 +34,7 @@ interface PostOpts {
 
 function post(db: DB, opts: PostOpts): number {
   const vt = db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(opts.kind) as { id: number }
-  const input: VoucherInputParsed = {
+  const input: VoucherInput = {
     voucherTypeId: vt.id,
     date: opts.date,
     partyLedgerId: opts.partyLedgerId ?? null,
@@ -50,7 +51,7 @@ function post(db: DB, opts: PostOpts): number {
     inventory: (opts.inventory ?? []).map((inv) => ({ ...inv, godownId: null })),
     billRefs: opts.billRefs ?? [],
     tds: null
-  } as VoucherInputParsed
+  } as VoucherInput
   return saveVoucher(db, input).id
 }
 
@@ -253,9 +254,9 @@ describe('R2 parity — voucher numbering & duplicates', () => {
         { ledgerId: ids.sales!, drCr: 'cr' as const, amount: 118000, costAllocations: [] }
       ],
       inventory: [], billRefs: [], tds: null
-    } as VoucherInputParsed
-    expect(findDuplicates(db, probe)).toMatchSnapshot('duplicates within window')
-    expect(findDuplicates(db, { ...probe, date: '2025-04-20' })).toEqual([])
+    } as VoucherInput
+    expect(findDuplicates(db, voucherInputSchema.parse(probe))).toMatchSnapshot('duplicates within window')
+    expect(findDuplicates(db, voucherInputSchema.parse({ ...probe, date: '2025-04-20' }))).toEqual([])
   })
 })
 

@@ -4,7 +4,7 @@ import type { DB } from '../db/connection'
 import { seededDb, postSimpleVoucher } from '../db/testdb'
 import { createLedger } from './masters'
 import { saveVoucher } from './vouchers'
-import type { VoucherInputParsed } from '@shared/schemas'
+import type { VoucherInput } from '@shared/schemas'
 import {
   cashFlow, dashboard, ledgerStatement, trialBalance, profitAndLoss, balanceSheet,
   stockAgeing, itemProfitability, exceptions
@@ -36,7 +36,7 @@ function postLines(
     lines: lines.map((l) => ({ ...l, costAllocations: [] })),
     inventory: inventory.map((inv) => ({ ...inv, godownId: null })),
     billRefs: [], tds: null
-  } as VoucherInputParsed
+  } as VoucherInput
   return saveVoucher(db, input).id
 }
 

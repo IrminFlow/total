@@ -156,11 +156,11 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
   "payables": 182600,
   "ratios": {
     "creditorDays": 201.17,
-    "currentRatio": 7.68,
+    "currentRatio": 7.56,
     "debtorDays": 183.54,
-    "grossMarginPct": 56.11,
-    "inventoryTurnover": 0.15,
-    "netMarginPct": 39.16,
+    "grossMarginPct": 43.5,
+    "inventoryTurnover": 0.2,
+    "netMarginPct": 26.55,
     "quickRatio": 4.91,
   },
   "receivables": 357000,
@@ -582,7 +582,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
   "asOn": "2025-06-30",
   "assets": [
     {
-      "amount": 1401920,
+      "amount": 1379600,
       "children": [
         {
           "amount": 530000,
@@ -637,7 +637,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
           "name": "Sundry Debtors",
         },
         {
-          "amount": 504920,
+          "amount": 482600,
           "children": [],
           "id": -2,
           "kind": "computed",
@@ -689,7 +689,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "name": "Current Liabilities",
     },
     {
-      "amount": 69320,
+      "amount": 47000,
       "children": [],
       "id": -3,
       "kind": "computed",
@@ -703,16 +703,16 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "name": "Difference in Opening Balances",
     },
   ],
-  "profitCurrentPeriod": 69320,
-  "totalAssets": 1401920,
-  "totalLiabilities": 1401920,
+  "profitCurrentPeriod": 47000,
+  "totalAssets": 1379600,
+  "totalLiabilities": 1379600,
 }
 `;
 
 exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock summary are unchanged by the rewrites > profitAndLoss 1`] = `
 {
-  "closingStock": 504920,
-  "grossProfit": 99320,
+  "closingStock": 482600,
+  "grossProfit": 77000,
   "indirectExpenses": [
     {
       "amount": 30000,
@@ -731,7 +731,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
     },
   ],
   "indirectIncomes": [],
-  "netProfit": 69320,
+  "netProfit": 47000,
   "openingStock": 500000,
   "period": {
     "from": "2025-04-01",
@@ -778,7 +778,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
 [
   {
     "closingQtyMilli": 13000,
-    "closingValue": 504920,
+    "closingValue": 482600,
     "decimals": 0,
     "inwardQtyMilli": 5000,
     "name": "Widget",

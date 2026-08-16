@@ -32,6 +32,7 @@ interface MovementRow {
   stockItemId: number
   godownId: number | null
   batchId: number | null
+  date: string
   qtyMilli: number
   amount: number
   direction: 'in' | 'out'
@@ -87,7 +88,7 @@ function movementsByItem(db: DB, asOn: string, godownId?: number): Map<number, M
   const rows = db
     .prepare(
       `SELECT il.id AS lineId, il.stock_item_id AS stockItemId, il.godown_id AS godownId, il.batch_id AS batchId,
-              il.qty_milli AS qtyMilli, il.amount, il.direction, il.is_absolute AS isAbsolute
+              v.date AS date, il.qty_milli AS qtyMilli, il.amount, il.direction, il.is_absolute AS isAbsolute
        FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
        WHERE v.date <= ? AND ${IN_BOOKS} ${godownFilter}
        ORDER BY v.date, v.id, il.line_order, il.id`
@@ -139,7 +140,10 @@ export function stockSummary(db: DB, asOn: string, opts: StockSummaryOptions = {
       name: item.name,
       unitSymbol: item.unitSymbol,
       decimals: item.decimals,
-      inwardQtyMilli: openingQty + r.inwardQtyMilli,
+      // v0.3 #64 row shape (lane R): opening split out of inwards.
+      openingQtyMilli: openingQty,
+      openingValue,
+      inwardQtyMilli: r.inwardQtyMilli,
       outwardQtyMilli: r.outwardQtyMilli,
       closingQtyMilli: r.closingQtyMilli,
       closingValue: r.closingValue
@@ -150,6 +154,36 @@ export function stockSummary(db: DB, asOn: string, opts: StockSummaryOptions = {
 /** Total closing stock value as of `asOn` — engine-valued drop-in for reports.stockValue. */
 export function stockValue(db: DB, asOn: string): number {
   return stockSummary(db, asOn).reduce((s, r) => s + r.closingValue, 0)
+}
+
+export interface PeriodConsumption {
+  /** Engine-valued cost of ALL outward movements dated within the period, paise. */
+  consumedValue: number
+  /** Total outward quantity within the period (all voucher kinds), integer thousandths. */
+  outwardQtyMilli: number
+}
+
+/**
+ * Engine-valued consumption per item within [from, to] (v0.3 integration, reconciliation (c):
+ * item profitability's COGS basis). Computed as the difference of two chronological valuations —
+ * movements before `from` versus movements through `to` — so each item's valuation_method
+ * (FIFO / weighted average) prices the period's outward cost.
+ */
+export function periodConsumption(db: DB, from: string, to: string): Map<number, PeriodConsumption> {
+  const items = listItems(db)
+  const byItem = movementsByItem(db, to)
+  const result = new Map<number, PeriodConsumption>()
+  for (const item of items) {
+    const moves = byItem.get(item.id) ?? []
+    const before = moves.filter((m) => m.date < from)
+    const all = valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, moves.map(toMovement))
+    const prior = valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, before.map(toMovement))
+    result.set(item.id, {
+      consumedValue: all.consumedValue - prior.consumedValue,
+      outwardQtyMilli: all.outwardQtyMilli - prior.outwardQtyMilli
+    })
+  }
+  return result
 }
 
 /** Items whose closing quantity is negative as of `asOn` — the Exceptions report rows. */

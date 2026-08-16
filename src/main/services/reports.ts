@@ -8,7 +8,8 @@ import type { Group, Nature } from '@shared/domain'
 import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
-import { listVouchers, NOT_DELETED } from './vouchers'
+import { listVouchers, IN_BOOKS } from './vouchers'
+import * as stockAnalysis from './stockAnalysis'
 
 // ---------- shared helpers ----------
 
@@ -18,7 +19,7 @@ function movements(db: DB, from: string, to: string): Map<number, number> {
     .prepare(
       `SELECT vl.ledger_id AS id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS m
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED} GROUP BY vl.ledger_id`
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} GROUP BY vl.ledger_id`
     )
     .all(from, to) as { id: number; m: number }[]
   return new Map(rows.map((r) => [r.id, r.m]))
@@ -35,7 +36,7 @@ function closingBalances(db: DB, asOn: string): Map<number, number> {
        LEFT JOIN (
          SELECT vl.ledger_id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS movement
          FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-         WHERE v.date <= ? AND ${NOT_DELETED}
+         WHERE v.date <= ? AND ${IN_BOOKS}
          GROUP BY vl.ledger_id
        ) m ON m.ledger_id = l.id`
     )
@@ -97,57 +98,18 @@ function buildTrees(
 
 const sumNodes = (nodes: StatementNode[]): number => nodes.reduce((s, n) => s + n.amount, 0)
 
-// ---------- stock valuation (weighted average) ----------
+// ---------- stock valuation ----------
+// v0.3 integration (pre-ruled reconciliation): reports-level stock figures delegate to lane I's
+// valuation engine (src/main/services/stockAnalysis.ts → src/shared/valuation.ts), which honours
+// each item's valuation_method (FIFO vs weighted average), physical-stock absolute lines and
+// stock-journal additional-cost loading. Row shape stays the #64 opening/inwards split.
 
 export function stockSummary(db: DB, asOn: string): StockSummaryRow[] {
-  const rows = db
-    .prepare(
-      `SELECT si.id AS stockItemId, si.name, u.symbol AS unitSymbol, u.decimals,
-              si.opening_qty_milli AS openingQtyMilli, si.opening_value AS openingValue,
-              COALESCE(m.in_qty, 0) AS inwardQtyMilli, COALESCE(m.in_val, 0) AS inwardValue,
-              COALESCE(m.out_qty, 0) AS outwardQtyMilli
-       FROM stock_items si
-       JOIN units u ON u.id = si.unit_id
-       LEFT JOIN (
-         SELECT il.stock_item_id,
-                SUM(CASE WHEN il.direction = 'in' THEN il.qty_milli ELSE 0 END) AS in_qty,
-                SUM(CASE WHEN il.direction = 'in' THEN il.amount ELSE 0 END) AS in_val,
-                SUM(CASE WHEN il.direction = 'out' THEN il.qty_milli ELSE 0 END) AS out_qty
-         FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-         WHERE v.date <= ? AND ${NOT_DELETED}
-         GROUP BY il.stock_item_id
-       ) m ON m.stock_item_id = si.id
-       ORDER BY si.name`
-    )
-    .all(asOn) as {
-      stockItemId: number; name: string; unitSymbol: string; decimals: number
-      openingQtyMilli: number; openingValue: number
-      inwardQtyMilli: number; inwardValue: number; outwardQtyMilli: number
-    }[]
-
-  return rows.map((r) => {
-    const totalInQty = r.openingQtyMilli + r.inwardQtyMilli
-    const totalInValue = r.openingValue + r.inwardValue
-    const closingQtyMilli = totalInQty - r.outwardQtyMilli
-    const closingValue = totalInQty > 0 ? Math.round((closingQtyMilli * totalInValue) / totalInQty) : 0
-    return {
-      stockItemId: r.stockItemId,
-      name: r.name,
-      unitSymbol: r.unitSymbol,
-      decimals: r.decimals,
-      openingQtyMilli: r.openingQtyMilli,
-      openingValue: r.openingValue,
-      // v0.3 #64: pure inwards — opening is its own column now, not folded into inwards.
-      inwardQtyMilli: r.inwardQtyMilli,
-      outwardQtyMilli: r.outwardQtyMilli,
-      closingQtyMilli,
-      closingValue
-    }
-  })
+  return stockAnalysis.stockSummary(db, asOn)
 }
 
 export function stockValue(db: DB, asOn: string): number {
-  return stockSummary(db, asOn).reduce((s, r) => s + r.closingValue, 0)
+  return stockAnalysis.stockValue(db, asOn)
 }
 
 /** Stock ageing + reorder report (v0.3 #58): where the held quantity came from (by inward
@@ -168,7 +130,7 @@ export function stockAgeing(db: DB, asOn: string): StockAgeingRow[] {
     .prepare(
       `SELECT il.stock_item_id AS itemId, v.date, il.direction, SUM(il.qty_milli) AS qty
        FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-       WHERE v.date <= ? AND ${NOT_DELETED}
+       WHERE v.date <= ? AND ${IN_BOOKS}
        GROUP BY il.stock_item_id, v.date, il.direction
        ORDER BY v.date`
     )
@@ -210,46 +172,42 @@ export function stockAgeing(db: DB, asOn: string): StockAgeingRow[] {
   })
 }
 
-/** Item-wise profitability (v0.3 #59): sales outward value − weighted-average COGS, per item.
- *  Weighted-average cost pool = opening + all inwards up to the period end (Lane I's valuation
- *  engine can replace this basis once FIFO lands). */
+/** Item-wise profitability (v0.3 #59): sales outward value − engine-valued COGS, per item.
+ *  COGS comes from the valuation engine's period consumption (reconciliation (c)): each item's
+ *  valuation_method (FIFO / weighted average) prices the outward cost. When an item also has
+ *  non-sales outward movements in the period (e.g. manufacturing consumption), the period's
+ *  consumed value is attributed to sales pro-rata by quantity. */
 export function itemProfitability(db: DB, from: string, to: string): ItemProfitRow[] {
   const rows = db
     .prepare(
       `SELECT si.id AS stockItemId, si.name, u.symbol AS unitSymbol, u.decimals,
-              si.opening_qty_milli AS openingQtyMilli, si.opening_value AS openingValue,
-              COALESCE(pool.in_qty, 0) AS poolInQty, COALESCE(pool.in_val, 0) AS poolInValue,
               COALESCE(sold.qty, 0) AS outQtyMilli, COALESCE(sold.val, 0) AS salesValue
        FROM stock_items si
        JOIN units u ON u.id = si.unit_id
-       LEFT JOIN (
-         SELECT il.stock_item_id, SUM(il.qty_milli) AS in_qty, SUM(il.amount) AS in_val
-         FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-         WHERE il.direction = 'in' AND v.date <= ? AND ${NOT_DELETED}
-         GROUP BY il.stock_item_id
-       ) pool ON pool.stock_item_id = si.id
        LEFT JOIN (
          SELECT il.stock_item_id, SUM(il.qty_milli) AS qty, SUM(il.amount) AS val
          FROM inventory_lines il
          JOIN vouchers v ON v.id = il.voucher_id
          JOIN voucher_types vt ON vt.id = v.voucher_type_id
-         WHERE il.direction = 'out' AND vt.kind = 'sales' AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+         WHERE il.direction = 'out' AND vt.kind = 'sales' AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
          GROUP BY il.stock_item_id
        ) sold ON sold.stock_item_id = si.id
        ORDER BY si.name`
     )
-    .all(to, from, to) as {
+    .all(from, to) as {
       stockItemId: number; name: string; unitSymbol: string; decimals: number
-      openingQtyMilli: number; openingValue: number; poolInQty: number; poolInValue: number
       outQtyMilli: number; salesValue: number
     }[]
+
+  const consumption = stockAnalysis.periodConsumption(db, from, to)
 
   return rows
     .filter((r) => r.outQtyMilli > 0)
     .map((r) => {
-      const poolQty = r.openingQtyMilli + r.poolInQty
-      const poolValue = r.openingValue + r.poolInValue
-      const cogs = poolQty > 0 ? Math.round((r.outQtyMilli * poolValue) / poolQty) : 0
+      const c = consumption.get(r.stockItemId)
+      const cogs = c && c.outwardQtyMilli > 0
+        ? Math.round((c.consumedValue * r.outQtyMilli) / c.outwardQtyMilli)
+        : 0
       return {
         stockItemId: r.stockItemId,
         name: r.name,
@@ -298,13 +256,13 @@ export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
   type VRow = { id: number; date: string; number: string; voucherType: string; total: number }
 
   const noNarration = (db
-    .prepare(`${baseVoucherSql} WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED} AND (v.narration IS NULL OR TRIM(v.narration) = '') ORDER BY v.date, v.id`)
+    .prepare(`${baseVoucherSql} WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND (v.narration IS NULL OR TRIM(v.narration) = '') ORDER BY v.date, v.id`)
     .all(from, to) as VRow[]).map((v) => voucherRow(v, 'no narration'))
   section('missingNarration', 'Missing narration', noNarration)
 
   const singleLedger = (db
     .prepare(
-      `${baseVoucherSql} WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+      `${baseVoucherSql} WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        AND vt.kind NOT IN ('stock_journal', 'physical_stock')
        AND (SELECT COUNT(DISTINCT ledger_id) FROM voucher_lines WHERE voucher_id = v.id) < 2
        ORDER BY v.date, v.id`
@@ -313,13 +271,13 @@ export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
   section('singleLedger', 'Single-ledger vouchers', singleLedger)
 
   const outside = (db
-    .prepare(`${baseVoucherSql} WHERE ${NOT_DELETED} AND (v.date < ? OR v.date > ?) ORDER BY v.date, v.id`)
+    .prepare(`${baseVoucherSql} WHERE ${IN_BOOKS} AND (v.date < ? OR v.date > ?) ORDER BY v.date, v.id`)
     .all(from, to) as VRow[]).map((v) => voucherRow(v, 'dated outside the working period'))
   section('outsidePeriod', 'Entries outside the period', outside)
 
   const unbalanced = (db
     .prepare(
-      `${baseVoucherSql} WHERE ${NOT_DELETED}
+      `${baseVoucherSql} WHERE ${IN_BOOKS}
        AND vt.kind <> 'physical_stock'
        AND (SELECT COALESCE(SUM(CASE WHEN dr_cr = 'dr' THEN amount ELSE -amount END), 0) FROM voucher_lines WHERE voucher_id = v.id) <> 0
        ORDER BY v.date, v.id`
@@ -331,7 +289,7 @@ export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
     .prepare(
       `${baseVoucherSql}
        JOIN ledgers pl ON pl.id = v.party_ledger_id
-       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        AND vt.kind IN ('sales', 'purchase', 'credit_note', 'debit_note')
        AND pl.gstin IS NOT NULL AND TRIM(pl.gstin) <> ''
        AND NOT EXISTS (
@@ -387,7 +345,7 @@ export function dayBook(db: DB, from: string, to: string): DayBookRow[] {
                 SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
          FROM voucher_lines vl GROUP BY vl.voucher_id, vl.ledger_id
        ) anet ON anet.voucher_id = v.id AND anet.ledger_id = COALESCE(pl.id, fl.id)
-       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as {
@@ -431,7 +389,7 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND v.date < ? AND ${NOT_DELETED}`
+       WHERE vl.ledger_id = ? AND v.date < ? AND ${IN_BOOKS}`
     )
     .get(ledgerId, from) as { m: number }
   const opening = ledger.opening_balance + beforeRow.m
@@ -443,7 +401,7 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id, vl.line_order`
     )
     .all(ledgerId, from, to) as {
@@ -542,7 +500,7 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
                 SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END) AS drTotal,
                 SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END) AS crTotal
          FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-         WHERE v.date <= ? AND ${NOT_DELETED}
+         WHERE v.date <= ? AND ${IN_BOOKS}
          GROUP BY vl.ledger_id
        ) m ON m.ledger_id = l.id`
     )
@@ -820,7 +778,7 @@ function cashSpark(db: DB, today: string, groupIds: number[], opening: number, d
          FROM voucher_lines vl
          JOIN vouchers v ON v.id = vl.voucher_id
          JOIN ledgers l ON l.id = vl.ledger_id
-         WHERE l.group_id IN (${placeholders}) AND v.date <= ? AND ${NOT_DELETED}
+         WHERE l.group_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS}
          GROUP BY v.date
          ORDER BY v.date`
       )
@@ -882,7 +840,7 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
          ON t.voucher_id = v.id
-       WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        GROUP BY vt.kind`
     )
     .all(today, monthStart, today) as { kind: 'sales' | 'purchase'; todayTotal: number; monthTotal: number }[]
@@ -900,7 +858,7 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
   const partyCount = ledgers.filter((l) => partyIds.has(l.groupId)).length
   const counts = db
     .prepare(
-      `SELECT (SELECT COUNT(*) FROM vouchers v WHERE ${NOT_DELETED}) AS voucherCount,
+      `SELECT (SELECT COUNT(*) FROM vouchers v WHERE ${IN_BOOKS}) AS voucherCount,
               (SELECT COUNT(*) FROM stock_items) AS itemCount,
               EXISTS (SELECT 1 FROM employees WHERE active = 1) AS hasEmployees`
     )
@@ -923,7 +881,7 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
          ON t.voucher_id = v.id
-       WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        GROUP BY vt.kind`
     )
     .all(fyFrom, today) as { kind: 'sales' | 'purchase'; total: number }[]

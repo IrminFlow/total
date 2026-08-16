@@ -17,7 +17,7 @@ import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bResult } from '
 import { descendantIdsByName } from './masters'
 import { getGst3bManual } from './config'
 import { companyExportsDir } from '../paths'
-import { NOT_DELETED } from './vouchers'
+import { IN_BOOKS } from './vouchers'
 
 interface DocVoucherRow {
   id: number; date: string; number: string; kind: 'sales' | 'credit_note' | 'debit_note'
@@ -41,7 +41,7 @@ export function outwardDebitNoteIds(db: DB, from: string, to: string): Set<numbe
     .prepare(
       `SELECT v.id, v.party_ledger_id AS partyLedgerId
        FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vt.kind = 'debit_note' AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
+       WHERE vt.kind = 'debit_note' AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
     .all(from, to) as { id: number; partyLedgerId: number | null }[]
   if (!rows.length) return new Set()
@@ -87,7 +87,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        LEFT JOIN voucher_transport t ON t.voucher_id = v.id
-       WHERE vt.kind IN ('sales', 'credit_note', 'debit_note') AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE vt.kind IN ('sales', 'credit_note', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as DocVoucherRow[]
@@ -235,7 +235,7 @@ export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to:
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind = 'purchase' AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
+       WHERE vt.kind = 'purchase' AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
     .all(from, to) as { id: number; kind: string; partyState: string | null }[]
 
@@ -297,7 +297,7 @@ export function itcBreakdown(db: DB, company: CompanyInfo, from: string, to: str
        JOIN ledgers l ON l.id = vl.ledger_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note')
-         AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        GROUP BY v.id, l.tax_type`
     )
     .all(from, to) as {
@@ -340,7 +340,7 @@ export function inwardSummary(db: DB, from: string, to: string): InwardSummary {
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE l.tax_type IS NOT NULL AND vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        GROUP BY v.id, l.tax_type`
     )
     .all(from, to) as { voucherId: number; kind: string; taxType: 'cgst' | 'sgst' | 'igst' | 'cess'; amount: number }[]
@@ -370,7 +370,7 @@ export function extractAdvances(db: DB, company: CompanyInfo, from: string, to: 
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = br.party_ledger_id
        WHERE vt.kind = 'receipt' AND br.kind = 'new' AND p.gst_rate IS NOT NULL
-         AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
+         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
     .all(from, to) as { amount: number; partyState: string | null; gstRate: number }[]
   return aggregateAdvances(rows, company)
@@ -389,7 +389,7 @@ export function extractAdvanceAdjustments(db: DB, company: CompanyInfo, from: st
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = br.party_ledger_id
        WHERE vt.kind = 'sales' AND br.kind = 'against' AND p.gst_rate IS NOT NULL
-         AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
          AND EXISTS (
            SELECT 1 FROM bill_refs br2
            JOIN vouchers v2 ON v2.id = br2.voucher_id
@@ -479,7 +479,7 @@ export function turnover(db: DB, from: string, to: string): number {
        JOIN ledgers l ON l.id = vl.ledger_id
        WHERE l.group_id IN (${placeholders})
          AND vt.kind IN ('sales', 'credit_note', 'debit_note')
-         AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
+         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
     .get(...incomeIds, from, to) as { t: number }
   return Math.max(0, row.t)
@@ -520,7 +520,7 @@ export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseD
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE vt.kind IN ('purchase', 'debit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as PurchaseVoucherRow[])

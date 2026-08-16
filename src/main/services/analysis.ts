@@ -3,7 +3,7 @@ import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@share
 import { allocateBills, type BillEvent, type BillRef } from '@shared/outstanding'
 import { fyOf } from '@shared/dates'
 import { descendantIdsByName } from './masters'
-import { NOT_DELETED } from './vouchers'
+import { IN_BOOKS } from './vouchers'
 
 /** Monthly sales/purchase register: voucher count, taxable, tax and invoice totals per month. */
 export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string, to: string): RegisterMonthRow[] {
@@ -18,7 +18,7 @@ export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN voucher_lines vl ON vl.voucher_id = v.id
        JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE vt.kind = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
+       WHERE vt.kind = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
     .all(kind, from, to) as { month: string; voucherId: number; amount: number; groupId: number; taxType: string | null; drCr: string }[]
 
@@ -51,7 +51,7 @@ function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number
       `SELECT vl.ledger_id AS partyId, v.id AS voucherId, v.date, v.number,
               SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id IN (${placeholders}) AND v.date <= ? AND ${NOT_DELETED}
+       WHERE vl.ledger_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS}
        GROUP BY vl.ledger_id, v.id ORDER BY vl.ledger_id, v.date, v.id`
     )
     .all(...partyIds, asOn) as { partyId: number; voucherId: number; date: string; number: string; net: number }[]
@@ -60,7 +60,7 @@ function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number
     .prepare(
       `SELECT br.party_ledger_id AS partyId, br.voucher_id AS voucherId, br.kind, br.name, br.amount, br.due_date AS dueDate
        FROM bill_refs br JOIN vouchers v ON v.id = br.voucher_id
-       WHERE br.party_ledger_id IN (${placeholders}) AND v.date <= ? AND ${NOT_DELETED}
+       WHERE br.party_ledger_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS}
        ORDER BY br.id`
     )
     .all(...partyIds, asOn) as {

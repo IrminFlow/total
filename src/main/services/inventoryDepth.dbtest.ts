@@ -32,6 +32,7 @@ function makeItem(
     openingQtyMilli,
     openingValue,
     barcode: null,
+    reorderLevelMilli: null,
     valuationMethod
   }).id
 }

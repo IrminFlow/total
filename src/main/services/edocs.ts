@@ -14,7 +14,7 @@ import { descendantIdsByName } from './masters'
 import { outwardDebitNoteIds } from './gst'
 import { writeAudit } from './audit'
 import { companyExportsDir } from '../paths'
-import { NOT_DELETED } from './vouchers'
+import { IN_BOOKS, NOT_DELETED } from './vouchers'
 
 /** Voucher kinds eligible for e-invoice/e-way bill extraction: sales invoices plus the
  *  credit/debit notes issued against them. */
@@ -54,7 +54,7 @@ export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        LEFT JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
          ON t.voucher_id = v.id
-       WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(...EDOC_KINDS, from, to)
@@ -152,7 +152,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        LEFT JOIN voucher_transport t ON t.voucher_id = v.id
        WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ?
-         AND (? IS NULL OR v.id = ?) AND ${NOT_DELETED}
+         AND (? IS NULL OR v.id = ?) AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(...EDOC_KINDS, from, to, voucherId ?? null, voucherId ?? null) as {
@@ -191,7 +191,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
   // sales voucher number (null-safe — omitted when it doesn't resolve).
   const refStmt = db.prepare(
     `SELECT v.number, v.date FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
-     WHERE vt.kind = 'sales' AND v.number = ? ORDER BY v.date DESC LIMIT 1`
+     WHERE vt.kind = 'sales' AND v.number = ? AND ${NOT_DELETED} ORDER BY v.date DESC LIMIT 1`
   )
 
   return vouchers.map((v) => {
