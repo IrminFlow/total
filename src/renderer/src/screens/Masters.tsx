@@ -380,7 +380,9 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         cessRate: cessRate.trim() ? Number(cessRate) : null,
         openingQtyMilli: Math.round(parseFloat(openQty || '0') * 1000),
         openingValue: openValue ?? 0,
-        barcode: barcode.trim() || null
+        barcode: barcode.trim() || null,
+        // Reorder level has no field in this modal yet (Wave 3); preserve what the item has.
+        reorderLevelMilli: item?.reorderLevelMilli ?? null
       }
       if (item) await api.stockItems.update(item.id, data)
       else await api.stockItems.create(data)

@@ -531,6 +531,18 @@ export function registerIpc(): void {
     const { from, to } = periodSchema.parse(p)
     return reports.cashFlow(requireCompany().db, from, to)
   }, 'viewer')
+  handle('report:stockAgeing', (p) => {
+    const { asOn } = z.object({ asOn: z.string() }).parse(p)
+    return reports.stockAgeing(requireCompany().db, asOn)
+  }, 'viewer')
+  handle('report:itemProfitability', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return reports.itemProfitability(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('report:exceptions', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return reports.exceptions(requireCompany().db, from, to)
+  }, 'viewer')
 
   // ---------- consolidated (multi-company, read-only) ----------
   handle('consol:run', (p) => {

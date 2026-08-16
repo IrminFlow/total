@@ -1,12 +1,13 @@
 import type { DB } from '../db/connection'
 import type {
-  BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, LedgerStatement, LedgerStatementRow,
-  ProfitAndLoss, StatementNode, StockSummaryRow, TopLedgerRow, TrialBalance
+  BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, ExceptionRow, ExceptionSection, ExceptionsReport,
+  ItemProfitRow, LedgerStatement, LedgerStatementRow,
+  ProfitAndLoss, StatementNode, StockAgeingRow, StockSummaryRow, TopLedgerRow, TrialBalance
 } from '@shared/reports'
 import type { Group, Nature } from '@shared/domain'
 import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
-import { buildCashFlow, computeRatios, type CashFlowStatement } from '@shared/reportMath'
+import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
 import { listVouchers, NOT_DELETED } from './vouchers'
 
 // ---------- shared helpers ----------
@@ -144,6 +145,202 @@ export function stockSummary(db: DB, asOn: string): StockSummaryRow[] {
 
 export function stockValue(db: DB, asOn: string): number {
   return stockSummary(db, asOn).reduce((s, r) => s + r.closingValue, 0)
+}
+
+/** Stock ageing + reorder report (v0.3 #58): where the held quantity came from (by inward
+ *  date, newest first), whether the item has gone stale, and reorder-level breaches. */
+export function stockAgeing(db: DB, asOn: string): StockAgeingRow[] {
+  const items = db
+    .prepare(
+      `SELECT si.id AS stockItemId, si.name, u.symbol AS unitSymbol, u.decimals,
+              si.opening_qty_milli AS openingQtyMilli, si.reorder_level_milli AS reorderLevelMilli
+       FROM stock_items si JOIN units u ON u.id = si.unit_id ORDER BY si.name`
+    )
+    .all() as {
+      stockItemId: number; name: string; unitSymbol: string; decimals: number
+      openingQtyMilli: number; reorderLevelMilli: number | null
+    }[]
+
+  const flows = db
+    .prepare(
+      `SELECT il.stock_item_id AS itemId, v.date, il.direction, SUM(il.qty_milli) AS qty
+       FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
+       WHERE v.date <= ? AND ${NOT_DELETED}
+       GROUP BY il.stock_item_id, v.date, il.direction
+       ORDER BY v.date`
+    )
+    .all(asOn) as { itemId: number; date: string; direction: 'in' | 'out'; qty: number }[]
+
+  const inLots = new Map<number, InwardLot[]>()
+  const outQty = new Map<number, number>()
+  const inQty = new Map<number, number>()
+  const lastOut = new Map<number, string>()
+  for (const f of flows) {
+    if (f.direction === 'in') {
+      const lots = inLots.get(f.itemId) ?? []
+      lots.push({ date: f.date, qtyMilli: f.qty })
+      inLots.set(f.itemId, lots)
+      inQty.set(f.itemId, (inQty.get(f.itemId) ?? 0) + f.qty)
+    } else {
+      outQty.set(f.itemId, (outQty.get(f.itemId) ?? 0) + f.qty)
+      lastOut.set(f.itemId, f.date) // flows are date-ordered, so the last write wins correctly
+    }
+  }
+
+  const asOnMs = Date.parse(asOn)
+  return items.map((it) => {
+    const closingQtyMilli = it.openingQtyMilli + (inQty.get(it.stockItemId) ?? 0) - (outQty.get(it.stockItemId) ?? 0)
+    const lastOutwardDate = lastOut.get(it.stockItemId) ?? null
+    const daysSinceOut = lastOutwardDate === null ? null : Math.round((asOnMs - Date.parse(lastOutwardDate)) / 86_400_000)
+    return {
+      stockItemId: it.stockItemId,
+      name: it.name,
+      unitSymbol: it.unitSymbol,
+      decimals: it.decimals,
+      closingQtyMilli,
+      buckets: ageStock(closingQtyMilli, inLots.get(it.stockItemId) ?? [], asOn),
+      lastOutwardDate,
+      slowMoving: closingQtyMilli > 0 && (daysSinceOut === null || daysSinceOut > 90),
+      reorderLevelMilli: it.reorderLevelMilli,
+      belowReorder: it.reorderLevelMilli !== null && closingQtyMilli <= it.reorderLevelMilli
+    }
+  })
+}
+
+/** Item-wise profitability (v0.3 #59): sales outward value − weighted-average COGS, per item.
+ *  Weighted-average cost pool = opening + all inwards up to the period end (Lane I's valuation
+ *  engine can replace this basis once FIFO lands). */
+export function itemProfitability(db: DB, from: string, to: string): ItemProfitRow[] {
+  const rows = db
+    .prepare(
+      `SELECT si.id AS stockItemId, si.name, u.symbol AS unitSymbol, u.decimals,
+              si.opening_qty_milli AS openingQtyMilli, si.opening_value AS openingValue,
+              COALESCE(pool.in_qty, 0) AS poolInQty, COALESCE(pool.in_val, 0) AS poolInValue,
+              COALESCE(sold.qty, 0) AS outQtyMilli, COALESCE(sold.val, 0) AS salesValue
+       FROM stock_items si
+       JOIN units u ON u.id = si.unit_id
+       LEFT JOIN (
+         SELECT il.stock_item_id, SUM(il.qty_milli) AS in_qty, SUM(il.amount) AS in_val
+         FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
+         WHERE il.direction = 'in' AND v.date <= ? AND ${NOT_DELETED}
+         GROUP BY il.stock_item_id
+       ) pool ON pool.stock_item_id = si.id
+       LEFT JOIN (
+         SELECT il.stock_item_id, SUM(il.qty_milli) AS qty, SUM(il.amount) AS val
+         FROM inventory_lines il
+         JOIN vouchers v ON v.id = il.voucher_id
+         JOIN voucher_types vt ON vt.id = v.voucher_type_id
+         WHERE il.direction = 'out' AND vt.kind = 'sales' AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+         GROUP BY il.stock_item_id
+       ) sold ON sold.stock_item_id = si.id
+       ORDER BY si.name`
+    )
+    .all(to, from, to) as {
+      stockItemId: number; name: string; unitSymbol: string; decimals: number
+      openingQtyMilli: number; openingValue: number; poolInQty: number; poolInValue: number
+      outQtyMilli: number; salesValue: number
+    }[]
+
+  return rows
+    .filter((r) => r.outQtyMilli > 0)
+    .map((r) => {
+      const poolQty = r.openingQtyMilli + r.poolInQty
+      const poolValue = r.openingValue + r.poolInValue
+      const cogs = poolQty > 0 ? Math.round((r.outQtyMilli * poolValue) / poolQty) : 0
+      return {
+        stockItemId: r.stockItemId,
+        name: r.name,
+        unitSymbol: r.unitSymbol,
+        decimals: r.decimals,
+        outQtyMilli: r.outQtyMilli,
+        salesValue: r.salesValue,
+        cogs,
+        profit: r.salesValue - cogs
+      }
+    })
+}
+
+const EXCEPTION_ROW_CAP = 200
+
+/** Exception reports (v0.3 #60): things that are almost certainly mistakes, with drillable rows. */
+export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
+  const sections: ExceptionSection[] = []
+  const section = (key: ExceptionSection['key'], label: string, rows: ExceptionRow[]): void => {
+    sections.push({ key, label, count: rows.length, rows: rows.slice(0, EXCEPTION_ROW_CAP) })
+  }
+
+  const negStock = stockSummary(db, to)
+    .filter((r) => r.closingQtyMilli < 0)
+    .map((r) => ({ label: r.name, detail: `Closing quantity ${r.closingQtyMilli / 1000} ${r.unitSymbol}` }))
+  section('negativeStock', 'Negative stock', negStock)
+
+  const cashIds = descendantIdSet(listGroups(db), ['Cash-in-Hand'])
+  const balances = closingBalances(db, to)
+  const negCash = ledgersLite(db)
+    .filter((l) => cashIds.has(l.groupId) && (balances.get(l.id) ?? 0) < 0)
+    .map((l) => ({ label: l.name, detail: 'Cash ledger has a credit balance', ledgerId: l.id, amount: balances.get(l.id) ?? 0 }))
+  section('negativeCash', 'Negative cash', negCash)
+
+  const voucherRow = (v: { id: number; date: string; number: string; voucherType: string; total: number }, detail: string): ExceptionRow => ({
+    label: `${v.voucherType} ${v.number}`,
+    detail: `${v.date} — ${detail}`,
+    voucherId: v.id,
+    amount: v.total
+  })
+
+  const baseVoucherSql = `
+    SELECT v.id, v.date, v.number, vt.name AS voucherType,
+           COALESCE((SELECT SUM(amount) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr'), 0) AS total
+    FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id`
+  type VRow = { id: number; date: string; number: string; voucherType: string; total: number }
+
+  const noNarration = (db
+    .prepare(`${baseVoucherSql} WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED} AND (v.narration IS NULL OR TRIM(v.narration) = '') ORDER BY v.date, v.id`)
+    .all(from, to) as VRow[]).map((v) => voucherRow(v, 'no narration'))
+  section('missingNarration', 'Missing narration', noNarration)
+
+  const singleLedger = (db
+    .prepare(
+      `${baseVoucherSql} WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       AND vt.kind NOT IN ('stock_journal', 'physical_stock')
+       AND (SELECT COUNT(DISTINCT ledger_id) FROM voucher_lines WHERE voucher_id = v.id) < 2
+       ORDER BY v.date, v.id`
+    )
+    .all(from, to) as VRow[]).map((v) => voucherRow(v, 'fewer than two ledgers'))
+  section('singleLedger', 'Single-ledger vouchers', singleLedger)
+
+  const outside = (db
+    .prepare(`${baseVoucherSql} WHERE ${NOT_DELETED} AND (v.date < ? OR v.date > ?) ORDER BY v.date, v.id`)
+    .all(from, to) as VRow[]).map((v) => voucherRow(v, 'dated outside the working period'))
+  section('outsidePeriod', 'Entries outside the period', outside)
+
+  const unbalanced = (db
+    .prepare(
+      `${baseVoucherSql} WHERE ${NOT_DELETED}
+       AND vt.kind <> 'physical_stock'
+       AND (SELECT COALESCE(SUM(CASE WHEN dr_cr = 'dr' THEN amount ELSE -amount END), 0) FROM voucher_lines WHERE voucher_id = v.id) <> 0
+       ORDER BY v.date, v.id`
+    )
+    .all() as VRow[]).map((v) => voucherRow(v, 'debits and credits differ'))
+  section('unbalanced', 'Unbalanced vouchers', unbalanced)
+
+  const missingGst = (db
+    .prepare(
+      `${baseVoucherSql}
+       JOIN ledgers pl ON pl.id = v.party_ledger_id
+       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       AND vt.kind IN ('sales', 'purchase', 'credit_note', 'debit_note')
+       AND pl.gstin IS NOT NULL AND TRIM(pl.gstin) <> ''
+       AND NOT EXISTS (
+         SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+         WHERE vl.voucher_id = v.id AND l.tax_type IS NOT NULL
+       )
+       ORDER BY v.date, v.id`
+    )
+    .all(from, to) as VRow[]).map((v) => voucherRow(v, 'B2B party but no GST tax line'))
+  section('missingGst', 'Missing GST fields', missingGst)
+
+  return { sections }
 }
 
 function stockOpeningValueTotal(db: DB): number {

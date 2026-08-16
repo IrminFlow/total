@@ -5,7 +5,10 @@ import { seededDb, postSimpleVoucher } from '../db/testdb'
 import { createLedger } from './masters'
 import { saveVoucher } from './vouchers'
 import type { VoucherInputParsed } from '@shared/schemas'
-import { cashFlow, dashboard, ledgerStatement, trialBalance, profitAndLoss, balanceSheet } from './reports'
+import {
+  cashFlow, dashboard, ledgerStatement, trialBalance, profitAndLoss, balanceSheet,
+  stockAgeing, itemProfitability, exceptions
+} from './reports'
 
 const LEDGER_DEFAULTS = {
   gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
@@ -21,17 +24,29 @@ function postLines(
   kind: string,
   date: string,
   lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[],
-  partyLedgerId: number | null = null
+  partyLedgerId: number | null = null,
+  inventory: { stockItemId: number; qtyMilli: number; ratePaise: number; amount: number; direction: 'in' | 'out' }[] = [],
+  narration: string | null = 'test narration'
 ): number {
   const vt = db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(kind) as { id: number }
   const input = {
-    voucherTypeId: vt.id, date, partyLedgerId, narration: null, reference: null,
+    voucherTypeId: vt.id, date, partyLedgerId, narration, reference: null,
     instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
     transportDistanceKm: null, currencyCode: null, exchangeRate: null,
     lines: lines.map((l) => ({ ...l, costAllocations: [] })),
-    inventory: [], billRefs: [], tds: null
+    inventory: inventory.map((inv) => ({ ...inv, godownId: null })),
+    billRefs: [], tds: null
   } as VoucherInputParsed
   return saveVoucher(db, input).id
+}
+
+function makeItem(db: DB, name: string, openingQtyMilli = 0, openingValue = 0, reorderLevelMilli: number | null = null): number {
+  const unitId = (db.prepare("SELECT id FROM units WHERE symbol = 'Nos'").get() as { id: number }).id
+  return Number(
+    db.prepare(
+      'INSERT INTO stock_items (name, unit_id, opening_qty_milli, opening_value, reorder_level_milli) VALUES (?, ?, ?, ?, ?)'
+    ).run(name, unitId, openingQtyMilli, openingValue, reorderLevelMilli).lastInsertRowid
+  )
 }
 
 describe('cashFlow (#53)', () => {
@@ -142,6 +157,100 @@ describe('prior-year comparison (#57)', () => {
     expect(bs.prior?.prior).toBeUndefined()
 
     expect(profitAndLoss(db, '2025-04-01', '2026-03-31').prior).toBeUndefined()
+  })
+})
+
+describe('stock ageing + reorder (#58)', () => {
+  it('buckets held qty by inward age, flags slow movers and reorder breaches', () => {
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const purchases = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId(db, 'Purchase Accounts'), openingBalance: 0 }).id
+    // Opening 2, bought 5 on 15 May (46d old at asOn), bought 2 on 25 Jun (5d), sold 3 on 1 Jun.
+    const widget = makeItem(db, 'Widget', 2000, 100000, 8000)
+    postLines(db, 'purchase', '2025-05-15', [
+      { ledgerId: purchases, drCr: 'dr', amount: 250000 }, { ledgerId: cash, drCr: 'cr', amount: 250000 }
+    ], null, [{ stockItemId: widget, qtyMilli: 5000, ratePaise: 50000, amount: 250000, direction: 'in' }])
+    postLines(db, 'purchase', '2025-06-25', [
+      { ledgerId: purchases, drCr: 'dr', amount: 100000 }, { ledgerId: cash, drCr: 'cr', amount: 100000 }
+    ], null, [{ stockItemId: widget, qtyMilli: 2000, ratePaise: 50000, amount: 100000, direction: 'in' }])
+    postLines(db, 'sales', '2025-06-01', [
+      { ledgerId: cash, drCr: 'dr', amount: 240000 },
+      { ledgerId: createLedger(db, { ...LEDGER_DEFAULTS, name: 'Sales Local', groupId: groupId(db, 'Sales Accounts'), openingBalance: 0 }).id, drCr: 'cr', amount: 240000 }
+    ], null, [{ stockItemId: widget, qtyMilli: 3000, ratePaise: 80000, amount: 240000, direction: 'out' }])
+    // A stale item: opening stock only, never sold.
+    makeItem(db, 'Dust Collector', 1000, 5000)
+
+    const rows = stockAgeing(db, '2025-06-30')
+    const w = rows.find((r) => r.name === 'Widget')!
+    // Closing 6: newest-first — 2 from 25 Jun (0-30), 4 from 15 May (31-60).
+    expect(w.closingQtyMilli).toBe(6000)
+    expect(w.buckets).toEqual([2000, 4000, 0, 0])
+    expect(w.lastOutwardDate).toBe('2025-06-01')
+    expect(w.slowMoving).toBe(false)
+    expect(w.belowReorder).toBe(true) // closing 6 <= reorder 8
+
+    const d = rows.find((r) => r.name === 'Dust Collector')!
+    expect(d.buckets).toEqual([0, 0, 0, 1000]) // opening stock = unknown date = 90+
+    expect(d.slowMoving).toBe(true)
+    expect(d.belowReorder).toBe(false) // no reorder level set
+  })
+})
+
+describe('item-wise profitability (#59)', () => {
+  it('computes sales value minus weighted-average COGS per item', () => {
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const purchases = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId(db, 'Purchase Accounts'), openingBalance: 0 }).id
+    const sales = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Sales Local', groupId: groupId(db, 'Sales Accounts'), openingBalance: 0 }).id
+    // Opening 10 @ ₹40 (40000 paise value 400000), buy 10 @ ₹60 → pool 20 @ avg ₹50.
+    const widget = makeItem(db, 'Widget', 10000, 400000)
+    postLines(db, 'purchase', '2025-04-10', [
+      { ledgerId: purchases, drCr: 'dr', amount: 600000 }, { ledgerId: cash, drCr: 'cr', amount: 600000 }
+    ], null, [{ stockItemId: widget, qtyMilli: 10000, ratePaise: 60000, amount: 600000, direction: 'in' }])
+    // Sell 8 @ ₹90 = 720000; COGS = 8 × ₹50 = 400000; profit 320000.
+    postLines(db, 'sales', '2025-05-05', [
+      { ledgerId: cash, drCr: 'dr', amount: 720000 }, { ledgerId: sales, drCr: 'cr', amount: 720000 }
+    ], null, [{ stockItemId: widget, qtyMilli: 8000, ratePaise: 90000, amount: 720000, direction: 'out' }])
+
+    const rows = itemProfitability(db, '2025-04-01', '2025-06-30')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      name: 'Widget', outQtyMilli: 8000, salesValue: 720000, cogs: 400000, profit: 320000
+    })
+  })
+})
+
+describe('exception reports (#60)', () => {
+  it('finds negative stock, missing narration, outside-period entries, and missing GST', () => {
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const sales = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Sales Local', groupId: groupId(db, 'Sales Accounts'), openingBalance: 0 }).id
+    const gstParty = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'B2B Party', groupId: groupId(db, 'Sundry Debtors'), openingBalance: 0,
+      gstin: '27AAPFU0939F1ZV', stateCode: '27'
+    }).id
+    // Sell 3 of an item that has none in stock -> negative stock.
+    const widget = makeItem(db, 'Widget')
+    postLines(db, 'sales', '2025-05-05', [
+      { ledgerId: gstParty, drCr: 'dr', amount: 90000 }, { ledgerId: sales, drCr: 'cr', amount: 90000 }
+    ], gstParty, [{ stockItemId: widget, qtyMilli: 3000, ratePaise: 30000, amount: 90000, direction: 'out' }], null)
+    // Outside the working period.
+    postLines(db, 'receipt', '2026-05-01', [
+      { ledgerId: cash, drCr: 'dr', amount: 1000 }, { ledgerId: sales, drCr: 'cr', amount: 1000 }
+    ])
+
+    const report = exceptions(db, '2025-04-01', '2026-03-31')
+    const by = new Map(report.sections.map((s) => [s.key, s]))
+    expect(by.get('negativeStock')!.count).toBe(1)
+    expect(by.get('negativeStock')!.rows[0]!.label).toBe('Widget')
+    expect(by.get('missingNarration')!.count).toBe(1) // the sales voucher was posted without one
+    expect(by.get('outsidePeriod')!.count).toBe(1)
+    expect(by.get('unbalanced')!.count).toBe(0)
+    // B2B party with GSTIN but no cgst/sgst/igst line on the invoice.
+    expect(by.get('missingGst')!.count).toBe(1)
+    expect(by.get('missingGst')!.rows[0]!.voucherId).toBeDefined()
+    expect(by.get('negativeCash')!.count).toBe(0)
+    expect(by.get('singleLedger')!.count).toBe(0)
   })
 })
 

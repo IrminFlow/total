@@ -4,8 +4,10 @@ import type {
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
-  BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, GroupTreeNode, LedgerBalanceRow,
-  LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockSummaryRow, TrialBalance,
+  BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, ExceptionsReport, GroupTreeNode,
+  ItemProfitRow, LedgerBalanceRow,
+  LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockAgeingRow,
+  StockSummaryRow, TrialBalance,
   VoucherListRow
 } from '@shared/reports'
 import type { CashFlowStatement } from '@shared/reportMath'
@@ -302,7 +304,10 @@ export const api = {
       call<BalanceSheet>('report:balanceSheet', { asOn, comparePrior }),
     stockSummary: (asOn: string) => call<StockSummaryRow[]>('report:stockSummary', { asOn }),
     dashboard: (today: string, fyFrom: string) => call<DashboardData>('report:dashboard', { today, fyFrom }),
-    cashFlow: (from: string, to: string) => call<CashFlowStatement>('report:cashFlow', { from, to })
+    cashFlow: (from: string, to: string) => call<CashFlowStatement>('report:cashFlow', { from, to }),
+    stockAgeing: (asOn: string) => call<StockAgeingRow[]>('report:stockAgeing', { asOn }),
+    itemProfitability: (from: string, to: string) => call<ItemProfitRow[]>('report:itemProfitability', { from, to }),
+    exceptions: (from: string, to: string) => call<ExceptionsReport>('report:exceptions', { from, to })
   },
   consolidated: {
     run: (slugs: string[], kind: 'tb' | 'pnl', from: string, to: string) =>

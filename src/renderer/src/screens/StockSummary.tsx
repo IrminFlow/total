@@ -143,6 +143,47 @@ export function StockSummaryScreen(): React.JSX.Element {
           </table>
         )}
       </Panel>
+      <StockAnalysis asOn={to} />
     </div>
+  )
+}
+
+/** Stock analysis (v0.3 #58): age of the held quantity, slow movers, reorder breaches. */
+function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
+  const { data } = useQuery({ queryKey: ['stockAgeing', asOn], queryFn: () => api.reports.stockAgeing(asOn) })
+  const rows = (data ?? []).filter((r) => r.closingQtyMilli > 0 || r.belowReorder)
+  if (rows.length === 0) return null
+  return (
+    <Panel className="mt-4">
+      <p className="mb-2 px-1 text-[13.5px] font-medium">Stock analysis — ageing &amp; reorder</p>
+      <table className="ledger-table" data-testid="stock-ageing-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th className="r w-24">0–30 d</th>
+            <th className="r w-24">31–60 d</th>
+            <th className="r w-24">61–90 d</th>
+            <th className="r w-24">90+ d</th>
+            <th className="w-44">Flags</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.stockItemId}>
+              <td>{r.name}</td>
+              {r.buckets.map((b, i) => (
+                <td key={i} className="r num">
+                  {b === 0 ? '–' : `${fmtQty(b, r.decimals)} ${r.unitSymbol}`}
+                </td>
+              ))}
+              <td>
+                {r.belowReorder && <span className="mr-2 text-[11.5px] text-cr">reorder</span>}
+                {r.slowMoving && <span className="text-[11.5px] text-muted">slow-moving</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Panel>
   )
 }

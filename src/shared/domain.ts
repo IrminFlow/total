@@ -238,6 +238,8 @@ export interface StockItem {
   openingValue: number
   /** Scannable barcode/SKU (unique when set). */
   barcode: string | null
+  /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
+  reorderLevelMilli: number | null
 }
 
 export interface Godown {

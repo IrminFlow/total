@@ -122,6 +122,55 @@ export interface StockSummaryRow {
   closingValue: number
 }
 
+export interface StockAgeingRow {
+  stockItemId: number
+  name: string
+  unitSymbol: string
+  decimals: number
+  closingQtyMilli: number
+  /** Qty (milli) by age of the stock still held: 0–30, 31–60, 61–90, 90+ days. */
+  buckets: [number, number, number, number]
+  lastOutwardDate: string | null
+  /** Held stock with no outward movement in the last 90 days. */
+  slowMoving: boolean
+  reorderLevelMilli: number | null
+  /** True when a reorder level is set and closing qty is at or below it. */
+  belowReorder: boolean
+}
+
+export interface ItemProfitRow {
+  stockItemId: number
+  name: string
+  unitSymbol: string
+  decimals: number
+  /** Qty sold (sales vouchers' outward lines) in the period. */
+  outQtyMilli: number
+  salesValue: number
+  /** Weighted-average cost of the qty sold. */
+  cogs: number
+  profit: number
+}
+
+export interface ExceptionRow {
+  label: string
+  detail: string
+  voucherId?: number
+  ledgerId?: number
+  amount?: number
+}
+
+export interface ExceptionSection {
+  key: 'negativeStock' | 'negativeCash' | 'missingNarration' | 'singleLedger' | 'outsidePeriod' | 'unbalanced' | 'missingGst'
+  label: string
+  count: number
+  /** Detail rows, capped at 200 per section (count is the true total). */
+  rows: ExceptionRow[]
+}
+
+export interface ExceptionsReport {
+  sections: ExceptionSection[]
+}
+
 export interface TopLedgerRow {
   ledgerId: number
   name: string

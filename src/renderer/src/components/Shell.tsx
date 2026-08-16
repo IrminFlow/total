@@ -49,7 +49,8 @@ const NAV: NavSection[] = [
       { label: 'Outstandings', screen: { name: 'outstandings' } },
       { label: 'Consolidated reports', screen: { name: 'consolidated' } },
       { label: 'Cost centres', screen: { name: 'cost-centres' }, feature: 'costCentres' },
-      { label: 'Budgets', screen: { name: 'budgets' } }
+      { label: 'Budgets', screen: { name: 'budgets' } },
+      { label: 'Exceptions', screen: { name: 'exceptions' } }
     ]
   },
   {
