@@ -1,0 +1,87 @@
+import Database from 'better-sqlite3'
+import type { ProfitAndLoss, StatementNode } from '@shared/reports'
+import {
+  mergeByName, type ConsolidateCompanyInput, type ConsolidateInputRow, type ConsolidatedResult
+} from '@shared/consolidate'
+import { companyDbPath } from '../paths'
+import { MIGRATIONS } from '../db/migrations'
+import { readRegistry } from '../registry'
+import * as reports from './reports'
+
+export type ConsolidatedKind = 'tb' | 'pnl'
+export type { ConsolidatedResult }
+
+/**
+ * Flatten a P&L's StatementNode trees down to leaf ledger rows: expenses land on the
+ * debit side, incomes on the credit side — matching trial-balance row shape so both
+ * report kinds merge through the same `mergeByName`. Group nodes are skipped (only
+ * leaves are summed) to avoid double-counting subtotal nodes.
+ */
+function flattenPnl(pnl: ProfitAndLoss): ConsolidateInputRow[] {
+  const out: ConsolidateInputRow[] = []
+  const walk = (nodes: StatementNode[], side: 'dr' | 'cr', groupName: string): void => {
+    for (const node of nodes) {
+      if (node.kind === 'ledger') {
+        out.push({
+          group: groupName,
+          name: node.name,
+          dr: side === 'dr' ? node.amount : 0,
+          cr: side === 'cr' ? node.amount : 0
+        })
+      } else {
+        walk(node.children, side, node.name)
+      }
+    }
+  }
+  walk(pnl.tradingExpenses, 'dr', 'Trading Expenses')
+  walk(pnl.tradingIncomes, 'cr', 'Trading Incomes')
+  walk(pnl.indirectExpenses, 'dr', 'Indirect Expenses')
+  walk(pnl.indirectIncomes, 'cr', 'Indirect Incomes')
+  if (pnl.openingStock) out.push({ group: 'Stock-in-Hand', name: 'Opening Stock', dr: pnl.openingStock, cr: 0 })
+  if (pnl.closingStock) out.push({ group: 'Stock-in-Hand', name: 'Closing Stock', dr: 0, cr: pnl.closingStock })
+  return out
+}
+
+/**
+ * Read-only, multi-company consolidation: opens each company's DB read-only (safe even
+ * if that company is already open read-write elsewhere thanks to WAL), runs the
+ * requested report, and merges the results by ledger/line name. A company whose schema
+ * predates the current migrations is skipped with a warning — a readonly connection
+ * cannot run migrations to catch it up.
+ */
+export function consolidated(slugs: string[], kind: ConsolidatedKind, from: string, to: string): ConsolidatedResult {
+  const registry = readRegistry()
+  const nameOf = (slug: string): string => registry.companies.find((c) => c.slug === slug)?.name ?? slug
+
+  const warnings: string[] = []
+  const perCompany: ConsolidateCompanyInput[] = []
+
+  for (const slug of slugs) {
+    const label = nameOf(slug)
+    let db: Database.Database | undefined
+    let rows: ConsolidateInputRow[] = []
+    try {
+      db = new Database(companyDbPath(slug), { readonly: true, fileMustExist: true })
+      const { n } = db.prepare('SELECT COUNT(*) AS n FROM migrations').get() as { n: number }
+      if (n !== MIGRATIONS.length) {
+        warnings.push(`${label}: schema is out of date and can't be migrated read-only — skipped`)
+      } else if (kind === 'tb') {
+        const tb = reports.trialBalance(db, to)
+        rows = tb.rows.map((r) => ({ group: r.groupName, name: r.ledgerName, dr: r.debit, cr: r.credit }))
+      } else {
+        rows = flattenPnl(reports.profitAndLoss(db, from, to))
+      }
+    } catch (err) {
+      warnings.push(`${label}: ${err instanceof Error ? err.message : String(err)} — skipped`)
+    } finally {
+      db?.close()
+    }
+    perCompany.push({ company: label, rows })
+  }
+
+  return {
+    columns: perCompany.map((c) => c.company),
+    rows: mergeByName(perCompany),
+    warnings
+  }
+}

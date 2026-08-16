@@ -6,9 +6,8 @@ import { api } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
 import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
 import { useGroups, useLedgers, useStockItems } from '../components/pickers'
-import { GST_STATES } from '@shared/gst/states'
-import { validateGstin, validateHsn } from '@shared/gst/validate'
-import { GST_RATE_PRESETS } from '@shared/seed'
+import { LedgerFormModal } from '../components/LedgerFormModal'
+import { validateHsn } from '@shared/gst/validate'
 
 type Tab = 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies'
 const TABS: { id: Tab; label: string }[] = [
@@ -205,157 +204,6 @@ function LedgersTab(): React.JSX.Element {
   )
 }
 
-function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; onClose: () => void }): React.JSX.Element {
-  const groups = useGroups()
-  const toast = useToasts()
-  const queryClient = useQueryClient()
-  const [name, setName] = useState(ledger?.name ?? '')
-  const [groupId, setGroupId] = useState<number>(ledger?.groupId ?? groups.find((g) => g.name === 'Sundry Debtors')?.id ?? groups[0]?.id ?? 1)
-  const [opening, setOpening] = useState<number | null>(ledger ? Math.abs(ledger.openingBalance) : null)
-  const [openingSide, setOpeningSide] = useState<'dr' | 'cr'>(ledger && ledger.openingBalance < 0 ? 'cr' : 'dr')
-  const [gstin, setGstin] = useState(ledger?.gstin ?? '')
-  const [stateCode, setStateCode] = useState(ledger?.stateCode ?? '')
-  const [address, setAddress] = useState(ledger?.address ?? '')
-  const [taxType, setTaxType] = useState(ledger?.taxType ?? '')
-  const [gstRate, setGstRate] = useState(ledger?.gstRate?.toString() ?? '')
-  const [hsn, setHsn] = useState(ledger?.hsn ?? '')
-
-  const group = groups.find((g) => g.id === groupId)
-  const isDuties = useMemo(() => {
-    let g = group
-    while (g) {
-      if (g.name === 'Duties & Taxes') return true
-      g = groups.find((x) => x.id === g!.parentId)
-    }
-    return false
-  }, [group, groups])
-
-  const gstinCheck = gstin.trim() ? validateGstin(gstin) : null
-  const gstinError = gstinCheck && !gstinCheck.valid
-    ? 'Invalid GSTIN — ' + (gstinCheck.error === 'checksum' ? 'check digit fails, one character is mistyped' : gstinCheck.error)
-    : gstinCheck?.valid && stateCode && gstinCheck.stateCode !== stateCode
-      ? `GSTIN belongs to ${GST_STATES[gstinCheck.stateCode!]}, but state is set to ${GST_STATES[stateCode]}`
-      : null
-
-  const save = async (): Promise<void> => {
-    try {
-      if (gstinError) return void toast.push('error', gstinError)
-      const effectiveState = stateCode || (gstinCheck?.valid ? gstinCheck.stateCode : null)
-      const data = {
-        name: name.trim(),
-        groupId,
-        openingBalance: (opening ?? 0) * (openingSide === 'cr' ? -1 : 1),
-        gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
-        stateCode: effectiveState || null,
-        address: address.trim() || null,
-        taxType: (isDuties && taxType ? taxType : null) as 'cgst' | 'sgst' | 'igst' | 'cess' | null,
-        gstRate: gstRate.trim() ? Number(gstRate) : null,
-        hsn: hsn.trim() || null
-      }
-      if (ledger) await api.ledgers.update(ledger.id, data)
-      else await api.ledgers.create(data)
-      await queryClient.invalidateQueries()
-      toast.push('success', `Ledger ${ledger ? 'updated' : 'created'}`)
-      onClose()
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
-  }
-
-  const remove = async (): Promise<void> => {
-    if (!ledger) return
-    if (!window.confirm(`Delete ledger “${ledger.name}”?`)) return
-    try {
-      await api.ledgers.remove(ledger.id)
-      await queryClient.invalidateQueries()
-      toast.push('success', 'Ledger deleted')
-      onClose()
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
-  }
-
-  return (
-    <Modal title={ledger ? `Edit ${ledger.name}` : 'New ledger'} onClose={onClose}>
-      <div className="flex flex-col gap-3">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Name">
-            <TextInput autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field label="Under group">
-            <Select value={groupId} onChange={(e) => setGroupId(Number(e.target.value))}>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Opening balance">
-            <div className="flex gap-2">
-              <AmountInput paise={opening} onPaise={setOpening} className="flex-1" />
-              <button
-                className={`num w-12 rounded-md border border-line text-[12.5px] font-medium ${openingSide === 'dr' ? 'text-dr' : 'text-cr'}`}
-                onClick={() => setOpeningSide((s) => (s === 'dr' ? 'cr' : 'dr'))}
-              >
-                {openingSide === 'dr' ? 'Dr' : 'Cr'}
-              </button>
-            </div>
-          </Field>
-          {isDuties && (
-            <Field label="GST component" hint="Marks this ledger for GST computation and ITC">
-              <Select value={taxType ?? ''} onChange={(e) => setTaxType(e.target.value as typeof taxType)}>
-                <option value="">Not a GST ledger</option>
-                <option value="cgst">CGST</option>
-                <option value="sgst">SGST</option>
-                <option value="igst">IGST</option>
-                <option value="cess">Cess</option>
-              </Select>
-            </Field>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="GSTIN" error={gstinError}>
-            <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} className="num" placeholder="For parties" />
-          </Field>
-          <Field label="State (place of supply)">
-            <Select value={stateCode} onChange={(e) => setStateCode(e.target.value)}>
-              <option value="">Same as company</option>
-              {Object.entries(GST_STATES).map(([code, label]) => (
-                <option key={code} value={code}>
-                  {code} — {label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="GST rate %" hint="For sales/purchase service ledgers">
-            <TextInput value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="num" placeholder={GST_RATE_PRESETS.join(' / ')} />
-          </Field>
-          <Field label="HSN / SAC">
-            <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" placeholder="For services" />
-          </Field>
-        </div>
-        <Field label="Address">
-          <TextInput value={address} onChange={(e) => setAddress(e.target.value)} />
-        </Field>
-        <div className="flex justify-between">
-          <div>{ledger && !ledger.isSystem && <Button variant="danger" onClick={() => void remove()}>Delete</Button>}</div>
-          <div className="flex gap-2">
-            <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" onClick={() => void save()}>
-              Save ledger
-            </Button>
-          </div>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
 // ---------- groups ----------
 
 function GroupsTab(): React.JSX.Element {
@@ -512,6 +360,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
   const [cessRate, setCessRate] = useState(item?.cessRate?.toString() ?? '')
   const [openQty, setOpenQty] = useState(item ? (item.openingQtyMilli / 1000).toString() : '')
   const [openValue, setOpenValue] = useState<number | null>(item?.openingValue ?? null)
+  const [barcode, setBarcode] = useState(item?.barcode ?? '')
 
   const hsnCheck = hsn.trim() ? validateHsn(hsn) : null
   const hsnError = hsnCheck && !hsnCheck.valid ? hsnCheck.error : null
@@ -530,7 +379,8 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         gstRate: gstRate.trim() ? Number(gstRate) : null,
         cessRate: cessRate.trim() ? Number(cessRate) : null,
         openingQtyMilli: Math.round(parseFloat(openQty || '0') * 1000),
-        openingValue: openValue ?? 0
+        openingValue: openValue ?? 0,
+        barcode: barcode.trim() || null
       }
       if (item) await api.stockItems.update(item.id, data)
       else await api.stockItems.create(data)
@@ -597,6 +447,9 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
             <AmountInput paise={openValue} onPaise={setOpenValue} />
           </Field>
         </div>
+        <Field label="Barcode" hint="Scan into this field, or type an SKU">
+          <TextInput value={barcode} onChange={(e) => setBarcode(e.target.value)} className="num" placeholder="Optional" />
+        </Field>
         {item && (
           <div>
             <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
@@ -756,7 +609,7 @@ function TypesTab(): React.JSX.Element {
               <th>Name</th>
               <th>Kind</th>
               <th>Numbering</th>
-              <th className="w-24">Prefix</th>
+              <th className="w-32">Format</th>
               <th className="w-20"></th>
             </tr>
           </thead>
@@ -766,7 +619,12 @@ function TypesTab(): React.JSX.Element {
                 <td>{t.name}</td>
                 <td className="text-muted">{t.kind.replace('_', ' ')}</td>
                 <td className="text-muted">{t.numbering === 'auto' ? 'Automatic per FY' : 'Manual'}</td>
-                <td className="num text-muted">{t.prefix}</td>
+                <td className="num text-muted">
+                  {t.prefix}
+                  {'#'.repeat(Math.max(1, t.padWidth))}
+                  {t.suffix}
+                  {!t.restartFy && <span className="ml-1 normal-case text-[10px]">(no FY restart)</span>}
+                </td>
                 <td className="r">
                   <button className="text-[12px] text-blue hover:underline" onClick={() => setEditing(t)}>
                     Edit
@@ -787,10 +645,18 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType; onClose: () => void }
   const queryClient = useQueryClient()
   const [numbering, setNumbering] = useState(vt.numbering)
   const [prefix, setPrefix] = useState(vt.prefix)
+  const [suffix, setSuffix] = useState(vt.suffix)
+  const [padWidth, setPadWidth] = useState(vt.padWidth.toString())
+  const [restartFy, setRestartFy] = useState(vt.restartFy)
+
+  const pad = Math.min(8, Math.max(0, Number(padWidth) || 0))
+  const previewNumber = (seq: number): string => `${prefix}${String(seq).padStart(pad, '0')}${suffix}`
 
   const save = async (): Promise<void> => {
     try {
-      await api.voucherTypes.update(vt.id, { name: vt.name, kind: vt.kind, numbering, prefix })
+      await api.voucherTypes.update(vt.id, {
+        name: vt.name, kind: vt.kind, numbering, prefix, suffix, padWidth: pad, restartFy
+      })
       await queryClient.invalidateQueries()
       toast.push('success', `${vt.name} updated`)
       onClose()
@@ -808,10 +674,26 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType; onClose: () => void }
             <option value="manual">Manual</option>
           </Select>
         </Field>
-        <Field label="Prefix" hint="e.g. INV/ gives INV/1, INV/2…">
+        <Field label="Prefix" hint="e.g. INV- gives INV-1, INV-2…">
           <TextInput value={prefix} onChange={(e) => setPrefix(e.target.value)} />
         </Field>
+        <Field label="Suffix" hint="e.g. /24-25 gives INV-1/24-25">
+          <TextInput value={suffix} onChange={(e) => setSuffix(e.target.value)} />
+        </Field>
+        <Field label="Zero-pad width" hint="3 gives 001, 002… — 0 for no padding">
+          <TextInput value={padWidth} onChange={(e) => setPadWidth(e.target.value)} className="num" />
+        </Field>
       </div>
+      <label className="mt-3 flex items-center gap-2 text-[12.5px]">
+        <input type="checkbox" checked={restartFy} onChange={(e) => setRestartFy(e.target.checked)} />
+        Restart numbering at 1 each financial year
+      </label>
+      {numbering === 'auto' && (
+        <p className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2 text-[12px] text-muted">
+          Preview: <span className="num text-ink">{previewNumber(1)}</span>, <span className="num text-ink">{previewNumber(2)}</span>
+          {!restartFy && <span> … continuing across financial years</span>}
+        </p>
+      )}
       <div className="mt-4 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" onClick={() => void save()}>

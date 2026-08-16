@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig, configDefaults } from 'vitest/config'
 import { resolve } from 'path'
 
 export default defineConfig({
@@ -8,6 +8,7 @@ export default defineConfig({
     }
   },
   test: {
-    include: ['src/shared/**/*.test.ts', 'src/main/**/*.test.ts']
+    include: ['src/shared/**/*.test.ts', 'src/main/**/*.test.ts'],
+    exclude: [...configDefaults.exclude, '**/*.dbtest.ts']
   }
 })

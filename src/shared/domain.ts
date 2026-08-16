@@ -32,7 +32,73 @@ export interface Ledger {
   gstRate: number | null
   /** HSN/SAC for service ledgers billed without stock items. */
   hsn: string | null
+  /** Section this party is flagged for TDS deduction under, if any. */
+  tdsSectionId: number | null
+  /** Deductee's Income Tax PAN (drives the no-PAN 20% TDS rate). */
+  pan: string | null
+  /** Default bill-to-bill credit period in days, used when a bill has no explicit due date. */
+  creditDays: number | null
+  /** SEZ/export classification for GST e-invoicing (task 2.8); null for a normal domestic party. */
+  exportType: 'sez_wp' | 'sez_wop' | 'exp_wp' | 'exp_wop' | null
   isSystem: boolean
+}
+
+export interface TdsSection {
+  id: number
+  /** e.g. "194C" */
+  code: string
+  description: string
+  /** Percent. */
+  rate: number
+  /** Paise; 0 = no single-transaction threshold. */
+  thresholdSingle: number
+  /** Paise; 0 = no FY-cumulative threshold. */
+  thresholdAnnual: number
+}
+
+export interface CostCentre {
+  id: number
+  name: string
+  parentId: number | null
+  active: boolean
+}
+
+/** One line of a Budget (task 2.6): a target amount for either a single ledger or a whole group
+ *  (rolled up over its descendants at report time), for one month or the whole financial year. */
+export interface BudgetLine {
+  id: number
+  ledgerId: number | null
+  groupId: number | null
+  /** 'YYYY-MM' within the budget's FY, or null for an annual figure. */
+  month: string | null
+  /** Paise. */
+  amount: number
+}
+
+/** A named budget scoped to one financial year, with its lines. */
+export interface Budget {
+  id: number
+  name: string
+  fyStartYear: number
+  lines: BudgetLine[]
+}
+
+/** A saved voucher shape (exact VoucherInputParsed JSON) that recurring:post re-validates and
+ *  re-posts on a monthly/weekly cadence (task 2.3). */
+export interface RecurringTemplate {
+  id: number
+  name: string
+  voucherJson: string
+  cadence: 'monthly' | 'weekly'
+  dayOfMonth: number | null
+  weekday: number | null
+  nextDue: string
+  lastPosted: string | null
+  active: boolean
+  /** The stored voucher's type kind (joined off voucher_types via the denormalized
+   *  voucher_type_id column) — null only if that voucher type has since been deleted. Drives
+   *  which entry form "Open in voucher entry" opens (kindHint). */
+  voucherKind: VoucherKind | null
 }
 
 export type VoucherKind =
@@ -54,7 +120,19 @@ export interface VoucherType {
   /** 'auto' = numbered per FY from 1; 'manual' = user types the number. */
   numbering: 'auto' | 'manual'
   prefix: string
+  /** Appended after the (optionally zero-padded) sequence, e.g. '/24-25' → INV-1/24-25. */
+  suffix: string
+  /** Zero-pad width for the numeric sequence; 0 = no padding (1, 2, 3…; padWidth 3 → 001, 002…). */
+  padWidth: number
+  /** true (default) = sequence restarts at 1 each financial year; false = one running sequence
+   *  across FYs (e.g. Tally's "Prevent duplicates" numbering that never resets). */
+  restartFy: boolean
   isSystem: boolean
+}
+
+export interface VoucherLineCostAllocation {
+  costCentreId: number
+  amount: number
 }
 
 export interface VoucherLine {
@@ -65,6 +143,21 @@ export interface VoucherLine {
   amount: number
   /** Bank statement date once reconciled (bank ledger lines only). */
   bankDate: string | null
+  /** Optional split of this line's amount across cost centres. */
+  costAllocations: VoucherLineCostAllocation[]
+}
+
+export interface VoucherBillRef {
+  kind: 'new' | 'against'
+  name: string
+  amount: number
+  dueDate: string | null
+}
+
+export interface VoucherTds {
+  sectionId: number
+  baseAmount: number
+  tdsAmount: number
 }
 
 export interface InventoryLine {
@@ -105,8 +198,14 @@ export interface Voucher {
   irnAckDate: string | null
   ewbNo: string | null
   ewbValidUpto: string | null
+  /** Set once the voucher is moved to the bin (soft delete); null while active. */
+  deletedAt: string | null
   lines: VoucherLine[]
   inventory: InventoryLine[]
+  /** Bill-by-bill references against the party ledger line. */
+  billRefs: VoucherBillRef[]
+  /** TDS deducted on this voucher, if any. */
+  tds: VoucherTds | null
   createdAt: string
   updatedAt: string
 }
@@ -137,6 +236,8 @@ export interface StockItem {
   cessRate: number | null
   openingQtyMilli: number
   openingValue: number
+  /** Scannable barcode/SKU (unique when set). */
+  barcode: string | null
 }
 
 export interface Godown {
@@ -155,6 +256,10 @@ export interface CompanyInfo {
   booksFrom: number
   email: string | null
   phone: string | null
+  /** Company's Income Tax PAN, e.g. "ABCDE1234F". */
+  pan: string | null
+  /** Company's TAN (for TDS filings), e.g. "ABCD12345E". */
+  tan: string | null
 }
 
 export interface CompanySummary {

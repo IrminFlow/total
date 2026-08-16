@@ -1,10 +1,17 @@
 import type { DrCr, VoucherKind } from './domain'
 import { isValidISODate } from './dates'
 
+export interface CostAllocationInput {
+  costCentreId: number
+  amount: number
+}
+
 export interface VoucherLineInput {
   ledgerId: number
   drCr: DrCr
   amount: number
+  /** Optional split of this line's amount across cost centres; must sum to at most `amount`. */
+  costAllocations?: CostAllocationInput[]
 }
 
 export interface InventoryLineInput {
@@ -14,6 +21,19 @@ export interface InventoryLineInput {
   ratePaise: number
   amount: number
   direction: 'in' | 'out'
+}
+
+export interface BillRefInput {
+  kind: 'new' | 'against'
+  name: string
+  amount: number
+  dueDate: string | null
+}
+
+export interface TdsInput {
+  sectionId: number
+  baseAmount: number
+  tdsAmount: number
 }
 
 export interface VoucherInput {
@@ -26,6 +46,10 @@ export interface VoucherInput {
   reference: string | null
   lines: VoucherLineInput[]
   inventory: InventoryLineInput[]
+  /** Bill-by-bill references against the party ledger line; must sum to that line's amount. */
+  billRefs?: BillRefInput[]
+  /** TDS deducted on this voucher, if any. Not yet validated beyond schema-level shape. */
+  tds?: TdsInput | null
 }
 
 /** What the validator needs to know about a ledger, resolved by the caller. */
@@ -81,7 +105,30 @@ export function validateVoucher(
     if (!ledgerFacts(line.ledgerId).exists) {
       errors.push({ code: 'unknown_ledger', message: `Unknown ledger on line ${i + 1}`, line: i })
     }
+    const allocated = (line.costAllocations ?? []).reduce((s, a) => s + a.amount, 0)
+    if (allocated > line.amount) {
+      errors.push({ code: 'over_allocated', message: `Cost allocations on line ${i + 1} exceed the line amount`, line: i })
+    }
   })
+
+  // Bill-by-bill references ride on the party ledger's line: they need a party, and must add
+  // up to exactly what's posted to that ledger.
+  const billRefs = input.billRefs ?? []
+  if (billRefs.length > 0) {
+    if (input.partyLedgerId === null) {
+      errors.push({ code: 'bill_refs_no_party', message: 'Bill references require a party ledger' })
+    } else {
+      // Sum EVERY line posted to the party ledger, not just the first — a voucher can legitimately
+      // split the party's amount across multiple lines (e.g. part cash-part-credit journals).
+      const partyLinesTotal = input.lines
+        .filter((l) => l.ledgerId === input.partyLedgerId)
+        .reduce((s, l) => s + l.amount, 0)
+      const billRefsTotal = billRefs.reduce((s, b) => s + b.amount, 0)
+      if (partyLinesTotal === 0 || billRefsTotal !== partyLinesTotal) {
+        errors.push({ code: 'bill_refs_mismatch', message: "Bill references must add up to the party ledger's amount" })
+      }
+    }
+  }
 
   input.inventory.forEach((inv) => {
     if (!Number.isSafeInteger(inv.amount) || inv.amount < 0) {

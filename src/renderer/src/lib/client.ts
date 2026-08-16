@@ -1,19 +1,212 @@
 import type {
-  BomLine, CompanyInfo, Currency, Employee, Godown, Group, Ledger, PayrollLine, PayrollRun,
-  StockGroup, StockItem, Unit, Voucher, VoucherType
+  BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, PayrollLine, PayrollRun,
+  RecurringTemplate, StockGroup, StockItem, TdsSection, Unit, Voucher, VoucherType
 } from '@shared/domain'
+import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, GroupTreeNode, LedgerBalanceRow,
-  LedgerStatement, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockSummaryRow, TrialBalance, VoucherListRow
+  LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockSummaryRow, TrialBalance,
+  VoucherListRow
 } from '@shared/reports'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
+import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
-  BomInput, CompanyCreateInput, CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput,
-  NicCredentials, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput, VoucherInputParsed
+  AuditListInput, BankRuleInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
+  CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput, NicCredentials, RecurringInput,
+  RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTypeInput,
+  VoucherInputParsed
 } from '@shared/schemas'
+import type { CompanyFeatures } from '@shared/features'
+import type { SearchHit } from '@shared/search'
+import type { InvoiceConfig } from '@shared/invoiceConfig'
+import type { CloseLedgerRow } from '@shared/yearEnd'
+import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Registry } from '../types'
 
+export type Role = 'owner' | 'accountant' | 'viewer'
+
+export interface SessionUser {
+  id: number
+  name: string
+  role: Role
+}
+
+export interface LoginName {
+  id: number
+  name: string
+  role: Role
+}
+
+/** Mirrors src/main/db/backup.ts's BackupInfo shape (kept local — that file is main-process only). */
+export interface BackupInfo {
+  file: string
+  sizeBytes: number
+  mtime: number
+  tag: string
+}
+
+/** Mirrors src/main/db/integrity.ts's IntegrityResult shape (kept local — main-process only). */
+export interface IntegrityResult {
+  ok: boolean
+  quickCheck: string
+  unbalancedVoucherIds: number[]
+}
+
+/** Mirrors src/main/services/vouchers.ts's BinRow shape (kept local — that file is main-process only). */
+export interface BinRow {
+  id: number
+  date: string
+  number: string
+  voucherType: string
+  account: string
+  amount: number
+  deletedAt: string
+}
+
+/** Mirrors src/main/services/users.ts's User shape (kept local — that file is main-process only). */
+export interface UserRow {
+  id: number
+  name: string
+  role: Role
+  active: boolean
+  createdAt: string
+}
+
+/** Mirrors src/main/services/audit.ts's AuditRow shape (kept local — that file is main-process only). */
+export interface AuditRow {
+  id: number
+  entity: string
+  entityId: number
+  action: 'create' | 'update' | 'delete'
+  at: string
+  beforeJson: string | null
+  afterJson: string | null
+  userName: string | null
+  appVersion: string | null
+}
+
+/** Mirrors src/main/services/banking.ts's BankRuleRecord shape (kept local — main-process only). */
+export interface BankRuleRecord {
+  id: number
+  pattern: string
+  matchField: string
+  ledgerId: number
+  ledgerName: string
+  kind: 'payment' | 'receipt'
+  active: boolean
+  hits: number
+}
+
+/** Mirrors src/main/services/banking.ts's BankVoucherDraft / BankSuggestionRow shapes (kept
+ *  local — that file is main-process only). */
+export interface BankVoucherDraft {
+  date: string
+  narration: string
+  lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
+}
+
+export interface BankSuggestionRow {
+  statementRow: { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal' }
+  suggestion: {
+    ruleId: number
+    ledgerId: number
+    ledgerName: string
+    kind: 'payment' | 'receipt'
+    voucherDraft: BankVoucherDraft
+  } | null
+}
+
+/** Mirrors src/main/services/tds.ts's TdsSuggestion shape (kept local — that file is main-process only). */
+export interface TdsSuggestion {
+  sectionId: number
+  code: string
+  rate: number
+  tdsPaise: number
+  payableLedgerId: number
+  panAvailable: boolean
+  thresholdCrossed: boolean
+}
+
+/** Mirrors src/main/services/tds.ts's TdsSummaryRow shape (kept local — that file is main-process only). */
+export interface TdsSummaryRow {
+  sectionCode: string
+  quarter: string
+  deductees: number
+  base: number
+  tds: number
+}
+
+/** Mirrors src/main/services/costCentres.ts's CcReportRow shape (kept local — that file is main-process only). */
+export interface CcReportRow {
+  costCentreId: number
+  name: string
+  income: number
+  expense: number
+  net: number
+}
+
+/** Mirrors src/main/services/costCentres.ts's CcStatementRow shape (kept local — that file is main-process only). */
+export interface CcStatementRow {
+  date: string
+  voucherId: number
+  number: string
+  ledgerName: string
+  drCr: 'dr' | 'cr'
+  amount: number
+}
+
+/** Mirrors src/main/services/importers.ts's ImportKind/ImportPreview/ImportResult shapes (kept
+ *  local — that file is main-process only). */
+export type ImportKind = 'ledgers' | 'items' | 'openings'
+
+export interface ImportPreview {
+  rows: Record<string, unknown>[]
+  total: number
+  willCreate: number
+  willUpdate: number
+  errors: { line: number; message: string }[]
+}
+
+export interface ImportResult {
+  created: number
+  updated: number
+  errors: { line: number; message: string }[]
+}
+
 /** Invoke a main-process channel; throws the error message on failure. */
+/** Mirrors src/main/services/reportHtml.ts's ReportColumnSpec/ReportRowSpec shapes (kept local —
+ *  that file is main-process only). Shared by every screen's PDF/CSV export buttons. */
+export interface ReportColumn {
+  label: string
+  align: 'l' | 'r' | 'c'
+  width?: number
+}
+export interface ReportRow {
+  cells: string[]
+  bold?: boolean
+  indent?: number
+  rule?: boolean
+}
+export interface ReportPdfInput {
+  title: string
+  periodLabel: string
+  columns: ReportColumn[]
+  rows: ReportRow[]
+  footNote?: string
+  filename: string
+}
+
+/** Mirrors src/main/services/tallyImport.ts's ImportSummary shape (kept local — main-process only). */
+export interface TallyImportSummary {
+  groups: number
+  ledgers: number
+  units: number
+  items: number
+  vouchers: number
+  skipped: number
+  warnings: string[]
+}
+
 async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
   if (!result.ok) throw new Error(result.error ?? 'Unknown error')
@@ -24,12 +217,27 @@ export const api = {
   company: {
     list: () => call<Registry>('company:list'),
     create: (input: CompanyCreateInput) => call<{ slug: string }>('company:create', input),
-    open: (slug: string) => call<{ slug: string; info: CompanyInfo }>('company:open', { slug }),
+    createDemo: () => call<{ slug: string }>('company:createDemo'),
+    remove: (slug: string, confirmName: string, pin?: string) =>
+      call<null>('company:delete', { slug, confirmName, pin }),
+    open: (slug: string) =>
+      call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('company:open', { slug }),
     close: () => call<null>('company:close'),
-    current: () => call<{ slug: string; info: CompanyInfo } | null>('company:current'),
+    current: () => call<{ slug: string; info: CompanyInfo; locked: boolean } | null>('company:current'),
     updateInfo: (input: CompanyCreateInput) => call<CompanyInfo>('company:updateInfo', input),
-    backup: () => call<{ path: string | null }>('company:backup'),
-    revealExports: () => call<null>('company:revealExports')
+    backup: () => call<{ path: string }>('company:backup'),
+    revealExports: () => call<null>('company:revealExports'),
+    lockGet: () => call<{ date: string | null }>('company:lock:get'),
+    lockSet: (date: string | null) => call<{ date: string | null }>('company:lock:set', { date })
+  },
+  backups: {
+    list: () => call<BackupInfo[]>('backup:list'),
+    run: () => call<{ path: string }>('backup:run'),
+    restore: (file: string) =>
+      call<{ info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('backup:restore', { file }),
+    exportEncrypted: (passphrase: string) => call<{ path: string }>('backup:exportEncrypted', { passphrase }),
+    importEncrypted: (passphrase: string) =>
+      call<{ slug: string; name: string } | null>('backup:importEncrypted', { passphrase })
   },
   groups: {
     list: () => call<Group[]>('master:groups:list'),
@@ -77,7 +285,10 @@ export const api = {
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),
     duplicates: (data: VoucherInputParsed, excludeId?: number) =>
-      call<{ voucherId: number; number: string; date: string }[]>('voucher:duplicates', { data, excludeId })
+      call<{ voucherId: number; number: string; date: string }[]>('voucher:duplicates', { data, excludeId }),
+    bin: () => call<BinRow[]>('voucher:bin'),
+    restore: (id: number) => call<null>('voucher:restore', { id }),
+    purge: (id: number) => call<null>('voucher:purge', { id })
   },
   reports: {
     dayBook: (from: string, to: string) => call<DayBookRow[]>('report:dayBook', { from, to }),
@@ -89,13 +300,20 @@ export const api = {
     stockSummary: (asOn: string) => call<StockSummaryRow[]>('report:stockSummary', { asOn }),
     dashboard: (today: string, fyFrom: string) => call<DashboardData>('report:dashboard', { today, fyFrom })
   },
+  consolidated: {
+    run: (slugs: string[], kind: 'tb' | 'pnl', from: string, to: string) =>
+      call<ConsolidatedResult>('consol:run', { slugs, kind, from, to })
+  },
   gst: {
     gstr1: (from: string, to: string, period: string) => call<Gstr1Result>('gst:gstr1', { from, to, period }),
     gstr3b: (from: string, to: string, period: string) => call<Gstr3bResult>('gst:gstr3b', { from, to, period }),
     exportGstr1: (from: string, to: string, period: string) =>
       call<{ jsonPath: string; csvPath: string }>('gst:exportGstr1', { from, to, period }),
     exportGstr3b: (from: string, to: string, period: string) =>
-      call<{ jsonPath: string }>('gst:exportGstr3b', { from, to, period })
+      call<{ jsonPath: string }>('gst:exportGstr3b', { from, to, period }),
+    recon2b: (jsonText: string, from: string, to: string) =>
+      call<{ result: Recon2bResult; errors: string[]; period: string | null }>('gst:recon2b', { jsonText, from, to }),
+    recon2bPickFile: () => call<{ jsonText: string; fileName: string } | null>('gst:recon2bPickFile')
   },
   analysis: {
     register: (kind: 'sales' | 'purchase', from: string, to: string) =>
@@ -103,15 +321,59 @@ export const api = {
     outstandings: (side: 'receivable' | 'payable', asOn: string) =>
       call<OutstandingParty[]>('analysis:outstandings', { side, asOn })
   },
+  bills: {
+    open: (partyLedgerId: number, asOn: string) => call<OutstandingBill[]>('bills:open', { partyLedgerId, asOn })
+  },
+  tds: {
+    sections: () => call<TdsSection[]>('tds:sections'),
+    sectionSave: (data: TdsSectionInput) => call<TdsSection>('tds:sectionSave', data),
+    suggest: (partyLedgerId: number, base: number, date: string) =>
+      call<TdsSuggestion | null>('tds:suggest', { partyLedgerId, base, date }),
+    summary: (fyStartYear: number) => call<TdsSummaryRow[]>('tds:summary', { fyStartYear }),
+    export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter })
+  },
+  cc: {
+    list: () => call<CostCentre[]>('cc:list'),
+    save: (data: CostCentreInput, id?: number) => call<CostCentre>('cc:save', { id, data }),
+    remove: (id: number) => call<null>('cc:delete', { id }),
+    report: (from: string, to: string) => call<CcReportRow[]>('cc:report', { from, to }),
+    statement: (ccId: number, from: string, to: string) => call<CcStatementRow[]>('cc:statement', { ccId, from, to })
+  },
+  budget: {
+    list: () => call<Budget[]>('budget:list'),
+    save: (data: BudgetInput, id?: number) => call<Budget>('budget:save', { id, data }),
+    remove: (id: number) => call<null>('budget:delete', { id }),
+    variance: (budgetId: number, upToMonth: string) => call<BudgetVarianceRow[]>('budget:variance', { budgetId, upToMonth })
+  },
+  recurring: {
+    list: () => call<RecurringTemplate[]>('recurring:list'),
+    save: (data: RecurringInput, id?: number) => call<RecurringTemplate>('recurring:save', { id, data }),
+    remove: (id: number) => call<null>('recurring:delete', { id }),
+    due: (today: string) => call<RecurringTemplate[]>('recurring:due', { today }),
+    post: (id: number, date: string) => call<Voucher>('recurring:post', { id, date }),
+    skip: (id: number) => call<RecurringTemplate>('recurring:skip', { id })
+  },
   bank: {
     ledgers: () => call<{ id: number; name: string }[]>('bank:ledgers'),
     recon: (ledgerId: number, from: string, to: string) => call<BankRecon>('bank:recon', { ledgerId, from, to }),
     setBankDate: (lineId: number, bankDate: string | null) => call<null>('bank:setBankDate', { lineId, bankDate }),
     importCsv: (ledgerId: number) =>
-      call<{ statementRows: number; matched: number; unmatched: { date: string; description: string; amount: number; kind: string }[] } | null>(
-        'bank:importCsv',
-        { ledgerId }
-      )
+      call<
+        | {
+            statementRows: number
+            matched: number
+            unmatched: { date: string; description: string; amount: number; kind: string }[]
+            csvText: string
+          }
+        | null
+      >('bank:importCsv', { ledgerId }),
+    suggest: (ledgerId: number, csvText: string) => call<BankSuggestionRow[]>('banking:suggest', { ledgerId, csvText })
+  },
+  bankRules: {
+    list: () => call<BankRuleRecord[]>('bankrule:list'),
+    save: (data: BankRuleInput, id?: number) => call<BankRuleRecord>('bankrule:save', { id, data }),
+    remove: (id: number) => call<null>('bankrule:delete', { id }),
+    hit: (id: number) => call<null>('bankrule:hit', { id })
   },
   edoc: {
     list: (from: string, to: string) => call<EdocListRow[]>('edoc:list', { from, to }),
@@ -121,7 +383,28 @@ export const api = {
       call<{ path: string; count: number }>('edoc:exportEwb', { from, to, period })
   },
   invoice: {
-    pdf: (voucherId: number) => call<{ path: string }>('invoice:pdf', { voucherId })
+    pdf: (voucherId: number) => call<{ path: string }>('invoice:pdf', { voucherId }),
+    previewHtml: (voucherId?: number, config?: Partial<InvoiceConfig>) =>
+      call<{ html: string }>('invoice:previewHtml', { voucherId, config })
+  },
+  cheque: {
+    config: {
+      get: (bankLedgerId: number) => call<ChequeConfig>('cheque:config:get', { bankLedgerId }),
+      set: (bankLedgerId: number, config: ChequeConfig) => call<ChequeConfig>('cheque:config:set', { bankLedgerId, config })
+    },
+    pdf: (voucherId: number, bankLedgerId: number) => call<{ path: string }>('cheque:pdf', { voucherId, bankLedgerId }),
+    testGrid: (bankLedgerId: number) => call<{ path: string }>('cheque:testGrid', { bankLedgerId }),
+    advice: (voucherId: number) => call<{ path: string }>('cheque:advice', { voucherId })
+  },
+  config: {
+    features: {
+      get: () => call<CompanyFeatures>('config:features:get'),
+      set: (data: CompanyFeatures) => call<CompanyFeatures>('config:features:set', data)
+    },
+    invoice: {
+      get: () => call<InvoiceConfig>('config:invoice:get'),
+      set: (data: InvoiceConfig) => call<InvoiceConfig>('config:invoice:set', data)
+    }
   },
   currencies: {
     list: () => call<Currency[]>('currency:list'),
@@ -145,11 +428,31 @@ export const api = {
     removeRun: (id: number) => call<null>('payroll:deleteRun', { id }),
     payslip: (runId: number, employeeId: number) => call<{ path: string }>('payroll:payslip', { runId, employeeId })
   },
+  yearEnd: {
+    preview: (fyStartYear: number) =>
+      call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean }>('yearend:preview', { fyStartYear }),
+    close: (fyStartYear: number) =>
+      call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
+  },
   tally: {
-    import: () =>
-      call<{ groups: number; ledgers: number; units: number; items: number; vouchers: number; skipped: number; warnings: string[] } | null>(
-        'tally:import'
-      )
+    dryRun: (filePath?: string) =>
+      call<{ filePath: string | null; summary: TallyImportSummary } | null>('tally:import', { filePath, dryRun: true }),
+    apply: (filePath?: string) =>
+      call<{ filePath: string | null; summary: TallyImportSummary } | null>('tally:import', { filePath, dryRun: false })
+  },
+  importer: {
+    pickCsv: () => call<{ csvText: string; fileName: string } | null>('import:pickCsv'),
+    preview: (kind: ImportKind, csvText: string) => call<ImportPreview>('import:preview', { kind, csvText }),
+    apply: (kind: ImportKind, csvText: string) => call<ImportResult>('import:apply', { kind, csvText }),
+    template: (kind: ImportKind) => call<{ path: string }>('import:template', { kind })
+  },
+  exporter: {
+    caPack: (from: string, to: string) => call<{ path: string }>('export:caPack', { from, to }),
+    tallyXml: (from: string, to: string) => call<{ path: string }>('export:tallyXml', { from, to })
+  },
+  exportReport: {
+    pdf: (input: ReportPdfInput) => call<{ path: string }>('report:pdf', input),
+    csv: (filename: string, csv: string) => call<{ path: string }>('export:csv', { filename, csv })
   },
   nic: {
     get: () => call<NicCredentials>('nic:get'),
@@ -163,5 +466,35 @@ export const api = {
       call<{ ledgerId: number; name: string; groupName: string; uses: number }[]>('intel:suggestLedgers', { kind, query }),
     anomaly: (ledgerId: number, amount: number) =>
       call<{ unusual: boolean; typicalAmount: number | null }>('intel:anomaly', { ledgerId, amount })
+  },
+  log: {
+    renderer: (input: RendererLogInput) => call<null>('log:renderer', input),
+    reveal: () => call<null>('log:reveal')
+  },
+  search: {
+    global: (q: string) => call<SearchHit[]>('search:global', { q })
+  },
+  audit: {
+    list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number }>('audit:list', query)
+  },
+  auth: {
+    users: () => call<LoginName[]>('auth:users'),
+    login: (userId: number, pin: string) => call<SessionUser>('auth:login', { userId, pin }),
+    logout: () => call<null>('auth:logout'),
+    current: () => call<SessionUser | null>('auth:current')
+  },
+  users: {
+    list: () => call<UserRow[]>('users:list'),
+    save: (data: UserInput, id?: number) => call<UserRow & { locked: boolean }>('users:save', { data, id }),
+    deactivate: (id: number) => call<null>('users:deactivate', { id })
+  },
+  app: {
+    info: () => call<{ version: string; platform: string }>('app:info'),
+    checkUpdates: () =>
+      call<{ status: 'dev' | 'available' | 'up-to-date' | 'error'; current: string; latest?: string }>(
+        'app:checkUpdates'
+      ),
+    notifyDeadlines: (items: { title: string; body: string }[]) =>
+      call<null>('app:notifyDeadlines', { items })
   }
 }

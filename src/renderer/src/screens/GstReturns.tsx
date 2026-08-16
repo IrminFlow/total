@@ -5,7 +5,7 @@ import { useSession, useToasts } from '../state/stores'
 import { Button, Money, Panel, SectionTitle, Select } from '../components/ui'
 import { todayISO } from '@shared/dates'
 
-interface MonthChoice {
+export interface MonthChoice {
   key: string // YYYY-MM
   label: string
   from: string
@@ -13,7 +13,7 @@ interface MonthChoice {
   period: string // MMYYYY
 }
 
-function useMonths(): MonthChoice[] {
+export function useMonths(): MonthChoice[] {
   const { from, to } = useSession()
   return useMemo(() => {
     const months: MonthChoice[] = []
@@ -40,7 +40,7 @@ function useMonths(): MonthChoice[] {
   }, [from, to])
 }
 
-function MonthBar({ months, value, onChange }: { months: MonthChoice[]; value: string; onChange: (key: string) => void }): React.JSX.Element {
+export function MonthBar({ months, value, onChange }: { months: MonthChoice[]; value: string; onChange: (key: string) => void }): React.JSX.Element {
   return (
     <Select value={value} onChange={(e) => onChange(e.target.value)} className="w-48">
       {months.map((m) => (
@@ -52,7 +52,7 @@ function MonthBar({ months, value, onChange }: { months: MonthChoice[]; value: s
   )
 }
 
-function useDefaultMonth(months: MonthChoice[]): [string, (k: string) => void] {
+export function useDefaultMonth(months: MonthChoice[]): [string, (k: string) => void] {
   const current = todayISO().slice(0, 7)
   const fallback = months.find((m) => m.key === current)?.key ?? months[months.length - 1]?.key ?? current
   const [key, setKey] = useState(fallback)

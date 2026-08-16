@@ -1,4 +1,5 @@
 import type { DB } from '../db/connection'
+import { NOT_DELETED } from './vouchers'
 
 export interface LedgerSuggestion {
   ledgerId: number
@@ -20,7 +21,7 @@ export function suggestLedgers(db: DB, kind: string, query: string, limit = 8): 
                 FROM voucher_lines vl
                 JOIN vouchers v ON v.id = vl.voucher_id
                 JOIN voucher_types vt ON vt.id = v.voucher_type_id
-                WHERE vl.ledger_id = l.id AND vt.kind = ?
+                WHERE vl.ledger_id = l.id AND vt.kind = ? AND ${NOT_DELETED}
               ), 0) AS uses
        FROM ledgers l JOIN groups g ON g.id = l.group_id
        WHERE l.name LIKE '%' || ? || '%'

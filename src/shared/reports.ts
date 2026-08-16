@@ -96,6 +96,17 @@ export interface StockSummaryRow {
   closingValue: number
 }
 
+export interface TopLedgerRow {
+  ledgerId: number
+  name: string
+  amount: number
+}
+
+export interface CashSparkPoint {
+  date: string
+  balance: number
+}
+
 export interface DashboardData {
   cashBalance: number
   bankBalance: number
@@ -106,6 +117,16 @@ export interface DashboardData {
   payables: number
   gstPayable: number
   recentVouchers: DayBookRow[]
+  /** Top 5 debtors by outstanding Dr balance, descending. */
+  topReceivables: TopLedgerRow[]
+  /** Top 5 creditors by outstanding Cr balance (positive amount), descending. */
+  topPayables: TopLedgerRow[]
+  /** Cash + bank running balance, one point per day, trailing 30 days ending today. */
+  cashSpark: CashSparkPoint[]
+  voucherCount: number
+  partyCount: number
+  itemCount: number
+  hasEmployees: boolean
 }
 
 export interface VoucherListRow {
@@ -162,6 +183,10 @@ export interface OutstandingBill {
   /** Still-unsettled portion (paise). */
   pending: number
   ageDays: number
+  /** Named due date (explicit ref, or date + party credit_days); null when neither is known. */
+  dueDate: string | null
+  /** Days past dueDate (or past the bill date when dueDate is null); 0 when not yet due. */
+  overdueDays: number
 }
 
 export interface OutstandingParty {
@@ -202,6 +227,7 @@ export interface EdocListRow {
   voucherId: number
   number: string
   date: string
+  docType: 'INV' | 'CRN' | 'DBN'
   partyName: string | null
   partyGstin: string | null
   total: number

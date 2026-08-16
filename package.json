@@ -4,7 +4,7 @@
   "description": "Total — fully offline accounting for macOS. Tally-grade books, modern experience.",
   "main": "out/main/index.js",
   "author": "Irmin Labs",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",
@@ -12,6 +12,8 @@
     "preview": "electron-vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:db": "node scripts/test-db.mjs",
+    "smoke": "node scripts/smoke-ci.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "postinstall": "electron-builder install-app-deps",
     "build:mac": "electron-vite build && electron-builder --mac"
@@ -22,6 +24,7 @@
     "@fontsource/ibm-plex-serif": "^5.3.0",
     "better-sqlite3": "^12.2.0",
     "electron-updater": "^6.8.9",
+    "qrcode-generator": "^2.0.4",
     "zod": "^3.25.0"
   },
   "devDependencies": {

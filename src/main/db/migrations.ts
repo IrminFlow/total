@@ -199,5 +199,175 @@ export const MIGRATIONS: string[] = [
     pt INTEGER NOT NULL,
     net INTEGER NOT NULL
   );
+  `,
+  // 004 — soft delete, full audit trail, local users/PIN/roles. This migration is now complete.
+  `
+  ALTER TABLE vouchers ADD COLUMN deleted_at TEXT;
+  CREATE INDEX idx_vouchers_deleted ON vouchers(deleted_at) WHERE deleted_at IS NOT NULL;
+
+  -- full audit trail (task 1.8): who made the change and which build wrote it
+  ALTER TABLE audit_log ADD COLUMN user_name TEXT;
+  ALTER TABLE audit_log ADD COLUMN app_version TEXT;
+  CREATE INDEX idx_audit_at ON audit_log(at);
+  CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
+
+  -- local users + PIN + roles (task 1.9): a company with zero rows here is unlocked (no gate);
+  -- the first user created is always forced to 'owner' regardless of requested role.
+  CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    pin_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('owner','accountant','viewer')),
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- perf hardening (task 1.11): covering indexes for the hot report queries, replacing the
+  -- narrower single-column ledger index from 001 (idx_lines_ledger_voucher covers it too).
+  CREATE INDEX idx_lines_ledger_voucher ON voucher_lines(ledger_id, voucher_id);
+  CREATE INDEX idx_lines_voucher_drcr_amount ON voucher_lines(voucher_id, dr_cr, amount);
+  CREATE INDEX idx_vouchers_type_date ON vouchers(voucher_type_id, date);
+  CREATE INDEX idx_vouchers_party ON vouchers(party_ledger_id);
+  DROP INDEX idx_lines_ledger;
+  `,
+  // 005 — TDS (Tax Deducted at Source): sections seeded with standard FY rates/thresholds
+  // (paise), the ledger fields that flag a party for TDS, and the per-voucher deduction record
+  // that feeds the quarterly summary + 26Q export (task 2.2).
+  `
+  CREATE TABLE tds_sections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    rate REAL NOT NULL,
+    threshold_single INTEGER NOT NULL DEFAULT 0,
+    threshold_annual INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO tds_sections (code, description, rate, threshold_single, threshold_annual) VALUES
+    ('194C', 'Payments to contractors', 2, 3000000, 10000000),
+    ('194J', 'Fees for professional or technical services', 10, 3000000, 3000000),
+    ('194I', 'Rent', 10, 0, 24000000),
+    ('194H', 'Commission or brokerage', 2, 0, 1500000),
+    ('194A', 'Interest other than on securities', 10, 0, 500000);
+
+  ALTER TABLE ledgers ADD COLUMN tds_section_id INTEGER REFERENCES tds_sections(id);
+  ALTER TABLE ledgers ADD COLUMN pan TEXT;
+
+  CREATE TABLE tds_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    section_id INTEGER NOT NULL REFERENCES tds_sections(id),
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    pan TEXT,
+    base_amount INTEGER NOT NULL,
+    tds_amount INTEGER NOT NULL
+  );
+  CREATE INDEX idx_tds_entries_voucher ON tds_entries(voucher_id);
+  CREATE INDEX idx_tds_entries_party_section ON tds_entries(party_ledger_id, section_id);
+  `,
+  // 006 — cost centres (with per-voucher-line allocations), bill-by-bill references, ledger
+  // credit terms, stock-item barcodes, and party export type for e-invoicing (DDL only here —
+  // the live e-doc logic lands in task 2.8). Everything in this batch belongs to task 2.2.
+  `
+  CREATE TABLE cost_centres (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    parent_id INTEGER REFERENCES cost_centres(id),
+    active INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE voucher_line_cost_allocations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_line_id INTEGER NOT NULL REFERENCES voucher_lines(id) ON DELETE CASCADE,
+    cost_centre_id INTEGER NOT NULL REFERENCES cost_centres(id),
+    amount INTEGER NOT NULL CHECK (amount > 0)
+  );
+  CREATE INDEX idx_vlca_cc ON voucher_line_cost_allocations(cost_centre_id);
+
+  CREATE TABLE bill_refs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    kind TEXT NOT NULL CHECK (kind IN ('new', 'against')),
+    name TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    due_date TEXT
+  );
+  CREATE INDEX idx_bill_refs_party ON bill_refs(party_ledger_id);
+
+  ALTER TABLE ledgers ADD COLUMN credit_days INTEGER;
+
+  ALTER TABLE stock_items ADD COLUMN barcode TEXT;
+  CREATE UNIQUE INDEX idx_stock_items_barcode ON stock_items(barcode) WHERE barcode IS NOT NULL;
+
+  ALTER TABLE ledgers ADD COLUMN export_type TEXT CHECK (export_type IN ('sez_wp', 'sez_wop', 'exp_wp', 'exp_wop'));
+  `,
+  // 007 — voucher-type numbering (suffix, pad, restart): task 2.12's F11/numbering config. Company
+  // feature flags and invoice print settings ride on the existing `meta` table (JSON, no DDL) —
+  // see src/main/services/config.ts.
+  `
+  ALTER TABLE voucher_types ADD COLUMN suffix TEXT NOT NULL DEFAULT '';
+  ALTER TABLE voucher_types ADD COLUMN pad_width INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE voucher_types ADD COLUMN restart_fy INTEGER NOT NULL DEFAULT 1;
+  `,
+  // 008 — recurring templates: a saved voucher shape (exact VoucherInputParsed JSON) that
+  // recurring:post re-validates and re-posts on a monthly/weekly cadence (task 2.3).
+  `
+  CREATE TABLE recurring_templates (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    voucher_json TEXT NOT NULL,
+    cadence TEXT NOT NULL CHECK (cadence IN ('monthly','weekly')),
+    day_of_month INTEGER,
+    weekday INTEGER,
+    next_due TEXT NOT NULL,
+    last_posted TEXT,
+    active INTEGER NOT NULL DEFAULT 1
+  );
+  `,
+  // 009 — recurring_templates.voucher_type_id: denormalized FK (extracted from the stored
+  // voucher_json at save time — see saveTemplate) so recurring:list/due can JOIN voucher_types
+  // for its kind, letting "Open in voucher entry" pick the right entry form (kindHint) instead
+  // of always falling through to Journal.
+  `
+  ALTER TABLE recurring_templates ADD COLUMN voucher_type_id INTEGER REFERENCES voucher_types(id);
+  `,
+  // 010 — bank rules: pattern-matched auto-categorization for statement import (task 2.5).
+  // `pattern` is a case-insensitive substring matched against the statement description;
+  // `kind` constrains a rule to deposits ('receipt') or withdrawals ('payment') so the same
+  // description text can't misfire across direction; `hits` is incremented (recordRuleHit) each
+  // time the user files a voucher from a suggestion built off this rule.
+  `
+  CREATE TABLE bank_rules (
+    id INTEGER PRIMARY KEY,
+    pattern TEXT NOT NULL,
+    match_field TEXT NOT NULL DEFAULT 'description',
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    kind TEXT NOT NULL CHECK (kind IN ('payment','receipt')),
+    active INTEGER NOT NULL DEFAULT 1,
+    hits INTEGER NOT NULL DEFAULT 0
+  );
+  `,
+  // 011 — budgets (task 2.6): a named budget scoped to one financial year, with per-line targets
+  // that are either a single ledger or a whole group (rolled up over its descendants at report
+  // time — never denormalised). A line's `month` is either 'YYYY-MM' within the budget's FY (that
+  // month only) or NULL (an annual figure, compared FY-to-date). The XOR CHECK keeps a line from
+  // ever targeting both a ledger and a group, or neither.
+  `
+  CREATE TABLE budgets (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    fy_start_year INTEGER NOT NULL,
+    UNIQUE(name, fy_start_year)
+  );
+
+  CREATE TABLE budget_lines (
+    id INTEGER PRIMARY KEY,
+    budget_id INTEGER NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+    ledger_id INTEGER REFERENCES ledgers(id),
+    group_id INTEGER REFERENCES groups(id),
+    month TEXT,
+    amount INTEGER NOT NULL,
+    CHECK ((ledger_id IS NULL) <> (group_id IS NULL))
+  );
   `
 ]

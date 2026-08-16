@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/client'
+import { api, type IntegrityResult } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, Field, Modal, Select, TextInput, useKeyNav } from '../components/ui'
 import { GST_STATES } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
 import { fyOf, todayISO } from '@shared/dates'
 import type { CompanyCreateInput } from '@shared/schemas'
+import type { CompanyInfo, CompanySummary } from '@shared/domain'
 
 export function CompanySelect(): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -14,13 +15,24 @@ export function CompanySelect(): React.JSX.Element {
   const { setCompany } = useSession()
   const toast = useToasts()
   const [creating, setCreating] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [demoLoading, setDemoLoading] = useState(false)
+  const [deleting, setDeleting] = useState<CompanySummary | null>(null)
+  const [integrityIssue, setIntegrityIssue] = useState<{
+    pending: { slug: string; info: CompanyInfo; locked: boolean }
+    integrity: IntegrityResult
+  } | null>(null)
 
   const companies = registry?.companies ?? []
 
   const open = async (slug: string): Promise<void> => {
     try {
       const r = await api.company.open(slug)
-      setCompany(r.slug, r.info)
+      if (!r.integrity.ok) {
+        setIntegrityIssue({ pending: { slug: r.slug, info: r.info, locked: r.locked }, integrity: r.integrity })
+        return
+      }
+      setCompany(r.slug, r.info, r.locked)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -49,7 +61,7 @@ export function CompanySelect(): React.JSX.Element {
             <div
               key={c.slug}
               data-active={i === active}
-              className="kbar-row flex cursor-pointer items-center justify-between border-b border-line/50 px-5 py-3.5 last:border-b-0"
+              className="kbar-row group flex cursor-pointer items-center justify-between border-b border-line/50 px-5 py-3.5 last:border-b-0"
               onMouseEnter={() => setActive(i)}
               onClick={() => void open(c.slug)}
             >
@@ -60,17 +72,63 @@ export function CompanySelect(): React.JSX.Element {
                   {c.gstin ? ` · ${c.gstin}` : ' · Unregistered'}
                 </p>
               </div>
-              <span className="text-[11.5px] text-muted">Enter ↵</span>
+              <div className="flex items-center gap-3">
+                <span className="text-[11.5px] text-muted">Enter ↵</span>
+                <button
+                  type="button"
+                  title={`Delete ${c.name}`}
+                  className="rounded px-1.5 py-0.5 text-[13px] text-muted opacity-0 transition-opacity hover:border hover:border-cr/50 hover:text-cr group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDeleting(c)
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             </div>
           ))}
         </div>
 
-        <div className="mt-4 flex justify-center">
+        <div className="mt-4 flex justify-center gap-2">
           <Button variant="primary" onClick={() => setCreating(true)}>
             Create company
           </Button>
+          <Button variant="ghost" onClick={() => setImporting(true)}>
+            Import encrypted backup…
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={demoLoading}
+            onClick={async () => {
+              setDemoLoading(true)
+              try {
+                const r = await api.company.createDemo()
+                await queryClient.invalidateQueries({ queryKey: ['registry'] })
+                await open(r.slug)
+              } catch (err) {
+                toast.push('error', (err as Error).message)
+              } finally {
+                setDemoLoading(false)
+              }
+            }}
+          >
+            {demoLoading ? 'Setting up sample data…' : 'Explore with sample data'}
+          </Button>
         </div>
       </div>
+
+      {deleting && (
+        <DeleteCompanyModal
+          company={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={async () => {
+            setDeleting(null)
+            await queryClient.invalidateQueries({ queryKey: ['registry'] })
+            toast.push('success', 'Company deleted')
+          }}
+        />
+      )}
 
       {creating && (
         <CreateCompanyModal
@@ -82,7 +140,227 @@ export function CompanySelect(): React.JSX.Element {
           }}
         />
       )}
+
+      {importing && (
+        <ImportBackupModal
+          onClose={() => setImporting(false)}
+          onImported={async (slug) => {
+            setImporting(false)
+            await queryClient.invalidateQueries({ queryKey: ['registry'] })
+            await open(slug)
+          }}
+        />
+      )}
+
+      {integrityIssue && (
+        <IntegrityIssueModal
+          integrity={integrityIssue.integrity}
+          onOpenAnyway={() => {
+            const { pending } = integrityIssue
+            setIntegrityIssue(null)
+            setCompany(pending.slug, pending.info, pending.locked)
+          }}
+          onCancel={async () => {
+            setIntegrityIssue(null)
+            try {
+              await api.company.close()
+            } catch (err) {
+              toast.push('error', (err as Error).message)
+            }
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+function IntegrityIssueModal({
+  integrity,
+  onOpenAnyway,
+  onCancel
+}: {
+  integrity: IntegrityResult
+  onOpenAnyway: () => void
+  onCancel: () => void
+}): React.JSX.Element {
+  return (
+    <Modal title="Database check found problems" onClose={onCancel}>
+      <div className="flex flex-col gap-4">
+        <p className="text-[13px] text-muted">
+          This company's database failed an integrity check. You can open it anyway, or cancel and restore an
+          earlier backup.
+        </p>
+        <ul className="flex flex-col gap-1 text-[13px]">
+          {integrity.quickCheck !== 'ok' && (
+            <li className="rounded-md border border-line bg-canvas px-3 py-2">
+              <span className="text-muted">quick_check:</span> <span className="num">{integrity.quickCheck}</span>
+            </li>
+          )}
+          {integrity.unbalancedVoucherIds.length > 0 && (
+            <li className="rounded-md border border-line bg-canvas px-3 py-2">
+              <span className="text-muted">Unbalanced vouchers:</span>{' '}
+              <span className="num">{integrity.unbalancedVoucherIds.join(', ')}</span>
+            </li>
+          )}
+        </ul>
+        <div className="flex justify-end gap-2">
+          {/* TODO(task-1.10): navigate to Settings → Backups */}
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button variant="danger" onClick={onOpenAnyway}>
+            Open anyway
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function ImportBackupModal({
+  onClose,
+  onImported
+}: {
+  onClose: () => void
+  onImported: (slug: string) => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const [passphrase, setPassphrase] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const doImport = async (): Promise<void> => {
+    if (passphrase.length < 8) {
+      toast.push('error', 'Passphrase must be at least 8 characters')
+      return
+    }
+    setBusy(true)
+    try {
+      const result = await api.backups.importEncrypted(passphrase)
+      if (!result) {
+        setBusy(false)
+        return // dialog cancelled
+      }
+      toast.push('success', `${result.name} imported`)
+      onImported(result.slug)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="Import encrypted backup" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <p className="text-[13px] text-muted">
+          Choose a <span className="num">.totalbak</span> file and enter the passphrase it was exported with.
+        </p>
+        <Field label="Passphrase">
+          <TextInput
+            autoFocus
+            type="password"
+            value={passphrase}
+            onChange={(e) => setPassphrase(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void doImport()
+            }}
+            placeholder="At least 8 characters"
+          />
+        </Field>
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={() => void doImport()} disabled={busy}>
+            {busy ? 'Importing…' : 'Choose file & import'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function DeleteCompanyModal({
+  company,
+  onClose,
+  onDeleted
+}: {
+  company: CompanySummary
+  onClose: () => void
+  onDeleted: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const [confirmName, setConfirmName] = useState('')
+  const [pin, setPin] = useState('')
+  // Set once the main process refuses the delete because this company has users and no (or the
+  // wrong) PIN was supplied — see company:delete / assertDeleteAuthorized. The typed-name confirm
+  // above stays visible; this just adds the PIN field the protected path additionally requires.
+  const [needsPin, setNeedsPin] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const matches = confirmName.trim() === company.name
+
+  const doDelete = async (): Promise<void> => {
+    if (!matches) return
+    setBusy(true)
+    try {
+      await api.company.remove(company.slug, confirmName.trim(), needsPin ? pin : undefined)
+      onDeleted()
+    } catch (err) {
+      const message = (err as Error).message
+      if (message.includes('protected') && message.includes('PIN')) {
+        setNeedsPin(true)
+        if (pin) toast.push('error', 'Wrong PIN')
+      } else {
+        toast.push('error', message)
+      }
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={`Delete ${company.name}`} onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <p className="text-[13px] text-muted">
+          This permanently deletes <span className="font-medium text-ink">{company.name}</span> and every voucher,
+          ledger and backup stored for it. This cannot be undone.
+        </p>
+        <Field label={`Type "${company.name}" to confirm`}>
+          <TextInput
+            autoFocus
+            value={confirmName}
+            onChange={(e) => setConfirmName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !needsPin) void doDelete()
+            }}
+            placeholder={company.name}
+          />
+        </Field>
+        {needsPin && (
+          <Field label="Owner PIN" hint="This company has signed-in users — an owner PIN is required to delete it">
+            <TextInput
+              autoFocus
+              type="password"
+              inputMode="numeric"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void doDelete()
+              }}
+              placeholder="PIN"
+            />
+          </Field>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => void doDelete()}
+            disabled={!matches || busy || (needsPin && !pin)}
+          >
+            {busy ? 'Deleting…' : 'Delete company'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -113,7 +391,9 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
         address,
         booksFrom,
         email: null,
-        phone: null
+        phone: null,
+        pan: null,
+        tan: null
       }
       if (!input.name) {
         toast.push('error', 'Company name is required')

@@ -58,6 +58,42 @@ export async function latestRelease(): Promise<ReleaseInfo | null> {
   }
 }
 
+export interface ReleaseNote {
+  version: string
+  name: string
+  date: string
+  body: string
+}
+
+/** Published (non-draft, non-prerelease) releases, newest first. Empty on any failure. */
+export async function listReleases(): Promise<ReleaseNote[]> {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=20`, {
+      headers: githubHeaders(),
+      next: { revalidate: 300 }
+    })
+    if (!res.ok) return []
+    const data = (await res.json()) as {
+      tag_name?: string
+      name?: string | null
+      published_at?: string | null
+      body?: string | null
+      draft?: boolean
+      prerelease?: boolean
+    }[]
+    return data
+      .filter((r) => !r.draft && !r.prerelease && r.tag_name)
+      .map((r) => ({
+        version: (r.tag_name as string).replace(/^v/, ''),
+        name: r.name ?? (r.tag_name as string),
+        date: r.published_at ?? '',
+        body: r.body ?? ''
+      }))
+  } catch {
+    return []
+  }
+}
+
 /**
  * A URL the browser can actually download from. For a private repo, asking the API
  * for the asset as octet-stream returns a redirect to a short-lived unauthenticated

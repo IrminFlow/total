@@ -1,10 +1,28 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, TextInput } from '../components/ui'
+import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select } from '../components/ui'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
-import type { NicCredentials } from '@shared/schemas'
+
+type DocTypeFilter = 'all' | 'INV' | 'CRN' | 'DBN'
+
+const DOC_TYPE_FILTERS: { value: DocTypeFilter; label: string }[] = [
+  { value: 'all', label: 'All documents' },
+  { value: 'INV', label: 'Invoices' },
+  { value: 'CRN', label: 'Credit notes' },
+  { value: 'DBN', label: 'Debit notes' }
+]
+
+const DOC_TYPE_CLASS: Record<'INV' | 'CRN' | 'DBN', string> = {
+  INV: 'text-muted',
+  CRN: 'text-dr',
+  DBN: 'text-cr'
+}
+
+/** Per-session "don't ask again" for the live-API confirm gate — module-level so it survives
+ *  remounts of this screen but resets on app restart (never persisted to disk). */
+let liveApiConfirmed = false
 
 export function EdocsScreen(): React.JSX.Element {
   const { from, to, info } = useSession()
@@ -13,9 +31,14 @@ export function EdocsScreen(): React.JSX.Element {
   const queryClient = useQueryClient()
   const { data } = useQuery({ queryKey: ['edocList', from, to], queryFn: () => api.edoc.list(from, to) })
   const { data: nicStatus } = useQuery({ queryKey: ['nicStatus'], queryFn: api.nic.status })
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [busy, setBusy] = useState<number | null>(null)
-  const rows = data ?? []
+  const [confirming, setConfirming] = useState<{ kind: 'irn' | 'ewb'; voucherId: number } | null>(null)
+  const [docTypeFilter, setDocTypeFilter] = useState<DocTypeFilter>('all')
+  const allRows = data ?? []
+  const rows = useMemo(
+    () => (docTypeFilter === 'all' ? allRows : allRows.filter((r) => r.docType === docTypeFilter)),
+    [allRows, docTypeFilter]
+  )
   const period = gstPeriodOf(to)
   const live = nicStatus?.configured ?? false
 
@@ -33,6 +56,14 @@ export function EdocsScreen(): React.JSX.Element {
       toast.push(r.count ? 'success' : 'warning', r.count ? `${r.count} invoice${r.count > 1 ? 's' : ''} written for e-way bill generation` : 'No invoices in this period')
     } catch (err) {
       toast.push('error', (err as Error).message)
+    }
+  }
+
+  const requestGenerate = (kind: 'irn' | 'ewb', voucherId: number): void => {
+    if (liveApiConfirmed) {
+      void (kind === 'irn' ? generateIrn(voucherId) : generateEwb(voucherId))
+    } else {
+      setConfirming({ kind, voucherId })
     }
   }
 
@@ -65,8 +96,19 @@ export function EdocsScreen(): React.JSX.Element {
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <div className="flex gap-2">
-            <Button onClick={() => setSettingsOpen(true)}>{live ? 'Live filing ✓' : 'Set up live filing'}</Button>
+          <div className="flex items-center gap-2">
+            <Select
+              className="w-40"
+              value={docTypeFilter}
+              onChange={(e) => setDocTypeFilter(e.target.value as DocTypeFilter)}
+            >
+              {DOC_TYPE_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </Select>
+            <Button onClick={() => nav.go({ name: 'settings', tab: 'nic' })}>
+              {live ? 'Live filing ✓ · Configure in Settings →' : 'Configure in Settings →'}
+            </Button>
             <Button variant="primary" onClick={() => void exportEinv()} disabled={!info?.gstin}>
               Export e-invoice JSON
             </Button>
@@ -83,13 +125,14 @@ export function EdocsScreen(): React.JSX.Element {
 
       <Panel>
         {rows.length === 0 ? (
-          <EmptyState title="No sales invoices in this period" />
+          <EmptyState title={allRows.length === 0 ? 'No documents in this period' : 'No documents match this filter'} />
         ) : (
           <table className="ledger-table">
             <thead>
               <tr>
                 <th className="w-20">Date</th>
                 <th className="w-20">No.</th>
+                <th className="w-16">Type</th>
                 <th>Buyer</th>
                 <th className="w-40">GSTIN</th>
                 <th className="r w-32">Value</th>
@@ -102,6 +145,14 @@ export function EdocsScreen(): React.JSX.Element {
                 <tr key={r.voucherId}>
                   <td className="num text-muted">{toDisplayDate(r.date)}</td>
                   <td className="num">{r.number}</td>
+                  <td>
+                    <span
+                      className={`inline-block rounded border border-line px-1.5 py-0.5 text-[10.5px] font-medium ${DOC_TYPE_CLASS[r.docType]}`}
+                      title={r.docType === 'CRN' ? 'Credit note' : r.docType === 'DBN' ? 'Debit note' : 'Invoice'}
+                    >
+                      {r.docType}
+                    </span>
+                  </td>
                   <td>{r.partyName ?? 'Cash sale'}</td>
                   <td className="num text-muted">{r.partyGstin ?? '—'}</td>
                   <td className="r"><Money paise={r.total} /></td>
@@ -115,7 +166,7 @@ export function EdocsScreen(): React.JSX.Element {
                       <button
                         className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
                         disabled={busy === r.voucherId}
-                        onClick={() => void generateIrn(r.voucherId)}
+                        onClick={() => requestGenerate('irn', r.voucherId)}
                       >
                         Generate IRN
                       </button>
@@ -124,7 +175,7 @@ export function EdocsScreen(): React.JSX.Element {
                       <button
                         className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
                         disabled={busy === r.voucherId}
-                        onClick={() => void generateEwb(r.voucherId)}
+                        onClick={() => requestGenerate('ewb', r.voucherId)}
                       >
                         Generate EWB
                       </button>
@@ -146,74 +197,49 @@ export function EdocsScreen(): React.JSX.Element {
         Offline route: export JSON for the government offline tools. Live route: add your NIC API credentials once, then generate IRNs and e-way bills directly — needs internet and a registered API user (einvoice1.gst.gov.in → API registration) or GSP credentials.
       </p>
 
-      {settingsOpen && <NicSettingsModal onClose={() => setSettingsOpen(false)} />}
+      {confirming && (
+        <LiveApiConfirmModal
+          onCancel={() => setConfirming(null)}
+          onConfirm={(dontAskAgain) => {
+            if (dontAskAgain) liveApiConfirmed = true
+            const { kind, voucherId } = confirming
+            setConfirming(null)
+            void (kind === 'irn' ? generateIrn(voucherId) : generateEwb(voucherId))
+          }}
+        />
+      )}
     </div>
   )
 }
 
-function NicSettingsModal({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const toast = useToasts()
-  const queryClient = useQueryClient()
-  const { data: existing } = useQuery({ queryKey: ['nicCreds'], queryFn: api.nic.get })
-  const [creds, setCreds] = useState<NicCredentials | null>(null)
-  const value = creds ?? existing ?? null
-
-  if (!value) return <Modal title="Live filing (NIC APIs)" onClose={onClose}><p className="text-muted">Loading…</p></Modal>
-
-  const set = (patch: Partial<NicCredentials>): void => setCreds({ ...value, ...patch })
-
-  const save = async (): Promise<void> => {
-    try {
-      const r = await api.nic.save(value)
-      await queryClient.invalidateQueries({ queryKey: ['nicStatus'] })
-      toast.push(r.configured ? 'success' : 'warning', r.configured ? 'Live filing is ready' : 'Saved — some fields are still missing')
-      onClose()
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
-  }
+function LiveApiConfirmModal({
+  onCancel,
+  onConfirm
+}: {
+  onCancel: () => void
+  onConfirm: (dontAskAgain: boolean) => void
+}): React.JSX.Element {
+  const [understood, setUnderstood] = useState(false)
+  const [dontAskAgain, setDontAskAgain] = useState(false)
 
   return (
-    <Modal title="Live filing (NIC APIs)" onClose={onClose} wide>
-      <p className="mb-4 text-[12.5px] text-muted">
-        Credentials from your e-invoice API registration (direct access) or your GSP. Sandbox first is a good idea:
-        base URL <span className="num">https://einv-apisandbox.nic.in</span>. Everything stays in this company's local database.
+    <Modal title="Live government API call" onClose={onCancel}>
+      <p className="text-[13px] text-ink">
+        This calls the live NIC e-invoice/e-way bill API — a real document will be generated with the government. This
+        integration has never been tested against the live portal; verify the result there afterwards.
       </p>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="e-Invoice base URL">
-          <TextInput value={value.baseUrlEinvoice} onChange={(e) => set({ baseUrlEinvoice: e.target.value.trim() })} placeholder="https://einv-apisandbox.nic.in" className="num" />
-        </Field>
-        <Field label="e-Way bill base URL" hint="Optional — EWBs are generated via the e-invoice suite">
-          <TextInput value={value.baseUrlEwb} onChange={(e) => set({ baseUrlEwb: e.target.value.trim() })} className="num" />
-        </Field>
-        <Field label="API username">
-          <TextInput value={value.username} onChange={(e) => set({ username: e.target.value })} className="num" />
-        </Field>
-        <Field label="API password">
-          <TextInput type="password" value={value.password} onChange={(e) => set({ password: e.target.value })} className="num" />
-        </Field>
-        <Field label="Client ID">
-          <TextInput value={value.clientId} onChange={(e) => set({ clientId: e.target.value })} className="num" />
-        </Field>
-        <Field label="Client secret">
-          <TextInput type="password" value={value.clientSecret} onChange={(e) => set({ clientSecret: e.target.value })} className="num" />
-        </Field>
-      </div>
-      <div className="mt-3">
-        <Field label="NIC public key (PEM)" hint="From the portal's API documentation — used to encrypt your password during login">
-          <textarea
-            value={value.publicKeyPem}
-            onChange={(e) => set({ publicKeyPem: e.target.value })}
-            rows={5}
-            className="num w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[11px]"
-            placeholder="-----BEGIN PUBLIC KEY-----"
-          />
-        </Field>
-      </div>
-      <div className="mt-4 flex justify-end gap-2">
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" onClick={() => void save()}>
-          Save credentials
+      <label className="mt-4 flex items-start gap-2 text-[13px]">
+        <input type="checkbox" className="mt-0.5" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />
+        I understand this calls the live government API
+      </label>
+      <label className="mt-2 flex items-start gap-2 text-[12px] text-muted">
+        <input type="checkbox" className="mt-0.5" checked={dontAskAgain} onChange={(e) => setDontAskAgain(e.target.checked)} />
+        Don't ask again this session
+      </label>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="primary" disabled={!understood} onClick={() => onConfirm(dontAskAgain)}>
+          Continue
         </Button>
       </div>
     </Modal>

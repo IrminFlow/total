@@ -1,13 +1,39 @@
 import { create } from 'zustand'
-import type { CompanyInfo } from '@shared/domain'
+import type { CompanyInfo, VoucherKind } from '@shared/domain'
 import { fyOf, todayISO } from '@shared/dates'
+import type { SessionUser } from '../lib/client'
 
 // ---------- navigation ----------
+
+/**
+ * Partial prefill for a fresh voucher — e.g. a "Create purchase" nudge from GSTR-2B recon
+ * handing over what it already knows (date, narration) while leaving party/lines to the user.
+ */
+export interface VoucherDraft {
+  date?: string
+  partyLedgerId?: number
+  narration?: string
+  lines?: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
+}
+
+/**
+ * Monotonic counter for `Screen`'s voucher-entry `draftId` — a plain in-memory counter rather
+ * than `Date.now()`, since two drafts navigated within the same millisecond (e.g. rapid double
+ * clicks) would otherwise collide and fail to force VoucherEntry's remount.
+ */
+let draftIdCounter = 0
+export function nextDraftId(): number {
+  draftIdCounter += 1
+  return draftIdCounter
+}
 
 export type Screen =
   | { name: 'gateway' }
   | { name: 'daybook' }
-  | { name: 'voucher-entry'; voucherId?: number; kindHint?: string }
+  | { name: 'import-tally' }
+  // `draftId` forces VoucherEntry to remount when a new draft targets the same 'new' voucher slot
+  // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.
+  | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }
   | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' }
   | { name: 'trial-balance' }
   | { name: 'profit-loss' }
@@ -16,12 +42,20 @@ export type Screen =
   | { name: 'ledger-statement'; ledgerId: number }
   | { name: 'gstr1' }
   | { name: 'gstr3b' }
+  | { name: 'gstr2b' }
   | { name: 'edocs' }
   | { name: 'registers' }
   | { name: 'outstandings' }
+  | { name: 'consolidated' }
+  | { name: 'recurring' }
   | { name: 'banking' }
   | { name: 'payroll' }
+  | { name: 'tds' }
+  | { name: 'cost-centres' }
+  | { name: 'budgets' }
   | { name: 'company-info' }
+  | { name: 'year-end' }
+  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'about' }
 
 interface NavState {
   stack: Screen[]
@@ -50,10 +84,24 @@ interface SessionState {
   to: string
   /** Context date for smart date entry — last used voucher date. */
   workingDate: string
-  setCompany: (slug: string, info: CompanyInfo) => void
+  /** The signed-in local user for the open company, or null before login / after Lock. */
+  user: SessionUser | null
+  /** True when the open company has users and no one has signed in yet — LockScreen shows. */
+  locked: boolean
+  /** Set immediately (synchronously, alongside the rest of the commit) after a Settings →
+   *  Backups restore whose post-restore integrity check found a problem. Deliberately store-level
+   *  rather than local component state: a restore very often also flips `locked`, which unmounts
+   *  whatever screen triggered it (Settings) in the same render — component-local state would be
+   *  discarded right along with it. App.tsx renders the warning once, above both the locked and
+   *  unlocked layouts, so no navigation or unmount can make it disappear before it's dismissed. */
+  integrityWarning: { quickCheck: string; unbalancedVoucherIds: number[]; context: string } | null
+  setCompany: (slug: string, info: CompanyInfo, locked?: boolean) => void
   clearCompany: () => void
   setPeriod: (from: string, to: string) => void
   setWorkingDate: (date: string) => void
+  setUser: (user: SessionUser | null) => void
+  setLocked: (locked: boolean) => void
+  setIntegrityWarning: (warning: SessionState['integrityWarning']) => void
 }
 
 const fy = fyOf(todayISO())
@@ -64,10 +112,16 @@ export const useSession = create<SessionState>((set) => ({
   from: fy.from,
   to: fy.to,
   workingDate: todayISO(),
-  setCompany: (slug, info) => set({ slug, info }),
-  clearCompany: () => set({ slug: null, info: null }),
+  user: null,
+  locked: false,
+  integrityWarning: null,
+  setCompany: (slug, info, locked = false) => set({ slug, info, locked }),
+  clearCompany: () => set({ slug: null, info: null, user: null, locked: false, integrityWarning: null }),
   setPeriod: (from, to) => set({ from, to }),
-  setWorkingDate: (workingDate) => set({ workingDate })
+  setWorkingDate: (workingDate) => set({ workingDate }),
+  setUser: (user) => set({ user }),
+  setLocked: (locked) => set({ locked }),
+  setIntegrityWarning: (integrityWarning) => set({ integrityWarning })
 }))
 
 // ---------- theme ----------
@@ -107,7 +161,7 @@ export interface Toast {
   text: string
 }
 
-interface ToastState {
+export interface ToastState {
   toasts: Toast[]
   push: (kind: Toast['kind'], text: string) => void
   dismiss: (id: number) => void

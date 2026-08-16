@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, renameSync } from 'fs'
 import type { CompanySummary } from '@shared/domain'
 import { registryPath, ensureDataTree } from './paths'
 
@@ -25,7 +25,10 @@ export function readRegistry(): Registry {
 
 export function writeRegistry(registry: Registry): void {
   ensureDataTree()
-  writeFileSync(registryPath(), JSON.stringify(registry, null, 2))
+  const path = registryPath()
+  const tmpPath = `${path}.tmp`
+  writeFileSync(tmpPath, JSON.stringify(registry, null, 2))
+  renameSync(tmpPath, path)
 }
 
 export function upsertCompany(summary: CompanySummary): void {
@@ -41,5 +44,14 @@ export function touchLastOpened(slug: string): void {
   const company = reg.companies.find((c) => c.slug === slug)
   if (company) company.lastOpenedAt = new Date().toISOString()
   reg.lastOpened = slug
+  writeRegistry(reg)
+}
+
+/** Drop `slug` from the registry (its on-disk company directory is removed separately by the
+ *  caller — see company:delete in ipc.ts). No-op if the slug isn't in the registry. */
+export function removeCompany(slug: string): void {
+  const reg = readRegistry()
+  reg.companies = reg.companies.filter((c) => c.slug !== slug)
+  if (reg.lastOpened === slug) reg.lastOpened = null
   writeRegistry(reg)
 }

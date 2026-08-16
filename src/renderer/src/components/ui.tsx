@@ -261,11 +261,20 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
   return { active, setActive }
 }
 
-export function EmptyState({ title, hint }: { title: string; hint?: string }): React.JSX.Element {
+export function EmptyState({
+  title,
+  hint,
+  action
+}: {
+  title: string
+  hint?: string
+  action?: ReactNode
+}): React.JSX.Element {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       <p className="text-[14px] text-muted">{title}</p>
       {hint && <p className="mt-1 text-[12.5px] text-muted/70">{hint}</p>}
+      {action && <div className="mt-4">{action}</div>}
     </div>
   )
 }

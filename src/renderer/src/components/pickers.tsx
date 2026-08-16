@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Group, Ledger, StockItem } from '@shared/domain'
+import { createScanDetector } from '@shared/barcode'
 import { api } from '../lib/client'
 import { inputCls } from './ui'
 
@@ -23,6 +24,8 @@ interface PickerOption {
   id: number
   label: string
   sub?: string
+  /** Scannable barcode/SKU — when the typed text matches one exactly, that option ranks first. */
+  barcode?: string | null
 }
 
 /** Generic type-ahead picker with the amber keyboard bar and an optional inline-create hook. */
@@ -33,7 +36,8 @@ function TypeAhead({
   placeholder,
   autoFocus,
   onCreate,
-  className
+  className,
+  onScan
 }: {
   options: PickerOption[]
   value: number | null
@@ -42,6 +46,8 @@ function TypeAhead({
   autoFocus?: boolean
   onCreate?: (name: string) => void
   className?: string
+  /** Fed every keydown for barcode-scan detection; return true to swallow the keystroke. */
+  onScan?: (e: React.KeyboardEvent<HTMLInputElement>) => boolean
 }): React.JSX.Element {
   const selected = options.find((o) => o.id === value) ?? null
   const [text, setText] = useState(selected?.label ?? '')
@@ -55,10 +61,17 @@ function TypeAhead({
 
   const filtered = useMemo(() => {
     const q = text.trim().toLowerCase()
-    const list = q && q !== selected?.label.toLowerCase()
-      ? options.filter((o) => o.label.toLowerCase().includes(q))
-      : options
-    return list.slice(0, 50)
+    if (!q || q === selected?.label.toLowerCase()) return options.slice(0, 50)
+    const matches = options.filter(
+      (o) => o.label.toLowerCase().includes(q) || (o.barcode ? o.barcode.toLowerCase().includes(q) : false)
+    )
+    // Exact barcode match ranks first (scanner input lands here before onScan can even fire).
+    matches.sort((a, b) => {
+      const aExact = a.barcode && a.barcode.toLowerCase() === q ? 0 : 1
+      const bExact = b.barcode && b.barcode.toLowerCase() === q ? 0 : 1
+      return aExact - bExact
+    })
+    return matches.slice(0, 50)
   }, [options, text, selected])
 
   useEffect(() => {
@@ -97,6 +110,7 @@ function TypeAhead({
           if (e.target.value.trim() === '') onPick(null)
         }}
         onKeyDown={(e) => {
+          if (onScan?.(e)) return
           if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
             setOpen(true)
             return
@@ -211,11 +225,45 @@ export function ItemPicker({
 }): React.JSX.Element {
   const items = useStockItems()
   const options = useMemo(
-    () => items.map((i) => ({ id: i.id, label: i.name, sub: i.gstRate != null ? `${i.gstRate}% GST` : undefined })),
+    () =>
+      items.map((i) => ({
+        id: i.id,
+        label: i.name,
+        sub: i.gstRate != null ? `${i.gstRate}% GST` : undefined,
+        barcode: i.barcode
+      })),
     [items]
   )
+
+  // A hardware scanner types the barcode's characters in a fast burst terminated by Enter,
+  // distinct from a human typing the item name — see @shared/barcode. On a recognized scan,
+  // jump straight to that item instead of leaving it to the type-ahead filter.
+  const detectorRef = useRef(createScanDetector())
+  const onScan = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>): boolean => {
+      const ch = e.key === 'Enter' ? '\r' : e.key.length === 1 ? e.key : null
+      if (!ch) return false
+      const code = detectorRef.current.feed(ch, performance.now())
+      if (!code) return false
+      const match = items.find((i) => i.barcode && i.barcode === code)
+      if (!match) return false
+      e.preventDefault()
+      onPick(match.id)
+      return true
+    },
+    [items, onPick]
+  )
+
   return (
-    <TypeAhead options={options} value={value} onPick={onPick} placeholder="Stock item" onCreate={onCreateRequest} className={className} />
+    <TypeAhead
+      options={options}
+      value={value}
+      onPick={onPick}
+      placeholder="Stock item"
+      onCreate={onCreateRequest}
+      className={className}
+      onScan={onScan}
+    />
   )
 }
 
@@ -241,7 +289,11 @@ export function useTaxLedgers(): {
       address: null,
       taxType,
       gstRate: null,
-      hsn: null
+      hsn: null,
+      tdsSectionId: null,
+      pan: null,
+      creditDays: null,
+      exportType: null
     })
     await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
     return created.id
@@ -262,7 +314,11 @@ export function useTaxLedgers(): {
       address: null,
       taxType: null,
       gstRate: null,
-      hsn: null
+      hsn: null,
+      tdsSectionId: null,
+      pan: null,
+      creditDays: null,
+      exportType: null
     })
     await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
     return created.id

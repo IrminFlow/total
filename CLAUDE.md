@@ -44,6 +44,7 @@ node scripts/drive6.mjs                  # example smoke driver (build app first
 - Schema changes = append a numbered migration in `src/main/db/migrations.ts` (never edit old ones).
 - Debit/credit: signed balances are dr-positive; Tally XML import converts Tally's negative-=-debit convention.
 - UI: theme tokens are `--t-*` CSS vars on `[data-theme]`, mapped through Tailwind `@theme inline` — components use token utilities only. The amber `.kbar-row` selection bar on `<tr>` uses an inset box-shadow, **never `::before`** (a `tr::before` renders as a phantom first cell).
+- Vouchers are soft-deleted (`vouchers.deleted_at`, moved to the bin) — every new SQL query touching `vouchers`/`voucher_lines` must filter `deleted_at IS NULL` (see `NOT_DELETED` in `src/main/services/vouchers.ts`) unless it's explicitly reading the bin, `getVoucher`, or `nextVoucherNumber`.
 
 ## Gotchas
 
@@ -69,4 +70,9 @@ git push --follow-tags # → GitHub Actions: tests, DMG+ZIP build, publishes the
 - Import the repo, **Root Directory = `site`**, framework auto-detected (Next.js). Auto-deploys on push to `main`.
 - Required env while the repo is private: `GITHUB_TOKEN` — fine-grained PAT, read-only on this repo — lets the site show the latest version, serve `/api/download` (exchanges the private DMG asset for a short-lived URL; token never reaches the browser), and answer `/api/latest` for the app's update check.
 - Optional env: `NEXT_PUBLIC_SITE_URL` (custom domain, for OG cards), `GITHUB_REPO` (override).
-- The app assumes the site at `https://total-site.vercel.app` (`SITE_LATEST_URL`) — update if the deployed domain differs.
+- Canonical site URL is `https://devjindal.tech`. `src/shared/product.ts` (`SITE_URL`, `GITHUB_REPO`) is the
+  in-app source of truth — `src/main/updater.ts` imports it. The site under `site/` can't import
+  `src/shared` (separate tsconfig, no path there) so it stays env-driven instead: `NEXT_PUBLIC_SITE_URL`
+  for its own metadataBase (defaults to the canonical URL) and `GITHUB_REPO` for `site/lib/release.ts`
+  (defaults to `IrminFlow/total`). If the domain or repo ever changes, update `src/shared/product.ts`,
+  Vercel's env vars, and the note above together.

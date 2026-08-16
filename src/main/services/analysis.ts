@@ -1,6 +1,8 @@
 import type { DB } from '../db/connection'
 import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@shared/reports'
+import { allocateBills, type BillEvent, type BillRef } from '@shared/outstanding'
 import { descendantIdsByName } from './masters'
+import { NOT_DELETED } from './vouchers'
 
 /** Monthly sales/purchase register: voucher count, taxable, tax and invoice totals per month. */
 export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string, to: string): RegisterMonthRow[] {
@@ -15,7 +17,7 @@ export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN voucher_lines vl ON vl.voucher_id = v.id
        JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE vt.kind = ? AND v.date BETWEEN ? AND ?`
+       WHERE vt.kind = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
     )
     .all(kind, from, to) as { month: string; voucherId: number; amount: number; groupId: number; taxType: string | null; drCr: string }[]
 
@@ -36,82 +38,95 @@ export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string
     .sort((a, b) => a.month.localeCompare(b.month))
 }
 
+/** Party ledger's movements + bill_refs, expressed as pure `BillEvent`s for `allocateBills`. */
+function partyEvents(db: DB, partyLedgerId: number, asOn: string, sign: number): BillEvent[] {
+  const movements = db
+    .prepare(
+      `SELECT v.id AS voucherId, v.date, v.number,
+              SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.ledger_id = ? AND v.date <= ? AND ${NOT_DELETED}
+       GROUP BY v.id ORDER BY v.date, v.id`
+    )
+    .all(partyLedgerId, asOn) as { voucherId: number; date: string; number: string; net: number }[]
+
+  const refRows = db
+    .prepare(
+      `SELECT br.voucher_id AS voucherId, br.kind, br.name, br.amount, br.due_date AS dueDate
+       FROM bill_refs br JOIN vouchers v ON v.id = br.voucher_id
+       WHERE br.party_ledger_id = ? AND v.date <= ? AND ${NOT_DELETED}
+       ORDER BY br.id`
+    )
+    .all(partyLedgerId, asOn) as { voucherId: number; kind: 'new' | 'against'; name: string; amount: number; dueDate: string | null }[]
+  const refsByVoucher = new Map<number, BillRef[]>()
+  for (const r of refRows) {
+    const list = refsByVoucher.get(r.voucherId) ?? []
+    list.push({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.dueDate })
+    refsByVoucher.set(r.voucherId, list)
+  }
+
+  return movements.map((m) => ({
+    voucherId: m.voucherId,
+    date: m.date,
+    number: m.number,
+    amount: sign * m.net,
+    refs: refsByVoucher.get(m.voucherId) ?? []
+  }))
+}
+
+/** Opening-balance event, normalized to the same sign convention as `partyEvents`. Kept as a
+ *  separate first event (never carries refs) — matches the pre-refactor behavior exactly. */
+function openingEvent(asOn: string, openingBalance: number, sign: number): BillEvent[] {
+  if (openingBalance === 0) return []
+  return [{ voucherId: null, date: `${asOn.slice(0, 4)}-04-01`, number: 'Opening', amount: sign * openingBalance, refs: [] }]
+}
+
 /**
- * Party-wise outstandings with FIFO allocation: invoices open the bill,
- * receipts/notes settle the oldest bills first. `side` picks debtors or creditors.
+ * Party-wise outstandings: invoices/bill-refs open bills, receipts/notes/against-refs settle
+ * them (named exactly when a ref says so, oldest-first otherwise). `side` picks debtors or
+ * creditors. Buckets are keyed on days overdue from the due date (or the bill date, when no due
+ * date is known) — see shared/outstanding.ts's `allocateBills`.
  */
 export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: string): OutstandingParty[] {
   const groupIds = descendantIdsByName(db, [side === 'receivable' ? 'Sundry Debtors' : 'Sundry Creditors'])
-  const parties = (db.prepare('SELECT id, name, opening_balance FROM ledgers').all() as { id: number; name: string; opening_balance: number }[])
-    .filter((l) => {
-      const row = db.prepare('SELECT group_id FROM ledgers WHERE id = ?').get(l.id) as { group_id: number }
-      return groupIds.has(row.group_id)
-    })
+  const parties = (
+    db.prepare('SELECT id, name, opening_balance, group_id, credit_days FROM ledgers').all() as {
+      id: number; name: string; opening_balance: number; group_id: number; credit_days: number | null
+    }[]
+  ).filter((l) => groupIds.has(l.group_id))
 
   const sign = side === 'receivable' ? 1 : -1
   const result: OutstandingParty[] = []
 
-  const ageOf = (date: string): number =>
-    Math.max(0, Math.round((Date.parse(asOn) - Date.parse(date)) / 86_400_000))
-
   for (const party of parties) {
-    const movements = db
-      .prepare(
-        `SELECT v.id AS voucherId, v.date, v.number,
-                SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
-         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-         WHERE vl.ledger_id = ? AND v.date <= ?
-         GROUP BY v.id ORDER BY v.date, v.id`
-      )
-      .all(party.id, asOn) as { voucherId: number; date: string; number: string; net: number }[]
+    const events = [...openingEvent(asOn, party.opening_balance, sign), ...partyEvents(db, party.id, asOn, sign)]
+    const { bills } = allocateBills(events, asOn, party.credit_days)
+    if (bills.length === 0) continue
 
-    // FIFO queue of open bills (amounts normalised so positive = outstanding on this side).
-    const open: OutstandingBill[] = []
-    let credit = 0 // settlements waiting for a bill (advances)
-    const settle = (amount: number): void => {
-      let remaining = amount
-      while (remaining > 0 && open.length) {
-        const bill = open[0]!
-        const take = Math.min(bill.pending, remaining)
-        bill.pending -= take
-        remaining -= take
-        if (bill.pending === 0) open.shift()
-      }
-      credit += remaining
-    }
-    const addBill = (bill: OutstandingBill): void => {
-      // Apply any advance sitting on the account first.
-      const take = Math.min(credit, bill.amount)
-      credit -= take
-      bill.pending = bill.amount - take
-      if (bill.pending > 0) open.push(bill)
-    }
-
-    if (party.opening_balance !== 0) {
-      const normalized = sign * party.opening_balance
-      if (normalized > 0) addBill({ voucherId: null, number: 'Opening', date: `${asOn.slice(0, 4)}-04-01`, amount: normalized, pending: normalized, ageDays: 0 })
-      else settle(-normalized)
-    }
-    for (const m of movements) {
-      const normalized = sign * m.net
-      if (normalized > 0) addBill({ voucherId: m.voucherId, number: m.number, date: m.date, amount: normalized, pending: normalized, ageDays: 0 })
-      else if (normalized < 0) settle(-normalized)
-    }
-
-    if (open.length === 0) continue
     const buckets: [number, number, number, number] = [0, 0, 0, 0]
-    for (const bill of open) {
-      bill.ageDays = ageOf(bill.date)
-      const b = bill.ageDays <= 30 ? 0 : bill.ageDays <= 60 ? 1 : bill.ageDays <= 90 ? 2 : 3
+    for (const bill of bills) {
+      const b = bill.overdueDays <= 30 ? 0 : bill.overdueDays <= 60 ? 1 : bill.overdueDays <= 90 ? 2 : 3
       buckets[b] += bill.pending
     }
     result.push({
       ledgerId: party.id,
       name: party.name,
-      pending: open.reduce((s, b) => s + b.pending, 0),
+      pending: bills.reduce((s, b) => s + b.pending, 0),
       buckets,
-      bills: open
+      bills
     })
   }
   return result.sort((a, b) => b.pending - a.pending)
+}
+
+/** Open bills for a single party as of `asOn` — feeds the receipt/payment "settle against" picker. */
+export function openBills(db: DB, partyLedgerId: number, asOn: string): OutstandingBill[] {
+  const ledger = db.prepare('SELECT group_id, opening_balance, credit_days FROM ledgers WHERE id = ?').get(partyLedgerId) as
+    | { group_id: number; opening_balance: number; credit_days: number | null }
+    | undefined
+  if (!ledger) return []
+  const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
+  const sign = debtorIds.has(ledger.group_id) ? 1 : -1
+  const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...partyEvents(db, partyLedgerId, asOn, sign)]
+  return allocateBills(events, asOn, ledger.credit_days).bills
 }

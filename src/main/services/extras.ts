@@ -1,6 +1,7 @@
 import type { DB } from '../db/connection'
 import type { BomLine, Currency } from '@shared/domain'
 import type { BomInput, CurrencyInput } from '@shared/schemas'
+import { writeAudit } from './audit'
 
 // ---------- currencies ----------
 
@@ -12,15 +13,18 @@ export function createCurrency(db: DB, input: CurrencyInput): Currency {
   const res = db
     .prepare('INSERT INTO currencies (code, symbol, name, decimals) VALUES (?, ?, ?, ?)')
     .run(input.code, input.symbol, input.name, input.decimals)
-  return db.prepare('SELECT * FROM currencies WHERE id = ?').get(res.lastInsertRowid) as Currency
+  const created = db.prepare('SELECT * FROM currencies WHERE id = ?').get(res.lastInsertRowid) as Currency
+  writeAudit(db, 'currency', created.id, 'create', null, created)
+  return created
 }
 
 export function deleteCurrency(db: DB, id: number): void {
-  const cur = db.prepare('SELECT code FROM currencies WHERE id = ?').get(id) as { code: string } | undefined
-  if (!cur) throw new Error('Currency not found')
-  const used = db.prepare('SELECT COUNT(*) AS n FROM vouchers WHERE currency_code = ?').get(cur.code) as { n: number }
+  const existing = db.prepare('SELECT * FROM currencies WHERE id = ?').get(id) as Currency | undefined
+  if (!existing) throw new Error('Currency not found')
+  const used = db.prepare('SELECT COUNT(*) AS n FROM vouchers WHERE currency_code = ?').get(existing.code) as { n: number }
   if (used.n > 0) throw new Error('Currency is used on vouchers')
   db.prepare('DELETE FROM currencies WHERE id = ?').run(id)
+  writeAudit(db, 'currency', id, 'delete', existing, null)
 }
 
 // ---------- bill of materials ----------
@@ -42,13 +46,16 @@ export function setBom(db: DB, input: BomInput): BomLine[] {
   if (input.lines.some((l) => l.componentId === input.itemId)) {
     throw new Error('An item cannot be its own component')
   }
+  const before = getBom(db, input.itemId)
   const run = db.transaction(() => {
     db.prepare('DELETE FROM bom_lines WHERE item_id = ?').run(input.itemId)
     const insert = db.prepare('INSERT INTO bom_lines (item_id, component_id, qty_milli_per_unit) VALUES (?, ?, ?)')
     for (const line of input.lines) insert.run(input.itemId, line.componentId, line.qtyMilliPerUnit)
   })
   run()
-  return getBom(db, input.itemId)
+  const after = getBom(db, input.itemId)
+  writeAudit(db, 'bom', input.itemId, 'update', before, after)
+  return after
 }
 
 /** Items that have a BOM (for the Manufacture picker). */

@@ -35,6 +35,32 @@ export function formatPaise(paise: number, opts: { symbol?: boolean; zeroDash?: 
   return `${prefix}${grouped}.${frac}`
 }
 
+/**
+ * Format paise as a plain rupee decimal string — no digit grouping, no currency symbol — for
+ * numeric CSV/portal columns (e.g. NSDL RPU imports) that reject grouped or symbol-prefixed
+ * numbers. Pure integer math throughout; never divides paise as a float.
+ */
+export function plainRupees(paise: number): string {
+  const sign = paise < 0 ? '-' : ''
+  const abs = Math.abs(paise)
+  const whole = Math.trunc(abs / 100)
+  const frac = (abs % 100).toString().padStart(2, '0')
+  return `${sign}${whole}.${frac}`
+}
+
+/**
+ * Format quantity thousandths as a plain 3-decimal string — no digit grouping, no unit suffix —
+ * e.g. for Tally XML export (ACTUALQTY/OPENINGBALANCE). Pure integer math throughout; mirrors
+ * plainRupees but at 3-decimal (milli) precision instead of 2-decimal (paise -> rupees).
+ */
+export function plainMilli(qtyMilli: number): string {
+  const sign = qtyMilli < 0 ? '-' : ''
+  const abs = Math.abs(qtyMilli)
+  const whole = Math.trunc(abs / 1000)
+  const frac = (abs % 1000).toString().padStart(3, '0')
+  return `${sign}${whole}.${frac}`
+}
+
 /** Round a fractional paise value to an integer, half away from zero (GST convention). */
 export function roundPaise(value: number): number {
   return Math.sign(value) * Math.round(Math.abs(value))

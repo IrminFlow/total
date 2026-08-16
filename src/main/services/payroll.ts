@@ -1,13 +1,12 @@
-import { BrowserWindow } from 'electron'
-import { writeFileSync } from 'fs'
-import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo, Employee, PayrollLine, PayrollRun } from '@shared/domain'
 import type { EmployeeInput } from '@shared/schemas'
 import { computeMonthlyPay, daysInMonth } from '@shared/payroll'
 import { amountInWords, formatPaise } from '@shared/money'
-import { saveVoucher } from './vouchers'
-import { companyExportsDir } from '../paths'
+import { deleteVoucher, saveVoucher } from './vouchers'
+import { findOrCreateLedger } from './masters'
+import { writeAudit } from './audit'
+import { writeExportPdf } from './pdf'
 
 // ---------- employees ----------
 
@@ -30,6 +29,7 @@ export function listEmployees(db: DB): Employee[] {
 }
 
 export function saveEmployee(db: DB, input: EmployeeInput, id?: number): Employee {
+  const before = id ? db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as EmployeeRow | undefined : undefined
   if (id) {
     db.prepare(
       `UPDATE employees SET name = ?, code = ?, designation = ?, joined = ?, pan = ?, uan = ?, esic_no = ?,
@@ -44,13 +44,18 @@ export function saveEmployee(db: DB, input: EmployeeInput, id?: number): Employe
       input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, +input.active)
     id = Number(res.lastInsertRowid)
   }
-  return mapEmployee(db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as EmployeeRow)
+  const saved = mapEmployee(db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as EmployeeRow)
+  writeAudit(db, 'employee', id, before ? 'update' : 'create', before ? mapEmployee(before) : null, saved)
+  return saved
 }
 
 export function deleteEmployee(db: DB, id: number): void {
+  const existing = db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as EmployeeRow | undefined
+  if (!existing) throw new Error('Employee not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM payroll_lines WHERE employee_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Employee has payroll history; mark them inactive instead')
   db.prepare('DELETE FROM employees WHERE id = ?').run(id)
+  writeAudit(db, 'employee', id, 'delete', mapEmployee(existing), null)
 }
 
 // ---------- pay runs ----------
@@ -67,15 +72,6 @@ export function previewRun(db: DB, month: string, days: { employeeId: number; pa
       const pay = computeMonthlyPay(e, payableDays, monthDays)
       return { employeeId: e.id, employeeName: e.name, payableDays, monthDays, ...pay }
     })
-}
-
-function findOrCreateLedger(db: DB, name: string, groupName: string): number {
-  const existing = db.prepare('SELECT id FROM ledgers WHERE name = ? COLLATE NOCASE').get(name) as { id: number } | undefined
-  if (existing) return existing.id
-  const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(groupName) as { id: number } | undefined
-  if (!group) throw new Error(`Group ${groupName} missing`)
-  const res = db.prepare('INSERT INTO ledgers (name, group_id, is_system) VALUES (?, ?, 0)').run(name, group.id)
-  return Number(res.lastInsertRowid)
 }
 
 /** Post the month's payroll: stores the run + lines and books one balanced Journal voucher. */
@@ -96,9 +92,9 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
 
   const journal = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal' AND is_system = 1").get() as { id: number }
 
-  const voucherLines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[] = []
+  const voucherLines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; costAllocations: never[] }[] = []
   const push = (name: string, group: string, drCr: 'dr' | 'cr', amount: number): void => {
-    if (amount > 0) voucherLines.push({ ledgerId: findOrCreateLedger(db, name, group), drCr, amount })
+    if (amount > 0) voucherLines.push({ ledgerId: findOrCreateLedger(db, name, group), drCr, amount, costAllocations: [] })
   }
   push('Salaries', 'Indirect Expenses', 'dr', gross)
   push('Employer PF Contribution', 'Indirect Expenses', 'dr', pfEr)
@@ -123,7 +119,9 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
     currencyCode: null,
     exchangeRate: null,
     lines: voucherLines,
-    inventory: []
+    inventory: [],
+    billRefs: [],
+    tds: null
   })
 
   const run = db.transaction((): number => {
@@ -140,7 +138,9 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
     return runId
   })
   const runId = run()
-  return getRun(db, runId)!
+  const created = getRun(db, runId)!
+  writeAudit(db, 'payroll_run', runId, 'create', null, created)
+  return created
 }
 
 interface RunRow { id: number; month: string; voucher_id: number | null; created_at: string }
@@ -183,9 +183,10 @@ export function deleteRun(db: DB, id: number): void {
   if (!run) throw new Error('Pay run not found')
   const del = db.transaction(() => {
     db.prepare('DELETE FROM payroll_runs WHERE id = ?').run(id)
-    if (run.voucherId) db.prepare('DELETE FROM vouchers WHERE id = ?').run(run.voucherId)
+    if (run.voucherId) deleteVoucher(db, run.voucherId)
   })
   del()
+  writeAudit(db, 'payroll_run', id, 'delete', run, null)
 }
 
 // ---------- payslip PDF ----------
@@ -244,15 +245,6 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
     <div class="words">${esc(amountInWords(line.net))}</div>
   </div></body></html>`
 
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
-  try {
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true })
-    const safeName = line.employeeName.replace(/[^a-zA-Z0-9-_]/g, '_')
-    const path = join(companyExportsDir(slug), `payslip-${run.month}-${safeName}.pdf`)
-    writeFileSync(path, pdf)
-    return path
-  } finally {
-    win.destroy()
-  }
+  const safeName = line.employeeName.replace(/[^a-zA-Z0-9-_]/g, '_')
+  return writeExportPdf(slug, `payslip-${run.month}-${safeName}.pdf`, html, { pageSize: 'A4' })
 }

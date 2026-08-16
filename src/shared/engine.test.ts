@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRupees, formatPaise, percentOf, roundToRupee, amountInWords } from './money'
+import { parseRupees, formatPaise, percentOf, roundToRupee, amountInWords, plainRupees, plainMilli } from './money'
 import { fyOf, parseSmartDate, gstPeriodOf, toPortalDate, isValidISODate } from './dates'
 import { validateGstin, gstinCheckChar, validateHsn } from './gst/validate'
 import { computeGst, supplyTypeFor } from './gst/calc'
@@ -33,6 +33,22 @@ describe('money', () => {
     expect(percentOf(9999, 18)).toBe(1800) // 1799.82 -> 1800
     expect(percentOf(101, 0.25)).toBe(0) // 0.2525 -> 0
     expect(percentOf(10050, 9)).toBe(905) // 904.5 rounds up
+  })
+
+  it('formats plain (ungrouped, symbol-free) rupee decimals for numeric CSV/portal columns', () => {
+    expect(plainRupees(123456)).toBe('1234.56')
+    expect(plainRupees(10000000)).toBe('100000.00')
+    expect(plainRupees(0)).toBe('0.00')
+    expect(plainRupees(5)).toBe('0.05')
+    expect(plainRupees(-4207)).toBe('-42.07')
+  })
+
+  it('formats plain (ungrouped) 3-decimal quantity strings for Tally XML export', () => {
+    expect(plainMilli(2500)).toBe('2.500')
+    expect(plainMilli(5000)).toBe('5.000')
+    expect(plainMilli(0)).toBe('0.000')
+    expect(plainMilli(1)).toBe('0.001')
+    expect(plainMilli(-1500)).toBe('-1.500')
   })
 
   it('rounds to whole rupees for invoice round-off', () => {
@@ -230,6 +246,107 @@ describe('voucher posting rules', () => {
       ]
     }
     expect(validateVoucher(receiptGood, 'receipt', resolve)).toEqual([])
+  })
+
+  it('requires a party ledger when billRefs are given', () => {
+    const v = {
+      ...base,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ],
+      billRefs: [{ kind: 'new' as const, name: 'INV-1', amount: 5000, dueDate: null }]
+    }
+    expect(validateVoucher(v, 'journal', resolve).map((e) => e.code)).toContain('bill_refs_no_party')
+  })
+
+  it('requires billRefs to sum to the party ledger line amount', () => {
+    const v = {
+      ...base,
+      partyLedgerId: 3,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ],
+      billRefs: [{ kind: 'new' as const, name: 'INV-1', amount: 4000, dueDate: null }]
+    }
+    expect(validateVoucher(v, 'journal', resolve).map((e) => e.code)).toContain('bill_refs_mismatch')
+  })
+
+  it('accepts billRefs summing to the party ledger line amount', () => {
+    const v = {
+      ...base,
+      partyLedgerId: 3,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ],
+      billRefs: [
+        { kind: 'new' as const, name: 'INV-1', amount: 3000, dueDate: null },
+        { kind: 'against' as const, name: 'INV-0', amount: 2000, dueDate: '2025-09-01' }
+      ]
+    }
+    expect(validateVoucher(v, 'journal', resolve)).toEqual([])
+  })
+
+  it('flags a bill_refs_mismatch when there is no line on the party ledger at all', () => {
+    const v = {
+      ...base,
+      partyLedgerId: 3,
+      lines: [
+        { ledgerId: 1, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ],
+      billRefs: [{ kind: 'new' as const, name: 'INV-1', amount: 5000, dueDate: null }]
+    }
+    expect(validateVoucher(v, 'journal', resolve).map((e) => e.code)).toContain('bill_refs_mismatch')
+  })
+
+  it('sums ALL lines on the party ledger for bill_refs_mismatch, not just the first (2.0 regression)', () => {
+    const v = {
+      ...base,
+      partyLedgerId: 3,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 2000 },
+        { ledgerId: 3, drCr: 'dr' as const, amount: 3000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ],
+      billRefs: [{ kind: 'new' as const, name: 'INV-1', amount: 5000, dueDate: null }]
+    }
+    expect(validateVoucher(v, 'journal', resolve)).toEqual([])
+  })
+
+  it('flags cost allocations exceeding the line amount, tagged with the line index', () => {
+    const v = {
+      ...base,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 5000, costAllocations: [{ costCentreId: 1, amount: 6000 }] },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ]
+    }
+    const errors = validateVoucher(v, 'journal', resolve)
+    const err = errors.find((e) => e.code === 'over_allocated')
+    expect(err).toBeDefined()
+    expect(err!.line).toBe(0)
+  })
+
+  it('accepts cost allocations that sum to at most the line amount', () => {
+    const v = {
+      ...base,
+      lines: [
+        {
+          ledgerId: 3,
+          drCr: 'dr' as const,
+          amount: 5000,
+          costAllocations: [
+            { costCentreId: 1, amount: 2000 },
+            { costCentreId: 2, amount: 3000 }
+          ]
+        },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ]
+    }
+    expect(validateVoucher(v, 'journal', resolve)).toEqual([])
   })
 })
 

@@ -34,6 +34,27 @@ const invoice: EdocInvoice = {
   distanceKm: 120
 }
 
+// Golden snapshot captured from buildEInvoiceJson BEFORE docType/supTyp were added, to prove
+// the new fields are additive: an invoice that doesn't set them must produce byte-identical output.
+const EINV_SNAPSHOT_BEFORE_DOCTYPE =
+  '[{"Version":"1.1","TranDtls":{"TaxSch":"GST","SupTyp":"B2B","RegRev":"N","IgstOnIntra":"N"},"DocDtls":{"Typ":"INV","No":"1","Dt":"15/08/2026"},"SellerDtls":{"Gstin":"27AAPFU0939F1ZV","LglNm":"Demo Traders","Addr1":"12 MG Road, Pune 411001","Loc":"12 MG Road, Pune 411001","Pin":411001,"Stcd":"27"},"BuyerDtls":{"Gstin":"27AAPFU0939F1ZV","LglNm":"Umbrella Retail","Pos":"27","Addr1":"Shop 4, Mumbai 400001","Loc":"Shop 4, Mumbai 400001","Pin":400001,"Stcd":"27"},"ItemList":[{"SlNo":"1","PrdDesc":"Laptop 14\\"","IsServc":"N","HsnCd":"8471","Qty":2,"Unit":"BOX","UnitPrice":45000,"TotAmt":90000,"Discount":0,"AssAmt":90000,"GstRt":18,"IgstAmt":0,"CgstAmt":8100,"SgstAmt":8100,"CesRt":0,"CesAmt":0,"TotItemVal":106200}],"ValDtls":{"AssVal":90000,"CgstVal":8100,"SgstVal":8100,"IgstVal":0,"CesVal":0,"RndOffAmt":0,"TotInvVal":106200}}]'
+
+// Golden snapshot captured from buildEwbJson BEFORE docType became configurable.
+const EWB_SNAPSHOT_BEFORE_DOCTYPE =
+  '{"version":"1.0.0421","billLists":[{"userGstin":"27AAPFU0939F1ZV","supplyType":"O","subSupplyType":"1","docType":"INV","docNo":"1","docDate":"15/08/2026","fromGstin":"27AAPFU0939F1ZV","fromTrdName":"Demo Traders","fromAddr1":"12 MG Road, Pune 411001","fromStateCode":27,"actualFromStateCode":27,"fromPincode":411001,"toGstin":"27AAPFU0939F1ZV","toTrdName":"Umbrella Retail","toAddr1":"Shop 4, Mumbai 400001","toStateCode":27,"actualToStateCode":27,"toPincode":400001,"itemList":[{"productName":"Laptop 14\\"","productDesc":"Laptop 14\\"","hsnCode":"8471","quantity":2,"qtyUnit":"BOX","taxableAmount":90000,"cgstRate":9,"sgstRate":9,"igstRate":0,"cessRate":0}],"totalValue":90000,"cgstValue":8100,"sgstValue":8100,"igstValue":0,"cessValue":0,"totInvValue":106200,"transMode":"1","transDistance":"120","transporterId":"","transporterName":"","vehicleNo":"MH01AB1234","vehicleType":"R"}]}'
+
+describe('e-invoice/EWB builders — docType/supTyp are additive (snapshot regression)', () => {
+  it('buildEInvoiceJson output is byte-identical for an invoice without docType/supTyp', () => {
+    const json = buildEInvoiceJson([invoice], company)
+    expect(JSON.stringify(json)).toBe(EINV_SNAPSHOT_BEFORE_DOCTYPE)
+  })
+
+  it('buildEwbJson output is byte-identical for an invoice without docType', () => {
+    const json = buildEwbJson([invoice], company)
+    expect(JSON.stringify(json)).toBe(EWB_SNAPSHOT_BEFORE_DOCTYPE)
+  })
+})
+
 describe('e-invoice builder', () => {
   it('produces NIC schema 1.1 documents', () => {
     const [doc] = buildEInvoiceJson([invoice], company) as any[]
@@ -67,6 +88,50 @@ describe('e-way bill builder', () => {
     expect(bill.transDistance).toBe('120')
     expect(bill.itemList[0]).toMatchObject({ hsnCode: '8471', quantity: 2, cgstRate: 9, sgstRate: 9, igstRate: 0 })
     expect(bill.totInvValue).toBe(106200)
+  })
+
+  it('carries docType through to the bulk-tool docType field', () => {
+    const crnJson = buildEwbJson([{ ...invoice, docType: 'CRN' }], company) as any
+    const dbnJson = buildEwbJson([{ ...invoice, docType: 'DBN' }], company) as any
+    expect(crnJson.billLists[0].docType).toBe('CRN')
+    expect(dbnJson.billLists[0].docType).toBe('DBN')
+  })
+})
+
+describe('e-invoice builder — docType and supply types', () => {
+  it('sets DocDtls.Typ to CRN for a credit note', () => {
+    const [doc] = buildEInvoiceJson([{ ...invoice, docType: 'CRN' }], company) as any[]
+    expect(doc.DocDtls.Typ).toBe('CRN')
+  })
+
+  it('sets DocDtls.Typ to DBN for a debit note', () => {
+    const [doc] = buildEInvoiceJson([{ ...invoice, docType: 'DBN' }], company) as any[]
+    expect(doc.DocDtls.Typ).toBe('DBN')
+  })
+
+  it('sets TranDtls.SupTyp to SEZWOP for an SEZ-without-payment party', () => {
+    const [doc] = buildEInvoiceJson([{ ...invoice, supTyp: 'SEZWOP' }], company) as any[]
+    expect(doc.TranDtls.SupTyp).toBe('SEZWOP')
+    // SEZ (non-export) supply types don't force Pos/Gstin — those stay as captured.
+    expect(doc.BuyerDtls.Pos).toBe('27')
+    expect(doc.BuyerDtls.Gstin).toBe('27AAPFU0939F1ZV')
+  })
+
+  it('sets TranDtls.SupTyp to EXPWP and forces Pos 96 / Gstin URP for an export party', () => {
+    const [doc] = buildEInvoiceJson([{ ...invoice, supTyp: 'EXPWP' }], company) as any[]
+    expect(doc.TranDtls.SupTyp).toBe('EXPWP')
+    expect(doc.BuyerDtls.Pos).toBe('96')
+    expect(doc.BuyerDtls.Gstin).toBe('URP')
+  })
+
+  it('sets TranDtls.SupTyp to EXPWOP and forces Pos 96 / Gstin URP for a party with state code 96/97 (default export mapping)', () => {
+    const [doc] = buildEInvoiceJson(
+      [{ ...invoice, partyStateCode: '96', supTyp: 'EXPWOP' }],
+      company
+    ) as any[]
+    expect(doc.TranDtls.SupTyp).toBe('EXPWOP')
+    expect(doc.BuyerDtls.Pos).toBe('96')
+    expect(doc.BuyerDtls.Gstin).toBe('URP')
   })
 })
 
