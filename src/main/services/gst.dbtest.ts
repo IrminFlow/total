@@ -3,7 +3,8 @@ import { readFileSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
-  exportGstr1Csv, extractOutwardDocs, extractDocSeries, itcBreakdown, rcmInwardSummary, turnover
+  assertExportable, exportGstr1Csv, extractOutwardDocs, extractDocSeries, gstValidate,
+  itcBreakdown, rcmInwardSummary, turnover
 } from './gst'
 import { companyExportsDir, ensureCompanyTree } from '../paths'
 import type { Gstr1Result } from '@shared/gst/returns'
@@ -177,5 +178,33 @@ describe('gst service — extraction (G1)', () => {
     expect(turnover(s.db, FROM, TO)).toBe(100000)
     // The binned voucher is also gone from extraction itself.
     expect(extractOutwardDocs(s.db, TEST_INFO, FROM, TO)).toHaveLength(1)
+  })
+
+  it('gstValidate flags missing HSN (blocking) and assertExportable refuses the export (G7 gate)', () => {
+    const s = setup()
+    // A sales ledger line with no HSN — value present but absent from Table 12.
+    const noHsn = createLedger(s.db, {
+      name: 'Sales no HSN',
+      groupId: (s.db.prepare("SELECT id FROM groups WHERE name = 'Sales Accounts'").get() as { id: number }).id,
+      gstRate: 18
+    }).id
+    s.post('sales', '2026-07-05', s.buyer, [
+      { ledgerId: s.buyer, drCr: 'dr', amount: 118000 },
+      { ledgerId: noHsn, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 9000 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 9000 }
+    ])
+
+    const issues = gstValidate(s.db, TEST_INFO, FROM, TO)
+    const missing = issues.find((i) => i.code === 'missing_hsn')!
+    expect(missing.severity).toBe('blocking')
+    expect(missing.voucherIds).toHaveLength(1)
+
+    expect(() => assertExportable(s.db, TEST_INFO, FROM, TO)).toThrow(/GSTR-1 export blocked/)
+
+    // Composition companies are refused outright, with an explanation.
+    expect(() =>
+      assertExportable(s.db, { ...TEST_INFO, gstRegistrationType: 'composition' }, FROM, TO)
+    ).toThrow(/composition/)
   })
 })
