@@ -170,6 +170,16 @@ export class Harness {
     return el.getAttribute('data-screen')
   }
 
+  /** From company-select: create a fresh (unregistered, default-state) company via the UI
+   *  and land on the Gateway. */
+  async createCompanyUI(name, timeout = 30000) {
+    await this.waitScreen('company-select')
+    await this.click('btn-company-create')
+    await this.fill('input-company-name', name)
+    await this.click('btn-company-save')
+    await this.waitScreen('gateway', timeout)
+  }
+
   /** From company-select: build the Demo Traders sample company and land on the Gateway. */
   async createDemoCompany(timeout = 60000) {
     await this.waitScreen('company-select')

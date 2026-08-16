@@ -41,6 +41,8 @@
  * Chrome (screen-less) controls the harness drives directly:
  *   btn-theme, btn-lock, btn-switch-company   — Shell header/sidebar chrome.
  *   input-company-name                        — CreateCompanyModal's name field.
+ *   input-palette                             — CommandPalette's query input.
+ *   input-pin, btn-unlock                     — LockScreen sign-in controls.
  *
  * Screen-level markers (not testids, but part of the same harness contract):
  *   <main data-screen={screen.name} data-loading="true|false">  — Shell, when a company is

@@ -168,6 +168,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       <div className="w-full max-w-xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
         <input
           autoFocus
+          data-testid="input-palette"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value)
