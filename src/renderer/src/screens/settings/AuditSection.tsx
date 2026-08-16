@@ -4,15 +4,10 @@ import { api, type AuditRow } from '../../lib/client'
 import { useSession } from '../../state/stores'
 import { Button, DateInput, EmptyState, Panel, Select, SectionTitle } from '../../components/ui'
 import { diffJson } from '@shared/diff'
+import { toDisplayDateTime } from '@shared/dates'
+import { AUDIT_ENTITIES } from '@shared/auditEntities'
 
-const PAGE_SIZE = 100
-
-// Distinct `entity` values ever written to audit_log (see writeAudit call sites across
-// src/main/services/*.ts and ipc.ts).
-const ENTITIES = [
-  'voucher', 'ledger', 'group', 'voucherType', 'stockItem', 'stockGroup', 'unit', 'godown',
-  'currency', 'bom', 'company', 'employee', 'payroll_run', 'voucher_line', 'user', 'nic_credentials'
-]
+const PAGE_SIZES = [25, 50, 100, 250]
 
 export function AuditSection(): React.JSX.Element {
   const { from: sessionFrom, to: sessionTo } = useSession()
@@ -20,13 +15,14 @@ export function AuditSection(): React.JSX.Element {
   const [from, setFrom] = useState(sessionFrom)
   const [to, setTo] = useState(sessionTo)
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(100)
   const [expanded, setExpanded] = useState<number | null>(null)
 
-  const filters = { entity: entity || undefined, from, to, page }
+  const filters = { entity: entity || undefined, from, to, page, pageSize }
   const { data } = useQuery({ queryKey: ['audit', filters], queryFn: () => api.audit.list(filters) })
   const rows = data?.rows ?? []
   const total = data?.total ?? 0
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
 
   return (
     <div>
@@ -35,6 +31,7 @@ export function AuditSection(): React.JSX.Element {
         <div>
           <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Entity</span>
           <Select
+            data-testid="input-audit-entity"
             value={entity}
             onChange={(e) => {
               setEntity(e.target.value)
@@ -42,7 +39,7 @@ export function AuditSection(): React.JSX.Element {
             }}
           >
             <option value="">All</option>
-            {ENTITIES.map((e) => (
+            {AUDIT_ENTITIES.map((e) => (
               <option key={e} value={e}>
                 {e}
               </option>
@@ -52,6 +49,7 @@ export function AuditSection(): React.JSX.Element {
         <div>
           <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">From</span>
           <DateInput
+            testId="input-audit-from"
             value={from}
             context={from}
             onChange={(v) => {
@@ -63,6 +61,7 @@ export function AuditSection(): React.JSX.Element {
         <div>
           <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">To</span>
           <DateInput
+            testId="input-audit-to"
             value={to}
             context={to}
             onChange={(v) => {
@@ -71,8 +70,25 @@ export function AuditSection(): React.JSX.Element {
             }}
           />
         </div>
+        <div>
+          <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Per page</span>
+          <Select
+            data-testid="input-audit-page-size"
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value))
+              setPage(0)
+            }}
+          >
+            {PAGE_SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </Select>
+        </div>
       </div>
-      <Panel>
+      <Panel scroll={{ maxH: '60vh' }}>
         {rows.length === 0 ? (
           <EmptyState title="No audit entries in this range" />
         ) : (
@@ -85,11 +101,11 @@ export function AuditSection(): React.JSX.Element {
                 <th className="w-20">Action</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-settings-audit">
               {rows.map((r) => (
                 <Fragment key={r.id}>
                   <tr className="cursor-pointer" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
-                    <td className="num text-muted">{new Date(r.at).toLocaleString()}</td>
+                    <td className="num text-muted">{toDisplayDateTime(new Date(r.at))}</td>
                     <td>{r.userName ?? '—'}</td>
                     <td className="num">
                       {r.entity} #{r.entityId}
@@ -112,13 +128,13 @@ export function AuditSection(): React.JSX.Element {
       <div className="mt-3 flex items-center justify-between">
         <p className="text-[11.5px] text-muted">{total} entries</p>
         <div className="flex items-center gap-2">
-          <Button disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+          <Button data-testid="btn-settings-audit-prev" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
             Prev
           </Button>
           <span className="px-2 text-[12px] text-muted">
             Page {page + 1} of {pageCount}
           </span>
-          <Button disabled={page + 1 >= pageCount} onClick={() => setPage((p) => p + 1)}>
+          <Button data-testid="btn-settings-audit-next" disabled={page + 1 >= pageCount} onClick={() => setPage((p) => p + 1)}>
             Next
           </Button>
         </div>

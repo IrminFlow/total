@@ -59,7 +59,7 @@ export type Screen =
   | { name: 'budgets' }
   | { name: 'company-info' }
   | { name: 'year-end' }
-  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'about' }
+  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'agents' | 'about' }
 
 interface NavState {
   stack: Screen[]

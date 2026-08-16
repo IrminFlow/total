@@ -1,5 +1,9 @@
 import type { DB } from '../db/connection'
 
+// The write side owns the entity vocabulary; the list itself lives in src/shared so the
+// Settings → Audit filter can import it too (renderer can't reach main-process modules).
+export { AUDIT_ENTITIES, type AuditEntity } from '@shared/auditEntities'
+
 /** Mirrors migration 017's audit_log action CHECK. 'login'/'login_failed'/'logout' come from the
  *  auth flow (users.ts + ipc.ts), 'export' from every file-export IPC handler, 'import' from bulk
  *  imports (Tally XML, bank statements). */
@@ -98,6 +102,8 @@ export interface AuditListQuery {
   /** Inclusive upper bound, 'YYYY-MM-DD'. */
   to?: string
   page?: number
+  /** Rows per page (default AUDIT_PAGE_SIZE). */
+  pageSize?: number
 }
 
 export const AUDIT_PAGE_SIZE = 100
@@ -105,6 +111,7 @@ export const AUDIT_PAGE_SIZE = 100
 /** Server-side paged audit_log read, newest first. `to` is inclusive (compares on date(at), not at). */
 export function listAudit(db: DB, query: AuditListQuery): { rows: AuditRow[]; total: number } {
   const page = query.page ?? 0
+  const pageSize = query.pageSize ?? AUDIT_PAGE_SIZE
   const conditions: string[] = []
   const params: unknown[] = []
   if (query.entity) {
@@ -132,7 +139,7 @@ export function listAudit(db: DB, query: AuditListQuery): { rows: AuditRow[]; to
        ORDER BY id DESC
        LIMIT ? OFFSET ?`
     )
-    .all(...params, AUDIT_PAGE_SIZE, page * AUDIT_PAGE_SIZE) as AuditRow[]
+    .all(...params, pageSize, page * pageSize) as AuditRow[]
 
   return { rows, total: totalRow.n }
 }

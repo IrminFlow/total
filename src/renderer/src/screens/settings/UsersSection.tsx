@@ -28,7 +28,9 @@ export function UsersSection(): React.JSX.Element {
     return (
       <div>
         <SectionTitle>Users</SectionTitle>
-        <EmptyState title="Only the owner can manage users." />
+        <div className="rounded-md border border-blue/40 bg-blue/10 px-3.5 py-2.5 text-[12.5px] text-blue">
+          Only the owner can manage users. Ask an owner to sign in to add, edit or deactivate accounts.
+        </div>
       </div>
     )
   }

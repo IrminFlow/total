@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, Field, Panel, SectionTitle, TextInput } from '../../components/ui'
+import { Button, Field, Panel, SectionTitle, SkeletonRows, TextInput } from '../../components/ui'
 import type { NicCredentials } from '@shared/schemas'
 
 export function NicSection(): React.JSX.Element {
@@ -41,8 +41,16 @@ export function NicSection(): React.JSX.Element {
         Experimental — never tested against the live NIC portal. Verify every document on the portal.
       </div>
 
+      {!canEdit && (
+        <div className="mb-4 rounded-md border border-blue/40 bg-blue/10 px-3.5 py-2.5 text-[12.5px] text-blue">
+          Read-only — only owners can edit NIC credentials. Ask an owner to sign in to change them.
+        </div>
+      )}
+
       {!value ? (
-        <p className="text-muted">Loading…</p>
+        <Panel>
+          <SkeletonRows rows={6} />
+        </Panel>
       ) : (
         <Panel className="p-5">
           <p className="mb-4 text-[12.5px] text-muted">

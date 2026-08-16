@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BackupInfo, type IntegrityResult } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
 import { Button, EmptyState, Field, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
-import { toDisplayDate } from '@shared/dates'
+import { toDisplayDateTime } from '@shared/dates'
 
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -11,9 +11,7 @@ function formatSize(bytes: number): string {
 }
 
 function formatMtime(mtime: number): string {
-  const d = new Date(mtime)
-  const iso = d.toISOString().slice(0, 10)
-  return `${toDisplayDate(iso)} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  return toDisplayDateTime(new Date(mtime))
 }
 
 interface RestoreResult {
