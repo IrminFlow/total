@@ -242,6 +242,43 @@ describe('migrate', () => {
     ).toThrow()
   })
 
+  it('012: creates the FK/covering perf indexes and stock_items.reorder_level_milli', () => {
+    const db = freshDb()
+    const indexNames = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[]
+    ).map((r) => r.name)
+    expect(indexNames).toEqual(
+      expect.arrayContaining([
+        'idx_bill_refs_voucher',
+        'idx_vlca_line',
+        'idx_budget_lines_budget',
+        'idx_payroll_lines_run',
+        'idx_payroll_lines_employee',
+        'idx_bank_rules_ledger',
+        'idx_bom_lines_component',
+        'idx_inv_godown',
+        'idx_groups_parent',
+        'idx_stock_groups_parent',
+        'idx_stock_items_group',
+        'idx_stock_items_unit',
+        'idx_ledgers_tds_section',
+        'idx_recurring_templates_vt',
+        'idx_cost_centres_parent',
+        'idx_inv_item_voucher'
+      ])
+    )
+    const itemColumns = (db.prepare('PRAGMA table_info(stock_items)').all() as { name: string }[]).map((c) => c.name)
+    expect(itemColumns).toContain('reorder_level_milli')
+    // Nullable with no default — NULL means "no reorder level configured".
+    const unitId = db.prepare("INSERT INTO units (name, symbol, decimals, uqc) VALUES ('Pcs','Pcs',0,'NOS')").run()
+      .lastInsertRowid
+    const id = db.prepare('INSERT INTO stock_items (name, unit_id) VALUES (?, ?)').run('Reorder Item', unitId).lastInsertRowid
+    const row = db.prepare('SELECT reorder_level_milli FROM stock_items WHERE id = ?').get(id) as {
+      reorder_level_milli: number | null
+    }
+    expect(row.reorder_level_milli).toBeNull()
+  })
+
   it('creates budgets/budget_lines, enforces the name+FY uniqueness and the ledger-XOR-group CHECK, and cascades line deletes', () => {
     const db = freshDb()
     const groupId = Number(

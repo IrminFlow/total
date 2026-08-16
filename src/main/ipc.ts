@@ -5,7 +5,7 @@ import { join, basename } from 'path'
 import { z } from 'zod'
 import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
-import { backupCompany, openCompanyDb } from './db/connection'
+import { backupCompany, closeCompanyDb, openCompanyDb } from './db/connection'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, type BackupInfo } from './db/backup'
 import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
@@ -103,7 +103,7 @@ function renameFile(src: string, dest: string): void {
 
 export function closeCurrentCompany(): void {
   if (current) {
-    current.db.close()
+    closeCompanyDb(current.db)
     current = null
   }
   sessionUser = null
