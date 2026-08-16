@@ -330,5 +330,21 @@ export const MIGRATIONS: string[] = [
   // of always falling through to Journal.
   `
   ALTER TABLE recurring_templates ADD COLUMN voucher_type_id INTEGER REFERENCES voucher_types(id);
+  `,
+  // 010 — bank rules: pattern-matched auto-categorization for statement import (task 2.5).
+  // `pattern` is a case-insensitive substring matched against the statement description;
+  // `kind` constrains a rule to deposits ('receipt') or withdrawals ('payment') so the same
+  // description text can't misfire across direction; `hits` is incremented (recordRuleHit) each
+  // time the user files a voucher from a suggestion built off this rule.
+  `
+  CREATE TABLE bank_rules (
+    id INTEGER PRIMARY KEY,
+    pattern TEXT NOT NULL,
+    match_field TEXT NOT NULL DEFAULT 'description',
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    kind TEXT NOT NULL CHECK (kind IN ('payment','receipt')),
+    active INTEGER NOT NULL DEFAULT 1,
+    hits INTEGER NOT NULL DEFAULT 0
+  );
   `
 ]

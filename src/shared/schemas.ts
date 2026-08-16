@@ -342,3 +342,13 @@ export const recurringInputSchema = z
     path: ['weekday']
   })
 export type RecurringInput = z.infer<typeof recurringInputSchema>
+
+// ---------- bank rules (auto-categorization, task 2.5) ----------
+
+export const bankRuleInputSchema = z.object({
+  pattern: z.string().trim().min(2).max(80),
+  ledgerId: id,
+  kind: z.enum(['payment', 'receipt']),
+  active: z.boolean().default(true)
+})
+export type BankRuleInput = z.infer<typeof bankRuleInputSchema>

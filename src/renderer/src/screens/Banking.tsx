@@ -1,20 +1,32 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/client'
-import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, Select } from '../components/ui'
+import { api, type BankRuleRecord, type BankSuggestionRow } from '../lib/client'
+import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
+import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { LedgerPicker } from '../components/pickers'
 import { parseSmartDate, toDisplayDate, todayISO } from '@shared/dates'
+import { suggestPattern } from '@shared/bankRules'
 
 export function BankingScreen(): React.JSX.Element {
+  const nav = useNav()
   const { from, to } = useSession()
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: ledgers } = useQuery({ queryKey: ['bankLedgers'], queryFn: api.bank.ledgers })
   const [ledgerId, setLedgerId] = useState<number | null>(null)
+  const [suggestions, setSuggestions] = useState<BankSuggestionRow[] | null>(null)
+  const [rulesOpen, setRulesOpen] = useState(false)
+  const [rulesPrefill, setRulesPrefill] = useState<{ pattern: string; kind: 'payment' | 'receipt' } | null>(null)
+  const [rulesModalKey, setRulesModalKey] = useState(0)
 
   useEffect(() => {
     if (ledgerId == null && ledgers?.length) setLedgerId(ledgers[0]!.id)
   }, [ledgers, ledgerId])
+
+  // A new bank ledger's statement lines have nothing to do with the last one's suggestions.
+  useEffect(() => {
+    setSuggestions(null)
+  }, [ledgerId])
 
   const { data: recon } = useQuery({
     queryKey: ['bankRecon', ledgerId, from, to],
@@ -50,11 +62,55 @@ export function BankingScreen(): React.JSX.Element {
       result.matched > 0 ? 'success' : 'warning',
       `${result.matched} of ${result.statementRows} statement rows matched and reconciled${result.unmatched.length ? `; ${result.unmatched.length} unmatched` : ''}`
     )
-    if (result.unmatched.length) {
-      const first = result.unmatched.slice(0, 3).map((u) => `${u.date} ${u.kind} ₹${(u.amount / 100).toLocaleString('en-IN')}`).join(' · ')
-      toast.push('info', `Unmatched: ${first}${result.unmatched.length > 3 ? ' …' : ''} — enter these as vouchers, then re-import`)
-    }
     await refresh()
+
+    if (result.unmatched.length === 0) {
+      setSuggestions(null)
+      return
+    }
+    try {
+      const rows = await api.bank.suggest(ledgerId, result.csvText)
+      setSuggestions(rows)
+      const withSuggestion = rows.filter((r) => r.suggestion).length
+      if (withSuggestion > 0) toast.push('info', `${withSuggestion} of ${rows.length} unmatched lines have a suggested ledger below`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const createFromSuggestion = async (row: BankSuggestionRow): Promise<void> => {
+    if (row.suggestion) {
+      try {
+        await api.bankRules.hit(row.suggestion.ruleId)
+      } catch {
+        // Non-fatal — the draft is still worth opening even if the hit counter didn't update.
+      }
+      nav.go({ name: 'voucher-entry', kindHint: row.suggestion.kind, draft: row.suggestion.voucherDraft, draftId: nextDraftId() })
+      return
+    }
+    if (ledgerId == null) return
+    const isDeposit = row.statementRow.kind === 'deposit'
+    nav.go({
+      name: 'voucher-entry',
+      kindHint: isDeposit ? 'receipt' : 'payment',
+      draft: {
+        date: row.statementRow.date,
+        narration: row.statementRow.description,
+        lines: [{ ledgerId, drCr: isDeposit ? 'dr' : 'cr', amount: row.statementRow.amount }]
+      },
+      draftId: nextDraftId()
+    })
+  }
+
+  const openRules = (prefill: { pattern: string; kind: 'payment' | 'receipt' } | null): void => {
+    setRulesPrefill(prefill)
+    setRulesModalKey((k) => k + 1)
+    setRulesOpen(true)
+  }
+
+  const rememberRule = (row: BankSuggestionRow): void => {
+    const kind: 'payment' | 'receipt' = row.statementRow.kind === 'deposit' ? 'receipt' : 'payment'
+    openRules({ pattern: suggestPattern(row.statementRow.description), kind })
   }
 
   if (ledgers && ledgers.length === 0) {
@@ -80,6 +136,7 @@ export function BankingScreen(): React.JSX.Element {
                 </option>
               ))}
             </Select>
+            <Button onClick={() => openRules(null)}>Rules…</Button>
             <Button variant="primary" onClick={() => void doImport()}>
               Import statement CSV
             </Button>
@@ -153,8 +210,204 @@ export function BankingScreen(): React.JSX.Element {
           <p className="mt-2 text-[11.5px] text-muted">
             Import a statement CSV (date + debit/credit columns) to auto-match by amount and date; anything left over, set the bank date by hand.
           </p>
+
+          {suggestions && suggestions.length > 0 && (
+            <Panel className="mt-3">
+              <div className="border-b border-line px-4 py-2.5">
+                <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">Unmatched statement lines</p>
+              </div>
+              <table className="ledger-table">
+                <thead>
+                  <tr>
+                    <th className="w-24">Date</th>
+                    <th>Description</th>
+                    <th className="r w-32">Amount</th>
+                    <th className="w-48">Suggested ledger</th>
+                    <th className="w-56"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {suggestions.map((s, i) => (
+                    <tr key={i} className="hover:bg-panel2">
+                      <td className="num text-muted">{toDisplayDate(s.statementRow.date)}</td>
+                      <td className="max-w-72 truncate">{s.statementRow.description}</td>
+                      <td className="r"><Money paise={s.statementRow.amount} /></td>
+                      <td>
+                        {s.suggestion ? (
+                          <span className="rounded px-1.5 py-0.5 text-[10.5px] bg-blue/10 text-blue">{s.suggestion.ledgerName}</span>
+                        ) : (
+                          <span className="text-[11.5px] text-muted">No match</span>
+                        )}
+                      </td>
+                      <td className="r">
+                        <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => void createFromSuggestion(s)}>
+                          Create voucher
+                        </button>
+                        <button className="text-[12px] text-muted hover:text-ink" onClick={() => rememberRule(s)}>
+                          Remember as rule
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Panel>
+          )}
         </>
       )}
+
+      {rulesOpen && (
+        <BankRulesModal key={rulesModalKey} prefill={rulesPrefill} onClose={() => setRulesOpen(false)} />
+      )}
     </div>
+  )
+}
+
+function BankRulesModal({
+  onClose,
+  prefill
+}: {
+  onClose: () => void
+  prefill: { pattern: string; kind: 'payment' | 'receipt' } | null
+}): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data: rules } = useQuery({ queryKey: ['bankRules'], queryFn: api.bankRules.list })
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [pattern, setPattern] = useState(prefill?.pattern ?? '')
+  const [ledgerId, setLedgerId] = useState<number | null>(null)
+  const [kind, setKind] = useState<'payment' | 'receipt'>(prefill?.kind ?? 'payment')
+  const [active, setActive] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  const invalidate = (): Promise<void> => queryClient.invalidateQueries({ queryKey: ['bankRules'] }).then(() => undefined)
+
+  const resetForm = (): void => {
+    setEditingId(null)
+    setPattern('')
+    setLedgerId(null)
+    setKind('payment')
+    setActive(true)
+  }
+
+  const edit = (r: BankRuleRecord): void => {
+    setEditingId(r.id)
+    setPattern(r.pattern)
+    setLedgerId(r.ledgerId)
+    setKind(r.kind)
+    setActive(r.active)
+  }
+
+  const save = async (): Promise<void> => {
+    if (pattern.trim().length < 2) return void toast.push('error', 'Pattern needs at least 2 characters')
+    if (ledgerId == null) return void toast.push('error', 'Pick a ledger')
+    setSaving(true)
+    try {
+      await api.bankRules.save({ pattern: pattern.trim(), ledgerId, kind, active }, editingId ?? undefined)
+      await invalidate()
+      toast.push('success', editingId ? 'Rule updated' : 'Rule created')
+      resetForm()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const remove = async (r: BankRuleRecord): Promise<void> => {
+    if (!window.confirm(`Delete rule "${r.pattern}"?`)) return
+    try {
+      await api.bankRules.remove(r.id)
+      await invalidate()
+      if (editingId === r.id) resetForm()
+      toast.push('success', 'Rule deleted')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const toggleActive = async (r: BankRuleRecord): Promise<void> => {
+    try {
+      await api.bankRules.save({ pattern: r.pattern, ledgerId: r.ledgerId, kind: r.kind, active: !r.active }, r.id)
+      await invalidate()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <Modal title="Bank rules" onClose={onClose} wide>
+      <div className="flex flex-col gap-4">
+        {!rules?.length ? (
+          <EmptyState title="No bank rules yet" hint={'Add one below, or use "Remember as rule" on an unmatched statement line'} />
+        ) : (
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th>Pattern</th>
+                <th>Ledger</th>
+                <th className="w-24">Kind</th>
+                <th className="r w-16">Hits</th>
+                <th className="w-16">Active</th>
+                <th className="w-32"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((r) => (
+                <tr key={r.id} className="hover:bg-panel2">
+                  <td>{r.pattern}</td>
+                  <td className="text-muted">{r.ledgerName}</td>
+                  <td className="capitalize">{r.kind}</td>
+                  <td className="num r">{r.hits}</td>
+                  <td>
+                    <button className="text-[12px] text-blue hover:underline" onClick={() => void toggleActive(r)}>
+                      {r.active ? 'Active' : 'Paused'}
+                    </button>
+                  </td>
+                  <td className="r">
+                    <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => edit(r)}>
+                      Edit
+                    </button>
+                    <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(r)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <div className="border-t border-line pt-4">
+          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{editingId ? 'Edit rule' : 'Add rule'}</p>
+          <div className="grid grid-cols-4 gap-3">
+            <Field label="Pattern">
+              <TextInput autoFocus value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="e.g. ACME SUPPLIES" />
+            </Field>
+            <Field label="Ledger">
+              <LedgerPicker value={ledgerId} onPick={setLedgerId} placeholder="Ledger" />
+            </Field>
+            <Field label="Kind">
+              <Select value={kind} onChange={(e) => setKind(e.target.value as 'payment' | 'receipt')}>
+                <option value="payment">Payment (withdrawal)</option>
+                <option value="receipt">Receipt (deposit)</option>
+              </Select>
+            </Field>
+            <div className="flex items-end pb-1.5">
+              <label className="flex items-center gap-2 text-[13px] text-ink">
+                <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+                Active
+              </label>
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            {editingId && <Button onClick={resetForm}>Cancel edit</Button>}
+            <Button variant="primary" disabled={saving} onClick={() => void save()}>
+              {editingId ? 'Save changes' : 'Add rule'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
   )
 }

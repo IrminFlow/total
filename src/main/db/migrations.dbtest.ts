@@ -28,6 +28,7 @@ const EXPECTED_TABLES = [
   'voucher_line_cost_allocations',
   'bill_refs',
   'recurring_templates',
+  'bank_rules',
   'migrations'
 ]
 
@@ -211,5 +212,31 @@ describe('migrate', () => {
       voucher_type_id: number
     }
     expect(row.voucher_type_id).toBe(Number(vtId))
+  })
+
+  it('creates bank_rules with the documented defaults and a kind CHECK constraint', () => {
+    const db = freshDb()
+    const columns = (db.prepare('PRAGMA table_info(bank_rules)').all() as { name: string }[]).map((c) => c.name)
+    expect(columns).toEqual(
+      expect.arrayContaining(['id', 'pattern', 'match_field', 'ledger_id', 'kind', 'active', 'hits'])
+    )
+
+    const groupId = Number(
+      db.prepare("INSERT INTO groups (name, nature, is_system) VALUES ('Test Group', 'liability', 0)").run().lastInsertRowid
+    )
+    const ledgerId = Number(
+      db.prepare("INSERT INTO ledgers (name, group_id) VALUES ('Test Ledger', ?)").run(groupId).lastInsertRowid
+    )
+    const id = db
+      .prepare("INSERT INTO bank_rules (pattern, ledger_id, kind) VALUES ('ACME', ?, 'payment')")
+      .run(ledgerId).lastInsertRowid
+    const row = db.prepare('SELECT match_field, active, hits FROM bank_rules WHERE id = ?').get(id) as {
+      match_field: string; active: number; hits: number
+    }
+    expect(row).toEqual({ match_field: 'description', active: 1, hits: 0 })
+
+    expect(() =>
+      db.prepare("INSERT INTO bank_rules (pattern, ledger_id, kind) VALUES ('X', ?, 'not_a_kind')").run(ledgerId)
+    ).toThrow()
   })
 })

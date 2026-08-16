@@ -15,10 +15,10 @@ import { companyBackupsDir, companyDbPath, companyExportsDir, ensureCompanyTree,
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
-  backupFileSchema, billsOpenSchema, ccStatementSchema, companyCreateSchema, costCentreInputSchema, godownInputSchema,
-  groupInputSchema, gstr2bSchema, isoDate, ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema,
-  rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema,
-  tdsSuggestSchema, tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
+  backupFileSchema, bankRuleInputSchema, billsOpenSchema, ccStatementSchema, companyCreateSchema, costCentreInputSchema,
+  godownInputSchema, groupInputSchema, gstr2bSchema, isoDate, ledgerInputSchema, passphraseSchema, periodSchema,
+  recurringInputSchema, rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema,
+  tdsSectionInputSchema, tdsSuggestSchema, tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
@@ -610,7 +610,27 @@ export function registerIpc(): void {
       if (picked.canceled || !picked.filePaths[0]) return null
       csv = readFileSync(picked.filePaths[0], 'utf8')
     }
-    return banking.importStatement(c.db, ledgerId, csv)
+    // csvText rides back on the response (not just the parsed result) so the renderer — which
+    // never sees the picked file's contents when the dialog path is used — can hand the exact
+    // same text to banking:suggest right after import (see BankingScreen.doImport).
+    return { ...banking.importStatement(c.db, ledgerId, csv), csvText: csv }
+  })
+  handle('bankrule:list', () => banking.listRules(requireCompany().db), 'viewer')
+  handle('bankrule:save', (p) => {
+    const { id, data } = z.object({ id: z.number().int().positive().optional(), data: bankRuleInputSchema }).parse(p)
+    return banking.saveRule(requireCompany().db, data, id)
+  })
+  handle('bankrule:delete', (p) => {
+    banking.deleteRule(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+  handle('bankrule:hit', (p) => {
+    banking.recordRuleHit(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+  handle('banking:suggest', (p) => {
+    const { ledgerId, csvText } = z.object({ ledgerId: z.number().int().positive(), csvText: z.string() }).parse(p)
+    return banking.suggestVouchers(requireCompany().db, ledgerId, csvText)
   })
 
   // ---------- e-documents + invoice printing ----------

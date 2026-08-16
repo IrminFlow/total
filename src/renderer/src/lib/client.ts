@@ -10,9 +10,9 @@ import type {
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
-  AuditListInput, BomInput, CompanyCreateInput, CostCentreInput, CurrencyInput, EmployeeInput, GodownInput,
-  GroupInput, LedgerInput, NicCredentials, RecurringInput, RendererLogInput, StockGroupInput, StockItemInput,
-  TdsSectionInput, UnitInput, UserInput, VoucherTypeInput, VoucherInputParsed
+  AuditListInput, BankRuleInput, BomInput, CompanyCreateInput, CostCentreInput, CurrencyInput, EmployeeInput,
+  GodownInput, GroupInput, LedgerInput, NicCredentials, RecurringInput, RendererLogInput, StockGroupInput,
+  StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTypeInput, VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
@@ -79,6 +79,37 @@ export interface AuditRow {
   afterJson: string | null
   userName: string | null
   appVersion: string | null
+}
+
+/** Mirrors src/main/services/banking.ts's BankRuleRecord shape (kept local — main-process only). */
+export interface BankRuleRecord {
+  id: number
+  pattern: string
+  matchField: string
+  ledgerId: number
+  ledgerName: string
+  kind: 'payment' | 'receipt'
+  active: boolean
+  hits: number
+}
+
+/** Mirrors src/main/services/banking.ts's BankVoucherDraft / BankSuggestionRow shapes (kept
+ *  local — that file is main-process only). */
+export interface BankVoucherDraft {
+  date: string
+  narration: string
+  lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
+}
+
+export interface BankSuggestionRow {
+  statementRow: { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal' }
+  suggestion: {
+    ruleId: number
+    ledgerId: number
+    ledgerName: string
+    kind: 'payment' | 'receipt'
+    voucherDraft: BankVoucherDraft
+  } | null
 }
 
 /** Mirrors src/main/services/tds.ts's TdsSuggestion shape (kept local — that file is main-process only). */
@@ -259,10 +290,22 @@ export const api = {
     recon: (ledgerId: number, from: string, to: string) => call<BankRecon>('bank:recon', { ledgerId, from, to }),
     setBankDate: (lineId: number, bankDate: string | null) => call<null>('bank:setBankDate', { lineId, bankDate }),
     importCsv: (ledgerId: number) =>
-      call<{ statementRows: number; matched: number; unmatched: { date: string; description: string; amount: number; kind: string }[] } | null>(
-        'bank:importCsv',
-        { ledgerId }
-      )
+      call<
+        | {
+            statementRows: number
+            matched: number
+            unmatched: { date: string; description: string; amount: number; kind: string }[]
+            csvText: string
+          }
+        | null
+      >('bank:importCsv', { ledgerId }),
+    suggest: (ledgerId: number, csvText: string) => call<BankSuggestionRow[]>('banking:suggest', { ledgerId, csvText })
+  },
+  bankRules: {
+    list: () => call<BankRuleRecord[]>('bankrule:list'),
+    save: (data: BankRuleInput, id?: number) => call<BankRuleRecord>('bankrule:save', { id, data }),
+    remove: (id: number) => call<null>('bankrule:delete', { id }),
+    hit: (id: number) => call<null>('bankrule:hit', { id })
   },
   edoc: {
     list: (from: string, to: string) => call<EdocListRow[]>('edoc:list', { from, to }),
