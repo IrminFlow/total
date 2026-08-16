@@ -46,3 +46,12 @@ export function touchLastOpened(slug: string): void {
   reg.lastOpened = slug
   writeRegistry(reg)
 }
+
+/** Drop `slug` from the registry (its on-disk company directory is removed separately by the
+ *  caller — see company:delete in ipc.ts). No-op if the slug isn't in the registry. */
+export function removeCompany(slug: string): void {
+  const reg = readRegistry()
+  reg.companies = reg.companies.filter((c) => c.slug !== slug)
+  if (reg.lastOpened === slug) reg.lastOpened = null
+  writeRegistry(reg)
+}

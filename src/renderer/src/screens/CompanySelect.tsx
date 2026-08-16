@@ -7,7 +7,7 @@ import { GST_STATES } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
 import { fyOf, todayISO } from '@shared/dates'
 import type { CompanyCreateInput } from '@shared/schemas'
-import type { CompanyInfo } from '@shared/domain'
+import type { CompanyInfo, CompanySummary } from '@shared/domain'
 
 export function CompanySelect(): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -16,6 +16,8 @@ export function CompanySelect(): React.JSX.Element {
   const toast = useToasts()
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [demoLoading, setDemoLoading] = useState(false)
+  const [deleting, setDeleting] = useState<CompanySummary | null>(null)
   const [integrityIssue, setIntegrityIssue] = useState<{
     pending: { slug: string; info: CompanyInfo; locked: boolean }
     integrity: IntegrityResult
@@ -59,7 +61,7 @@ export function CompanySelect(): React.JSX.Element {
             <div
               key={c.slug}
               data-active={i === active}
-              className="kbar-row flex cursor-pointer items-center justify-between border-b border-line/50 px-5 py-3.5 last:border-b-0"
+              className="kbar-row group flex cursor-pointer items-center justify-between border-b border-line/50 px-5 py-3.5 last:border-b-0"
               onMouseEnter={() => setActive(i)}
               onClick={() => void open(c.slug)}
             >
@@ -70,7 +72,20 @@ export function CompanySelect(): React.JSX.Element {
                   {c.gstin ? ` · ${c.gstin}` : ' · Unregistered'}
                 </p>
               </div>
-              <span className="text-[11.5px] text-muted">Enter ↵</span>
+              <div className="flex items-center gap-3">
+                <span className="text-[11.5px] text-muted">Enter ↵</span>
+                <button
+                  type="button"
+                  title={`Delete ${c.name}`}
+                  className="rounded px-1.5 py-0.5 text-[13px] text-muted opacity-0 transition-opacity hover:border hover:border-cr/50 hover:text-cr group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDeleting(c)
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -82,8 +97,38 @@ export function CompanySelect(): React.JSX.Element {
           <Button variant="ghost" onClick={() => setImporting(true)}>
             Import encrypted backup…
           </Button>
+          <Button
+            variant="ghost"
+            disabled={demoLoading}
+            onClick={async () => {
+              setDemoLoading(true)
+              try {
+                const r = await api.company.createDemo()
+                await queryClient.invalidateQueries({ queryKey: ['registry'] })
+                await open(r.slug)
+              } catch (err) {
+                toast.push('error', (err as Error).message)
+              } finally {
+                setDemoLoading(false)
+              }
+            }}
+          >
+            {demoLoading ? 'Setting up sample data…' : 'Explore with sample data'}
+          </Button>
         </div>
       </div>
+
+      {deleting && (
+        <DeleteCompanyModal
+          company={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={async () => {
+            setDeleting(null)
+            await queryClient.invalidateQueries({ queryKey: ['registry'] })
+            toast.push('success', 'Company deleted')
+          }}
+        />
+      )}
 
       {creating && (
         <CreateCompanyModal
@@ -225,6 +270,63 @@ function ImportBackupModal({
           </Button>
           <Button variant="primary" onClick={() => void doImport()} disabled={busy}>
             {busy ? 'Importing…' : 'Choose file & import'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function DeleteCompanyModal({
+  company,
+  onClose,
+  onDeleted
+}: {
+  company: CompanySummary
+  onClose: () => void
+  onDeleted: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const [confirmName, setConfirmName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const matches = confirmName.trim() === company.name
+
+  const doDelete = async (): Promise<void> => {
+    if (!matches) return
+    setBusy(true)
+    try {
+      await api.company.remove(company.slug, confirmName.trim())
+      onDeleted()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={`Delete ${company.name}`} onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <p className="text-[13px] text-muted">
+          This permanently deletes <span className="font-medium text-ink">{company.name}</span> and every voucher,
+          ledger and backup stored for it. This cannot be undone.
+        </p>
+        <Field label={`Type "${company.name}" to confirm`}>
+          <TextInput
+            autoFocus
+            value={confirmName}
+            onChange={(e) => setConfirmName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void doDelete()
+            }}
+            placeholder={company.name}
+          />
+        </Field>
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={() => void doDelete()} disabled={!matches || busy}>
+            {busy ? 'Deleting…' : 'Delete company'}
           </Button>
         </div>
       </div>

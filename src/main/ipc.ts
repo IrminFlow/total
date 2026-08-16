@@ -10,8 +10,8 @@ import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupS
 import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
-import { readRegistry, touchLastOpened, upsertCompany } from './registry'
-import { companyBackupsDir, companyDbPath, companyExportsDir, ensureCompanyTree, slugify } from './paths'
+import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
+import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, ensureCompanyTree, slugify } from './paths'
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
@@ -44,6 +44,7 @@ import { importTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
 import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
+import { createDemoCompany } from './services/demo'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
 import { roleAllows, type Role } from './services/roles'
@@ -105,6 +106,8 @@ type Handler = (payload: unknown) => unknown | Promise<unknown>
 const UNGATED_CHANNELS = new Set([
   'company:list',
   'company:create',
+  'company:createDemo',
+  'company:delete',
   'company:open',
   'company:current',
   // Deliberate: a locked session (or one with no session at all) must still be able to back
@@ -172,6 +175,20 @@ export function registerIpc(): void {
     db.close()
     upsertCompany({ slug, name: input.name, stateCode: input.stateCode, gstin: input.gstin, lastOpenedAt: null })
     return { slug }
+  })
+
+  handle('company:createDemo', () => createDemoCompany())
+
+  handle('company:delete', (payload) => {
+    const { slug, confirmName } = z.object({ slug: z.string().min(1), confirmName: z.string() }).parse(payload)
+    const reg = readRegistry()
+    const company = reg.companies.find((c) => c.slug === slug)
+    if (!company) throw new Error('Company not found')
+    if (confirmName !== company.name) throw new Error('Company name does not match')
+    if (current?.slug === slug) closeCurrentCompany()
+    rmSync(companyDir(slug), { recursive: true, force: true })
+    removeCompany(slug)
+    return null
   })
 
   handle('company:open', async (payload) => {
