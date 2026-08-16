@@ -1,7 +1,7 @@
 // Hermetic IPC smoke test for CI: launches the built app (out/) with a scratch data dir,
 // drives a full company -> ledger -> voucher -> report -> delete/restore round trip purely
 // through window.total.invoke, and screenshots success/failure. No hardcoded .app path —
-// unlike scripts/drive*.mjs, this must run on a freshly `npm run build`-ed checkout.
+// like the scripts/e2e/ scenarios, this must run on a freshly `npm run build`-ed checkout.
 import { _electron as electron } from 'playwright-core'
 import { createRequire } from 'node:module'
 import * as fs from 'node:fs'

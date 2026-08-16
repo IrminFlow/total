@@ -209,8 +209,8 @@ function DueTodayPanel(): React.JSX.Element | null {
   )
 }
 
-/** "GSTR-3B in 5 days" / "GSTR-1 tomorrow" / "GSTR-3B due today". */
-function deadlineCountdown(d: Deadline, today: string): string {
+/** "GSTR-3B in 5 days" / "GSTR-1 tomorrow" / "GSTR-3B due today". Exported for renderer tests. */
+export function deadlineCountdown(d: Deadline, today: string): string {
   const days = Math.round(
     (new Date(d.date + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000
   )

@@ -20,8 +20,8 @@ src/preload/    contextBridge → window.total.invoke(channel, payload).
 src/renderer/   React + Tailwind v4 UI. Talks to main ONLY through the typed client in
                 src/renderer/src/lib/client.ts. Light theme default + dark toggle.
 site/           Next.js 16 marketing site (Vercel root directory = site).
-scripts/        drive*.mjs — Playwright _electron smoke drivers that launch the BUILT app
-                and screenshot flows (run `npm run build` first).
+scripts/        e2e/NN-*.mjs — Playwright _electron E2E scenarios (npm run e2e) that launch
+                the BUILT app on scratch data dirs; lib/harness.mjs is the shared driver.
 .github/        release.yml — builds & publishes DMG/ZIP on v* tags.
 ```
 
@@ -35,8 +35,10 @@ npm run typecheck    # tsc for main+preload+shared and renderer projects
 npm run build        # electron-vite build → out/
 npm run build:mac    # build + electron-builder DMG → dist/
 npm run smoke        # hermetic IPC smoke test against the BUILT app (out/); run `npm run build` first
+npm run test:renderer                    # renderer hook/helper tests (jsdom + RTL)
+npm run e2e          # full UI E2E suite (scripts/e2e/*.mjs) against out/; build first.
+                     # Filter: node scripts/run-e2e.mjs 03 06
 cd site && npm run dev / npm run build   # marketing site
-node scripts/drive6.mjs                  # example smoke driver (build app first)
 ```
 
 ## Hard rules & conventions

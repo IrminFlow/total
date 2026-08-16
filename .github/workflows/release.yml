@@ -28,8 +28,20 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build and publish DMG + ZIP to the release
-        run: npm run build && npx electron-builder --mac --publish always
+      - name: DB-layer tests (Electron-as-Node)
+        run: npm run test:db
+
+      - name: Build
+        run: npm run build
+
+      - name: Hermetic IPC smoke test against the build
+        run: npm run smoke
+        env:
+          TOTAL_DATA_DIR: ${{ runner.temp }}/total-data
+          SMOKE_OUT: ${{ runner.temp }}/smoke
+
+      - name: Publish DMG + ZIP to the release
+        run: npx electron-builder --mac --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Unsigned beta builds: users right-click → Open on first launch, and the
@@ -56,6 +68,9 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: DB-layer tests (Electron-as-Node)
+        run: npm run test:db
 
       - name: Build NSIS installer (no publish — electron-builder creates a DUPLICATE
           release for the tag even when one exists; observed on v0.2.0)
