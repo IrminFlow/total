@@ -38,6 +38,8 @@ export type Screen =
   | { name: 'trial-balance' }
   | { name: 'profit-loss' }
   | { name: 'balance-sheet' }
+  | { name: 'cash-flow' }
+  | { name: 'exceptions' }
   | { name: 'stock-summary' }
   | { name: 'ledger-statement'; ledgerId: number }
   | { name: 'gstr1' }

@@ -1,5 +1,6 @@
 /** Result shapes for every report screen. Computed in main, rendered in renderer. */
 import type { DrCr, Nature } from './domain'
+import type { RatioPanel } from './reportMath'
 
 export interface DayBookRow {
   voucherId: number
@@ -127,6 +128,8 @@ export interface DashboardData {
   partyCount: number
   itemCount: number
   hasEmployees: boolean
+  /** Financial ratio panel, FY-to-date (v0.3 #54). */
+  ratios: RatioPanel
 }
 
 export interface VoucherListRow {

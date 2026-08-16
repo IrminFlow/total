@@ -12,6 +12,7 @@ import { Masters } from './screens/Masters'
 import { TrialBalanceScreen } from './screens/TrialBalance'
 import { ProfitLossScreen } from './screens/ProfitLoss'
 import { BalanceSheetScreen } from './screens/BalanceSheet'
+import { CashFlowScreen } from './screens/CashFlow'
 import { StockSummaryScreen } from './screens/StockSummary'
 import { LedgerStatementScreen } from './screens/LedgerStatement'
 import { Gstr1Screen, Gstr3bScreen } from './screens/GstReturns'
@@ -119,6 +120,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'trial-balance' && <TrialBalanceScreen />}
           {screen.name === 'profit-loss' && <ProfitLossScreen />}
           {screen.name === 'balance-sheet' && <BalanceSheetScreen />}
+          {screen.name === 'cash-flow' && <CashFlowScreen />}
           {screen.name === 'stock-summary' && <StockSummaryScreen />}
           {screen.name === 'ledger-statement' && <LedgerStatementScreen ledgerId={screen.ledgerId} />}
           {screen.name === 'gstr1' && <Gstr1Screen />}

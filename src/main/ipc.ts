@@ -525,6 +525,10 @@ export function registerIpc(): void {
     const { today, fyFrom } = z.object({ today: z.string(), fyFrom: z.string() }).parse(p)
     return reports.dashboard(requireCompany().db, today, fyFrom)
   }, 'viewer')
+  handle('report:cashFlow', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return reports.cashFlow(requireCompany().db, from, to)
+  }, 'viewer')
 
   // ---------- consolidated (multi-company, read-only) ----------
   handle('consol:run', (p) => {

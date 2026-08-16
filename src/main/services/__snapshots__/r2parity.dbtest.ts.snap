@@ -154,6 +154,15 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
   "monthSales": 59000,
   "partyCount": 3,
   "payables": 182600,
+  "ratios": {
+    "creditorDays": 201.17,
+    "currentRatio": 7.68,
+    "debtorDays": 183.54,
+    "grossMarginPct": 56.11,
+    "inventoryTurnover": 0.15,
+    "netMarginPct": 39.16,
+    "quickRatio": 4.91,
+  },
   "receivables": 357000,
   "recentVouchers": [
     {

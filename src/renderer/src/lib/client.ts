@@ -8,6 +8,7 @@ import type {
   LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockSummaryRow, TrialBalance,
   VoucherListRow
 } from '@shared/reports'
+import type { CashFlowStatement } from '@shared/reportMath'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
@@ -298,7 +299,8 @@ export const api = {
     profitLoss: (from: string, to: string) => call<ProfitAndLoss>('report:profitLoss', { from, to }),
     balanceSheet: (asOn: string) => call<BalanceSheet>('report:balanceSheet', { asOn }),
     stockSummary: (asOn: string) => call<StockSummaryRow[]>('report:stockSummary', { asOn }),
-    dashboard: (today: string, fyFrom: string) => call<DashboardData>('report:dashboard', { today, fyFrom })
+    dashboard: (today: string, fyFrom: string) => call<DashboardData>('report:dashboard', { today, fyFrom }),
+    cashFlow: (from: string, to: string) => call<CashFlowStatement>('report:cashFlow', { from, to })
   },
   consolidated: {
     run: (slugs: string[], kind: 'tb' | 'pnl', from: string, to: string) =>

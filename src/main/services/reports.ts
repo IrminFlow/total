@@ -6,6 +6,7 @@ import type {
 import type { Group, Nature } from '@shared/domain'
 import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
+import { buildCashFlow, computeRatios, type CashFlowStatement } from '@shared/reportMath'
 import { listVouchers, NOT_DELETED } from './vouchers'
 
 // ---------- shared helpers ----------
@@ -379,6 +380,50 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string): BalanceSh
   return result
 }
 
+/** Indirect cash flow statement (v0.3 #53): net profit ± working-capital/stock deltas grouped
+ *  by activity, reconciling exactly to the period's cash+bank movement. */
+export function cashFlow(db: DB, from: string, to: string): CashFlowStatement {
+  const pnl = profitAndLoss(db, from, to)
+  const before = closingBalances(db, dayBefore(from))
+  const after = closingBalances(db, to)
+  const groups = listGroups(db)
+  const ledgers = ledgersLite(db)
+  const cashBankIds = descendantIdSet(groups, CASH_BANK_GROUPS)
+
+  const byId = new Map(groups.map((g) => [g.id, g]))
+  const topOf = (groupId: number): Group => {
+    let g = byId.get(groupId)!
+    while (g.parentId !== null && byId.has(g.parentId)) g = byId.get(g.parentId)!
+    return g
+  }
+
+  const deltaByGroup = new Map<string, number>()
+  let openingCash = 0
+  let closingCash = 0
+  for (const l of ledgers) {
+    const b = before.get(l.id) ?? 0
+    const a = after.get(l.id) ?? 0
+    if (cashBankIds.has(l.groupId)) {
+      openingCash += b
+      closingCash += a
+      continue
+    }
+    if (a === b) continue
+    const top = topOf(l.groupId)
+    if (top.nature !== 'asset' && top.nature !== 'liability') continue // P&L ledgers live in netProfit
+    deltaByGroup.set(top.name, (deltaByGroup.get(top.name) ?? 0) + (a - b))
+  }
+
+  return buildCashFlow({
+    period: { from, to },
+    netProfit: pnl.netProfit,
+    stockDelta: pnl.closingStock - pnl.openingStock,
+    groupDeltas: [...deltaByGroup].map(([name, delta]) => ({ name, delta })),
+    openingCash,
+    closingCash
+  })
+}
+
 function addDaysISO(iso: string, delta: number): string {
   const dt = new Date(iso + 'T00:00:00Z')
   dt.setUTCDate(dt.getUTCDate() + delta)
@@ -533,14 +578,50 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
     .filter((l) => cashBankIds.has(l.groupId))
     .reduce((s, l) => s + l.openingBalance, 0)
 
+  const receivables = sumGroupSet(debtorIds, 1, true)
+  const payables = sumGroupSet(creditorIds, -1, true)
+
+  // Ratio panel (FY-to-date, v0.3 #54): margins/stock from the FY P&L, sales/purchase flows
+  // from one grouped query, balance-sheet sides from the balances already in hand.
+  const pnlFy = profitAndLoss(db, fyFrom, today)
+  const fyKindRows = db
+    .prepare(
+      `SELECT vt.kind AS kind, COALESCE(SUM(t.total), 0) AS total
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
+         ON t.voucher_id = v.id
+       WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       GROUP BY vt.kind`
+    )
+    .all(fyFrom, today) as { kind: 'sales' | 'purchase'; total: number }[]
+  const fyTotals = new Map(fyKindRows.map((r) => [r.kind, r.total]))
+  const currentAssetIds = descendantIdSet(groups, ['Current Assets'])
+  const currentLiabilityIds = descendantIdSet(groups, ['Current Liabilities'])
+  const periodDays = Math.max(1, Math.round((Date.parse(today) - Date.parse(fyFrom)) / 86_400_000) + 1)
+  const ratios = computeRatios({
+    currentAssets: sumGroupSet(currentAssetIds, 1) + pnlFy.closingStock,
+    currentLiabilities: sumGroupSet(currentLiabilityIds, -1),
+    stock: pnlFy.closingStock,
+    receivables,
+    payables,
+    sales: fyTotals.get('sales') ?? 0,
+    purchases: fyTotals.get('purchase') ?? 0,
+    openingStock: pnlFy.openingStock,
+    closingStock: pnlFy.closingStock,
+    grossProfit: pnlFy.grossProfit,
+    netProfit: pnlFy.netProfit,
+    periodDays
+  })
+
   return {
     cashBalance: sumGroupSet(cashIds, 1),
     bankBalance: sumGroupSet(bankIds, 1),
     todaySales: kindTotals.get('sales')?.todayTotal ?? 0,
     monthSales: kindTotals.get('sales')?.monthTotal ?? 0,
     monthPurchases: kindTotals.get('purchase')?.monthTotal ?? 0,
-    receivables: sumGroupSet(debtorIds, 1, true),
-    payables: sumGroupSet(creditorIds, -1, true),
+    receivables,
+    payables,
     gstPayable: sumGroupSet(dutiesIds, -1),
     recentVouchers: recent,
     topReceivables: topLedgersFor(balances, ledgers, debtorIds, 1),
@@ -549,6 +630,7 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
     voucherCount: counts.voucherCount,
     partyCount,
     itemCount: counts.itemCount,
-    hasEmployees: !!counts.hasEmployees
+    hasEmployees: !!counts.hasEmployees,
+    ratios
   }
 }
