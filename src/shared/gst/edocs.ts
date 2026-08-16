@@ -22,6 +22,9 @@ export interface EdocItem {
   /** Scannable barcode/SKU stored on the stock item, if any — printed on the invoice's optional
    *  Barcode column (see invoiceConfig.showItemBarcode). */
   barcode?: string | null
+  /** Per-line trade discount in paise (inventory_lines.discount_paise, lane Q #97). Display
+   *  only: `taxablePaise` is already the post-discount value, so GST math never touches this. */
+  discountPaise?: number | null
 }
 
 /** Per-voucher transport details (voucher_transport row), consumed by the EWB/e-invoice builders. */

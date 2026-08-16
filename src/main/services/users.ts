@@ -1,5 +1,6 @@
 import type { DB } from '../db/connection'
 import { hashPin, verifyPin } from './authcrypt'
+import { writeAudit } from './audit'
 import type { Role } from './roles'
 
 export type { Role }
@@ -120,16 +121,56 @@ export function deactivateUser(db: DB, id: number): void {
   db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(id)
 }
 
-/** Consecutive-failure throttle, per user id, in memory only (resets on app restart). */
-const throttle = new Map<number, { fails: number; until: number }>()
+/**
+ * Consecutive-failure throttle, per user id, persisted in the `meta` table under
+ * `auth.fails.<userId>` (task Q1 #93) — restarting the app no longer resets the lockout the way
+ * the old in-memory Map did. Reset (row deleted) on a successful login.
+ */
 const MAX_FAILS = 5
 const LOCKOUT_MS = 30_000
 
+interface ThrottleState {
+  fails: number
+  /** Epoch ms until which login attempts are refused; 0 = not locked out. */
+  until: number
+}
+
+function throttleKey(userId: number): string {
+  return `auth.fails.${userId}`
+}
+
+function readThrottle(db: DB, userId: number): ThrottleState | null {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(throttleKey(userId)) as
+    | { value: string }
+    | undefined
+  if (!row) return null
+  try {
+    const parsed = JSON.parse(row.value) as Partial<ThrottleState>
+    if (typeof parsed.fails !== 'number' || typeof parsed.until !== 'number') return null
+    return { fails: parsed.fails, until: parsed.until }
+  } catch {
+    return null
+  }
+}
+
+function writeThrottle(db: DB, userId: number, state: ThrottleState): void {
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
+    throttleKey(userId),
+    JSON.stringify(state)
+  )
+}
+
+function clearThrottle(db: DB, userId: number): void {
+  db.prepare('DELETE FROM meta WHERE key = ?').run(throttleKey(userId))
+}
+
 /** Verify `pin` for `userId`. Throws 'Wrong PIN' on mismatch (or unknown/inactive user), or the
- *  throttle message after 5 consecutive failures — in which case verifyPin isn't even called. */
+ *  throttle message after 5 consecutive failures — in which case verifyPin isn't even called.
+ *  Every failed attempt is audited (entity 'user', action 'login_failed', before/after null);
+ *  successes are audited as action 'login'. */
 export function login(db: DB, userId: number, pin: string): LoginResult {
   const now = Date.now()
-  const state = throttle.get(userId)
+  const state = readThrottle(db, userId)
   if (state && state.until > now) {
     throw new Error('Too many attempts — wait 30 seconds')
   }
@@ -141,10 +182,12 @@ export function login(db: DB, userId: number, pin: string): LoginResult {
   const ok = row && row.active ? verifyPin(pin, row.pinHash) : false
   if (!row || !row.active || !ok) {
     const fails = (state?.fails ?? 0) + 1
-    throttle.set(userId, { fails, until: fails >= MAX_FAILS ? now + LOCKOUT_MS : 0 })
+    writeThrottle(db, userId, { fails, until: fails >= MAX_FAILS ? now + LOCKOUT_MS : 0 })
+    writeAudit(db, 'user', userId, 'login_failed', null, null)
     throw new Error('Wrong PIN')
   }
 
-  throttle.delete(userId)
+  clearThrottle(db, userId)
+  writeAudit(db, 'user', row.id, 'login', null, { name: row.name, role: row.role })
   return { id: row.id, name: row.name, role: row.role }
 }

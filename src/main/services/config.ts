@@ -85,6 +85,26 @@ export function setGst3bManual(db: DB, period: string, input: unknown): Gst3bMan
   return parsed
 }
 
+// ---------- audit retention (task Q1 #92) ----------
+
+/** Days of audit_log history to keep, or null (the default) = keep forever. Stored in `meta`
+ *  under 'audit.keepDays'. When set, company open prunes older rows (see ipc.ts + audit.ts). */
+export function getAuditKeepDays(db: DB): number | null {
+  const raw = readMeta(db, 'audit.keepDays')
+  return typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : null
+}
+
+export function setAuditKeepDays(db: DB, keepDays: number | null): number | null {
+  const before = getAuditKeepDays(db)
+  if (keepDays === null) {
+    db.prepare("DELETE FROM meta WHERE key = 'audit.keepDays'").run()
+  } else {
+    writeMeta(db, 'audit.keepDays', keepDays)
+  }
+  writeAudit(db, 'company', 0, 'update', { auditKeepDays: before }, { auditKeepDays: keepDays })
+  return keepDays
+}
+
 // ---------- compliance-deadline notifications (once-per-day guard) ----------
 
 /** True the first time it's called on a given `today`, false on every subsequent call the same

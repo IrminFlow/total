@@ -4,6 +4,7 @@ import { fyFromStartYear, todayISO } from '@shared/dates'
 import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { findOrCreateLedger } from './masters'
 import { saveVoucher, setLockDate, NOT_DELETED } from './vouchers'
+import { writeAudit } from './audit'
 
 /** Marker embedded in the closing journal's narration — how re-close and status checks find it. */
 function closeMarker(fyStartYear: number): string {
@@ -125,5 +126,12 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
   })
 
   const voucherId = run()
+  // [lane-Q audit] year-end close summary row (the closing journal + lock write their own rows;
+  // this one records the close as a single findable event).
+  writeAudit(db, 'year_end', fyStartYear, 'create', null, {
+    voucherId,
+    netProfit: plan.netProfit,
+    lockedUpTo: closeDate
+  })
   return { voucherId, netProfit: plan.netProfit, lockedUpTo: closeDate }
 }

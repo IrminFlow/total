@@ -2,6 +2,7 @@ import type { DB } from '../db/connection'
 import { parseTallyExport, type TallyImport } from '@shared/tally'
 import { GST_STATES } from '@shared/gst/states'
 import { saveVoucher } from './vouchers'
+import { writeAudit } from './audit'
 import type { VoucherKind } from '@shared/domain'
 
 export interface ImportSummary {
@@ -51,9 +52,32 @@ export function dryRunTallyXml(xml: string): ImportSummary {
   }
 }
 
-/** Apply a parsed Tally export to the open company. Idempotent-ish: existing names are reused, not duplicated. */
+/** Apply a parsed Tally export to the open company. Idempotent-ish: existing names are reused,
+ *  not duplicated. The whole apply runs in ONE transaction (task Q1 #94) — a hard failure
+ *  partway through (e.g. a constraint violation) rolls back every master and voucher written so
+ *  far, never leaving a half-imported company. Per-voucher validation failures are still soft
+ *  (skipped + warned), same as before. A single summary audit row (entity 'tally_import',
+ *  action 'import') records the counts. */
 export function importTallyXml(db: DB, xml: string): ImportSummary {
+  // Parse outside the transaction — a malformed file fails before any write is attempted.
   const data: TallyImport = parseTallyExport(xml)
+  const run = db.transaction((): ImportSummary => {
+    const summary = applyParsedTallyImport(db, data)
+    writeAudit(db, 'tally_import', 0, 'import', null, {
+      groups: summary.groups,
+      ledgers: summary.ledgers,
+      units: summary.units,
+      items: summary.items,
+      vouchers: summary.vouchers,
+      skipped: summary.skipped,
+      warnings: summary.warnings.length
+    })
+    return summary
+  })
+  return run()
+}
+
+function applyParsedTallyImport(db: DB, data: TallyImport): ImportSummary {
   const warnings = [...data.warnings]
   let counts = { groups: 0, ledgers: 0, units: 0, items: 0, vouchers: 0, skipped: 0 }
 

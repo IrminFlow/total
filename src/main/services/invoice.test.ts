@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { buildInvoiceHtml, SAMPLE_INVOICE } from './invoice'
+import { buildInvoiceHtml, hsnSummaryForInvoice, INVOICE_ITEMS_PER_PAGE, SAMPLE_INVOICE } from './invoice'
 import { DEFAULT_INVOICE_CONFIG } from '@shared/invoiceConfig'
 import type { CompanyInfo } from '@shared/domain'
+import type { EdocInvoice, EdocItem } from '@shared/gst/edocs'
 
 const COMPANY: CompanyInfo = {
   name: 'Total Traders',
@@ -79,6 +80,41 @@ describe('buildInvoiceHtml (pure — invoice print config rendering)', () => {
     expect(html).toContain('Sam&#39;s &quot;Best&quot; Traders &lt;India&gt;')
   })
 
+  it('renders stably for the default config (snapshot)', () => {
+    expect(buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)).toMatchSnapshot()
+  })
+
+  it('repeats the table header on every printed page and keeps rows unsplit (print CSS)', () => {
+    const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)
+    expect(html).toContain('thead { display: table-header-group; }')
+    expect(html).toContain('tr { page-break-inside: avoid; }')
+  })
+
+  it('prints the actual per-line discount when showDiscount is on', () => {
+    const inv: EdocInvoice = {
+      ...SAMPLE_INVOICE,
+      items: [{ ...SAMPLE_INVOICE.items[0]!, discountPaise: 5000 }]
+    }
+    const html = buildInvoiceHtml(COMPANY, { ...DEFAULT_INVOICE_CONFIG, showDiscount: true }, inv)
+    expect(html).toContain('50.00') // ₹50.00 discount, honestly displayed
+    // A line without a discount renders a dash, not a fake zero.
+    const noDiscount = buildInvoiceHtml(COMPANY, { ...DEFAULT_INVOICE_CONFIG, showDiscount: true }, SAMPLE_INVOICE)
+    expect(noDiscount).toContain('<td class="r num">–</td>')
+  })
+
+  it('shows an entered-by/altered-by footer only when the toggle is on and audit info exists', () => {
+    const audit = { enteredBy: 'Priya', alteredBy: 'Rahul' }
+    const on = buildInvoiceHtml(COMPANY, { ...DEFAULT_INVOICE_CONFIG, showEnteredBy: true }, SAMPLE_INVOICE, audit)
+    expect(on).toContain('Entered by Priya')
+    expect(on).toContain('Altered by Rahul')
+
+    const off = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE, audit)
+    expect(off).not.toContain('Entered by')
+
+    const noAudit = buildInvoiceHtml(COMPANY, { ...DEFAULT_INVOICE_CONFIG, showEnteredBy: true }, SAMPLE_INVOICE)
+    expect(noAudit).not.toContain('Entered by')
+  })
+
   it('prints one page per copy label, with page-break-after between them', () => {
     const html = buildInvoiceHtml(
       COMPANY,
@@ -89,5 +125,116 @@ describe('buildInvoiceHtml (pure — invoice print config rendering)', () => {
     expect(html).toContain('Duplicate for Transporter')
     expect((html.match(/class="copy"/g) ?? []).length).toBe(2)
     expect(html).toContain('page-break-after: always')
+  })
+})
+
+function item(overrides: Partial<EdocItem>): EdocItem {
+  return { ...SAMPLE_INVOICE.items[0]!, ...overrides }
+}
+
+describe('hsnSummaryForInvoice (Q2 #96 — HSN-wise tax summary block)', () => {
+  it('aggregates per (hsn, rate) bucket FIRST, then computes tax once on the aggregate', () => {
+    // 3 paise @ 18% intra: per-line CGST would round to 0 each (0.27 -> 0); the 6-paise bucket
+    // rounds to 1 (0.54 -> 1). Bucket-then-round is the portal semantics the block must follow.
+    const inv: EdocInvoice = {
+      ...SAMPLE_INVOICE,
+      igst: 0,
+      items: [
+        item({ hsn: '8471', rate: 18, cessRate: 0, taxablePaise: 3, qtyMilli: 1000, cgst: 0, sgst: 0 }),
+        item({ hsn: '8471', rate: 18, cessRate: 0, taxablePaise: 3, qtyMilli: 1000, cgst: 0, sgst: 0 })
+      ]
+    }
+    const rows = hsnSummaryForInvoice(inv)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ hsn: '8471', rate: 18, taxable: 6, qtyMilli: 2000, cgst: 1, sgst: 1, igst: 0 })
+  })
+
+  it('keeps lines without an HSN as their own bucket instead of dropping them', () => {
+    const inv: EdocInvoice = {
+      ...SAMPLE_INVOICE,
+      items: [
+        item({ hsn: '8471', rate: 18, taxablePaise: 100000 }),
+        item({ hsn: '', rate: 18, taxablePaise: 50000 })
+      ]
+    }
+    const rows = hsnSummaryForInvoice(inv)
+    expect(rows).toHaveLength(2)
+    expect(rows.map((r) => r.hsn)).toEqual(['', '8471'])
+    expect(rows[0]!.taxable).toBe(50000)
+  })
+
+  it('splits buckets on rate (same HSN, different rate) and uses IGST for inter-state invoices', () => {
+    const inv: EdocInvoice = {
+      ...SAMPLE_INVOICE,
+      igst: 18000,
+      cgst: 0,
+      sgst: 0,
+      items: [
+        item({ hsn: '8471', rate: 18, taxablePaise: 100000 }),
+        item({ hsn: '8471', rate: 12, taxablePaise: 100000 })
+      ]
+    }
+    const rows = hsnSummaryForInvoice(inv)
+    expect(rows.map((r) => r.rate)).toEqual([12, 18])
+    expect(rows[1]).toMatchObject({ igst: 18000, cgst: 0, sgst: 0 })
+  })
+
+  it('uses the IGST column for an inter-state invoice whose lines are all 0%/exempt', () => {
+    // All taxes are zero, so the amounts alone cannot reveal the supply type — buildInvoiceHtml
+    // must fall back to place-of-supply vs company state ('29' vs COMPANY's '27' here).
+    const inv: EdocInvoice = {
+      ...SAMPLE_INVOICE,
+      partyStateCode: '29',
+      pos: '29',
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      total: 1000000,
+      items: [item({ rate: 0, cgst: 0, sgst: 0, igst: 0 })]
+    }
+    const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, inv)
+    expect(html).toContain('>IGST<')
+    expect(html).not.toContain('>CGST<')
+
+    const rows = hsnSummaryForInvoice(inv, 'inter')
+    expect(rows[0]).toMatchObject({ rate: 0, cgst: 0, sgst: 0, igst: 0 })
+  })
+
+  it('renders the HSN summary block on the invoice when showHsn is on, with — for no-HSN lines', () => {
+    const inv: EdocInvoice = {
+      ...SAMPLE_INVOICE,
+      items: [item({ hsn: '' })]
+    }
+    const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, inv)
+    expect(html).toContain('HSN/SAC')
+    expect(html).toContain('—')
+
+    const off = buildInvoiceHtml(COMPANY, { ...DEFAULT_INVOICE_CONFIG, showHsn: false }, inv)
+    expect(off).not.toContain('HSN/SAC')
+  })
+})
+
+describe('carried-forward subtotals on long invoices (Q2 #95)', () => {
+  it('short invoices render one unbroken table with no carried-forward rows', () => {
+    const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)
+    expect(html).not.toContain('Carried forward')
+    expect(html).not.toContain('Brought forward')
+  })
+
+  it('long invoices split into pages with matching carried-forward/brought-forward subtotals', () => {
+    const count = INVOICE_ITEMS_PER_PAGE + 4
+    const inv: EdocInvoice = {
+      ...SAMPLE_INVOICE,
+      items: Array.from({ length: count }, (_, i) => item({ name: `Line ${i + 1}`, taxablePaise: 1000 }))
+    }
+    const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, inv)
+    // One copy label -> exactly one page split, one carried-forward, one brought-forward.
+    expect((html.match(/Carried forward/g) ?? []).length).toBe(1)
+    expect((html.match(/Brought forward/g) ?? []).length).toBe(1)
+    expect(html).toContain('page-split')
+    // Both subtotal rows carry the same cumulative figure: 16 x 10.00 = 160.00.
+    expect((html.match(/160\.00/g) ?? []).length).toBeGreaterThanOrEqual(2)
+    // Every line item is still present across the pages.
+    expect(html).toContain(`Line ${count}`)
   })
 })

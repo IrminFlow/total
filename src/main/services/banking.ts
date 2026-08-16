@@ -372,6 +372,13 @@ export function importStatement(
     run()
   }
 
+  // [lane-Q audit block — keep as one unit when merging] statement-import summary audit row.
+  // Not written for dry runs (lane Y's preview-confirm flow) — only an applied import is an event.
+  if (apply) {
+    writeAudit(db, 'bank_statement', ledgerId, 'import', null,
+      { statementRows: statement.length, matched: matches.length, unmatched: remaining.length })
+  }
+
   return {
     statementRows: statement.length,
     matched: matches.length,

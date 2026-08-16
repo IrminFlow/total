@@ -87,6 +87,70 @@ export function pruneBackupsIn(dir: string, keep: number): void {
 }
 
 /**
+ * Post-write backup verification (task Q3 #99): true iff the file at `path` opens read-only and
+ * passes `PRAGMA quick_check`. Called by backupCompany right after every snapshot, so a backup
+ * that was corrupted in flight (full disk, sync-folder interference, ...) fails loudly at write
+ * time instead of being discovered at restore time. Never throws.
+ */
+export function quickCheckOk(path: string): boolean {
+  let db: Database.Database
+  try {
+    db = new Database(path, { readonly: true, fileMustExist: true })
+  } catch {
+    return false
+  }
+  try {
+    const result = db.pragma('quick_check') as Array<{ quick_check: string }>
+    return result[0]?.quick_check === 'ok'
+  } catch {
+    return false
+  } finally {
+    db.close()
+  }
+}
+
+/** Meta key stamping the last scheduled full `PRAGMA integrity_check` (task Q3 #99). */
+export const INTEGRITY_CHECK_META_KEY = 'integrity.lastFullCheck'
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+export interface WeeklyIntegrityResult {
+  /** False when the last full check is under a week old — nothing was run. */
+  ran: boolean
+  /** Meaningful only when `ran`; true iff `PRAGMA integrity_check` reported 'ok'. */
+  ok: boolean
+  detail: string | null
+}
+
+/**
+ * Scheduled full integrity check: runs the thorough `PRAGMA integrity_check` (the per-open check
+ * in ipc.ts uses the cheaper quick_check) at most once every 7 days, stamping the run time into
+ * `meta` under INTEGRITY_CHECK_META_KEY. Never throws — an unreadable DB reports ok:false.
+ */
+export function runWeeklyIntegrityCheck(db: DB, now = new Date()): WeeklyIntegrityResult {
+  try {
+    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(INTEGRITY_CHECK_META_KEY) as
+      | { value: string }
+      | undefined
+    if (row) {
+      const last = Date.parse(JSON.parse(row.value) as string)
+      if (Number.isFinite(last) && now.getTime() - last < WEEK_MS) {
+        return { ran: false, ok: true, detail: null }
+      }
+    }
+    const result = db.pragma('integrity_check') as Array<{ integrity_check: string }>
+    const detail = result[0]?.integrity_check ?? 'no result'
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
+      INTEGRITY_CHECK_META_KEY,
+      JSON.stringify(now.toISOString())
+    )
+    return { ran: true, ok: detail === 'ok', detail }
+  } catch (err) {
+    return { ran: true, ok: false, detail: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
  * Reject anything that isn't a healthy, readable Total company database — a corrupted or
  * unrelated file must never be allowed to overwrite a live company DB. Checks both SQLite-level
  * integrity (quick_check) and that it has the shape of a Total company DB (a `meta.company` row).

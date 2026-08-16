@@ -520,5 +520,35 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE bank_rules ADD COLUMN min_amount INTEGER;
   ALTER TABLE bank_rules ADD COLUMN max_amount INTEGER;
   ALTER TABLE bank_rules ADD COLUMN auto_apply INTEGER NOT NULL DEFAULT 0;
+  `,
+  // 017 (lane Q) — invoice discount + audit action set expansion.
+  // - inventory_lines.discount_paise: per-line trade discount. Display + gross computation only:
+  //   `amount` stays the post-discount taxable value, so GST (always computed off `amount`) is
+  //   unaffected by construction.
+  // - audit_log's action CHECK gains 'login'/'login_failed'/'logout'/'export'/'import' (audit
+  //   completeness, task Q1). SQLite cannot ALTER a CHECK constraint, so the table is rebuilt in
+  //   place, preserving rows, ids, and both indexes.
+  `
+  ALTER TABLE inventory_lines ADD COLUMN discount_paise INTEGER NOT NULL DEFAULT 0;
+
+  CREATE TABLE audit_log_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK (action IN (
+      'create','update','delete','login','login_failed','logout','export','import'
+    )),
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    before_json TEXT,
+    after_json TEXT,
+    user_name TEXT,
+    app_version TEXT
+  );
+  INSERT INTO audit_log_new (id, entity, entity_id, action, at, before_json, after_json, user_name, app_version)
+    SELECT id, entity, entity_id, action, at, before_json, after_json, user_name, app_version FROM audit_log;
+  DROP TABLE audit_log;
+  ALTER TABLE audit_log_new RENAME TO audit_log;
+  CREATE INDEX idx_audit_at ON audit_log(at);
+  CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
   `
 ]

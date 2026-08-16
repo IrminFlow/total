@@ -179,6 +179,9 @@ export interface InventoryLine {
   qtyMilli: number
   /** Paise per whole unit. */
   ratePaise: number
+  /** Per-line trade discount in paise (display + gross computation only): gross = qty × rate,
+   *  `amount` = gross − discount. GST always derives from `amount`, never from this. */
+  discountPaise: number
   /** Paise. */
   amount: number
   direction: 'in' | 'out'

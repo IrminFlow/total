@@ -165,6 +165,10 @@ export const inventoryLineSchema = z
     batchId: id.nullable().optional(),
     qtyMilli: z.number().int().min(0),
     ratePaise: paise.min(0),
+    /** Per-line trade discount (lane Q #97): display + gross math only — `amount` is already the
+     *  post-discount taxable value, so GST is unaffected by construction. Optional (treated as 0)
+     *  so existing callers that never heard of discounts keep compiling and working. */
+    discountPaise: paise.min(0).optional(),
     amount: paise.min(0),
     direction: z.enum(['in', 'out']),
     /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
@@ -299,6 +303,20 @@ export const auditListSchema = z.object({
   page: z.number().int().min(0).default(0)
 })
 export type AuditListInput = z.infer<typeof auditListSchema>
+
+// ---------- lane Q: audit retention + batch invoice PDF ----------
+
+/** config:audit:set — days of audit history to keep, or null = keep forever (the default). */
+export const auditRetentionSchema = z.object({
+  keepDays: z.number().int().min(30).max(3650).nullable()
+})
+export type AuditRetentionInput = z.infer<typeof auditRetentionSchema>
+
+/** invoice:pdfBatch — render several sales invoices into one exports folder, sequentially. */
+export const invoicePdfBatchSchema = z.object({
+  voucherIds: z.array(id).min(1).max(500)
+})
+export type InvoicePdfBatchInput = z.infer<typeof invoicePdfBatchSchema>
 
 /** search:global input — ⌘K global search query (min 1 so an empty string is rejected outright;
  *  the palette itself gates the IPC call to 2+ chars). */
@@ -530,7 +548,9 @@ export const reportPdfSchema = z.object({
   columns: z.array(reportColumnSchema).min(1).max(20),
   rows: z.array(reportRowSchema).max(5000),
   footNote: z.string().max(500).optional(),
-  filename: exportFilename
+  filename: exportFilename,
+  /** Landscape orientation for wide reports (lane Q #95). */
+  landscape: z.boolean().default(false)
 })
 export type ReportPdfInput = z.infer<typeof reportPdfSchema>
 

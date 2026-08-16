@@ -1,6 +1,17 @@
 import type { DB } from '../db/connection'
 
-export type AuditAction = 'create' | 'update' | 'delete'
+/** Mirrors migration 017's audit_log action CHECK. 'login'/'login_failed'/'logout' come from the
+ *  auth flow (users.ts + ipc.ts), 'export' from every file-export IPC handler, 'import' from bulk
+ *  imports (Tally XML, bank statements). */
+export type AuditAction =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'login'
+  | 'login_failed'
+  | 'logout'
+  | 'export'
+  | 'import'
 
 export interface AuditContext {
   /** Current app version, stamped onto every audit row (electron-builder's package.json version). */
@@ -40,6 +51,16 @@ export function writeAudit(
     context.getUserName(),
     context.appVersion
   )
+}
+
+/**
+ * Audit retention (task Q1 #92): delete audit rows older than `keepDays`. Only ever called when
+ * the company has an explicit `auditKeepDays` configured (see config.ts) — the default is to keep
+ * the trail forever. Single batched SQL; returns the number of rows pruned.
+ */
+export function pruneAudit(db: DB, keepDays: number): number {
+  const res = db.prepare(`DELETE FROM audit_log WHERE at < datetime('now', ?)`).run(`-${keepDays} days`)
+  return res.changes
 }
 
 export interface AuditRow {

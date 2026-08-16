@@ -77,10 +77,10 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     .prepare('SELECT id, ledger_id, dr_cr, amount, bank_date FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as { id: number; ledger_id: number; dr_cr: 'dr' | 'cr'; amount: number; bank_date: string | null }[]
   const inventory = db
-    .prepare('SELECT id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, amount, direction, is_absolute FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
+    .prepare('SELECT id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as {
       id: number; stock_item_id: number; godown_id: number | null; batch_id: number | null
-      qty_milli: number; rate_paise: number; amount: number; direction: 'in' | 'out'; is_absolute: number
+      qty_milli: number; rate_paise: number; discount_paise: number; amount: number; direction: 'in' | 'out'; is_absolute: number
     }[]
 
   const costAllocRows = lines.length
@@ -141,7 +141,8 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     inventory: inventory.map(
       (l): InventoryLine => ({
         id: l.id, stockItemId: l.stock_item_id, godownId: l.godown_id, batchId: l.batch_id,
-        qtyMilli: l.qty_milli, ratePaise: l.rate_paise, amount: l.amount, direction: l.direction,
+        qtyMilli: l.qty_milli, ratePaise: l.rate_paise, discountPaise: l.discount_paise,
+        amount: l.amount, direction: l.direction,
         isAbsolute: !!l.is_absolute
       })
     ),
@@ -348,12 +349,12 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
     })
 
     const insertInv = db.prepare(
-      `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, amount, direction, is_absolute, line_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute, line_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     input.inventory.forEach((l, i) =>
-      insertInv.run(voucherId, l.stockItemId, l.godownId, l.batchId ?? null, l.qtyMilli, l.ratePaise, l.amount,
-        l.direction, l.isAbsolute ? 1 : 0, i)
+      insertInv.run(voucherId, l.stockItemId, l.godownId, l.batchId ?? null, l.qtyMilli, l.ratePaise,
+        l.discountPaise ?? 0, l.amount, l.direction, l.isAbsolute ? 1 : 0, i)
     )
 
     // Bill refs and TDS ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade
@@ -549,13 +550,18 @@ export function purgeVoucher(db: DB, id: number): void {
   writeAudit(db, 'voucher', id, 'delete', { ...before, purged: true }, null)
 }
 
-/** Vouchers auto-purged after sitting in the bin longer than `days` (default 30). Returns the count purged. */
+/** Vouchers auto-purged after sitting in the bin longer than `days` (default 30). Returns the
+ *  count purged. One batched DELETE (task Q1 #92) — child rows (voucher_lines, inventory_lines,
+ *  bill_refs, tds_entries, cost allocations) all cascade — plus a single summary audit row
+ *  instead of one row per purged voucher. */
 export function purgeOldDeleted(db: DB, days = 30): number {
-  const rows = db
-    .prepare(`SELECT id FROM vouchers WHERE deleted_at IS NOT NULL AND deleted_at <= datetime('now', ?)`)
-    .all(`-${days} days`) as { id: number }[]
-  for (const r of rows) purgeVoucher(db, r.id)
-  return rows.length
+  const res = db
+    .prepare(`DELETE FROM vouchers WHERE deleted_at IS NOT NULL AND deleted_at <= datetime('now', ?)`)
+    .run(`-${days} days`)
+  if (res.changes > 0) {
+    writeAudit(db, 'voucher', 0, 'delete', { autoPurgedFromBin: res.changes, olderThanDays: days }, null)
+  }
+  return res.changes
 }
 
 export interface BinRow {
