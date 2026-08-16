@@ -37,6 +37,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'e-Invoice & e-Way bill', run: go({ name: 'edocs' }) },
       { label: 'Sales register', run: go({ name: 'registers' }) },
       { label: 'Outstandings & ageing', run: go({ name: 'outstandings' }) },
+      { label: 'Cost centres', run: go({ name: 'cost-centres' }) },
+      { label: 'TDS', run: go({ name: 'tds' }) },
       { label: 'Bank reconciliation', run: go({ name: 'banking' }) },
       { label: 'Payroll — employees & runs', run: go({ name: 'payroll' }) },
       { label: 'New manufacture (stock journal)', run: go({ name: 'voucher-entry', kindHint: 'stock_journal' }) },

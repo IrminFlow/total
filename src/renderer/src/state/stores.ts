@@ -1,14 +1,27 @@
 import { create } from 'zustand'
-import type { CompanyInfo } from '@shared/domain'
+import type { CompanyInfo, VoucherKind } from '@shared/domain'
 import { fyOf, todayISO } from '@shared/dates'
 import type { SessionUser } from '../lib/client'
 
 // ---------- navigation ----------
 
+/**
+ * Partial prefill for a fresh voucher — e.g. a "Create purchase" nudge from GSTR-2B recon
+ * handing over what it already knows (date, narration) while leaving party/lines to the user.
+ */
+export interface VoucherDraft {
+  date?: string
+  partyLedgerId?: number
+  narration?: string
+  lines?: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
+}
+
 export type Screen =
   | { name: 'gateway' }
   | { name: 'daybook' }
-  | { name: 'voucher-entry'; voucherId?: number; kindHint?: string }
+  // `draftId` forces VoucherEntry to remount when a new draft targets the same 'new' voucher slot
+  // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.
+  | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }
   | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' }
   | { name: 'trial-balance' }
   | { name: 'profit-loss' }
@@ -23,6 +36,8 @@ export type Screen =
   | { name: 'outstandings' }
   | { name: 'banking' }
   | { name: 'payroll' }
+  | { name: 'tds' }
+  | { name: 'cost-centres' }
   | { name: 'company-info' }
   | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'about' }
 
@@ -130,7 +145,7 @@ export interface Toast {
   text: string
 }
 
-interface ToastState {
+export interface ToastState {
   toasts: Toast[]
   push: (kind: Toast['kind'], text: string) => void
   dismiss: (id: number) => void

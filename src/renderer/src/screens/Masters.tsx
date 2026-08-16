@@ -205,10 +205,21 @@ function LedgersTab(): React.JSX.Element {
   )
 }
 
+const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
+  { value: '', label: 'None (domestic)' },
+  { value: 'sez_wp', label: 'SEZ with payment of tax' },
+  { value: 'sez_wop', label: 'SEZ without payment of tax' },
+  { value: 'exp_wp', label: 'Export with payment of tax' },
+  { value: 'exp_wop', label: 'Export without payment of tax' }
+]
+
+const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
+
 function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; onClose: () => void }): React.JSX.Element {
   const groups = useGroups()
   const toast = useToasts()
   const queryClient = useQueryClient()
+  const { data: tdsSections } = useQuery({ queryKey: ['tdsSections'], queryFn: api.tds.sections })
   const [name, setName] = useState(ledger?.name ?? '')
   const [groupId, setGroupId] = useState<number>(ledger?.groupId ?? groups.find((g) => g.name === 'Sundry Debtors')?.id ?? groups[0]?.id ?? 1)
   const [opening, setOpening] = useState<number | null>(ledger ? Math.abs(ledger.openingBalance) : null)
@@ -219,6 +230,12 @@ function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; onClose: 
   const [taxType, setTaxType] = useState(ledger?.taxType ?? '')
   const [gstRate, setGstRate] = useState(ledger?.gstRate?.toString() ?? '')
   const [hsn, setHsn] = useState(ledger?.hsn ?? '')
+  const [tdsSectionId, setTdsSectionId] = useState<number | ''>(ledger?.tdsSectionId ?? '')
+  const [pan, setPan] = useState(ledger?.pan ?? '')
+  const [creditDays, setCreditDays] = useState(ledger?.creditDays?.toString() ?? '')
+  const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
+
+  const panError = pan.trim() && !PAN_RE.test(pan.trim()) ? 'Invalid PAN — format AAAAA9999A' : null
 
   const group = groups.find((g) => g.id === groupId)
   const isDuties = useMemo(() => {
@@ -240,6 +257,7 @@ function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; onClose: 
   const save = async (): Promise<void> => {
     try {
       if (gstinError) return void toast.push('error', gstinError)
+      if (panError) return void toast.push('error', panError)
       const effectiveState = stateCode || (gstinCheck?.valid ? gstinCheck.stateCode : null)
       const data = {
         name: name.trim(),
@@ -251,13 +269,10 @@ function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; onClose: 
         taxType: (isDuties && taxType ? taxType : null) as 'cgst' | 'sgst' | 'igst' | 'cess' | null,
         gstRate: gstRate.trim() ? Number(gstRate) : null,
         hsn: hsn.trim() || null,
-        // TDS section / PAN / credit days / export type get dedicated form fields in a follow-up
-        // task; preserve whatever's already on the ledger (e.g. set via import) rather than
-        // silently wiping it out on every save from this form.
-        tdsSectionId: ledger?.tdsSectionId ?? null,
-        pan: ledger?.pan ?? null,
-        creditDays: ledger?.creditDays ?? null,
-        exportType: ledger?.exportType ?? null
+        tdsSectionId: tdsSectionId === '' ? null : tdsSectionId,
+        pan: pan.trim() ? pan.trim().toUpperCase() : null,
+        creditDays: creditDays.trim() ? Number(creditDays) : null,
+        exportType: exportType || null
       }
       if (ledger) await api.ledgers.update(ledger.id, data)
       else await api.ledgers.create(data)
@@ -346,6 +361,33 @@ function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; onClose: 
             <TextInput value={hsn} onChange={(e) => setHsn(e.target.value)} className="num" placeholder="For services" />
           </Field>
         </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="TDS section" hint="Flags this party for TDS deduction">
+            <Select value={tdsSectionId} onChange={(e) => setTdsSectionId(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">None</option>
+              {(tdsSections ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code} — {s.description}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="PAN" error={panError}>
+            <TextInput value={pan} onChange={(e) => setPan(e.target.value.toUpperCase())} className="num" placeholder="AAAAA9999A" maxLength={10} />
+          </Field>
+          <Field label="Credit days" hint="Default due date for bills">
+            <TextInput value={creditDays} onChange={(e) => setCreditDays(e.target.value)} className="num text-right" placeholder="0" />
+          </Field>
+        </div>
+        <Field label="Export / SEZ type" hint="For e-invoice/e-way classification">
+          <Select value={exportType} onChange={(e) => setExportType(e.target.value as typeof exportType)}>
+            {EXPORT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label="Address">
           <TextInput value={address} onChange={(e) => setAddress(e.target.value)} />
         </Field>
@@ -519,6 +561,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
   const [cessRate, setCessRate] = useState(item?.cessRate?.toString() ?? '')
   const [openQty, setOpenQty] = useState(item ? (item.openingQtyMilli / 1000).toString() : '')
   const [openValue, setOpenValue] = useState<number | null>(item?.openingValue ?? null)
+  const [barcode, setBarcode] = useState(item?.barcode ?? '')
 
   const hsnCheck = hsn.trim() ? validateHsn(hsn) : null
   const hsnError = hsnCheck && !hsnCheck.valid ? hsnCheck.error : null
@@ -538,9 +581,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         cessRate: cessRate.trim() ? Number(cessRate) : null,
         openingQtyMilli: Math.round(parseFloat(openQty || '0') * 1000),
         openingValue: openValue ?? 0,
-        // Barcode gets a dedicated field (with scan-to-fill) in a follow-up task; preserve
-        // whatever's already set rather than clearing it on every save from this form.
-        barcode: item?.barcode ?? null
+        barcode: barcode.trim() || null
       }
       if (item) await api.stockItems.update(item.id, data)
       else await api.stockItems.create(data)
@@ -607,6 +648,9 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
             <AmountInput paise={openValue} onPaise={setOpenValue} />
           </Field>
         </div>
+        <Field label="Barcode" hint="Scan into this field, or type an SKU">
+          <TextInput value={barcode} onChange={(e) => setBarcode(e.target.value)} className="num" placeholder="Optional" />
+        </Field>
         {item && (
           <div>
             <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">

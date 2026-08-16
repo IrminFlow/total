@@ -36,7 +36,8 @@ const NAV: NavSection[] = [
     title: 'Analysis',
     items: [
       { label: 'Registers', screen: { name: 'registers' } },
-      { label: 'Outstandings', screen: { name: 'outstandings' } }
+      { label: 'Outstandings', screen: { name: 'outstandings' } },
+      { label: 'Cost centres', screen: { name: 'cost-centres' } }
     ]
   },
   {
@@ -53,7 +54,8 @@ const NAV: NavSection[] = [
       { label: 'GSTR-1', screen: { name: 'gstr1' } },
       { label: 'GSTR-3B', screen: { name: 'gstr3b' } },
       { label: 'GSTR-2B recon', screen: { name: 'gstr2b' } },
-      { label: 'e-Invoice & e-Way', screen: { name: 'edocs' } }
+      { label: 'e-Invoice & e-Way', screen: { name: 'edocs' } },
+      { label: 'TDS', screen: { name: 'tds' } }
     ]
   },
   {

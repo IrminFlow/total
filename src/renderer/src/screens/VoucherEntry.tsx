@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Ledger, VoucherKind } from '@shared/domain'
+import type { CostCentre, Group, Ledger, VoucherBillRef, VoucherKind } from '@shared/domain'
+import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
 import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
-import { api } from '../lib/client'
-import { useNav, useSession, useToasts } from '../state/stores'
+import { toDisplayDate } from '@shared/dates'
+import { api, type TdsSuggestion } from '../lib/client'
+import { useNav, useSession, useToasts, type VoucherDraft } from '../state/stores'
 import { AmountInput, Button, DateInput, Field, Kbd, Modal, Money, Panel, Select, TextInput, inputCls } from '../components/ui'
 import { ItemPicker, LedgerPicker, useGroups, useLedgers, useStockItems, useTaxLedgers } from '../components/pickers'
 
@@ -14,7 +16,42 @@ const FKEYS: Record<string, VoucherKind> = {
   F4: 'contra', F5: 'payment', F6: 'receipt', F7: 'journal', F8: 'sales', F9: 'purchase'
 }
 
-export function VoucherEntry({ voucherId, kindHint }: { voucherId?: number; kindHint?: string }): React.JSX.Element {
+// ---------- shared ledger-group helpers (party detection, cash/bank detection) ----------
+
+function groupChain(groupId: number, groupMap: Map<number, Group>): Group[] {
+  const chain: Group[] = []
+  let g = groupMap.get(groupId)
+  while (g) {
+    chain.push(g)
+    g = g.parentId ? groupMap.get(g.parentId) : undefined
+  }
+  return chain
+}
+
+function isPartyLedger(l: Ledger, groupMap: Map<number, Group>): boolean {
+  return groupChain(l.groupId, groupMap).some((g) => g.name === 'Sundry Debtors' || g.name === 'Sundry Creditors')
+}
+
+function isCashOrBankLedger(l: Ledger, groupMap: Map<number, Group>): boolean {
+  return groupChain(l.groupId, groupMap).some((g) => ['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'].includes(g.name))
+}
+
+/** Local UTC date-add — mirrors @shared/outstanding's private helper (that one isn't exported). */
+function addDaysLocal(date: string, days: number): string {
+  const dt = new Date(`${date}T00:00:00Z`)
+  dt.setUTCDate(dt.getUTCDate() + days)
+  return dt.toISOString().slice(0, 10)
+}
+
+export function VoucherEntry({
+  voucherId,
+  kindHint,
+  draft
+}: {
+  voucherId?: number
+  kindHint?: VoucherKind
+  draft?: VoucherDraft
+}): React.JSX.Element {
   const { data: types } = useQuery({ queryKey: ['voucherTypes'], queryFn: api.voucherTypes.list })
   const { data: existing } = useQuery({
     queryKey: ['voucher', voucherId],
@@ -76,11 +113,17 @@ export function VoucherEntry({ voucherId, kindHint }: { voucherId?: number; kind
           ))}
       </div>
       {invoiceMode ? (
-        <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} />
+        <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
       ) : manufactureMode ? (
         <ManufactureEntry key={currentType.id} typeId={currentType.id} />
       ) : (
-        <AccountingEntry key={voucherId ?? currentType.id} typeId={currentType.id} kind={currentType.kind} voucherId={voucherId} />
+        <AccountingEntry
+          key={voucherId ?? currentType.id}
+          typeId={currentType.id}
+          kind={currentType.kind}
+          voucherId={voucherId}
+          draft={draft}
+        />
       )}
       <p className="mt-3 text-[11.5px] text-muted">
         <Kbd>F4</Kbd>–<Kbd>F9</Kbd> switch type · <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>, <span className="num">7/4</span>, <span className="num">y</span>
@@ -107,7 +150,7 @@ interface ItemRow {
   rate: number | null
 }
 
-function InvoiceEntry({ typeId, kind }: { typeId: number; kind: VoucherKind }): React.JSX.Element {
+function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKind; draft?: VoucherDraft }): React.JSX.Element {
   const { info, workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
   const nav = useNav()
@@ -117,11 +160,11 @@ function InvoiceEntry({ typeId, kind }: { typeId: number; kind: VoucherKind }): 
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const { ensure: ensureTax, ensureRoundOff } = useTaxLedgers()
 
-  const [date, setDate] = useState(workingDate)
-  const [partyId, setPartyId] = useState<number | null>(null)
+  const [date, setDate] = useState(draft?.date ?? workingDate)
+  const [partyId, setPartyId] = useState<number | null>(draft?.partyLedgerId ?? null)
   const [accountId, setAccountId] = useState<number | null>(null)
   const [rows, setRows] = useState<ItemRow[]>([{ itemId: null, qtyText: '', rate: null }])
-  const [narration, setNarration] = useState('')
+  const [narration, setNarration] = useState(draft?.narration ?? '')
   const [vehicleNo, setVehicleNo] = useState('')
   const [transporterId, setTransporterId] = useState('')
   const [distanceKm, setDistanceKm] = useState('')
@@ -136,6 +179,23 @@ function InvoiceEntry({ typeId, kind }: { typeId: number; kind: VoucherKind }): 
   const isSalesSide = kind === 'sales' || kind === 'credit_note'
   const party = ledgers.find((l) => l.id === partyId) ?? null
   const account = ledgers.find((l) => l.id === accountId) ?? null
+
+  // ---------- bill allocation: one default 'new' ref named after the voucher no, auto-synced
+  // to the party-line total until the user edits the name/due-date directly. ----------
+  const [billsOpen, setBillsOpen] = useState(true)
+  const [billName, setBillName] = useState('')
+  const [billNameTouched, setBillNameTouched] = useState(false)
+  const [billDueDate, setBillDueDate] = useState(date)
+  const [billDueDateTouched, setBillDueDateTouched] = useState(false)
+
+  useEffect(() => {
+    if (!billNameTouched && number !== '…') setBillName(number)
+  }, [number, billNameTouched])
+
+  useEffect(() => {
+    if (billDueDateTouched) return
+    setBillDueDate(addDaysLocal(date, party?.creditDays ?? 0))
+  }, [date, party?.creditDays, billDueDateTouched])
 
   const supply = supplyTypeFor(info!.stateCode, party?.stateCode ?? info!.stateCode)
 
@@ -225,7 +285,9 @@ function InvoiceEntry({ typeId, kind }: { typeId: number; kind: VoucherKind }): 
           amount: d.amount,
           direction: goodsIn ? ('in' as const) : ('out' as const)
         })),
-        billRefs: [],
+        billRefs: billName.trim()
+          ? [{ kind: 'new', name: billName.trim(), amount: rounded, dueDate: billDueDate || null }]
+          : [],
         tds: null
       }
       const dupes = await api.vouchers.duplicates(input)
@@ -247,13 +309,15 @@ function InvoiceEntry({ typeId, kind }: { typeId: number; kind: VoucherKind }): 
       setNarration('')
       setVehicleNo('')
       setDistanceKm('')
+      setBillNameTouched(false)
+      setBillDueDateTouched(false)
       await queryClient.invalidateQueries()
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, kind, typeId, date, narration, vehicleNo, transporterId, distanceKm, fxActive, fxRate, currencyCode, isSalesSide, ensureTax, ensureRoundOff, toast, setWorkingDate, queryClient, nav])
+  }, [saving, partyId, accountId, computed, kind, typeId, date, narration, vehicleNo, transporterId, distanceKm, fxActive, fxRate, currencyCode, isSalesSide, billName, billDueDate, ensureTax, ensureRoundOff, toast, setWorkingDate, queryClient, nav])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -442,6 +506,46 @@ function InvoiceEntry({ typeId, kind }: { typeId: number; kind: VoucherKind }): 
           </div>
         </div>
       </div>
+
+      {partyId && (
+        <div className="mt-4 border-t border-line pt-3">
+          <button
+            className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase"
+            onClick={() => setBillsOpen((v) => !v)}
+          >
+            <span className="inline-block w-3 text-[10px]">{billsOpen ? '▾' : '▸'}</span>
+            Bill allocation
+          </button>
+          {billsOpen && (
+            <div className="mt-2 grid grid-cols-3 gap-3">
+              <Field label="Bill name">
+                <TextInput
+                  value={billName}
+                  onChange={(e) => {
+                    setBillName(e.target.value)
+                    setBillNameTouched(true)
+                  }}
+                />
+              </Field>
+              <Field label="Due date" hint={party?.creditDays != null ? `${party.creditDays} credit days` : undefined}>
+                <DateInput
+                  value={billDueDate}
+                  context={date}
+                  onChange={(d) => {
+                    setBillDueDate(d)
+                    setBillDueDateTouched(true)
+                  }}
+                />
+              </Field>
+              <Field label="Amount">
+                <div className={`${inputCls} num bg-panel text-right text-muted`}>
+                  <Money paise={computed.rounded} />
+                </div>
+              </Field>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={() => nav.back()}>Cancel</Button>
@@ -661,24 +765,42 @@ interface AcctRow {
   drCr: 'dr' | 'cr'
   ledgerId: number | null
   amount: number | null
+  costAllocations: { costCentreId: number; amount: number }[]
 }
 
-function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: VoucherKind; voucherId?: number }): React.JSX.Element {
+const blankAcctRow = (drCr: 'dr' | 'cr'): AcctRow => ({ drCr, ledgerId: null, amount: null, costAllocations: [] })
+
+function AccountingEntry({
+  typeId,
+  kind,
+  voucherId,
+  draft
+}: {
+  typeId: number
+  kind: VoucherKind
+  voucherId?: number
+  draft?: VoucherDraft
+}): React.JSX.Element {
   const { workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
-  const [date, setDate] = useState(workingDate)
-  const [rows, setRows] = useState<AcctRow[]>([
-    { drCr: 'dr', ledgerId: null, amount: null },
-    { drCr: 'cr', ledgerId: null, amount: null }
-  ])
-  const [narration, setNarration] = useState('')
+  const ledgers = useLedgers()
+  const groups = useGroups()
+  const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups])
+  const [date, setDate] = useState(draft?.date ?? workingDate)
+  const [rows, setRows] = useState<AcctRow[]>(
+    draft?.lines?.length
+      ? [...draft.lines.map((l) => ({ ...l, costAllocations: [] as AcctRow['costAllocations'] })), blankAcctRow('cr')]
+      : [blankAcctRow('dr'), blankAcctRow('cr')]
+  )
+  const [narration, setNarration] = useState(draft?.narration ?? '')
   const [instrumentNo, setInstrumentNo] = useState('')
   const [quickLedger, setQuickLedger] = useState<{ name: string; row: number } | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const number = useVoucherNumber(typeId, date, voucherId)
+  const [draftPartyId] = useState(draft?.partyLedgerId ?? null)
 
   const { data: existing } = useQuery({
     queryKey: ['voucher', voucherId],
@@ -686,12 +808,28 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
     enabled: !!voucherId
   })
 
+  // ---------- TDS (payment / journal to a party flagged for TDS) ----------
+  const [tds, setTds] = useState<{ sectionId: number; baseAmount: number; tdsAmount: number } | null>(null)
+  const [tdsSuggestion, setTdsSuggestion] = useState<TdsSuggestion | null>(null)
+  const [tdsDismissed, setTdsDismissed] = useState(false)
+
+  // ---------- bill allocations (receipt/payment checkbox list; trading-kind alteration editor) ----------
+  const [billRefs, setBillRefs] = useState<VoucherBillRef[]>([])
+  const [billsOpen, setBillsOpen] = useState(true)
+
+  // ---------- per-line cost-centre allocation ----------
+  const { data: ccList } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
+  const hasCc = (ccList?.length ?? 0) > 0
+  const [ccModalRow, setCcModalRow] = useState<number | null>(null)
+
   useEffect(() => {
     if (existing && !loaded) {
       setDate(existing.date)
       setNarration(existing.narration ?? '')
       setInstrumentNo(existing.instrumentNo ?? '')
-      setRows(existing.lines.map((l) => ({ drCr: l.drCr, ledgerId: l.ledgerId, amount: l.amount })))
+      setRows(existing.lines.map((l) => ({ drCr: l.drCr, ledgerId: l.ledgerId, amount: l.amount, costAllocations: l.costAllocations })))
+      setBillRefs(existing.billRefs)
+      setTds(existing.tds)
       setLoaded(true)
     }
   }, [existing, loaded])
@@ -704,23 +842,147 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
     setRows((rs) => {
       const next = rs.map((r, j) => (j === i ? { ...r, ...patch } : r))
       const last = next[next.length - 1]!
-      if (last.ledgerId != null) next.push({ drCr: 'cr', ledgerId: null, amount: null })
+      if (last.ledgerId != null) next.push(blankAcctRow('cr'))
       return next
     })
   }
+
+  // A voucher's "party" for TDS/bill-allocation purposes: whichever posted ledger is a Sundry
+  // Debtor/Creditor or is flagged for TDS. Falls back to a draft-supplied party (e.g. the GSTR-2B
+  // "Create purchase" nudge) when the rows don't yet name one unambiguously.
+  const derivedPartyId = useMemo(() => {
+    const candidates = new Set<number>()
+    for (const r of rows) {
+      if (r.ledgerId == null) continue
+      const l = ledgers.find((x) => x.id === r.ledgerId)
+      if (!l) continue
+      if (isPartyLedger(l, groupMap) || l.tdsSectionId != null) candidates.add(l.id)
+    }
+    if (candidates.size === 1) return [...candidates][0]!
+    return draftPartyId
+  }, [rows, ledgers, groupMap, draftPartyId])
+
+  const tdsCandidateRow = useMemo(() => {
+    if (kind !== 'payment' && kind !== 'journal') return null
+    for (const r of rows) {
+      if (r.drCr !== 'dr' || r.ledgerId == null || !r.amount) continue
+      const l = ledgers.find((x) => x.id === r.ledgerId)
+      if (l?.tdsSectionId != null) return { ledgerId: r.ledgerId, amount: r.amount }
+    }
+    return null
+  }, [rows, kind, ledgers])
+
+  useEffect(() => {
+    setTdsDismissed(false)
+    if (!tdsCandidateRow) {
+      setTdsSuggestion(null)
+      return
+    }
+    const handle = setTimeout(() => {
+      api.tds
+        .suggest(tdsCandidateRow.ledgerId, tdsCandidateRow.amount, date)
+        .then((s) => {
+          setTdsSuggestion(s)
+          // The suggestion's payable ledger is find-or-created server-side — refresh so it shows
+          // up by name the moment Apply inserts it as a line.
+          if (s) void queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+        })
+        .catch(() => setTdsSuggestion(null))
+    }, 300)
+    return () => clearTimeout(handle)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tdsCandidateRow?.ledgerId, tdsCandidateRow?.amount, date])
+
+  const applyTds = (): void => {
+    if (!tdsCandidateRow || !tdsSuggestion) return
+    const tdsAmount = tdsSuggestion.tdsPaise
+    setRows((rs) => {
+      let next = rs.map((r) => ({ ...r }))
+
+      const findBankIdx = (skip: number): number => {
+        let idx = -1
+        let max = -1
+        next.forEach((r, i) => {
+          if (i === skip || r.drCr !== 'cr' || r.ledgerId == null) return
+          const l = ledgers.find((x) => x.id === r.ledgerId)
+          if (l && isCashOrBankLedger(l, groupMap) && (r.amount ?? 0) > max) {
+            max = r.amount ?? 0
+            idx = i
+          }
+        })
+        return idx
+      }
+
+      // Re-applying (e.g. after editing the base amount) adjusts the TDS payable line already on
+      // the voucher instead of inserting a duplicate.
+      const existingIdx = tds ? next.findIndex((r) => r.drCr === 'cr' && r.ledgerId === tdsSuggestion.payableLedgerId) : -1
+      if (existingIdx !== -1) {
+        const delta = tdsAmount - (next[existingIdx]!.amount ?? 0)
+        next[existingIdx] = { ...next[existingIdx]!, amount: tdsAmount }
+        const bankIdx = findBankIdx(existingIdx)
+        if (bankIdx !== -1) next[bankIdx] = { ...next[bankIdx]!, amount: Math.max(0, (next[bankIdx]!.amount ?? 0) - delta) }
+        return next
+      }
+
+      const bankIdx = findBankIdx(-1)
+      if (bankIdx !== -1) {
+        next[bankIdx] = { ...next[bankIdx]!, amount: Math.max(0, (next[bankIdx]!.amount ?? 0) - tdsAmount) }
+      }
+      const insertAt = next.length > 0 && next[next.length - 1]!.ledgerId == null ? next.length - 1 : next.length
+      const tdsRow: AcctRow = { drCr: 'cr', ledgerId: tdsSuggestion.payableLedgerId, amount: tdsAmount, costAllocations: [] }
+      next = [...next.slice(0, insertAt), tdsRow, ...next.slice(insertAt)]
+      if (next[next.length - 1]!.ledgerId != null) next.push(blankAcctRow('cr'))
+      return next
+    })
+    setTds({ sectionId: tdsSuggestion.sectionId, baseAmount: tdsCandidateRow.amount, tdsAmount })
+    setTdsDismissed(true)
+  }
+
+  const showBillsSection = derivedPartyId != null && (kind === 'receipt' || kind === 'payment' || (TRADING_KINDS.includes(kind) && !!voucherId))
+  const isCheckboxBills = kind === 'receipt' || kind === 'payment'
+
+  const { data: openBills } = useQuery({
+    queryKey: ['billsOpen', derivedPartyId, date],
+    queryFn: () => api.bills.open(derivedPartyId!, date),
+    enabled: !!derivedPartyId && isCheckboxBills
+  })
+
+  const partyLineTotal = derivedPartyId != null ? rows.filter((r) => r.ledgerId === derivedPartyId).reduce((s, r) => s + (r.amount ?? 0), 0) : 0
+  const billAllocatedTotal = billRefs.reduce((s, r) => s + r.amount, 0)
+
+  const toggleBill = (bill: OutstandingBill, checked: boolean): void => {
+    setBillRefs((refs) => {
+      if (checked) {
+        const remaining = Math.max(0, partyLineTotal - refs.reduce((s, r) => s + r.amount, 0))
+        const amount = Math.min(bill.pending, remaining || bill.pending)
+        return [...refs, { kind: 'against', name: bill.number, amount, dueDate: null }]
+      }
+      return refs.filter((r) => !(r.kind === 'against' && r.name === bill.number))
+    })
+  }
+
+  const setBillRefAmount = (name: string, amount: number): void => {
+    setBillRefs((refs) => refs.map((r) => (r.name === name ? { ...r, amount } : r)))
+  }
+
+  const addManualBillRef = (): void => setBillRefs((refs) => [...refs, { kind: 'new', name: '', amount: 0, dueDate: null }])
+  const setManualBillRef = (i: number, patch: Partial<VoucherBillRef>): void =>
+    setBillRefs((refs) => refs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const removeManualBillRef = (i: number): void => setBillRefs((refs) => refs.filter((_, j) => j !== i))
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
     const lines = rows
       .filter((r) => r.ledgerId != null && r.amount != null && r.amount > 0)
-      .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount!, costAllocations: [] as never[] }))
+      .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount!, costAllocations: r.costAllocations }))
     if (lines.length < 2) return void toast.push('error', 'Enter at least one debit and one credit')
     setSaving(true)
     try {
+      const effectivePartyId = derivedPartyId ?? existing?.partyLedgerId ?? null
       const input: VoucherInputParsed = {
         voucherTypeId: typeId,
         date,
-        partyLedgerId: null,
+        partyLedgerId: effectivePartyId,
         narration: narration.trim() || null,
         reference: null,
         instrumentNo: instrumentNo.trim() || null,
@@ -735,8 +997,8 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
           stockItemId: l.stockItemId, godownId: l.godownId, qtyMilli: l.qtyMilli,
           ratePaise: l.ratePaise, amount: l.amount, direction: l.direction
         })) ?? [],
-        billRefs: [],
-        tds: null
+        billRefs: effectivePartyId != null ? billRefs : [],
+        tds: tds && effectivePartyId != null ? tds : null
       }
       // Anomaly nudge on the largest line — a quiet second look, never a block.
       const largest = [...lines].sort((a, b) => b.amount - a.amount)[0]!
@@ -753,18 +1015,19 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
       await queryClient.invalidateQueries()
       if (voucherId) nav.back()
       else {
-        setRows([
-          { drCr: 'dr', ledgerId: null, amount: null },
-          { drCr: 'cr', ledgerId: null, amount: null }
-        ])
+        setRows([blankAcctRow('dr'), blankAcctRow('cr')])
         setNarration('')
+        setBillRefs([])
+        setTds(null)
+        setTdsSuggestion(null)
+        setTdsDismissed(false)
       }
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
       setSaving(false)
     }
-  }, [saving, rows, typeId, date, narration, instrumentNo, existing, voucherId, toast, setWorkingDate, queryClient, nav])
+  }, [saving, rows, typeId, date, narration, instrumentNo, existing, voucherId, derivedPartyId, billRefs, tds, toast, setWorkingDate, queryClient, nav])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -811,6 +1074,7 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
             <th className="w-20">Dr / Cr</th>
             <th>Particulars</th>
             <th className="r w-44">Amount</th>
+            {hasCc && <th className="w-16"></th>}
           </tr>
         </thead>
         <tbody>
@@ -853,6 +1117,15 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
                   onPaise={(p) => setRow(i, { amount: p })}
                 />
               </td>
+              {hasCc && (
+                <td className="r">
+                  {r.ledgerId != null && (
+                    <button className="text-[11px] text-blue hover:underline" onClick={() => setCcModalRow(i)}>
+                      CC{r.costAllocations.length ? ` (${r.costAllocations.length})` : ''}
+                    </button>
+                  )}
+                </td>
+              )}
             </tr>
           ))}
           <tr className="total-row">
@@ -861,6 +1134,7 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
             <td className="r">
               <span className="num">{formatPaise(Math.max(totalDr, totalCr))}</span>
             </td>
+            {hasCc && <td></td>}
           </tr>
         </tbody>
       </table>
@@ -869,6 +1143,96 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
         <p className="mt-3 text-[12px] text-muted">
           This voucher carries {existing.inventory.length} stock line{existing.inventory.length > 1 ? 's' : ''}; they are kept as-is when you save.
         </p>
+      )}
+
+      {tdsSuggestion && !tdsDismissed && (
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-[12.5px] text-amber">
+          <span>
+            TDS u/s {tdsSuggestion.code}: deduct <Money paise={tdsSuggestion.tdsPaise} className="text-amber" />
+            {!tdsSuggestion.panAvailable && <span className="ml-2 text-cr">PAN missing — 20% rate</span>}
+            {!tdsSuggestion.thresholdCrossed && <span className="ml-2 text-muted">(below threshold — applying anyway is your call)</span>}
+          </span>
+          <div className="flex shrink-0 gap-2">
+            <Button onClick={() => setTdsDismissed(true)}>Dismiss</Button>
+            <Button variant="primary" onClick={applyTds}>
+              Apply
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {showBillsSection && (
+        <div className="mt-4 border-t border-line pt-3">
+          <button
+            className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase"
+            onClick={() => setBillsOpen((v) => !v)}
+          >
+            <span className="inline-block w-3 text-[10px]">{billsOpen ? '▾' : '▸'}</span>
+            Bill allocation
+            <span className="normal-case text-muted/80">
+              {' '}
+              · allocated {formatPaise(billAllocatedTotal)} / {formatPaise(partyLineTotal)}
+            </span>
+          </button>
+          {billsOpen && (
+            <div className="mt-2">
+              {isCheckboxBills ? (
+                (openBills ?? []).length === 0 ? (
+                  <p className="text-[12px] text-muted">No open bills for this party.</p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {(openBills ?? []).map((b) => {
+                      const ref = billRefs.find((r) => r.kind === 'against' && r.name === b.number)
+                      return (
+                        <div key={b.number} className="flex items-center gap-3 rounded-md px-1 py-1 text-[12.5px] hover:bg-panel2">
+                          <input type="checkbox" checked={!!ref} onChange={(e) => toggleBill(b, e.target.checked)} />
+                          <span className="flex-1">{b.number}</span>
+                          <span className="num w-24 text-muted">{toDisplayDate(b.date)}</span>
+                          <span className={`num w-24 ${b.overdueDays > 0 ? 'text-cr' : 'text-muted'}`}>
+                            {b.dueDate ? toDisplayDate(b.dueDate) : '—'}
+                          </span>
+                          <Money paise={b.pending} className="w-24 text-right" />
+                          {ref && (
+                            <AmountInput paise={ref.amount} onPaise={(p) => setBillRefAmount(b.number, p ?? 0)} className="w-28" />
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {billRefs.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Select
+                        value={r.kind}
+                        onChange={(e) => setManualBillRef(i, { kind: e.target.value as 'new' | 'against' })}
+                        className="w-32"
+                      >
+                        <option value="new">New bill</option>
+                        <option value="against">Against</option>
+                      </Select>
+                      <TextInput value={r.name} onChange={(e) => setManualBillRef(i, { name: e.target.value })} placeholder="Bill name" className="flex-1" />
+                      <AmountInput paise={r.amount} onPaise={(p) => setManualBillRef(i, { amount: p ?? 0 })} className="w-28" />
+                      <TextInput
+                        value={r.dueDate ?? ''}
+                        onChange={(e) => setManualBillRef(i, { dueDate: e.target.value || null })}
+                        placeholder="YYYY-MM-DD"
+                        className="num w-32"
+                      />
+                      <button className="text-[12px] text-cr" onClick={() => removeManualBillRef(i)}>
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <Button onClick={addManualBillRef} className="self-start">
+                    + Add bill ref
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       <div className={`mt-4 ${kind === 'payment' || kind === 'receipt' ? 'grid grid-cols-3 gap-3' : ''}`}>
@@ -906,7 +1270,98 @@ function AccountingEntry({ typeId, kind, voucherId }: { typeId: number; kind: Vo
           }}
         />
       )}
+      {ccModalRow != null && (
+        <CostAllocModal
+          lineAmount={rows[ccModalRow]?.amount ?? 0}
+          centres={ccList ?? []}
+          initial={rows[ccModalRow]?.costAllocations ?? []}
+          onClose={() => setCcModalRow(null)}
+          onSave={(allocations) => setRow(ccModalRow, { costAllocations: allocations })}
+        />
+      )}
     </Panel>
+  )
+}
+
+// ---------- per-line cost-centre allocation modal ----------
+
+function CostAllocModal({
+  lineAmount,
+  centres,
+  initial,
+  onClose,
+  onSave
+}: {
+  lineAmount: number
+  centres: CostCentre[]
+  initial: { costCentreId: number; amount: number }[]
+  onClose: () => void
+  onSave: (allocations: { costCentreId: number; amount: number }[]) => void
+}): React.JSX.Element {
+  const [rows, setRows] = useState<{ costCentreId: number | null; amount: number | null }[]>(
+    initial.length ? initial.map((a) => ({ costCentreId: a.costCentreId, amount: a.amount })) : [{ costCentreId: null, amount: null }]
+  )
+
+  const setRow = (i: number, patch: Partial<{ costCentreId: number | null; amount: number | null }>): void => {
+    setRows((rs) => {
+      const next = rs.map((r, j) => (j === i ? { ...r, ...patch } : r))
+      const last = next[next.length - 1]!
+      if (last.costCentreId != null) next.push({ costCentreId: null, amount: null })
+      return next
+    })
+  }
+  const removeRow = (i: number): void => setRows((rs) => rs.filter((_, j) => j !== i))
+
+  const allocated = rows.reduce((s, r) => s + (r.amount ?? 0), 0)
+  const remaining = lineAmount - allocated
+
+  return (
+    <Modal title="Cost centre allocation" onClose={onClose}>
+      <div className="flex flex-col gap-2">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <Select
+              value={r.costCentreId ?? ''}
+              onChange={(e) => setRow(i, { costCentreId: e.target.value ? Number(e.target.value) : null })}
+              className="flex-1"
+            >
+              <option value="">— cost centre —</option>
+              {centres.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+            <AmountInput paise={r.amount} onPaise={(p) => setRow(i, { amount: p })} className="w-32" />
+            {i < rows.length - 1 && (
+              <button className="text-[12px] text-cr" onClick={() => removeRow(i)}>
+                ×
+              </button>
+            )}
+          </div>
+        ))}
+        <p className={`text-[12px] ${remaining === 0 ? 'text-muted' : remaining < 0 ? 'text-cr' : 'text-amber'}`}>
+          Allocated {formatPaise(allocated)} of {formatPaise(lineAmount)}
+          {remaining !== 0 ? ` — ${formatPaise(Math.abs(remaining))} ${remaining > 0 ? 'remaining' : 'over'}` : ''}
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              onSave(
+                rows
+                  .filter((r): r is { costCentreId: number; amount: number } => r.costCentreId != null && (r.amount ?? 0) > 0)
+                  .map((r) => ({ costCentreId: r.costCentreId, amount: r.amount! }))
+              )
+              onClose()
+            }}
+          >
+            Save allocation
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

@@ -21,6 +21,8 @@ import { OutstandingsScreen } from './screens/Outstandings'
 import { BankingScreen } from './screens/Banking'
 import { EdocsScreen } from './screens/Edocs'
 import { PayrollScreen } from './screens/Payroll'
+import { TdsScreen } from './screens/Tds'
+import { CostCentresScreen } from './screens/CostCentres'
 import { Settings } from './screens/Settings'
 import { CommandPalette } from './components/CommandPalette'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -88,7 +90,14 @@ export default function App(): React.JSX.Element {
         <ErrorBoundary key={screen.name} screen={screen.name}>
           {screen.name === 'gateway' && <Gateway />}
           {screen.name === 'daybook' && <DayBook />}
-          {screen.name === 'voucher-entry' && <VoucherEntry key={screen.voucherId ?? 'new'} voucherId={screen.voucherId} kindHint={screen.kindHint} />}
+          {screen.name === 'voucher-entry' && (
+            <VoucherEntry
+              key={screen.voucherId ?? (screen.draftId ? `draft-${screen.draftId}` : 'new')}
+              voucherId={screen.voucherId}
+              kindHint={screen.kindHint}
+              draft={screen.draft}
+            />
+          )}
           {screen.name === 'masters' && <Masters tab={screen.tab} />}
           {screen.name === 'trial-balance' && <TrialBalanceScreen />}
           {screen.name === 'profit-loss' && <ProfitLossScreen />}
@@ -103,6 +112,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'outstandings' && <OutstandingsScreen />}
           {screen.name === 'banking' && <BankingScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}
+          {screen.name === 'tds' && <TdsScreen />}
+          {screen.name === 'cost-centres' && <CostCentresScreen />}
           {screen.name === 'company-info' && <CompanyInfoScreen />}
           {screen.name === 'settings' && <Settings key={screen.tab ?? 'backups'} tab={screen.tab} />}
         </ErrorBoundary>

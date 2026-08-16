@@ -55,7 +55,15 @@ function taxTotal(t: { igst: number; cgst: number; sgst: number; cess: number })
   return t.igst + t.cgst + t.sgst + t.cess
 }
 
-function PairRow({ pair, onOpenVoucher }: { pair: Recon2bPair; onOpenVoucher: (voucherId: number) => void }): React.JSX.Element {
+function PairRow({
+  pair,
+  onOpenVoucher,
+  onCreatePurchase
+}: {
+  pair: Recon2bPair
+  onOpenVoucher: (voucherId: number) => void
+  onCreatePurchase: (portal: NonNullable<Recon2bPair['portal']>) => void
+}): React.JSX.Element {
   const { portal, book } = pair
   const clickable = !!book
   return (
@@ -67,7 +75,23 @@ function PairRow({ pair, onOpenVoucher }: { pair: Recon2bPair; onOpenVoucher: (v
       <td className="num text-muted">{portal ? toDisplayDate(portal.date) : '—'}</td>
       <td className="r">{portal ? <Money paise={portal.value} /> : '—'}</td>
       <td className="r">{portal ? <Money paise={taxTotal(portal)} /> : '—'}</td>
-      <td>{book ? (book.supplierRef ?? book.number) : pair.bucket === 'missingInBooks' ? <span className="text-muted italic">not in books</span> : <span className="text-muted">—</span>}</td>
+      <td>
+        {book ? (
+          book.supplierRef ?? book.number
+        ) : pair.bucket === 'missingInBooks' && portal ? (
+          <button
+            className="text-[12px] text-blue hover:underline"
+            onClick={(e) => {
+              e.stopPropagation()
+              onCreatePurchase(portal)
+            }}
+          >
+            Create purchase
+          </button>
+        ) : (
+          <span className="text-muted">—</span>
+        )}
+      </td>
       <td className="num text-muted">{book ? toDisplayDate(book.date) : '—'}</td>
       <td className="r">{book ? <Money paise={book.invoiceValue} /> : '—'}</td>
       <td className="r">{book ? <Money paise={taxTotal(book)} /> : '—'}</td>
@@ -120,6 +144,20 @@ export function Gstr2bScreen(): React.JSX.Element {
   }
 
   const openVoucher = (voucherId: number): void => nav.go({ name: 'voucher-entry', voucherId })
+
+  // Party can't be guessed from the portal's GSTIN alone (no ledger lookup by GSTIN yet) — leave
+  // it to the user, just hand over what the portal already told us.
+  const createPurchase = (portal: NonNullable<Recon2bPair['portal']>): void => {
+    nav.go({
+      name: 'voucher-entry',
+      kindHint: 'purchase',
+      draftId: Date.now(),
+      draft: {
+        date: portal.date,
+        narration: `2B ${portal.number} ${portal.gstin}`
+      }
+    })
+  }
 
   const result = data?.result
   const pairs = result?.pairs.filter((p) => p.bucket === bucket) ?? []
@@ -209,13 +247,12 @@ export function Gstr2bScreen(): React.JSX.Element {
                 </thead>
                 <tbody>
                   {pairs.map((p, i) => (
-                    <PairRow key={i} pair={p} onOpenVoucher={openVoucher} />
+                    <PairRow key={i} pair={p} onOpenVoucher={openVoucher} onCreatePurchase={createPurchase} />
                   ))}
                 </tbody>
               </table>
             )}
           </Panel>
-          {/* TODO(task-2.2): "Create purchase" draft-nav for missingInBooks rows lands in a later task. */}
         </>
       ) : null}
     </div>
