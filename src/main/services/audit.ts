@@ -19,6 +19,22 @@ export function setAuditContext(ctx: AuditContext): void {
   context = ctx
 }
 
+/**
+ * Run `fn` with audit rows attributed to `userName` (e.g. 'agent-inbox' for drop-folder posts,
+ * inside an app whose session user would otherwise be stamped). Synchronous by design — the main
+ * process is single-threaded and every service write is sync, so the swap cannot leak across
+ * unrelated work. Restores the previous context even if `fn` throws.
+ */
+export function runAsAuditUser<T>(userName: string, fn: () => T): T {
+  const prev = context
+  context = { appVersion: prev.appVersion, getUserName: () => userName }
+  try {
+    return fn()
+  } finally {
+    context = prev
+  }
+}
+
 /** Append one row to audit_log. before/after are JSON.stringify'd; null stays null (not '"null"'). */
 export function writeAudit(
   db: DB,

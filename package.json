@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:db": "node scripts/test-db.mjs",
+    "cli": "node scripts/total-cli.mjs",
     "smoke": "node scripts/smoke-ci.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "postinstall": "electron-builder install-app-deps",
