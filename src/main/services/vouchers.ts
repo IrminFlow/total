@@ -327,13 +327,18 @@ export function purgeVoucher(db: DB, id: number): void {
   writeAudit(db, 'voucher', id, 'delete', { ...before, purged: true }, null)
 }
 
-/** Vouchers auto-purged after sitting in the bin longer than `days` (default 30). Returns the count purged. */
+/** Vouchers auto-purged after sitting in the bin longer than `days` (default 30). Returns the
+ *  count purged. One batched DELETE (task Q1 #92) — child rows (voucher_lines, inventory_lines,
+ *  bill_refs, tds_entries, cost allocations) all cascade — plus a single summary audit row
+ *  instead of one row per purged voucher. */
 export function purgeOldDeleted(db: DB, days = 30): number {
-  const rows = db
-    .prepare(`SELECT id FROM vouchers WHERE deleted_at IS NOT NULL AND deleted_at <= datetime('now', ?)`)
-    .all(`-${days} days`) as { id: number }[]
-  for (const r of rows) purgeVoucher(db, r.id)
-  return rows.length
+  const res = db
+    .prepare(`DELETE FROM vouchers WHERE deleted_at IS NOT NULL AND deleted_at <= datetime('now', ?)`)
+    .run(`-${days} days`)
+  if (res.changes > 0) {
+    writeAudit(db, 'voucher', 0, 'delete', { autoPurgedFromBin: res.changes, olderThanDays: days }, null)
+  }
+  return res.changes
 }
 
 export interface BinRow {

@@ -77,7 +77,7 @@ export interface AuditRow {
   id: number
   entity: string
   entityId: number
-  action: 'create' | 'update' | 'delete'
+  action: 'create' | 'update' | 'delete' | 'login' | 'login_failed' | 'logout' | 'export' | 'import'
   at: string
   beforeJson: string | null
   afterJson: string | null
@@ -475,7 +475,9 @@ export const api = {
     global: (q: string) => call<SearchHit[]>('search:global', { q })
   },
   audit: {
-    list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number }>('audit:list', query)
+    list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number }>('audit:list', query),
+    retentionGet: () => call<{ keepDays: number | null }>('config:audit:get'),
+    retentionSet: (keepDays: number | null) => call<{ keepDays: number | null }>('config:audit:set', { keepDays })
   },
   auth: {
     users: () => call<LoginName[]>('auth:users'),

@@ -49,13 +49,13 @@ import { writeExportPdf } from './services/pdf'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch } from './services/search'
 import { createDemoCompany } from './services/demo'
-import { setAuditContext, writeAudit, listAudit } from './services/audit'
+import { setAuditContext, writeAudit, listAudit, pruneAudit } from './services/audit'
 import * as users from './services/users'
-import { assertDeleteAuthorized } from './services/companyDelete'
+import { assertDeleteAuthorized, auditCompanyDeletion } from './services/companyDelete'
 import { roleAllows, type Role } from './services/roles'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
-  userInputSchema, authLoginSchema
+  userInputSchema, authLoginSchema, auditRetentionSchema, invoicePdfBatchSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
 import { featuresSchema } from '@shared/features'
@@ -169,6 +169,10 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
 const idSchema = z.object({ id: z.number().int().positive() })
 const withIdSchema = <T extends z.ZodTypeAny>(schema: T) => z.object({ id: z.number().int().positive(), data: schema })
 
+/** [lane-Q audit] one-line summary audit row for every file-export handler (task Q1 #90). */
+const auditExport = (db: DB, kind: string, detail: Record<string, unknown>): void =>
+  writeAudit(db, 'export', 0, 'export', null, { kind, ...detail })
+
 export function registerIpc(): void {
   setAuditContext({ appVersion: app.getVersion(), getUserName: () => sessionUser?.name ?? null })
 
@@ -206,6 +210,10 @@ export function registerIpc(): void {
     // The name check above protects nothing by itself — it's readable off the same screen it's
     // typed into. If this company has users, an active owner's PIN is required too.
     assertDeleteAuthorized(companyDbPath(slug), pin)
+    // [lane-Q audit] durable record in the app log (survives the rmSync) + best-effort tombstone
+    // row inside the DB itself.
+    auditCompanyDeletion(companyDbPath(slug), slug, sessionUser?.name ?? null)
+    log('warn', 'company-deleted', { slug, user: sessionUser?.name ?? null })
     if (current?.slug === slug) closeCurrentCompany()
     rmSync(companyDir(slug), { recursive: true, force: true })
     removeCompany(slug)
@@ -232,6 +240,13 @@ export function registerIpc(): void {
     }
     const purged = vouchers.purgeOldDeleted(db, 30)
     if (purged > 0) log('info', 'bin-purge', { purged })
+    // [lane-Q audit] retention: prune audit rows older than the configured window (default: keep
+    // forever — getAuditKeepDays returns null and nothing is pruned).
+    const auditKeepDays = configSvc.getAuditKeepDays(db)
+    if (auditKeepDays !== null) {
+      const prunedAudit = pruneAudit(db, auditKeepDays)
+      if (prunedAudit > 0) log('info', 'audit-prune', { pruned: prunedAudit, keepDays: auditKeepDays })
+    }
     touchLastOpened(slug)
     return { slug, info, integrity, locked: current.usersExist }
   })
@@ -372,6 +387,7 @@ export function registerIpc(): void {
     } finally {
       unlinkSync(tempPath)
     }
+    auditExport(c.db, 'encrypted_backup', { path: destPath })
     shell.showItemInFolder(destPath)
     return { path: destPath }
   }, 'owner')
@@ -550,6 +566,7 @@ export function registerIpc(): void {
     const result = gst.gstr1(c.db, c.info, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr1', period, result.json)
     const csvPath = gst.exportGstr1Csv(c.slug, result)
+    auditExport(c.db, 'gstr1', { period, path: jsonPath })
     shell.showItemInFolder(jsonPath)
     return { jsonPath, csvPath }
   })
@@ -558,6 +575,7 @@ export function registerIpc(): void {
     const c = requireCompany()
     const result = gst.gstr3b(c.db, c.info, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr3b', period, result.json)
+    auditExport(c.db, 'gstr3b', { period, path: jsonPath })
     shell.showItemInFolder(jsonPath)
     return { jsonPath }
   })
@@ -607,6 +625,7 @@ export function registerIpc(): void {
     const { fyStartYear, quarter } = tdsExport26qSchema.parse(p)
     const c = requireCompany()
     const path = tds.export26qCsv(c.db, c.info, c.slug, fyStartYear, quarter as 1 | 2 | 3 | 4)
+    auditExport(c.db, 'tds_26q', { fyStartYear, quarter, path })
     shell.showItemInFolder(path)
     return { path }
   })
@@ -714,6 +733,7 @@ export function registerIpc(): void {
     const { from, to, period } = gstPeriodInput.parse(p)
     const c = requireCompany()
     const r = edocs.exportEInvoices(c.db, c.info, c.slug, from, to, period)
+    auditExport(c.db, 'einvoice', { period, path: r.path, count: r.count })
     shell.showItemInFolder(r.path)
     return r
   })
@@ -721,6 +741,7 @@ export function registerIpc(): void {
     const { from, to, period } = gstPeriodInput.parse(p)
     const c = requireCompany()
     const r = edocs.exportEwb(c.db, c.info, c.slug, from, to, period)
+    auditExport(c.db, 'ewb', { period, path: r.path, count: r.count })
     shell.showItemInFolder(r.path)
     return r
   })
@@ -728,6 +749,7 @@ export function registerIpc(): void {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
     const path = await invoice.invoicePdf(c.db, c.info, c.slug, voucherId)
+    auditExport(c.db, 'invoice_pdf', { voucherId, path })
     shell.openPath(path)
     return { path }
   })
@@ -875,6 +897,7 @@ export function registerIpc(): void {
     const c = requireCompany()
     const html = reportHtml({ title, company: c.info, periodLabel, columns, rows, footNote })
     const path = await writeExportPdf(c.slug, `${filename}.pdf`, html, { pageSize: 'A4' })
+    auditExport(c.db, 'report_pdf', { filename, path })
     return { path }
   }, 'viewer')
   handle('export:csv', (p) => {
@@ -882,6 +905,7 @@ export function registerIpc(): void {
     const c = requireCompany()
     const path = join(companyExportsDir(c.slug), `${filename}.csv`)
     writeFileSync(path, csv, 'utf8')
+    auditExport(c.db, 'csv', { filename, path })
     return { path }
   }, 'viewer')
 
@@ -890,6 +914,7 @@ export function registerIpc(): void {
     const { from, to } = periodSchema.parse(p)
     const c = requireCompany()
     const r = caPack.exportCaPack(c.db, c.info, c.slug, from, to)
+    auditExport(c.db, 'ca_pack', { from, to, path: r.path })
     shell.showItemInFolder(r.path)
     return r
   })
@@ -897,6 +922,7 @@ export function registerIpc(): void {
     const { from, to } = periodSchema.parse(p)
     const c = requireCompany()
     const r = caPack.exportTallyXml(c.db, c.info, c.slug, from, to)
+    auditExport(c.db, 'tally_xml', { from, to, path: r.path })
     shell.showItemInFolder(r.path)
     return r
   })
@@ -944,6 +970,13 @@ export function registerIpc(): void {
     return listAudit(requireCompany().db, { entity, from, to, page })
   }, 'viewer')
 
+  // ---------- audit retention (lane Q, task Q1 #92) ----------
+  handle('config:audit:get', () => ({ keepDays: configSvc.getAuditKeepDays(requireCompany().db) }), 'viewer')
+  handle('config:audit:set', (p) => {
+    const { keepDays } = auditRetentionSchema.parse(p)
+    return { keepDays: configSvc.setAuditKeepDays(requireCompany().db, keepDays) }
+  }, 'owner')
+
   // ---------- auth + users ----------
   // auth:* itself is in UNGATED_CHANNELS (see `handle`) — you have to be able to call
   // auth:login before you're "in". users:list/save/deactivate are owner-only, *except* that
@@ -959,6 +992,8 @@ export function registerIpc(): void {
     return result
   })
   handle('auth:logout', () => {
+    // [lane-Q audit] logout audit row (task Q1 #90) — only meaningful with a live session.
+    if (current && sessionUser) writeAudit(current.db, 'user', sessionUser.id, 'logout', null, null)
     sessionUser = null
     return null
   })

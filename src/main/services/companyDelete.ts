@@ -53,3 +53,29 @@ export function assertDeleteAuthorized(dbPath: string, pin: string | undefined):
     db.close()
   }
 }
+
+/**
+ * Record that a company is about to be deleted (task Q1 #90). The durable record is the app-level
+ * log line the caller writes (log.ts lives outside the company dir, so it survives the rmSync);
+ * this additionally appends a best-effort audit row into the company DB itself moments before
+ * deletion, so any copy of the file made after this point carries the tombstone. Never throws —
+ * a corrupt/locked DB must not block the delete it was already authorized for.
+ */
+export function auditCompanyDeletion(dbPath: string, slug: string, userName: string | null): void {
+  if (!existsSync(dbPath)) return
+  let db: Database.Database | null = null
+  try {
+    db = new Database(dbPath)
+    db.prepare(
+      `INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
+       VALUES ('company', 0, 'delete', ?, NULL, ?, NULL)`
+    ).run(JSON.stringify({ slug }), userName)
+  } catch (err) {
+    log('warn', 'company-delete-audit-write-failed', {
+      dbPath,
+      error: err instanceof Error ? err.message : String(err)
+    })
+  } finally {
+    db?.close()
+  }
+}

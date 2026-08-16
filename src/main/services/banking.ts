@@ -213,6 +213,10 @@ export function importStatement(db: DB, ledgerId: number, csv: string): ImportRe
   })
   run()
 
+  // [lane-Q audit block — keep as one unit when merging] statement-import summary audit row.
+  writeAudit(db, 'bank_statement', ledgerId, 'import', null,
+    { statementRows: statement.length, matched: matches.length, unmatched: unmatched.length })
+
   return { statementRows: statement.length, matched: matches.length, alreadyReconciled: 0, unmatched }
 }
 

@@ -242,6 +242,46 @@ describe('migrate', () => {
     ).toThrow()
   })
 
+  it('017: adds inventory_lines.discount_paise with a 0 default', () => {
+    const db = freshDb()
+    const columns = (db.prepare('PRAGMA table_info(inventory_lines)').all() as { name: string }[]).map((c) => c.name)
+    expect(columns).toContain('discount_paise')
+
+    const unitId = db.prepare("INSERT INTO units (name, symbol, decimals, uqc) VALUES ('Nos','Nos',0,'NOS')").run()
+      .lastInsertRowid
+    const itemId = db.prepare('INSERT INTO stock_items (name, unit_id) VALUES (?, ?)').run('Widget', unitId).lastInsertRowid
+    const vtId = db.prepare("INSERT INTO voucher_types (name, kind) VALUES ('Sales (m17)', 'sales')").run().lastInsertRowid
+    const vId = db
+      .prepare("INSERT INTO vouchers (voucher_type_id, date, number) VALUES (?, '2025-04-01', '1')")
+      .run(vtId).lastInsertRowid
+    const ilId = db
+      .prepare(
+        "INSERT INTO inventory_lines (voucher_id, stock_item_id, qty_milli, rate_paise, amount, direction) VALUES (?, ?, 1000, 100, 100, 'out')"
+      )
+      .run(vId, itemId).lastInsertRowid
+    const row = db.prepare('SELECT discount_paise FROM inventory_lines WHERE id = ?').get(ilId) as {
+      discount_paise: number
+    }
+    expect(row.discount_paise).toBe(0)
+  })
+
+  it('017: audit_log accepts the expanded action set but still rejects unknown actions', () => {
+    const db = freshDb()
+    const insert = db.prepare('INSERT INTO audit_log (entity, entity_id, action) VALUES (?, ?, ?)')
+    for (const action of ['create', 'update', 'delete', 'login', 'login_failed', 'logout', 'export', 'import']) {
+      expect(() => insert.run('thing', 1, action)).not.toThrow()
+    }
+    expect(() => insert.run('thing', 1, 'superaction')).toThrow()
+
+    // The rebuild preserved both indexes.
+    const indexNames = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'audit_log'").all() as {
+        name: string
+      }[]
+    ).map((r) => r.name)
+    expect(indexNames).toEqual(expect.arrayContaining(['idx_audit_at', 'idx_audit_entity']))
+  })
+
   it('creates budgets/budget_lines, enforces the name+FY uniqueness and the ledger-XOR-group CHECK, and cascades line deletes', () => {
     const db = freshDb()
     const groupId = Number(

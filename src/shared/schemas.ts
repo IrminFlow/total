@@ -254,6 +254,20 @@ export const auditListSchema = z.object({
 })
 export type AuditListInput = z.infer<typeof auditListSchema>
 
+// ---------- lane Q: audit retention + batch invoice PDF ----------
+
+/** config:audit:set — days of audit history to keep, or null = keep forever (the default). */
+export const auditRetentionSchema = z.object({
+  keepDays: z.number().int().min(30).max(3650).nullable()
+})
+export type AuditRetentionInput = z.infer<typeof auditRetentionSchema>
+
+/** invoice:pdfBatch — render several sales invoices into one exports folder, sequentially. */
+export const invoicePdfBatchSchema = z.object({
+  voucherIds: z.array(id).min(1).max(500)
+})
+export type InvoicePdfBatchInput = z.infer<typeof invoicePdfBatchSchema>
+
 /** search:global input — ⌘K global search query (min 1 so an empty string is rejected outright;
  *  the palette itself gates the IPC call to 2+ chars). */
 export const searchGlobalSchema = z.object({
