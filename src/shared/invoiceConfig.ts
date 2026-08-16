@@ -64,6 +64,12 @@ export const invoiceConfigSchema = z.object({
   copyLabels: z.array(z.string().trim().min(1).max(40)).min(1).max(3)
 })
 
+/** Every field optional — for previewing unsaved edits. The renderer's draft form state is
+ *  always a full InvoiceConfig, but callers (and the invoice:previewHtml IPC payload) only need
+ *  to promise a subset; the service layer merges whatever's given over the *saved* config, not
+ *  the hard defaults, so an omitted field falls back to what's on disk. */
+export const invoiceConfigPartialSchema = invoiceConfigSchema.partial()
+
 /** Merge a partial/unknown-shaped object over the defaults, then validate. Never throws — falls
  *  back to all-defaults if the merged shape still doesn't validate. */
 export function mergeInvoiceConfig(partial: unknown): InvoiceConfig {

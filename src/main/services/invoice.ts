@@ -7,7 +7,7 @@ import type { EdocInvoice } from '@shared/gst/edocs'
 import { amountInWords, formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { GST_STATES } from '@shared/gst/states'
-import type { InvoiceConfig } from '@shared/invoiceConfig'
+import { mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
 import { companyExportsDir } from '../paths'
 import { extractEdocInvoices } from './edocs'
 import { getInvoiceConfig } from './config'
@@ -79,7 +79,7 @@ export function buildInvoiceHtml(company: CompanyInfo, config: InvoiceConfig, in
   ].join('')
 
   const logoBlock = config.logoDataUrl
-    ? `<img src="${config.logoDataUrl.replace(/"/g, '&quot;')}" style="max-height:60px;max-width:220px;object-fit:contain;margin-bottom:6px" />`
+    ? `<img src="${esc(config.logoDataUrl)}" style="max-height:60px;max-width:220px;object-fit:contain;margin-bottom:6px" />`
     : ''
 
   const bankBlock = config.bankDetails
@@ -200,15 +200,17 @@ export function invoiceHtml(db: DB, company: CompanyInfo, voucherId: number): { 
 
 /** invoice:previewHtml — renders the current (unsaved) print config against a real voucher when
  *  `voucherId` is given, or the built-in sample invoice otherwise, so Settings → Invoice can show
- *  a live preview with zero vouchers in the books. `configOverride` lets the renderer preview
- *  edits before they're saved. */
+ *  a live preview with zero vouchers in the books. `configOverride` (partial — only the fields the
+ *  caller wants to preview) is merged over the *saved* config, so the renderer can debounce its
+ *  unsaved draft straight into the preview without a Save round-trip. */
 export function invoicePreviewHtml(
   db: DB,
   company: CompanyInfo,
   voucherId?: number,
-  configOverride?: InvoiceConfig
+  configOverride?: Partial<InvoiceConfig>
 ): { html: string } {
-  const config = configOverride ?? getInvoiceConfig(db)
+  const saved = getInvoiceConfig(db)
+  const config = configOverride ? mergeInvoiceConfig({ ...saved, ...configOverride }) : saved
   if (voucherId != null) {
     const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
     if (!inv) throw new Error('Invoice not found (only sales vouchers can be printed)')

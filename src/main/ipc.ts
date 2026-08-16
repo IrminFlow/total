@@ -45,7 +45,7 @@ import {
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
 import { featuresSchema } from '@shared/features'
-import { invoiceConfigSchema } from '@shared/invoiceConfig'
+import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig'
 
 export interface OpenCompany {
   slug: string
@@ -609,9 +609,12 @@ export function registerIpc(): void {
     return { path }
   })
   handle('invoice:previewHtml', (p) => {
-    const { voucherId } = z.object({ voucherId: z.number().int().positive().optional() }).default({}).parse(p ?? {})
+    const { voucherId, config } = z
+      .object({ voucherId: z.number().int().positive().optional(), config: invoiceConfigPartialSchema.optional() })
+      .default({})
+      .parse(p ?? {})
     const c = requireCompany()
-    return invoice.invoicePreviewHtml(c.db, c.info, voucherId)
+    return invoice.invoicePreviewHtml(c.db, c.info, voucherId, config)
   }, 'viewer')
 
   // ---------- F11 features + F12 invoice print config ----------

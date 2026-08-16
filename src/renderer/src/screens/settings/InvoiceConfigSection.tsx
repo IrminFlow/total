@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
@@ -6,18 +6,32 @@ import { Button, Field, Panel, SectionTitle, TextInput } from '../../components/
 import { DEFAULT_INVOICE_CONFIG, type InvoiceConfig } from '@shared/invoiceConfig'
 
 const MAX_LOGO_BYTES = 200 * 1024
+const PREVIEW_DEBOUNCE_MS = 400
 
 export function InvoiceConfigSection(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { user } = useSession()
   const { data: existing } = useQuery({ queryKey: ['invoiceConfig'], queryFn: api.config.invoice.get })
-  const { data: preview } = useQuery({ queryKey: ['invoicePreview'], queryFn: () => api.invoice.previewHtml() })
   const [draft, setDraft] = useState<InvoiceConfig | null>(null)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const value = draft ?? existing ?? DEFAULT_INVOICE_CONFIG
   const canEdit = user?.role === 'owner'
+
+  // Debounce the current (possibly unsaved) draft into the preview query key so the iframe
+  // updates as you type, without needing a Save round-trip. The server merges this partial
+  // override over the saved config (see invoicePreviewHtml), so it always reflects a full,
+  // valid invoice even mid-edit.
+  const [debouncedValue, setDebouncedValue] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedValue(value), PREVIEW_DEBOUNCE_MS)
+    return () => clearTimeout(t)
+  }, [value])
+  const { data: preview } = useQuery({
+    queryKey: ['invoicePreview', debouncedValue],
+    queryFn: () => api.invoice.previewHtml(undefined, debouncedValue)
+  })
 
   const set = (patch: Partial<InvoiceConfig>): void => {
     if (!canEdit) return
@@ -223,7 +237,7 @@ export function InvoiceConfigSection(): React.JSX.Element {
             <iframe title="Invoice preview" sandbox="" srcDoc={preview?.html ?? ''} style={{ width: '100%', height: 500, border: 0 }} />
           </div>
           <p className="mt-2 text-[11.5px] text-muted">
-            Preview reflects the last saved settings, not unsaved edits — save to refresh it.
+            Preview updates as you edit — Save to apply.
           </p>
         </div>
       </div>

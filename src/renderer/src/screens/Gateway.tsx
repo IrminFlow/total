@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, type Screen } from '../state/stores'
@@ -24,7 +24,7 @@ export function Gateway(): React.JSX.Element {
   const { from } = useSession()
   const today = todayISO()
   const features = useFeatures()
-  const cards = CARDS.filter((c) => !c.feature || features[c.feature])
+  const cards = useMemo(() => CARDS.filter((c) => !c.feature || features[c.feature]), [features])
   const { data } = useQuery({
     queryKey: ['dashboard', today, from],
     queryFn: () => api.reports.dashboard(today, from)

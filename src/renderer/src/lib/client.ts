@@ -264,7 +264,8 @@ export const api = {
   },
   invoice: {
     pdf: (voucherId: number) => call<{ path: string }>('invoice:pdf', { voucherId }),
-    previewHtml: (voucherId?: number) => call<{ html: string }>('invoice:previewHtml', { voucherId })
+    previewHtml: (voucherId?: number, config?: Partial<InvoiceConfig>) =>
+      call<{ html: string }>('invoice:previewHtml', { voucherId, config })
   },
   config: {
     features: {

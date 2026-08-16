@@ -49,7 +49,7 @@ export function setInvoiceConfig(db: DB, input: InvoiceConfig): InvoiceConfig {
   // Never dump the logo's base64 payload into the audit trail — just its size.
   const redact = (c: InvoiceConfig): unknown => ({
     ...c,
-    logoDataUrl: c.logoDataUrl ? `[logo ${c.logoDataUrl.length} bytes]` : null
+    logoDataUrl: c.logoDataUrl ? `[logo ${c.logoDataUrl.length} chars]` : null
   })
   writeAudit(db, 'company', 0, 'update', { invoice: redact(before) }, { invoice: redact(parsed) })
   return parsed
