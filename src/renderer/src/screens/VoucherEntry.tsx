@@ -188,7 +188,7 @@ const NUMBER_LOADING = '…'
  *  type or date change is a new numbering context, so it resets `touched` and re-syncs to the
  *  freshly suggested number. `reset()` clears touched after a successful save so the field goes
  *  back to tracking the (now-advanced) suggestion for the next voucher. */
-function useVoucherNumberField(typeId: number, date: string, excludeId?: number): {
+export function useVoucherNumberField(typeId: number, date: string, excludeId?: number): {
   value: string
   onChange: (v: string) => void
   reset: () => void

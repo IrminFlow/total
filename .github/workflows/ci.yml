@@ -29,6 +29,9 @@ jobs:
       - name: Unit tests (pure engine, no DB)
         run: npm test
 
+      - name: Renderer tests (jsdom + RTL)
+        run: npm run test:renderer
+
       - name: DB-layer tests (Electron-as-Node — headless-safe, no display needed)
         run: npm run test:db
 
