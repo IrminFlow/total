@@ -178,6 +178,14 @@ export type VoucherTypeInput = z.infer<typeof voucherTypeInputSchema>
 export const periodSchema = z.object({ from: isoDate, to: isoDate })
 export type Period = z.infer<typeof periodSchema>
 
+export const consolidatedRunSchema = z.object({
+  slugs: z.array(z.string().trim().min(1)).min(1).max(20),
+  kind: z.enum(['tb', 'pnl']),
+  from: isoDate,
+  to: isoDate
+})
+export type ConsolidatedRunInput = z.infer<typeof consolidatedRunSchema>
+
 export const gstr2bSchema = z.object({ jsonText: z.string().min(2), from: isoDate, to: isoDate })
 export type Gstr2bInput = z.infer<typeof gstr2bSchema>
 

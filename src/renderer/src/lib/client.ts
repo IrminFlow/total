@@ -19,6 +19,7 @@ import type {
 import type { CompanyFeatures } from '@shared/features'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { CloseLedgerRow } from '@shared/yearEnd'
+import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -261,6 +262,10 @@ export const api = {
     balanceSheet: (asOn: string) => call<BalanceSheet>('report:balanceSheet', { asOn }),
     stockSummary: (asOn: string) => call<StockSummaryRow[]>('report:stockSummary', { asOn }),
     dashboard: (today: string, fyFrom: string) => call<DashboardData>('report:dashboard', { today, fyFrom })
+  },
+  consolidated: {
+    run: (slugs: string[], kind: 'tb' | 'pnl', from: string, to: string) =>
+      call<ConsolidatedResult>('consol:run', { slugs, kind, from, to })
   },
   gst: {
     gstr1: (from: string, to: string, period: string) => call<Gstr1Result>('gst:gstr1', { from, to, period }),

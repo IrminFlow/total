@@ -16,7 +16,7 @@ import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
-  chequeConfigSchema, companyCreateSchema, costCentreInputSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
+  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema,
   stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
@@ -42,6 +42,7 @@ import * as recurring from './services/recurring'
 import * as yearEnd from './services/yearEnd'
 import { importTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
+import * as consolidated from './services/consolidated'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
 import { roleAllows, type Role } from './services/roles'
@@ -474,6 +475,12 @@ export function registerIpc(): void {
   handle('report:dashboard', (p) => {
     const { today, fyFrom } = z.object({ today: z.string(), fyFrom: z.string() }).parse(p)
     return reports.dashboard(requireCompany().db, today, fyFrom)
+  }, 'viewer')
+
+  // ---------- consolidated (multi-company, read-only) ----------
+  handle('consol:run', (p) => {
+    const { slugs, kind, from, to } = consolidatedRunSchema.parse(p)
+    return consolidated.consolidated(slugs, kind, from, to)
   }, 'viewer')
 
   // ---------- gst ----------
