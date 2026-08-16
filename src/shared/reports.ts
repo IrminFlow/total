@@ -206,6 +206,7 @@ export interface EdocListRow {
   voucherId: number
   number: string
   date: string
+  docType: 'INV' | 'CRN' | 'DBN'
   partyName: string | null
   partyGstin: string | null
   total: number

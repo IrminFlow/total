@@ -24,6 +24,11 @@ export interface EdocItem {
 export interface EdocInvoice {
   number: string
   date: string // ISO
+  /** Document type for DocDtls.Typ / EWB docType. Defaults to 'INV' (regular invoice) when absent. */
+  docType?: 'INV' | 'CRN' | 'DBN'
+  /** Supply type for TranDtls.SupTyp. Defaults to 'B2B' when absent. EXPWP/EXPWOP force
+   *  BuyerDtls.Pos to '96' and BuyerDtls.Gstin to 'URP' in the e-invoice JSON. */
+  supTyp?: 'B2B' | 'SEZWP' | 'SEZWOP' | 'EXPWP' | 'EXPWOP'
   partyName: string | null
   partyGstin: string | null
   partyAddress: string | null
@@ -64,56 +69,63 @@ export function pinFromAddress(address: string | null): number {
 }
 
 export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany): Record<string, unknown>[] {
-  return invoices.map((inv) => ({
-    Version: '1.1',
-    TranDtls: { TaxSch: 'GST', SupTyp: 'B2B', RegRev: 'N', IgstOnIntra: 'N' },
-    DocDtls: { Typ: 'INV', No: inv.number, Dt: slashDate(inv.date) },
-    SellerDtls: {
-      Gstin: company.gstin,
-      LglNm: company.name,
-      Addr1: company.address || company.name,
-      Loc: company.address || company.name,
-      Pin: pinFromAddress(company.address),
-      Stcd: company.stateCode
-    },
-    BuyerDtls: {
-      Gstin: inv.partyGstin ?? 'URP',
-      LglNm: inv.partyName ?? 'Unregistered buyer',
-      Pos: inv.pos,
-      Addr1: inv.partyAddress || inv.partyName || 'NA',
-      Loc: inv.partyAddress || 'NA',
-      Pin: pinFromAddress(inv.partyAddress),
-      Stcd: inv.partyStateCode
-    },
-    ItemList: inv.items.map((item, i) => ({
-      SlNo: String(i + 1),
-      PrdDesc: item.name,
-      IsServc: item.isService ? 'Y' : 'N',
-      HsnCd: item.hsn,
-      Qty: item.qtyMilli / 1000,
-      Unit: item.uqc,
-      UnitPrice: toRupees(item.unitPricePaise),
-      TotAmt: toRupees(item.taxablePaise),
-      Discount: 0,
-      AssAmt: toRupees(item.taxablePaise),
-      GstRt: item.rate,
-      IgstAmt: toRupees(item.igst),
-      CgstAmt: toRupees(item.cgst),
-      SgstAmt: toRupees(item.sgst),
-      CesRt: item.cessRate,
-      CesAmt: toRupees(item.cess),
-      TotItemVal: toRupees(item.taxablePaise + item.cgst + item.sgst + item.igst + item.cess)
-    })),
-    ValDtls: {
-      AssVal: toRupees(inv.taxable),
-      CgstVal: toRupees(inv.cgst),
-      SgstVal: toRupees(inv.sgst),
-      IgstVal: toRupees(inv.igst),
-      CesVal: toRupees(inv.cess),
-      RndOffAmt: toRupees(inv.roundOff),
-      TotInvVal: toRupees(inv.total)
+  return invoices.map((inv) => {
+    const docType = inv.docType ?? 'INV'
+    const supTyp = inv.supTyp ?? 'B2B'
+    // Exports have no Indian buyer GSTIN/POS — NIC schema requires Pos '96' (Other Territory)
+    // and Gstin 'URP' for EXPWP/EXPWOP regardless of any party GSTIN captured locally.
+    const isExport = supTyp === 'EXPWP' || supTyp === 'EXPWOP'
+    return {
+      Version: '1.1',
+      TranDtls: { TaxSch: 'GST', SupTyp: supTyp, RegRev: 'N', IgstOnIntra: 'N' },
+      DocDtls: { Typ: docType, No: inv.number, Dt: slashDate(inv.date) },
+      SellerDtls: {
+        Gstin: company.gstin,
+        LglNm: company.name,
+        Addr1: company.address || company.name,
+        Loc: company.address || company.name,
+        Pin: pinFromAddress(company.address),
+        Stcd: company.stateCode
+      },
+      BuyerDtls: {
+        Gstin: isExport ? 'URP' : (inv.partyGstin ?? 'URP'),
+        LglNm: inv.partyName ?? 'Unregistered buyer',
+        Pos: isExport ? '96' : inv.pos,
+        Addr1: inv.partyAddress || inv.partyName || 'NA',
+        Loc: inv.partyAddress || 'NA',
+        Pin: pinFromAddress(inv.partyAddress),
+        Stcd: inv.partyStateCode
+      },
+      ItemList: inv.items.map((item, i) => ({
+        SlNo: String(i + 1),
+        PrdDesc: item.name,
+        IsServc: item.isService ? 'Y' : 'N',
+        HsnCd: item.hsn,
+        Qty: item.qtyMilli / 1000,
+        Unit: item.uqc,
+        UnitPrice: toRupees(item.unitPricePaise),
+        TotAmt: toRupees(item.taxablePaise),
+        Discount: 0,
+        AssAmt: toRupees(item.taxablePaise),
+        GstRt: item.rate,
+        IgstAmt: toRupees(item.igst),
+        CgstAmt: toRupees(item.cgst),
+        SgstAmt: toRupees(item.sgst),
+        CesRt: item.cessRate,
+        CesAmt: toRupees(item.cess),
+        TotItemVal: toRupees(item.taxablePaise + item.cgst + item.sgst + item.igst + item.cess)
+      })),
+      ValDtls: {
+        AssVal: toRupees(inv.taxable),
+        CgstVal: toRupees(inv.cgst),
+        SgstVal: toRupees(inv.sgst),
+        IgstVal: toRupees(inv.igst),
+        CesVal: toRupees(inv.cess),
+        RndOffAmt: toRupees(inv.roundOff),
+        TotInvVal: toRupees(inv.total)
+      }
     }
-  }))
+  })
 }
 
 export function buildEwbJson(invoices: EdocInvoice[], company: EdocCompany): Record<string, unknown> {
@@ -123,7 +135,7 @@ export function buildEwbJson(invoices: EdocInvoice[], company: EdocCompany): Rec
       userGstin: company.gstin,
       supplyType: 'O',
       subSupplyType: '1',
-      docType: 'INV',
+      docType: inv.docType ?? 'INV',
       docNo: inv.number,
       docDate: slashDate(inv.date),
       fromGstin: company.gstin,
