@@ -203,6 +203,20 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
     setBillDueDate(addDaysLocal(date, party?.creditDays ?? 0))
   }, [date, party?.creditDays, billDueDateTouched])
 
+  // A party switch invalidates any bills already checked against the OLD party — 'against' refs
+  // are matched server-side by name only, so a stale ref would silently misallocate against
+  // whatever same-named (or FIFO-fallback) bill the NEW party happens to have. Also resets the
+  // note's manual-entry state so a party-specific typed name/due-date doesn't linger either.
+  useEffect(() => {
+    setNoteBillRefs([])
+    if (isNoteKind) {
+      setManualNewBillMode(false)
+      setBillNameTouched(false)
+      setBillDueDateTouched(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partyId])
+
   const { data: openBillsForNote } = useQuery({
     queryKey: ['billsOpen', partyId, date],
     queryFn: () => api.bills.open(partyId!, date),
@@ -949,10 +963,26 @@ function AccountingEntry({
     return draftPartyId
   }, [rows, ledgers, groupMap, draftPartyId])
 
+  // How much of a prior Apply is already sitting in the TDS payable line — i.e. how much the
+  // target line has already been reduced (the cumulative reduction on the target always equals
+  // the current payable line's amount; see applyTds). Declared before tdsCandidateRow because
+  // the journal vendor-CR shape needs it to reconstruct the pre-deduction gross amount below.
+  const existingTdsPayableAmount = useMemo(() => {
+    if (!tds || !tdsSuggestion) return 0
+    return rows.find((r) => r.drCr === 'cr' && r.ledgerId === tdsSuggestion.payableLedgerId)?.amount ?? 0
+  }, [rows, tds, tdsSuggestion])
+
   // The dr-side (payment: "Dr Vendor / Cr Bank") is checked first; journal additionally checks
   // the cr side, since the standard journal shape is "Dr Expense / Cr Vendor(flagged)" — the
   // vendor never appears as a debit there. `rowSide` records which one matched, since it decides
   // both the suggestion's base amount and (in applyTds) which line absorbs the deduction.
+  //
+  // For the cr shape, `amount` is reconstructed back to the GROSS pre-deduction figure (current
+  // row amount + whatever a prior Apply already carved out of it) rather than read live off the
+  // row — Apply reduces that same row, so reading it live would drift the suggestion base down
+  // to the net amount on any re-trigger (e.g. editing the date) and silently under-deduct on a
+  // re-apply. The payment/dr shape doesn't need this: Apply reduces a different (bank) line, so
+  // the dr candidate row's amount never moves on its own.
   const tdsCandidateRow = useMemo(() => {
     if (kind !== 'payment' && kind !== 'journal') return null
     for (const r of rows) {
@@ -964,11 +994,13 @@ function AccountingEntry({
       for (const r of rows) {
         if (r.drCr !== 'cr' || r.ledgerId == null || !r.amount) continue
         const l = ledgers.find((x) => x.id === r.ledgerId)
-        if (l?.tdsSectionId != null) return { ledgerId: r.ledgerId, amount: r.amount, rowSide: 'cr' as const }
+        if (l?.tdsSectionId != null) {
+          return { ledgerId: r.ledgerId, amount: r.amount + existingTdsPayableAmount, rowSide: 'cr' as const }
+        }
       }
     }
     return null
-  }, [rows, kind, ledgers])
+  }, [rows, kind, ledgers, existingTdsPayableAmount])
 
   // Where the TDS amount would come out of: the flagged CR row itself for the journal vendor
   // shape (Dr Expense / Cr Vendor 9000 / Cr TDS 1000 — the textbook entry), or the largest
@@ -991,15 +1023,8 @@ function AccountingEntry({
     return idx
   }, [rows, tdsCandidateRow, ledgers, groupMap])
 
-  // Capacity of the target line = its current amount plus whatever a prior Apply already carved
-  // out of it (tracked as the current TDS payable line's amount, which always equals the
-  // cumulative reduction — see applyTds). This lets a re-apply after editing the base amount
-  // compare against the pre-TDS amount, not the already-reduced one.
-  const existingTdsPayableAmount = useMemo(() => {
-    if (!tds || !tdsSuggestion) return 0
-    return rows.find((r) => r.drCr === 'cr' && r.ledgerId === tdsSuggestion.payableLedgerId)?.amount ?? 0
-  }, [rows, tds, tdsSuggestion])
-
+  // Capacity of the target line = its current (live, un-reconstructed) amount plus whatever a
+  // prior Apply already carved out of it.
   const tdsTargetCapacity = tdsTargetIdx === -1 ? 0 : (rows[tdsTargetIdx]!.amount ?? 0) + existingTdsPayableAmount
   const tdsApplyBlocked = !!tdsSuggestion && (tdsTargetIdx === -1 || tdsTargetCapacity < tdsSuggestion.tdsPaise)
 
@@ -1029,7 +1054,10 @@ function AccountingEntry({
   }, [tdsCandidateRow?.ledgerId, tdsCandidateRow?.amount, date])
 
   const applyTds = (): void => {
-    if (!tdsCandidateRow || !tdsSuggestion || tdsApplyBlocked) return
+    // tdsTargetIdx === -1 is already implied by tdsApplyBlocked today, but checked explicitly
+    // too — mirrors the setRows updater's own guard so a future change to the blocked condition
+    // can't set the tds payload without the corresponding line mutation.
+    if (!tdsCandidateRow || !tdsSuggestion || tdsApplyBlocked || tdsTargetIdx === -1) return
     const tdsAmount = tdsSuggestion.tdsPaise
     const isVendorTarget = tdsCandidateRow.rowSide === 'cr'
     // The vendor-CR shape reduces the very row the candidate/suggestion is keyed on — mark it so
