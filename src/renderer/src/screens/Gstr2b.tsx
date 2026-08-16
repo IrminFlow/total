@@ -5,7 +5,7 @@ import { useNav, useToasts, nextDraftId } from '../state/stores'
 import { Button, EmptyState, Modal, Money, Panel, SectionTitle } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
-import { MonthBar, useDefaultMonth, useMonths } from './GstReturns'
+import { MonthBar, NoMonths, useMonth } from './GstReturns'
 
 const BUCKETS: { key: Recon2bBucket; label: string }[] = [
   { key: 'matched', label: 'Matched' },
@@ -29,6 +29,7 @@ function PasteModal({ onClose, onApply }: { onClose: () => void; onApply: (jsonT
         onChange={(e) => setText(e.target.value)}
         rows={10}
         autoFocus
+        data-testid="input-2b-paste"
         placeholder="Paste the contents of the downloaded GSTR-2B JSON here…"
         className="num w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[11px]"
       />
@@ -38,6 +39,7 @@ function PasteModal({ onClose, onApply }: { onClose: () => void; onApply: (jsonT
         </Button>
         <Button
           variant="primary"
+          data-testid="btn-2b-paste-apply"
           disabled={text.trim().length < 2}
           onClick={() => {
             onApply(text)
@@ -81,6 +83,7 @@ function PairRow({
         ) : pair.bucket === 'missingInBooks' && portal ? (
           <button
             className="text-[12px] text-blue hover:underline"
+            data-testid="btn-2b-create-purchase"
             onClick={(e) => {
               e.stopPropagation()
               onCreatePurchase(portal)
@@ -101,9 +104,7 @@ function PairRow({
 }
 
 export function Gstr2bScreen(): React.JSX.Element {
-  const months = useMonths()
-  const [monthKey, setMonthKey] = useDefaultMonth(months)
-  const month = months.find((m) => m.key === monthKey)!
+  const { months, month, monthKey, setMonthKey } = useMonth()
   const nav = useNav()
   const toast = useToasts()
   const [imported, setImported] = useState<Imported | null>(null)
@@ -111,9 +112,9 @@ export function Gstr2bScreen(): React.JSX.Element {
   const [bucket, setBucket] = useState<Recon2bBucket>('matched')
 
   const { data, isFetching } = useQuery({
-    queryKey: ['gstr2b', month.key, imported?.jsonText],
-    queryFn: () => api.gst.recon2b(imported!.jsonText, month.from, month.to),
-    enabled: !!imported
+    queryKey: ['gstr2b', month?.key, imported?.jsonText],
+    queryFn: () => api.gst.recon2b(imported!.jsonText, month!.from, month!.to),
+    enabled: !!imported && !!month
   })
 
   // Toast only once per newly-imported JSON — react-query gives back a fresh `data` object on
@@ -127,7 +128,7 @@ export function Gstr2bScreen(): React.JSX.Element {
     if (data.errors.length) {
       toast.push('warning', `${data.errors.length} entr${data.errors.length > 1 ? 'ies' : 'y'} in the 2B JSON could not be parsed and were skipped`)
     }
-    if (data.period && data.period !== month.period) {
+    if (month && data.period && data.period !== month.period) {
       toast.push('warning', `The JSON is for period ${data.period}, but ${month.label} is selected — showing figures for the selected month`)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -162,14 +163,23 @@ export function Gstr2bScreen(): React.JSX.Element {
   const result = data?.result
   const pairs = result?.pairs.filter((p) => p.bucket === bucket) ?? []
 
+  if (!month) {
+    return (
+      <div className="mx-auto max-w-6xl">
+        <SectionTitle>GSTR-2B · Reconciliation</SectionTitle>
+        <NoMonths />
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-6xl">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} />
-            <Button onClick={() => void doPick()}>Pick 2B JSON…</Button>
-            <Button variant="ghost" onClick={() => setPasteOpen(true)}>
+            <Button data-testid="btn-2b-pick" onClick={() => void doPick()}>Pick 2B JSON…</Button>
+            <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
               Paste JSON…
             </Button>
           </div>
@@ -181,7 +191,7 @@ export function Gstr2bScreen(): React.JSX.Element {
       {pasteOpen && (
         <PasteModal
           onClose={() => setPasteOpen(false)}
-          onApply={(jsonText) => setImported({ jsonText })}
+          onApply={(jsonText) => setImported({ jsonText, fileName: 'Pasted 2B JSON' })}
         />
       )}
 
@@ -204,6 +214,7 @@ export function Gstr2bScreen(): React.JSX.Element {
               return (
                 <button
                   key={b.key}
+                  data-testid={`btn-2b-bucket-${b.key}`}
                   onClick={() => setBucket(b.key)}
                   className={`rounded-md border px-3 py-1.5 text-[12.5px] ${
                     bucket === b.key ? 'border-amber/60 bg-amber/15 text-amber' : 'border-line text-muted hover:bg-panel2 hover:text-ink'
@@ -226,31 +237,33 @@ export function Gstr2bScreen(): React.JSX.Element {
             {pairs.length === 0 ? (
               <EmptyState title="Nothing in this bucket" />
             ) : (
-              <table className="ledger-table">
-                <thead>
-                  <tr>
-                    <th colSpan={4}>Portal (GSTR-2B)</th>
-                    <th colSpan={4}>Books</th>
-                    <th className="w-24">Diff</th>
-                  </tr>
-                  <tr>
-                    <th>No.</th>
-                    <th className="w-24">Date</th>
-                    <th className="r w-28">Value</th>
-                    <th className="r w-28">Tax</th>
-                    <th>No. (supplier ref)</th>
-                    <th className="w-24">Date</th>
-                    <th className="r w-28">Value</th>
-                    <th className="r w-28">Tax</th>
-                    <th className="r">Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pairs.map((p, i) => (
-                    <PairRow key={i} pair={p} onOpenVoucher={openVoucher} onCreatePurchase={createPurchase} />
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="ledger-table min-w-[56rem]">
+                  <thead>
+                    <tr>
+                      <th colSpan={4}>Portal (GSTR-2B)</th>
+                      <th colSpan={4}>Books</th>
+                      <th className="w-24">Diff</th>
+                    </tr>
+                    <tr>
+                      <th>No.</th>
+                      <th className="w-24">Date</th>
+                      <th className="r w-28">Value</th>
+                      <th className="r w-28">Tax</th>
+                      <th>No. (supplier ref)</th>
+                      <th className="w-24">Date</th>
+                      <th className="r w-28">Value</th>
+                      <th className="r w-28">Tax</th>
+                      <th className="r">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody data-testid="rows-2b-pairs">
+                    {pairs.map((p, i) => (
+                      <PairRow key={i} pair={p} onOpenVoucher={openVoucher} onCreatePurchase={createPurchase} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </Panel>
         </>
