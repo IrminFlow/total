@@ -1,10 +1,16 @@
 import { z } from 'zod'
 import type { DB } from '../db/connection'
-import type { RecurringTemplate, Voucher } from '@shared/domain'
+import type { RecurringTemplate, Voucher, VoucherKind } from '@shared/domain'
 import { voucherInputSchema, type RecurringInput, type VoucherInputParsed } from '@shared/schemas'
 import { nextDueAfter, dueTemplates } from '@shared/recurring'
 import { writeAudit } from './audit'
 import { saveVoucher } from './vouchers'
+
+const SELECT_WITH_KIND = `
+  SELECT rt.*, vt.kind AS voucher_kind
+  FROM recurring_templates rt
+  LEFT JOIN voucher_types vt ON vt.id = rt.voucher_type_id
+`
 
 interface RecurringRow {
   id: number
@@ -16,6 +22,9 @@ interface RecurringRow {
   next_due: string
   last_posted: string | null
   active: number
+  voucher_type_id: number | null
+  /** Joined off voucher_types — null if that type has since been deleted. */
+  voucher_kind: VoucherKind | null
 }
 
 const mapRow = (r: RecurringRow): RecurringTemplate => ({
@@ -27,11 +36,14 @@ const mapRow = (r: RecurringRow): RecurringTemplate => ({
   weekday: r.weekday,
   nextDue: r.next_due,
   lastPosted: r.last_posted,
-  active: !!r.active
+  active: !!r.active,
+  voucherKind: r.voucher_kind
 })
 
+/** Always joined with voucher_types so callers (and mapRow) consistently see voucher_kind,
+ *  whether they're reading one row or the whole list. */
 function getRow(db: DB, id: number): RecurringRow | undefined {
-  return db.prepare('SELECT * FROM recurring_templates WHERE id = ?').get(id) as RecurringRow | undefined
+  return db.prepare(`${SELECT_WITH_KIND} WHERE rt.id = ?`).get(id) as RecurringRow | undefined
 }
 
 /** Formats a caught error (ZodError or plain Error) into one readable string. */
@@ -58,25 +70,39 @@ function parseTemplateVoucher(name: string, voucherJson: string): VoucherInputPa
   }
 }
 
+/** A recurring template auto-posts with its number left blank (see postFromTemplate) — that only
+ *  works for an auto-numbered voucher type. Checked both at save time (reject early) and at post
+ *  time (guards a template saved before this check existed, or a type edited to 'manual' since). */
+function assertAutoNumbered(db: DB, voucherTypeId: number): void {
+  const vt = db.prepare('SELECT numbering FROM voucher_types WHERE id = ?').get(voucherTypeId) as
+    | { numbering: 'auto' | 'manual' }
+    | undefined
+  if (!vt) throw new Error('Voucher type not found')
+  if (vt.numbering === 'manual') throw new Error('Recurring templates need an auto-numbered voucher type')
+}
+
 export function listTemplates(db: DB): RecurringTemplate[] {
-  return (db.prepare('SELECT * FROM recurring_templates ORDER BY next_due, name').all() as RecurringRow[]).map(mapRow)
+  return (db.prepare(`${SELECT_WITH_KIND} ORDER BY rt.next_due, rt.name`).all() as RecurringRow[]).map(mapRow)
 }
 
 export function saveTemplate(db: DB, input: RecurringInput, id?: number): RecurringTemplate {
   // Canonicalise through voucherInputSchema (fills defaults, trims strings) so what's stored is
   // exactly the shape saveVoucher will see again at post time.
   const parsed = parseTemplateVoucher(input.name, input.voucherJson)
+  assertAutoNumbered(db, parsed.voucherTypeId)
   const voucherJson = JSON.stringify(parsed)
   const dayOfMonth = input.cadence === 'monthly' ? (input.dayOfMonth ?? null) : null
   const weekday = input.cadence === 'weekly' ? (input.weekday ?? null) : null
+  const active = input.active ? 1 : 0
 
   if (id) {
     const existing = getRow(db, id)
     if (!existing) throw new Error('Recurring template not found')
     db.prepare(
-      `UPDATE recurring_templates SET name = ?, voucher_json = ?, cadence = ?, day_of_month = ?, weekday = ?, next_due = ?
+      `UPDATE recurring_templates
+       SET name = ?, voucher_json = ?, cadence = ?, day_of_month = ?, weekday = ?, next_due = ?, voucher_type_id = ?, active = ?
        WHERE id = ?`
-    ).run(input.name, voucherJson, input.cadence, dayOfMonth, weekday, input.nextDue, id)
+    ).run(input.name, voucherJson, input.cadence, dayOfMonth, weekday, input.nextDue, parsed.voucherTypeId, active, id)
     const updated = mapRow(getRow(db, id)!)
     writeAudit(db, 'recurring_template', id, 'update', mapRow(existing), updated)
     return updated
@@ -84,10 +110,10 @@ export function saveTemplate(db: DB, input: RecurringInput, id?: number): Recurr
 
   const res = db
     .prepare(
-      `INSERT INTO recurring_templates (name, voucher_json, cadence, day_of_month, weekday, next_due, active)
-       VALUES (?, ?, ?, ?, ?, ?, 1)`
+      `INSERT INTO recurring_templates (name, voucher_json, cadence, day_of_month, weekday, next_due, voucher_type_id, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(input.name, voucherJson, input.cadence, dayOfMonth, weekday, input.nextDue)
+    .run(input.name, voucherJson, input.cadence, dayOfMonth, weekday, input.nextDue, parsed.voucherTypeId, active)
   const created = mapRow(getRow(db, Number(res.lastInsertRowid))!)
   writeAudit(db, 'recurring_template', created.id, 'create', null, created)
   return created
@@ -115,19 +141,25 @@ function cadenceOpts(row: RecurringRow): { dayOfMonth?: number; weekday?: number
 /** Posts one voucher from `id`'s stored template, dated `dateISO`. The stored JSON is re-parsed
  *  through voucherInputSchema (catches drift/stale references) then handed to saveVoucher, which
  *  applies its own validation — including the period lock, whose error is left to propagate as-is
- *  so the caller sees exactly "Books are locked up to …". Advances last_posted/next_due only on
- *  success, from the template's own (pre-post) next_due — so a late post steps the schedule
- *  forward by exactly one cadence, not to "today", keeping it due again if still behind. */
+ *  so the caller sees exactly "Books are locked up to …". The voucher post and the template's
+ *  last_posted/next_due update are one atomic transaction (better-sqlite3 nests it as a savepoint
+ *  inside saveVoucher's own transaction) — a failure on either side leaves neither committed.
+ *  Advances next_due from the template's own (pre-post) next_due, not "today" — so a late post
+ *  steps the schedule forward by exactly one cadence, keeping it due again if still behind. */
 export function postFromTemplate(db: DB, id: number, dateISO: string): Voucher {
   const row = getRow(db, id)
   if (!row) throw new Error('Recurring template not found')
   const parsed = parseTemplateVoucher(row.name, row.voucher_json)
-  const input: VoucherInputParsed = { ...parsed, date: dateISO, number: undefined }
-  const saved = saveVoucher(db, input)
-
+  assertAutoNumbered(db, parsed.voucherTypeId)
   const nextDue = nextDueAfter(row.cadence, cadenceOpts(row), row.next_due)
-  db.prepare('UPDATE recurring_templates SET last_posted = ?, next_due = ? WHERE id = ?').run(dateISO, nextDue, id)
-  return saved
+
+  const run = db.transaction((): Voucher => {
+    const input: VoucherInputParsed = { ...parsed, date: dateISO, number: undefined }
+    const saved = saveVoucher(db, input)
+    db.prepare('UPDATE recurring_templates SET last_posted = ?, next_due = ? WHERE id = ?').run(dateISO, nextDue, id)
+    return saved
+  })
+  return run()
 }
 
 /** Advances next_due one cadence step without posting anything. */

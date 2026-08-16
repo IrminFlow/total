@@ -330,7 +330,8 @@ export const recurringInputSchema = z
     cadence: z.enum(['monthly', 'weekly']),
     dayOfMonth: z.number().int().min(1).max(31).optional(),
     weekday: z.number().int().min(0).max(6).optional(),
-    nextDue: isoDate
+    nextDue: isoDate,
+    active: z.boolean().default(true)
   })
   .refine((v) => v.cadence !== 'monthly' || v.dayOfMonth != null, {
     message: 'dayOfMonth is required for a monthly cadence',

@@ -1541,7 +1541,8 @@ function SaveAsRecurringModal({
         cadence,
         dayOfMonth: cadence === 'monthly' ? dayOfMonth : undefined,
         weekday: cadence === 'weekly' ? weekday : undefined,
-        nextDue
+        nextDue,
+        active: true
       })
       await queryClient.invalidateQueries()
       toast.push('success', `Recurring template "${name.trim()}" saved`)

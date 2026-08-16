@@ -1,14 +1,19 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { RecurringTemplate } from '@shared/domain'
-import type { VoucherDraft } from '../state/stores'
+import type { RecurringTemplate, VoucherKind } from '@shared/domain'
+import type { Screen, VoucherDraft } from '../state/stores'
 import { api } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
 import { Button, DateInput, EmptyState, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
+import { nextDueAfter } from '@shared/recurring'
 import type { VoucherInputParsed } from '@shared/schemas'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** Trading kinds open in InvoiceEntry, which has no line-draft support (see draftFromTemplate) —
+ *  opening one of these drops the stored lines and the caller should say so. */
+const TRADING_KINDS: VoucherKind[] = ['sales', 'purchase', 'credit_note', 'debit_note']
 
 function cadenceSummary(t: RecurringTemplate): string {
   if (t.cadence === 'monthly') return `Monthly · day ${t.dayOfMonth}`
@@ -16,7 +21,8 @@ function cadenceSummary(t: RecurringTemplate): string {
 }
 
 /** Best-effort draft for "Open in voucher entry" — maps a template's stored lines to the
- *  voucher-entry draft shape so a stale/rejected template can still be posted by hand. */
+ *  voucher-entry draft shape so a stale/rejected template can still be posted by hand. Only
+ *  AccountingEntry (non-trading kinds) actually consumes `lines`; InvoiceEntry ignores them. */
 export function draftFromTemplate(t: RecurringTemplate): VoucherDraft {
   try {
     const parsed = JSON.parse(t.voucherJson) as Partial<VoucherInputParsed>
@@ -28,6 +34,18 @@ export function draftFromTemplate(t: RecurringTemplate): VoucherDraft {
     }
   } catch {
     return { date: todayISO() }
+  }
+}
+
+/** Where "Open in voucher entry" should navigate for a template, plus whether the caller should
+ *  warn that line items get dropped (trading kinds — InvoiceEntry can only prefill date/party/
+ *  narration, not lines). `voucherKind` is null only if the underlying voucher type was deleted;
+ *  that falls through to VoucherEntry's own default (Journal) same as omitting kindHint. */
+export function templateOpenTarget(t: RecurringTemplate): { screen: Screen; warnInvoice: boolean } {
+  const kindHint = t.voucherKind ?? undefined
+  return {
+    screen: { name: 'voucher-entry', kindHint, draft: draftFromTemplate(t) },
+    warnInvoice: !!kindHint && TRADING_KINDS.includes(kindHint)
   }
 }
 
@@ -74,6 +92,12 @@ export function RecurringScreen(): React.JSX.Element {
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
+  }
+
+  const openInVoucherEntry = (t: RecurringTemplate): void => {
+    const { screen, warnInvoice } = templateOpenTarget(t)
+    if (warnInvoice) toast.push('warning', 'Line items must be re-entered for invoice types')
+    nav.go(screen)
   }
 
   return (
@@ -128,10 +152,7 @@ export function RecurringScreen(): React.JSX.Element {
                     <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => setEditing(t)}>
                       Edit
                     </button>
-                    <button
-                      className="mr-3 text-[12px] text-blue hover:underline"
-                      onClick={() => nav.go({ name: 'voucher-entry', draft: draftFromTemplate(t) })}
-                    >
+                    <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => openInVoucherEntry(t)}>
                       Open in voucher entry
                     </button>
                     <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(t)}>
@@ -158,7 +179,23 @@ function RecurringFormModal({ template, onClose }: { template: RecurringTemplate
   const [dayOfMonth, setDayOfMonth] = useState(template.dayOfMonth ?? 1)
   const [weekday, setWeekday] = useState(template.weekday ?? 1)
   const [nextDue, setNextDue] = useState(template.nextDue)
+  const [active, setActive] = useState(template.active)
   const [saving, setSaving] = useState(false)
+
+  // Mirrors SaveAsRecurringModal.changeCadence in VoucherEntry.tsx — recompute Next due
+  // whenever the cadence or its day/weekday changes, anchored on today.
+  const changeCadence = (next: 'monthly' | 'weekly'): void => {
+    setCadence(next)
+    setNextDue(next === 'monthly' ? nextDueAfter('monthly', { dayOfMonth }, todayISO()) : nextDueAfter('weekly', { weekday }, todayISO()))
+  }
+  const changeDayOfMonth = (d: number): void => {
+    setDayOfMonth(d)
+    setNextDue(nextDueAfter('monthly', { dayOfMonth: d }, todayISO()))
+  }
+  const changeWeekday = (w: number): void => {
+    setWeekday(w)
+    setNextDue(nextDueAfter('weekly', { weekday: w }, todayISO()))
+  }
 
   const save = async (): Promise<void> => {
     if (!name.trim()) return void toast.push('error', 'Name is required')
@@ -171,7 +208,8 @@ function RecurringFormModal({ template, onClose }: { template: RecurringTemplate
           cadence,
           dayOfMonth: cadence === 'monthly' ? dayOfMonth : undefined,
           weekday: cadence === 'weekly' ? weekday : undefined,
-          nextDue
+          nextDue,
+          active
         },
         template.id
       )
@@ -193,7 +231,7 @@ function RecurringFormModal({ template, onClose }: { template: RecurringTemplate
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Cadence">
-            <Select value={cadence} onChange={(e) => setCadence(e.target.value as 'monthly' | 'weekly')}>
+            <Select value={cadence} onChange={(e) => changeCadence(e.target.value as 'monthly' | 'weekly')}>
               <option value="monthly">Monthly</option>
               <option value="weekly">Weekly</option>
             </Select>
@@ -205,13 +243,13 @@ function RecurringFormModal({ template, onClose }: { template: RecurringTemplate
                 min={1}
                 max={31}
                 value={dayOfMonth}
-                onChange={(e) => setDayOfMonth(Math.max(1, Math.min(31, Number(e.target.value) || 1)))}
+                onChange={(e) => changeDayOfMonth(Math.max(1, Math.min(31, Number(e.target.value) || 1)))}
                 className="num"
               />
             </Field>
           ) : (
             <Field label="Weekday">
-              <Select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))}>
+              <Select value={weekday} onChange={(e) => changeWeekday(Number(e.target.value))}>
                 {WEEKDAYS.map((w, i) => (
                   <option key={w} value={i}>
                     {w}
@@ -224,6 +262,10 @@ function RecurringFormModal({ template, onClose }: { template: RecurringTemplate
         <Field label="Next due">
           <DateInput value={nextDue} context={nextDue} onChange={setNextDue} />
         </Field>
+        <label className="flex items-center gap-2 text-[13px] text-ink">
+          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+          Active
+        </label>
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" disabled={saving} onClick={() => void save()}>

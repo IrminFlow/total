@@ -75,6 +75,10 @@ export interface RecurringTemplate {
   nextDue: string
   lastPosted: string | null
   active: boolean
+  /** The stored voucher's type kind (joined off voucher_types via the denormalized
+   *  voucher_type_id column) — null only if that voucher type has since been deleted. Drives
+   *  which entry form "Open in voucher entry" opens (kindHint). */
+  voucherKind: VoucherKind | null
 }
 
 export type VoucherKind =

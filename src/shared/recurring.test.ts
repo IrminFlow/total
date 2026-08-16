@@ -22,6 +22,10 @@ describe('nextDueAfter', () => {
     expect(nextDueAfter('monthly', { dayOfMonth: 15 }, '2026-12-15')).toBe('2027-01-15')
   })
 
+  it('monthly: preserves the original day-of-month anchor after a short-month clamp (31 clamped to 30 Apr, then back to 31 in May)', () => {
+    expect(nextDueAfter('monthly', { dayOfMonth: 31 }, '2026-04-30')).toBe('2026-05-31')
+  })
+
   it('monthly: throws without a dayOfMonth', () => {
     expect(() => nextDueAfter('monthly', {}, '2026-01-01')).toThrow()
   })

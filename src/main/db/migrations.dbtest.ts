@@ -196,4 +196,20 @@ describe('migrate', () => {
         .run(groupId)
     ).not.toThrow()
   })
+
+  it('adds voucher_type_id to recurring_templates, nullable and FK-referencing voucher_types', () => {
+    const db = freshDb()
+    const columns = (db.prepare('PRAGMA table_info(recurring_templates)').all() as { name: string }[]).map((c) => c.name)
+    expect(columns).toContain('voucher_type_id')
+
+    const vtId = db.prepare("INSERT INTO voucher_types (name, kind) VALUES ('Journal (test)', 'journal')").run().lastInsertRowid
+    db.prepare(
+      `INSERT INTO recurring_templates (name, voucher_json, cadence, day_of_month, next_due, voucher_type_id)
+       VALUES ('Rent', '{}', 'monthly', 5, '2026-09-05', ?)`
+    ).run(vtId)
+    const row = db.prepare('SELECT voucher_type_id FROM recurring_templates WHERE name = ?').get('Rent') as {
+      voucher_type_id: number
+    }
+    expect(row.voucher_type_id).toBe(Number(vtId))
+  })
 })

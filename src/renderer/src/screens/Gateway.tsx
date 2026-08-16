@@ -7,7 +7,7 @@ import { toDisplayDate, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
 import type { CompanyFeatures } from '@shared/features'
 import type { RecurringTemplate } from '@shared/domain'
-import { draftFromTemplate } from './Recurring'
+import { templateOpenTarget } from './Recurring'
 
 const CARDS: { label: string; sub: string; screen: Screen; key: string; feature?: keyof CompanyFeatures }[] = [
   { label: 'Voucher entry', sub: 'Sales, purchase, payment…', screen: { name: 'voucher-entry' }, key: 'V' },
@@ -148,6 +148,12 @@ function DueTodayPanel(): React.JSX.Element | null {
     }
   }
 
+  const openInVoucherEntry = (t: RecurringTemplate): void => {
+    const { screen, warnInvoice } = templateOpenTarget(t)
+    if (warnInvoice) toast.push('warning', 'Line items must be re-entered for invoice types')
+    nav.go(screen)
+  }
+
   return (
     <Panel className="mt-6">
       <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
@@ -167,11 +173,7 @@ function DueTodayPanel(): React.JSX.Element | null {
             <Button disabled={busyId === t.id} onClick={() => void skip(t)}>
               Skip
             </Button>
-            <Button
-              variant="ghost"
-              disabled={busyId === t.id}
-              onClick={() => nav.go({ name: 'voucher-entry', draft: draftFromTemplate(t) })}
-            >
+            <Button variant="ghost" disabled={busyId === t.id} onClick={() => openInVoucherEntry(t)}>
               Open in voucher entry
             </Button>
           </div>

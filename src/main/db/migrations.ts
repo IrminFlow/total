@@ -323,5 +323,12 @@ export const MIGRATIONS: string[] = [
     last_posted TEXT,
     active INTEGER NOT NULL DEFAULT 1
   );
+  `,
+  // 009 — recurring_templates.voucher_type_id: denormalized FK (extracted from the stored
+  // voucher_json at save time — see saveTemplate) so recurring:list/due can JOIN voucher_types
+  // for its kind, letting "Open in voucher entry" pick the right entry form (kindHint) instead
+  // of always falling through to Journal.
+  `
+  ALTER TABLE recurring_templates ADD COLUMN voucher_type_id INTEGER REFERENCES voucher_types(id);
   `
 ]
