@@ -343,6 +343,42 @@ export const recurringInputSchema = z
   })
 export type RecurringInput = z.infer<typeof recurringInputSchema>
 
+// ---------- budgets ----------
+
+/** budget:save line input — mirrors the budget_lines CHECK (ledger XOR group) so a bad payload is
+ *  rejected here rather than surfacing as a raw SQLite CHECK-constraint error. */
+export const budgetLineInputSchema = z
+  .object({
+    ledgerId: id.nullable().default(null),
+    groupId: id.nullable().default(null),
+    /** 'YYYY-MM' within the budget's FY, or null for an annual line. */
+    month: z
+      .string()
+      .regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM')
+      .nullable()
+      .default(null),
+    amount: positivePaise
+  })
+  .refine((v) => (v.ledgerId == null) !== (v.groupId == null), {
+    message: 'Each budget line must target exactly one of a ledger or a group',
+    path: ['ledgerId']
+  })
+export type BudgetLineInput = z.infer<typeof budgetLineInputSchema>
+
+export const budgetInputSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  fyStartYear: z.number().int().min(1990).max(2100),
+  lines: z.array(budgetLineInputSchema).max(200)
+})
+export type BudgetInput = z.infer<typeof budgetInputSchema>
+
+export const budgetVarianceSchema = z.object({
+  budgetId: id,
+  /** 'YYYY-MM' — annual lines report FY-to-date actuals through this month. */
+  upToMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM')
+})
+export type BudgetVarianceInput = z.infer<typeof budgetVarianceSchema>
+
 // ---------- bank rules (auto-categorization, task 2.5) ----------
 
 export const bankRuleInputSchema = z.object({

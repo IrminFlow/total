@@ -29,6 +29,8 @@ const EXPECTED_TABLES = [
   'bill_refs',
   'recurring_templates',
   'bank_rules',
+  'budgets',
+  'budget_lines',
   'migrations'
 ]
 
@@ -238,5 +240,37 @@ describe('migrate', () => {
     expect(() =>
       db.prepare("INSERT INTO bank_rules (pattern, ledger_id, kind) VALUES ('X', ?, 'not_a_kind')").run(ledgerId)
     ).toThrow()
+  })
+
+  it('creates budgets/budget_lines, enforces the name+FY uniqueness and the ledger-XOR-group CHECK, and cascades line deletes', () => {
+    const db = freshDb()
+    const groupId = Number(
+      db.prepare("INSERT INTO groups (name, nature, is_system) VALUES ('Test Group', 'expense', 0)").run().lastInsertRowid
+    )
+    const ledgerId = Number(
+      db.prepare("INSERT INTO ledgers (name, group_id) VALUES ('Test Ledger', ?)").run(groupId).lastInsertRowid
+    )
+    const budgetId = Number(
+      db.prepare("INSERT INTO budgets (name, fy_start_year) VALUES ('FY26 Budget', 2025)").run().lastInsertRowid
+    )
+
+    expect(() =>
+      db.prepare("INSERT INTO budgets (name, fy_start_year) VALUES ('FY26 Budget', 2025)").run()
+    ).toThrow()
+
+    expect(() =>
+      db.prepare('INSERT INTO budget_lines (budget_id, ledger_id, group_id, amount) VALUES (?, NULL, NULL, 1000)').run(budgetId)
+    ).toThrow()
+    expect(() =>
+      db.prepare('INSERT INTO budget_lines (budget_id, ledger_id, group_id, amount) VALUES (?, ?, ?, 1000)').run(budgetId, ledgerId, groupId)
+    ).toThrow()
+
+    const lineId = db
+      .prepare('INSERT INTO budget_lines (budget_id, ledger_id, month, amount) VALUES (?, ?, ?, ?)')
+      .run(budgetId, ledgerId, '2025-04', 500000).lastInsertRowid
+
+    db.prepare('DELETE FROM budgets WHERE id = ?').run(budgetId)
+    const remaining = db.prepare('SELECT COUNT(*) AS n FROM budget_lines WHERE id = ?').get(lineId) as { n: number }
+    expect(remaining.n).toBe(0)
   })
 })

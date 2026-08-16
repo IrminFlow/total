@@ -45,6 +45,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'Outstandings & ageing', run: go({ name: 'outstandings' }) },
       { label: 'Recurring vouchers', run: go({ name: 'recurring' }) },
       { label: 'Cost centres', feature: 'costCentres', run: go({ name: 'cost-centres' }) },
+      { label: 'Budgets', run: go({ name: 'budgets' }) },
       { label: 'TDS', feature: 'tds', run: go({ name: 'tds' }) },
       { label: 'Bank reconciliation', run: go({ name: 'banking' }) },
       { label: 'Payroll — employees & runs', feature: 'payroll', run: go({ name: 'payroll' }) },

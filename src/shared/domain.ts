@@ -63,6 +63,26 @@ export interface CostCentre {
   active: boolean
 }
 
+/** One line of a Budget (task 2.6): a target amount for either a single ledger or a whole group
+ *  (rolled up over its descendants at report time), for one month or the whole financial year. */
+export interface BudgetLine {
+  id: number
+  ledgerId: number | null
+  groupId: number | null
+  /** 'YYYY-MM' within the budget's FY, or null for an annual figure. */
+  month: string | null
+  /** Paise. */
+  amount: number
+}
+
+/** A named budget scoped to one financial year, with its lines. */
+export interface Budget {
+  id: number
+  name: string
+  fyStartYear: number
+  lines: BudgetLine[]
+}
+
 /** A saved voucher shape (exact VoucherInputParsed JSON) that recurring:post re-validates and
  *  re-posts on a monthly/weekly cadence (task 2.3). */
 export interface RecurringTemplate {

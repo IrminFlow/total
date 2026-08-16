@@ -1,7 +1,8 @@
 import type {
-  BomLine, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, PayrollLine, PayrollRun,
+  BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, PayrollLine, PayrollRun,
   RecurringTemplate, StockGroup, StockItem, TdsSection, Unit, Voucher, VoucherType
 } from '@shared/domain'
+import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, GroupTreeNode, LedgerBalanceRow,
   LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockSummaryRow, TrialBalance,
@@ -10,9 +11,9 @@ import type {
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
-  AuditListInput, BankRuleInput, BomInput, CompanyCreateInput, CostCentreInput, CurrencyInput, EmployeeInput,
-  GodownInput, GroupInput, LedgerInput, NicCredentials, RecurringInput, RendererLogInput, StockGroupInput,
-  StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTypeInput, VoucherInputParsed
+  AuditListInput, BankRuleInput, BomInput, BudgetInput, CompanyCreateInput, CostCentreInput, CurrencyInput,
+  EmployeeInput, GodownInput, GroupInput, LedgerInput, NicCredentials, RecurringInput, RendererLogInput,
+  StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTypeInput, VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
@@ -276,6 +277,12 @@ export const api = {
     remove: (id: number) => call<null>('cc:delete', { id }),
     report: (from: string, to: string) => call<CcReportRow[]>('cc:report', { from, to }),
     statement: (ccId: number, from: string, to: string) => call<CcStatementRow[]>('cc:statement', { ccId, from, to })
+  },
+  budget: {
+    list: () => call<Budget[]>('budget:list'),
+    save: (data: BudgetInput, id?: number) => call<Budget>('budget:save', { id, data }),
+    remove: (id: number) => call<null>('budget:delete', { id }),
+    variance: (budgetId: number, upToMonth: string) => call<BudgetVarianceRow[]>('budget:variance', { budgetId, upToMonth })
   },
   recurring: {
     list: () => call<RecurringTemplate[]>('recurring:list'),

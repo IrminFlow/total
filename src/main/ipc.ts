@@ -15,10 +15,11 @@ import { companyBackupsDir, companyDbPath, companyExportsDir, ensureCompanyTree,
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
-  backupFileSchema, bankRuleInputSchema, billsOpenSchema, ccStatementSchema, companyCreateSchema, costCentreInputSchema,
-  godownInputSchema, groupInputSchema, gstr2bSchema, isoDate, ledgerInputSchema, passphraseSchema, periodSchema,
-  recurringInputSchema, rendererLogSchema, stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema,
-  tdsSectionInputSchema, tdsSuggestSchema, tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
+  backupFileSchema, bankRuleInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
+  companyCreateSchema, costCentreInputSchema, godownInputSchema, groupInputSchema, gstr2bSchema, isoDate,
+  ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema, stockGroupInputSchema,
+  stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema, tdsSummarySchema, unitInputSchema,
+  voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
@@ -35,6 +36,7 @@ import * as payroll from './services/payroll'
 import * as nic from './services/nic'
 import * as tds from './services/tds'
 import * as costCentres from './services/costCentres'
+import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
 import * as yearEnd from './services/yearEnd'
 import { importTallyXml } from './services/tallyImport'
@@ -565,6 +567,18 @@ export function registerIpc(): void {
   handle('cc:statement', (p) => {
     const { ccId, from, to } = ccStatementSchema.parse(p)
     return costCentres.ccStatement(requireCompany().db, ccId, from, to)
+  }, 'viewer')
+
+  // ---------- budgets ----------
+  handle('budget:list', () => budgets.listBudgets(requireCompany().db), 'viewer')
+  handle('budget:save', (p) => {
+    const { id, data } = z.object({ id: z.number().int().positive().optional(), data: budgetInputSchema }).parse(p)
+    return budgets.saveBudget(requireCompany().db, data, id)
+  })
+  handle('budget:delete', (p) => budgets.deleteBudget(requireCompany().db, idSchema.parse(p).id))
+  handle('budget:variance', (p) => {
+    const { budgetId, upToMonth } = budgetVarianceSchema.parse(p)
+    return budgets.budgetVarianceReport(requireCompany().db, budgetId, upToMonth)
   }, 'viewer')
 
   // ---------- recurring vouchers ----------

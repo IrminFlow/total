@@ -50,6 +50,7 @@ export type Screen =
   | { name: 'payroll' }
   | { name: 'tds' }
   | { name: 'cost-centres' }
+  | { name: 'budgets' }
   | { name: 'company-info' }
   | { name: 'year-end' }
   | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'about' }

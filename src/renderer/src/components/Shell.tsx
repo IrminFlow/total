@@ -45,7 +45,8 @@ const NAV: NavSection[] = [
     items: [
       { label: 'Registers', screen: { name: 'registers' } },
       { label: 'Outstandings', screen: { name: 'outstandings' } },
-      { label: 'Cost centres', screen: { name: 'cost-centres' }, feature: 'costCentres' }
+      { label: 'Cost centres', screen: { name: 'cost-centres' }, feature: 'costCentres' },
+      { label: 'Budgets', screen: { name: 'budgets' } }
     ]
   },
   {

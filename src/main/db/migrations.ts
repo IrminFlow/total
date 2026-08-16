@@ -346,5 +346,28 @@ export const MIGRATIONS: string[] = [
     active INTEGER NOT NULL DEFAULT 1,
     hits INTEGER NOT NULL DEFAULT 0
   );
+  `,
+  // 011 — budgets (task 2.6): a named budget scoped to one financial year, with per-line targets
+  // that are either a single ledger or a whole group (rolled up over its descendants at report
+  // time — never denormalised). A line's `month` is either 'YYYY-MM' within the budget's FY (that
+  // month only) or NULL (an annual figure, compared FY-to-date). The XOR CHECK keeps a line from
+  // ever targeting both a ledger and a group, or neither.
+  `
+  CREATE TABLE budgets (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    fy_start_year INTEGER NOT NULL,
+    UNIQUE(name, fy_start_year)
+  );
+
+  CREATE TABLE budget_lines (
+    id INTEGER PRIMARY KEY,
+    budget_id INTEGER NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+    ledger_id INTEGER REFERENCES ledgers(id),
+    group_id INTEGER REFERENCES groups(id),
+    month TEXT,
+    amount INTEGER NOT NULL,
+    CHECK ((ledger_id IS NULL) <> (group_id IS NULL))
+  );
   `
 ]
