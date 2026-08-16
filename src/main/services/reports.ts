@@ -531,7 +531,7 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
   // Opening + gross Dr/Cr movement per ledger in one grouped pass; closing derives from them.
   const rows = db
     .prepare(
-      `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName,
+      `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName, l.group_id AS groupId,
               l.opening_balance AS opening,
               COALESCE(m.drTotal, 0) AS movementDebit,
               COALESCE(m.crTotal, 0) AS movementCredit
@@ -547,7 +547,7 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
        ) m ON m.ledger_id = l.id`
     )
     .all(asOn) as {
-      ledgerId: number; ledgerName: string; groupName: string
+      ledgerId: number; ledgerName: string; groupName: string; groupId: number
       opening: number; movementDebit: number; movementCredit: number
     }[]
 
@@ -568,10 +568,13 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
     .filter((r) => r.debit !== 0 || r.credit !== 0 || r.movementDebit !== 0 || r.movementCredit !== 0)
 
   // Opening stock joins the debit side so a stock-carrying book still balances — but only when
-  // no ledger actually lives under Stock-in-Hand; if one does, its balance already carries the
-  // stock and a synthetic row would double-count (v0.3 #63 guard).
+  // no ledger actually lives under Stock-in-Hand (or any of its descendant groups); if one does,
+  // its balance already carries the stock and a synthetic row would double-count (v0.3 #63 guard).
   const stockOpening = stockOpeningValueTotal(db)
-  const hasStockLedger = rows.some((r) => r.groupName === 'Stock-in-Hand' && (r.opening !== 0 || r.movementDebit !== 0 || r.movementCredit !== 0))
+  const stockGroupIds = descendantIdSet(listGroups(db), ['Stock-in-Hand'])
+  const hasStockLedger = rows.some(
+    (r) => stockGroupIds.has(r.groupId) && (r.opening !== 0 || r.movementDebit !== 0 || r.movementCredit !== 0)
+  )
   if (stockOpening !== 0 && !hasStockLedger) {
     result.push({
       ledgerId: -1, ledgerName: 'Stock-in-Hand (opening)', groupName: 'Stock-in-Hand',
@@ -647,10 +650,18 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string, comparePri
   const assets = buildTrees(groups, ledgers, (g) => g.nature === 'asset', amountOf, 1)
   const liabilities = buildTrees(groups, ledgers, (g) => g.nature === 'liability', amountOf, -1)
 
+  // When a Stock-in-Hand ledger actually carries the stock, its balance already sits on the
+  // assets face — every synthetic stock figure (the computed Closing Stock node below AND the
+  // opening-difference component further down) must stand down or it double-counts (v0.3 #63).
+  const stockLedgerIds = descendantIdSet(groups, ['Stock-in-Hand'])
+  const hasStockLedger = ledgers.some(
+    (l) => stockLedgerIds.has(l.groupId) && (l.openingBalance !== 0 || (balances.get(l.id) ?? 0) !== 0)
+  )
+
   // Closing stock joins the assets side under Stock-in-Hand. Valued once here and shared with
   // the P&L below (whose period also ends on asOn) — a single inventory scan for the statement.
   const closingStock = stockValue(db, asOn)
-  if (closingStock !== 0) {
+  if (closingStock !== 0 && !hasStockLedger) {
     const stockGroup = groups.find((g) => g.name === 'Stock-in-Hand')
     const node: StatementNode = { id: -2, kind: 'computed', name: 'Closing Stock', amount: closingStock, children: [] }
     const currentAssets = assets.find((n) => n.name === 'Current Assets')
@@ -674,10 +685,6 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string, comparePri
   // stock-opening component stands down when a Stock-in-Hand ledger actually carries the stock
   // (v0.3 #63 — it double-counted before).
   const ledgerOpeningSum = (db.prepare('SELECT COALESCE(SUM(opening_balance), 0) AS s FROM ledgers').get() as { s: number }).s
-  const stockLedgerIds = descendantIdSet(groups, ['Stock-in-Hand'])
-  const hasStockLedger = ledgers.some(
-    (l) => stockLedgerIds.has(l.groupId) && (l.openingBalance !== 0 || (balances.get(l.id) ?? 0) !== 0)
-  )
   const openingDiff = ledgerOpeningSum + (hasStockLedger ? 0 : stockOpeningValueTotal(db))
 
   const totalAssets = sumNodes(assets)

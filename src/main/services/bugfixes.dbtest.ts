@@ -96,6 +96,13 @@ describe('#63 — stock opening double-count guards', () => {
 
     const bs = balanceSheet(db, '2025-04-01', '2025-04-30')
     expect(bs.liabilities.find((n) => n.name === 'Difference in Opening Balances')).toBeUndefined()
+    // The computed Closing Stock node must stand down too — the ledger already carries the stock
+    // on the assets face; without this the sheet reads assets = 2x stock vs liabilities = 1x.
+    const flatten = (nodes: typeof bs.assets): string[] =>
+      nodes.flatMap((n) => [n.name, ...flatten(n.children)])
+    expect(flatten(bs.assets)).not.toContain('Closing Stock')
+    expect(bs.totalAssets).toBe(500000)
+    expect(bs.totalAssets).toBe(bs.totalLiabilities)
   })
 
   it('still adds the synthetic figures when no Stock-in-Hand ledger exists', () => {
@@ -107,6 +114,30 @@ describe('#63 — stock opening double-count guards', () => {
     })
     const tb = trialBalance(db, '2025-04-30')
     expect(tb.rows.find((r) => r.ledgerId === -1)).toMatchObject({ debit: 500000 })
+    // And the balance sheet balances via the opening-difference counterweight.
+    const bs = balanceSheet(db, '2025-04-01', '2025-04-30')
+    expect(bs.totalAssets).toBe(bs.totalLiabilities)
+  })
+
+  it('stands the guards down for a ledger under a descendant group of Stock-in-Hand too', () => {
+    const db = seededDb()
+    const unitId = listUnits(db)[0]!.id
+    createStockItem(db, {
+      name: 'Widget', groupId: null, unitId, hsn: null, gstRate: null, cessRate: null,
+      openingQtyMilli: 1000, openingValue: 500000, barcode: null, reorderLevelMilli: null
+    })
+    const parent = groupId(db, 'Stock-in-Hand')
+    const child = db
+      .prepare("INSERT INTO groups (name, parent_id, nature, affects_gross_profit) SELECT 'Finished Goods', id, nature, affects_gross_profit FROM groups WHERE id = ? RETURNING id")
+      .get(parent) as { id: number }
+    createLedger(db, { ...LEDGER_DEFAULTS, name: 'Finished Stock A/c', groupId: child.id, openingBalance: 500000 })
+    createLedger(db, { ...LEDGER_DEFAULTS, name: 'Capital', groupId: groupId(db, 'Capital Account'), openingBalance: -500000 })
+
+    const tb = trialBalance(db, '2025-04-30')
+    expect(tb.rows.find((r) => r.ledgerId === -1)).toBeUndefined()
+    expect(tb.totalDebit).toBe(tb.totalCredit)
+    const bs = balanceSheet(db, '2025-04-01', '2025-04-30')
+    expect(bs.totalAssets).toBe(bs.totalLiabilities)
   })
 })
 
