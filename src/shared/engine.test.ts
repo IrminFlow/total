@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRupees, formatPaise, percentOf, roundToRupee, amountInWords, plainRupees } from './money'
+import { parseRupees, formatPaise, percentOf, roundToRupee, amountInWords, plainRupees, plainMilli } from './money'
 import { fyOf, parseSmartDate, gstPeriodOf, toPortalDate, isValidISODate } from './dates'
 import { validateGstin, gstinCheckChar, validateHsn } from './gst/validate'
 import { computeGst, supplyTypeFor } from './gst/calc'
@@ -41,6 +41,14 @@ describe('money', () => {
     expect(plainRupees(0)).toBe('0.00')
     expect(plainRupees(5)).toBe('0.05')
     expect(plainRupees(-4207)).toBe('-42.07')
+  })
+
+  it('formats plain (ungrouped) 3-decimal quantity strings for Tally XML export', () => {
+    expect(plainMilli(2500)).toBe('2.500')
+    expect(plainMilli(5000)).toBe('5.000')
+    expect(plainMilli(0)).toBe('0.000')
+    expect(plainMilli(1)).toBe('0.001')
+    expect(plainMilli(-1500)).toBe('-1.500')
   })
 
   it('rounds to whole rupees for invoice round-off', () => {

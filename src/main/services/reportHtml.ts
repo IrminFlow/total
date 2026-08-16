@@ -1,7 +1,8 @@
 import type { CompanyInfo } from '@shared/domain'
 import { GST_STATES } from '@shared/gst/states'
 
-const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const esc = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
 export interface ReportColumnSpec {
   label: string

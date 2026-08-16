@@ -72,6 +72,13 @@ describe('buildInvoiceHtml (pure — invoice print config rendering)', () => {
     expect(withoutDiscount).not.toContain('Discount')
   })
 
+  it('escapes double quotes and apostrophes in text fields, not just & < >', () => {
+    const tricky = { ...SAMPLE_INVOICE, partyName: `Sam's "Best" Traders <India>` }
+    const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, tricky)
+    expect(html).not.toContain(`Sam's "Best" Traders <India>`)
+    expect(html).toContain('Sam&#39;s &quot;Best&quot; Traders &lt;India&gt;')
+  })
+
   it('prints one page per copy label, with page-break-after between them', () => {
     const html = buildInvoiceHtml(
       COMPANY,

@@ -60,7 +60,7 @@ export const invoiceConfigSchema = z.object({
   logoDataUrl: z
     .string()
     .max(MAX_LOGO_DATA_URL_LEN, 'Logo image is too large (max ~200KB)')
-    .refine((s) => s.startsWith('data:image/'), 'Logo must be an image data URL')
+    .regex(/^data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+$/i, 'Logo must be an image data URL')
     .nullable(),
   declaration: z.string().trim().max(1000),
   bankDetails: bankDetailsSchema.nullable(),

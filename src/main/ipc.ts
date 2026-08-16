@@ -1,7 +1,7 @@
 import { app, dialog, ipcMain, Notification, shell } from 'electron'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { z } from 'zod'
 import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
@@ -51,6 +51,7 @@ import { globalSearch } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
+import { assertDeleteAuthorized } from './services/companyDelete'
 import { roleAllows, type Role } from './services/roles'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
@@ -70,6 +71,13 @@ export interface OpenCompany {
 }
 
 let current: OpenCompany | null = null
+
+/** Paths the Tally-import file dialog has actually issued this session. A `filePath` supplied in
+ *  a tally:import payload must be one of these — otherwise the renderer could pass any path on
+ *  disk and have it read straight into the app (arbitrary file read). The dryRun -> apply wizard
+ *  flow still works: dryRun's dialog pick adds the path here, and apply's payload just needs to
+ *  echo that same path back. The `xmlText` inline path (used by drivers/tests) is unaffected. */
+const dialogIssuedTallyPaths = new Set<string>()
 
 /** The signed-in user for the currently-open company, or null before login / after logout.
  *  Cleared whenever the company itself closes (see closeCurrentCompany). */
@@ -184,11 +192,20 @@ export function registerIpc(): void {
   handle('company:createDemo', () => createDemoCompany())
 
   handle('company:delete', (payload) => {
-    const { slug, confirmName } = z.object({ slug: z.string().min(1), confirmName: z.string() }).parse(payload)
+    const { slug, confirmName, pin } = z
+      .object({
+        slug: z.string().min(1),
+        confirmName: z.string(),
+        pin: z.string().regex(/^\d{4,12}$/, 'PIN must be 4-12 digits').optional()
+      })
+      .parse(payload)
     const reg = readRegistry()
     const company = reg.companies.find((c) => c.slug === slug)
     if (!company) throw new Error('Company not found')
     if (confirmName !== company.name) throw new Error('Company name does not match')
+    // The name check above protects nothing by itself — it's readable off the same screen it's
+    // typed into. If this company has users, an active owner's PIN is required too.
+    assertDeleteAuthorized(companyDbPath(slug), pin)
     if (current?.slug === slug) closeCurrentCompany()
     rmSync(companyDir(slug), { recursive: true, force: true })
     removeCompany(slug)
@@ -315,10 +332,17 @@ export function registerIpc(): void {
         current = reopen()
       } catch (rollbackErr) {
         current = null
-        log('error', 'backup-restore-rollback-failed', {
-          slug,
-          error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)
-        })
+        const rollbackMessage = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)
+        log('error', 'backup-restore-rollback-failed', { slug, error: rollbackMessage })
+        // Distinct from the happy-rollback message below — that one is a true statement only
+        // when the rollback actually succeeded. Here it didn't: the live DB is not usable and
+        // there is no company open, but the pre-restore snapshot this function took before
+        // touching anything is still sitting in the backups folder, untouched.
+        throw new Error(
+          `Restore failed and automatic rollback also failed — this company may be unavailable. ` +
+            `A pre-restore snapshot exists in the backups folder (${basename(preRestoreSnapshotPath)}); ` +
+            `reopen or restore it manually.`
+        )
       }
       throw new Error(`Restore failed and was rolled back to the pre-restore snapshot: ${message}`)
     }
@@ -825,6 +849,7 @@ export function registerIpc(): void {
     let xml = xmlText
     let resolvedPath = filePath
     if (xml === undefined && filePath !== undefined) {
+      if (!dialogIssuedTallyPaths.has(filePath)) throw new Error('File path must come from the file picker')
       xml = readFileSync(filePath, 'utf8')
     }
     if (xml === undefined) {
@@ -835,6 +860,7 @@ export function registerIpc(): void {
       })
       if (picked.canceled || !picked.filePaths[0]) return null
       resolvedPath = picked.filePaths[0]
+      dialogIssuedTallyPaths.add(resolvedPath)
       xml = readFileSync(resolvedPath, 'utf8')
     }
     // Dry run is parse-only — zero DB writes, so no backup is taken (nothing to roll back to).

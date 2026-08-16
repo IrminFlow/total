@@ -218,7 +218,8 @@ export const api = {
     list: () => call<Registry>('company:list'),
     create: (input: CompanyCreateInput) => call<{ slug: string }>('company:create', input),
     createDemo: () => call<{ slug: string }>('company:createDemo'),
-    remove: (slug: string, confirmName: string) => call<null>('company:delete', { slug, confirmName }),
+    remove: (slug: string, confirmName: string, pin?: string) =>
+      call<null>('company:delete', { slug, confirmName, pin }),
     open: (slug: string) =>
       call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('company:open', { slug }),
     close: () => call<null>('company:close'),

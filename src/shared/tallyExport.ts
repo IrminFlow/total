@@ -14,6 +14,7 @@
  * it under "Primary" (Tally's root group) before importing.
  */
 import type { TallyGroup, TallyLedger, TallyUnit, TallyItem, TallyVoucher } from './tally'
+import { plainRupees, plainMilli } from './money'
 
 function esc(s: string): string {
   return s
@@ -35,14 +36,16 @@ function tallyDate(iso: string): string {
   return iso.replace(/-/g, '')
 }
 
-/** Signed paise -> plain rupee decimal Tally accepts unformatted, e.g. -118000 -> "-1180.00". */
+/** Signed paise -> plain rupee decimal Tally accepts unformatted, e.g. -118000 -> "-1180.00".
+ *  Delegates to money.ts's plainRupees — integer math throughout, no float division. */
 function tallyAmount(paise: number): string {
-  return (paise / 100).toFixed(2)
+  return plainRupees(paise)
 }
 
-/** Quantity thousandths -> plain decimal, e.g. 2500 -> "2.500". */
+/** Quantity thousandths -> plain decimal, e.g. 2500 -> "2.500". Delegates to money.ts's
+ *  plainMilli — integer math throughout, no float division. */
 function qtyDecimal(qtyMilli: number): string {
-  return (qtyMilli / 1000).toFixed(3)
+  return plainMilli(qtyMilli)
 }
 
 function envelope(reportName: string, messages: string[]): string {

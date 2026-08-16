@@ -12,7 +12,12 @@ import { getInvoiceConfig } from './config'
 import { writeExportPdf } from './pdf'
 
 const esc = (s: string | null): string =>
-  (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  (s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 
 const money = (paise: number): string => formatPaise(paise)
 

@@ -46,6 +46,9 @@ export default function App(): React.JSX.Element {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
+        // A blocking integrity warning must be resolved (or dismissed) before anything else is
+        // reachable — opening the palette over it would let the user navigate around it.
+        if (integrityWarning) return
         setPaletteOpen((v) => !v)
         return
       }
@@ -67,7 +70,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [paletteOpen, nav])
+  }, [paletteOpen, nav, integrityWarning])
 
   // Fresh data whenever the visible screen changes (vouchers affect every report).
   useEffect(() => {

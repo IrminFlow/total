@@ -4,6 +4,7 @@ import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { buildGstr1, buildGstr3b, type GstDoc, type GstDocRateItem, type GstHsnLine, type Gstr1Result, type Gstr3bResult, type InwardSummary } from '@shared/gst/returns'
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
+import { plainRupees } from '@shared/money'
 import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bResult } from '@shared/gst/recon2b'
 import { descendantIdsByName } from './masters'
 import { companyExportsDir } from '../paths'
@@ -276,7 +277,7 @@ export function exportReturnJson(
 export function exportGstr1Csv(slug: string, result: Gstr1Result): string {
   const header = 'Section,Documents,Taxable Value,IGST,CGST,SGST,Cess'
   const lines = result.summary.map((s) =>
-    [s.label, s.docs, s.taxable / 100, s.igst / 100, s.cgst / 100, s.sgst / 100, s.cess / 100]
+    [s.label, s.docs, plainRupees(s.taxable), plainRupees(s.igst), plainRupees(s.cgst), plainRupees(s.sgst), plainRupees(s.cess)]
       .map((v) => (typeof v === 'string' && v.includes(',') ? `"${v}"` : v))
       .join(',')
   )

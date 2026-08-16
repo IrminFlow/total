@@ -50,6 +50,15 @@ describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
     ).toThrow()
   })
 
+  it('rejects a logoDataUrl carrying a quote (would break out of the src="…" attribute)', () => {
+    expect(() =>
+      invoiceConfigSchema.parse({
+        ...DEFAULT_INVOICE_CONFIG,
+        logoDataUrl: 'data:image/png;base64,aGVsbG8="><script>alert(1)</script>'
+      })
+    ).toThrow()
+  })
+
   it('rejects an empty copyLabels array (at least one page must print)', () => {
     expect(() => invoiceConfigSchema.parse({ ...DEFAULT_INVOICE_CONFIG, copyLabels: [] })).toThrow()
   })

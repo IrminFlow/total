@@ -288,6 +288,11 @@ function DeleteCompanyModal({
 }): React.JSX.Element {
   const toast = useToasts()
   const [confirmName, setConfirmName] = useState('')
+  const [pin, setPin] = useState('')
+  // Set once the main process refuses the delete because this company has users and no (or the
+  // wrong) PIN was supplied — see company:delete / assertDeleteAuthorized. The typed-name confirm
+  // above stays visible; this just adds the PIN field the protected path additionally requires.
+  const [needsPin, setNeedsPin] = useState(false)
   const [busy, setBusy] = useState(false)
   const matches = confirmName.trim() === company.name
 
@@ -295,10 +300,16 @@ function DeleteCompanyModal({
     if (!matches) return
     setBusy(true)
     try {
-      await api.company.remove(company.slug, confirmName.trim())
+      await api.company.remove(company.slug, confirmName.trim(), needsPin ? pin : undefined)
       onDeleted()
     } catch (err) {
-      toast.push('error', (err as Error).message)
+      const message = (err as Error).message
+      if (message.includes('protected') && message.includes('PIN')) {
+        setNeedsPin(true)
+        if (pin) toast.push('error', 'Wrong PIN')
+      } else {
+        toast.push('error', message)
+      }
       setBusy(false)
     }
   }
@@ -316,16 +327,35 @@ function DeleteCompanyModal({
             value={confirmName}
             onChange={(e) => setConfirmName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void doDelete()
+              if (e.key === 'Enter' && !needsPin) void doDelete()
             }}
             placeholder={company.name}
           />
         </Field>
+        {needsPin && (
+          <Field label="Owner PIN" hint="This company has signed-in users — an owner PIN is required to delete it">
+            <TextInput
+              autoFocus
+              type="password"
+              inputMode="numeric"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void doDelete()
+              }}
+              placeholder="PIN"
+            />
+          </Field>
+        )}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="danger" onClick={() => void doDelete()} disabled={!matches || busy}>
+          <Button
+            variant="danger"
+            onClick={() => void doDelete()}
+            disabled={!matches || busy || (needsPin && !pin)}
+          >
             {busy ? 'Deleting…' : 'Delete company'}
           </Button>
         </div>
