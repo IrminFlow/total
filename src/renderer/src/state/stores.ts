@@ -50,7 +50,7 @@ export type Screen =
   | { name: 'tds' }
   | { name: 'cost-centres' }
   | { name: 'company-info' }
-  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'about' }
+  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'about' }
 
 interface NavState {
   stack: Screen[]

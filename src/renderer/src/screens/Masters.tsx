@@ -810,7 +810,7 @@ function TypesTab(): React.JSX.Element {
               <th>Name</th>
               <th>Kind</th>
               <th>Numbering</th>
-              <th className="w-24">Prefix</th>
+              <th className="w-32">Format</th>
               <th className="w-20"></th>
             </tr>
           </thead>
@@ -820,7 +820,12 @@ function TypesTab(): React.JSX.Element {
                 <td>{t.name}</td>
                 <td className="text-muted">{t.kind.replace('_', ' ')}</td>
                 <td className="text-muted">{t.numbering === 'auto' ? 'Automatic per FY' : 'Manual'}</td>
-                <td className="num text-muted">{t.prefix}</td>
+                <td className="num text-muted">
+                  {t.prefix}
+                  {'#'.repeat(Math.max(1, t.padWidth))}
+                  {t.suffix}
+                  {!t.restartFy && <span className="ml-1 normal-case text-[10px]">(no FY restart)</span>}
+                </td>
                 <td className="r">
                   <button className="text-[12px] text-blue hover:underline" onClick={() => setEditing(t)}>
                     Edit
@@ -841,10 +846,18 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType; onClose: () => void }
   const queryClient = useQueryClient()
   const [numbering, setNumbering] = useState(vt.numbering)
   const [prefix, setPrefix] = useState(vt.prefix)
+  const [suffix, setSuffix] = useState(vt.suffix)
+  const [padWidth, setPadWidth] = useState(vt.padWidth.toString())
+  const [restartFy, setRestartFy] = useState(vt.restartFy)
+
+  const pad = Math.min(8, Math.max(0, Number(padWidth) || 0))
+  const previewNumber = (seq: number): string => `${prefix}${String(seq).padStart(pad, '0')}${suffix}`
 
   const save = async (): Promise<void> => {
     try {
-      await api.voucherTypes.update(vt.id, { name: vt.name, kind: vt.kind, numbering, prefix })
+      await api.voucherTypes.update(vt.id, {
+        name: vt.name, kind: vt.kind, numbering, prefix, suffix, padWidth: pad, restartFy
+      })
       await queryClient.invalidateQueries()
       toast.push('success', `${vt.name} updated`)
       onClose()
@@ -862,10 +875,26 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType; onClose: () => void }
             <option value="manual">Manual</option>
           </Select>
         </Field>
-        <Field label="Prefix" hint="e.g. INV/ gives INV/1, INV/2…">
+        <Field label="Prefix" hint="e.g. INV- gives INV-1, INV-2…">
           <TextInput value={prefix} onChange={(e) => setPrefix(e.target.value)} />
         </Field>
+        <Field label="Suffix" hint="e.g. /24-25 gives INV-1/24-25">
+          <TextInput value={suffix} onChange={(e) => setSuffix(e.target.value)} />
+        </Field>
+        <Field label="Zero-pad width" hint="3 gives 001, 002… — 0 for no padding">
+          <TextInput value={padWidth} onChange={(e) => setPadWidth(e.target.value)} className="num" />
+        </Field>
       </div>
+      <label className="mt-3 flex items-center gap-2 text-[12.5px]">
+        <input type="checkbox" checked={restartFy} onChange={(e) => setRestartFy(e.target.checked)} />
+        Restart numbering at 1 each financial year
+      </label>
+      {numbering === 'auto' && (
+        <p className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2 text-[12px] text-muted">
+          Preview: <span className="num text-ink">{previewNumber(1)}</span>, <span className="num text-ink">{previewNumber(2)}</span>
+          {!restartFy && <span> … continuing across financial years</span>}
+        </p>
+      )}
       <div className="mt-4 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" onClick={() => void save()}>

@@ -4,15 +4,17 @@ import { api } from '../lib/client'
 import { useNav, useSession, type Screen } from '../state/stores'
 import { Money, Panel } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
+import { useFeatures } from '../lib/useFeatures'
+import type { CompanyFeatures } from '@shared/features'
 
-const CARDS: { label: string; sub: string; screen: Screen; key: string }[] = [
+const CARDS: { label: string; sub: string; screen: Screen; key: string; feature?: keyof CompanyFeatures }[] = [
   { label: 'Voucher entry', sub: 'Sales, purchase, payment…', screen: { name: 'voucher-entry' }, key: 'V' },
   { label: 'Day book', sub: 'Every entry, in order', screen: { name: 'daybook' }, key: 'D' },
   { label: 'Masters', sub: 'Ledgers, items, groups', screen: { name: 'masters' }, key: 'M' },
   { label: 'Trial balance', sub: 'All closing balances', screen: { name: 'trial-balance' }, key: 'T' },
   { label: 'Profit & Loss', sub: 'Trading + P&L account', screen: { name: 'profit-loss' }, key: 'P' },
   { label: 'Balance sheet', sub: 'Assets and liabilities', screen: { name: 'balance-sheet' }, key: 'B' },
-  { label: 'Stock summary', sub: 'Quantities and value', screen: { name: 'stock-summary' }, key: 'S' },
+  { label: 'Stock summary', sub: 'Quantities and value', screen: { name: 'stock-summary' }, key: 'S', feature: 'inventory' },
   { label: 'GSTR-1', sub: 'Outward supplies return', screen: { name: 'gstr1' }, key: '1' },
   { label: 'GSTR-3B', sub: 'Summary return + ITC', screen: { name: 'gstr3b' }, key: '3' }
 ]
@@ -21,6 +23,8 @@ export function Gateway(): React.JSX.Element {
   const nav = useNav()
   const { from } = useSession()
   const today = todayISO()
+  const features = useFeatures()
+  const cards = CARDS.filter((c) => !c.feature || features[c.feature])
   const { data } = useQuery({
     queryKey: ['dashboard', today, from],
     queryFn: () => api.reports.dashboard(today, from)
@@ -31,12 +35,12 @@ export function Gateway(): React.JSX.Element {
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
-      const card = CARDS.find((c) => c.key.toLowerCase() === e.key.toLowerCase())
+      const card = cards.find((c) => c.key.toLowerCase() === e.key.toLowerCase())
       if (card) nav.go(card.screen)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [nav])
+  }, [nav, cards])
 
   const tiles = [
     { label: 'Cash in hand', value: data?.cashBalance ?? 0 },
@@ -61,7 +65,7 @@ export function Gateway(): React.JSX.Element {
       </div>
 
       <div className="mt-6 grid grid-cols-3 gap-3">
-        {CARDS.map((c) => (
+        {cards.map((c) => (
           <button
             key={c.label}
             onClick={() => nav.go(c.screen)}

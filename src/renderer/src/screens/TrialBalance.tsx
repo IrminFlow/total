@@ -2,7 +2,14 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession } from '../state/stores'
 import { EmptyState, Money, Panel, SectionTitle, useKeyNav } from '../components/ui'
+import { ReportConfigButton } from '../components/ReportConfigButton'
+import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { toDisplayDate } from '@shared/dates'
+
+const COLUMNS: ReportColumn[] = [
+  { key: 'debit', label: 'Debit', defaultOn: true },
+  { key: 'credit', label: 'Credit', defaultOn: true }
+]
 
 export function TrialBalanceScreen(): React.JSX.Element {
   const { to } = useSession()
@@ -13,12 +20,20 @@ export function TrialBalanceScreen(): React.JSX.Element {
     const r = rows[i]
     if (r && r.ledgerId > 0) nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })
   })
+  const { visible, toggle } = useReportConfig('trial-balance', COLUMNS)
 
   const matched = data && data.totalDebit === data.totalCredit
 
   return (
     <div className="mx-auto max-w-4xl">
-      <SectionTitle right={<span className="num text-[12px] text-muted">as on {toDisplayDate(to)}</span>}>
+      <SectionTitle
+        right={
+          <div className="flex items-center gap-2">
+            <span className="num text-[12px] text-muted">as on {toDisplayDate(to)}</span>
+            <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
+          </div>
+        }
+      >
         Trial balance
       </SectionTitle>
       <Panel>
@@ -30,8 +45,8 @@ export function TrialBalanceScreen(): React.JSX.Element {
               <tr>
                 <th>Ledger</th>
                 <th>Group</th>
-                <th className="r w-40">Debit</th>
-                <th className="r w-40">Credit</th>
+                {visible.debit && <th className="r w-40">Debit</th>}
+                {visible.credit && <th className="r w-40">Credit</th>}
               </tr>
             </thead>
             <tbody>
@@ -45,22 +60,30 @@ export function TrialBalanceScreen(): React.JSX.Element {
                 >
                   <td>{r.ledgerName}</td>
                   <td className="text-muted">{r.groupName}</td>
-                  <td className="r">
-                    <Money paise={r.debit} />
-                  </td>
-                  <td className="r">
-                    <Money paise={r.credit} />
-                  </td>
+                  {visible.debit && (
+                    <td className="r">
+                      <Money paise={r.debit} />
+                    </td>
+                  )}
+                  {visible.credit && (
+                    <td className="r">
+                      <Money paise={r.credit} />
+                    </td>
+                  )}
                 </tr>
               ))}
               <tr className="total-row">
                 <td colSpan={2}>Total {matched ? '' : '— debits and credits differ; check opening balances'}</td>
-                <td className="r">
-                  <Money paise={data?.totalDebit ?? 0} />
-                </td>
-                <td className="r">
-                  <Money paise={data?.totalCredit ?? 0} />
-                </td>
+                {visible.debit && (
+                  <td className="r">
+                    <Money paise={data?.totalDebit ?? 0} />
+                  </td>
+                )}
+                {visible.credit && (
+                  <td className="r">
+                    <Money paise={data?.totalCredit ?? 0} />
+                  </td>
+                )}
               </tr>
             </tbody>
           </table>

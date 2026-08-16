@@ -3,14 +3,20 @@ import { useNav, useScreen, useSession, useTheme, useToasts, type Screen } from 
 import { api } from '../lib/client'
 import { Button, DateInput, Kbd, Modal } from './ui'
 import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
+import { useFeatures } from '../lib/useFeatures'
+import type { CompanyFeatures } from '@shared/features'
 
 interface NavEntry {
   label: string
   screen: Screen
+  /** Hidden (render-only — never affects saved data or reports) when this feature is off. */
+  feature?: keyof CompanyFeatures
 }
 interface NavSection {
   title: string | null
   items: NavEntry[]
+  /** Hidden entirely (all its items gate on the same feature) when this feature is off. */
+  feature?: keyof CompanyFeatures
 }
 
 const NAV: NavSection[] = [
@@ -29,7 +35,7 @@ const NAV: NavSection[] = [
       { label: 'Trial balance', screen: { name: 'trial-balance' } },
       { label: 'Profit & Loss', screen: { name: 'profit-loss' } },
       { label: 'Balance sheet', screen: { name: 'balance-sheet' } },
-      { label: 'Stock summary', screen: { name: 'stock-summary' } }
+      { label: 'Stock summary', screen: { name: 'stock-summary' }, feature: 'inventory' }
     ]
   },
   {
@@ -37,7 +43,7 @@ const NAV: NavSection[] = [
     items: [
       { label: 'Registers', screen: { name: 'registers' } },
       { label: 'Outstandings', screen: { name: 'outstandings' } },
-      { label: 'Cost centres', screen: { name: 'cost-centres' } }
+      { label: 'Cost centres', screen: { name: 'cost-centres' }, feature: 'costCentres' }
     ]
   },
   {
@@ -46,6 +52,7 @@ const NAV: NavSection[] = [
   },
   {
     title: 'Payroll',
+    feature: 'payroll',
     items: [{ label: 'Employees & runs', screen: { name: 'payroll' } }]
   },
   {
@@ -55,7 +62,7 @@ const NAV: NavSection[] = [
       { label: 'GSTR-3B', screen: { name: 'gstr3b' } },
       { label: 'GSTR-2B recon', screen: { name: 'gstr2b' } },
       { label: 'e-Invoice & e-Way', screen: { name: 'edocs' } },
-      { label: 'TDS', screen: { name: 'tds' } }
+      { label: 'TDS', screen: { name: 'tds' }, feature: 'tds' }
     ]
   },
   {
@@ -71,6 +78,11 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const toast = useToasts()
   const { theme, toggle } = useTheme()
   const [periodOpen, setPeriodOpen] = useState(false)
+  const features = useFeatures()
+  const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
+    ...s,
+    items: s.items.filter((i) => !i.feature || features[i.feature])
+  }))
 
   return (
     <div className="flex h-full flex-col">
@@ -125,7 +137,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
 
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-panel p-2">
-          {NAV.map((section) => (
+          {visibleNav.map((section) => (
             <div key={section.title ?? 'top'}>
               {section.title && (
                 <p className="mt-3 mb-1 px-2.5 text-[10px] font-semibold tracking-[0.1em] text-muted/80 uppercase">

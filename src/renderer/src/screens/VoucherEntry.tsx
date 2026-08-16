@@ -10,6 +10,7 @@ import { api, type TdsSuggestion } from '../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../state/stores'
 import { AmountInput, Button, DateInput, Field, Kbd, Modal, Money, Panel, Select, TextInput, inputCls } from '../components/ui'
 import { ItemPicker, LedgerPicker, useGroups, useLedgers, useStockItems, useTaxLedgers } from '../components/pickers'
+import { useFeatures } from '../lib/useFeatures'
 
 const TRADING_KINDS: VoucherKind[] = ['sales', 'purchase', 'credit_note', 'debit_note']
 const FKEYS: Record<string, VoucherKind> = {
@@ -58,6 +59,7 @@ export function VoucherEntry({
     queryFn: () => api.vouchers.get(voucherId!),
     enabled: !!voucherId
   })
+  const features = useFeatures()
   const [typeId, setTypeId] = useState<number | null>(null)
 
   useEffect(() => {
@@ -100,7 +102,9 @@ export function VoucherEntry({
           {voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
         </h2>
         {!voucherId &&
-          types.filter((t) => t.kind !== 'physical_stock').map((t) => (
+          types
+            .filter((t) => t.kind !== 'physical_stock' && (features.inventory || t.kind !== 'stock_journal'))
+            .map((t) => (
             <button
               key={t.id}
               onClick={() => setTypeId(t.id)}
@@ -155,6 +159,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
+  const features = useFeatures()
   const ledgers = useLedgers()
   const items = useStockItems()
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
@@ -437,7 +442,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
         ) : (
           <span />
         )}
-        {(currencies?.length ?? 0) > 0 && (
+        {features.multiCurrency && (currencies?.length ?? 0) > 0 && (
           <div className="flex items-center gap-2">
             <Select value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} className="w-28">
               <option value="">₹ INR</option>
@@ -552,7 +557,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
         </div>
       </div>
 
-      {partyId && (
+      {features.billWise && partyId && (
         <div className="mt-4 border-t border-line pt-3">
           <button
             className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase"
@@ -877,6 +882,7 @@ function AccountingEntry({
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
+  const features = useFeatures()
   const ledgers = useLedgers()
   const groups = useGroups()
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups])
@@ -916,7 +922,7 @@ function AccountingEntry({
 
   // ---------- per-line cost-centre allocation ----------
   const { data: ccList } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
-  const hasCc = (ccList?.length ?? 0) > 0
+  const hasCc = features.costCentres && (ccList?.length ?? 0) > 0
   const [ccModalRow, setCcModalRow] = useState<number | null>(null)
 
   useEffect(() => {
@@ -1106,7 +1112,8 @@ function AccountingEntry({
     setTdsDismissed(true)
   }
 
-  const showBillsSection = derivedPartyId != null && (kind === 'receipt' || kind === 'payment' || (TRADING_KINDS.includes(kind) && !!voucherId))
+  const showBillsSection =
+    features.billWise && derivedPartyId != null && (kind === 'receipt' || kind === 'payment' || (TRADING_KINDS.includes(kind) && !!voucherId))
   const isCheckboxBills = kind === 'receipt' || kind === 'payment'
 
   const { data: openBills } = useQuery({
@@ -1313,7 +1320,7 @@ function AccountingEntry({
         </p>
       )}
 
-      {tdsSuggestion && !tdsDismissed && (
+      {features.tds && tdsSuggestion && !tdsDismissed && (
         <div className="mt-3 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-[12.5px] text-amber">
           <div className="flex items-center justify-between gap-3">
             <span>

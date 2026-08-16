@@ -5,6 +5,8 @@ import { BinSection } from './settings/BinSection'
 import { UsersSection } from './settings/UsersSection'
 import { AuditSection } from './settings/AuditSection'
 import { NicSection } from './settings/NicSection'
+import { FeaturesSection } from './settings/FeaturesSection'
+import { InvoiceConfigSection } from './settings/InvoiceConfigSection'
 import { AboutSection } from './settings/AboutSection'
 
 export type SettingsTab = NonNullable<Extract<Screen, { name: 'settings' }>['tab']>
@@ -15,6 +17,8 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'users', label: 'Users' },
   { id: 'audit', label: 'Audit trail' },
   { id: 'nic', label: 'NIC live filing' },
+  { id: 'features', label: 'Features' },
+  { id: 'invoice', label: 'Invoice print' },
   { id: 'about', label: 'About' }
 ]
 
@@ -45,6 +49,8 @@ export function Settings({ tab: initialTab }: { tab?: SettingsTab }): React.JSX.
         {tab === 'users' && <UsersSection />}
         {tab === 'audit' && <AuditSection />}
         {tab === 'nic' && <NicSection />}
+        {tab === 'features' && <FeaturesSection />}
+        {tab === 'invoice' && <InvoiceConfigSection />}
         {tab === 'about' && <AboutSection />}
       </div>
     </div>

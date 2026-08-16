@@ -2,10 +2,14 @@ import { useMemo, useState } from 'react'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { api } from '../lib/client'
 import { useKeyNav } from './ui'
+import { useFeatures } from '../lib/useFeatures'
+import type { CompanyFeatures } from '@shared/features'
 
 interface Command {
   label: string
   hint?: string
+  /** Hidden (render-only) when this feature is off. */
+  feature?: keyof CompanyFeatures
   run: () => void | Promise<void>
 }
 
@@ -13,6 +17,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   const nav = useNav()
   const toast = useToasts()
   const { clearCompany } = useSession()
+  const features = useFeatures()
   const [query, setQuery] = useState('')
 
   const commands = useMemo<Command[]>(() => {
@@ -26,28 +31,34 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'Gateway', run: () => nav.home() },
       { label: 'Day book', run: go({ name: 'daybook' }) },
       { label: 'Ledgers & masters', run: go({ name: 'masters' }) },
-      { label: 'Stock items', run: go({ name: 'masters', tab: 'items' }) },
+      { label: 'Stock items', feature: 'inventory', run: go({ name: 'masters', tab: 'items' }) },
       { label: 'Trial balance', run: go({ name: 'trial-balance' }) },
       { label: 'Profit & Loss', run: go({ name: 'profit-loss' }) },
       { label: 'Balance sheet', run: go({ name: 'balance-sheet' }) },
-      { label: 'Stock summary', run: go({ name: 'stock-summary' }) },
+      { label: 'Stock summary', feature: 'inventory', run: go({ name: 'stock-summary' }) },
       { label: 'GSTR-1', run: go({ name: 'gstr1' }) },
       { label: 'GSTR-3B', run: go({ name: 'gstr3b' }) },
       { label: 'GSTR-2B reconciliation', run: go({ name: 'gstr2b' }) },
       { label: 'e-Invoice & e-Way bill', run: go({ name: 'edocs' }) },
       { label: 'Sales register', run: go({ name: 'registers' }) },
       { label: 'Outstandings & ageing', run: go({ name: 'outstandings' }) },
-      { label: 'Cost centres', run: go({ name: 'cost-centres' }) },
-      { label: 'TDS', run: go({ name: 'tds' }) },
+      { label: 'Cost centres', feature: 'costCentres', run: go({ name: 'cost-centres' }) },
+      { label: 'TDS', feature: 'tds', run: go({ name: 'tds' }) },
       { label: 'Bank reconciliation', run: go({ name: 'banking' }) },
-      { label: 'Payroll — employees & runs', run: go({ name: 'payroll' }) },
-      { label: 'New manufacture (stock journal)', run: go({ name: 'voucher-entry', kindHint: 'stock_journal' }) },
+      { label: 'Payroll — employees & runs', feature: 'payroll', run: go({ name: 'payroll' }) },
+      {
+        label: 'New manufacture (stock journal)',
+        feature: 'inventory',
+        run: go({ name: 'voucher-entry', kindHint: 'stock_journal' })
+      },
       { label: 'Company details', run: go({ name: 'company-info' }) },
       { label: 'Settings', run: go({ name: 'settings' }) },
       { label: 'Backups', run: go({ name: 'settings', tab: 'backups' }) },
       { label: 'Bin', run: go({ name: 'settings', tab: 'bin' }) },
       { label: 'Audit trail', run: go({ name: 'settings', tab: 'audit' }) },
       { label: 'Users', run: go({ name: 'settings', tab: 'users' }) },
+      { label: 'Features', run: go({ name: 'settings', tab: 'features' }) },
+      { label: 'Invoice print', run: go({ name: 'settings', tab: 'invoice' }) },
       {
         label: 'Back up company now',
         run: async () => {
@@ -71,10 +82,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   }, [nav, toast, clearCompany])
 
   const filtered = useMemo(() => {
+    const visible = commands.filter((c) => !c.feature || features[c.feature])
     const q = query.trim().toLowerCase()
-    if (!q) return commands
-    return commands.filter((c) => c.label.toLowerCase().includes(q))
-  }, [commands, query])
+    if (!q) return visible
+    return visible.filter((c) => c.label.toLowerCase().includes(q))
+  }, [commands, query, features])
 
   const { active, setActive } = useKeyNav(filtered.length, () => {}, false)
 
