@@ -15,6 +15,7 @@ import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { isBankLedger, isCashOrBankLedger, isPartyLedger, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
 import { CostAllocModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
+import { TransportModal } from './TransportModal'
 
 // ---------- accounting mode (payment / receipt / contra / journal + alteration) ----------
 
@@ -58,6 +59,7 @@ export function AccountingEntry({
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
+  const [showTransport, setShowTransport] = useState(false)
   const [editingParty, setEditingParty] = useState<Ledger | null>(null)
   // Alteration keeps the voucher's own number editable but never auto-suggests a fresh one off
   // voucher:nextNumber (that would rename an existing document to "the next available number"
@@ -688,6 +690,11 @@ export function AccountingEntry({
               <Button onClick={() => void printAdvice()}>Payment advice</Button>
             </>
           )}
+          {voucherId && TRADING_KINDS.includes(kind) && (
+            <Button data-testid="btn-voucher-transport" onClick={() => setShowTransport(true)}>
+              Transport / e-way details…
+            </Button>
+          )}
           {balanced && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
           <Button onClick={() => nav.back()}>Cancel</Button>
           <Button variant="primary" data-testid="btn-save-voucher" disabled={!balanced || saving} onClick={() => void save()}>
@@ -718,6 +725,9 @@ export function AccountingEntry({
         />
       )}
       {showRecurring && <SaveAsRecurringModal buildPayload={buildPayload} onClose={() => setShowRecurring(false)} />}
+      {showTransport && voucherId && (
+        <TransportModal voucherId={voucherId} voucherNumber={existing?.number} onClose={() => setShowTransport(false)} />
+      )}
       {editingParty && <LedgerFormModal ledger={editingParty} onClose={() => setEditingParty(null)} />}
     </Panel>
   )

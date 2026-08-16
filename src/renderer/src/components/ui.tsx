@@ -244,6 +244,13 @@ const FOCUSABLE =
 let modalSeq = 0
 const modalStack: number[] = []
 
+/** True while any Modal is mounted — screens use it to suppress their own global shortcuts
+ *  (Gateway single-letter keys, VoucherEntry F-keys / ⌘↵) so keys aimed at a dialog never
+ *  leak through to the screen underneath. useKeyNav already checks this internally. */
+export function isAnyModalOpen(): boolean {
+  return modalStack.length > 0
+}
+
 export function Modal({
   title,
   onClose,
