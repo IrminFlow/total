@@ -81,4 +81,14 @@ describe('templateOpenTarget', () => {
     if (screen.name === 'voucher-entry') expect(screen.kindHint).toBeUndefined()
     expect(warnInvoice).toBe(false)
   })
+
+  it('carries a fresh draftId per open so consecutive template opens remount VoucherEntry', () => {
+    const first = templateOpenTarget(template({})).screen
+    const second = templateOpenTarget(template({})).screen
+    if (first.name !== 'voucher-entry' || second.name !== 'voucher-entry') throw new Error('wrong screen')
+    expect(typeof first.draftId).toBe('number')
+    expect(typeof second.draftId).toBe('number')
+    // App.tsx keys VoucherEntry on the draftId — equal ids would keep the stale form mounted.
+    expect(second.draftId).not.toBe(first.draftId)
+  })
 })

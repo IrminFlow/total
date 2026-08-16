@@ -96,7 +96,11 @@ export function TransportModal({
     setSaving(true)
     try {
       await api.edoc.transportSet(voucherId, form)
-      await queryClient.invalidateQueries({ queryKey: ['edocs'] })
+      // The e-docs list (['edocList', from, to]) shows per-voucher transport eligibility —
+      // refresh it so a save from any launcher (Edocs screen or AccountingEntry) shows up.
+      // Transport details themselves are loaded imperatively (api.edoc.transportGet above),
+      // so there is no query family for them to invalidate.
+      await queryClient.invalidateQueries({ queryKey: ['edocList'] })
       toast.push('success', 'Transport details saved')
       onClose()
     } catch (err) {

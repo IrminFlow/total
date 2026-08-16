@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { RecurringTemplate, VoucherKind } from '@shared/domain'
 import type { Screen, VoucherDraft } from '../state/stores'
 import { api } from '../lib/client'
-import { useNav, useToasts } from '../state/stores'
+import { useNav, useToasts, nextDraftId } from '../state/stores'
 import { Button, DateInput, EmptyState, Field, Modal, Panel, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { nextDueAfter } from '@shared/recurring'
@@ -45,7 +45,9 @@ export function draftFromTemplate(t: RecurringTemplate): VoucherDraft {
 export function templateOpenTarget(t: RecurringTemplate): { screen: Screen; warnInvoice: boolean } {
   const kindHint = t.voucherKind ?? undefined
   return {
-    screen: { name: 'voucher-entry', kindHint, draft: draftFromTemplate(t) },
+    // draftId forces VoucherEntry to remount when the previous screen is already a fresh
+    // voucher-entry (same 'new' key otherwise) — see Banking/Gstr2b's draft entry points.
+    screen: { name: 'voucher-entry', kindHint, draft: draftFromTemplate(t), draftId: nextDraftId() },
     warnInvoice: !!kindHint && TRADING_KINDS.includes(kindHint)
   }
 }

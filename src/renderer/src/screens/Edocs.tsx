@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, DateInput, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
-import { gstPeriodOf, toDisplayDate, todayISO } from '@shared/dates'
-import { GST_STATES } from '@shared/gst/states'
+import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, SkeletonRows } from '../components/ui'
+import { gstPeriodOf, toDisplayDate } from '@shared/dates'
 import { TransportModal } from './voucher/TransportModal'
 
 type DocTypeFilter = 'all' | 'INV' | 'CRN' | 'DBN'
