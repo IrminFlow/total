@@ -236,6 +236,9 @@ export const useToasts = create<ToastState>((set, get) => {
       toastTimers.delete(id)
       toastRemaining?.delete(id)
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+      // Dismissing the last toast removes the element under the cursor, so no mouseleave will
+      // ever fire — drop the paused state here or the next toast would never auto-expire.
+      if (get().toasts.length === 0) toastRemaining = null
     },
     pause: () => {
       if (toastRemaining) return

@@ -35,7 +35,7 @@ export function UsersSection(): React.JSX.Element {
 
   return (
     <div>
-      <SectionTitle right={<Button variant="primary" onClick={() => setAdding(true)}>Add user</Button>}>
+      <SectionTitle right={<Button variant="primary" data-testid="btn-users-add" onClick={() => setAdding(true)}>Add user</Button>}>
         Users
       </SectionTitle>
       <Panel>
@@ -201,7 +201,7 @@ function UserModal({
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={busy} onClick={() => void submit()}>
+        <Button variant="primary" data-testid="btn-users-save" disabled={busy} onClick={() => void submit()}>
           {busy ? 'Saving…' : existing ? 'Save' : 'Add user'}
         </Button>
       </div>

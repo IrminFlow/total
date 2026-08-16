@@ -79,6 +79,7 @@ export function OutstandingsScreen(): React.JSX.Element {
               {(['receivable', 'payable'] as const).map((s) => (
                 <button
                   key={s}
+                  data-testid={`tab-outstandings-${s}`}
                   onClick={() => setSide(s)}
                   className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${side === s ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
                 >
@@ -129,7 +130,7 @@ export function OutstandingsScreen(): React.JSX.Element {
                 <th className="w-24"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-outstandings">
               {parties.map((p) => (
                 <>
                   <tr

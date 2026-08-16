@@ -161,7 +161,7 @@ export function BankingScreen(): React.JSX.Element {
             </Select>
             <Button onClick={() => openRules(null)}>Rules…</Button>
             {ledgerId != null && <Button onClick={() => setChequeSetupOpen(true)}>Cheque setup…</Button>}
-            <Button variant="primary" onClick={() => void doImport()}>
+            <Button variant="primary" data-testid="btn-banking-import" onClick={() => void doImport()}>
               Import statement CSV
             </Button>
           </div>
@@ -207,7 +207,7 @@ export function BankingScreen(): React.JSX.Element {
                     <th className="w-24"></th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody data-testid="rows-banking">
                   {recon.rows.map((r) => (
                     <tr key={r.lineId} className={r.bankDate ? 'opacity-60' : ''}>
                       <td className="num text-muted">{toDisplayDate(r.date)}</td>

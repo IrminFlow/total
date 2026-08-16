@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useIsFetching, useQuery } from '@tanstack/react-query'
 import { api, type LoginName } from '../lib/client'
 import { useSession } from '../state/stores'
 import { Button, TextInput, useKeyNav } from './ui'
@@ -8,6 +8,7 @@ import { Button, TextInput, useKeyNav } from './ui'
  *  (see App.tsx: `slug && locked`). Pick a user, type their PIN, Enter (or the button) submits. */
 export function LockScreen(): React.JSX.Element {
   const { data: userList } = useQuery({ queryKey: ['auth-users'], queryFn: api.auth.users })
+  const fetching = useIsFetching()
   const { setUser, setLocked } = useSession()
   const list: LoginName[] = userList ?? []
 
@@ -46,7 +47,11 @@ export function LockScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="drag-region fixed inset-0 z-50 flex h-full flex-col items-center justify-center bg-canvas">
+    <div
+      data-screen="lock"
+      data-loading={fetching > 0 ? 'true' : 'false'}
+      className="drag-region fixed inset-0 z-50 flex h-full flex-col items-center justify-center bg-canvas"
+    >
       <div className="w-full max-w-sm">
         <h1 className="text-center font-serif text-[28px] font-semibold tracking-tight">Locked</h1>
         <p className="mt-1 mb-8 text-center text-[13px] text-muted">Choose a user and enter your PIN</p>
@@ -80,6 +85,7 @@ export function LockScreen(): React.JSX.Element {
             <TextInput
               key={selected.id}
               autoFocus
+              data-testid="input-pin"
               type="password"
               inputMode="numeric"
               value={pin}
@@ -94,7 +100,7 @@ export function LockScreen(): React.JSX.Element {
               className="num text-center tracking-[0.4em]"
             />
             {error && <p className="text-center text-[12px] text-cr">{error}</p>}
-            <Button variant="primary" disabled={busy || !pin} onClick={() => void submit()}>
+            <Button variant="primary" data-testid="btn-unlock" disabled={busy || !pin} onClick={() => void submit()}>
               {busy ? 'Checking…' : `Unlock as ${selected.name}`}
             </Button>
           </div>

@@ -37,7 +37,8 @@ function TypeAhead({
   autoFocus,
   onCreate,
   className,
-  onScan
+  onScan,
+  testId
 }: {
   options: PickerOption[]
   value: number | null
@@ -48,6 +49,8 @@ function TypeAhead({
   className?: string
   /** Fed every keydown for barcode-scan detection; return true to swallow the keystroke. */
   onScan?: (e: React.KeyboardEvent<HTMLInputElement>) => boolean
+  /** data-testid for the input (lib/testids.ts — `picker-<what>`). */
+  testId?: string
 }): React.JSX.Element {
   const selected = options.find((o) => o.id === value) ?? null
   const [text, setText] = useState(selected?.label ?? '')
@@ -95,6 +98,7 @@ function TypeAhead({
     <div ref={wrapRef} className={`relative ${className ?? ''}`}>
       <input
         className={inputCls}
+        data-testid={testId}
         value={text}
         placeholder={placeholder}
         autoFocus={autoFocus}
@@ -179,7 +183,8 @@ export function LedgerPicker({
   filter,
   autoFocus,
   onCreateRequest,
-  className
+  className,
+  testId = 'picker-ledger'
 }: {
   value: number | null
   onPick: (id: number | null) => void
@@ -188,6 +193,7 @@ export function LedgerPicker({
   autoFocus?: boolean
   onCreateRequest?: (name: string) => void
   className?: string
+  testId?: string
 }): React.JSX.Element {
   const ledgers = useLedgers()
   const groups = useGroups()
@@ -208,6 +214,7 @@ export function LedgerPicker({
       autoFocus={autoFocus}
       onCreate={onCreateRequest}
       className={className}
+      testId={testId}
     />
   )
 }
@@ -216,12 +223,14 @@ export function ItemPicker({
   value,
   onPick,
   onCreateRequest,
-  className
+  className,
+  testId = 'picker-item'
 }: {
   value: number | null
   onPick: (id: number | null) => void
   onCreateRequest?: (name: string) => void
   className?: string
+  testId?: string
 }): React.JSX.Element {
   const items = useStockItems()
   const options = useMemo(
@@ -263,6 +272,7 @@ export function ItemPicker({
       onCreate={onCreateRequest}
       className={className}
       onScan={onScan}
+      testId={testId}
     />
   )
 }

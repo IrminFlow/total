@@ -79,6 +79,7 @@ export function RegistersScreen(): React.JSX.Element {
               {(['sales', 'purchase'] as const).map((k) => (
                 <button
                   key={k}
+                  data-testid={`tab-registers-${k}`}
                   onClick={() => setKind(k)}
                   className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${kind === k ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
                 >
@@ -108,7 +109,7 @@ export function RegistersScreen(): React.JSX.Element {
             <Button disabled={busy !== null} onClick={() => void runExport('tallyXml')}>
               Tally XML
             </Button>
-            <Button variant="primary" disabled={busy !== null} onClick={() => void runExport('caPack')}>
+            <Button variant="primary" data-testid="btn-registers-ca-pack" disabled={busy !== null} onClick={() => void runExport('caPack')}>
               CA pack…
             </Button>
           </div>
@@ -132,7 +133,7 @@ export function RegistersScreen(): React.JSX.Element {
                 <th className="r w-40">Invoice total</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-registers">
               {rows.map((r) => (
                 <tr key={r.month}>
                   <td>{monthLabel(r.month)}</td>

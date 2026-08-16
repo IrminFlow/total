@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type IntegrityResult } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, Field, Modal, Select, TextInput, useKeyNav } from '../components/ui'
@@ -42,9 +42,14 @@ export function CompanySelect(): React.JSX.Element {
     const c = companies[i]
     if (c) void open(c.slug)
   })
+  const fetching = useIsFetching()
 
   return (
-    <div className="drag-region flex h-full flex-col items-center justify-center">
+    <div
+      data-screen="company-select"
+      data-loading={fetching > 0 ? 'true' : 'false'}
+      className="drag-region flex h-full flex-col items-center justify-center"
+    >
       <div className="w-full max-w-lg">
         <h1 className="text-center font-serif text-[34px] font-semibold tracking-tight">Total</h1>
         <p className="mt-1 mb-8 text-center text-[13px] text-muted">
@@ -91,7 +96,7 @@ export function CompanySelect(): React.JSX.Element {
         </div>
 
         <div className="mt-4 flex justify-center gap-2">
-          <Button variant="primary" onClick={() => setCreating(true)}>
+          <Button variant="primary" data-testid="btn-company-create" onClick={() => setCreating(true)}>
             Create company
           </Button>
           <Button variant="ghost" onClick={() => setImporting(true)}>
@@ -453,7 +458,7 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
         </Field>
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => void save()}>
+          <Button variant="primary" data-testid="btn-company-save" onClick={() => void save()}>
             Create &amp; open
           </Button>
         </div>

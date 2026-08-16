@@ -131,7 +131,7 @@ export function RecurringScreen(): React.JSX.Element {
                 <th className="w-64"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-recurring">
               {templates.map((t) => (
                 <tr key={t.id} className="hover:bg-panel2">
                   <td>{t.name}</td>

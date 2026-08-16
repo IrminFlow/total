@@ -85,7 +85,7 @@ export function Gstr1Screen(): React.JSX.Element {
         right={
           <div className="flex items-center gap-2">
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} />
-            <Button variant="primary" onClick={() => void doExport()} disabled={!info?.gstin}>
+            <Button variant="primary" data-testid="btn-gstr1-export" onClick={() => void doExport()} disabled={!info?.gstin}>
               Export portal JSON
             </Button>
           </div>
@@ -116,7 +116,7 @@ export function Gstr1Screen(): React.JSX.Element {
               <th className="r w-24">Cess</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody data-testid="rows-gstr1">
             {(data?.summary ?? []).map((s) => (
               <tr key={s.section} className={s.docs === 0 ? 'opacity-40' : ''}>
                 <td>{s.label}</td>
@@ -187,7 +187,7 @@ export function Gstr3bScreen(): React.JSX.Element {
         right={
           <div className="flex items-center gap-2">
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} />
-            <Button variant="primary" onClick={() => void doExport()} disabled={!info?.gstin}>
+            <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!info?.gstin}>
               Export JSON
             </Button>
           </div>
@@ -211,7 +211,7 @@ export function Gstr3bScreen(): React.JSX.Element {
               <th className="r w-24">Cess</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody data-testid="rows-gstr3b">
             {row('3.1(a) Outward taxable supplies', data?.outward)}
             {row('3.1(c) Nil-rated / exempt', data ? { taxable: data.nilExempt.taxable, igst: 0, cgst: 0, sgst: 0, cess: 0 } : undefined)}
             {row('4 Eligible ITC (all other)', data?.itc)}

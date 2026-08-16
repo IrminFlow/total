@@ -12,8 +12,8 @@ import { templateOpenTarget } from './Recurring'
 import { CARD_SCREENS } from '../lib/screens'
 
 /** Cards derived from the single screen registry (lib/screens.ts). */
-const CARDS: { label: string; sub: string; screen: Screen; key: string; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] =
-  CARD_SCREENS.map((s) => ({ label: s.title, sub: s.card.sub, screen: s.screen, key: s.card.key, feature: s.feature }))
+const CARDS: { name: string; label: string; sub: string; screen: Screen; key: string; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] =
+  CARD_SCREENS.map((s) => ({ name: s.name, label: s.title, sub: s.card.sub, screen: s.screen, key: s.card.key, feature: s.feature }))
 
 export function Gateway(): React.JSX.Element {
   const nav = useNav()
@@ -84,6 +84,7 @@ export function Gateway(): React.JSX.Element {
         {cards.map((c) => (
           <button
             key={c.label}
+            data-testid={`card-${c.name}`}
             onClick={() => nav.go(c.screen)}
             className="group rounded-lg border border-line bg-panel px-5 py-4 text-left transition-colors hover:border-amber/50"
           >

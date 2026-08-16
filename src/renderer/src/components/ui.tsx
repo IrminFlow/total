@@ -98,7 +98,8 @@ export function AmountInput({
   onEnter,
   autoFocus,
   placeholder,
-  className
+  className,
+  testId = 'input-amount'
 }: {
   paise: number | null
   onPaise: (paise: number | null) => void
@@ -106,6 +107,8 @@ export function AmountInput({
   autoFocus?: boolean
   placeholder?: string
   className?: string
+  /** data-testid for the input (lib/testids.ts — `input-<what>`). */
+  testId?: string
 }): React.JSX.Element {
   const [text, setText] = useState(paise != null && paise !== 0 ? formatPaise(paise) : '')
   useEffect(() => {
@@ -117,6 +120,7 @@ export function AmountInput({
     <span className={`block min-w-0 ${className ?? ''}`}>
       <input
         className={`${inputCls} num text-right ${invalid ? 'border-cr/70' : ''}`}
+        data-testid={testId}
         value={text}
         autoFocus={autoFocus}
         placeholder={placeholder ?? '0.00'}
@@ -145,12 +149,15 @@ export function DateInput({
   value,
   context,
   onChange,
-  className
+  className,
+  testId = 'input-date'
 }: {
   value: string
   context: string
   onChange: (iso: string) => void
   className?: string
+  /** data-testid for the input (lib/testids.ts — `input-<what>`). */
+  testId?: string
 }): React.JSX.Element {
   const [text, setText] = useState(toDisplayDate(value))
   const [bad, setBad] = useState(false)
@@ -159,6 +166,7 @@ export function DateInput({
     <span className={`block min-w-0 ${className ?? ''}`}>
       <input
         className={`${inputCls} num ${bad ? 'border-cr/70' : ''}`}
+        data-testid={testId}
         value={text}
         aria-invalid={bad || undefined}
         onChange={(e) => {
@@ -394,13 +402,20 @@ export function Toasts(): React.JSX.Element {
     warning: 'border-amber/60 text-amber'
   }
   return (
-    <div aria-live="polite" role="status" className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-96 flex-col gap-2">
+    // Pause/resume live on the container, not the toast: React still fires the container's
+    // mouseEnter/Leave when the pointer moves over a child, and a hovered toast that gets
+    // removed (click-dismiss, dedupe) can no longer strand the stack in the paused state.
+    <div
+      aria-live="polite"
+      role="status"
+      onMouseEnter={pause}
+      onMouseLeave={resume}
+      className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-96 flex-col gap-2"
+    >
       {toasts.map((t) => (
         <button
           key={t.id}
           onClick={() => dismiss(t.id)}
-          onMouseEnter={pause}
-          onMouseLeave={resume}
           className={`pointer-events-auto rounded-lg border bg-panel px-4 py-2.5 text-left text-detail shadow-xl ${tones[t.kind]}`}
         >
           {t.text}
@@ -467,6 +482,9 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
     const isTop = (): boolean => keyNavStack[keyNavStack.length - 1] === id
     const onKey = (e: KeyboardEvent): void => {
       if (!isTop()) return
+      // While any Modal is up it owns the keyboard — a screen's list behind it must not
+      // move its selection (or fire Enter) from keys aimed at the dialog.
+      if (modalStack.length > 0) return
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
       if (e.key === 'ArrowDown') {

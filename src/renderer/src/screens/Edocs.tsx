@@ -109,10 +109,10 @@ export function EdocsScreen(): React.JSX.Element {
             <Button onClick={() => nav.go({ name: 'settings', tab: 'nic' })}>
               {live ? 'Live filing ✓ · Configure in Settings →' : 'Configure in Settings →'}
             </Button>
-            <Button variant="primary" onClick={() => void exportEinv()} disabled={!info?.gstin}>
+            <Button variant="primary" data-testid="btn-edocs-export-einvoice" onClick={() => void exportEinv()} disabled={!info?.gstin}>
               Export e-invoice JSON
             </Button>
-            <Button onClick={() => void exportEwb()} disabled={!info?.gstin}>
+            <Button data-testid="btn-edocs-export-ewb" onClick={() => void exportEwb()} disabled={!info?.gstin}>
               Export e-way bill JSON
             </Button>
           </div>
@@ -140,9 +140,9 @@ export function EdocsScreen(): React.JSX.Element {
                 <th className="r w-40"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-edocs">
               {rows.map((r) => (
-                <tr key={r.voucherId}>
+                <tr key={r.voucherId} data-row-id={r.voucherId}>
                   <td className="num text-muted">{toDisplayDate(r.date)}</td>
                   <td className="num">{r.number}</td>
                   <td>

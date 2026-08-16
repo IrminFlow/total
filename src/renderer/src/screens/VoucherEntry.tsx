@@ -139,6 +139,7 @@ export function VoucherEntry({
             .map((t) => (
             <button
               key={t.id}
+              data-testid={`tab-voucher-entry-${t.kind}`}
               onClick={() => setTypeId(t.id)}
               className={`rounded-md px-2.5 py-1 text-[12px] transition-colors ${
                 t.id === currentType.id ? 'bg-amber/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
@@ -519,6 +520,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
               placeholder="Party ledger"
               onCreateRequest={(name) => setQuickLedger({ name, forParty: true })}
               className="flex-1"
+              testId="picker-party"
             />
             {party && (
               <Button variant="ghost" className="shrink-0 px-2 py-1 text-[11px]" onClick={() => setEditingParty(true)}>
@@ -590,7 +592,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
             <th className="r w-36">Amount</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody data-testid="rows-invoice-lines">
           {rows.map((r, i) => {
             const item = r.itemId ? itemMap.get(r.itemId) : null
             const qty = parseFloat(r.qtyText || '0')
@@ -765,7 +767,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
             Save + invoice PDF
           </Button>
         )}
-        <Button variant="primary" disabled={saving} onClick={() => void save()}>
+        <Button variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
           Save voucher ⌘↵
         </Button>
       </div>
@@ -965,7 +967,7 @@ function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Element {
 
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={() => nav.back()}>Cancel</Button>
-        <Button variant="primary" disabled={saving} onClick={() => void save()}>
+        <Button variant="primary" data-testid="btn-save-manufacture" disabled={saving} onClick={() => void save()}>
           Save manufacture
         </Button>
       </div>
@@ -1446,7 +1448,7 @@ function AccountingEntry({
             {hasCc && <th className="w-16"></th>}
           </tr>
         </thead>
-        <tbody>
+        <tbody data-testid="rows-voucher-lines">
           {rows.map((r, i) => (
             <tr key={i}>
               <td>
@@ -1647,7 +1649,7 @@ function AccountingEntry({
           )}
           {balanced && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
           <Button onClick={() => nav.back()}>Cancel</Button>
-          <Button variant="primary" disabled={!balanced || saving} onClick={() => void save()}>
+          <Button variant="primary" data-testid="btn-save-voucher" disabled={!balanced || saving} onClick={() => void save()}>
             {voucherId ? 'Save changes' : 'Save voucher'} ⌘↵
           </Button>
         </div>

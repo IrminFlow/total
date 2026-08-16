@@ -125,7 +125,7 @@ export function TrialBalanceScreen(): React.JSX.Element {
                 {visible.credit && <th className="r w-40">Credit</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-trial-balance">
               {rows.map((r, i) => (
                 <tr
                   key={r.ledgerId}

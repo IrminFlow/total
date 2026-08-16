@@ -29,6 +29,7 @@ export function Masters({ tab: initialTab }: { tab?: Tab }): React.JSX.Element {
         {TABS.map((t) => (
           <button
             key={t.id}
+            data-testid={`tab-masters-${t.id}`}
             onClick={() => setTab(t.id)}
             className={`rounded-md px-3 py-1.5 text-[13px] ${tab === t.id ? 'bg-amber/15 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'}`}
           >
@@ -160,7 +161,7 @@ function LedgersTab(): React.JSX.Element {
     <>
       <div className="mb-3 flex justify-between">
         <TextInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Type to filter…" className="w-64" />
-        <Button variant="primary" onClick={() => setEditing('new')}>
+        <Button variant="primary" data-testid="btn-masters-new-ledger" onClick={() => setEditing('new')}>
           New ledger
         </Button>
       </div>
@@ -178,9 +179,9 @@ function LedgersTab(): React.JSX.Element {
                 <th className="w-24"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-masters-ledgers">
               {rows.map((l) => (
-                <tr key={l.id} className="hover:bg-panel2">
+                <tr key={l.id} data-row-id={l.id} className="hover:bg-panel2">
                   <td className="cursor-pointer" onClick={() => nav.go({ name: 'ledger-statement', ledgerId: l.id })}>
                     {l.name}
                   </td>
@@ -298,7 +299,7 @@ function ItemsTab(): React.JSX.Element {
   return (
     <>
       <div className="mb-3 flex justify-end">
-        <Button variant="primary" onClick={() => setEditing('new')}>
+        <Button variant="primary" data-testid="btn-masters-new-item" onClick={() => setEditing('new')}>
           New item
         </Button>
       </div>
@@ -317,7 +318,7 @@ function ItemsTab(): React.JSX.Element {
                 <th className="w-20"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-masters-items">
               {items.map((i) => (
                 <tr key={i.id} className="hover:bg-panel2">
                   <td>{i.name}</td>

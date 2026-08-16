@@ -269,7 +269,7 @@ export function YearEndScreen(): React.JSX.Element {
           </Panel>
           <div className="flex justify-between">
             <Button onClick={() => setStep(2)}>Back</Button>
-            <Button variant="primary" disabled={confirmText !== 'CLOSE' || posting} onClick={() => void post()}>
+            <Button variant="primary" data-testid="btn-year-end-post" disabled={confirmText !== 'CLOSE' || posting} onClick={() => void post()}>
               {posting ? 'Posting…' : 'Post closing entry & lock'}
             </Button>
           </div>

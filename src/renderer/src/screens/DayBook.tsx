@@ -41,6 +41,7 @@ const DayBookRowView = memo(function DayBookRowView({
   return (
     <tr
       data-active={isActive}
+      data-row-id={row.voucherId}
       className="kbar-row cursor-pointer"
       onMouseEnter={() => onHover(index)}
       onClick={() => onOpen(row.voucherId)}
@@ -210,7 +211,7 @@ export function DayBook(): React.JSX.Element {
                 {visible.credit && <th className="r w-36">Credit</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-daybook">
               {displayRows.map((r, i) => (
                 <DayBookRowView
                   key={`${r.voucherId}`}

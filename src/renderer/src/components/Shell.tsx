@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useIsFetching } from '@tanstack/react-query'
 import { useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
 import { Button, DateInput, Kbd, Modal } from './ui'
@@ -23,6 +24,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const toast = useToasts()
   const { theme, toggle } = useTheme()
   const [periodOpen, setPeriodOpen] = useState(false)
+  const fetching = useIsFetching()
   const features = useFeatures()
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
@@ -98,6 +100,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                 return (
                   <button
                     key={item.label}
+                    data-testid={`nav-${item.screen.name}`}
                     onClick={() => nav.go(item.screen)}
                     className={`block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] transition-colors ${
                       active ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'
@@ -139,7 +142,14 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           </button>
         </aside>
 
-        <main className="min-h-0 flex-1 overflow-auto p-5">{children}</main>
+        {/* data-screen + data-loading: the E2E harness's navigation/idle markers (lib/testids.ts). */}
+        <main
+          data-screen={screen.name}
+          data-loading={fetching > 0 ? 'true' : 'false'}
+          className="min-h-0 flex-1 overflow-auto p-5"
+        >
+          {children}
+        </main>
       </div>
 
       {periodOpen && <PeriodModal onClose={() => setPeriodOpen(false)} />}
@@ -160,11 +170,11 @@ function PeriodModal({ onClose }: { onClose: () => void }): React.JSX.Element {
       <div className="flex gap-3">
         <div className="flex-1">
           <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">From</span>
-          <DateInput value={f} context={f} onChange={setF} />
+          <DateInput value={f} context={f} onChange={setF} testId="input-period-from" />
         </div>
         <div className="flex-1">
           <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">To</span>
-          <DateInput value={t} context={t} onChange={setT} />
+          <DateInput value={t} context={t} onChange={setT} testId="input-period-to" />
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -190,6 +200,7 @@ function PeriodModal({ onClose }: { onClose: () => void }): React.JSX.Element {
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="primary"
+          data-testid="btn-apply-period"
           onClick={() => {
             setPeriod(f, t)
             onClose()

@@ -237,7 +237,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
           <div>{ledger && !ledger.isSystem && <Button variant="danger" onClick={() => void remove()}>Delete</Button>}</div>
           <div className="flex gap-2">
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" onClick={() => void save()}>
+            <Button variant="primary" data-testid="btn-ledger-save" onClick={() => void save()}>
               Save ledger
             </Button>
           </div>

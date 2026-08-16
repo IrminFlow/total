@@ -119,7 +119,7 @@ function PickStep({ busy, onPick }: { busy: boolean; onPick: () => void }): Reac
           your books until you confirm on the next screen.
         </p>
         <div className="mt-5 flex justify-center">
-          <Button variant="primary" disabled={busy} onClick={onPick} className="px-8 py-3 text-[14px]">
+          <Button variant="primary" data-testid="btn-import-tally-pick" disabled={busy} onClick={onPick} className="px-8 py-3 text-[14px]">
             {busy ? 'Reading…' : 'Choose Tally XML…'}
           </Button>
         </div>
@@ -148,7 +148,7 @@ function PreviewStep({
         <Button variant="ghost" disabled={busy} onClick={onDifferentFile}>
           Choose different file
         </Button>
-        <Button variant="primary" disabled={busy} onClick={onImport}>
+        <Button variant="primary" data-testid="btn-import-tally-import" disabled={busy} onClick={onImport}>
           {busy ? 'Importing…' : 'Import now'}
         </Button>
       </div>

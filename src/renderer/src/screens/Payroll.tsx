@@ -19,6 +19,7 @@ export function PayrollScreen(): React.JSX.Element {
         {(['employees', 'runs'] as const).map((t) => (
           <button
             key={t}
+            data-testid={`tab-payroll-${t}`}
             onClick={() => setTab(t)}
             className={`rounded-md px-3 py-1.5 text-[13px] capitalize ${tab === t ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'}`}
           >
@@ -43,7 +44,7 @@ function EmployeesTab(): React.JSX.Element {
   return (
     <>
       <div className="mb-3 flex justify-end">
-        <Button variant="primary" onClick={() => setEditing('new')}>
+        <Button variant="primary" data-testid="btn-payroll-add-employee" onClick={() => setEditing('new')}>
           Add employee
         </Button>
       </div>
@@ -63,7 +64,7 @@ function EmployeesTab(): React.JSX.Element {
                 <th className="w-20"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-payroll-employees">
               {employees.map((e) => (
                 <tr key={e.id} className={e.active ? '' : 'opacity-50'}>
                   <td>
@@ -184,7 +185,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
         </div>
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => void save()}>
+          <Button variant="primary" data-testid="btn-payroll-save-employee" onClick={() => void save()}>
             Save employee
           </Button>
         </div>
@@ -252,7 +253,12 @@ function RunsTab(): React.JSX.Element {
           <Field label="Month">
             <TextInput value={month} onChange={(e) => setMonth(e.target.value)} className="num w-32" placeholder="2026-08" />
           </Field>
-          <Button variant="primary" disabled={alreadyRun || active.length === 0 || posting} onClick={() => void post()}>
+          <Button
+            variant="primary"
+            data-testid="btn-payroll-post-run"
+            disabled={alreadyRun || active.length === 0 || posting}
+            onClick={() => void post()}
+          >
             {alreadyRun ? `Posted for ${month}` : 'Post payroll'}
           </Button>
         </div>
@@ -271,7 +277,7 @@ function RunsTab(): React.JSX.Element {
                 <th className="r w-32">Net pay</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-payroll-preview">
               {preview.map((p) => (
                 <tr key={p.employee.id}>
                   <td>{p.employee.name}</td>

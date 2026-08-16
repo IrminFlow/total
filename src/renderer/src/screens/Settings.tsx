@@ -33,6 +33,7 @@ export function Settings({ tab: initialTab }: { tab?: SettingsTab }): React.JSX.
           {TABS.map((t) => (
             <button
               key={t.id}
+              data-testid={`tab-settings-${t.id}`}
               onClick={() => setTab(t.id)}
               className={`rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors ${
                 tab === t.id ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'

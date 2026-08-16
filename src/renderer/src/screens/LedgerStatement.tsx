@@ -36,6 +36,7 @@ const LedgerStatementRowView = memo(function LedgerStatementRowView({
   return (
     <tr
       data-active={isActive}
+      data-row-id={row.voucherId || undefined}
       className="kbar-row cursor-pointer"
       onMouseEnter={() => onHover(index)}
       onClick={() => onOpen(row.voucherId)}
@@ -172,7 +173,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
                 <th className="r w-36">Balance</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-ledger-statement">
               {displayRows.map((r, i) => (
                 <LedgerStatementRowView
                   key={i}

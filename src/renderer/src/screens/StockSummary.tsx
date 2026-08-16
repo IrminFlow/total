@@ -107,7 +107,7 @@ export function StockSummaryScreen(): React.JSX.Element {
                 {visible.closingValue && <th className="r w-40">Closing value</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody data-testid="rows-stock-summary">
               {rows.map((r) => (
                 <tr key={r.stockItemId} className={r.closingQtyMilli < 0 ? 'text-cr' : ''}>
                   <td>
