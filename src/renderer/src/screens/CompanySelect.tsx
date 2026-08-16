@@ -420,7 +420,7 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
     <Modal title="Create company" onClose={onClose}>
       <div className="flex flex-col gap-4">
         <Field label="Company name">
-          <TextInput autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Sharma Traders" />
+          <TextInput autoFocus data-testid="input-company-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Sharma Traders" />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="State">

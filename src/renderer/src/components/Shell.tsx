@@ -51,6 +51,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           {toDisplayDate(from)} → {toDisplayDate(to)}
         </button>
         <button
+          data-testid="btn-theme"
           className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
           onClick={toggle}
           title="Switch theme"
@@ -69,6 +70,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
               {user.name} · {user.role}
             </span>
             <button
+              data-testid="btn-lock"
               className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
               onClick={async () => {
                 try {
@@ -127,6 +129,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
             Back up now
           </button>
           <button
+            data-testid="btn-switch-company"
             className="rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
             onClick={async () => {
               try {
