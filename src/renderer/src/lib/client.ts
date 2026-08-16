@@ -1,6 +1,6 @@
 import type {
-  BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, PayrollLine, PayrollRun,
-  RecurringTemplate, StockGroup, StockItem, TdsSection, Unit, Voucher, VoucherType
+  Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
+  PayrollLine, PayrollRun, RecurringTemplate, StockGroup, StockItem, TdsSection, Unit, Voucher, VoucherType
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
@@ -11,7 +11,7 @@ import type {
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
-  AuditListInput, BankRuleInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
+  AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
   CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput, NicCredentials, RecurringInput,
   RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTypeInput,
   VoucherInputParsed
@@ -207,6 +207,34 @@ export interface TallyImportSummary {
   warnings: string[]
 }
 
+/** Mirrors src/main/services/stockAnalysis.ts's row shapes (kept local — main-process only). */
+export interface GodownStockRow {
+  godownId: number | null
+  godownName: string
+  stockItemId: number
+  name: string
+  unitSymbol: string
+  decimals: number
+  closingQtyMilli: number
+  closingValue: number
+}
+
+export interface BatchStockRow {
+  batchId: number
+  batchName: string
+  stockItemId: number
+  itemName: string
+  unitSymbol: string
+  decimals: number
+  mfgDate: string | null
+  expiryDate: string | null
+  closingQtyMilli: number
+}
+
+export interface ExpiryAgeingRow extends BatchStockRow {
+  bucket: 'none' | 'expired' | 'within30' | 'within90' | 'later'
+}
+
 async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
   if (!result.ok) throw new Error(result.error ?? 'Unknown error')
@@ -274,7 +302,20 @@ export const api = {
   },
   godowns: {
     list: () => call<Godown[]>('master:godowns:list'),
-    create: (data: GodownInput) => call<Godown>('master:godowns:create', data)
+    create: (data: GodownInput) => call<Godown>('master:godowns:create', data),
+    update: (id: number, data: GodownInput) => call<Godown>('master:godowns:update', { id, data }),
+    remove: (id: number) => call<null>('master:godowns:delete', { id })
+  },
+  batches: {
+    list: (stockItemId?: number) => call<Batch[]>('master:batches:list', { stockItemId }),
+    create: (data: BatchInput) => call<Batch>('master:batches:create', data)
+  },
+  stock: {
+    summary: (asOn: string, godownId?: number) => call<StockSummaryRow[]>('stock:summary', { asOn, godownId }),
+    byGodown: (asOn: string) => call<GodownStockRow[]>('stock:byGodown', { asOn }),
+    batches: (asOn: string, stockItemId?: number) => call<BatchStockRow[]>('stock:batches', { asOn, stockItemId }),
+    expiry: (asOn: string) => call<ExpiryAgeingRow[]>('stock:expiry', { asOn }),
+    negative: (asOn: string) => call<NegativeStockWarning[]>('stock:negative', { asOn })
   },
   vouchers: {
     list: (from: string, to: string, voucherTypeId?: number) =>

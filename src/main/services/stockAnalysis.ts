@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type { StockSummaryRow } from '@shared/reports'
-import { valueStock, type StockMovement, type ValuationMethod } from '@shared/valuation'
+import { valueStock, expiryBucketOf, type ExpiryBucket, type StockMovement, type ValuationMethod } from '@shared/valuation'
 import { IN_BOOKS, checkStock } from './vouchers'
 import type { NegativeStockWarning } from '@shared/domain'
 
@@ -113,4 +113,125 @@ export function stockValue(db: DB, asOn: string): number {
 export function negativeStock(db: DB, asOn: string): NegativeStockWarning[] {
   const ids = (db.prepare('SELECT id FROM stock_items').all() as { id: number }[]).map((r) => r.id)
   return checkStock(db, ids, asOn)
+}
+
+// ---------- godown-wise stock (task 73) ----------
+
+export interface GodownStockRow {
+  godownId: number | null
+  /** '' for lines with no godown. */
+  godownName: string
+  stockItemId: number
+  name: string
+  unitSymbol: string
+  decimals: number
+  closingQtyMilli: number
+  /** Paise — the godown's share of the item's engine-valued closing stock, pro-rated by
+   *  quantity (valuation itself is per item, not per godown). */
+  closingValue: number
+}
+
+/** Per-(item, godown) closing stock as of `asOn`. Only rows with a non-zero quantity. Opening
+ *  balances aren't godown-attributed and land on the "no godown" row. */
+export function stockByGodown(db: DB, asOn: string): GodownStockRow[] {
+  const items = listItems(db)
+  const byItem = movementsByItem(db, asOn)
+  const godowns = new Map(
+    (db.prepare('SELECT id, name FROM godowns').all() as { id: number; name: string }[]).map((g) => [g.id, g.name])
+  )
+
+  const rows: GodownStockRow[] = []
+  for (const item of items) {
+    const moves = byItem.get(item.id) ?? []
+    const summary = valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, moves.map(toMovement))
+
+    // Quantity per godown: absolute (physical-count) lines pin the quantity of the godown they
+    // sit on (null = the company-wide bucket).
+    const qtyByGodown = new Map<number | null, number>()
+    qtyByGodown.set(null, item.openingQtyMilli)
+    for (const m of moves) {
+      const key = m.godownId
+      const cur = qtyByGodown.get(key) ?? 0
+      if (m.isAbsolute) qtyByGodown.set(key, m.qtyMilli)
+      else qtyByGodown.set(key, cur + (m.direction === 'in' ? m.qtyMilli : -m.qtyMilli))
+    }
+
+    // Pro-rate the item's closing value over godown quantities (the last row soaks up the
+    // rounding remainder so the sum always equals the item's closing value).
+    const entries = [...qtyByGodown.entries()].filter(([, qty]) => qty !== 0)
+    const totalQty = summary.closingQtyMilli
+    let allocated = 0
+    entries.forEach(([godownId, qty], i) => {
+      const isLast = i === entries.length - 1
+      const value =
+        totalQty !== 0
+          ? isLast
+            ? summary.closingValue - allocated
+            : Math.round((summary.closingValue * qty) / totalQty)
+          : 0
+      allocated += value
+      rows.push({
+        godownId,
+        godownName: godownId === null ? '' : godowns.get(godownId) ?? '',
+        stockItemId: item.id,
+        name: item.name,
+        unitSymbol: item.unitSymbol,
+        decimals: item.decimals,
+        closingQtyMilli: qty,
+        closingValue: value
+      })
+    })
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name) || a.godownName.localeCompare(b.godownName))
+}
+
+// ---------- batch-wise stock + expiry ageing (task 74) ----------
+
+export interface BatchStockRow {
+  batchId: number
+  batchName: string
+  stockItemId: number
+  itemName: string
+  unitSymbol: string
+  decimals: number
+  mfgDate: string | null
+  expiryDate: string | null
+  closingQtyMilli: number
+}
+
+/** Per-batch closing quantity as of `asOn` (in − out; physical-count absolute lines don't
+ *  carry batch semantics and are excluded). Every known batch is returned, zero rows included,
+ *  optionally scoped to one item. */
+export function batchStock(db: DB, asOn: string, stockItemId?: number): BatchStockRow[] {
+  const itemFilter = stockItemId ? 'AND b.stock_item_id = ?' : ''
+  return db
+    .prepare(
+      `SELECT b.id AS batchId, b.name AS batchName, b.stock_item_id AS stockItemId,
+              si.name AS itemName, u.symbol AS unitSymbol, u.decimals,
+              b.mfg_date AS mfgDate, b.expiry_date AS expiryDate,
+              COALESCE((
+                SELECT SUM(CASE WHEN il.direction = 'in' THEN il.qty_milli ELSE -il.qty_milli END)
+                FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
+                WHERE il.batch_id = b.id AND il.is_absolute = 0 AND v.date <= ? AND ${IN_BOOKS}
+              ), 0) AS closingQtyMilli
+       FROM batches b
+       JOIN stock_items si ON si.id = b.stock_item_id
+       JOIN units u ON u.id = si.unit_id
+       WHERE 1 = 1 ${itemFilter}
+       ORDER BY si.name, b.name`
+    )
+    .all(...(stockItemId ? [asOn, stockItemId] : [asOn])) as BatchStockRow[]
+}
+
+export interface ExpiryAgeingRow extends BatchStockRow {
+  bucket: ExpiryBucket
+}
+
+/** Batches still holding stock as of `asOn`, bucketed by expiry: expired / ≤30 days / ≤90 days /
+ *  later. Batches without an expiry date are omitted. */
+export function expiryAgeing(db: DB, asOn: string): ExpiryAgeingRow[] {
+  return batchStock(db, asOn)
+    .filter((r) => r.closingQtyMilli > 0 && r.expiryDate !== null)
+    .map((r) => ({ ...r, bucket: expiryBucketOf(r.expiryDate, asOn) }))
+    .sort((a, b) => (a.expiryDate! < b.expiryDate! ? -1 : a.expiryDate! > b.expiryDate! ? 1 : 0))
 }

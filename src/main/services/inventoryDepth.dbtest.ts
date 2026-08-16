@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { seededDb } from '../db/testdb'
 import type { DB } from '../db/connection'
 import { saveVoucher, checkStock, type SaveVoucherResult } from './vouchers'
-import { createStockItem, createUnit } from './masters'
+import { createStockItem, createUnit, createGodown, updateGodown, deleteGodown, createBatch, listBatches } from './masters'
 import { setFeatures } from './config'
 import { DEFAULT_FEATURES } from '@shared/features'
 import * as stockAnalysis from './stockAnalysis'
@@ -167,5 +167,114 @@ describe('negative-stock detection', () => {
     const rows = stockAnalysis.negativeStock(db, '2025-05-31')
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ stockItemId: id, closingQtyMilli: -1000 })
+  })
+})
+
+// ---------- I2: godowns, batches, transfers ----------
+
+describe('godown CRUD + godown transfer', () => {
+  it('creates, updates and deletes godowns with an address', () => {
+    const db = seededDb()
+    const g = createGodown(db, { name: 'Main Warehouse', address: '12 MG Road' })
+    expect(g.address).toBe('12 MG Road')
+    const updated = updateGodown(db, g.id, { name: 'Main WH', address: null })
+    expect(updated).toMatchObject({ name: 'Main WH', address: null })
+    deleteGodown(db, g.id)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM godowns WHERE id = ?').get(g.id)).toMatchObject({ n: 0 })
+  })
+
+  it('refuses to delete a godown holding stock movements', () => {
+    const db = seededDb()
+    const g = createGodown(db, { name: 'Held', address: null })
+    const item = makeItem(db, 'Boxed', 'weighted_avg')
+    postStock(db, '2025-05-01', [{ stockItemId: item, qtyMilli: 1000, amount: 1000, direction: 'in', godownId: g.id }])
+    expect(() => deleteGodown(db, g.id)).toThrow(/stock movements/)
+  })
+
+  it('a godown transfer conserves total quantity and value while moving godown balances', () => {
+    const db = seededDb()
+    const a = createGodown(db, { name: 'Godown A', address: null })
+    const b = createGodown(db, { name: 'Godown B', address: null })
+    const item = makeItem(db, 'Moved', 'weighted_avg')
+    postStock(db, '2025-05-01', [{ stockItemId: item, qtyMilli: 10000, amount: 100000, direction: 'in', godownId: a.id }])
+    // Transfer 4 from A to B via a stock journal (out of A, into B).
+    postStock(db, '2025-05-05', [
+      { stockItemId: item, qtyMilli: 4000, direction: 'out', godownId: a.id },
+      { stockItemId: item, qtyMilli: 4000, amount: 40000, direction: 'in', godownId: b.id }
+    ])
+    const total = rowFor(db, item, '2025-05-31')
+    expect(total.closingQtyMilli).toBe(10000)
+    expect(total.closingValue).toBe(100000)
+    const byGodown = stockAnalysis.stockByGodown(db, '2025-05-31').filter((r) => r.stockItemId === item)
+    const inA = byGodown.find((r) => r.godownId === a.id)!
+    const inB = byGodown.find((r) => r.godownId === b.id)!
+    expect(inA.closingQtyMilli).toBe(6000)
+    expect(inB.closingQtyMilli).toBe(4000)
+    expect(inA.closingValue + inB.closingValue).toBe(100000)
+  })
+})
+
+describe('batches', () => {
+  it('createBatch is create-or-return per (item, name) and listBatches scopes by item', () => {
+    const db = seededDb()
+    const item = makeItem(db, 'Batched', 'weighted_avg')
+    const other = makeItem(db, 'Other', 'weighted_avg')
+    const b1 = createBatch(db, { stockItemId: item, name: 'LOT-1', mfgDate: '2025-04-01', expiryDate: '2026-04-01' })
+    const again = createBatch(db, { stockItemId: item, name: 'LOT-1', mfgDate: null, expiryDate: null })
+    expect(again.id).toBe(b1.id)
+    createBatch(db, { stockItemId: other, name: 'LOT-1', mfgDate: null, expiryDate: null })
+    expect(listBatches(db, item)).toHaveLength(1)
+    expect(listBatches(db)).toHaveLength(2)
+  })
+
+  it('tracks per-batch balances and validates outward availability', () => {
+    const db = seededDb()
+    const item = makeItem(db, 'Lots', 'fifo')
+    const lot1 = createBatch(db, { stockItemId: item, name: 'L1', mfgDate: null, expiryDate: null })
+    const lot2 = createBatch(db, { stockItemId: item, name: 'L2', mfgDate: null, expiryDate: null })
+    postStock(db, '2025-05-01', [
+      { stockItemId: item, qtyMilli: 5000, amount: 50000, direction: 'in', batchId: lot1.id },
+      { stockItemId: item, qtyMilli: 3000, amount: 45000, direction: 'in', batchId: lot2.id }
+    ])
+    postStock(db, '2025-05-02', [{ stockItemId: item, qtyMilli: 2000, direction: 'out', batchId: lot1.id }])
+    const rows = stockAnalysis.batchStock(db, '2025-05-31', item)
+    expect(rows.find((r) => r.batchId === lot1.id)!.closingQtyMilli).toBe(3000)
+    expect(rows.find((r) => r.batchId === lot2.id)!.closingQtyMilli).toBe(3000)
+
+    // Taking more than the batch holds is a hard error and rolls back.
+    expect(() => postStock(db, '2025-05-03', [{ stockItemId: item, qtyMilli: 4000, direction: 'out', batchId: lot1.id }]))
+      .toThrow(/Not enough stock in batch L1/)
+    expect(stockAnalysis.batchStock(db, '2025-05-31', item).find((r) => r.batchId === lot1.id)!.closingQtyMilli).toBe(3000)
+  })
+
+  it('rejects a line whose batch belongs to a different item', () => {
+    const db = seededDb()
+    const item = makeItem(db, 'Right', 'weighted_avg')
+    const wrongItem = makeItem(db, 'Wrong', 'weighted_avg')
+    const lot = createBatch(db, { stockItemId: wrongItem, name: 'W1', mfgDate: null, expiryDate: null })
+    expect(() => postStock(db, '2025-05-01', [{ stockItemId: item, qtyMilli: 1000, amount: 0, direction: 'in', batchId: lot.id }]))
+      .toThrow(/different stock item/)
+  })
+
+  it('expiry ageing buckets batches with stock by expiry date', () => {
+    const db = seededDb()
+    const item = makeItem(db, 'Perishable', 'weighted_avg')
+    const asOn = '2025-06-01'
+    const expired = createBatch(db, { stockItemId: item, name: 'EXP', mfgDate: null, expiryDate: '2025-05-20' })
+    const soon = createBatch(db, { stockItemId: item, name: 'SOON', mfgDate: null, expiryDate: '2025-06-20' })
+    const later = createBatch(db, { stockItemId: item, name: 'LATER', mfgDate: null, expiryDate: '2026-06-01' })
+    const empty = createBatch(db, { stockItemId: item, name: 'EMPTY', mfgDate: null, expiryDate: '2025-05-01' })
+    postStock(db, '2025-05-01', [
+      { stockItemId: item, qtyMilli: 1000, amount: 100, direction: 'in', batchId: expired.id },
+      { stockItemId: item, qtyMilli: 1000, amount: 100, direction: 'in', batchId: soon.id },
+      { stockItemId: item, qtyMilli: 1000, amount: 100, direction: 'in', batchId: later.id }
+    ])
+    const rows = stockAnalysis.expiryAgeing(db, asOn)
+    expect(rows.map((r) => [r.batchId, r.bucket])).toEqual([
+      [expired.id, 'expired'],
+      [soon.id, 'within30'],
+      [later.id, 'later']
+    ])
+    expect(rows.find((r) => r.batchId === empty.id)).toBeUndefined()
   })
 })

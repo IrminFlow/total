@@ -355,6 +355,33 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
     // whole save back; soft failures just ride out as warnings on the response. ----
     const features = getFeatures(db)
 
+    // Batches: a line's batch must belong to its stock item, and an outward line can't take
+    // more out of a batch than it holds (hard errors — a batch is a physical lot).
+    const batchLines = input.inventory.filter((l) => l.batchId != null && !l.isAbsolute)
+    if (batchLines.length > 0) {
+      const batchStmt = db.prepare('SELECT id, stock_item_id, name FROM batches WHERE id = ?')
+      const balanceStmt = db.prepare(
+        `SELECT COALESCE(SUM(CASE WHEN il.direction = 'in' THEN il.qty_milli ELSE -il.qty_milli END), 0) AS bal
+         FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
+         WHERE il.batch_id = ? AND il.is_absolute = 0 AND ${IN_BOOKS}`
+      )
+      for (const line of batchLines) {
+        const batch = batchStmt.get(line.batchId) as { id: number; stock_item_id: number; name: string } | undefined
+        if (!batch) throw new Error('Batch not found')
+        if (batch.stock_item_id !== line.stockItemId) {
+          throw new Error(`Batch ${batch.name} belongs to a different stock item`)
+        }
+      }
+      const outBatchIds = [...new Set(batchLines.filter((l) => l.direction === 'out').map((l) => l.batchId!))]
+      for (const batchId of outBatchIds) {
+        const { bal } = balanceStmt.get(batchId) as { bal: number }
+        if (bal < 0) {
+          const batch = batchStmt.get(batchId) as { name: string }
+          throw new Error(`Not enough stock in batch ${batch.name} (short by ${-bal / 1000})`)
+        }
+      }
+    }
+
     // Negative stock — only items this voucher takes out (or recounts) can go negative.
     const outItemIds = [...new Set(
       input.inventory.filter((l) => l.direction === 'out' && !l.isAbsolute).map((l) => l.stockItemId)
