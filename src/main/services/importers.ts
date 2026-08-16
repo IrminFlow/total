@@ -90,7 +90,9 @@ export function importLedgers(db: DB, csvText: string): ImportResult {
         tdsSectionId: existing?.tdsSectionId ?? null,
         pan: row.pan ?? existing?.pan ?? null,
         creditDays: row.creditDays ?? existing?.creditDays ?? null,
-        exportType: existing?.exportType ?? null
+        exportType: existing?.exportType ?? null,
+        rcm: existing?.rcm ?? false,
+        itcEligibility: existing?.itcEligibility ?? 'eligible'
       })
       if (existingId !== null) {
         masters.updateLedger(db, existingId, input)
@@ -245,7 +247,9 @@ export function importOpenings(db: DB, csvText: string): ImportResult {
         tdsSectionId: ledger.tdsSectionId,
         pan: ledger.pan,
         creditDays: ledger.creditDays,
-        exportType: ledger.exportType
+        exportType: ledger.exportType,
+        rcm: ledger.rcm,
+        itcEligibility: ledger.itcEligibility
       })
       masters.updateLedger(db, ledgerId, input)
       updated++

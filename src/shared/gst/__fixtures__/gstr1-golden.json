@@ -1,0 +1,170 @@
+{
+  "gstin": "27AAPFU0939F1ZV",
+  "fp": "072026",
+  "gt": 2500000,
+  "cur_gt": 3000000,
+  "version": "GST3.2.1",
+  "hash": "hash",
+  "b2b": [
+    {
+      "ctin": "27AAPFU0939F1ZV",
+      "inv": [
+        {
+          "inum": "INV-1",
+          "idt": "05-07-2026",
+          "val": 20300,
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            { "num": 1, "itm_det": { "rt": 28, "txval": 15000, "camt": 2100, "samt": 2100, "csamt": 1100 } }
+          ]
+        },
+        {
+          "inum": "SVC-1",
+          "idt": "18-07-2026",
+          "val": 2950,
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            { "num": 1, "itm_det": { "rt": 18, "txval": 2500, "camt": 225, "samt": 225, "csamt": 0 } }
+          ]
+        }
+      ]
+    },
+    {
+      "ctin": "27AABCS1429B1ZU",
+      "inv": [
+        {
+          "inum": "SEZ-1",
+          "idt": "15-07-2026",
+          "val": 3000,
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "SEWOP",
+          "itms": [
+            { "num": 1, "itm_det": { "rt": 18, "txval": 3000, "csamt": 0 } }
+          ]
+        }
+      ]
+    }
+  ],
+  "b2cl": [
+    {
+      "pos": "29",
+      "inv": [
+        {
+          "inum": "INV-2",
+          "idt": "06-07-2026",
+          "val": 118000,
+          "itms": [
+            { "num": 1, "itm_det": { "rt": 18, "txval": 100000, "iamt": 18000, "csamt": 0 } }
+          ]
+        }
+      ]
+    }
+  ],
+  "b2cs": [
+    { "sply_ty": "INTER", "pos": "29", "typ": "OE", "rt": 5, "txval": 5000, "iamt": 250, "csamt": 0 },
+    { "sply_ty": "INTRA", "pos": "27", "typ": "OE", "rt": 5, "txval": 1500, "camt": 37.5, "samt": 37.5, "csamt": 0 }
+  ],
+  "cdnr": [
+    {
+      "ctin": "27AAPFU0939F1ZV",
+      "nt": [
+        {
+          "ntty": "C",
+          "nt_num": "CRN-1",
+          "nt_dt": "09-07-2026",
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "val": 2660,
+          "itms": [
+            { "num": 1, "itm_det": { "rt": 28, "txval": 2000, "camt": 280, "samt": 280, "csamt": 100 } }
+          ]
+        },
+        {
+          "ntty": "D",
+          "nt_num": "DBN-1",
+          "nt_dt": "12-07-2026",
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "val": 1180,
+          "itms": [
+            { "num": 1, "itm_det": { "rt": 18, "txval": 1000, "camt": 90, "samt": 90, "csamt": 0 } }
+          ]
+        }
+      ]
+    }
+  ],
+  "cdnur": [
+    {
+      "ntty": "C",
+      "nt_num": "CRN-2",
+      "nt_dt": "10-07-2026",
+      "typ": "B2CL",
+      "pos": "29",
+      "val": 118000,
+      "itms": [
+        { "num": 1, "itm_det": { "rt": 18, "txval": 100000, "iamt": 18000, "csamt": 0 } }
+      ]
+    }
+  ],
+  "exp": [
+    {
+      "exp_typ": "WPAY",
+      "inv": [
+        {
+          "inum": "EXP-1",
+          "idt": "13-07-2026",
+          "val": 59000,
+          "sbpcode": null,
+          "sbnum": "SB-77",
+          "sbdt": "10-07-2026",
+          "itms": [
+            { "txval": 50000, "rt": 18, "iamt": 9000, "csamt": 0 }
+          ]
+        }
+      ]
+    }
+  ],
+  "nil": {
+    "inv": [
+      { "sply_ty": "INTRB2B", "nil_amt": 400, "expt_amt": 0, "ngsup_amt": 0 },
+      { "sply_ty": "INTRAB2C", "nil_amt": 1000, "expt_amt": 0, "ngsup_amt": 0 }
+    ]
+  },
+  "at": [
+    {
+      "pos": "27",
+      "sply_ty": "INTRA",
+      "itms": [
+        { "rt": 18, "ad_amt": 1000, "iamt": 0, "camt": 90, "samt": 90, "csamt": 0 }
+      ]
+    }
+  ],
+  "doc_issue": {
+    "doc_det": [
+      { "doc_num": 1, "docs": [{ "num": 1, "from": "INV-1", "to": "INV-4", "totnum": 4, "cancel": 1, "net_issue": 3 }] },
+      { "doc_num": 4, "docs": [{ "num": 1, "from": "DBN-1", "to": "DBN-1", "totnum": 1, "cancel": 0, "net_issue": 1 }] },
+      { "doc_num": 5, "docs": [{ "num": 1, "from": "CRN-1", "to": "CRN-3", "totnum": 3, "cancel": 0, "net_issue": 3 }] }
+    ]
+  },
+  "hsn": {
+    "hsn_b2b": [
+      { "num": 1, "hsn_sc": "2402", "desc": "Cigarettes King", "uqc": "BOX", "qty": 8, "txval": 8000, "camt": 1120, "samt": 1120, "csamt": 400, "rt": 28 },
+      { "num": 2, "hsn_sc": "2403", "desc": "Tobacco blend", "uqc": "BOX", "qty": 5, "txval": 5000, "camt": 700, "samt": 700, "csamt": 600, "rt": 28 },
+      { "num": 3, "hsn_sc": "8517", "desc": "Router", "uqc": "PCS", "qty": 1, "txval": 1000, "camt": 90, "samt": 90, "csamt": 0, "rt": 18 },
+      { "num": 4, "hsn_sc": "9983", "desc": "Consulting SEZ", "uqc": "OTH", "qty": 0, "txval": 5500, "camt": 225, "samt": 225, "csamt": 0, "rt": 18 },
+      { "num": 5, "hsn_sc": "1006", "desc": "Rice", "uqc": "KGS", "qty": 20, "txval": 400, "csamt": 0, "rt": 0 }
+    ],
+    "hsn_b2c": [
+      { "num": 1, "hsn_sc": "8471", "desc": "Laptop 14", "uqc": "PCS", "qty": 1, "txval": 50000, "iamt": 9000, "csamt": 0, "rt": 18 },
+      { "num": 2, "hsn_sc": "1001", "desc": "Wheat", "uqc": "KGS", "qty": 130, "txval": 6500, "iamt": 250, "camt": 37.5, "samt": 37.5, "csamt": 0, "rt": 5 },
+      { "num": 3, "hsn_sc": "1006", "desc": "Rice", "uqc": "KGS", "qty": 50, "txval": 1000, "csamt": 0, "rt": 0 }
+    ]
+  }
+}

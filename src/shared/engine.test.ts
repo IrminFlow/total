@@ -465,7 +465,8 @@ describe('GSTR-1 builder', () => {
     expect(json.b2b[0].inv[0].itms[0].itm_det).toEqual({ rt: 18, txval: 1000, camt: 90, samt: 90, csamt: 0 })
     expect(json.b2cl[0].pos).toBe('29')
     expect(json.b2cs[0]).toMatchObject({ sply_ty: 'INTRA', pos: '27', rt: 18, txval: 500 })
-    expect(json.hsn.data[0]).toMatchObject({ hsn_sc: '8471', uqc: 'NOS', qty: 2, txval: 1000 })
+    // Table 12 is bifurcated B2B/B2C per the current offline-tool schema; this doc is registered.
+    expect(json.hsn.hsn_b2b[0]).toMatchObject({ hsn_sc: '8471', uqc: 'NOS', qty: 2, txval: 1000 })
   })
 
   it('aggregates b2cs by pos + rate and nets credit notes in hsn', () => {
@@ -479,8 +480,8 @@ describe('GSTR-1 builder', () => {
     const r = buildGstr1([b2bDoc, cn], '27AAPFU0939F1ZV', '27', '082025')
     const json = r.json as any
     expect(json.cdnr[0].nt[0].ntty).toBe('C')
-    expect(json.hsn.data[0].txval).toBe(800) // 1000 - 200
-    expect(json.hsn.data[0].qty).toBe(1.5)
+    expect(json.hsn.hsn_b2b[0].txval).toBe(800) // 1000 - 200
+    expect(json.hsn.hsn_b2b[0].qty).toBe(1.5)
   })
 })
 
@@ -506,7 +507,16 @@ describe('GSTR-3B builder', () => {
         hsnLines: []
       }
     ]
-    const r = buildGstr3b(docs, { igst: 0, cgst: 5000, sgst: 5000, cess: 0 }, '27AAPFU0939F1ZV', '082025')
+    const zero = { igst: 0, cgst: 0, sgst: 0, cess: 0 }
+    const r = buildGstr3b(
+      {
+        docs,
+        itc: { impg: zero, isrc: zero, oth: { igst: 0, cgst: 5000, sgst: 5000, cess: 0 }, blocked: zero },
+        rcmInward: { taxable: 0, ...zero }
+      },
+      '27AAPFU0939F1ZV',
+      '082025'
+    )
     expect(r.outward.taxable).toBe(90000)
     expect(r.outward.cgst).toBe(8100)
     expect(r.nilExempt.taxable).toBe(5000)

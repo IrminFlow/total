@@ -46,6 +46,7 @@ function paymentVoucherWithTds(
     transporterId: null,
     vehicleNo: null,
     transportDistanceKm: null,
+    posOverride: null,
     currencyCode: null,
     exchangeRate: null,
     lines: [

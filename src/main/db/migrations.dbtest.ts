@@ -31,6 +31,7 @@ const EXPECTED_TABLES = [
   'bank_rules',
   'budgets',
   'budget_lines',
+  'voucher_transport',
   'migrations'
 ]
 
@@ -277,6 +278,43 @@ describe('migrate', () => {
       reorder_level_milli: number | null
     }
     expect(row.reorder_level_milli).toBeNull()
+  })
+
+  it('013: adds ledgers.rcm/itc_eligibility + vouchers.pos_override and creates voucher_transport (cascade on voucher delete)', () => {
+    const db = freshDb()
+    const ledgerColumns = (db.prepare('PRAGMA table_info(ledgers)').all() as { name: string }[]).map((c) => c.name)
+    expect(ledgerColumns).toEqual(expect.arrayContaining(['rcm', 'itc_eligibility']))
+    const voucherColumns = (db.prepare('PRAGMA table_info(vouchers)').all() as { name: string }[]).map((c) => c.name)
+    expect(voucherColumns).toContain('pos_override')
+
+    const groupId = Number(
+      db.prepare("INSERT INTO groups (name, nature, is_system) VALUES ('G13', 'liability', 0)").run().lastInsertRowid
+    )
+    // rcm defaults 0, itc_eligibility defaults 'eligible'; the CHECK rejects unknown values.
+    const lid = Number(db.prepare("INSERT INTO ledgers (name, group_id) VALUES ('RCM Party', ?)").run(groupId).lastInsertRowid)
+    const lrow = db.prepare('SELECT rcm, itc_eligibility FROM ledgers WHERE id = ?').get(lid) as { rcm: number; itc_eligibility: string }
+    expect(lrow).toEqual({ rcm: 0, itc_eligibility: 'eligible' })
+    expect(() =>
+      db.prepare("INSERT INTO ledgers (name, group_id, itc_eligibility) VALUES ('Bad', ?, 'sometimes')").run(groupId)
+    ).toThrow()
+
+    const vtId = Number(db.prepare("INSERT INTO voucher_types (name, kind) VALUES ('Sales G13', 'sales')").run().lastInsertRowid)
+    const vId = Number(
+      db.prepare("INSERT INTO vouchers (voucher_type_id, date, number) VALUES (?, '2026-07-01', 'T-1')").run(vtId).lastInsertRowid
+    )
+    const tColumns = (db.prepare('PRAGMA table_info(voucher_transport)').all() as { name: string }[]).map((c) => c.name)
+    expect(tColumns).toEqual(
+      expect.arrayContaining([
+        'voucher_id', 'trans_mode', 'trans_distance', 'transporter_id', 'transporter_name',
+        'trans_doc_no', 'trans_doc_date', 'vehicle_no', 'vehicle_type',
+        'ship_to_name', 'ship_to_gstin', 'ship_to_addr1', 'ship_to_addr2',
+        'ship_to_place', 'ship_to_pincode', 'ship_to_state'
+      ])
+    )
+    db.prepare("INSERT INTO voucher_transport (voucher_id, trans_mode, ship_to_place) VALUES (?, '1', 'Pune')").run(vId)
+    db.prepare('DELETE FROM vouchers WHERE id = ?').run(vId)
+    const left = db.prepare('SELECT COUNT(*) AS n FROM voucher_transport WHERE voucher_id = ?').get(vId) as { n: number }
+    expect(left.n).toBe(0)
   })
 
   it('creates budgets/budget_lines, enforces the name+FY uniqueness and the ledger-XOR-group CHECK, and cascades line deletes', () => {

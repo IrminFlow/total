@@ -1,0 +1,60 @@
+{
+  "version": "1.0.0421",
+  "billLists": [
+    {
+      "userGstin": "27AAPFU0939F1ZV",
+      "supplyType": "O",
+      "subSupplyType": "1",
+      "subSupplyDesc": "",
+      "docType": "INV",
+      "docNo": "INV-2",
+      "docDate": "06/07/2026",
+      "transactionType": 2,
+      "fromGstin": "27AAPFU0939F1ZV",
+      "fromTrdName": "Demo Traders",
+      "fromAddr1": "12 MG Road",
+      "fromAddr2": "",
+      "fromPlace": "Pune",
+      "fromStateCode": 27,
+      "actualFromStateCode": 27,
+      "fromPincode": 411001,
+      "toGstin": "URP",
+      "toTrdName": "Cash buyer",
+      "toAddr1": "Plot 9, ITPL",
+      "toAddr2": "Whitefield",
+      "toPlace": "Bengaluru",
+      "toStateCode": 29,
+      "actualToStateCode": 29,
+      "toPincode": 560066,
+      "mainHsnCode": "8471",
+      "itemList": [
+        {
+          "productName": "Laptop 14",
+          "productDesc": "Laptop 14",
+          "hsnCode": "8471",
+          "quantity": 2,
+          "qtyUnit": "PCS",
+          "taxableAmount": 100000,
+          "cgstRate": 0,
+          "sgstRate": 0,
+          "igstRate": 18,
+          "cessRate": 0
+        }
+      ],
+      "totalValue": 100000,
+      "cgstValue": 0,
+      "sgstValue": 0,
+      "igstValue": 18000,
+      "cessValue": 0,
+      "totInvValue": 118000,
+      "transMode": "1",
+      "transDistance": "350",
+      "transporterId": "29AACCR7832C1ZD",
+      "transporterName": "VRL Logistics",
+      "transDocNo": "LR-9",
+      "transDocDate": "06/07/2026",
+      "vehicleNo": "KA01AB1234",
+      "vehicleType": "R"
+    }
+  ]
+}

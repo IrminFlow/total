@@ -24,7 +24,7 @@ function voucherJsonFor(
   const input: VoucherInputParsed = {
     voucherTypeId, date, number: undefined, partyLedgerId: null, narration: 'Recurring rent',
     reference: null, instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
-    transportDistanceKm: null, currencyCode: null, exchangeRate: null, lines, inventory: [], billRefs: [], tds: null
+    transportDistanceKm: null, posOverride: null, currencyCode: null, exchangeRate: null, lines, inventory: [], billRefs: [], tds: null
   }
   return JSON.stringify(input)
 }
