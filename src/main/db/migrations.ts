@@ -369,5 +369,29 @@ export const MIGRATIONS: string[] = [
     amount INTEGER NOT NULL,
     CHECK ((ledger_id IS NULL) <> (group_id IS NULL))
   );
+  `,
+  // 012 — perf hardening (v0.3 lane R): FK indexes for every child column that reports/services
+  // join or filter on but had no index, one covering index for the stock-report hot path
+  // (inventory_lines by item joined back to vouchers), and stock_items.reorder_level_milli
+  // (integer thousandths; NULL = no reorder level set) feeding the stock ageing/reorder report.
+  `
+  CREATE INDEX idx_bill_refs_voucher ON bill_refs(voucher_id);
+  CREATE INDEX idx_vlca_line ON voucher_line_cost_allocations(voucher_line_id);
+  CREATE INDEX idx_budget_lines_budget ON budget_lines(budget_id);
+  CREATE INDEX idx_payroll_lines_run ON payroll_lines(run_id);
+  CREATE INDEX idx_payroll_lines_employee ON payroll_lines(employee_id);
+  CREATE INDEX idx_bank_rules_ledger ON bank_rules(ledger_id);
+  CREATE INDEX idx_bom_lines_component ON bom_lines(component_id);
+  CREATE INDEX idx_inv_godown ON inventory_lines(godown_id);
+  CREATE INDEX idx_groups_parent ON groups(parent_id);
+  CREATE INDEX idx_stock_groups_parent ON stock_groups(parent_id);
+  CREATE INDEX idx_stock_items_group ON stock_items(group_id);
+  CREATE INDEX idx_stock_items_unit ON stock_items(unit_id);
+  CREATE INDEX idx_ledgers_tds_section ON ledgers(tds_section_id);
+  CREATE INDEX idx_recurring_templates_vt ON recurring_templates(voucher_type_id);
+  CREATE INDEX idx_cost_centres_parent ON cost_centres(parent_id);
+  CREATE INDEX idx_inv_item_voucher ON inventory_lines(stock_item_id, voucher_id);
+
+  ALTER TABLE stock_items ADD COLUMN reorder_level_milli INTEGER;
   `
 ]

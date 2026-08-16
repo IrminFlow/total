@@ -10,6 +10,8 @@ import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 
 const COLUMNS: ReportColumn[] = [
+  { key: 'opening', label: 'Opening', defaultOn: false },
+  { key: 'movement', label: 'Movement (Dr / Cr)', defaultOn: false },
   { key: 'debit', label: 'Debit', defaultOn: true },
   { key: 'credit', label: 'Credit', defaultOn: true }
 ]
@@ -31,14 +33,24 @@ export function TrialBalanceScreen(): React.JSX.Element {
   const exportColumns: PdfColumn[] = [
     { label: 'Ledger', align: 'l' },
     { label: 'Group', align: 'l' },
+    ...(visible.opening ? [{ label: 'Opening', align: 'r' as const }] : []),
+    ...(visible.movement
+      ? [{ label: 'Movement Dr', align: 'r' as const }, { label: 'Movement Cr', align: 'r' as const }]
+      : []),
     ...(visible.debit ? [{ label: 'Debit', align: 'r' as const }] : []),
     ...(visible.credit ? [{ label: 'Credit', align: 'r' as const }] : [])
   ]
+  const signedOpening = (p: number): string =>
+    p === 0 ? '–' : `${formatPaise(Math.abs(p))} ${p > 0 ? 'Dr' : 'Cr'}`
   const exportRows: PdfRow[] = [
     ...rows.map((r) => ({
       cells: [
         r.ledgerName,
         r.groupName,
+        ...(visible.opening ? [signedOpening(r.opening)] : []),
+        ...(visible.movement
+          ? [formatPaise(r.movementDebit, { zeroDash: true }), formatPaise(r.movementCredit, { zeroDash: true })]
+          : []),
         ...(visible.debit ? [formatPaise(r.debit, { zeroDash: true })] : []),
         ...(visible.credit ? [formatPaise(r.credit, { zeroDash: true })] : [])
       ]
@@ -47,6 +59,15 @@ export function TrialBalanceScreen(): React.JSX.Element {
       cells: [
         'Total',
         '',
+        ...(visible.opening
+          ? [signedOpening((data?.openingDebitTotal ?? 0) - (data?.openingCreditTotal ?? 0))]
+          : []),
+        ...(visible.movement
+          ? [
+              formatPaise(data?.movementDebitTotal ?? 0, { zeroDash: true }),
+              formatPaise(data?.movementCreditTotal ?? 0, { zeroDash: true })
+            ]
+          : []),
         ...(visible.debit ? [formatPaise(data?.totalDebit ?? 0, { zeroDash: true })] : []),
         ...(visible.credit ? [formatPaise(data?.totalCredit ?? 0, { zeroDash: true })] : [])
       ],
@@ -95,6 +116,9 @@ export function TrialBalanceScreen(): React.JSX.Element {
               <tr>
                 <th>Ledger</th>
                 <th>Group</th>
+                {visible.opening && <th className="r w-36">Opening</th>}
+                {visible.movement && <th className="r w-36">Movement Dr</th>}
+                {visible.movement && <th className="r w-36">Movement Cr</th>}
                 {visible.debit && <th className="r w-40">Debit</th>}
                 {visible.credit && <th className="r w-40">Credit</th>}
               </tr>
@@ -110,6 +134,21 @@ export function TrialBalanceScreen(): React.JSX.Element {
                 >
                   <td>{r.ledgerName}</td>
                   <td className="text-muted">{r.groupName}</td>
+                  {visible.opening && (
+                    <td className="r">
+                      <Money paise={r.opening} signed />
+                    </td>
+                  )}
+                  {visible.movement && (
+                    <td className="r">
+                      <Money paise={r.movementDebit} />
+                    </td>
+                  )}
+                  {visible.movement && (
+                    <td className="r">
+                      <Money paise={r.movementCredit} />
+                    </td>
+                  )}
                   {visible.debit && (
                     <td className="r">
                       <Money paise={r.debit} />
@@ -124,6 +163,21 @@ export function TrialBalanceScreen(): React.JSX.Element {
               ))}
               <tr className="total-row">
                 <td colSpan={2}>Total {matched ? '' : '— debits and credits differ; check opening balances'}</td>
+                {visible.opening && (
+                  <td className="r">
+                    <Money paise={(data?.openingDebitTotal ?? 0) - (data?.openingCreditTotal ?? 0)} signed />
+                  </td>
+                )}
+                {visible.movement && (
+                  <td className="r">
+                    <Money paise={data?.movementDebitTotal ?? 0} />
+                  </td>
+                )}
+                {visible.movement && (
+                  <td className="r">
+                    <Money paise={data?.movementCreditTotal ?? 0} />
+                  </td>
+                )}
                 {visible.debit && (
                   <td className="r">
                     <Money paise={data?.totalDebit ?? 0} />

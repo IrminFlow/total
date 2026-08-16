@@ -5,7 +5,7 @@ import { join, basename } from 'path'
 import { z } from 'zod'
 import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
-import { backupCompany, openCompanyDb } from './db/connection'
+import { backupCompany, closeCompanyDb, openCompanyDb } from './db/connection'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, type BackupInfo } from './db/backup'
 import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
@@ -103,7 +103,7 @@ function renameFile(src: string, dest: string): void {
 
 export function closeCurrentCompany(): void {
   if (current) {
-    current.db.close()
+    closeCompanyDb(current.db)
     current = null
   }
   sessionUser = null
@@ -501,21 +501,23 @@ export function registerIpc(): void {
     return reports.dayBook(requireCompany().db, from, to)
   }, 'viewer')
   handle('report:ledger', (p) => {
-    const { ledgerId, from, to } = periodSchema.extend({ ledgerId: z.number().int().positive() }).parse(p)
-    return reports.ledgerStatement(requireCompany().db, ledgerId, from, to)
+    const { ledgerId, from, to, groupBy } = periodSchema
+      .extend({ ledgerId: z.number().int().positive(), groupBy: z.enum(['month']).optional() })
+      .parse(p)
+    return reports.ledgerStatement(requireCompany().db, ledgerId, from, to, groupBy)
   }, 'viewer')
   handle('report:trialBalance', (p) => {
     const { asOn } = z.object({ asOn: z.string() }).parse(p)
     return reports.trialBalance(requireCompany().db, asOn)
   }, 'viewer')
   handle('report:profitLoss', (p) => {
-    const { from, to } = periodSchema.parse(p)
-    return reports.profitAndLoss(requireCompany().db, from, to)
+    const { from, to, comparePrior } = periodSchema.extend({ comparePrior: z.boolean().optional() }).parse(p)
+    return reports.profitAndLoss(requireCompany().db, from, to, comparePrior ? { comparePrior } : undefined)
   }, 'viewer')
   handle('report:balanceSheet', (p) => {
-    const { asOn } = z.object({ asOn: z.string() }).parse(p)
+    const { asOn, comparePrior } = z.object({ asOn: z.string(), comparePrior: z.boolean().optional() }).parse(p)
     const c = requireCompany()
-    return reports.balanceSheet(c.db, `${c.info.booksFrom}-04-01`, asOn)
+    return reports.balanceSheet(c.db, `${c.info.booksFrom}-04-01`, asOn, comparePrior)
   }, 'viewer')
   handle('report:stockSummary', (p) => {
     const { asOn } = z.object({ asOn: z.string() }).parse(p)
@@ -524,6 +526,22 @@ export function registerIpc(): void {
   handle('report:dashboard', (p) => {
     const { today, fyFrom } = z.object({ today: z.string(), fyFrom: z.string() }).parse(p)
     return reports.dashboard(requireCompany().db, today, fyFrom)
+  }, 'viewer')
+  handle('report:cashFlow', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return reports.cashFlow(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('report:stockAgeing', (p) => {
+    const { asOn } = z.object({ asOn: z.string() }).parse(p)
+    return reports.stockAgeing(requireCompany().db, asOn)
+  }, 'viewer')
+  handle('report:itemProfitability', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return reports.itemProfitability(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('report:exceptions', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return reports.exceptions(requireCompany().db, from, to)
   }, 'viewer')
 
   // ---------- consolidated (multi-company, read-only) ----------

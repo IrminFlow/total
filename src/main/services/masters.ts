@@ -270,12 +270,12 @@ export function createStockGroup(db: DB, input: StockGroupInput): StockGroup {
 interface StockItemRow {
   id: number; name: string; group_id: number | null; unit_id: number; hsn: string | null
   gst_rate: number | null; cess_rate: number | null; opening_qty_milli: number; opening_value: number
-  barcode: string | null
+  barcode: string | null; reorder_level_milli: number | null
 }
 const mapItem = (r: StockItemRow): StockItem => ({
   id: r.id, name: r.name, groupId: r.group_id, unitId: r.unit_id, hsn: r.hsn,
   gstRate: r.gst_rate, cessRate: r.cess_rate, openingQtyMilli: r.opening_qty_milli, openingValue: r.opening_value,
-  barcode: r.barcode
+  barcode: r.barcode, reorderLevelMilli: r.reorder_level_milli
 })
 
 export function listStockItems(db: DB): StockItem[] {
@@ -284,10 +284,10 @@ export function listStockItems(db: DB): StockItem[] {
 
 export function createStockItem(db: DB, input: StockItemInput): StockItem {
   const res = db.prepare(
-    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode, reorder_level_milli)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
-    input.openingQtyMilli, input.openingValue, input.barcode)
+    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli)
   const created = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(res.lastInsertRowid) as StockItemRow)
   writeAudit(db, 'stockItem', created.id, 'create', null, created)
   return created
@@ -298,9 +298,9 @@ export function updateStockItem(db: DB, id: number, input: StockItemInput): Stoc
   if (!existing) throw new Error('Stock item not found')
   db.prepare(
     `UPDATE stock_items SET name = ?, group_id = ?, unit_id = ?, hsn = ?, gst_rate = ?, cess_rate = ?,
-     opening_qty_milli = ?, opening_value = ?, barcode = ? WHERE id = ?`
+     opening_qty_milli = ?, opening_value = ?, barcode = ?, reorder_level_milli = ? WHERE id = ?`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
-    input.openingQtyMilli, input.openingValue, input.barcode, id)
+    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, id)
   const updated = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow)
   writeAudit(db, 'stockItem', id, 'update', mapItem(existing), updated)
   return updated

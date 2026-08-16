@@ -97,7 +97,9 @@ export const stockItemInputSchema = z.object({
     .max(64)
     .nullable()
     .default(null)
-    .transform((s) => (s === '' ? null : s))
+    .transform((s) => (s === '' ? null : s)),
+  /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
+  reorderLevelMilli: z.number().int().min(0).nullable().default(null)
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
 

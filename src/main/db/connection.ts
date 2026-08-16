@@ -14,8 +14,24 @@ export function openCompanyDb(slug: string): DB {
   db.pragma('journal_mode = WAL')
   db.pragma('busy_timeout = 5000')
   db.pragma('foreign_keys = ON')
+  // Perf tuning (v0.3): ~64MB page cache and memory-mapped reads keep the hot report
+  // queries off the disk; ANALYZE below refreshes planner stats after any new migration.
+  db.pragma('cache_size = -64000')
+  db.pragma('mmap_size = 268435456')
   migrate(db)
+  db.exec('ANALYZE')
   return db
+}
+
+/** Close a company DB, first letting SQLite fold fresh ANALYZE-style stats into the schema
+ *  (`PRAGMA optimize` is the documented cheap pre-close hook). Failures never block the close. */
+export function closeCompanyDb(db: DB): void {
+  try {
+    db.pragma('optimize')
+  } catch {
+    // stats refresh is best-effort
+  }
+  db.close()
 }
 
 const MAX_BACKUPS = 20

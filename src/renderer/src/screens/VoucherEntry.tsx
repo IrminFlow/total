@@ -1991,7 +1991,8 @@ export function QuickItemModal({
         cessRate: null,
         openingQtyMilli: 0,
         openingValue: 0,
-        barcode: null
+        barcode: null,
+        reorderLevelMilli: null
       })
       await queryClient.invalidateQueries({ queryKey: ['stockItems'] })
       toast.push('success', `Item “${item.name}” created`)

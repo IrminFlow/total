@@ -1,0 +1,919 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`R2 parity — budgets & dashboard > budget variance is unchanged > budget variance 1`] = `
+[
+  {
+    "actual": 30000,
+    "budget": 100000,
+    "month": null,
+    "pct": 30,
+    "targetName": "Rent",
+    "variance": -70000,
+  },
+  {
+    "actual": 30000,
+    "budget": 50000,
+    "month": "2025-05",
+    "pct": 60,
+    "targetName": "Indirect Expenses",
+    "variance": -20000,
+  },
+]
+`;
+
+exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 1`] = `
+{
+  "bankBalance": 530000,
+  "cashBalance": 10000,
+  "cashSpark": [
+    {
+      "balance": 520000,
+      "date": "2025-06-01",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-02",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-03",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-04",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-05",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-06",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-07",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-08",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-09",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-10",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-11",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-12",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-13",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-14",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-15",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-16",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-17",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-18",
+    },
+    {
+      "balance": 520000,
+      "date": "2025-06-19",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-20",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-21",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-22",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-23",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-24",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-25",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-26",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-27",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-28",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-29",
+    },
+    {
+      "balance": 540000,
+      "date": "2025-06-30",
+    },
+  ],
+  "gstPayable": 0,
+  "hasEmployees": false,
+  "itemCount": 1,
+  "monthPurchases": 0,
+  "monthSales": 59000,
+  "partyCount": 3,
+  "payables": 182600,
+  "ratios": {
+    "creditorDays": 201.17,
+    "currentRatio": 7.68,
+    "debtorDays": 183.54,
+    "grossMarginPct": 56.11,
+    "inventoryTurnover": 0.15,
+    "netMarginPct": 39.16,
+    "quickRatio": 4.91,
+  },
+  "receivables": 357000,
+  "recentVouchers": [
+    {
+      "account": "Debtor B",
+      "credit": 20000,
+      "date": "2025-06-20",
+      "debit": 20000,
+      "narration": null,
+      "number": "2",
+      "voucherId": 7,
+      "voucherType": "Receipt",
+    },
+    {
+      "account": "Debtor B",
+      "credit": 59000,
+      "date": "2025-06-01",
+      "debit": 59000,
+      "narration": null,
+      "number": "2",
+      "voucherId": 6,
+      "voucherType": "Sales",
+    },
+    {
+      "account": "Cash",
+      "credit": 20000,
+      "date": "2025-05-15",
+      "debit": 20000,
+      "narration": null,
+      "number": "1",
+      "voucherId": 5,
+      "voucherType": "Contra",
+    },
+    {
+      "account": "Rent",
+      "credit": 30000,
+      "date": "2025-05-10",
+      "debit": 30000,
+      "narration": null,
+      "number": "1",
+      "voucherId": 4,
+      "voucherType": "Payment",
+    },
+    {
+      "account": "Creditor X",
+      "credit": 82600,
+      "date": "2025-05-02",
+      "debit": 82600,
+      "narration": null,
+      "number": "1",
+      "voucherId": 3,
+      "voucherType": "Purchase",
+    },
+    {
+      "account": "Debtor A",
+      "credit": 50000,
+      "date": "2025-04-20",
+      "debit": 50000,
+      "narration": null,
+      "number": "1",
+      "voucherId": 2,
+      "voucherType": "Receipt",
+    },
+    {
+      "account": "Debtor A",
+      "credit": 118000,
+      "date": "2025-04-05",
+      "debit": 118000,
+      "narration": null,
+      "number": "1",
+      "voucherId": 1,
+      "voucherType": "Sales",
+    },
+  ],
+  "todaySales": 0,
+  "topPayables": [
+    {
+      "amount": 182600,
+      "ledgerId": 4,
+      "name": "Creditor X",
+    },
+  ],
+  "topReceivables": [
+    {
+      "amount": 318000,
+      "ledgerId": 2,
+      "name": "Debtor A",
+    },
+    {
+      "amount": 39000,
+      "ledgerId": 3,
+      "name": "Debtor B",
+    },
+  ],
+  "voucherCount": 7,
+}
+`;
+
+exports[`R2 parity — intel > ledger suggestions (frequency ranking) are unchanged > payment suggestions 1`] = `
+[
+  {
+    "groupName": "Cash-in-Hand",
+    "ledgerId": 1,
+    "name": "Cash",
+    "uses": 1,
+  },
+  {
+    "groupName": "Indirect Expenses",
+    "ledgerId": 6,
+    "name": "Rent",
+    "uses": 1,
+  },
+  {
+    "groupName": "Capital Account",
+    "ledgerId": 9,
+    "name": "Capital",
+    "uses": 0,
+  },
+  {
+    "groupName": "Sundry Creditors",
+    "ledgerId": 4,
+    "name": "Creditor X",
+    "uses": 0,
+  },
+  {
+    "groupName": "Sundry Debtors",
+    "ledgerId": 2,
+    "name": "Debtor A",
+    "uses": 0,
+  },
+  {
+    "groupName": "Sundry Debtors",
+    "ledgerId": 3,
+    "name": "Debtor B",
+    "uses": 0,
+  },
+  {
+    "groupName": "Bank Accounts",
+    "ledgerId": 5,
+    "name": "HDFC Bank",
+    "uses": 0,
+  },
+  {
+    "groupName": "Purchase Accounts",
+    "ledgerId": 7,
+    "name": "Purchases",
+    "uses": 0,
+  },
+]
+`;
+
+exports[`R2 parity — intel > ledger suggestions (frequency ranking) are unchanged > sales deb suggestions 1`] = `
+[
+  {
+    "groupName": "Sundry Debtors",
+    "ledgerId": 2,
+    "name": "Debtor A",
+    "uses": 1,
+  },
+  {
+    "groupName": "Sundry Debtors",
+    "ledgerId": 3,
+    "name": "Debtor B",
+    "uses": 1,
+  },
+]
+`;
+
+exports[`R2 parity — outstandings > receivables/payables and open bills are unchanged > debtorA open bills 1`] = `
+[
+  {
+    "ageDays": 90,
+    "amount": 250000,
+    "date": "2025-04-01",
+    "dueDate": "2025-05-01",
+    "number": "Opening",
+    "overdueDays": 60,
+    "pending": 250000,
+    "voucherId": null,
+  },
+  {
+    "ageDays": 86,
+    "amount": 118000,
+    "date": "2025-04-05",
+    "dueDate": "2025-05-05",
+    "number": "INV-1",
+    "overdueDays": 56,
+    "pending": 68000,
+    "voucherId": 1,
+  },
+]
+`;
+
+exports[`R2 parity — outstandings > receivables/payables and open bills are unchanged > payables 1`] = `
+[
+  {
+    "bills": [
+      {
+        "ageDays": 90,
+        "amount": 100000,
+        "date": "2025-04-01",
+        "dueDate": null,
+        "number": "Opening",
+        "overdueDays": 90,
+        "pending": 100000,
+        "voucherId": null,
+      },
+      {
+        "ageDays": 59,
+        "amount": 82600,
+        "date": "2025-05-02",
+        "dueDate": null,
+        "number": "1",
+        "overdueDays": 59,
+        "pending": 82600,
+        "voucherId": 3,
+      },
+    ],
+    "buckets": [
+      0,
+      82600,
+      100000,
+      0,
+    ],
+    "ledgerId": 4,
+    "name": "Creditor X",
+    "pending": 182600,
+  },
+]
+`;
+
+exports[`R2 parity — outstandings > receivables/payables and open bills are unchanged > receivables 1`] = `
+[
+  {
+    "bills": [
+      {
+        "ageDays": 90,
+        "amount": 250000,
+        "date": "2025-04-01",
+        "dueDate": "2025-05-01",
+        "number": "Opening",
+        "overdueDays": 60,
+        "pending": 250000,
+        "voucherId": null,
+      },
+      {
+        "ageDays": 86,
+        "amount": 118000,
+        "date": "2025-04-05",
+        "dueDate": "2025-05-05",
+        "number": "INV-1",
+        "overdueDays": 56,
+        "pending": 68000,
+        "voucherId": 1,
+      },
+    ],
+    "buckets": [
+      0,
+      318000,
+      0,
+      0,
+    ],
+    "ledgerId": 2,
+    "name": "Debtor A",
+    "pending": 318000,
+  },
+  {
+    "bills": [
+      {
+        "ageDays": 29,
+        "amount": 59000,
+        "date": "2025-06-01",
+        "dueDate": null,
+        "number": "2",
+        "overdueDays": 29,
+        "pending": 39000,
+        "voucherId": 6,
+      },
+    ],
+    "buckets": [
+      39000,
+      0,
+      0,
+      0,
+    ],
+    "ledgerId": 3,
+    "name": "Debtor B",
+    "pending": 39000,
+  },
+]
+`;
+
+exports[`R2 parity — statements > ledger statements (incl. multi-name particulars) are unchanged > cash statement 1`] = `
+{
+  "closing": 0,
+  "ledgerId": 1,
+  "ledgerName": "Cash",
+  "opening": 0,
+  "rows": [
+    {
+      "credit": 30000,
+      "date": "2025-05-10",
+      "debit": 0,
+      "narration": null,
+      "number": "1",
+      "particulars": "Rent",
+      "running": -30000,
+      "voucherId": 4,
+      "voucherType": "Payment",
+    },
+    {
+      "credit": 0,
+      "date": "2025-05-15",
+      "debit": 20000,
+      "narration": null,
+      "number": "1",
+      "particulars": "HDFC Bank",
+      "running": -10000,
+      "voucherId": 5,
+      "voucherType": "Contra",
+    },
+    {
+      "credit": 0,
+      "date": "2025-06-20",
+      "debit": 20000,
+      "narration": null,
+      "number": "2",
+      "particulars": "Debtor B",
+      "running": 10000,
+      "voucherId": 7,
+      "voucherType": "Receipt",
+    },
+    {
+      "credit": 10000,
+      "date": "2025-06-25",
+      "debit": 0,
+      "narration": null,
+      "number": "1",
+      "particulars": "Rent,Purchases",
+      "running": 0,
+      "voucherId": 8,
+      "voucherType": "Journal",
+    },
+  ],
+  "totalCredit": 40000,
+  "totalDebit": 40000,
+}
+`;
+
+exports[`R2 parity — statements > ledger statements (incl. multi-name particulars) are unchanged > debtorA statement 1`] = `
+{
+  "closing": 318000,
+  "ledgerId": 2,
+  "ledgerName": "Debtor A",
+  "opening": 250000,
+  "rows": [
+    {
+      "credit": 0,
+      "date": "2025-04-05",
+      "debit": 118000,
+      "narration": null,
+      "number": "1",
+      "particulars": "Sales Local",
+      "running": 368000,
+      "voucherId": 1,
+      "voucherType": "Sales",
+    },
+    {
+      "credit": 50000,
+      "date": "2025-04-20",
+      "debit": 0,
+      "narration": null,
+      "number": "1",
+      "particulars": "HDFC Bank",
+      "running": 318000,
+      "voucherId": 2,
+      "voucherType": "Receipt",
+    },
+  ],
+  "totalCredit": 50000,
+  "totalDebit": 118000,
+}
+`;
+
+exports[`R2 parity — statements > registers by month are unchanged > purchase register 1`] = `
+[
+  {
+    "month": "2025-05",
+    "tax": 0,
+    "taxable": 82600,
+    "total": 82600,
+    "vouchers": 1,
+  },
+]
+`;
+
+exports[`R2 parity — statements > registers by month are unchanged > sales register 1`] = `
+[
+  {
+    "month": "2025-04",
+    "tax": 0,
+    "taxable": 118000,
+    "total": 118000,
+    "vouchers": 1,
+  },
+  {
+    "month": "2025-06",
+    "tax": 0,
+    "taxable": 59000,
+    "total": 59000,
+    "vouchers": 1,
+  },
+]
+`;
+
+exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock summary are unchanged by the rewrites > balanceSheet 1`] = `
+{
+  "asOn": "2025-06-30",
+  "assets": [
+    {
+      "amount": 1401920,
+      "children": [
+        {
+          "amount": 530000,
+          "children": [
+            {
+              "amount": 530000,
+              "children": [],
+              "id": 5,
+              "kind": "ledger",
+              "name": "HDFC Bank",
+            },
+          ],
+          "id": 14,
+          "kind": "group",
+          "name": "Bank Accounts",
+        },
+        {
+          "amount": 10000,
+          "children": [
+            {
+              "amount": 10000,
+              "children": [],
+              "id": 1,
+              "kind": "ledger",
+              "name": "Cash",
+            },
+          ],
+          "id": 15,
+          "kind": "group",
+          "name": "Cash-in-Hand",
+        },
+        {
+          "amount": 357000,
+          "children": [
+            {
+              "amount": 318000,
+              "children": [],
+              "id": 2,
+              "kind": "ledger",
+              "name": "Debtor A",
+            },
+            {
+              "amount": 39000,
+              "children": [],
+              "id": 3,
+              "kind": "ledger",
+              "name": "Debtor B",
+            },
+          ],
+          "id": 19,
+          "kind": "group",
+          "name": "Sundry Debtors",
+        },
+        {
+          "amount": 504920,
+          "children": [],
+          "id": -2,
+          "kind": "computed",
+          "name": "Stock-in-Hand",
+        },
+      ],
+      "id": 13,
+      "kind": "group",
+      "name": "Current Assets",
+    },
+  ],
+  "liabilities": [
+    {
+      "amount": 650000,
+      "children": [
+        {
+          "amount": 650000,
+          "children": [],
+          "id": 9,
+          "kind": "ledger",
+          "name": "Capital",
+        },
+      ],
+      "id": 1,
+      "kind": "group",
+      "name": "Capital Account",
+    },
+    {
+      "amount": 182600,
+      "children": [
+        {
+          "amount": 182600,
+          "children": [
+            {
+              "amount": 182600,
+              "children": [],
+              "id": 4,
+              "kind": "ledger",
+              "name": "Creditor X",
+            },
+          ],
+          "id": 10,
+          "kind": "group",
+          "name": "Sundry Creditors",
+        },
+      ],
+      "id": 7,
+      "kind": "group",
+      "name": "Current Liabilities",
+    },
+    {
+      "amount": 69320,
+      "children": [],
+      "id": -3,
+      "kind": "computed",
+      "name": "Profit & Loss A/c",
+    },
+    {
+      "amount": 500000,
+      "children": [],
+      "id": -4,
+      "kind": "computed",
+      "name": "Difference in Opening Balances",
+    },
+  ],
+  "profitCurrentPeriod": 69320,
+  "totalAssets": 1401920,
+  "totalLiabilities": 1401920,
+}
+`;
+
+exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock summary are unchanged by the rewrites > profitAndLoss 1`] = `
+{
+  "closingStock": 504920,
+  "grossProfit": 99320,
+  "indirectExpenses": [
+    {
+      "amount": 30000,
+      "children": [
+        {
+          "amount": 30000,
+          "children": [],
+          "id": 6,
+          "kind": "ledger",
+          "name": "Rent",
+        },
+      ],
+      "id": 28,
+      "kind": "group",
+      "name": "Indirect Expenses",
+    },
+  ],
+  "indirectIncomes": [],
+  "netProfit": 69320,
+  "openingStock": 500000,
+  "period": {
+    "from": "2025-04-01",
+    "to": "2025-06-30",
+  },
+  "tradingExpenses": [
+    {
+      "amount": 82600,
+      "children": [
+        {
+          "amount": 82600,
+          "children": [],
+          "id": 7,
+          "kind": "ledger",
+          "name": "Purchases",
+        },
+      ],
+      "id": 24,
+      "kind": "group",
+      "name": "Purchase Accounts",
+    },
+  ],
+  "tradingIncomes": [
+    {
+      "amount": 177000,
+      "children": [
+        {
+          "amount": 177000,
+          "children": [],
+          "id": 8,
+          "kind": "ledger",
+          "name": "Sales Local",
+        },
+      ],
+      "id": 23,
+      "kind": "group",
+      "name": "Sales Accounts",
+    },
+  ],
+}
+`;
+
+exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock summary are unchanged by the rewrites > stockSummary 1`] = `
+[
+  {
+    "closingQtyMilli": 13000,
+    "closingValue": 504920,
+    "decimals": 0,
+    "inwardQtyMilli": 5000,
+    "name": "Widget",
+    "openingQtyMilli": 10000,
+    "openingValue": 500000,
+    "outwardQtyMilli": 2000,
+    "stockItemId": 1,
+    "unitSymbol": "Nos",
+  },
+]
+`;
+
+exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock summary are unchanged by the rewrites > trialBalance 1`] = `
+{
+  "movementCreditTotal": 379600,
+  "movementDebitTotal": 379600,
+  "openingCreditTotal": 750000,
+  "openingDebitTotal": 1250000,
+  "rows": [
+    {
+      "credit": 650000,
+      "debit": 0,
+      "groupName": "Capital Account",
+      "ledgerId": 9,
+      "ledgerName": "Capital",
+      "movementCredit": 0,
+      "movementDebit": 0,
+      "opening": -650000,
+    },
+    {
+      "credit": 0,
+      "debit": 10000,
+      "groupName": "Cash-in-Hand",
+      "ledgerId": 1,
+      "ledgerName": "Cash",
+      "movementCredit": 30000,
+      "movementDebit": 40000,
+      "opening": 0,
+    },
+    {
+      "credit": 182600,
+      "debit": 0,
+      "groupName": "Sundry Creditors",
+      "ledgerId": 4,
+      "ledgerName": "Creditor X",
+      "movementCredit": 82600,
+      "movementDebit": 0,
+      "opening": -100000,
+    },
+    {
+      "credit": 0,
+      "debit": 318000,
+      "groupName": "Sundry Debtors",
+      "ledgerId": 2,
+      "ledgerName": "Debtor A",
+      "movementCredit": 50000,
+      "movementDebit": 118000,
+      "opening": 250000,
+    },
+    {
+      "credit": 0,
+      "debit": 39000,
+      "groupName": "Sundry Debtors",
+      "ledgerId": 3,
+      "ledgerName": "Debtor B",
+      "movementCredit": 20000,
+      "movementDebit": 59000,
+      "opening": 0,
+    },
+    {
+      "credit": 0,
+      "debit": 530000,
+      "groupName": "Bank Accounts",
+      "ledgerId": 5,
+      "ledgerName": "HDFC Bank",
+      "movementCredit": 20000,
+      "movementDebit": 50000,
+      "opening": 500000,
+    },
+    {
+      "credit": 0,
+      "debit": 82600,
+      "groupName": "Purchase Accounts",
+      "ledgerId": 7,
+      "ledgerName": "Purchases",
+      "movementCredit": 0,
+      "movementDebit": 82600,
+      "opening": 0,
+    },
+    {
+      "credit": 0,
+      "debit": 30000,
+      "groupName": "Indirect Expenses",
+      "ledgerId": 6,
+      "ledgerName": "Rent",
+      "movementCredit": 0,
+      "movementDebit": 30000,
+      "opening": 0,
+    },
+    {
+      "credit": 177000,
+      "debit": 0,
+      "groupName": "Sales Accounts",
+      "ledgerId": 8,
+      "ledgerName": "Sales Local",
+      "movementCredit": 177000,
+      "movementDebit": 0,
+      "opening": 0,
+    },
+    {
+      "credit": 0,
+      "debit": 500000,
+      "groupName": "Stock-in-Hand",
+      "ledgerId": -1,
+      "ledgerName": "Stock-in-Hand (opening)",
+      "movementCredit": 0,
+      "movementDebit": 0,
+      "opening": 500000,
+    },
+  ],
+  "totalCredit": 1009600,
+  "totalDebit": 1509600,
+}
+`;
+
+exports[`R2 parity — voucher numbering & duplicates > findDuplicates matches type+total+party within ±3 days identically > duplicates within window 1`] = `
+[
+  {
+    "date": "2025-04-05",
+    "number": "1",
+    "voucherId": 1,
+  },
+]
+`;
+
+exports[`R2 parity — voucher numbering & duplicates > nextVoucherNumber handles prefix/suffix/padding and foreign numbers identically > restartFy next number 1`] = `"INV-042/25-26"`;
+
+exports[`R2 parity — voucher numbering & duplicates > nextVoucherNumber handles prefix/suffix/padding and foreign numbers identically > running next number 1`] = `"INV-100"`;

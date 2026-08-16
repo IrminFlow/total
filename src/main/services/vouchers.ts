@@ -136,24 +136,32 @@ export function getVoucher(db: DB, id: number): Voucher | null {
  */
 export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, excludeVoucherId?: number): string {
   const vt = getVoucherType(db, voucherTypeId)
-  const rows = vt.restartFy
-    ? (db
-        .prepare('SELECT number FROM vouchers WHERE voucher_type_id = ? AND date BETWEEN ? AND ? AND id IS NOT ?')
-        .all(voucherTypeId, fyOf(date).from, fyOf(date).to, excludeVoucherId ?? -1) as { number: string }[])
-    : (db
-        .prepare('SELECT number FROM vouchers WHERE voucher_type_id = ? AND id IS NOT ?')
-        .all(voucherTypeId, excludeVoucherId ?? -1) as { number: string }[])
-  let max = 0
-  for (const r of rows) {
-    // Strip the prefix and suffix (if present) before parsing, so e.g. "INV-007/24-25" with
-    // prefix "INV-" and suffix "/24-25" reads as 7, not NaN.
-    let numeric = r.number
-    if (numeric.startsWith(vt.prefix)) numeric = numeric.slice(vt.prefix.length)
-    if (vt.suffix && numeric.endsWith(vt.suffix)) numeric = numeric.slice(0, numeric.length - vt.suffix.length)
-    const n = parseInt(numeric, 10)
-    if (Number.isFinite(n) && n > max) max = n
-  }
-  const seq = max + 1
+  // Strip the suffix then the prefix in SQL (so e.g. "INV-007/24-25" with prefix "INV-" and
+  // suffix "/24-25" reads as 7) and take a single MAX — no more loading every number into JS.
+  // CAST mirrors the old parseInt(..., 10): leading digits parse, anything else reads as 0.
+  const fyClause = vt.restartFy ? 'AND date BETWEEN :from AND :to' : ''
+  const row = db
+    .prepare(
+      `SELECT COALESCE(MAX(CAST(
+         CASE WHEN :plen > 0 AND substr(stripped, 1, :plen) = :prefix
+              THEN substr(stripped, :plen + 1) ELSE stripped END AS INTEGER)), 0) AS maxn
+       FROM (
+         SELECT CASE WHEN :slen > 0 AND substr(number, -:slen) = :suffix
+                     THEN substr(number, 1, length(number) - :slen) ELSE number END AS stripped
+         FROM vouchers
+         WHERE voucher_type_id = :vtId AND id IS NOT :excludeId ${fyClause}
+       )`
+    )
+    .get({
+      vtId: vt.id,
+      excludeId: excludeVoucherId ?? -1,
+      plen: vt.prefix.length,
+      prefix: vt.prefix,
+      slen: vt.suffix.length,
+      suffix: vt.suffix,
+      ...(vt.restartFy ? { from: fyOf(date).from, to: fyOf(date).to } : {})
+    }) as { maxn: number }
+  const seq = Math.max(0, row.maxn) + 1
   const padded = vt.padWidth > 0 ? String(seq).padStart(vt.padWidth, '0') : String(seq)
   return `${vt.prefix}${padded}${vt.suffix}`
 }
@@ -168,18 +176,19 @@ export interface DuplicateWarning {
 export function findDuplicates(db: DB, input: VoucherInputParsed, excludeId?: number): DuplicateWarning[] {
   const total = input.lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
   if (total === 0) return []
+  // Narrow by type + party + date window FIRST (all indexed voucher columns); only the few
+  // surviving candidates pay for the line-total subquery — not every voucher in the book.
   const rows = db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date
        FROM vouchers v
-       JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
-         ON t.voucher_id = v.id
-       WHERE v.voucher_type_id = ? AND t.total = ?
-         AND v.party_ledger_id IS ? AND v.id IS NOT ?
-         AND julianday(v.date) BETWEEN julianday(?) - 3 AND julianday(?) + 3
-         AND ${NOT_DELETED}`
+       WHERE v.voucher_type_id = ? AND v.party_ledger_id IS ? AND v.id IS NOT ?
+         AND v.date BETWEEN date(?, '-3 days') AND date(?, '+3 days')
+         AND ${NOT_DELETED}
+         AND (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr') = ?
+       ORDER BY v.id`
     )
-    .all(input.voucherTypeId, total, input.partyLedgerId, excludeId ?? -1, input.date, input.date) as DuplicateWarning[]
+    .all(input.voucherTypeId, input.partyLedgerId, excludeId ?? -1, input.date, input.date, total) as DuplicateWarning[]
   return rows
 }
 
@@ -197,7 +206,12 @@ function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
   }
 }
 
-export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: number): Voucher {
+/** Voucher as saved, plus the v0.3 #69 soft guard: `duplicateNumber` is set when another live
+ *  voucher of the same type already carries this number (the save still succeeds — the UI
+ *  decides whether to warn). */
+export type SavedVoucher = Voucher & { duplicateNumber?: boolean }
+
+export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: number): SavedVoucher {
   const vt = getVoucherType(db, input.voucherTypeId)
   const errors = validateVoucher(input, vt.kind, ledgerFactsResolver(db))
   if (errors.length) {
@@ -294,7 +308,12 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
   const voucherId = run()
   const after = getVoucher(db, voucherId)!
   writeAudit(db, 'voucher', voucherId, existingId ? 'update' : 'create', before, after)
-  return after
+  const duplicate = db
+    .prepare(
+      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id <> ? AND ${NOT_DELETED} LIMIT 1`
+    )
+    .get(vt.id, number, voucherId)
+  return duplicate ? { ...after, duplicateNumber: true } : after
 }
 
 /** Move a voucher to the bin (soft delete). Report queries exclude it; restoreVoucher undoes this. */

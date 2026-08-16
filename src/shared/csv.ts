@@ -1,25 +1,94 @@
 /** Minimal CSV helpers shared by bank-statement import (parse) and export (write). Pure — no I/O. */
 
 /**
- * Split one CSV physical line into cells, honoring double-quoted fields (commas inside quotes
- * don't split; a quote character toggles quoting and is itself dropped from the output, so a
- * doubled `""` inside a quoted field collapses to a single literal quote).
- *
- * Extracted verbatim from the historical `splitCsvLine` in services/banking.ts — same behavior.
+ * Split one CSV physical line into cells, honoring double-quoted fields: commas inside quotes
+ * don't split, and a doubled `""` inside a quoted field is one literal `"` (RFC 4180). The
+ * historical parser dropped escaped quotes entirely — fixed in v0.3 (#67).
  */
 export function parseCsvLine(line: string): string[] {
   const cells: string[] = []
   let current = ''
   let inQuotes = false
-  for (const ch of line) {
-    if (ch === '"') inQuotes = !inQuotes
-    else if (ch === ',' && !inQuotes) {
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"'
+        i++
+      } else {
+        inQuotes = !inQuotes
+      }
+    } else if (ch === ',' && !inQuotes) {
       cells.push(current)
       current = ''
-    } else current += ch
+    } else {
+      current += ch
+    }
   }
   cells.push(current)
   return cells
+}
+
+export interface CsvRecord {
+  /** 1-based physical line the record starts on (multi-line quoted fields span further). */
+  line: number
+  cells: string[]
+}
+
+/**
+ * Full-text CSV parser (v0.3 #67): unlike line-splitting + `parseCsvLine`, this handles line
+ * breaks INSIDE quoted fields, so a record can span physical lines. Accepts \n, \r\n and lone
+ * \r line endings; blank lines produce no record. Used by bank-statement import and the CSV
+ * master importers.
+ */
+export function parseCsv(text: string): CsvRecord[] {
+  const records: CsvRecord[] = []
+  let cells: string[] = []
+  let current = ''
+  let inQuotes = false
+  let lineNo = 1
+  let recordStartLine = 1
+
+  const pushCell = (): void => {
+    cells.push(current)
+    current = ''
+  }
+  const endRecord = (): void => {
+    pushCell()
+    const blank = cells.length === 1 && cells[0]!.trim() === ''
+    if (!blank) records.push({ line: recordStartLine, cells })
+    cells = []
+  }
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          current += '"'
+          i++
+        } else {
+          inQuotes = false
+        }
+      } else {
+        if (ch === '\n') lineNo++
+        current += ch
+      }
+    } else if (ch === '"') {
+      inQuotes = true
+    } else if (ch === ',') {
+      pushCell()
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++
+      endRecord()
+      lineNo++
+      recordStartLine = lineNo
+    } else {
+      current += ch
+    }
+  }
+  if (current !== '' || cells.length > 0) endRecord()
+  return records
 }
 
 /** Quote a field per RFC 4180 if it contains a comma, quote, or line break; double embedded quotes. */
