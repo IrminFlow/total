@@ -36,7 +36,12 @@ export interface ScreenDef {
   card?: { sub: string; key: string }
   /** Extra command-palette search terms beyond the title. */
   keywords?: string[]
-  /** Query-key families to refresh when this screen becomes visible (App.tsx). */
+  /**
+   * Query-key families to refresh when this screen becomes visible (App.tsx). Each entry must
+   * be the FIRST element of a real `useQuery` key somewhere under screens/** — invalidation
+   * matches by prefix, so a name no query uses is a silent no-op. When adding a query to a
+   * screen (including expandable sub-queries), add its family here too.
+   */
   invalidates: string[]
 }
 
@@ -73,7 +78,7 @@ export const SCREENS: ScreenDef[] = [
     card: { sub: 'Ledgers, items, groups', key: 'M' },
     invalidates: [
       'ledgers', 'groups', 'groupTree', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
-      'godowns', 'stockGroups', 'priceLevels', 'priceRates', 'batches'
+      'godowns', 'stockGroups'
     ]
   },
   {
@@ -131,7 +136,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'books',
     feature: 'inventory',
     card: { sub: 'Quantities and value', key: 'S' },
-    invalidates: ['stockSummary', 'stockAgeing']
+    invalidates: ['stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches']
   },
   {
     name: 'year-end',

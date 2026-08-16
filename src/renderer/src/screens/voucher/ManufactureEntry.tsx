@@ -5,6 +5,7 @@ import { api } from '../../lib/client'
 import { useNav, useSession, useToasts } from '../../state/stores'
 import { Button, DateInput, Field, Money, Panel, TextInput, inputCls } from '../../components/ui'
 import { ItemPicker, useStockItems } from '../../components/pickers'
+import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { useVoucherNumber } from './hooks'
 
 // ---------- manufacture mode (stock journal via BOM) ----------
@@ -21,6 +22,10 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
   const [extraPctText, setExtraPctText] = useState('0')
   const [saving, setSaving] = useState(false)
   const number = useVoucherNumber(typeId, date)
+
+  // Same content-based dirtiness as the sibling entry modes (InvoiceEntry/PhysicalStockEntry):
+  // anything the user typed beyond the pristine defaults registers the unsaved-entry guard.
+  useUnsavedGuard(producedId != null || qtyText !== '1' || extraPctText !== '0')
 
   const { data: bom } = useQuery({
     queryKey: ['bom', producedId],
@@ -96,6 +101,7 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
       setWorkingDate(date)
       setProducedId(null)
       setQtyText('1')
+      setExtraPctText('0') // back to pristine so the unsaved guard releases after save
       await queryClient.invalidateQueries()
     } catch (err) {
       toast.push('error', (err as Error).message)

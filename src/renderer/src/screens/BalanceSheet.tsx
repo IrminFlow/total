@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, DateInput, Money, Panel, SectionTitle } from '../components/ui'
@@ -21,7 +21,14 @@ export function BalanceSheetScreen(): React.JSX.Element {
   // without touching the global session period other screens read.
   const [asOn, setAsOn] = useState(sessionTo)
   useEffect(() => setAsOn(sessionTo), [sessionTo])
-  const { data } = useQuery({ queryKey: ['balanceSheet', asOn], queryFn: () => api.reports.balanceSheet(asOn) })
+  // keepPreviousData: editing the on-screen as-on date changes the query key — keep the previous
+  // figures rendered (with a subtle hint) instead of unmounting the screen into "Loading…",
+  // which would drop focus from the very DateInput being edited.
+  const { data, isPlaceholderData } = useQuery({
+    queryKey: ['balanceSheet', asOn],
+    queryFn: () => api.reports.balanceSheet(asOn),
+    placeholderData: keepPreviousData
+  })
   if (!data) return <p className="text-muted">Loading…</p>
 
   const balanced = data.totalAssets === data.totalLiabilities
@@ -40,6 +47,11 @@ export function BalanceSheetScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
+            {isPlaceholderData && (
+              <span data-testid="bs-refreshing" className="text-[11px] text-muted" aria-live="polite">
+                Updating…
+              </span>
+            )}
             <span className="text-[12px] text-muted">as on</span>
             <DateInput value={asOn} context={asOn} onChange={setAsOn} className="w-28" testId="input-bs-ason" />
             <Button
@@ -61,7 +73,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
       >
         Balance sheet
       </SectionTitle>
-      <div className="grid grid-cols-2 gap-3">
+      <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
         <Panel className="p-4">
           <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Liabilities</p>
           <StatementTree nodes={data.liabilities} />
