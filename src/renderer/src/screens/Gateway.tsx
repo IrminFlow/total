@@ -81,7 +81,7 @@ export function Gateway(): React.JSX.Element {
       </div>
 
       <DueTodayPanel />
-      <CompliancePanel hasEmployees={data?.hasEmployees ?? false} />
+      <CompliancePanel hasEmployees={data?.hasEmployees ?? false} dashboardLoaded={data !== undefined} />
 
       <div className="mt-6 grid grid-cols-3 gap-3">
         {cards.map((c) => (
@@ -221,13 +221,20 @@ function deadlineCountdown(d: Deadline, today: string): string {
   return `${d.form} in ${days} days`
 }
 
-/** Fires once per app session (not per Gateway mount/remount) — a module-level flag rather than
- *  component state, so navigating away and back to the Gateway doesn't re-notify. */
-let notifiedThisSession = false
+/** Fires once per company per app session (not per Gateway mount/remount) — a module-level set
+ *  rather than component state, so navigating away and back to the Gateway doesn't re-notify,
+ *  but switching companies does get its own notification. Keyed by company slug. */
+const notifiedCompanies = new Set<string>()
 
-function CompliancePanel({ hasEmployees }: { hasEmployees: boolean }): React.JSX.Element | null {
+function CompliancePanel({
+  hasEmployees,
+  dashboardLoaded
+}: {
+  hasEmployees: boolean
+  dashboardLoaded: boolean
+}): React.JSX.Element | null {
   const nav = useNav()
-  const { info } = useSession()
+  const { info, slug } = useSession()
   const today = todayISO()
   const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
 
@@ -237,18 +244,20 @@ function CompliancePanel({ hasEmployees }: { hasEmployees: boolean }): React.JSX
   )
 
   useEffect(() => {
-    if (notifiedThisSession || !info) return
-    notifiedThisSession = true
+    // Wait for the dashboard query to actually resolve, so `hasEmployees` (and hence PF/ESI
+    // deadlines) reflects reality rather than the react-query default of `false`.
+    if (!info || !slug || !dashboardLoaded || notifiedCompanies.has(slug)) return
+    notifiedCompanies.add(slug)
     const soon = upcomingDeadlines(today, gstRegistrationType, hasEmployees, 3)
     if (soon.length) {
       void api.app.notifyDeadlines(
         soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` }))
       )
     }
-    // Deliberately no dependency-driven re-fire: the module flag above is the real guard, this
-    // effect just needs to run once `info` (and the dashboard's `hasEmployees`) are available.
+    // Deliberately no dependency-driven re-fire within a company: the module set above is the
+    // real guard, this effect just needs to run once `info`/`dashboardLoaded` are available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info, hasEmployees])
+  }, [info, slug, hasEmployees, dashboardLoaded])
 
   if (!deadlines.length) return null
 

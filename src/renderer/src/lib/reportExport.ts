@@ -6,7 +6,7 @@ import type { ToastState } from '../state/stores'
 
 /** Slugifies a screen title into the `[a-z0-9-_]+` filename the report:pdf/export:csv IPC
  *  channels require (see exportFilename in @shared/schemas). */
-function slugFilename(title: string): string {
+export function slugFilename(title: string): string {
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -21,6 +21,10 @@ export async function printReport(
   opts: { title: string; periodLabel: string; columns: ReportColumn[]; rows: ReportRow[]; footNote?: string; filename?: string },
   toast: ToastState
 ): Promise<void> {
+  if (opts.rows.length > 5000) {
+    toast.push('error', 'Too many rows for a PDF — narrow the period and try again')
+    return
+  }
   const input: ReportPdfInput = {
     title: opts.title,
     periodLabel: opts.periodLabel,

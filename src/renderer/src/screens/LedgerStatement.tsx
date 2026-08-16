@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle, useKeyNav } from '../components/ui'
-import { csvReport, printReport } from '../lib/reportExport'
+import { csvReport, printReport, slugFilename } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
@@ -133,7 +133,12 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
             <Button
               variant="ghost"
               onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'ledger-statement', toast)
+                void csvReport(
+                  EXPORT_COLUMNS.map((c) => c.label),
+                  exportRows.map((r) => r.cells),
+                  `ledger-${slugFilename(data.ledgerName)}`,
+                  toast
+                )
               }
             >
               CSV

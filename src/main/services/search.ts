@@ -18,7 +18,7 @@ export function globalSearch(db: DB, q: string): SearchHit[] {
       `SELECT l.id AS id, l.name AS name, g.name AS groupName
        FROM ledgers l
        JOIN groups g ON g.id = l.group_id
-       WHERE l.name LIKE ? ESCAPE '\\' COLLATE NOCASE
+       WHERE l.name COLLATE NOCASE LIKE ? ESCAPE '\\'
        ORDER BY l.name
        LIMIT 5`
     )
@@ -28,7 +28,7 @@ export function globalSearch(db: DB, q: string): SearchHit[] {
     .prepare(
       `SELECT id, name
        FROM stock_items
-       WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
+       WHERE name COLLATE NOCASE LIKE ? ESCAPE '\\'
        ORDER BY name
        LIMIT 5`
     )
@@ -39,7 +39,7 @@ export function globalSearch(db: DB, q: string): SearchHit[] {
       `SELECT v.id AS id, vt.name AS type, v.number AS number, v.date AS date, v.narration AS narration
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE (v.number LIKE ? ESCAPE '\\' COLLATE NOCASE OR v.narration LIKE ? ESCAPE '\\' COLLATE NOCASE)
+       WHERE (v.number COLLATE NOCASE LIKE ? ESCAPE '\\' OR v.narration COLLATE NOCASE LIKE ? ESCAPE '\\')
          AND ${NOT_DELETED}
        ORDER BY v.date DESC
        LIMIT 5`

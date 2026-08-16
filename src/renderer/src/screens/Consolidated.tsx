@@ -5,6 +5,7 @@ import { useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
 import { csvReport } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
+import { plainRupees } from '@shared/money'
 
 type Kind = 'tb' | 'pnl'
 
@@ -54,8 +55,8 @@ export function ConsolidatedScreen(): React.JSX.Element {
     const rows = data.rows.map((r) => [
       r.name,
       r.group,
-      ...r.perCompany.map((v) => (v == null ? '' : (v / 100).toFixed(2))),
-      (r.total / 100).toFixed(2)
+      ...r.perCompany.map((v) => (v == null ? '' : plainRupees(v))),
+      plainRupees(r.total)
     ])
     await csvReport(header, rows, `consolidated-${kind}`, toast)
   }
