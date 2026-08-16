@@ -20,6 +20,7 @@ type JsonSchema = {
   pattern?: string
   minimum?: number
   maximum?: number
+  exclusiveMinimum?: number
   maxItems?: number
   maxLength?: number
   minLength?: number
@@ -137,8 +138,16 @@ function walk(schema: z.ZodTypeAny): { node: JsonSchema; optional: boolean; hasD
       const node: JsonSchema = { type: 'number' }
       for (const check of def.checks ?? []) {
         if (check.kind === 'int') node.type = 'integer'
-        if (check.kind === 'min' && typeof check.value === 'number') node.minimum = check.value
-        if (check.kind === 'max' && typeof check.value === 'number') node.maximum = check.value
+        if (check.kind === 'min' && typeof check.value === 'number') {
+          if (check.inclusive === false) node.exclusiveMinimum = Math.max(node.exclusiveMinimum ?? -Infinity, check.value)
+          else node.minimum = Math.max(node.minimum ?? -Infinity, check.value)
+        }
+        if (check.kind === 'max' && typeof check.value === 'number' && check.inclusive !== false) {
+          node.maximum = Math.min(node.maximum ?? Infinity, check.value)
+        }
+      }
+      if (node.minimum !== undefined && node.exclusiveMinimum !== undefined && node.exclusiveMinimum >= node.minimum) {
+        delete node.minimum // redundant next to the tighter exclusive bound
       }
       return { node, optional: false, hasDefault: false }
     }
