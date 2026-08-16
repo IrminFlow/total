@@ -16,6 +16,7 @@ import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
+  AgentExportInput,
   AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
   CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
   PayHeadInput, PriceLevelInput,
@@ -680,6 +681,11 @@ export const api = {
     list: () => call<UserRow[]>('users:list'),
     save: (data: UserInput, id?: number) => call<UserRow & { locked: boolean }>('users:save', { data, id }),
     deactivate: (id: number) => call<null>('users:deactivate', { id })
+  },
+  agent: {
+    exportMirror: (input?: AgentExportInput) => call<{ dir: string; files: string[] }>('agent:exportMirror', input ?? {}),
+    getConfig: () => call<{ enabled: boolean }>('agent:getConfig'),
+    setConfig: (enabled: boolean) => call<{ enabled: boolean }>('agent:setConfig', { enabled })
   },
   app: {
     info: () => call<{ version: string; platform: string }>('app:info'),

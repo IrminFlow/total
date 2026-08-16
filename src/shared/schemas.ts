@@ -591,6 +591,21 @@ export type EmployeeHeadsSetInput = z.infer<typeof employeeHeadsSetSchema>
 /** payroll:ecr / payroll:esi / payroll:ptSummary input. */
 export const payrollRunIdSchema = z.object({ runId: id })
 
+// ---------- agent bridge (lane A) ----------
+
+/** agent:exportMirror input — regenerate the CSV/JSON mirror under `<company>/agent/`. */
+export const agentExportSchema = z.object({
+  what: z.enum(['masters', 'vouchers', 'reports', 'all']).default('all'),
+  format: z.enum(['csv', 'json', 'all']).default('all'),
+  from: isoDate.optional(),
+  to: isoDate.optional()
+})
+export type AgentExportInput = z.input<typeof agentExportSchema>
+
+/** agent:setConfig input — toggle the inbox watcher + auto mirror refresh (default OFF). */
+export const agentBridgeConfigSchema = z.object({ enabled: z.boolean() })
+export type AgentBridgeConfigInput = z.infer<typeof agentBridgeConfigSchema>
+
 // ---------- Tally import wizard v2 (task 3.5) ----------
 
 export const tallyImportSchema = z

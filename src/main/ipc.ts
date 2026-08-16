@@ -46,6 +46,8 @@ import * as recurring from './services/recurring'
 import * as yearEnd from './services/yearEnd'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
+import * as agentBridge from './services/agentBridge'
+import { agentBridgeConfigSchema, agentExportSchema } from '@shared/schemas'
 import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
 import { writeExportPdf } from './services/pdf'
@@ -106,6 +108,8 @@ function renameFile(src: string, dest: string): void {
 }
 
 export function closeCurrentCompany(): void {
+  // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
+  agentBridge.syncInboxWatcher(null)
   if (current) {
     closeCompanyDb(current.db)
     current = null
@@ -267,6 +271,8 @@ export function registerIpc(): void {
       if (prunedAudit > 0) log('info', 'audit-prune', { pruned: prunedAudit, keepDays: auditKeepDays })
     }
     touchLastOpened(slug)
+    // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
+    if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
     return { slug, info, integrity, locked: current.usersExist }
   })
 
@@ -563,7 +569,11 @@ export function registerIpc(): void {
   handle('voucher:get', (p) => vouchers.getVoucher(requireCompany().db, idSchema.parse(p).id), 'viewer')
   handle('voucher:save', (p) => {
     const { data, id } = z.object({ data: voucherInputSchema, id: z.number().int().positive().optional() }).parse(p)
-    return vouchers.saveVoucher(requireCompany().db, data, id)
+    const c = requireCompany()
+    const saved = vouchers.saveVoucher(c.db, data, id)
+    // Agent mirror stays fresh while the flag is on — debounced so entry bursts export once.
+    if (configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
+    return saved
   })
   handle('voucher:delete', (p) => vouchers.deleteVoucher(requireCompany().db, idSchema.parse(p).id))
   handle('voucher:bin', () => vouchers.listBin(requireCompany().db), 'viewer')
@@ -1264,6 +1274,21 @@ export function registerIpc(): void {
   // ---------- app info + updates ----------
   handle('app:info', () => ({ version: app.getVersion(), platform: process.platform }))
   handle('app:checkUpdates', () => checkForUpdatesInteractive(), 'viewer')
+
+  // ---------- agent bridge (CSV/JSON mirrors + inbox, lane A) ----------
+  handle('agent:exportMirror', (p) => {
+    const input = agentExportSchema.parse(p ?? {})
+    const c = requireCompany()
+    return agentBridge.exportMirror(c.db, c.slug, input)
+  })
+  handle('agent:getConfig', () => ({ enabled: configSvc.getAgentBridgeEnabled(requireCompany().db) }), 'viewer')
+  handle('agent:setConfig', (p) => {
+    const { enabled } = agentBridgeConfigSchema.parse(p)
+    const c = requireCompany()
+    configSvc.setAgentBridgeEnabled(c.db, enabled)
+    agentBridge.syncInboxWatcher(enabled ? { slug: c.slug, db: c.db } : null)
+    return { enabled }
+  }, 'owner')
 
   // ---------- compliance-deadline notifications ----------
   // The renderer computes *which* deadlines to notify about (pure `src/shared/compliance.ts`,

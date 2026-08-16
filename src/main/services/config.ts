@@ -105,6 +105,22 @@ export function setAuditKeepDays(db: DB, keepDays: number | null): number | null
   return keepDays
 }
 
+// ---------- agent bridge feature flag (lane A) ----------
+
+/** Whether the `<company>/inbox/` drop-folder watcher + auto mirror refresh are on for this
+ *  company. Default OFF — an agent write surface should be a deliberate opt-in. Stored in `meta`
+ *  under 'agent_bridge'; the CLI is always available regardless (it validates identically). */
+export function getAgentBridgeEnabled(db: DB): boolean {
+  return readMeta(db, 'agent_bridge') === true
+}
+
+export function setAgentBridgeEnabled(db: DB, enabled: boolean): boolean {
+  const before = getAgentBridgeEnabled(db)
+  writeMeta(db, 'agent_bridge', enabled)
+  writeAudit(db, 'company', 0, 'update', { agentBridge: before }, { agentBridge: enabled })
+  return enabled
+}
+
 // ---------- compliance-deadline notifications (once-per-day guard) ----------
 
 /** True the first time it's called on a given `today`, false on every subsequent call the same
