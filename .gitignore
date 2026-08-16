@@ -9,3 +9,4 @@ site/next-env.d.ts
 .vercel/
 .vercel
 .env*
+smoke-out/
