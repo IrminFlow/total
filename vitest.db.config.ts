@@ -10,6 +10,9 @@ export default defineConfig({
     }
   },
   test: {
+    // Windows CI runners (Defender scanning fresh .db files) push I/O-heavy backup/restore
+    // tests past vitest's 5s default; these suites are correctness-, not latency-, sensitive.
+    testTimeout: 30000,
     include: ['src/main/**/*.dbtest.ts'],
     pool: 'forks',
     poolOptions: {
