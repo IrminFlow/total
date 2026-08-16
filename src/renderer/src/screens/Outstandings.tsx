@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
@@ -21,13 +21,16 @@ const EXPORT_COLUMNS: PdfColumn[] = [
 
 async function remind(companyName: string, partyName: string, bills: OutstandingBill[], toast: ToastState): Promise<void> {
   const reminder = buildReminder({ name: companyName }, { name: partyName, email: null }, bills)
+  let copied = true
   try {
     await navigator.clipboard.writeText(reminder.body)
   } catch {
-    // Clipboard access can fail silently in some sandboxes — the mailto still opens with the body.
+    // Clipboard access can fail in some sandboxes — the mailto still opens with the body.
+    copied = false
   }
   window.open(reminder.mailto)
-  toast.push('success', 'Reminder copied')
+  if (copied) toast.push('success', 'Reminder copied — email draft opened')
+  else toast.push('warning', "Couldn't copy to the clipboard — the email draft still has the full text")
 }
 
 export function OutstandingsScreen(): React.JSX.Element {
@@ -111,12 +114,13 @@ export function OutstandingsScreen(): React.JSX.Element {
       >
         {side === 'receivable' ? 'Receivables' : 'Payables'} · ageing
       </SectionTitle>
-      <Panel>
+      <Panel scroll={{ maxH: '70vh' }}>
         {isLoading ? (
           <SkeletonRows />
         ) : parties.length === 0 ? (
           <EmptyState title={`Nothing ${side === 'receivable' ? 'to collect' : 'to pay'} as on ${toDisplayDate(to)}`} />
         ) : (
+          <div className="overflow-x-auto">
           <table className="ledger-table">
             <thead>
               <tr>
@@ -132,9 +136,9 @@ export function OutstandingsScreen(): React.JSX.Element {
             </thead>
             <tbody data-testid="rows-outstandings">
               {parties.map((p) => (
-                <>
+                <Fragment key={p.ledgerId}>
                   <tr
-                    key={p.ledgerId}
+                    data-row-id={p.ledgerId}
                     className="cursor-pointer"
                     onClick={() => setOpenParty(openParty === p.ledgerId ? null : p.ledgerId)}
                   >
@@ -150,6 +154,7 @@ export function OutstandingsScreen(): React.JSX.Element {
                     <td className="r font-medium"><Money paise={p.pending} /></td>
                     <td className="r">
                       <button
+                        data-testid="btn-outstandings-remind"
                         className="text-[11.5px] text-blue hover:underline"
                         onClick={(e) => {
                           e.stopPropagation()
@@ -184,7 +189,7 @@ export function OutstandingsScreen(): React.JSX.Element {
                         <td></td>
                       </tr>
                     ))}
-                </>
+                </Fragment>
               ))}
               <tr className="total-row">
                 <td>Total</td>
@@ -198,10 +203,12 @@ export function OutstandingsScreen(): React.JSX.Element {
               </tr>
             </tbody>
           </table>
+          </div>
         )}
       </Panel>
       <p className="mt-2 text-[11.5px] text-muted">
-        Receipts settle the oldest bills first. Click a party to see its open bills; click a bill number to open the voucher.
+        Ageing buckets count days overdue past each bill&apos;s due date (or the bill date when none is set). Receipts settle
+        the oldest bills first. Click a party to see its open bills; click a bill number to open the voucher.
       </p>
     </div>
   )
