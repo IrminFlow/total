@@ -11,7 +11,7 @@ import { api, type TdsSuggestion } from '../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../state/stores'
 import { AmountInput, Button, DateInput, Field, Kbd, Modal, Money, Panel, Select, TextInput, inputCls } from '../components/ui'
 import { ItemPicker, LedgerPicker, useGroups, useLedgers, useStockItems, useTaxLedgers } from '../components/pickers'
-import { LedgerFormModal } from '../components/LedgerFormModal'
+import { LedgerFormModal, groupAncestryNames, PARTY_GROUPS, TRADING_GROUPS } from '../components/LedgerFormModal'
 import { useFeatures } from '../lib/useFeatures'
 
 const TRADING_KINDS: VoucherKind[] = ['sales', 'purchase', 'credit_note', 'debit_note']
@@ -1862,6 +1862,10 @@ export function QuickLedgerModal({
   const [gstin, setGstin] = useState('')
   const [gstRate, setGstRate] = useState('')
 
+  const ancestry = useMemo(() => (groupId != null ? groupAncestryNames(groupId, groups) : []), [groupId, groups])
+  const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
+  const isTradingLedger = !isParty && ancestry.some((n) => TRADING_GROUPS.includes(n))
+
   const create = async (): Promise<void> => {
     try {
       if (!groupId) return void toast.push('error', 'Pick a group')
@@ -1906,14 +1910,20 @@ export function QuickLedgerModal({
             ))}
           </Select>
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="GSTIN (parties)">
-            <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} className="num" placeholder="Optional" />
-          </Field>
-          <Field label="GST rate % (sales/purchase)">
-            <TextInput value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="num" placeholder="Optional" />
-          </Field>
-        </div>
+        {(isParty || isTradingLedger) && (
+          <div className="grid grid-cols-2 gap-3">
+            {isParty && (
+              <Field label="GSTIN">
+                <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} className="num" placeholder="Optional" />
+              </Field>
+            )}
+            {isTradingLedger && (
+              <Field label="GST rate %">
+                <TextInput value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="num" placeholder="Optional" />
+              </Field>
+            )}
+          </div>
+        )}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={() => void create()}>
