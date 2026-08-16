@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsvLine, rowsToCsv } from './csv'
+import { neutralizeCsvFormula, parseCsv, parseCsvLine, rowsToCsv } from './csv'
 
 describe('parseCsvLine', () => {
   it('splits plain comma-separated cells', () => {
@@ -10,14 +10,43 @@ describe('parseCsvLine', () => {
     expect(parseCsvLine('a,"b, with comma",c')).toEqual(['a', 'b, with comma', 'c'])
   })
 
-  it('unescapes doubled quotes inside a quoted cell', () => {
-    // splitCsvLine's historical behavior: quote chars simply toggle in/out of quoting and are
-    // dropped from the output, so a doubled "" collapses to a single " with no residual quoting.
-    expect(parseCsvLine('a,"say ""hi""",c')).toEqual(['a', 'say hi', 'c'])
+  it('unescapes doubled quotes inside a quoted cell to a literal quote (v0.3 #67)', () => {
+    // RFC 4180: "" inside a quoted field is one literal ". The historical parser dropped the
+    // quotes entirely ('say hi') — that was the bug.
+    expect(parseCsvLine('a,"say ""hi""",c')).toEqual(['a', 'say "hi"', 'c'])
   })
 
   it('handles an empty line as a single empty cell', () => {
     expect(parseCsvLine('')).toEqual([''])
+  })
+})
+
+describe('parseCsv (full-text, v0.3 #67)', () => {
+  it('parses simple rows with 1-based line numbers, skipping blank lines', () => {
+    expect(parseCsv('a,b\n\n1,2\r\n3,4\n')).toEqual([
+      { line: 1, cells: ['a', 'b'] },
+      { line: 3, cells: ['1', '2'] },
+      { line: 4, cells: ['3', '4'] }
+    ])
+  })
+
+  it('supports line breaks inside quoted fields (one record spanning physical lines)', () => {
+    const records = parseCsv('name,note\nAcme,"first line\nsecond line"\nBeta,plain')
+    expect(records).toEqual([
+      { line: 1, cells: ['name', 'note'] },
+      { line: 2, cells: ['Acme', 'first line\nsecond line'] },
+      { line: 4, cells: ['Beta', 'plain'] }
+    ])
+  })
+
+  it('unescapes doubled quotes and keeps quoted commas', () => {
+    expect(parseCsv('"say ""hi""","a, b"')).toEqual([{ line: 1, cells: ['say "hi"', 'a, b'] }])
+  })
+
+  it('round-trips rowsToCsv output including embedded newlines and quotes', () => {
+    const rows = [['plain', 'with, comma'], ['multi\nline', 'has "quotes"']]
+    const csv = rowsToCsv(['h1', 'h2'], rows).slice(1) // drop BOM
+    expect(parseCsv(csv).map((r) => r.cells)).toEqual([['h1', 'h2'], ...rows])
   })
 })
 
@@ -76,6 +105,49 @@ describe('rowsToCsv', () => {
     expect(lines[1]).toEqual(rows[0])
     expect(lines[2]).toEqual(rows[1])
     expect(lines[3]).toEqual(rows[2])
+  })
+})
+
+describe('formula-injection neutralization (v0.3 review F3)', () => {
+  it('prefixes formula-triggering cells with a single quote', () => {
+    expect(neutralizeCsvFormula('=HYPERLINK("http://evil.example","x")')).toBe(`'=HYPERLINK("http://evil.example","x")`)
+    expect(neutralizeCsvFormula("=cmd|' /C calc'!A0")).toBe(`'=cmd|' /C calc'!A0`)
+    expect(neutralizeCsvFormula('+cmd')).toBe(`'+cmd`)
+    expect(neutralizeCsvFormula('-2+3')).toBe(`'-2+3`)
+    expect(neutralizeCsvFormula('@SUM(A1)')).toBe(`'@SUM(A1)`)
+    expect(neutralizeCsvFormula('\t=1+1')).toBe(`'\t=1+1`)
+    expect(neutralizeCsvFormula('\r=1+1')).toBe(`'\r=1+1`)
+  })
+
+  it('leaves plain numbers untouched — formatted amount/qty columns never gain a quote', () => {
+    expect(neutralizeCsvFormula('500')).toBe('500')
+    expect(neutralizeCsvFormula('-500')).toBe('-500')
+    expect(neutralizeCsvFormula('+91')).toBe('+91')
+    expect(neutralizeCsvFormula('-1234.56')).toBe('-1234.56')
+    expect(neutralizeCsvFormula('')).toBe('')
+    expect(neutralizeCsvFormula('Acme Traders')).toBe('Acme Traders')
+  })
+
+  it('rowsToCsv writes the neutralized cell (quoted if it also contains commas/quotes)', () => {
+    const csv = rowsToCsv(
+      ['name', 'opening_balance_paise'],
+      [
+        ['=HYPERLINK("http://evil.example")', '-500'],
+        ['+cmd|foo', '0'],
+        ['=SUM(A1,B1)', '100']
+      ]
+    ).slice(1) // drop BOM
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"")",-500`)
+    expect(csv).toContain(`'+cmd|foo,0`)
+    // Comma-bearing formula: neutralized first, then RFC-quoted.
+    expect(csv).toContain(`"'=SUM(A1,B1)",100`)
+    // The raw formula (no leading apostrophe) never appears at a cell start.
+    expect(csv).not.toMatch(/(^|,|\r\n)"?=/)
+  })
+
+  it('the parsed round-trip carries the guard apostrophe as data (deliberate, lossy by design)', () => {
+    const csv = rowsToCsv(['h'], [['=1+1']]).slice(1)
+    expect(parseCsv(csv).map((r) => r.cells)).toEqual([['h'], [`'=1+1`]])
   })
 })
 

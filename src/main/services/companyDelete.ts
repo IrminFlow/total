@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { existsSync } from 'fs'
 import { log } from '../log'
-import { usersExist } from './users'
+import { AUTH_THROTTLE_MESSAGE, clearAuthFailures, isAuthThrottled, recordAuthFailure, usersExist } from './users'
 import { verifyPin } from './authcrypt'
 
 /**
@@ -19,6 +19,12 @@ import { verifyPin } from './authcrypt'
  * - DB opens and has users: `pin` must verify against SOME active owner's PIN hash. Throws
  *   otherwise.
  *
+ * PIN attempts here consume the SAME persisted throttle as auth:login (meta `auth.fails.<id>`,
+ * users.ts) — v0.3 review F3: company:delete was an unthrottled PIN oracle, letting a caller
+ * brute-force '0000'..'9999' at full speed while the login screen was locked out. An owner locked
+ * out at login is locked out here too; wrong delete-PINs count toward the login lockout and are
+ * audited as 'login_failed'. (This is why the DB is opened read-write, not readonly.)
+ *
  * Throws to refuse the delete; returns normally to allow it.
  */
 export function assertDeleteAuthorized(dbPath: string, pin: string | undefined): void {
@@ -31,7 +37,7 @@ export function assertDeleteAuthorized(dbPath: string, pin: string | undefined):
   let db: Database.Database | null = null
   let hasUsers: boolean
   try {
-    db = new Database(dbPath, { readonly: true, fileMustExist: true })
+    db = new Database(dbPath, { fileMustExist: true })
     hasUsers = usersExist(db)
   } catch (err) {
     db?.close()
@@ -45,11 +51,53 @@ export function assertDeleteAuthorized(dbPath: string, pin: string | undefined):
   try {
     if (!hasUsers) return
     const owners = db
-      .prepare("SELECT pin_hash AS pinHash FROM users WHERE role = 'owner' AND active = 1")
-      .all() as { pinHash: string }[]
-    const verified = pin !== undefined && owners.some((o) => verifyPin(pin, o.pinHash))
-    if (!verified) throw new Error('This company is protected — an owner PIN is required to delete it')
+      .prepare("SELECT id, pin_hash AS pinHash FROM users WHERE role = 'owner' AND active = 1")
+      .all() as { id: number; pinHash: string }[]
+    const now = Date.now()
+    // Locked-out owners are skipped entirely (their hash is never even checked, mirroring
+    // login); when every active owner is locked out, refuse with the throttle message so the
+    // caller can't distinguish PIN-space progress during the lockout window.
+    const unlocked = owners.filter((o) => !isAuthThrottled(db!, o.id, now))
+    if (owners.length > 0 && unlocked.length === 0) {
+      throw new Error(AUTH_THROTTLE_MESSAGE)
+    }
+    const matched = pin === undefined ? undefined : unlocked.find((o) => verifyPin(pin, o.pinHash))
+    if (!matched) {
+      // Only an actual wrong guess consumes throttle budget — the pin-less first call is how the
+      // UI discovers that the company is protected, not an attack.
+      if (pin !== undefined) {
+        for (const o of unlocked) recordAuthFailure(db, o.id, now)
+      }
+      throw new Error('This company is protected — an owner PIN is required to delete it')
+    }
+    clearAuthFailures(db, matched.id)
   } finally {
     db.close()
+  }
+}
+
+/**
+ * Record that a company is about to be deleted (task Q1 #90). The durable record is the app-level
+ * log line the caller writes (log.ts lives outside the company dir, so it survives the rmSync);
+ * this additionally appends a best-effort audit row into the company DB itself moments before
+ * deletion, so any copy of the file made after this point carries the tombstone. Never throws —
+ * a corrupt/locked DB must not block the delete it was already authorized for.
+ */
+export function auditCompanyDeletion(dbPath: string, slug: string, userName: string | null): void {
+  if (!existsSync(dbPath)) return
+  let db: Database.Database | null = null
+  try {
+    db = new Database(dbPath)
+    db.prepare(
+      `INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
+       VALUES ('company', 0, 'delete', ?, NULL, ?, NULL)`
+    ).run(JSON.stringify({ slug }), userName)
+  } catch (err) {
+    log('warn', 'company-delete-audit-write-failed', {
+      dbPath,
+      error: err instanceof Error ? err.message : String(err)
+    })
+  } finally {
+    db?.close()
   }
 }

@@ -15,12 +15,17 @@ function ledgerUnder(db: ReturnType<typeof seededDb>, name: string, groupName: s
   }).id
 }
 
-function journal(db: ReturnType<typeof seededDb>, date: string, lines: VoucherInputParsed['lines']): ReturnType<typeof saveVoucher> {
+function journal(
+  db: ReturnType<typeof seededDb>,
+  date: string,
+  lines: VoucherInputParsed['lines'],
+  flags: { postDated?: boolean; isOptional?: boolean } = {}
+): ReturnType<typeof saveVoucher> {
   const vt = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }
   return saveVoucher(db, {
     voucherTypeId: vt.id, date, number: undefined, partyLedgerId: null, narration: null, reference: null,
     instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null,
-    currencyCode: null, exchangeRate: null, lines, inventory: [], billRefs: [], tds: null
+    currencyCode: null, exchangeRate: null, ...flags, lines, inventory: [], billRefs: [], tds: null
   })
 }
 
@@ -78,11 +83,12 @@ describe('year-end close', () => {
     const cr = lines.filter((l) => l.drCr === 'cr').reduce((s, l) => s + l.amount, 0)
     expect(dr).toBe(cr)
 
-    // As-on 31 Mar 2026: Sales Income and Rent are fully zeroed (dropped from the trial balance,
-    // which omits zero-balance ledgers); Retained Earnings carries the ₹400 profit as a credit.
+    // As-on 31 Mar 2026: Sales Income and Rent are fully zeroed. Since v0.3 (#56) the trial
+    // balance keeps transacted ledgers with a nil closing (their movement columns carry the
+    // story), so assert zero closing rather than absence.
     const tb = trialBalance(db, '2026-03-31')
-    expect(tb.rows.find((r) => r.ledgerId === salesId)).toBeUndefined()
-    expect(tb.rows.find((r) => r.ledgerId === rentId)).toBeUndefined()
+    expect(tb.rows.find((r) => r.ledgerId === salesId)).toMatchObject({ debit: 0, credit: 0 })
+    expect(tb.rows.find((r) => r.ledgerId === rentId)).toMatchObject({ debit: 0, credit: 0 })
     const retained = tb.rows.find((r) => r.ledgerName === 'Retained Earnings')
     expect(retained).toBeDefined()
     expect(retained!.credit).toBe(40000)
@@ -125,6 +131,42 @@ describe('year-end close', () => {
     const retained = tb.rows.find((r) => r.ledgerName === 'Retained Earnings')
     expect(retained!.debit).toBe(40000)
     expect(retained!.credit).toBe(0)
+  })
+
+  it('excludes optional (memorandum) and unmatured post-dated vouchers from the close (IN_BOOKS)', () => {
+    const db = seededDb()
+    const cashId = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const salesId = ledgerUnder(db, 'Sales Income', 'Direct Incomes')
+
+    // Real in-books sale: ₹1,000.
+    journal(db, '2025-06-01', [
+      { ledgerId: cashId, drCr: 'dr', amount: 100000, costAllocations: [] },
+      { ledgerId: salesId, drCr: 'cr', amount: 100000, costAllocations: [] }
+    ])
+    // Optional (memorandum) sale — never in the books, must not enter the closing journal.
+    journal(db, '2025-06-15', [
+      { ledgerId: cashId, drCr: 'dr', amount: 20000, costAllocations: [] },
+      { ledgerId: salesId, drCr: 'cr', amount: 20000, costAllocations: [] }
+    ], { isOptional: true })
+    // Unmatured post-dated sale inside the FY — out of the books until it matures.
+    journal(db, '2025-07-01', [
+      { ledgerId: cashId, drCr: 'dr', amount: 30000, costAllocations: [] },
+      { ledgerId: salesId, drCr: 'cr', amount: 30000, costAllocations: [] }
+    ], { postDated: true })
+
+    const preview = closePreview(db, 2025)
+    // Only the real sale is netted — the P&L for the FY shows exactly ₹1,000 of income.
+    expect(preview.rows).toEqual([{ ledgerId: salesId, name: 'Sales Income', nature: 'income', net: -100000 }])
+    expect(preview.netProfit).toBe(100000)
+
+    const result = postClose(db, TEST_INFO, 2025)
+    expect(result.netProfit).toBe(100000)
+
+    // After the close the sales ledger carries NO residual from the out-of-books vouchers.
+    const tb = trialBalance(db, '2026-03-31')
+    expect(tb.rows.find((r) => r.ledgerId === salesId)).toMatchObject({ debit: 0, credit: 0 })
+    const retained = tb.rows.find((r) => r.ledgerName === 'Retained Earnings')
+    expect(retained!.credit).toBe(100000)
   })
 
   it('refuses to close a FY with no income/expense activity', () => {

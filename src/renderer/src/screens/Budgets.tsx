@@ -6,8 +6,10 @@ import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, TextInput, SkeletonRows } from '../components/ui'
 import { LedgerPicker, useGroups } from '../components/pickers'
+import { confirmDialog } from '../lib/dialogs'
+import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -42,10 +44,14 @@ export function BudgetsScreen(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const groups = useGroups()
-  const { data: budgetList } = useQuery({ queryKey: ['budgets'], queryFn: api.budget.list })
+  const { data: budgetList, isLoading: budgetsLoading } = useQuery({ queryKey: ['budgets'], queryFn: api.budget.list })
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [newOpen, setNewOpen] = useState(false)
   const [rows, setRows] = useState<EditRow[]>([])
+  // Editor dirtiness — flipped by any line edit, cleared on save / budget switch.
+  const [editorDirty, setEditorDirty] = useState(false)
+  useUnsavedGuard(editorDirty)
+  const [lineErrors, setLineErrors] = useState<string[]>([])
   const [upToMonth, setUpToMonth] = useState(todayISO().slice(0, 7))
 
   const budgets = budgetList ?? []
@@ -73,12 +79,14 @@ export function BudgetsScreen(): React.JSX.Element {
           }))
         : [newRow()]
     )
+    setEditorDirty(false)
+    setLineErrors([])
     const months = fyMonths(selected.fyStartYear)
     const currentMonth = todayISO().slice(0, 7)
     setUpToMonth(months.includes(currentMonth) ? currentMonth : months[months.length - 1]!)
   }, [selected?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { data: variance } = useQuery({
+  const { data: variance, isLoading: varianceLoading } = useQuery({
     queryKey: ['budgetVariance', selected?.id, upToMonth],
     queryFn: () => api.budget.variance(selected!.id, upToMonth),
     enabled: !!selected
@@ -88,25 +96,42 @@ export function BudgetsScreen(): React.JSX.Element {
   const groupMap = new Map(groups.map((g) => [g.id, g]))
 
   const updateRow = (key: number, patch: Partial<EditRow>): void => {
+    setEditorDirty(true)
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))
   }
-  const removeRow = (key: number): void => setRows((prev) => prev.filter((r) => r.key !== key))
+  const removeRow = (key: number): void => {
+    setEditorDirty(true)
+    setRows((prev) => prev.filter((r) => r.key !== key))
+  }
 
   const save = async (): Promise<void> => {
     if (!selected) return
     const lines: BudgetLineInput[] = []
-    for (const r of rows) {
+    const errors: string[] = []
+    rows.forEach((r, i) => {
       const targetId = r.targetType === 'ledger' ? r.ledgerId : r.groupId
-      if (targetId == null || r.amount == null || r.amount <= 0) continue
+      // A completely blank row (fresh "+ Add line", nothing filled) is ignored, not an error.
+      if (targetId == null && r.amount == null) return
+      if (targetId == null) {
+        errors.push(`Line ${i + 1}: pick a ${r.targetType === 'ledger' ? 'ledger' : 'group'}`)
+        return
+      }
+      if (r.amount == null || r.amount <= 0) {
+        errors.push(`Line ${i + 1}: enter an amount above zero`)
+        return
+      }
       lines.push({
         ledgerId: r.targetType === 'ledger' ? targetId : null,
         groupId: r.targetType === 'group' ? targetId : null,
         month: r.month,
         amount: r.amount
       })
-    }
+    })
+    setLineErrors(errors)
+    if (errors.length > 0) return
     try {
       await api.budget.save({ name: selected.name, fyStartYear: selected.fyStartYear, lines }, selected.id)
+      setEditorDirty(false)
       await queryClient.invalidateQueries({ queryKey: ['budgets'] })
       await queryClient.invalidateQueries({ queryKey: ['budgetVariance'] })
       toast.push('success', 'Budget saved')
@@ -116,7 +141,13 @@ export function BudgetsScreen(): React.JSX.Element {
   }
 
   const remove = async (b: Budget): Promise<void> => {
-    if (!window.confirm(`Delete budget “${b.name}”?`)) return
+    const proceed = await confirmDialog({
+      title: 'Delete budget',
+      message: `Delete budget “${b.name}”?`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!proceed) return
     try {
       await api.budget.remove(b.id)
       setSelectedId(null)
@@ -140,7 +171,9 @@ export function BudgetsScreen(): React.JSX.Element {
       </SectionTitle>
 
       <Panel className="mb-6 p-4">
-        {budgets.length === 0 ? (
+        {budgetsLoading ? (
+          <SkeletonRows rows={2} />
+        ) : budgets.length === 0 ? (
           <EmptyState title="No budgets yet" hint="Set targets by ledger or group and track actuals against them" />
         ) : (
           <div className="flex items-center gap-3">
@@ -167,6 +200,7 @@ export function BudgetsScreen(): React.JSX.Element {
       {selected && (
         <>
           <Panel className="mb-6">
+            <ScrollList maxH="50vh">
             <table className="ledger-table">
               <thead>
                 <tr>
@@ -230,11 +264,27 @@ export function BudgetsScreen(): React.JSX.Element {
                 ))}
               </tbody>
             </table>
+            </ScrollList>
+            {lineErrors.length > 0 && (
+              <div data-testid="budgets-line-errors" className="border-t border-line bg-cr/10 px-3 py-2 text-[12.5px] text-cr">
+                <p className="font-medium">Fix these lines before saving:</p>
+                {lineErrors.map((e, i) => (
+                  <p key={i}>{e}</p>
+                ))}
+              </div>
+            )}
             <div className="flex items-center justify-between border-t border-line p-3">
-              <button className="text-[12.5px] text-blue hover:underline" onClick={() => setRows((prev) => [...prev, newRow()])}>
+              <button
+                data-testid="btn-budgets-add-line"
+                className="text-[12.5px] text-blue hover:underline"
+                onClick={() => {
+                  setEditorDirty(true)
+                  setRows((prev) => [...prev, newRow()])
+                }}
+              >
                 + Add line
               </button>
-              <Button variant="primary" onClick={() => void save()}>
+              <Button data-testid="btn-budgets-save" variant="primary" onClick={() => void save()}>
                 Save budget
               </Button>
             </div>
@@ -254,7 +304,9 @@ export function BudgetsScreen(): React.JSX.Element {
             Variance · through {monthLabel(upToMonth)}
           </SectionTitle>
           <Panel>
-            {!variance?.length ? (
+            {varianceLoading ? (
+              <SkeletonRows rows={4} />
+            ) : !variance?.length ? (
               <EmptyState title="No budget lines to compare yet" hint="Add a line above and save the budget" />
             ) : (
               <table className="ledger-table">
@@ -334,12 +386,18 @@ function NewBudgetModal({ onClose, onCreated }: { onClose: () => void; onCreated
         <Field label="Name">
           <TextInput autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Operating Budget" />
         </Field>
-        <Field label="Financial year" hint={`FY ${fyFromStartYear(fyStartYear).label}`}>
-          <TextInput
-            type="number"
+        <Field label="Financial year">
+          <Select
+            data-testid="select-budgets-fy"
             value={fyStartYear}
-            onChange={(e) => setFyStartYear(Number(e.target.value) || currentFy.startYear)}
-          />
+            onChange={(e) => setFyStartYear(Number(e.target.value))}
+          >
+            {Array.from({ length: 7 }, (_, i) => currentFy.startYear + 1 - i).map((y) => (
+              <option key={y} value={y}>
+                FY {fyFromStartYear(y).label}
+              </option>
+            ))}
+          </Select>
         </Field>
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>

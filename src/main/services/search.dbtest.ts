@@ -50,7 +50,7 @@ describe('globalSearch', () => {
     const db = seededDb()
     createStockItem(db, {
       name: 'Widget Pro', groupId: null, unitId: unit(db), hsn: null, gstRate: null, cessRate: null,
-      openingQtyMilli: 0, openingValue: 0, barcode: null
+      openingQtyMilli: 0, openingValue: 0, barcode: null, reorderLevelMilli: null
     })
     const hits = globalSearch(db, 'widget')
     expect(hits).toContainEqual({ kind: 'item', id: expect.any(Number), label: 'Widget Pro', sub: 'Stock item' })

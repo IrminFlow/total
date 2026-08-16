@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
+import { isUqc } from './gst/uqc'
+import { PT_STATES } from './payroll'
 
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
@@ -64,15 +66,34 @@ export const ledgerInputSchema = z.object({
   tdsSectionId: id.nullable().default(null),
   pan: panSchema,
   creditDays: z.number().int().min(0).max(365).nullable().default(null),
-  exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null)
+  exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null),
+  /** Reverse charge applies to this party's supplies (GSTR-1 rchrg / GSTR-3B 3.1(d)). */
+  rcm: z.boolean().default(false),
+  /** ITC eligibility class for purchases from this party — 'blocked' lands in 3B 4(D). */
+  itcEligibility: z.enum(['eligible', 'blocked', 'capital_goods', 'input_services']).default('eligible'),
+  /** Price level whose rates prefill this party's invoice lines; absent/null = item base rate. */
+  priceLevelId: id.nullable().optional(),
+  /** Credit limit in paise; absent/null = no limit. */
+  creditLimit: paise.min(0).nullable().optional()
 })
-export type LedgerInput = z.infer<typeof ledgerInputSchema>
+/** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
+ *  service callers (tests, importers) don't have to spell out every defaulted field. */
+export type LedgerInput = z.input<typeof ledgerInputSchema>
+export type LedgerInputParsed = z.infer<typeof ledgerInputSchema>
 
 export const unitInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
   symbol: z.string().trim().min(1).max(12),
   decimals: z.number().int().min(0).max(3),
-  uqc: z.string().trim().min(2).max(8).transform((s) => s.toUpperCase())
+  // Must be a real portal UQC — anything else is rejected by the GSTR-1/EWB upload tools
+  // (full CBIC enum + alias mapper in src/shared/gst/uqc.ts).
+  uqc: z
+    .string()
+    .trim()
+    .min(2)
+    .max(8)
+    .transform((s) => s.toUpperCase())
+    .refine((s) => isUqc(s), 'Not a valid GST portal UQC code')
 })
 export type UnitInput = z.infer<typeof unitInputSchema>
 
@@ -97,12 +118,17 @@ export const stockItemInputSchema = z.object({
     .max(64)
     .nullable()
     .default(null)
-    .transform((s) => (s === '' ? null : s))
+    .transform((s) => (s === '' ? null : s)),
+  /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
+  reorderLevelMilli: z.number().int().min(0).nullable().default(null),
+  /** Absent = keep existing (update) / 'weighted_avg' (create). */
+  valuationMethod: z.enum(['weighted_avg', 'fifo']).optional()
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
 
 export const godownInputSchema = z.object({
-  name: z.string().trim().min(1).max(120)
+  name: z.string().trim().min(1).max(120),
+  address: z.string().trim().max(500).nullable().optional()
 })
 export type GodownInput = z.infer<typeof godownInputSchema>
 
@@ -131,14 +157,27 @@ export const tdsSchema = z.object({
   tdsAmount: positivePaise
 })
 
-export const inventoryLineSchema = z.object({
-  stockItemId: id,
-  godownId: id.nullable().default(null),
-  qtyMilli: z.number().int().positive(),
-  ratePaise: paise.min(0),
-  amount: paise.min(0),
-  direction: z.enum(['in', 'out'])
-})
+export const inventoryLineSchema = z
+  .object({
+    stockItemId: id,
+    godownId: id.nullable().default(null),
+    /** Batch this quantity moves in/out of (F11 `batches`); null = untracked. */
+    batchId: id.nullable().optional(),
+    qtyMilli: z.number().int().min(0),
+    ratePaise: paise.min(0),
+    /** Per-line trade discount (lane Q #97): display + gross math only — `amount` is already the
+     *  post-discount taxable value, so GST is unaffected by construction. Optional (treated as 0)
+     *  so existing callers that never heard of discounts keep compiling and working. */
+    discountPaise: paise.min(0).optional(),
+    amount: paise.min(0),
+    direction: z.enum(['in', 'out']),
+    /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
+    isAbsolute: z.boolean().optional()
+  })
+  .refine((l) => l.isAbsolute || l.qtyMilli > 0, {
+    message: 'Inventory quantity must be positive',
+    path: ['qtyMilli']
+  })
 
 export const voucherInputSchema = z.object({
   voucherTypeId: id,
@@ -152,14 +191,22 @@ export const voucherInputSchema = z.object({
   transporterId: z.string().trim().max(20).nullable().default(null),
   vehicleNo: z.string().trim().max(20).nullable().default(null),
   transportDistanceKm: z.number().int().min(0).max(10000).nullable().default(null),
+  /** Place-of-supply override (two-digit state code) for GST returns; null = party/company state. */
+  posOverride: stateCodeSchema.nullable().default(null),
   currencyCode: z.string().trim().length(3).transform((s) => s.toUpperCase()).nullable().default(null),
   exchangeRate: z.number().positive().max(100000).nullable().default(null),
+  /** Post-dated: kept out of the books until the date arrives (auto-matures on company open). */
+  postDated: z.boolean().optional(),
+  /** Optional (memorandum) voucher: never counts toward the books. */
+  isOptional: z.boolean().optional(),
   lines: z.array(voucherLineSchema).max(200),
   inventory: z.array(inventoryLineSchema).max(200).default([]),
   billRefs: z.array(billRefSchema).max(50).default([]),
   tds: tdsSchema.nullable().default(null)
 })
 export type VoucherInputParsed = z.infer<typeof voucherInputSchema>
+/** Unparsed shape (defaults optional) — saveVoucher parses internally. */
+export type VoucherInput = z.input<typeof voucherInputSchema>
 
 export const voucherTypeInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -211,9 +258,12 @@ export const employeeInputSchema = z.object({
   pfEnabled: z.boolean().default(true),
   esiEnabled: z.boolean().default(true),
   ptEnabled: z.boolean().default(true),
+  ptState: z.enum(PT_STATES).default('MH'),
   active: z.boolean().default(true)
 })
 export type EmployeeInput = z.infer<typeof employeeInputSchema>
+/** What the renderer actually sends (defaulted fields optional) — keeps older forms compiling. */
+export type EmployeeInputPayload = z.input<typeof employeeInputSchema>
 
 export const bomLineInputSchema = z.object({
   componentId: z.number().int().positive(),
@@ -250,9 +300,25 @@ export const auditListSchema = z.object({
   entity: z.string().trim().min(1).optional(),
   from: isoDate.optional(),
   to: isoDate.optional(),
-  page: z.number().int().min(0).default(0)
+  page: z.number().int().min(0).default(0),
+  /** Rows per page; server defaults to AUDIT_PAGE_SIZE (100) when absent. */
+  pageSize: z.number().int().min(10).max(500).optional()
 })
 export type AuditListInput = z.infer<typeof auditListSchema>
+
+// ---------- lane Q: audit retention + batch invoice PDF ----------
+
+/** config:audit:set — days of audit history to keep, or null = keep forever (the default). */
+export const auditRetentionSchema = z.object({
+  keepDays: z.number().int().min(30).max(3650).nullable()
+})
+export type AuditRetentionInput = z.infer<typeof auditRetentionSchema>
+
+/** invoice:pdfBatch — render several sales invoices into one exports folder, sequentially. */
+export const invoicePdfBatchSchema = z.object({
+  voucherIds: z.array(id).min(1).max(500)
+})
+export type InvoicePdfBatchInput = z.infer<typeof invoicePdfBatchSchema>
 
 /** search:global input — ⌘K global search query (min 1 so an empty string is rejected outright;
  *  the palette itself gates the IPC call to 2+ chars). */
@@ -400,6 +466,13 @@ export const bankRuleInputSchema = z.object({
   pattern: z.string().trim().min(2).max(80),
   ledgerId: id,
   kind: z.enum(['payment', 'receipt']),
+  /** Statement cell the pattern matches against; defaults to 'description' server-side. */
+  matchField: z.enum(['description', 'reference']).optional(),
+  /** Amount window (paise, inclusive); null/omitted = unbounded on that side. */
+  minAmount: paise.min(0).nullable().optional(),
+  maxAmount: paise.min(0).nullable().optional(),
+  /** Opt-in: an applying statement import auto-creates the voucher on an exact rule match. */
+  autoApply: z.boolean().optional(),
   active: z.boolean().default(true)
 })
 
@@ -477,7 +550,9 @@ export const reportPdfSchema = z.object({
   columns: z.array(reportColumnSchema).min(1).max(20),
   rows: z.array(reportRowSchema).max(5000),
   footNote: z.string().max(500).optional(),
-  filename: exportFilename
+  filename: exportFilename,
+  /** Landscape orientation for wide reports (lane Q #95). */
+  landscape: z.boolean().default(false)
 })
 export type ReportPdfInput = z.infer<typeof reportPdfSchema>
 
@@ -486,6 +561,52 @@ export const exportCsvSchema = z.object({
   csv: z.string().max(2 * 1024 * 1024)
 })
 export type ExportCsvInput = z.infer<typeof exportCsvSchema>
+
+// ---------- payroll pay heads + statutory exports (lane Y, task Y1) ----------
+
+/** payroll:heads:save input. `value` is monthly paise for calc 'flat', or percent × 100 (basis
+ *  points of basic, 4000 = 40%) for 'percent_of_basic'. */
+export const payHeadInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    kind: z.enum(['earning', 'deduction']),
+    calc: z.enum(['flat', 'percent_of_basic']),
+    value: z.number().int().min(0),
+    active: z.boolean().default(true)
+  })
+  .refine((v) => v.calc !== 'percent_of_basic' || v.value <= 10000, {
+    message: 'Percent-of-basic value is percent × 100 (max 10000 = 100%)',
+    path: ['value']
+  })
+export type PayHeadInput = z.infer<typeof payHeadInputSchema>
+
+/** payroll:employeeHeads:set input — replaces the employee's full head assignment list.
+ *  overrideValue null = use the head's default value. */
+export const employeeHeadsSetSchema = z.object({
+  employeeId: id,
+  heads: z
+    .array(z.object({ payHeadId: id, overrideValue: z.number().int().min(0).nullable().default(null) }))
+    .max(50)
+})
+export type EmployeeHeadsSetInput = z.infer<typeof employeeHeadsSetSchema>
+
+/** payroll:ecr / payroll:esi / payroll:ptSummary input. */
+export const payrollRunIdSchema = z.object({ runId: id })
+
+// ---------- agent bridge (lane A) ----------
+
+/** agent:exportMirror input — regenerate the CSV/JSON mirror under `<company>/agent/`. */
+export const agentExportSchema = z.object({
+  what: z.enum(['masters', 'vouchers', 'reports', 'all']).default('all'),
+  format: z.enum(['csv', 'json', 'all']).default('all'),
+  from: isoDate.optional(),
+  to: isoDate.optional()
+})
+export type AgentExportInput = z.input<typeof agentExportSchema>
+
+/** agent:setConfig input — toggle the inbox watcher + auto mirror refresh (default OFF). */
+export const agentBridgeConfigSchema = z.object({ enabled: z.boolean() })
+export type AgentBridgeConfigInput = z.infer<typeof agentBridgeConfigSchema>
 
 // ---------- Tally import wizard v2 (task 3.5) ----------
 
@@ -497,3 +618,73 @@ export const tallyImportSchema = z
   })
   .default({})
 export type TallyImportInput = z.infer<typeof tallyImportSchema>
+
+// ---------- GST rebuild (lane G): voucher transport + GSTR-3B manual adjustments ----------
+
+/** edoc:transportSet payload — per-voucher transporter/vehicle/transport-doc + ship-to block
+ *  persisted to voucher_transport (migration 013); consumed by the EWB/e-invoice builders. */
+export const voucherTransportSchema = z.object({
+  transMode: z.enum(['1', '2', '3', '4']).nullable().default(null),
+  transDistanceKm: z.number().int().min(0).max(10000).nullable().default(null),
+  transporterId: z.string().trim().max(20).nullable().default(null),
+  transporterName: z.string().trim().max(120).nullable().default(null),
+  transDocNo: z.string().trim().max(30).nullable().default(null),
+  transDocDate: isoDate.nullable().default(null),
+  vehicleNo: z.string().trim().max(20).nullable().default(null),
+  vehicleType: z.enum(['R', 'O']).nullable().default(null),
+  shipToName: z.string().trim().max(120).nullable().default(null),
+  shipToGstin: gstinSchema.nullable().default(null),
+  shipToAddr1: z.string().trim().max(200).nullable().default(null),
+  shipToAddr2: z.string().trim().max(200).nullable().default(null),
+  shipToPlace: z.string().trim().max(80).nullable().default(null),
+  shipToPincode: z.string().trim().regex(/^\d{6}$/, 'PIN code must be 6 digits').nullable().default(null),
+  shipToState: stateCodeSchema.nullable().default(null)
+})
+export type VoucherTransportInput = z.infer<typeof voucherTransportSchema>
+
+const itcPartSchema = z.object({
+  igst: paise.default(0),
+  cgst: paise.default(0),
+  sgst: paise.default(0),
+  cess: paise.default(0)
+})
+
+/** Manual GSTR-3B adjustments for one period, persisted in meta `gst3b.manual.<MMYYYY>`:
+ *  4(B) ITC reversals, 5.1 interest and late fee. All amounts integer paise. */
+export const gst3bManualSchema = z.object({
+  itcRevRul: itcPartSchema.default({}),
+  itcRevOth: itcPartSchema.default({}),
+  interest: itcPartSchema.default({}),
+  lateFee: z.object({ camt: paise.default(0), samt: paise.default(0) }).default({})
+})
+export type Gst3bManualInput = z.infer<typeof gst3bManualSchema>
+// ---------- inventory depth (lane I): batches, price levels, stock analysis ----------
+
+export const batchInputSchema = z.object({
+  stockItemId: id,
+  name: z.string().trim().min(1).max(60),
+  mfgDate: isoDate.nullable().default(null),
+  expiryDate: isoDate.nullable().default(null)
+})
+export type BatchInput = z.infer<typeof batchInputSchema>
+
+export const priceLevelInputSchema = z.object({
+  name: z.string().trim().min(1).max(60)
+})
+export type PriceLevelInput = z.infer<typeof priceLevelInputSchema>
+
+/** One date-effective per-item rate under a price level. `rate` is paise per whole unit. */
+export const priceRateInputSchema = z.object({
+  priceLevelId: id,
+  stockItemId: id,
+  rate: paise.min(0),
+  effectiveFrom: isoDate
+})
+export type PriceRateInput = z.infer<typeof priceRateInputSchema>
+
+/** stock:* report queries — asOn plus optional godown scope. */
+export const stockQuerySchema = z.object({
+  asOn: isoDate,
+  godownId: id.optional()
+})
+export type StockQueryInput = z.infer<typeof stockQuerySchema>

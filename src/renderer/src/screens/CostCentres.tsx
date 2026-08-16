@@ -3,23 +3,30 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre } from '@shared/domain'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, SkeletonRows, TextInput } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
+import { confirmDialog } from '../lib/dialogs'
 
 export function CostCentresScreen(): React.JSX.Element {
   const { from, to } = useSession()
   const nav = useNav()
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const { data: centres } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
-  const { data: report } = useQuery({ queryKey: ['ccReport', from, to], queryFn: () => api.cc.report(from, to) })
+  const { data: centres, isLoading: centresLoading } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
+  const { data: report, isLoading: reportLoading } = useQuery({ queryKey: ['ccReport', from, to], queryFn: () => api.cc.report(from, to) })
   const [editing, setEditing] = useState<CostCentre | 'new' | null>(null)
   const [drillId, setDrillId] = useState<number | null>(null)
 
   const centreMap = new Map((centres ?? []).map((c) => [c.id, c]))
 
   const remove = async (cc: CostCentre): Promise<void> => {
-    if (!window.confirm(`Delete cost centre “${cc.name}”?`)) return
+    const proceed = await confirmDialog({
+      title: 'Delete cost centre',
+      message: `Delete cost centre “${cc.name}”?`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!proceed) return
     try {
       await api.cc.remove(cc.id)
       await queryClient.invalidateQueries()
@@ -42,7 +49,9 @@ export function CostCentresScreen(): React.JSX.Element {
       </SectionTitle>
 
       <Panel className="mb-6">
-        {!centres?.length ? (
+        {centresLoading ? (
+          <SkeletonRows rows={4} />
+        ) : !centres?.length ? (
           <EmptyState title="No cost centres yet" hint="Track income and expense by project, department or branch" />
         ) : (
           <table className="ledger-table">
@@ -79,7 +88,9 @@ export function CostCentresScreen(): React.JSX.Element {
         P&amp;L by centre · {toDisplayDate(from)} → {toDisplayDate(to)}
       </SectionTitle>
       <Panel>
-        {!report?.length ? (
+        {reportLoading ? (
+          <SkeletonRows rows={4} />
+        ) : !report?.length ? (
           <EmptyState title="No cost-centre postings in this period" />
         ) : (
           <table className="ledger-table">
@@ -136,8 +147,22 @@ function DrillRows({
   to: string
   onOpenVoucher: (voucherId: number) => void
 }): React.JSX.Element {
-  const { data } = useQuery({ queryKey: ['ccStatement', ccId, from, to], queryFn: () => api.cc.statement(ccId, from, to) })
+  const { data, isLoading } = useQuery({ queryKey: ['ccStatement', ccId, from, to], queryFn: () => api.cc.statement(ccId, from, to) })
   const rows = data ?? []
+  if (isLoading) {
+    // Loading is not "no postings" — show placeholder rows until the statement arrives.
+    return (
+      <>
+        {[0, 1].map((i) => (
+          <tr key={i} className="bg-panel2/50">
+            <td colSpan={4} className="pl-9">
+              <Skeleton className={`h-3 ${i === 0 ? 'w-56' : 'w-40'}`} />
+            </td>
+          </tr>
+        ))}
+      </>
+    )
+  }
   if (!rows.length) {
     return (
       <tr className="bg-panel2/50">

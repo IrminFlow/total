@@ -36,15 +36,35 @@ function CountsGrid({ summary }: { summary: TallyImportSummary }): React.JSX.Ele
   )
 }
 
+const WARNINGS_PREVIEW = 8
+
 function WarningsBox({ warnings }: { warnings: string[] }): React.JSX.Element | null {
+  const [expanded, setExpanded] = useState(false)
   if (warnings.length === 0) return null
+  const shown = expanded ? warnings : warnings.slice(0, WARNINGS_PREVIEW)
+  const hidden = warnings.length - shown.length
   return (
     <div className="mt-4 max-h-56 overflow-auto rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2">
-      {warnings.map((w, i) => (
+      <p className="flex items-center gap-2 py-0.5 text-[12.5px] font-medium text-ink">
+        <span data-testid="badge-import-tally-warnings" className="rounded bg-amberbar/40 px-1.5 py-0.5 num text-[11px]">
+          {warnings.length}
+        </span>
+        warning{warnings.length > 1 ? 's' : ''}
+      </p>
+      {shown.map((w, i) => (
         <p key={i} className="py-0.5 text-[12.5px] text-ink">
           {w}
         </p>
       ))}
+      {hidden > 0 && (
+        <button
+          data-testid="btn-import-tally-warnings-more"
+          className="py-0.5 text-[12.5px] text-blue hover:underline"
+          onClick={() => setExpanded(true)}
+        >
+          {hidden} more…
+        </button>
+      )}
     </div>
   )
 }
@@ -119,7 +139,7 @@ function PickStep({ busy, onPick }: { busy: boolean; onPick: () => void }): Reac
           your books until you confirm on the next screen.
         </p>
         <div className="mt-5 flex justify-center">
-          <Button variant="primary" disabled={busy} onClick={onPick} className="px-8 py-3 text-[14px]">
+          <Button variant="primary" data-testid="btn-import-tally-pick" disabled={busy} onClick={onPick} className="px-8 py-3 text-[14px]">
             {busy ? 'Reading…' : 'Choose Tally XML…'}
           </Button>
         </div>
@@ -148,7 +168,7 @@ function PreviewStep({
         <Button variant="ghost" disabled={busy} onClick={onDifferentFile}>
           Choose different file
         </Button>
-        <Button variant="primary" disabled={busy} onClick={onImport}>
+        <Button variant="primary" data-testid="btn-import-tally-import" disabled={busy} onClick={onImport}>
           {busy ? 'Importing…' : 'Import now'}
         </Button>
       </div>
@@ -211,7 +231,7 @@ function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGatew
         </div>
       </div>
 
-      <Panel className="mt-3">
+      <Panel className="mt-3" scroll={{ maxH: '60vh' }}>
         {rows.length === 0 ? (
           <EmptyState title="No balances yet" />
         ) : (

@@ -54,7 +54,13 @@ export function AboutSection(): React.JSX.Element {
           <Button disabled={checking} onClick={() => void checkUpdates()}>
             {checking ? 'Checking…' : 'Check for updates'}
           </Button>
-          <Button onClick={() => void api.log.reveal()}>Reveal logs</Button>
+          <Button
+            onClick={() => {
+              api.log.reveal().catch((err: Error) => toast.push('error', err.message))
+            }}
+          >
+            Reveal logs
+          </Button>
         </div>
         <p className="mt-6 text-[11.5px] text-muted">
           Your data lives at <span className="num">~/Documents/total</span> — fully offline, no cloud, no accounts.

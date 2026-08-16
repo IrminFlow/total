@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, EmptyState, Money, Panel, ScrollList, SectionTitle, SkeletonRows } from '../components/ui'
 import { csvReport } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
 import { plainRupees } from '@shared/money'
@@ -21,7 +21,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
 
   const slugs = useMemo(() => companies.map((c) => c.slug).filter((s) => selected.has(s)), [companies, selected])
 
-  const { data, refetch, isFetching } = useQuery({
+  const { data, error, refetch, isFetching } = useQuery({
     queryKey: ['consolidated', slugs, kind, from, to],
     queryFn: () => api.consolidated.run(slugs, kind, from, to),
     enabled: false
@@ -42,11 +42,10 @@ export function ConsolidatedScreen(): React.JSX.Element {
       return
     }
     setRanOnce(true)
-    try {
-      await refetch()
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
+    // refetch() never throws — it resolves with the failure inside the result — so surface
+    // the error from the query result (and it stays rendered below via `error`).
+    const result = await refetch()
+    if (result.error) toast.push('error', result.error.message)
   }
 
   const exportCsv = async (): Promise<void> => {
@@ -68,6 +67,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
           <div className="flex items-center gap-3">
             <div className="flex overflow-hidden rounded-md border border-line">
               <button
+                data-testid="tab-consolidated-tb"
                 className={`px-3 py-1 text-[12px] transition-colors ${
                   kind === 'tb' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
                 }`}
@@ -76,6 +76,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
                 Trial balance
               </button>
               <button
+                data-testid="tab-consolidated-pnl"
                 className={`border-l border-line px-3 py-1 text-[12px] transition-colors ${
                   kind === 'pnl' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
                 }`}
@@ -97,33 +98,54 @@ export function ConsolidatedScreen(): React.JSX.Element {
         {companies.length === 0 ? (
           <EmptyState title="No companies yet" hint="Create at least one company to consolidate" />
         ) : (
-          <div className="flex flex-col gap-1.5">
+          <ScrollList maxH="40vh" className="flex flex-col gap-1.5">
             {companies.map((c) => (
               <label key={c.slug} className="flex items-center gap-2 text-[13px]">
-                <input type="checkbox" checked={selected.has(c.slug)} onChange={() => toggle(c.slug)} />
+                <input
+                  type="checkbox"
+                  data-testid={`check-consolidated-${c.slug}`}
+                  checked={selected.has(c.slug)}
+                  onChange={() => toggle(c.slug)}
+                />
                 {c.name}
                 <span className="num text-[11px] text-muted">{c.slug}</span>
               </label>
             ))}
-          </div>
+          </ScrollList>
         )}
         <div className="mt-4 flex items-center gap-2">
-          <Button variant="primary" onClick={() => void run()} disabled={isFetching}>
+          <Button data-testid="btn-consolidated-run" variant="primary" onClick={() => void run()} disabled={isFetching}>
             {isFetching ? 'Running…' : 'Run'}
           </Button>
-          {data && <Button onClick={() => void exportCsv()}>Export CSV</Button>}
+          {data && (
+            <Button data-testid="btn-consolidated-csv" onClick={() => void exportCsv()}>
+              Export CSV
+            </Button>
+          )}
         </div>
       </Panel>
 
+      {ranOnce && error && (
+        <div className="mb-4 rounded-md border border-cr/50 bg-cr/10 px-3 py-2 text-[12.5px] text-cr">
+          Couldn&apos;t run the consolidation: {error.message}
+        </div>
+      )}
+
       {data && data.warnings.length > 0 && (
         <div className="mb-4 rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2 text-[12.5px] text-ink">
-          {data.warnings.map((w) => (
-            <p key={w}>{w}</p>
+          {data.warnings.map((w, i) => (
+            <p key={i}>{w}</p>
           ))}
         </div>
       )}
 
-      {ranOnce && data && (
+      {isFetching && (
+        <Panel>
+          <SkeletonRows />
+        </Panel>
+      )}
+
+      {!isFetching && ranOnce && data && (
         <Panel>
           {data.rows.length === 0 ? (
             <EmptyState title="No balances" hint="Nothing to show for the selected companies and period" />

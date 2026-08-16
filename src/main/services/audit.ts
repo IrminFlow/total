@@ -1,6 +1,21 @@
 import type { DB } from '../db/connection'
 
-export type AuditAction = 'create' | 'update' | 'delete'
+// The write side owns the entity vocabulary; the list itself lives in src/shared so the
+// Settings → Audit filter can import it too (renderer can't reach main-process modules).
+export { AUDIT_ENTITIES, type AuditEntity } from '@shared/auditEntities'
+
+/** Mirrors migration 017's audit_log action CHECK. 'login'/'login_failed'/'logout' come from the
+ *  auth flow (users.ts + ipc.ts), 'export' from every file-export IPC handler, 'import' from bulk
+ *  imports (Tally XML, bank statements). */
+export type AuditAction =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'login'
+  | 'login_failed'
+  | 'logout'
+  | 'export'
+  | 'import'
 
 export interface AuditContext {
   /** Current app version, stamped onto every audit row (electron-builder's package.json version). */
@@ -17,6 +32,22 @@ let context: AuditContext = { appVersion: '', getUserName: () => null }
 /** Module-level audit context, set once at app startup (see ipc.ts's registerIpc). */
 export function setAuditContext(ctx: AuditContext): void {
   context = ctx
+}
+
+/**
+ * Run `fn` with audit rows attributed to `userName` (e.g. 'agent-inbox' for drop-folder posts,
+ * inside an app whose session user would otherwise be stamped). Synchronous by design — the main
+ * process is single-threaded and every service write is sync, so the swap cannot leak across
+ * unrelated work. Restores the previous context even if `fn` throws.
+ */
+export function runAsAuditUser<T>(userName: string, fn: () => T): T {
+  const prev = context
+  context = { appVersion: prev.appVersion, getUserName: () => userName }
+  try {
+    return fn()
+  } finally {
+    context = prev
+  }
 }
 
 /** Append one row to audit_log. before/after are JSON.stringify'd; null stays null (not '"null"'). */
@@ -42,6 +73,16 @@ export function writeAudit(
   )
 }
 
+/**
+ * Audit retention (task Q1 #92): delete audit rows older than `keepDays`. Only ever called when
+ * the company has an explicit `auditKeepDays` configured (see config.ts) — the default is to keep
+ * the trail forever. Single batched SQL; returns the number of rows pruned.
+ */
+export function pruneAudit(db: DB, keepDays: number): number {
+  const res = db.prepare(`DELETE FROM audit_log WHERE at < datetime('now', ?)`).run(`-${keepDays} days`)
+  return res.changes
+}
+
 export interface AuditRow {
   id: number
   entity: string
@@ -61,6 +102,8 @@ export interface AuditListQuery {
   /** Inclusive upper bound, 'YYYY-MM-DD'. */
   to?: string
   page?: number
+  /** Rows per page (default AUDIT_PAGE_SIZE). */
+  pageSize?: number
 }
 
 export const AUDIT_PAGE_SIZE = 100
@@ -68,6 +111,7 @@ export const AUDIT_PAGE_SIZE = 100
 /** Server-side paged audit_log read, newest first. `to` is inclusive (compares on date(at), not at). */
 export function listAudit(db: DB, query: AuditListQuery): { rows: AuditRow[]; total: number } {
   const page = query.page ?? 0
+  const pageSize = query.pageSize ?? AUDIT_PAGE_SIZE
   const conditions: string[] = []
   const params: unknown[] = []
   if (query.entity) {
@@ -95,7 +139,7 @@ export function listAudit(db: DB, query: AuditListQuery): { rows: AuditRow[]; to
        ORDER BY id DESC
        LIMIT ? OFFSET ?`
     )
-    .all(...params, AUDIT_PAGE_SIZE, page * AUDIT_PAGE_SIZE) as AuditRow[]
+    .all(...params, pageSize, page * pageSize) as AuditRow[]
 
   return { rows, total: totalRow.n }
 }

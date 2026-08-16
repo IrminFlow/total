@@ -4,7 +4,7 @@ import { fyFromStartYear, fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import { planClose } from '@shared/yearEnd'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { Button, EmptyState, Money, Panel, ScrollList, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
 
 type Step = 1 | 2 | 3
 
@@ -153,9 +153,9 @@ export function YearEndScreen(): React.JSX.Element {
 
       {step === 1 && (
         <>
-          <Panel className="mb-4">
+          <Panel className="mb-4" scroll={{ maxH: '55vh' }}>
             {isLoading ? (
-              <p className="p-4 text-[13px] text-muted">Loading…</p>
+              <SkeletonRows />
             ) : !incomeRows.length && !expenseRows.length ? (
               <EmptyState title="No income or expense activity in this FY" hint="Nothing to close for this period" />
             ) : (
@@ -213,6 +213,7 @@ export function YearEndScreen(): React.JSX.Element {
             <div className="border-b border-line px-4 py-2.5 text-[12.5px] text-muted">
               Journal · dated {toDisplayDate(fy.to)} · narration “Year-end closing entry [year-end close FY{fyStartYear}]”
             </div>
+            <ScrollList maxH="50vh">
             <table className="ledger-table">
               <thead>
                 <tr>
@@ -238,6 +239,7 @@ export function YearEndScreen(): React.JSX.Element {
                 )}
               </tbody>
             </table>
+            </ScrollList>
           </Panel>
           <Panel className="mb-4 border-amber/40 bg-amber/5 p-4">
             <p className="text-[13px] font-medium">
@@ -264,12 +266,23 @@ export function YearEndScreen(): React.JSX.Element {
               <span className="font-mono font-semibold">CLOSE</span> to confirm.
             </p>
             <div className="mt-3 max-w-xs">
-              <TextInput value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="CLOSE" autoFocus />
+              <TextInput
+                data-testid="input-year-end-confirm"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="CLOSE"
+                autoFocus
+              />
+              {confirmText !== '' && confirmText !== 'CLOSE' && (
+                <p data-testid="year-end-confirm-error" className="mt-1.5 text-[12px] text-cr">
+                  Type CLOSE exactly (all caps) to enable the button.
+                </p>
+              )}
             </div>
           </Panel>
           <div className="flex justify-between">
             <Button onClick={() => setStep(2)}>Back</Button>
-            <Button variant="primary" disabled={confirmText !== 'CLOSE' || posting} onClick={() => void post()}>
+            <Button variant="primary" data-testid="btn-year-end-post" disabled={confirmText !== 'CLOSE' || posting} onClick={() => void post()}>
               {posting ? 'Posting…' : 'Post closing entry & lock'}
             </Button>
           </div>

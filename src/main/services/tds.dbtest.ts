@@ -28,7 +28,10 @@ function creditorLedger(db: ReturnType<typeof seededDb>, name: string, opts: { t
 
 function paymentVoucherWithTds(
   db: ReturnType<typeof seededDb>,
-  opts: { date: string; partyLedgerId: number; base: number; tds: number; sectionId: number; sectionCode: string }
+  opts: {
+    date: string; partyLedgerId: number; base: number; tds: number; sectionId: number; sectionCode: string
+    postDated?: boolean; isOptional?: boolean
+  }
 ) {
   // 'journal' avoids the payment-must-credit-cash/bank rule — we need to credit TDS Payable too.
   const vt = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }
@@ -46,8 +49,11 @@ function paymentVoucherWithTds(
     transporterId: null,
     vehicleNo: null,
     transportDistanceKm: null,
+    posOverride: null,
     currencyCode: null,
     exchangeRate: null,
+    postDated: opts.postDated,
+    isOptional: opts.isOptional,
     lines: [
       { ledgerId: opts.partyLedgerId, drCr: 'dr', amount: opts.base, costAllocations: [] },
       { ledgerId: cash.id, drCr: 'cr', amount: opts.base - opts.tds, costAllocations: [] },
@@ -161,5 +167,38 @@ describe('tds service', () => {
     expect(csv).toContain('194C')
     expect(csv).toContain('50000.00')
     expect(csv).toContain('1000.00')
+  })
+
+  it('excludes optional (memorandum) and unmatured post-dated vouchers from summary, 26Q export and the threshold base (IN_BOOKS)', () => {
+    process.env.TOTAL_DATA_DIR = mkdtempSync(join(tmpdir(), 'total-tds-inbooks-'))
+    const db = seededDb()
+    const slug = 'tds-inbooks-test'
+    ensureCompanyTree(slug)
+    const section = db.prepare("SELECT id FROM tds_sections WHERE code = '194I'").get() as { id: number } // rent: annual ₹2,40,000
+    const party = creditorLedger(db, 'Landlord', { tdsSectionId: section.id, pan: 'ABCDE1234F' })
+
+    // In-books entry: ₹1,00,000.
+    paymentVoucherWithTds(db, { date: '2025-05-01', partyLedgerId: party.id, base: 10000000, tds: 1000000, sectionId: section.id, sectionCode: '194I' })
+    // Optional (memorandum) entry: ₹2,00,000 — must NOT reach any filing figure.
+    paymentVoucherWithTds(db, { date: '2025-05-10', partyLedgerId: party.id, base: 20000000, tds: 2000000, sectionId: section.id, sectionCode: '194I', isOptional: true })
+    // Unmatured post-dated entry: ₹1,50,000 — out of the books until it matures.
+    paymentVoucherWithTds(db, { date: '2025-06-10', partyLedgerId: party.id, base: 15000000, tds: 1500000, sectionId: section.id, sectionCode: '194I', postDated: true })
+
+    // Summary only sees the in-books ₹1,00,000.
+    const summary = tdsSummary(db, 2025)
+    expect(summary).toHaveLength(1)
+    expect(summary[0]).toMatchObject({ quarter: 'Q1 FY2025-26', base: 10000000, tds: 1000000 })
+
+    // 26Q CSV carries exactly one deductee row.
+    const path = export26qCsv(db, INFO, slug, 2025, 1)
+    const csv = readFileSync(path, 'utf8')
+    const dataRows = csv.trim().split('\n').slice(1)
+    expect(dataRows).toHaveLength(1)
+    expect(dataRows[0]).toContain('100000.00')
+
+    // Threshold base is FY-to-date IN_BOOKS only: 100000 + 100000 < 240000 — the out-of-books
+    // ₹3,50,000 must not fire the annual-threshold check early.
+    const s = tdsSuggestion(db, party.id, 10000000, '2025-07-01')
+    expect(s!.thresholdCrossed).toBe(false)
   })
 })

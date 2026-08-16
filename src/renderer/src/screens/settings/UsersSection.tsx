@@ -28,14 +28,16 @@ export function UsersSection(): React.JSX.Element {
     return (
       <div>
         <SectionTitle>Users</SectionTitle>
-        <EmptyState title="Only the owner can manage users." />
+        <div className="rounded-md border border-blue/40 bg-blue/10 px-3.5 py-2.5 text-[12.5px] text-blue">
+          Only the owner can manage users. Ask an owner to sign in to add, edit or deactivate accounts.
+        </div>
       </div>
     )
   }
 
   return (
     <div>
-      <SectionTitle right={<Button variant="primary" onClick={() => setAdding(true)}>Add user</Button>}>
+      <SectionTitle right={<Button variant="primary" data-testid="btn-users-add" onClick={() => setAdding(true)}>Add user</Button>}>
         Users
       </SectionTitle>
       <Panel>
@@ -201,7 +203,7 @@ function UserModal({
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={busy} onClick={() => void submit()}>
+        <Button variant="primary" data-testid="btn-users-save" disabled={busy} onClick={() => void submit()}>
           {busy ? 'Saving…' : existing ? 'Save' : 'Add user'}
         </Button>
       </div>

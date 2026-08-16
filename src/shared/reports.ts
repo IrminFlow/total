@@ -1,16 +1,24 @@
 /** Result shapes for every report screen. Computed in main, rendered in renderer. */
 import type { DrCr, Nature } from './domain'
+import type { RatioPanel } from './reportMath'
 
 export interface DayBookRow {
   voucherId: number
   date: string
   voucherType: string
+  /** Voucher-type kind ('sales', 'payment', …) — drives kind-based affordances (invoice PDF)
+   *  without brittle voucher-type-name matching (v0.3 S5). */
+  kind: string
   number: string
   /** Primary party/account shown in the list. */
   account: string
   narration: string | null
   debit: number
   credit: number
+  /** Memorandum voucher — never counts toward the books or totals (v0.3 S5). */
+  isOptional: boolean
+  /** Post-dated and not yet matured — kept out of the books until its date arrives (v0.3 S5). */
+  postDated: boolean
 }
 
 export interface LedgerStatementRow {
@@ -27,6 +35,15 @@ export interface LedgerStatementRow {
   running: number
 }
 
+export interface LedgerMonthRow {
+  /** 'YYYY-MM' */
+  month: string
+  debit: number
+  credit: number
+  /** Signed running balance at month end, positive = Dr. */
+  closing: number
+}
+
 export interface LedgerStatement {
   ledgerId: number
   ledgerName: string
@@ -35,20 +52,32 @@ export interface LedgerStatement {
   closing: number
   totalDebit: number
   totalCredit: number
+  /** Columnar month matrix (v0.3 #55) — present when requested with groupBy: 'month'. */
+  months?: LedgerMonthRow[]
 }
 
 export interface TrialBalanceRow {
   ledgerId: number
   ledgerName: string
   groupName: string
+  /** Closing balance split by side (paise). */
   debit: number
   credit: number
+  /** Book opening balance, signed dr-positive (v0.3 #56 opt-in column). */
+  opening: number
+  /** Gross movement up to asOn, by side (v0.3 #56 opt-in columns). */
+  movementDebit: number
+  movementCredit: number
 }
 
 export interface TrialBalance {
   rows: TrialBalanceRow[]
   totalDebit: number
   totalCredit: number
+  openingDebitTotal: number
+  openingCreditTotal: number
+  movementDebitTotal: number
+  movementCreditTotal: number
 }
 
 export interface StatementNode {
@@ -73,6 +102,8 @@ export interface ProfitAndLoss {
   indirectExpenses: StatementNode[]
   indirectIncomes: StatementNode[]
   netProfit: number
+  /** Same statement for the corresponding prior-year period (v0.3 #57, opt-in; never nested). */
+  prior?: ProfitAndLoss
 }
 
 export interface BalanceSheet {
@@ -83,6 +114,8 @@ export interface BalanceSheet {
   profitCurrentPeriod: number
   totalLiabilities: number
   totalAssets: number
+  /** Same statement as on the prior-year date (v0.3 #57, opt-in; never nested). */
+  prior?: BalanceSheet
 }
 
 export interface StockSummaryRow {
@@ -90,10 +123,63 @@ export interface StockSummaryRow {
   name: string
   unitSymbol: string
   decimals: number
+  /** Book opening (v0.3 #64 — previously folded into inwardQtyMilli). */
+  openingQtyMilli: number
+  openingValue: number
+  /** Pure period inwards, opening excluded. */
   inwardQtyMilli: number
   outwardQtyMilli: number
   closingQtyMilli: number
   closingValue: number
+}
+
+export interface StockAgeingRow {
+  stockItemId: number
+  name: string
+  unitSymbol: string
+  decimals: number
+  closingQtyMilli: number
+  /** Qty (milli) by age of the stock still held: 0–30, 31–60, 61–90, 90+ days. */
+  buckets: [number, number, number, number]
+  lastOutwardDate: string | null
+  /** Held stock with no outward movement in the last 90 days. */
+  slowMoving: boolean
+  reorderLevelMilli: number | null
+  /** True when a reorder level is set and closing qty is at or below it. */
+  belowReorder: boolean
+}
+
+export interface ItemProfitRow {
+  stockItemId: number
+  name: string
+  unitSymbol: string
+  decimals: number
+  /** Qty sold (sales vouchers' outward lines) in the period. */
+  outQtyMilli: number
+  salesValue: number
+  /** Weighted-average cost of the qty sold. */
+  cogs: number
+  profit: number
+}
+
+export interface ExceptionRow {
+  label: string
+  detail: string
+  voucherId?: number
+  ledgerId?: number
+  amount?: number
+}
+
+export interface ExceptionSection {
+  key: 'negativeStock' | 'negativeCash' | 'missingNarration' | 'singleLedger' | 'outsidePeriod' | 'unbalanced' | 'missingGst'
+  label: string
+  count: number
+  /** Detail rows, capped at 200 per section (count is the true total). */
+  rows: ExceptionRow[]
+}
+
+export interface ExceptionsReport {
+  sections: ExceptionSection[]
 }
 
 export interface TopLedgerRow {
@@ -127,6 +213,8 @@ export interface DashboardData {
   partyCount: number
   itemCount: number
   hasEmployees: boolean
+  /** Financial ratio panel, FY-to-date (v0.3 #54). */
+  ratios: RatioPanel
 }
 
 export interface VoucherListRow {
@@ -138,6 +226,10 @@ export interface VoucherListRow {
   account: string
   narration: string | null
   amount: number
+  /** Memorandum voucher — never counts toward the books. */
+  isOptional: boolean
+  /** Post-dated and not yet matured — out of the books until its date arrives. */
+  postDated: boolean
 }
 
 export interface LedgerBalanceRow {
@@ -196,6 +288,9 @@ export interface OutstandingParty {
   pending: number
   buckets: [number, number, number, number] // 0-30, 31-60, 61-90, 90+
   bills: OutstandingBill[]
+  /** Bill-reference problems surfaced by the allocator (v0.3 #66), e.g. an 'against' ref
+   *  naming a bill that isn't open. */
+  warnings?: string[]
 }
 
 export interface BankLineRow {
@@ -235,4 +330,9 @@ export interface EdocListRow {
   hasHsn: boolean
   irn: string | null
   ewbNo: string | null
+  /** Outward (sales-side) debit note — exports in EWB files as docType 'OTH'. */
+  outwardDbn: boolean
+  /** Why this row is NOT e-way-bill eligible; null when eligible. The ₹50,000-threshold
+   *  reason is advisory — the per-bill export overrides it. */
+  ewbReason: string | null
 }

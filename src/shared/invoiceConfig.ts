@@ -28,6 +28,9 @@ export interface InvoiceConfig {
   showQr: boolean
   /** Adds a "Barcode" column when at least one line item carries a stored barcode. */
   showItemBarcode: boolean
+  /** Footer line "Entered by X · Altered by Y" sourced from the voucher's audit trail (first
+   *  create + latest update user) — lane Q, task Q1 #91. Off by default. */
+  showEnteredBy: boolean
 }
 
 export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
@@ -42,7 +45,8 @@ export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
   showDiscount: false,
   copyLabels: ['Original for Recipient'],
   showQr: true,
-  showItemBarcode: false
+  showItemBarcode: false,
+  showEnteredBy: false
 }
 
 /** ~200KB of base64 (280,000 chars covers 200KB with base64's ~4/3 expansion plus headroom). */
@@ -70,7 +74,9 @@ export const invoiceConfigSchema = z.object({
   showDiscount: z.boolean(),
   copyLabels: z.array(z.string().trim().min(1).max(40)).min(1).max(3),
   showQr: z.boolean(),
-  showItemBarcode: z.boolean()
+  showItemBarcode: z.boolean(),
+  // .default(false) so configs saved before this field existed still parse as-is.
+  showEnteredBy: z.boolean().default(false)
 })
 
 /** Every field optional — for previewing unsaved edits. The renderer's draft form state is

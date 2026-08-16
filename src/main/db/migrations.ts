@@ -369,5 +369,186 @@ export const MIGRATIONS: string[] = [
     amount INTEGER NOT NULL,
     CHECK ((ledger_id IS NULL) <> (group_id IS NULL))
   );
+  `,
+  // 012 — perf hardening (v0.3 lane R): FK indexes for every child column that reports/services
+  // join or filter on but had no index, one covering index for the stock-report hot path
+  // (inventory_lines by item joined back to vouchers), and stock_items.reorder_level_milli
+  // (integer thousandths; NULL = no reorder level set) feeding the stock ageing/reorder report.
+  `
+  CREATE INDEX idx_bill_refs_voucher ON bill_refs(voucher_id);
+  CREATE INDEX idx_vlca_line ON voucher_line_cost_allocations(voucher_line_id);
+  CREATE INDEX idx_budget_lines_budget ON budget_lines(budget_id);
+  CREATE INDEX idx_payroll_lines_run ON payroll_lines(run_id);
+  CREATE INDEX idx_payroll_lines_employee ON payroll_lines(employee_id);
+  CREATE INDEX idx_bank_rules_ledger ON bank_rules(ledger_id);
+  CREATE INDEX idx_bom_lines_component ON bom_lines(component_id);
+  CREATE INDEX idx_inv_godown ON inventory_lines(godown_id);
+  CREATE INDEX idx_groups_parent ON groups(parent_id);
+  CREATE INDEX idx_stock_groups_parent ON stock_groups(parent_id);
+  CREATE INDEX idx_stock_items_group ON stock_items(group_id);
+  CREATE INDEX idx_stock_items_unit ON stock_items(unit_id);
+  CREATE INDEX idx_ledgers_tds_section ON ledgers(tds_section_id);
+  CREATE INDEX idx_recurring_templates_vt ON recurring_templates(voucher_type_id);
+  CREATE INDEX idx_cost_centres_parent ON cost_centres(parent_id);
+  CREATE INDEX idx_inv_item_voucher ON inventory_lines(stock_item_id, voucher_id);
+
+  ALTER TABLE stock_items ADD COLUMN reorder_level_milli INTEGER;
+  `,
+  // 013 — GST rebuild (lane G, pre-assigned number 013 in the v0.3 migration ledger):
+  // party-level reverse charge + ITC eligibility flags, a per-voucher place-of-supply
+  // override, and the voucher_transport table (per-voucher transporter/vehicle/transport
+  // doc + ship-to block) feeding e-way bill / e-invoice ExpDtls-ShipDtls generation.
+  `
+  ALTER TABLE ledgers ADD COLUMN rcm INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE ledgers ADD COLUMN itc_eligibility TEXT CHECK(itc_eligibility IN ('eligible','blocked','capital_goods','input_services')) DEFAULT 'eligible';
+  ALTER TABLE vouchers ADD COLUMN pos_override TEXT;
+
+  CREATE TABLE voucher_transport (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    trans_mode TEXT,
+    trans_distance INTEGER,
+    transporter_id TEXT,
+    transporter_name TEXT,
+    trans_doc_no TEXT,
+    trans_doc_date TEXT,
+    vehicle_no TEXT,
+    vehicle_type TEXT,
+    ship_to_name TEXT,
+    ship_to_gstin TEXT,
+    ship_to_addr1 TEXT,
+    ship_to_addr2 TEXT,
+    ship_to_place TEXT,
+    ship_to_pincode TEXT,
+    ship_to_state TEXT
+  );
+  `,
+  // 014 — inventory depth (lane I, v0.3): per-item valuation method (FIFO vs perpetual weighted
+  // average, consumed by src/shared/valuation.ts), batches with mfg/expiry, physical-stock
+  // absolute lines (is_absolute=1: qty_milli is the counted closing quantity), price levels with
+  // date-effective per-item rates, party credit limits, godown addresses, and post-dated /
+  // optional (memorandum) voucher flags. Number pre-assigned by the v0.3 migration ledger.
+  `
+  ALTER TABLE stock_items ADD COLUMN valuation_method TEXT NOT NULL DEFAULT 'weighted_avg'
+    CHECK (valuation_method IN ('weighted_avg','fifo'));
+
+  CREATE TABLE batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    name TEXT NOT NULL,
+    mfg_date TEXT,
+    expiry_date TEXT,
+    UNIQUE (stock_item_id, name)
+  );
+
+  ALTER TABLE inventory_lines ADD COLUMN batch_id INTEGER REFERENCES batches(id);
+  ALTER TABLE inventory_lines ADD COLUMN is_absolute INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX idx_inv_batch ON inventory_lines(batch_id) WHERE batch_id IS NOT NULL;
+
+  CREATE TABLE price_levels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+  );
+
+  CREATE TABLE price_list_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    price_level_id INTEGER NOT NULL REFERENCES price_levels(id) ON DELETE CASCADE,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    rate INTEGER NOT NULL,
+    effective_from TEXT NOT NULL,
+    UNIQUE (price_level_id, stock_item_id, effective_from)
+  );
+
+  ALTER TABLE ledgers ADD COLUMN price_level_id INTEGER REFERENCES price_levels(id);
+  ALTER TABLE ledgers ADD COLUMN credit_limit INTEGER;
+
+  ALTER TABLE godowns ADD COLUMN address TEXT;
+
+  ALTER TABLE vouchers ADD COLUMN post_dated INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE vouchers ADD COLUMN is_optional INTEGER NOT NULL DEFAULT 0;
+  `,
+  // 015 — payroll depth (lane Y, task Y1): custom pay heads (flat | percent-of-basic, earning |
+  // deduction) with per-employee overrides, the PT state an employee is taxed in, and the extra
+  // per-line statutory figures (EPS split, PF admin, EDLI, custom-head totals + JSON breakdown).
+  // Backward compatibility is DATA, not just schema: the legacy basic/hra/special columns are
+  // seeded as three pay heads with one override row per existing employee, so a migrated employee
+  // computes byte-identical pay through the head list (regression-tested in payroll.test.ts).
+  `
+  CREATE TABLE pay_heads (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    kind TEXT NOT NULL CHECK (kind IN ('earning','deduction')),
+    calc TEXT NOT NULL CHECK (calc IN ('flat','percent_of_basic')),
+    value INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE employee_pay_heads (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    pay_head_id INTEGER NOT NULL REFERENCES pay_heads(id) ON DELETE CASCADE,
+    override_value INTEGER,
+    UNIQUE (employee_id, pay_head_id)
+  );
+  CREATE INDEX idx_eph_head ON employee_pay_heads(pay_head_id);
+
+  ALTER TABLE employees ADD COLUMN pt_state TEXT NOT NULL DEFAULT 'MH';
+
+  ALTER TABLE payroll_lines ADD COLUMN other_earnings INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN other_deductions INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN eps_er INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN pf_admin INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN edli INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN heads_json TEXT;
+
+  INSERT INTO pay_heads (name, kind, calc, value) VALUES
+    ('Basic', 'earning', 'flat', 0),
+    ('HRA', 'earning', 'flat', 0),
+    ('Special Allowance', 'earning', 'flat', 0);
+
+  INSERT INTO employee_pay_heads (employee_id, pay_head_id, override_value)
+    SELECT e.id, (SELECT id FROM pay_heads WHERE name = 'Basic'), e.basic FROM employees e;
+  INSERT INTO employee_pay_heads (employee_id, pay_head_id, override_value)
+    SELECT e.id, (SELECT id FROM pay_heads WHERE name = 'HRA'), e.hra FROM employees e;
+  INSERT INTO employee_pay_heads (employee_id, pay_head_id, override_value)
+    SELECT e.id, (SELECT id FROM pay_heads WHERE name = 'Special Allowance'), e.special FROM employees e;
+  `,
+  // 016 — banking depth (lane Y, task Y2): bank rules gain an amount window (paise; NULL = no
+  // bound) and an audited opt-in auto-apply flag (auto-create the voucher on statement import
+  // when the rule matches exactly — off by default). match_field ('description' | 'reference')
+  // existed since 010 and is honored by the matcher from this version on.
+  `
+  ALTER TABLE bank_rules ADD COLUMN min_amount INTEGER;
+  ALTER TABLE bank_rules ADD COLUMN max_amount INTEGER;
+  ALTER TABLE bank_rules ADD COLUMN auto_apply INTEGER NOT NULL DEFAULT 0;
+  `,
+  // 017 (lane Q) — invoice discount + audit action set expansion.
+  // - inventory_lines.discount_paise: per-line trade discount. Display + gross computation only:
+  //   `amount` stays the post-discount taxable value, so GST (always computed off `amount`) is
+  //   unaffected by construction.
+  // - audit_log's action CHECK gains 'login'/'login_failed'/'logout'/'export'/'import' (audit
+  //   completeness, task Q1). SQLite cannot ALTER a CHECK constraint, so the table is rebuilt in
+  //   place, preserving rows, ids, and both indexes.
+  `
+  ALTER TABLE inventory_lines ADD COLUMN discount_paise INTEGER NOT NULL DEFAULT 0;
+
+  CREATE TABLE audit_log_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK (action IN (
+      'create','update','delete','login','login_failed','logout','export','import'
+    )),
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    before_json TEXT,
+    after_json TEXT,
+    user_name TEXT,
+    app_version TEXT
+  );
+  INSERT INTO audit_log_new (id, entity, entity_id, action, at, before_json, after_json, user_name, app_version)
+    SELECT id, entity, entity_id, action, at, before_json, after_json, user_name, app_version FROM audit_log;
+  DROP TABLE audit_log;
+  ALTER TABLE audit_log_new RENAME TO audit_log;
+  CREATE INDEX idx_audit_at ON audit_log(at);
+  CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
   `
 ]

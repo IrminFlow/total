@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import type { CompanyInfo, VoucherKind } from '@shared/domain'
 import { fyOf, todayISO } from '@shared/dates'
 import type { SessionUser } from '../lib/client'
+import { confirmDialog } from '../lib/dialogs'
+import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
 
 // ---------- navigation ----------
 
@@ -29,15 +31,21 @@ export function nextDraftId(): number {
 
 export type Screen =
   | { name: 'gateway' }
-  | { name: 'daybook' }
+  // Optional drill params (Registers month rows → filtered Day Book): restrict to one
+  // 'YYYY-MM' month and/or one voucher-type kind ('sales' | 'purchase' | …).
+  | { name: 'daybook'; month?: string; kind?: string }
   | { name: 'import-tally' }
   // `draftId` forces VoucherEntry to remount when a new draft targets the same 'new' voucher slot
   // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.
   | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }
-  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' }
+  // Like 'settings', the active tab lives in the nav stack (nav.go per tab) so Esc/back
+  // retraces tabs and other screens can deep-link straight to one.
+  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' }
   | { name: 'trial-balance' }
   | { name: 'profit-loss' }
   | { name: 'balance-sheet' }
+  | { name: 'cash-flow' }
+  | { name: 'exceptions' }
   | { name: 'stock-summary' }
   | { name: 'ledger-statement'; ledgerId: number }
   | { name: 'gstr1' }
@@ -55,7 +63,7 @@ export type Screen =
   | { name: 'budgets' }
   | { name: 'company-info' }
   | { name: 'year-end' }
-  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'about' }
+  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'agents' | 'about' }
 
 interface NavState {
   stack: Screen[]
@@ -65,12 +73,37 @@ interface NavState {
   home: () => void
 }
 
+/** True when navigation may proceed — asks to discard when a screen registered unsaved changes.
+ *  `replace` deliberately skips this: it's only used programmatically right after a save. */
+async function confirmLeave(): Promise<boolean> {
+  if (!hasUnsavedChanges()) return true
+  return confirmDialog({
+    title: 'Unsaved changes',
+    message: 'Leave this screen and discard your unsaved changes?',
+    confirmLabel: 'Discard changes',
+    cancelLabel: 'Stay',
+    danger: true
+  })
+}
+
 export const useNav = create<NavState>((set) => ({
   stack: [{ name: 'gateway' }],
-  go: (screen) => set((s) => ({ stack: [...s.stack, screen] })),
+  go: (screen) => {
+    void confirmLeave().then((ok) => {
+      if (ok) set((s) => ({ stack: [...s.stack, screen] }))
+    })
+  },
   replace: (screen) => set((s) => ({ stack: [...s.stack.slice(0, -1), screen] })),
-  back: () => set((s) => (s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s)),
-  home: () => set({ stack: [{ name: 'gateway' }] })
+  back: () => {
+    void confirmLeave().then((ok) => {
+      if (ok) set((s) => (s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s))
+    })
+  },
+  home: () => {
+    void confirmLeave().then((ok) => {
+      if (ok) set({ stack: [{ name: 'gateway' }] })
+    })
+  }
 }))
 
 export const useScreen = (): Screen => useNav((s) => s.stack[s.stack.length - 1]!)
@@ -165,15 +198,66 @@ export interface ToastState {
   toasts: Toast[]
   push: (kind: Toast['kind'], text: string) => void
   dismiss: (id: number) => void
+  /** Pause auto-dismissal (hovering the toast stack); resume() restarts the remaining time. */
+  pause: () => void
+  resume: () => void
 }
 
 let toastId = 0
-export const useToasts = create<ToastState>((set) => ({
-  toasts: [],
-  push: (kind, text) => {
-    const id = ++toastId
-    set((s) => ({ toasts: [...s.toasts, { id, kind, text }] }))
-    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), kind === 'error' ? 6000 : 3500)
-  },
-  dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
-}))
+/** Per-toast auto-dismiss bookkeeping so hover can pause/resume with the remaining time intact. */
+const toastTimers = new Map<number, { timer: ReturnType<typeof setTimeout>; deadline: number }>()
+let toastRemaining: Map<number, number> | null = null // non-null while paused
+
+export const useToasts = create<ToastState>((set, get) => {
+  const expire = (id: number): void => {
+    toastTimers.delete(id)
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+  }
+  const arm = (id: number, ms: number): void => {
+    toastTimers.set(id, { timer: setTimeout(() => expire(id), ms), deadline: Date.now() + ms })
+  }
+  return {
+    toasts: [],
+    push: (kind, text) => {
+      // Dedupe consecutive identical toasts: just restart the existing one's clock.
+      const last = get().toasts[get().toasts.length - 1]
+      const ttl = kind === 'error' ? 6000 : 3500
+      if (last && last.kind === kind && last.text === text) {
+        const entry = toastTimers.get(last.id)
+        if (entry) clearTimeout(entry.timer)
+        if (toastRemaining) toastRemaining.set(last.id, ttl)
+        else arm(last.id, ttl)
+        return
+      }
+      const id = ++toastId
+      set((s) => ({ toasts: [...s.toasts, { id, kind, text }] }))
+      if (toastRemaining) toastRemaining.set(id, ttl)
+      else arm(id, ttl)
+    },
+    dismiss: (id) => {
+      const entry = toastTimers.get(id)
+      if (entry) clearTimeout(entry.timer)
+      toastTimers.delete(id)
+      toastRemaining?.delete(id)
+      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+      // Dismissing the last toast removes the element under the cursor, so no mouseleave will
+      // ever fire — drop the paused state here or the next toast would never auto-expire.
+      if (get().toasts.length === 0) toastRemaining = null
+    },
+    pause: () => {
+      if (toastRemaining) return
+      toastRemaining = new Map()
+      for (const [id, entry] of toastTimers) {
+        clearTimeout(entry.timer)
+        toastRemaining.set(id, Math.max(500, entry.deadline - Date.now()))
+      }
+      toastTimers.clear()
+    },
+    resume: () => {
+      if (!toastRemaining) return
+      const remaining = toastRemaining
+      toastRemaining = null
+      for (const [id, ms] of remaining) arm(id, ms)
+    }
+  }
+})

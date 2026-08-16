@@ -141,7 +141,8 @@ export function createDemoCompany(): { slug: string } {
         cessRate: null,
         openingQtyMilli: 0,
         openingValue: 0,
-        barcode: null
+        barcode: null,
+        reorderLevelMilli: null
       })
     }
 

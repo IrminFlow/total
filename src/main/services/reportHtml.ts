@@ -73,6 +73,11 @@ export function reportHtml(opts: ReportHtmlOptions): string {
     table.rpt th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1.5px solid #16181f; padding: 7px 8px; text-align: left; background: #f2f2ee; }
     table.rpt td { padding: 6px 8px; border-bottom: 1px dotted #999; vertical-align: top; }
     table.rpt td.r, table.rpt td.c { font-family: 'SF Mono', Menlo, monospace; font-size: 11.5px; }
+    /* Print hardening (task Q2 #95): repeat the header row on every page and never split a row
+       across a page boundary. Page numbers come from printToPDF's footerTemplate (Chromium
+       ignores CSS @page margin-box counters) — see services/pdf.ts. */
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
     .r { text-align: right; } .c { text-align: center; }
     tr.bold td { font-weight: 700; }
     tr.rule td { border-top: 1px solid #16181f; }

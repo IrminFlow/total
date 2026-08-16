@@ -45,6 +45,9 @@
 
 @theme inline {
   --color-bg: var(--t-bg);
+  /* `canvas` is the app background — several full-viewport screens (LockScreen, CompanySelect)
+     use bg-canvas; without this mapping the utility didn't exist and they rendered transparent. */
+  --color-canvas: var(--t-bg);
   --color-panel: var(--t-panel);
   --color-panel2: var(--t-panel2);
   --color-line: var(--t-line);
@@ -55,10 +58,24 @@
   --color-dr: var(--t-dr);
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);
+  --color-rule: var(--t-rule);
 
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-serif: 'IBM Plex Serif', Georgia, serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Type scale — use these (text-label, text-hint, …) in kit components instead of raw
+     bracket sizes; screens converge opportunistically. */
+  --text-label: 10.5px; /* uppercase micro-labels, Kbd */
+  --text-caption: 11px; /* field labels */
+  --text-hint: 11.5px; /* hints + inline errors */
+  --text-small: 12px; /* small links/actions */
+  --text-body-sm: 12.5px; /* secondary body */
+  --text-detail: 13px; /* buttons, dense rows */
+  --text-body: 13.5px; /* inputs + default body */
+  --text-lead: 14.5px; /* emphasized row titles */
+  --text-title: 16px; /* modal titles */
+  --text-heading: 19px; /* section titles */
 }
 
 html,
@@ -148,6 +165,12 @@ tr.kbar-row[data-active='true'] td:first-child {
   border-bottom: 3px double var(--t-rule);
   font-weight: 600;
   background: var(--t-panel2);
+}
+/* Same double-rule total outside a ledger table (e.g. BalanceSheet's Total line on a flex div). */
+.total-row:not(tr):not(td) {
+  border-top: 1px solid var(--t-rule);
+  border-bottom: 3px double var(--t-rule);
+  font-weight: 600;
 }
 .ledger-table th.r,
 .ledger-table td.r {

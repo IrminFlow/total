@@ -2,26 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { Button, Money, Panel } from '../components/ui'
+import { Button, isAnyModalOpen, Money, Panel, ScrollList, Skeleton } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { useFeatures } from '../lib/useFeatures'
-import type { CompanyFeatures } from '@shared/features'
 import type { RecurringTemplate } from '@shared/domain'
 import type { CashSparkPoint, TopLedgerRow } from '@shared/reports'
 import { templateOpenTarget } from './Recurring'
+import { CARD_SCREENS } from '../lib/screens'
 
-const CARDS: { label: string; sub: string; screen: Screen; key: string; feature?: keyof CompanyFeatures }[] = [
-  { label: 'Voucher entry', sub: 'Sales, purchase, payment…', screen: { name: 'voucher-entry' }, key: 'V' },
-  { label: 'Day book', sub: 'Every entry, in order', screen: { name: 'daybook' }, key: 'D' },
-  { label: 'Masters', sub: 'Ledgers, items, groups', screen: { name: 'masters' }, key: 'M' },
-  { label: 'Trial balance', sub: 'All closing balances', screen: { name: 'trial-balance' }, key: 'T' },
-  { label: 'Profit & Loss', sub: 'Trading + P&L account', screen: { name: 'profit-loss' }, key: 'P' },
-  { label: 'Balance sheet', sub: 'Assets and liabilities', screen: { name: 'balance-sheet' }, key: 'B' },
-  { label: 'Stock summary', sub: 'Quantities and value', screen: { name: 'stock-summary' }, key: 'S', feature: 'inventory' },
-  { label: 'GSTR-1', sub: 'Outward supplies return', screen: { name: 'gstr1' }, key: '1' },
-  { label: 'GSTR-3B', sub: 'Summary return + ITC', screen: { name: 'gstr3b' }, key: '3' }
-]
+/** Cards derived from the single screen registry (lib/screens.ts). */
+const CARDS: { name: string; label: string; sub: string; screen: Screen; key: string; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] =
+  CARD_SCREENS.map((s) => ({ name: s.name, label: s.title, sub: s.card.sub, screen: s.screen, key: s.card.key, feature: s.feature }))
 
 export function Gateway(): React.JSX.Element {
   const nav = useNav()
@@ -37,6 +29,9 @@ export function Gateway(): React.JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
+      // A key aimed at an open dialog (ConfirmModal "y", PromptModal text…) must never
+      // double as a Gateway navigation shortcut underneath it.
+      if (isAnyModalOpen()) return
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
       const card = cards.find((c) => c.key.toLowerCase() === e.key.toLowerCase())
@@ -73,9 +68,14 @@ export function Gateway(): React.JSX.Element {
         {tiles.map((t) => (
           <Panel key={t.label} className="px-4 py-3">
             <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">{t.label}</p>
-            <p className={`mt-1.5 text-[16px] font-medium ${t.text ? '' : 'num'}`}>
-              {t.text ?? <Money paise={t.value ?? 0} />}
-            </p>
+            {data === undefined && t.text === undefined ? (
+              // Loading — a skeleton, not a misleading ₹0.00.
+              <Skeleton className="mt-2.5 h-4 w-20" />
+            ) : (
+              <p className={`mt-1.5 text-[16px] font-medium ${t.text ? '' : 'num'}`}>
+                {t.text ?? <Money paise={t.value ?? 0} />}
+              </p>
+            )}
           </Panel>
         ))}
       </div>
@@ -87,6 +87,7 @@ export function Gateway(): React.JSX.Element {
         {cards.map((c) => (
           <button
             key={c.label}
+            data-testid={`card-${c.name}`}
             onClick={() => nav.go(c.screen)}
             className="group rounded-lg border border-line bg-panel px-5 py-4 text-left transition-colors hover:border-amber/50"
           >
@@ -101,8 +102,11 @@ export function Gateway(): React.JSX.Element {
         ))}
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-3">
+      {/* Fixed row height: long receivable/payable lists scroll inside their panels instead of
+          stretching the row — which would also stretch the sparkline opposite and make its
+          aspect depend on how many debtors the company has. */}
+      <div className="mt-6 grid h-[420px] grid-cols-2 gap-3">
+        <div className="flex min-h-0 flex-col gap-3">
           <TopLedgersPanel title="Top receivables" rows={data?.topReceivables ?? []} />
           <TopLedgersPanel title="Top payables" rows={data?.topPayables ?? []} />
         </div>
@@ -118,7 +122,7 @@ export function Gateway(): React.JSX.Element {
             <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
               Recent entries
             </p>
-            <div>
+            <ScrollList maxH="20rem">
               {data.recentVouchers.map((v) => (
                 <button
                   key={v.voucherId}
@@ -128,11 +132,19 @@ export function Gateway(): React.JSX.Element {
                   <span className="num w-20 text-[12px] text-muted">{toDisplayDate(v.date)}</span>
                   <span className="w-24 text-[12.5px] text-muted">{v.voucherType}</span>
                   <span className="num w-14 text-[12px] text-muted">{v.number}</span>
-                  <span className="flex-1 truncate text-[13px]">{v.account}</span>
+                  <span className="flex-1 truncate text-[13px]">
+                    {v.account}
+                    {v.isOptional && (
+                      <span data-testid="recent-badge-optional" className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>
+                    )}
+                    {v.postDated && (
+                      <span data-testid="recent-badge-pdc" className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>
+                    )}
+                  </span>
                   <Money paise={v.debit} className="text-[13px]" />
                 </button>
               ))}
-            </div>
+            </ScrollList>
           </Panel>
         )
       )}
@@ -211,8 +223,8 @@ function DueTodayPanel(): React.JSX.Element | null {
   )
 }
 
-/** "GSTR-3B in 5 days" / "GSTR-1 tomorrow" / "GSTR-3B due today". */
-function deadlineCountdown(d: Deadline, today: string): string {
+/** "GSTR-3B in 5 days" / "GSTR-1 tomorrow" / "GSTR-3B due today". Exported for renderer tests. */
+export function deadlineCountdown(d: Deadline, today: string): string {
   const days = Math.round(
     (new Date(d.date + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000
   )
@@ -236,6 +248,7 @@ function CompliancePanel({
   const nav = useNav()
   const { info, slug } = useSession()
   const today = todayISO()
+  const [showAll, setShowAll] = useState(false)
   const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
 
   const deadlines = useMemo(
@@ -250,9 +263,11 @@ function CompliancePanel({
     notifiedCompanies.add(slug)
     const soon = upcomingDeadlines(today, gstRegistrationType, hasEmployees, 3)
     if (soon.length) {
-      void api.app.notifyDeadlines(
-        soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` }))
-      )
+      // Deliberately fire-and-forget: an OS notification failing is not worth interrupting
+      // the Gateway for — swallow the rejection.
+      void api.app
+        .notifyDeadlines(soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` })))
+        .catch(() => {})
     }
     // Deliberately no dependency-driven re-fire within a company: the module set above is the
     // real guard, this effect just needs to run once `info`/`dashboardLoaded` are available.
@@ -270,13 +285,22 @@ function CompliancePanel({
         </button>
       </div>
       <div>
-        {deadlines.slice(0, 6).map((d) => (
+        {(showAll ? deadlines : deadlines.slice(0, 6)).map((d) => (
           <div key={d.id} className="flex items-center gap-4 border-b border-line/40 px-5 py-2 last:border-b-0">
             <span className="num w-20 text-[12px] text-muted">{toDisplayDate(d.date)}</span>
             <span className="w-28 text-[12.5px] text-muted">{d.form}</span>
             <span className="flex-1 truncate text-[13px]">{d.title}</span>
           </div>
         ))}
+        {deadlines.length > 6 && (
+          <button
+            data-testid="btn-gateway-compliance-all"
+            className="w-full px-5 py-2 text-left text-[11.5px] text-blue hover:underline"
+            onClick={() => setShowAll((v) => !v)}
+          >
+            {showAll ? 'Show fewer' : `Show all ${deadlines.length}`}
+          </button>
+        )}
       </div>
     </Panel>
   )
@@ -336,14 +360,14 @@ function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; it
 function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] }): React.JSX.Element {
   const nav = useNav()
   return (
-    <Panel className="flex-1">
-      <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+    <Panel className="flex min-h-0 flex-1 flex-col">
+      <p className="shrink-0 border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
         {title}
       </p>
       {rows.length === 0 ? (
         <p className="px-5 py-6 text-center text-[12.5px] text-muted">Nothing outstanding</p>
       ) : (
-        <div>
+        <ScrollList maxH="340px" className="min-h-0 flex-1">
           {rows.map((r) => (
             <button
               key={r.ledgerId}
@@ -354,44 +378,75 @@ function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] 
               <Money paise={r.amount} className="text-[13px]" />
             </button>
           ))}
-        </div>
+        </ScrollList>
       )}
     </Panel>
   )
 }
 
 /** Inline SVG polyline — no chart library. `viewBox` is normalized to the point count so the
- *  path always fills the panel regardless of how many trailing days actually had data. */
+ *  path always fills the panel regardless of how many trailing days actually had data. The
+ *  panel row it sits in is fixed-height, so the drawn aspect never shifts as sibling panels'
+ *  content grows. Hovering reads out the date + balance under the cursor. */
 function CashSparklinePanel({ points }: { points: CashSparkPoint[] }): React.JSX.Element {
   const w = 100
   const h = 32
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
   const values = points.map((p) => p.balance)
   const min = Math.min(0, ...values)
   const max = Math.max(0, ...values)
   const range = max - min || 1
-  const coords = points
-    .map((p, i) => {
-      const x = points.length > 1 ? (i / (points.length - 1)) * w : 0
-      const y = h - ((p.balance - min) / range) * h
-      return `${x.toFixed(2)},${y.toFixed(2)}`
-    })
-    .join(' ')
-  const last = points[points.length - 1]
+  const xAt = (i: number): number => (points.length > 1 ? (i / (points.length - 1)) * w : w / 2)
+  const yAt = (i: number): number => h - ((points[i]!.balance - min) / range) * h
+  const coords = points.map((_, i) => `${xAt(i).toFixed(2)},${yAt(i).toFixed(2)}`).join(' ')
+  const readout = hoverIdx != null ? points[hoverIdx] : points[points.length - 1]
 
   return (
-    <Panel className="flex flex-1 flex-col p-5">
-      <div className="flex items-center justify-between">
+    <Panel className="flex min-h-0 flex-col p-5">
+      <div className="flex shrink-0 items-center justify-between">
         <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Cash + bank · 30 days</p>
-        {last && <Money paise={last.balance} className="text-[13px]" />}
+        {readout && (
+          <p className="num text-[13px]">
+            {hoverIdx != null && <span className="mr-2 text-muted">{toDisplayDate(readout.date)}</span>}
+            <Money paise={readout.balance} />
+          </p>
+        )}
       </div>
-      <svg
-        viewBox={`0 0 ${w} ${h}`}
-        preserveAspectRatio="none"
-        className="mt-4 h-24 w-full flex-1 text-blue"
-        aria-hidden="true"
-      >
-        <polyline points={coords} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      </svg>
+      {points.length > 0 && (
+        <svg
+          viewBox={`0 0 ${w} ${h}`}
+          preserveAspectRatio="none"
+          className="mt-4 min-h-0 w-full flex-1 text-blue"
+          data-testid="spark-cash"
+          role="img"
+          aria-label="Cash and bank balance, last 30 days"
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect()
+            const frac = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0
+            const idx = Math.round(frac * (points.length - 1))
+            setHoverIdx(Math.max(0, Math.min(points.length - 1, idx)))
+          }}
+          onMouseLeave={() => setHoverIdx(null)}
+        >
+          {points.length === 1 ? (
+            // A one-point polyline draws nothing — show a flat line at the lone balance instead.
+            <line x1={0} y1={yAt(0)} x2={w} y2={yAt(0)} stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+          ) : (
+            <polyline points={coords} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+          )}
+          {hoverIdx != null && (
+            <line
+              x1={xAt(hoverIdx)}
+              y1={0}
+              x2={xAt(hoverIdx)}
+              y2={h}
+              stroke="var(--t-amber)"
+              strokeWidth="1"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+        </svg>
+      )}
     </Panel>
   )
 }

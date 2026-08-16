@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { migrate } from './migrate'
 import { MIGRATIONS } from './migrations'
-import { freshDb } from './testdb'
+import { freshDb, freshPartialDb } from './testdb'
 
 const EXPECTED_TABLES = [
   'meta',
@@ -31,6 +31,12 @@ const EXPECTED_TABLES = [
   'bank_rules',
   'budgets',
   'budget_lines',
+  'voucher_transport',
+  'batches',
+  'price_levels',
+  'price_list_rates',
+  'pay_heads',
+  'employee_pay_heads',
   'migrations'
 ]
 
@@ -242,6 +248,120 @@ describe('migrate', () => {
     ).toThrow()
   })
 
+  it('012: creates the FK/covering perf indexes and stock_items.reorder_level_milli', () => {
+    const db = freshDb()
+    const indexNames = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[]
+    ).map((r) => r.name)
+    expect(indexNames).toEqual(
+      expect.arrayContaining([
+        'idx_bill_refs_voucher',
+        'idx_vlca_line',
+        'idx_budget_lines_budget',
+        'idx_payroll_lines_run',
+        'idx_payroll_lines_employee',
+        'idx_bank_rules_ledger',
+        'idx_bom_lines_component',
+        'idx_inv_godown',
+        'idx_groups_parent',
+        'idx_stock_groups_parent',
+        'idx_stock_items_group',
+        'idx_stock_items_unit',
+        'idx_ledgers_tds_section',
+        'idx_recurring_templates_vt',
+        'idx_cost_centres_parent',
+        'idx_inv_item_voucher'
+      ])
+    )
+    const itemColumns = (db.prepare('PRAGMA table_info(stock_items)').all() as { name: string }[]).map((c) => c.name)
+    expect(itemColumns).toContain('reorder_level_milli')
+    // Nullable with no default — NULL means "no reorder level configured".
+    const unitId = db.prepare("INSERT INTO units (name, symbol, decimals, uqc) VALUES ('Pcs','Pcs',0,'NOS')").run()
+      .lastInsertRowid
+    const id = db.prepare('INSERT INTO stock_items (name, unit_id) VALUES (?, ?)').run('Reorder Item', unitId).lastInsertRowid
+    const row = db.prepare('SELECT reorder_level_milli FROM stock_items WHERE id = ?').get(id) as {
+      reorder_level_milli: number | null
+    }
+    expect(row.reorder_level_milli).toBeNull()
+  })
+
+  it('013: adds ledgers.rcm/itc_eligibility + vouchers.pos_override and creates voucher_transport (cascade on voucher delete)', () => {
+    const db = freshDb()
+    const ledgerColumns = (db.prepare('PRAGMA table_info(ledgers)').all() as { name: string }[]).map((c) => c.name)
+    expect(ledgerColumns).toEqual(expect.arrayContaining(['rcm', 'itc_eligibility']))
+    const voucherColumns = (db.prepare('PRAGMA table_info(vouchers)').all() as { name: string }[]).map((c) => c.name)
+    expect(voucherColumns).toContain('pos_override')
+
+    const groupId = Number(
+      db.prepare("INSERT INTO groups (name, nature, is_system) VALUES ('G13', 'liability', 0)").run().lastInsertRowid
+    )
+    // rcm defaults 0, itc_eligibility defaults 'eligible'; the CHECK rejects unknown values.
+    const lid = Number(db.prepare("INSERT INTO ledgers (name, group_id) VALUES ('RCM Party', ?)").run(groupId).lastInsertRowid)
+    const lrow = db.prepare('SELECT rcm, itc_eligibility FROM ledgers WHERE id = ?').get(lid) as { rcm: number; itc_eligibility: string }
+    expect(lrow).toEqual({ rcm: 0, itc_eligibility: 'eligible' })
+    expect(() =>
+      db.prepare("INSERT INTO ledgers (name, group_id, itc_eligibility) VALUES ('Bad', ?, 'sometimes')").run(groupId)
+    ).toThrow()
+
+    const vtId = Number(db.prepare("INSERT INTO voucher_types (name, kind) VALUES ('Sales G13', 'sales')").run().lastInsertRowid)
+    const vId = Number(
+      db.prepare("INSERT INTO vouchers (voucher_type_id, date, number) VALUES (?, '2026-07-01', 'T-1')").run(vtId).lastInsertRowid
+    )
+    const tColumns = (db.prepare('PRAGMA table_info(voucher_transport)').all() as { name: string }[]).map((c) => c.name)
+    expect(tColumns).toEqual(
+      expect.arrayContaining([
+        'voucher_id', 'trans_mode', 'trans_distance', 'transporter_id', 'transporter_name',
+        'trans_doc_no', 'trans_doc_date', 'vehicle_no', 'vehicle_type',
+        'ship_to_name', 'ship_to_gstin', 'ship_to_addr1', 'ship_to_addr2',
+        'ship_to_place', 'ship_to_pincode', 'ship_to_state'
+      ])
+    )
+    db.prepare("INSERT INTO voucher_transport (voucher_id, trans_mode, ship_to_place) VALUES (?, '1', 'Pune')").run(vId)
+    db.prepare('DELETE FROM vouchers WHERE id = ?').run(vId)
+    const left = db.prepare('SELECT COUNT(*) AS n FROM voucher_transport WHERE voucher_id = ?').get(vId) as { n: number }
+    expect(left.n).toBe(0)
+  })
+
+  it('017: adds inventory_lines.discount_paise with a 0 default', () => {
+    const db = freshDb()
+    const columns = (db.prepare('PRAGMA table_info(inventory_lines)').all() as { name: string }[]).map((c) => c.name)
+    expect(columns).toContain('discount_paise')
+
+    const unitId = db.prepare("INSERT INTO units (name, symbol, decimals, uqc) VALUES ('Nos','Nos',0,'NOS')").run()
+      .lastInsertRowid
+    const itemId = db.prepare('INSERT INTO stock_items (name, unit_id) VALUES (?, ?)').run('Widget', unitId).lastInsertRowid
+    const vtId = db.prepare("INSERT INTO voucher_types (name, kind) VALUES ('Sales (m17)', 'sales')").run().lastInsertRowid
+    const vId = db
+      .prepare("INSERT INTO vouchers (voucher_type_id, date, number) VALUES (?, '2025-04-01', '1')")
+      .run(vtId).lastInsertRowid
+    const ilId = db
+      .prepare(
+        "INSERT INTO inventory_lines (voucher_id, stock_item_id, qty_milli, rate_paise, amount, direction) VALUES (?, ?, 1000, 100, 100, 'out')"
+      )
+      .run(vId, itemId).lastInsertRowid
+    const row = db.prepare('SELECT discount_paise FROM inventory_lines WHERE id = ?').get(ilId) as {
+      discount_paise: number
+    }
+    expect(row.discount_paise).toBe(0)
+  })
+
+  it('017: audit_log accepts the expanded action set but still rejects unknown actions', () => {
+    const db = freshDb()
+    const insert = db.prepare('INSERT INTO audit_log (entity, entity_id, action) VALUES (?, ?, ?)')
+    for (const action of ['create', 'update', 'delete', 'login', 'login_failed', 'logout', 'export', 'import']) {
+      expect(() => insert.run('thing', 1, action)).not.toThrow()
+    }
+    expect(() => insert.run('thing', 1, 'superaction')).toThrow()
+
+    // The rebuild preserved both indexes.
+    const indexNames = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'audit_log'").all() as {
+        name: string
+      }[]
+    ).map((r) => r.name)
+    expect(indexNames).toEqual(expect.arrayContaining(['idx_audit_at', 'idx_audit_entity']))
+  })
+
   it('creates budgets/budget_lines, enforces the name+FY uniqueness and the ledger-XOR-group CHECK, and cascades line deletes', () => {
     const db = freshDb()
     const groupId = Number(
@@ -272,5 +392,131 @@ describe('migrate', () => {
     db.prepare('DELETE FROM budgets WHERE id = ?').run(budgetId)
     const remaining = db.prepare('SELECT COUNT(*) AS n FROM budget_lines WHERE id = ?').get(lineId) as { n: number }
     expect(remaining.n).toBe(0)
+  })
+
+  it('014: inventory-depth columns, batches uniqueness, and price-level cascade', () => {
+    const db = freshDb()
+
+    // New columns exist with the expected defaults.
+    const stockCols = (db.prepare('PRAGMA table_info(stock_items)').all() as { name: string }[]).map((c) => c.name)
+    expect(stockCols).toContain('valuation_method')
+    const invCols = (db.prepare('PRAGMA table_info(inventory_lines)').all() as { name: string }[]).map((c) => c.name)
+    expect(invCols).toEqual(expect.arrayContaining(['batch_id', 'is_absolute']))
+    const ledgerCols = (db.prepare('PRAGMA table_info(ledgers)').all() as { name: string }[]).map((c) => c.name)
+    expect(ledgerCols).toEqual(expect.arrayContaining(['price_level_id', 'credit_limit']))
+    const voucherCols = (db.prepare('PRAGMA table_info(vouchers)').all() as { name: string }[]).map((c) => c.name)
+    expect(voucherCols).toEqual(expect.arrayContaining(['post_dated', 'is_optional']))
+    const godownCols = (db.prepare('PRAGMA table_info(godowns)').all() as { name: string }[]).map((c) => c.name)
+    expect(godownCols).toContain('address')
+
+    // valuation_method CHECK constraint.
+    db.prepare("INSERT INTO units (name, symbol) VALUES ('Nos', 'nos')").run()
+    const unitId = Number(db.prepare("SELECT id FROM units WHERE name = 'Nos'").get()!['id' as never])
+    db.prepare("INSERT INTO stock_items (name, unit_id, valuation_method) VALUES ('Widget', ?, 'fifo')").run(unitId)
+    expect(() =>
+      db.prepare("INSERT INTO stock_items (name, unit_id, valuation_method) VALUES ('Bad', ?, 'lifo')").run(unitId)
+    ).toThrow()
+    const itemId = Number(db.prepare("SELECT id FROM stock_items WHERE name = 'Widget'").get()!['id' as never])
+
+    // Batch names are unique per item, not globally.
+    db.prepare("INSERT INTO batches (stock_item_id, name) VALUES (?, 'B-1')").run(itemId)
+    expect(() => db.prepare("INSERT INTO batches (stock_item_id, name) VALUES (?, 'B-1')").run(itemId)).toThrow()
+    db.prepare("INSERT INTO stock_items (name, unit_id) VALUES ('Gadget', ?)").run(unitId)
+    const otherId = Number(db.prepare("SELECT id FROM stock_items WHERE name = 'Gadget'").get()!['id' as never])
+    db.prepare("INSERT INTO batches (stock_item_id, name) VALUES (?, 'B-1')").run(otherId)
+
+    // Deleting a price level cascades its rates.
+    const levelId = Number(db.prepare("INSERT INTO price_levels (name) VALUES ('Wholesale')").run().lastInsertRowid)
+    db.prepare('INSERT INTO price_list_rates (price_level_id, stock_item_id, rate, effective_from) VALUES (?, ?, 10000, ?)')
+      .run(levelId, itemId, '2025-04-01')
+    db.prepare('DELETE FROM price_levels WHERE id = ?').run(levelId)
+    const rates = db.prepare('SELECT COUNT(*) AS n FROM price_list_rates').get() as { n: number }
+    expect(rates.n).toBe(0)
+  })
+
+  it('015: creates pay_heads/employee_pay_heads with CHECKs, seeds the three legacy heads, and adds pt_state + payroll_lines columns', () => {
+    const db = freshDb()
+
+    const headColumns = (db.prepare('PRAGMA table_info(pay_heads)').all() as { name: string }[]).map((c) => c.name)
+    expect(headColumns).toEqual(expect.arrayContaining(['id', 'name', 'kind', 'calc', 'value', 'active']))
+    expect(() =>
+      db.prepare("INSERT INTO pay_heads (name, kind, calc) VALUES ('Bad', 'not_a_kind', 'flat')").run()
+    ).toThrow()
+    expect(() =>
+      db.prepare("INSERT INTO pay_heads (name, kind, calc) VALUES ('Bad', 'earning', 'not_a_calc')").run()
+    ).toThrow()
+
+    const seeded = (db.prepare('SELECT name, kind, calc, value, active FROM pay_heads ORDER BY id').all() as {
+      name: string; kind: string; calc: string; value: number; active: number
+    }[])
+    expect(seeded).toEqual([
+      { name: 'Basic', kind: 'earning', calc: 'flat', value: 0, active: 1 },
+      { name: 'HRA', kind: 'earning', calc: 'flat', value: 0, active: 1 },
+      { name: 'Special Allowance', kind: 'earning', calc: 'flat', value: 0, active: 1 }
+    ])
+
+    const empColumns = (db.prepare('PRAGMA table_info(employees)').all() as { name: string; dflt_value: string | null }[])
+    expect(empColumns.map((c) => c.name)).toContain('pt_state')
+    const empId = Number(db.prepare("INSERT INTO employees (name) VALUES ('Asha')").run().lastInsertRowid)
+    const row = db.prepare('SELECT pt_state FROM employees WHERE id = ?').get(empId) as { pt_state: string }
+    expect(row.pt_state).toBe('MH')
+
+    const lineColumns = (db.prepare('PRAGMA table_info(payroll_lines)').all() as { name: string }[]).map((c) => c.name)
+    expect(lineColumns).toEqual(
+      expect.arrayContaining(['other_earnings', 'other_deductions', 'eps_er', 'pf_admin', 'edli', 'heads_json'])
+    )
+
+    // (employee_id, pay_head_id) is unique
+    const basicId = (db.prepare("SELECT id FROM pay_heads WHERE name = 'Basic'").get() as { id: number }).id
+    db.prepare('INSERT INTO employee_pay_heads (employee_id, pay_head_id, override_value) VALUES (?, ?, 100)').run(empId, basicId)
+    expect(() =>
+      db.prepare('INSERT INTO employee_pay_heads (employee_id, pay_head_id, override_value) VALUES (?, ?, 200)').run(empId, basicId)
+    ).toThrow()
+  })
+
+  it('015: migrates existing employees\' basic/hra/special into per-employee head overrides (data, not just schema)', () => {
+    // Build a DB stopped just before the payroll-heads migration, insert a legacy employee,
+    // then let migrate() finish — the migration must seed that employee's override rows.
+    const payrollHeadsIdx = MIGRATIONS.findIndex((m) => m.includes('CREATE TABLE pay_heads'))
+    expect(payrollHeadsIdx).toBeGreaterThan(0)
+
+    const db = freshPartialDb(payrollHeadsIdx)
+    db.prepare(
+      "INSERT INTO employees (name, basic, hra, special) VALUES ('Asha', 2000000, 800000, 400000)"
+    ).run()
+    migrate(db)
+
+    const rows = db
+      .prepare(
+        `SELECT ph.name, eph.override_value AS v
+         FROM employee_pay_heads eph JOIN pay_heads ph ON ph.id = eph.pay_head_id
+         JOIN employees e ON e.id = eph.employee_id WHERE e.name = 'Asha' ORDER BY ph.id`
+      )
+      .all() as { name: string; v: number }[]
+    expect(rows).toEqual([
+      { name: 'Basic', v: 2000000 },
+      { name: 'HRA', v: 800000 },
+      { name: 'Special Allowance', v: 400000 }
+    ])
+  })
+
+  it('016: bank_rules gains min_amount/max_amount (NULL default) and auto_apply defaulting off', () => {
+    const db = freshDb()
+    const columns = (db.prepare('PRAGMA table_info(bank_rules)').all() as { name: string }[]).map((c) => c.name)
+    expect(columns).toEqual(expect.arrayContaining(['min_amount', 'max_amount', 'auto_apply']))
+
+    const groupId = Number(
+      db.prepare("INSERT INTO groups (name, nature, is_system) VALUES ('Test Group', 'liability', 0)").run().lastInsertRowid
+    )
+    const ledgerId = Number(
+      db.prepare("INSERT INTO ledgers (name, group_id) VALUES ('Test Ledger', ?)").run(groupId).lastInsertRowid
+    )
+    const id = db
+      .prepare("INSERT INTO bank_rules (pattern, ledger_id, kind) VALUES ('ACME', ?, 'payment')")
+      .run(ledgerId).lastInsertRowid
+    const row = db.prepare('SELECT min_amount, max_amount, auto_apply FROM bank_rules WHERE id = ?').get(id) as {
+      min_amount: number | null; max_amount: number | null; auto_apply: number
+    }
+    expect(row).toEqual({ min_amount: null, max_amount: null, auto_apply: 0 })
   })
 })

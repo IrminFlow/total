@@ -40,6 +40,15 @@ export interface Ledger {
   creditDays: number | null
   /** SEZ/export classification for GST e-invoicing (task 2.8); null for a normal domestic party. */
   exportType: 'sez_wp' | 'sez_wop' | 'exp_wp' | 'exp_wop' | null
+  /** Reverse charge applies to supplies from/to this party (GSTR-1 rchrg, GSTR-3B 3.1(d)). */
+  rcm: boolean
+  /** ITC eligibility class for purchases booked against this party — 'blocked' feeds 3B 4(D). */
+  itcEligibility: 'eligible' | 'blocked' | 'capital_goods' | 'input_services'
+  /** Price level whose rates prefill this party's invoice lines; null = item base rate. */
+  priceLevelId: number | null
+  /** Credit limit in paise; null = no limit. saveVoucher warns (or blocks, under F11
+   *  enforceCreditLimit) when the party's outstanding would exceed it. */
+  creditLimit: number | null
   isSystem: boolean
 }
 
@@ -164,13 +173,20 @@ export interface InventoryLine {
   id: number
   stockItemId: number
   godownId: number | null
+  /** Batch this quantity moves in/out of (F11 `batches`); null = untracked. */
+  batchId: number | null
   /** Quantity in base-unit thousandths (qty × 1000) to avoid float drift. */
   qtyMilli: number
   /** Paise per whole unit. */
   ratePaise: number
+  /** Per-line trade discount in paise (display + gross computation only): gross = qty × rate,
+   *  `amount` = gross − discount. GST always derives from `amount`, never from this. */
+  discountPaise: number
   /** Paise. */
   amount: number
   direction: 'in' | 'out'
+  /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
+  isAbsolute: boolean
 }
 
 export interface Voucher {
@@ -189,6 +205,8 @@ export interface Voucher {
   transporterId: string | null
   vehicleNo: string | null
   transportDistanceKm: number | null
+  /** Place-of-supply override (two-digit state code); null = derive from party/company state. */
+  posOverride: string | null
   /** Foreign-currency invoice: ISO code + base-currency (INR) per unit rate. */
   currencyCode: string | null
   exchangeRate: number | null
@@ -198,6 +216,11 @@ export interface Voucher {
   irnAckDate: string | null
   ewbNo: string | null
   ewbValidUpto: string | null
+  /** Post-dated cheque/voucher: excluded from books until it matures (auto-flipped to false
+   *  once its date arrives — see maturePostDated). */
+  postDated: boolean
+  /** Optional (memorandum) voucher: never counts toward the books. */
+  isOptional: boolean
   /** Set once the voucher is moved to the bin (soft delete); null while active. */
   deletedAt: string | null
   lines: VoucherLine[]
@@ -208,6 +231,31 @@ export interface Voucher {
   tds: VoucherTds | null
   createdAt: string
   updatedAt: string
+}
+
+/** Per-voucher transport + ship-to details (voucher_transport row) for e-way bills /
+ *  e-invoices. All fields nullable — the row exists only once the user opens the
+ *  Transport details modal (or an importer writes it). */
+export interface VoucherTransport {
+  voucherId: number
+  /** NIC mode: '1' road, '2' rail, '3' air, '4' ship. */
+  transMode: string | null
+  transDistanceKm: number | null
+  transporterId: string | null
+  transporterName: string | null
+  /** Transport doc (LR/RR/airway bill) — doubles as the shipping bill for exports. */
+  transDocNo: string | null
+  transDocDate: string | null
+  vehicleNo: string | null
+  /** 'R' regular / 'O' over-dimensional cargo. */
+  vehicleType: string | null
+  shipToName: string | null
+  shipToGstin: string | null
+  shipToAddr1: string | null
+  shipToAddr2: string | null
+  shipToPlace: string | null
+  shipToPincode: string | null
+  shipToState: string | null
 }
 
 export interface StockGroup {
@@ -238,11 +286,66 @@ export interface StockItem {
   openingValue: number
   /** Scannable barcode/SKU (unique when set). */
   barcode: string | null
+  /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
+  reorderLevelMilli: number | null
+  /** How this item's stock is valued (src/shared/valuation.ts). */
+  valuationMethod: 'weighted_avg' | 'fifo'
 }
 
 export interface Godown {
   id: number
   name: string
+  address: string | null
+}
+
+/** A batch/lot of a stock item (F11 `batches`), created on the fly from voucher entry. */
+export interface Batch {
+  id: number
+  stockItemId: number
+  name: string
+  mfgDate: string | null
+  expiryDate: string | null
+}
+
+/** A named price list (e.g. Retail / Wholesale) assignable to party ledgers. */
+export interface PriceLevel {
+  id: number
+  name: string
+}
+
+/** A date-effective per-item rate under a price level. `rate` is paise per whole unit. */
+export interface PriceListRate {
+  id: number
+  priceLevelId: number
+  stockItemId: number
+  rate: number
+  effectiveFrom: string
+}
+
+// ---------- saveVoucher warnings (lane I: negative stock + credit limit) ----------
+
+export interface NegativeStockWarning {
+  stockItemId: number
+  name: string
+  unitSymbol: string
+  /** Closing quantity (thousandths) as of the voucher date — negative. */
+  closingQtyMilli: number
+}
+
+export interface CreditLimitWarning {
+  ledgerId: number
+  ledgerName: string
+  /** Paise. */
+  creditLimit: number
+  /** Party's outstanding (dr-positive, incl. this voucher), paise. */
+  outstanding: number
+}
+
+/** Non-blocking issues detected while saving a voucher. Additive: the saved Voucher rides
+ *  alongside (see SaveVoucherResult in src/main/services/vouchers.ts). */
+export interface SaveVoucherWarnings {
+  negativeStock: NegativeStockWarning[]
+  creditLimitExceeded: CreditLimitWarning | null
 }
 
 export interface CompanyInfo {
@@ -294,7 +397,16 @@ export interface Employee {
   pfEnabled: boolean
   esiEnabled: boolean
   ptEnabled: boolean
+  /** Professional-tax state code (PT_SLABS key in src/shared/payroll.ts), e.g. 'MH'. */
+  ptState: string
   active: boolean
+}
+
+/** One computed pay-head amount on a payroll line (mirrors PayHeadAmount in src/shared/payroll.ts). */
+export interface PayrollHeadAmount {
+  name: string
+  kind: 'earning' | 'deduction'
+  amount: number
 }
 
 export interface PayrollLine {
@@ -306,13 +418,23 @@ export interface PayrollLine {
   basic: number
   hra: number
   special: number
+  /** Custom earning heads beyond Basic/HRA/Special (prorated paise). */
+  otherEarnings: number
+  /** Custom deduction heads (subtracted from net). */
+  otherDeductions: number
   gross: number
   pfEmp: number
   pfEr: number
+  /** Employer 12% split (epsEr + the EPF remainder = pfEr) + EPFO admin/EDLI charges. */
+  epsEr: number
+  pfAdmin: number
+  edli: number
   esiEmp: number
   esiEr: number
   pt: number
   net: number
+  /** Per-head prorated amounts (empty for pre-pay-heads runs). */
+  headAmounts: PayrollHeadAmount[]
 }
 
 export interface PayrollRun {

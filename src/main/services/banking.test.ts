@@ -11,8 +11,8 @@ describe('bank statement CSV parser', () => {
     ].join('\n')
     const rows = parseStatementCsv(csv)
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toEqual({ date: '2026-08-15', description: 'NEFT UMBRELLA', deposit: 5000000, withdrawal: 0 })
-    expect(rows[1]).toEqual({ date: '2026-08-16', description: 'CHQ 123', deposit: 0, withdrawal: 2500050 })
+    expect(rows[0]).toEqual({ date: '2026-08-15', description: 'NEFT UMBRELLA', reference: '', deposit: 5000000, withdrawal: 0 })
+    expect(rows[1]).toEqual({ date: '2026-08-16', description: 'CHQ 123', reference: '', deposit: 0, withdrawal: 2500050 })
   })
 
   it('parses signed single-amount statements', () => {
@@ -24,5 +24,33 @@ describe('bank statement CSV parser', () => {
 
   it('rejects headerless files clearly', () => {
     expect(() => parseStatementCsv('a,b\n1,2')).toThrow(/date column/i)
+  })
+
+  it('parses 15-Aug-2025, DD.MM.YYYY, DD.MM.YY and short-year slash dates', () => {
+    const csv = [
+      'Date,Description,Debit,Credit',
+      '15-Aug-2025,MONTH NAME DASH,100.00,',
+      '15 Aug 25,MONTH NAME SHORT,200.00,',
+      '15.08.2025,DOTTED FULL,300.00,',
+      '15.08.25,DOTTED SHORT,400.00,',
+      '15/08/25,SLASH SHORT,500.00,'
+    ].join('\n')
+    const rows = parseStatementCsv(csv)
+    expect(rows.map((r) => r.date)).toEqual([
+      '2025-08-15', '2025-08-15', '2025-08-15', '2025-08-15', '2025-08-15'
+    ])
+  })
+
+  it('captures a reference column (ref/cheque/UTR headers) as row.reference', () => {
+    const csv = [
+      'Date,Narration,Chq/Ref No,Debit,Credit',
+      '2026-08-15,NEFT PAYMENT,UTR12345,1500.00,'
+    ].join('\n')
+    const rows = parseStatementCsv(csv)
+    expect(rows[0]!.reference).toBe('UTR12345')
+
+    // No reference column → empty string, never undefined
+    const noRef = parseStatementCsv('Date,Narration,Debit,Credit\n2026-08-15,X,10.00,')
+    expect(noRef[0]!.reference).toBe('')
   })
 })

@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../components/ui'
 import { GST_STATES } from '@shared/gst/states'
-import { validateGstin } from '@shared/gst/validate'
+import { gstinErrorMessage } from '../lib/gstinError'
+import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
 const TAN_RE = /^[A-Z]{4}\d{5}[A-Z]$/
@@ -23,8 +24,34 @@ export function CompanyInfoScreen(): React.JSX.Element {
   const [pan, setPan] = useState(info?.pan ?? '')
   const [tan, setTan] = useState(info?.tan ?? '')
 
-  const gstinCheck = gstin.trim() ? validateGstin(gstin) : null
-  const gstinError = gstinCheck && !gstinCheck.valid ? 'Invalid GSTIN — check each character' : null
+  // Re-seed the form whenever the saved info changes (company switch, save round-trip,
+  // Tally import updating details) so the fields never show a stale company's values.
+  useEffect(() => {
+    setName(info?.name ?? '')
+    setStateCode(info?.stateCode ?? '27')
+    setGstin(info?.gstin ?? '')
+    setRegType(info?.gstRegistrationType ?? 'unregistered')
+    setAddress(info?.address ?? '')
+    setEmail(info?.email ?? '')
+    setPhone(info?.phone ?? '')
+    setPan(info?.pan ?? '')
+    setTan(info?.tan ?? '')
+  }, [info])
+
+  // Guard in-app navigation while the form differs from what's saved.
+  const dirty =
+    name !== (info?.name ?? '') ||
+    stateCode !== (info?.stateCode ?? '27') ||
+    gstin !== (info?.gstin ?? '') ||
+    regType !== (info?.gstRegistrationType ?? 'unregistered') ||
+    address !== (info?.address ?? '') ||
+    email !== (info?.email ?? '') ||
+    phone !== (info?.phone ?? '') ||
+    pan !== (info?.pan ?? '') ||
+    tan !== (info?.tan ?? '')
+  useUnsavedGuard(dirty)
+
+  const gstinError = gstinErrorMessage(gstin, stateCode)
   const panError = pan.trim() && !PAN_RE.test(pan.trim()) ? 'Invalid PAN (e.g. ABCDE1234F)' : null
   const tanError = tan.trim() && !TAN_RE.test(tan.trim()) ? 'Invalid TAN (e.g. ABCD12345E)' : null
 
@@ -56,14 +83,15 @@ export function CompanyInfoScreen(): React.JSX.Element {
     <div className="mx-auto max-w-2xl">
       <SectionTitle>Company details</SectionTitle>
       <button
+        data-testid="btn-company-info-invoice-layout"
         onClick={() => nav.go({ name: 'settings', tab: 'invoice' })}
-        className="mb-4 flex w-full items-center justify-between rounded-lg border border-line bg-panel2 px-4 py-3 text-left transition-colors hover:border-amber/50 hover:bg-amber/10"
+        className="mb-4 flex w-full items-center justify-between rounded-lg border-2 border-amber/50 bg-amber/10 px-4 py-3.5 text-left transition-colors hover:border-amber hover:bg-amber/15"
       >
         <span>
-          <span className="block text-[13.5px] font-medium">Invoice layout &amp; contents…</span>
+          <span className="block text-[14px] font-semibold">Invoice layout &amp; contents…</span>
           <span className="block text-[11.5px] text-muted">Logo, declaration, bank details, QR, barcode column, copies to print</span>
         </span>
-        <span className="text-[13px] text-amber">→</span>
+        <span className="text-[15px] text-amber">→</span>
       </button>
       <Panel className="flex flex-col gap-4 p-5">
         <Field label="Name">

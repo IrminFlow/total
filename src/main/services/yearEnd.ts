@@ -3,7 +3,8 @@ import type { CompanyInfo } from '@shared/domain'
 import { fyFromStartYear, todayISO } from '@shared/dates'
 import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { findOrCreateLedger } from './masters'
-import { saveVoucher, setLockDate, NOT_DELETED } from './vouchers'
+import { saveVoucher, setLockDate, NOT_DELETED, IN_BOOKS } from './vouchers'
+import { writeAudit } from './audit'
 
 /** Marker embedded in the closing journal's narration — how re-close and status checks find it. */
 function closeMarker(fyStartYear: number): string {
@@ -18,7 +19,11 @@ export interface ClosePreview {
 }
 
 /** Signed dr-positive net movement + already-closed check for a financial year's income/expense
- *  ledgers. Ledgers with no movement in the FY are omitted (they'd be a no-op closing line anyway). */
+ *  ledgers. Ledgers with no movement in the FY are omitted (they'd be a no-op closing line anyway).
+ *  IN_BOOKS, not NOT_DELETED: optional (memorandum) and unmatured post-dated vouchers are out of
+ *  the books, so they must not enter the closing journal — the close must net exactly what the
+ *  P&L/trial balance (also IN_BOOKS) show, or Retained Earnings is misstated and the income/
+ *  expense ledgers carry residuals into the locked next FY. */
 export function closePreview(db: DB, fyStartYear: number): ClosePreview {
   const fy = fyFromStartYear(fyStartYear)
   const rows = (
@@ -28,7 +33,7 @@ export function closePreview(db: DB, fyStartYear: number): ClosePreview {
                 COALESCE((
                   SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END)
                   FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-                  WHERE vl.ledger_id = l.id AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+                  WHERE vl.ledger_id = l.id AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
                 ), 0) AS net
          FROM ledgers l JOIN groups g ON g.id = l.group_id
          WHERE g.nature IN ('income', 'expense')`
@@ -125,5 +130,12 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
   })
 
   const voucherId = run()
+  // [lane-Q audit] year-end close summary row (the closing journal + lock write their own rows;
+  // this one records the close as a single findable event).
+  writeAudit(db, 'year_end', fyStartYear, 'create', null, {
+    voucherId,
+    netProfit: plan.netProfit,
+    lockedUpTo: closeDate
+  })
   return { voucherId, netProfit: plan.netProfit, lockedUpTo: closeDate }
 }

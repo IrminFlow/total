@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, DateInput, Money, Panel, SectionTitle } from '../components/ui'
 import { StatementTree } from '../components/StatementTree'
 import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -14,9 +15,24 @@ const EXPORT_COLUMNS: PdfColumn[] = [
 ]
 
 export function ProfitLossScreen(): React.JSX.Element {
-  const { from, to } = useSession()
+  const { from: sessionFrom, to: sessionTo } = useSession()
   const toast = useToasts()
-  const { data } = useQuery({ queryKey: ['pnl', from, to], queryFn: () => api.reports.profitLoss(from, to) })
+  // Local, on-screen range (user ask): seeded from the header period, editable here without
+  // touching the global session period other screens read.
+  const [from, setFrom] = useState(sessionFrom)
+  const [to, setTo] = useState(sessionTo)
+  useEffect(() => {
+    setFrom(sessionFrom)
+    setTo(sessionTo)
+  }, [sessionFrom, sessionTo])
+  // keepPreviousData: editing the on-screen dates changes the query key — keep the previous
+  // figures rendered (with a subtle hint) instead of unmounting the screen into "Loading…",
+  // which would drop focus from the very DateInput being edited.
+  const { data, isPlaceholderData } = useQuery({
+    queryKey: ['pnl', from, to],
+    queryFn: () => api.reports.profitLoss(from, to),
+    placeholderData: keepPreviousData
+  })
   if (!data) return <p className="text-muted">Loading…</p>
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
@@ -50,7 +66,14 @@ export function ProfitLossScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
-            <span className="num text-[12px] text-muted">{periodLabel}</span>
+            {isPlaceholderData && (
+              <span data-testid="pnl-refreshing" className="text-[11px] text-muted" aria-live="polite">
+                Updating…
+              </span>
+            )}
+            <DateInput value={from} context={from} onChange={setFrom} className="w-28" testId="input-pnl-from" />
+            <span className="text-[12px] text-muted">→</span>
+            <DateInput value={to} context={to} onChange={setTo} className="w-28" testId="input-pnl-to" />
             <Button
               variant="ghost"
               onClick={() => void printReport({ title: 'Profit & Loss', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
@@ -71,7 +94,7 @@ export function ProfitLossScreen(): React.JSX.Element {
         Profit &amp; Loss
       </SectionTitle>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
         <Panel className="p-4">
           <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Expenses</p>
           {data.openingStock !== 0 && <FlatRow name="Opening stock" paise={data.openingStock} />}

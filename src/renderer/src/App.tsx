@@ -12,6 +12,8 @@ import { Masters } from './screens/Masters'
 import { TrialBalanceScreen } from './screens/TrialBalance'
 import { ProfitLossScreen } from './screens/ProfitLoss'
 import { BalanceSheetScreen } from './screens/BalanceSheet'
+import { CashFlowScreen } from './screens/CashFlow'
+import { ExceptionsScreen } from './screens/Exceptions'
 import { StockSummaryScreen } from './screens/StockSummary'
 import { LedgerStatementScreen } from './screens/LedgerStatement'
 import { Gstr1Screen, Gstr3bScreen } from './screens/GstReturns'
@@ -33,6 +35,8 @@ import { CommandPalette } from './components/CommandPalette'
 import { ShortcutHelp } from './components/ShortcutHelp'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LockScreen } from './components/LockScreen'
+import { DialogHost } from './components/dialogs'
+import { invalidationFamilies } from './lib/screens'
 
 export default function App(): React.JSX.Element {
   const { slug, locked, integrityWarning, setIntegrityWarning } = useSession()
@@ -72,9 +76,12 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [paletteOpen, nav, integrityWarning])
 
-  // Fresh data whenever the visible screen changes (vouchers affect every report).
+  // Fresh data whenever the visible screen changes — scoped to that screen's query-key
+  // families (see the registry) instead of nuking the whole cache on every navigation.
   useEffect(() => {
-    queryClient.invalidateQueries()
+    for (const family of invalidationFamilies(screen.name)) {
+      void queryClient.invalidateQueries({ queryKey: [family] })
+    }
   }, [screen.name, queryClient])
 
   // Rendered once, below, regardless of which of the three layouts is active — so it survives
@@ -88,6 +95,7 @@ export default function App(): React.JSX.Element {
     <>
       <CompanySelect />
       {integrityModal}
+      <DialogHost />
       <Toasts />
     </>
   )
@@ -96,6 +104,7 @@ export default function App(): React.JSX.Element {
     <>
       <LockScreen />
       {integrityModal}
+      <DialogHost />
       <Toasts />
     </>
   )
@@ -105,7 +114,7 @@ export default function App(): React.JSX.Element {
       <Shell onOpenPalette={() => setPaletteOpen(true)}>
         <ErrorBoundary key={screen.name} screen={screen.name}>
           {screen.name === 'gateway' && <Gateway />}
-          {screen.name === 'daybook' && <DayBook />}
+          {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'voucher-entry' && (
             <VoucherEntry
@@ -115,10 +124,12 @@ export default function App(): React.JSX.Element {
               draft={screen.draft}
             />
           )}
-          {screen.name === 'masters' && <Masters tab={screen.tab} />}
+          {screen.name === 'masters' && <Masters key={screen.tab ?? 'ledgers'} tab={screen.tab} />}
           {screen.name === 'trial-balance' && <TrialBalanceScreen />}
           {screen.name === 'profit-loss' && <ProfitLossScreen />}
           {screen.name === 'balance-sheet' && <BalanceSheetScreen />}
+          {screen.name === 'cash-flow' && <CashFlowScreen />}
+          {screen.name === 'exceptions' && <ExceptionsScreen />}
           {screen.name === 'stock-summary' && <StockSummaryScreen />}
           {screen.name === 'ledger-statement' && <LedgerStatementScreen ledgerId={screen.ledgerId} />}
           {screen.name === 'gstr1' && <Gstr1Screen />}
@@ -142,6 +153,7 @@ export default function App(): React.JSX.Element {
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
       {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
       {integrityModal}
+      <DialogHost />
       <Toasts />
     </>
   )

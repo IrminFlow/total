@@ -1,6 +1,7 @@
 import type { DB } from '../db/connection'
-import type { Godown, Group, Ledger, StockGroup, StockItem, Unit, VoucherType } from '@shared/domain'
-import type { GroupInput, GodownInput, LedgerInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput } from '@shared/schemas'
+import type { Batch, Godown, Group, Ledger, StockGroup, StockItem, Unit, VoucherType } from '@shared/domain'
+import { ledgerInputSchema } from '@shared/schemas'
+import type { BatchInput, GroupInput, GodownInput, LedgerInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput } from '@shared/schemas'
 import type { GroupTreeNode, LedgerBalanceRow } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { writeAudit } from './audit'
@@ -21,12 +22,16 @@ interface LedgerRow {
   gstin: string | null; state_code: string | null; address: string | null
   tax_type: Ledger['taxType']; gst_rate: number | null; hsn: string | null; is_system: number
   tds_section_id: number | null; pan: string | null; credit_days: number | null; export_type: Ledger['exportType']
+  rcm: number; itc_eligibility: Ledger['itcEligibility'] | null
+  price_level_id: number | null; credit_limit: number | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
   gstin: r.gstin, stateCode: r.state_code, address: r.address,
   taxType: r.tax_type, gstRate: r.gst_rate, hsn: r.hsn, isSystem: !!r.is_system,
-  tdsSectionId: r.tds_section_id, pan: r.pan, creditDays: r.credit_days, exportType: r.export_type
+  tdsSectionId: r.tds_section_id, pan: r.pan, creditDays: r.credit_days, exportType: r.export_type,
+  rcm: !!r.rcm, itcEligibility: r.itc_eligibility ?? 'eligible',
+  priceLevelId: r.price_level_id, creditLimit: r.credit_limit
 })
 
 // ---------- groups ----------
@@ -142,29 +147,39 @@ export function getLedger(db: DB, id: number): Ledger | null {
   return row ? mapLedger(row) : null
 }
 
-export function createLedger(db: DB, input: LedgerInput): Ledger {
+export function createLedger(db: DB, raw: LedgerInput): Ledger {
+  // Parse here (not just at the IPC boundary) so direct service callers — tests, importers,
+  // the Tally import — get defaults for later-added fields (rcm/itcEligibility) applied too.
+  const input = ledgerInputSchema.parse(raw)
   const res = db
     .prepare(
       `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, tax_type, gst_rate, hsn,
-        tds_section_id, pan, credit_days, export_type, is_system)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+        tds_section_id, pan, credit_days, export_type, rcm, itc_eligibility, price_level_id, credit_limit, is_system)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType)
+      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+      input.rcm ? 1 : 0, input.itcEligibility,
+      input.priceLevelId ?? null, input.creditLimit ?? null)
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
 }
 
-export function updateLedger(db: DB, id: number, input: LedgerInput): Ledger {
+export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
+  const input = ledgerInputSchema.parse(raw)
   const existing = getLedger(db, id)
   if (!existing) throw new Error('Ledger not found')
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
-     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?
+     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
+     rcm = ?, itc_eligibility = ?, price_level_id = ?, credit_limit = ?
      WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType, id)
+    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+    input.rcm ? 1 : 0, input.itcEligibility,
+    input.priceLevelId === undefined ? existing.priceLevelId : input.priceLevelId,
+    input.creditLimit === undefined ? existing.creditLimit : input.creditLimit, id)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
   return updated
@@ -270,12 +285,12 @@ export function createStockGroup(db: DB, input: StockGroupInput): StockGroup {
 interface StockItemRow {
   id: number; name: string; group_id: number | null; unit_id: number; hsn: string | null
   gst_rate: number | null; cess_rate: number | null; opening_qty_milli: number; opening_value: number
-  barcode: string | null
+  barcode: string | null; reorder_level_milli: number | null; valuation_method: 'weighted_avg' | 'fifo'
 }
 const mapItem = (r: StockItemRow): StockItem => ({
   id: r.id, name: r.name, groupId: r.group_id, unitId: r.unit_id, hsn: r.hsn,
   gstRate: r.gst_rate, cessRate: r.cess_rate, openingQtyMilli: r.opening_qty_milli, openingValue: r.opening_value,
-  barcode: r.barcode
+  barcode: r.barcode, reorderLevelMilli: r.reorder_level_milli, valuationMethod: r.valuation_method
 })
 
 export function listStockItems(db: DB): StockItem[] {
@@ -284,10 +299,10 @@ export function listStockItems(db: DB): StockItem[] {
 
 export function createStockItem(db: DB, input: StockItemInput): StockItem {
   const res = db.prepare(
-    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode, reorder_level_milli, valuation_method)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
-    input.openingQtyMilli, input.openingValue, input.barcode)
+    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? 'weighted_avg')
   const created = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(res.lastInsertRowid) as StockItemRow)
   writeAudit(db, 'stockItem', created.id, 'create', null, created)
   return created
@@ -298,9 +313,9 @@ export function updateStockItem(db: DB, id: number, input: StockItemInput): Stoc
   if (!existing) throw new Error('Stock item not found')
   db.prepare(
     `UPDATE stock_items SET name = ?, group_id = ?, unit_id = ?, hsn = ?, gst_rate = ?, cess_rate = ?,
-     opening_qty_milli = ?, opening_value = ?, barcode = ? WHERE id = ?`
+     opening_qty_milli = ?, opening_value = ?, barcode = ?, reorder_level_milli = ?, valuation_method = ? WHERE id = ?`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
-    input.openingQtyMilli, input.openingValue, input.barcode, id)
+    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? existing.valuation_method, id)
   const updated = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow)
   writeAudit(db, 'stockItem', id, 'update', mapItem(existing), updated)
   return updated
@@ -320,8 +335,58 @@ export function listGodowns(db: DB): Godown[] {
 }
 
 export function createGodown(db: DB, input: GodownInput): Godown {
-  const res = db.prepare('INSERT INTO godowns (name) VALUES (?)').run(input.name)
+  const res = db.prepare('INSERT INTO godowns (name, address) VALUES (?, ?)').run(input.name, input.address ?? null)
   const created = db.prepare('SELECT * FROM godowns WHERE id = ?').get(res.lastInsertRowid) as Godown
   writeAudit(db, 'godown', created.id, 'create', null, created)
+  return created
+}
+
+export function updateGodown(db: DB, id: number, input: GodownInput): Godown {
+  const existing = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown | undefined
+  if (!existing) throw new Error('Godown not found')
+  db.prepare('UPDATE godowns SET name = ?, address = ? WHERE id = ?')
+    .run(input.name, input.address === undefined ? existing.address : input.address, id)
+  const updated = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown
+  writeAudit(db, 'godown', id, 'update', existing, updated)
+  return updated
+}
+
+export function deleteGodown(db: DB, id: number): void {
+  const existing = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown | undefined
+  if (!existing) throw new Error('Godown not found')
+  const used = db.prepare('SELECT COUNT(*) AS n FROM inventory_lines WHERE godown_id = ?').get(id) as { n: number }
+  if (used.n > 0) throw new Error('Godown has stock movements; delete those first')
+  db.prepare('DELETE FROM godowns WHERE id = ?').run(id)
+  writeAudit(db, 'godown', id, 'delete', existing, null)
+}
+
+// ---------- batches (F11 `batches`, lane I) ----------
+
+interface BatchRow { id: number; stock_item_id: number; name: string; mfg_date: string | null; expiry_date: string | null }
+const mapBatch = (r: BatchRow): Batch => ({
+  id: r.id, stockItemId: r.stock_item_id, name: r.name, mfgDate: r.mfg_date, expiryDate: r.expiry_date
+})
+
+export function listBatches(db: DB, stockItemId?: number): Batch[] {
+  const rows = stockItemId
+    ? (db.prepare('SELECT * FROM batches WHERE stock_item_id = ? ORDER BY name').all(stockItemId) as BatchRow[])
+    : (db.prepare('SELECT * FROM batches ORDER BY stock_item_id, name').all() as BatchRow[])
+  return rows.map(mapBatch)
+}
+
+/** Create a batch, or return the existing one with the same (item, name) — voucher entry
+ *  creates batches on the fly and re-picking a name must not error. */
+export function createBatch(db: DB, input: BatchInput): Batch {
+  const existing = db
+    .prepare('SELECT * FROM batches WHERE stock_item_id = ? AND name = ?')
+    .get(input.stockItemId, input.name) as BatchRow | undefined
+  if (existing) return mapBatch(existing)
+  const item = db.prepare('SELECT id FROM stock_items WHERE id = ?').get(input.stockItemId)
+  if (!item) throw new Error('Stock item not found')
+  const res = db
+    .prepare('INSERT INTO batches (stock_item_id, name, mfg_date, expiry_date) VALUES (?, ?, ?, ?)')
+    .run(input.stockItemId, input.name, input.mfgDate, input.expiryDate)
+  const created = mapBatch(db.prepare('SELECT * FROM batches WHERE id = ?').get(res.lastInsertRowid) as BatchRow)
+  writeAudit(db, 'batch', created.id, 'create', null, created)
   return created
 }

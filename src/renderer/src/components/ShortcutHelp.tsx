@@ -1,4 +1,5 @@
 import { Kbd, Modal } from './ui'
+import { CARD_SCREENS } from '../lib/screens'
 
 interface ShortcutRow {
   keys: string[]
@@ -10,10 +11,9 @@ interface ShortcutGroup {
   rows: ShortcutRow[]
 }
 
-/** Static reference — mirrors the keydown handlers actually wired up in App.tsx (⌘K/Esc/?),
- *  Gateway.tsx (the single-letter card shortcuts), VoucherEntry.tsx (F4–F9 + the note variants
- *  + ⌘↵), and ui.tsx's `useKeyNav` (↑↓↵ on every list screen). Update this alongside those if the
- *  bindings ever change. */
+/** Mirrors the keydown handlers actually wired up in App.tsx (⌘K/Esc/?), VoucherEntry.tsx
+ *  (F4–F9 + the note variants + ⌘↵), and ui.tsx's `useKeyNav` (↑↓↵ on every list screen);
+ *  the Gateway group derives from the screen registry's cards, same as Gateway itself. */
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: 'Global',
@@ -25,17 +25,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
   {
     title: 'Gateway',
-    rows: [
-      { keys: ['V'], label: 'Voucher entry' },
-      { keys: ['D'], label: 'Day book' },
-      { keys: ['M'], label: 'Masters' },
-      { keys: ['T'], label: 'Trial balance' },
-      { keys: ['P'], label: 'Profit & Loss' },
-      { keys: ['B'], label: 'Balance sheet' },
-      { keys: ['S'], label: 'Stock summary' },
-      { keys: ['1'], label: 'GSTR-1' },
-      { keys: ['3'], label: 'GSTR-3B' }
-    ]
+    rows: CARD_SCREENS.map((s) => ({ keys: [s.card.key], label: s.title }))
   },
   {
     title: 'Voucher entry',

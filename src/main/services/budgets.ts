@@ -5,7 +5,9 @@ import { budgetVariance, type ActualRow, type BudgetLineRow, type BudgetVariance
 import { fyFromStartYear } from '@shared/dates'
 import { descendantIds } from './masters'
 import { writeAudit } from './audit'
-import { NOT_DELETED } from './vouchers'
+// IN_BOOKS, not NOT_DELETED: budget actuals must tie to the P&L for the same period, which
+// excludes optional (memorandum) and unmatured post-dated vouchers.
+import { IN_BOOKS } from './vouchers'
 
 interface BudgetRow {
   id: number
@@ -78,13 +80,6 @@ export function deleteBudget(db: DB, id: number): void {
   writeAudit(db, 'budget', id, 'delete', existing, null)
 }
 
-interface RawPosting {
-  ledgerId: number
-  month: string
-  nature: 'asset' | 'liability' | 'income' | 'expense'
-  drCr: 'dr' | 'cr'
-  amount: number
-}
 
 /**
  * Variance report for one budget, as of `upToMonth` ('YYYY-MM'). Pulls every posted (non-deleted)
@@ -99,26 +94,22 @@ export function budgetVarianceReport(db: DB, budgetId: number, upToMonth: string
   if (budget.lines.length === 0) return []
   const fy = fyFromStartYear(budget.fyStartYear)
 
-  const postings = db
+  // Net per ledger per month, signed by the ledger's natural direction, aggregated in SQL —
+  // one grouped row per (ledger, month) instead of shipping every voucher line into JS.
+  const actuals = db
     .prepare(
-      `SELECT vl.ledger_id AS ledgerId, strftime('%Y-%m', v.date) AS month, g.nature AS nature, vl.dr_cr AS drCr, vl.amount AS amount
+      `SELECT vl.ledger_id AS ledgerId, strftime('%Y-%m', v.date) AS month,
+              SUM(CASE WHEN g.nature = 'income'
+                       THEN CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE -vl.amount END
+                       ELSE CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END END) AS amount
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN ledgers l ON l.id = vl.ledger_id
        JOIN groups g ON g.id = l.group_id
-       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       GROUP BY vl.ledger_id, month`
     )
-    .all(fy.from, fy.to) as RawPosting[]
-
-  const netByKey = new Map<string, { ledgerId: number; month: string; amount: number }>()
-  for (const p of postings) {
-    const signed = p.nature === 'income' ? (p.drCr === 'cr' ? p.amount : -p.amount) : p.drCr === 'dr' ? p.amount : -p.amount
-    const key = `${p.ledgerId}|${p.month}`
-    const existing = netByKey.get(key)
-    if (existing) existing.amount += signed
-    else netByKey.set(key, { ledgerId: p.ledgerId, month: p.month, amount: signed })
-  }
-  const actuals: ActualRow[] = [...netByKey.values()]
+    .all(fy.from, fy.to) as ActualRow[]
 
   const ledgerGroup = db.prepare('SELECT id, group_id AS groupId FROM ledgers').all() as { id: number; groupId: number }[]
   const groupDescendants = new Map<number, Set<number>>()

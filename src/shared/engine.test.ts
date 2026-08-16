@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { parseRupees, formatPaise, percentOf, roundToRupee, amountInWords, plainRupees, plainMilli } from './money'
-import { fyOf, parseSmartDate, gstPeriodOf, toPortalDate, isValidISODate } from './dates'
+import { fyOf, parseSmartDate, gstPeriodOf, toPortalDate, isValidISODate, toDisplayDateTime } from './dates'
 import { validateGstin, gstinCheckChar, validateHsn } from './gst/validate'
 import { computeGst, supplyTypeFor } from './gst/calc'
 import { validateVoucher, type VoucherInput, type LedgerFacts } from './posting'
@@ -89,6 +89,11 @@ describe('dates', () => {
   it('formats GST portal periods and dates', () => {
     expect(gstPeriodOf('2025-08-15')).toBe('082025')
     expect(toPortalDate('2025-08-15')).toBe('15-08-2025')
+  })
+
+  it('formats display timestamps as DD-MMM-YY HH:MM', () => {
+    expect(toDisplayDateTime(new Date(2026, 7, 15, 9, 5))).toBe('15-Aug-26 09:05')
+    expect(toDisplayDateTime(new Date(2025, 0, 2, 23, 59))).toBe('02-Jan-25 23:59')
   })
 
   it('rejects impossible calendar dates', () => {
@@ -246,6 +251,55 @@ describe('voucher posting rules', () => {
       ]
     }
     expect(validateVoucher(receiptGood, 'receipt', resolve)).toEqual([])
+  })
+
+  it('payment/receipt must actually have their cash/bank money side (v0.3 #65)', () => {
+    // A "payment" with no credit line at all used to slip past the cash/bank rule entirely
+    // (only the unbalanced check caught it). The money side is now mandatory.
+    const paymentNoMoneySide = {
+      ...base,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'dr' as const, amount: 5000 }
+      ]
+    }
+    expect(validateVoucher(paymentNoMoneySide, 'payment', resolve).map((e) => e.code)).toContain('cash_bank_rule')
+
+    const receiptNoMoneySide = {
+      ...base,
+      lines: [
+        { ledgerId: 3, drCr: 'cr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ]
+    }
+    expect(validateVoucher(receiptNoMoneySide, 'receipt', resolve).map((e) => e.code)).toContain('cash_bank_rule')
+  })
+
+  it('the cash/bank lines must carry the FULL money side, unknown ledgers included (v0.3 #65)', () => {
+    // A cr line on an unknown ledger used to be skipped by the cash/bank check ("some" over
+    // known ledgers only); the sum-based rule counts it as non-cash.
+    const paymentUnknownOnMoneySide = {
+      ...base,
+      lines: [
+        { ledgerId: 4, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 1, drCr: 'cr' as const, amount: 3000 },
+        { ledgerId: 99, drCr: 'cr' as const, amount: 2000 }
+      ]
+    }
+    const codes = validateVoucher(paymentUnknownOnMoneySide, 'payment', resolve).map((e) => e.code)
+    expect(codes).toContain('unknown_ledger')
+    expect(codes).toContain('cash_bank_rule')
+
+    // A split money side that is ALL cash/bank stays valid.
+    const paymentSplitCash = {
+      ...base,
+      lines: [
+        { ledgerId: 4, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 1, drCr: 'cr' as const, amount: 3000 },
+        { ledgerId: 2, drCr: 'cr' as const, amount: 2000 }
+      ]
+    }
+    expect(validateVoucher(paymentSplitCash, 'payment', resolve)).toEqual([])
   })
 
   it('requires a party ledger when billRefs are given', () => {
@@ -416,7 +470,8 @@ describe('GSTR-1 builder', () => {
     expect(json.b2b[0].inv[0].itms[0].itm_det).toEqual({ rt: 18, txval: 1000, camt: 90, samt: 90, csamt: 0 })
     expect(json.b2cl[0].pos).toBe('29')
     expect(json.b2cs[0]).toMatchObject({ sply_ty: 'INTRA', pos: '27', rt: 18, txval: 500 })
-    expect(json.hsn.data[0]).toMatchObject({ hsn_sc: '8471', uqc: 'NOS', qty: 2, txval: 1000 })
+    // Table 12 is bifurcated B2B/B2C per the current offline-tool schema; this doc is registered.
+    expect(json.hsn.hsn_b2b[0]).toMatchObject({ hsn_sc: '8471', uqc: 'NOS', qty: 2, txval: 1000 })
   })
 
   it('aggregates b2cs by pos + rate and nets credit notes in hsn', () => {
@@ -430,8 +485,8 @@ describe('GSTR-1 builder', () => {
     const r = buildGstr1([b2bDoc, cn], '27AAPFU0939F1ZV', '27', '082025')
     const json = r.json as any
     expect(json.cdnr[0].nt[0].ntty).toBe('C')
-    expect(json.hsn.data[0].txval).toBe(800) // 1000 - 200
-    expect(json.hsn.data[0].qty).toBe(1.5)
+    expect(json.hsn.hsn_b2b[0].txval).toBe(800) // 1000 - 200
+    expect(json.hsn.hsn_b2b[0].qty).toBe(1.5)
   })
 })
 
@@ -457,7 +512,16 @@ describe('GSTR-3B builder', () => {
         hsnLines: []
       }
     ]
-    const r = buildGstr3b(docs, { igst: 0, cgst: 5000, sgst: 5000, cess: 0 }, '27AAPFU0939F1ZV', '082025')
+    const zero = { igst: 0, cgst: 0, sgst: 0, cess: 0 }
+    const r = buildGstr3b(
+      {
+        docs,
+        itc: { impg: zero, isrc: zero, oth: { igst: 0, cgst: 5000, sgst: 5000, cess: 0 }, blocked: zero },
+        rcmInward: { taxable: 0, ...zero }
+      },
+      '27AAPFU0939F1ZV',
+      '082025'
+    )
     expect(r.outward.taxable).toBe(90000)
     expect(r.outward.cgst).toBe(8100)
     expect(r.nilExempt.taxable).toBe(5000)

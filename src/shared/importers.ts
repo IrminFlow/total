@@ -1,12 +1,13 @@
 /**
  * Pure CSV master-import parsers. Header-sniffs common Tally/Excel column names, tolerates
- * quoted commas via `parseCsvLine`, and never throws on a bad row — bad rows are collected as
- * `errors` (1-indexed source line number + message) while good rows survive in `rows`.
+ * quoted commas and multi-line quoted fields via the full-text `parseCsv`, and never throws on
+ * a bad row — bad rows are collected as `errors` (1-indexed source line number + message) while
+ * good rows survive in `rows`.
  *
  * No Electron, no DB: the main-process service (`src/main/services/importers.ts`) resolves
  * group/unit names to ids and does the actual upsert.
  */
-import { parseCsvLine } from './csv'
+import { parseCsv, type CsvRecord } from './csv'
 import { parseRupees } from './money'
 import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
@@ -57,9 +58,9 @@ function normalizeHeader(h: string): string {
   return h.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-/** First non-blank line's column-name -> index map, matched against normalized aliases. */
-function buildHeaderIndex(headerLine: string, aliases: Record<string, string[]>): Record<string, number> {
-  const headers = parseCsvLine(headerLine).map(normalizeHeader)
+/** First record's column-name -> index map, matched against normalized aliases. */
+function buildHeaderIndex(headerCells: string[], aliases: Record<string, string[]>): Record<string, number> {
+  const headers = headerCells.map(normalizeHeader)
   const index: Record<string, number> = {}
   for (const [field, names] of Object.entries(aliases)) {
     const normNames = names.map(normalizeHeader)
@@ -73,12 +74,10 @@ function cellAt(cells: string[], i: number | undefined): string {
   return i === undefined ? '' : (cells[i] ?? '').trim()
 }
 
-/** Splits CSV text into non-blank lines, returning [1-indexed line number, raw text][]. */
-function nonBlankLines(csvText: string): [number, string][] {
-  return csvText
-    .split(/\r?\n/)
-    .map((text, i): [number, string] => [i + 1, text])
-    .filter(([, text]) => text.trim() !== '')
+/** Records with the source line each starts on — full-text parse (v0.3 #67), so quoted fields
+ *  may span physical lines; blank lines yield no record. */
+function csvRecords(csvText: string): CsvRecord[] {
+  return parseCsv(csvText)
 }
 
 // ---------- shared value parsers ----------
@@ -147,18 +146,17 @@ const LEDGER_ALIASES: Record<string, string[]> = {
 }
 
 export function parseLedgersCsv(csvText: string): CsvParseResult<LedgerCsvRow> {
-  const lines = nonBlankLines(csvText)
+  const records = csvRecords(csvText)
   const rows: LedgerCsvRow[] = []
   const errors: CsvError[] = []
-  if (lines.length === 0) return { rows, errors: [{ line: 1, message: 'Empty file' }] }
+  if (records.length === 0) return { rows, errors: [{ line: 1, message: 'Empty file' }] }
 
-  const [headerLineNo, headerText] = lines[0]!
-  const idx = buildHeaderIndex(headerText, LEDGER_ALIASES)
+  const [headerLineNo, headerCells] = [records[0]!.line, records[0]!.cells]
+  const idx = buildHeaderIndex(headerCells, LEDGER_ALIASES)
   if (idx.name === undefined) return { rows, errors: [{ line: headerLineNo, message: 'Missing required column: Name' }] }
   if (idx.group === undefined) return { rows, errors: [{ line: headerLineNo, message: 'Missing required column: Group (or Under)' }] }
 
-  for (const [lineNo, text] of lines.slice(1)) {
-    const cells = parseCsvLine(text)
+  for (const { line: lineNo, cells } of records.slice(1)) {
     const name = cellAt(cells, idx.name)
     if (!name) {
       errors.push({ line: lineNo, message: 'Missing name' })
@@ -226,18 +224,17 @@ const ITEM_ALIASES: Record<string, string[]> = {
 }
 
 export function parseItemsCsv(csvText: string): CsvParseResult<ItemCsvRow> {
-  const lines = nonBlankLines(csvText)
+  const records = csvRecords(csvText)
   const rows: ItemCsvRow[] = []
   const errors: CsvError[] = []
-  if (lines.length === 0) return { rows, errors: [{ line: 1, message: 'Empty file' }] }
+  if (records.length === 0) return { rows, errors: [{ line: 1, message: 'Empty file' }] }
 
-  const [headerLineNo, headerText] = lines[0]!
-  const idx = buildHeaderIndex(headerText, ITEM_ALIASES)
+  const [headerLineNo, headerCells] = [records[0]!.line, records[0]!.cells]
+  const idx = buildHeaderIndex(headerCells, ITEM_ALIASES)
   if (idx.name === undefined) return { rows, errors: [{ line: headerLineNo, message: 'Missing required column: Name' }] }
   if (idx.unit === undefined) return { rows, errors: [{ line: headerLineNo, message: 'Missing required column: Unit' }] }
 
-  for (const [lineNo, text] of lines.slice(1)) {
-    const cells = parseCsvLine(text)
+  for (const { line: lineNo, cells } of records.slice(1)) {
     const name = cellAt(cells, idx.name)
     if (!name) {
       errors.push({ line: lineNo, message: 'Missing name' })
@@ -299,18 +296,17 @@ const OPENING_ALIASES: Record<string, string[]> = {
 }
 
 export function parseOpeningBalancesCsv(csvText: string): CsvParseResult<OpeningCsvRow> {
-  const lines = nonBlankLines(csvText)
+  const records = csvRecords(csvText)
   const rows: OpeningCsvRow[] = []
   const errors: CsvError[] = []
-  if (lines.length === 0) return { rows, errors: [{ line: 1, message: 'Empty file' }] }
+  if (records.length === 0) return { rows, errors: [{ line: 1, message: 'Empty file' }] }
 
-  const [headerLineNo, headerText] = lines[0]!
-  const idx = buildHeaderIndex(headerText, OPENING_ALIASES)
+  const [headerLineNo, headerCells] = [records[0]!.line, records[0]!.cells]
+  const idx = buildHeaderIndex(headerCells, OPENING_ALIASES)
   if (idx.ledgerName === undefined) return { rows, errors: [{ line: headerLineNo, message: 'Missing required column: Ledger' }] }
   if (idx.opening === undefined) return { rows, errors: [{ line: headerLineNo, message: 'Missing required column: Opening' }] }
 
-  for (const [lineNo, text] of lines.slice(1)) {
-    const cells = parseCsvLine(text)
+  for (const { line: lineNo, cells } of records.slice(1)) {
     const ledgerName = cellAt(cells, idx.ledgerName)
     if (!ledgerName) {
       errors.push({ line: lineNo, message: 'Missing ledger name' })

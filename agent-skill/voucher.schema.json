@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Total voucher input",
+  "description": "One voucher for `total-cli post` or a `<company>/inbox/*.json` drop (a file may also hold an array of these). ALL AMOUNTS ARE INTEGER PAISE (₹1 = 100 paise); quantities are integer milli-units (1000 = 1 unit). Debits must equal credits — the app rejects everything else. Same validation as the app UI.",
+  "type": "object",
+  "properties": {
+    "voucherTypeId": {
+      "description": "Voucher type id — see voucherTypes in <company>/agent/meta.json.",
+      "type": "integer",
+      "exclusiveMinimum": 0
+    },
+    "date": {
+      "description": "Voucher date, YYYY-MM-DD. Must be after the period lock date if one is set.",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "number": {
+      "description": "Voucher number. Omit for auto-numbered types (the app assigns the next number); required for manual-numbered types.",
+      "type": "string",
+      "maxLength": 40
+    },
+    "partyLedgerId": {
+      "description": "Party ledger id (Sundry Debtor/Creditor) for sales/purchase/receipt/payment; null otherwise.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "exclusiveMinimum": 0,
+      "default": null
+    },
+    "narration": {
+      "description": "Free-text narration shown on the voucher.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1000,
+      "default": null
+    },
+    "reference": {
+      "description": "External reference (order no., bill no., ...).",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 120,
+      "default": null
+    },
+    "instrumentNo": {
+      "description": "Cheque/instrument number for bank vouchers.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 60,
+      "default": null
+    },
+    "instrumentDate": {
+      "description": "Cheque/instrument date, YYYY-MM-DD.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "default": null
+    },
+    "transporterId": {
+      "description": "Transporter GSTIN/id for e-way bill flows.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 20,
+      "default": null
+    },
+    "vehicleNo": {
+      "description": "Vehicle number for e-way bill flows.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 20,
+      "default": null
+    },
+    "transportDistanceKm": {
+      "description": "Transport distance in km (integer).",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 10000,
+      "default": null
+    },
+    "posOverride": {
+      "description": "Place-of-supply override: two-digit GST state code (e.g. \"27\"); null = derive from party/company state.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "currencyCode": {
+      "description": "3-letter currency code for multi-currency vouchers (e.g. USD); null = base currency (INR).",
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 3,
+      "maxLength": 3,
+      "default": null
+    },
+    "exchangeRate": {
+      "description": "Units of INR per 1 unit of currencyCode.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "exclusiveMinimum": 0,
+      "maximum": 100000,
+      "default": null
+    },
+    "postDated": {
+      "description": "Post-dated voucher (PDC): stays out of the books until its date arrives, then matures automatically on company open.",
+      "type": "boolean"
+    },
+    "isOptional": {
+      "description": "Optional (memorandum) voucher: recorded but never counted in books or reports.",
+      "type": "boolean"
+    },
+    "lines": {
+      "description": "Ledger lines. Every amount is INTEGER PAISE (₹1 = 100). The voucher must balance: sum of dr amounts must equal sum of cr amounts, or the whole voucher is rejected.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ledgerId": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "drCr": {
+            "type": "string",
+            "enum": [
+              "dr",
+              "cr"
+            ]
+          },
+          "amount": {
+            "type": "integer",
+            "maximum": 9007199254740991,
+            "exclusiveMinimum": 0
+          },
+          "costAllocations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "costCentreId": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "amount": {
+                  "type": "integer",
+                  "maximum": 9007199254740991,
+                  "exclusiveMinimum": 0
+                }
+              },
+              "required": [
+                "costCentreId",
+                "amount"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 20,
+            "default": []
+          }
+        },
+        "required": [
+          "ledgerId",
+          "drCr",
+          "amount"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 200
+    },
+    "inventory": {
+      "description": "Stock item lines for inventory vouchers. qtyMilli is integer thousandths (1000 = 1 unit); ratePaise/amount are integer paise.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "stockItemId": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "godownId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "default": null
+          },
+          "batchId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "qtyMilli": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ratePaise": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "discountPaise": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ]
+          },
+          "isAbsolute": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stockItemId",
+          "qtyMilli",
+          "ratePaise",
+          "amount",
+          "direction"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 200,
+      "default": []
+    },
+    "billRefs": {
+      "description": "Bill-wise allocations: kind 'new' opens a bill, 'against' settles one, by name.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "new",
+              "against"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "amount": {
+            "type": "integer",
+            "maximum": 9007199254740991,
+            "exclusiveMinimum": 0
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "default": null
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "amount"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 50,
+      "default": []
+    },
+    "tds": {
+      "description": "TDS deduction on this voucher (section + base + deducted amount, paise), or null.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "sectionId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "baseAmount": {
+          "type": "integer",
+          "maximum": 9007199254740991,
+          "exclusiveMinimum": 0
+        },
+        "tdsAmount": {
+          "type": "integer",
+          "maximum": 9007199254740991,
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "sectionId",
+        "baseAmount",
+        "tdsAmount"
+      ],
+      "additionalProperties": false,
+      "default": null
+    }
+  },
+  "required": [
+    "voucherTypeId",
+    "date",
+    "lines"
+  ],
+  "additionalProperties": false
+}

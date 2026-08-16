@@ -1,7 +1,7 @@
 import type { DB } from '../db/connection'
 import { featuresSchema, mergeFeatures, type CompanyFeatures } from '@shared/features'
 import { invoiceConfigSchema, mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
-import { chequeConfigSchema, mergeChequeConfig, type ChequeConfig } from '@shared/schemas'
+import { chequeConfigSchema, gst3bManualSchema, mergeChequeConfig, type ChequeConfig, type Gst3bManualInput } from '@shared/schemas'
 import { writeAudit } from './audit'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
@@ -68,6 +68,57 @@ export function setChequeConfig(db: DB, bankLedgerId: number, input: ChequeConfi
   writeMeta(db, `cheque.${bankLedgerId}`, parsed)
   writeAudit(db, 'cheque_config', bankLedgerId, 'update', before, parsed)
   return parsed
+}
+
+// ---------- GSTR-3B manual adjustments (per period, meta `gst3b.manual.<MMYYYY>`) ----------
+
+export function getGst3bManual(db: DB, period: string): Gst3bManualInput {
+  const parsed = gst3bManualSchema.safeParse(readMeta(db, `gst3b.manual.${period}`) ?? {})
+  return parsed.success ? parsed.data : gst3bManualSchema.parse({})
+}
+
+export function setGst3bManual(db: DB, period: string, input: unknown): Gst3bManualInput {
+  const before = getGst3bManual(db, period)
+  const parsed = gst3bManualSchema.parse(input)
+  writeMeta(db, `gst3b.manual.${period}`, parsed)
+  writeAudit(db, 'company', 0, 'update', { gst3bManual: { period, ...before } }, { gst3bManual: { period, ...parsed } })
+  return parsed
+}
+
+// ---------- audit retention (task Q1 #92) ----------
+
+/** Days of audit_log history to keep, or null (the default) = keep forever. Stored in `meta`
+ *  under 'audit.keepDays'. When set, company open prunes older rows (see ipc.ts + audit.ts). */
+export function getAuditKeepDays(db: DB): number | null {
+  const raw = readMeta(db, 'audit.keepDays')
+  return typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : null
+}
+
+export function setAuditKeepDays(db: DB, keepDays: number | null): number | null {
+  const before = getAuditKeepDays(db)
+  if (keepDays === null) {
+    db.prepare("DELETE FROM meta WHERE key = 'audit.keepDays'").run()
+  } else {
+    writeMeta(db, 'audit.keepDays', keepDays)
+  }
+  writeAudit(db, 'company', 0, 'update', { auditKeepDays: before }, { auditKeepDays: keepDays })
+  return keepDays
+}
+
+// ---------- agent bridge feature flag (lane A) ----------
+
+/** Whether the `<company>/inbox/` drop-folder watcher + auto mirror refresh are on for this
+ *  company. Default OFF — an agent write surface should be a deliberate opt-in. Stored in `meta`
+ *  under 'agent_bridge'; the CLI is always available regardless (it validates identically). */
+export function getAgentBridgeEnabled(db: DB): boolean {
+  return readMeta(db, 'agent_bridge') === true
+}
+
+export function setAgentBridgeEnabled(db: DB, enabled: boolean): boolean {
+  const before = getAgentBridgeEnabled(db)
+  writeMeta(db, 'agent_bridge', enabled)
+  writeAudit(db, 'company', 0, 'update', { agentBridge: before }, { agentBridge: enabled })
+  return enabled
 }
 
 // ---------- compliance-deadline notifications (once-per-day guard) ----------

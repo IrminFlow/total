@@ -1,4 +1,4 @@
-import { percentOf } from '../money'
+import { percentOf, roundPaise } from '../money'
 
 export type SupplyType = 'intra' | 'inter'
 
@@ -37,6 +37,29 @@ export function computeGst(
     cess,
     total: taxablePaise + half * 2 + cess
   }
+}
+
+/**
+ * Back tax OUT of a tax-inclusive advance receipt (GSTR-1 Table 11A/11B).
+ *
+ * Money received as an advance is inclusive of GST — Rule 35 CGST Rules: value =
+ * gross × 100 / (100 + rate) — so the reportable taxable value is the backed-out base and
+ * the tax is exactly the residue (gross − taxable), never computed ON TOP of the gross.
+ * Integer paise, half-away rounding on the base; intra splits give CGST the half-away
+ * rounded half and SGST the exact remainder so cgst + sgst always equals the tax.
+ */
+export function backOutAdvance(
+  grossPaise: number,
+  ratePercent: number,
+  supply: SupplyType
+): GstBreakup {
+  const taxable = roundPaise((grossPaise * 100) / (100 + ratePercent))
+  const tax = grossPaise - taxable
+  if (supply === 'inter') {
+    return { taxable, cgst: 0, sgst: 0, igst: tax, cess: 0, total: grossPaise }
+  }
+  const half = roundPaise(tax / 2)
+  return { taxable, cgst: half, sgst: tax - half, igst: 0, cess: 0, total: grossPaise }
 }
 
 /** Determine supply type from the company's state and the place of supply. */
