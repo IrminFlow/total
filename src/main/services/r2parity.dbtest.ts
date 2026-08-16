@@ -14,7 +14,7 @@ import { saveVoucher, nextVoucherNumber, findDuplicates } from './vouchers'
 import type { VoucherInputParsed } from '@shared/schemas'
 import { trialBalance, profitAndLoss, balanceSheet, ledgerStatement, stockSummary, dashboard } from './reports'
 import { outstandings, openBills, registerByMonth } from './analysis'
-import { suggestLedgers } from './intel'
+import { suggestLedgers, anomalyCheck } from './intel'
 import { saveBudget, budgetVarianceReport } from './budgets'
 
 const LEDGER_DEFAULTS = {
@@ -183,6 +183,27 @@ describe('R2 parity — intel', () => {
     const { db } = richBook()
     expect(suggestLedgers(db, 'payment', '')).toMatchSnapshot('payment suggestions')
     expect(suggestLedgers(db, 'sales', 'deb')).toMatchSnapshot('sales deb suggestions')
+  })
+})
+
+describe('R2 fix — anomaly median (improvement #50)', () => {
+  it('uses the true middle of ALL line amounts, not the 500 smallest', () => {
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const vt = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }
+    const vid = db
+      .prepare("INSERT INTO vouchers (voucher_type_id, date, number) VALUES (?, '2025-04-01', 'RAW-1')")
+      .run(vt.id).lastInsertRowid
+    const ins = db.prepare('INSERT INTO voucher_lines (voucher_id, ledger_id, dr_cr, amount, line_order) VALUES (?, ?, ?, ?, 0)')
+    const insertAll = db.transaction(() => {
+      for (let i = 1; i <= 1000; i++) ins.run(vid, cash, 'dr', i)
+    })
+    insertAll()
+    // 1000 amounts 1..1000: the (upper) median is 501. The old LIMIT-500 sample saw only
+    // 1..500 and reported 251.
+    expect(anomalyCheck(db, cash, 1).typicalAmount).toBe(501)
+    expect(anomalyCheck(db, cash, 5011).unusual).toBe(true)
+    expect(anomalyCheck(db, cash, 5010).unusual).toBe(false)
   })
 })
 

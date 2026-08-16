@@ -38,40 +38,53 @@ export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string
     .sort((a, b) => a.month.localeCompare(b.month))
 }
 
-/** Party ledger's movements + bill_refs, expressed as pure `BillEvent`s for `allocateBills`. */
-function partyEvents(db: DB, partyLedgerId: number, asOn: string, sign: number): BillEvent[] {
+/** Every party's movements + bill_refs, expressed as pure `BillEvent`s for `allocateBills` —
+ *  two batched queries for the whole party set instead of two queries per party (the old N+1). */
+function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number): Map<number, BillEvent[]> {
+  const result = new Map<number, BillEvent[]>()
+  if (partyIds.length === 0) return result
+  const placeholders = partyIds.map(() => '?').join(',')
+
   const movements = db
     .prepare(
-      `SELECT v.id AS voucherId, v.date, v.number,
+      `SELECT vl.ledger_id AS partyId, v.id AS voucherId, v.date, v.number,
               SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND v.date <= ? AND ${NOT_DELETED}
-       GROUP BY v.id ORDER BY v.date, v.id`
+       WHERE vl.ledger_id IN (${placeholders}) AND v.date <= ? AND ${NOT_DELETED}
+       GROUP BY vl.ledger_id, v.id ORDER BY vl.ledger_id, v.date, v.id`
     )
-    .all(partyLedgerId, asOn) as { voucherId: number; date: string; number: string; net: number }[]
+    .all(...partyIds, asOn) as { partyId: number; voucherId: number; date: string; number: string; net: number }[]
 
   const refRows = db
     .prepare(
-      `SELECT br.voucher_id AS voucherId, br.kind, br.name, br.amount, br.due_date AS dueDate
+      `SELECT br.party_ledger_id AS partyId, br.voucher_id AS voucherId, br.kind, br.name, br.amount, br.due_date AS dueDate
        FROM bill_refs br JOIN vouchers v ON v.id = br.voucher_id
-       WHERE br.party_ledger_id = ? AND v.date <= ? AND ${NOT_DELETED}
+       WHERE br.party_ledger_id IN (${placeholders}) AND v.date <= ? AND ${NOT_DELETED}
        ORDER BY br.id`
     )
-    .all(partyLedgerId, asOn) as { voucherId: number; kind: 'new' | 'against'; name: string; amount: number; dueDate: string | null }[]
-  const refsByVoucher = new Map<number, BillRef[]>()
+    .all(...partyIds, asOn) as {
+      partyId: number; voucherId: number; kind: 'new' | 'against'; name: string; amount: number; dueDate: string | null
+    }[]
+  const refsByVoucher = new Map<string, BillRef[]>()
   for (const r of refRows) {
-    const list = refsByVoucher.get(r.voucherId) ?? []
+    const key = `${r.partyId}|${r.voucherId}`
+    const list = refsByVoucher.get(key) ?? []
     list.push({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.dueDate })
-    refsByVoucher.set(r.voucherId, list)
+    refsByVoucher.set(key, list)
   }
 
-  return movements.map((m) => ({
-    voucherId: m.voucherId,
-    date: m.date,
-    number: m.number,
-    amount: sign * m.net,
-    refs: refsByVoucher.get(m.voucherId) ?? []
-  }))
+  for (const m of movements) {
+    const list = result.get(m.partyId) ?? []
+    list.push({
+      voucherId: m.voucherId,
+      date: m.date,
+      number: m.number,
+      amount: sign * m.net,
+      refs: refsByVoucher.get(`${m.partyId}|${m.voucherId}`) ?? []
+    })
+    result.set(m.partyId, list)
+  }
+  return result
 }
 
 /** Opening-balance event, normalized to the same sign convention as `partyEvents`. Kept as a
@@ -98,8 +111,9 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
   const sign = side === 'receivable' ? 1 : -1
   const result: OutstandingParty[] = []
 
+  const eventsByParty = partyEventsBatch(db, parties.map((p) => p.id), asOn, sign)
   for (const party of parties) {
-    const events = [...openingEvent(asOn, party.opening_balance, sign), ...partyEvents(db, party.id, asOn, sign)]
+    const events = [...openingEvent(asOn, party.opening_balance, sign), ...(eventsByParty.get(party.id) ?? [])]
     const { bills } = allocateBills(events, asOn, party.credit_days)
     if (bills.length === 0) continue
 
@@ -127,6 +141,7 @@ export function openBills(db: DB, partyLedgerId: number, asOn: string): Outstand
   if (!ledger) return []
   const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
   const sign = debtorIds.has(ledger.group_id) ? 1 : -1
-  const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...partyEvents(db, partyLedgerId, asOn, sign)]
+  const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)
+  const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(eventsByParty.get(partyLedgerId) ?? [])]
   return allocateBills(events, asOn, ledger.credit_days).bills
 }

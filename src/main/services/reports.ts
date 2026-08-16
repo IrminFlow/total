@@ -4,7 +4,8 @@ import type {
   ProfitAndLoss, StatementNode, StockSummaryRow, TopLedgerRow, TrialBalance
 } from '@shared/reports'
 import type { Group, Nature } from '@shared/domain'
-import { listGroups, descendantIdsByName, cashBankGroupIds } from './masters'
+import { listGroups } from './masters'
+import { CASH_BANK_GROUPS } from '@shared/seed'
 import { listVouchers, NOT_DELETED } from './vouchers'
 
 // ---------- shared helpers ----------
@@ -21,25 +22,29 @@ function movements(db: DB, from: string, to: string): Map<number, number> {
   return new Map(rows.map((r) => [r.id, r.m]))
 }
 
-/** Signed closing balance (opening + movement ≤ asOn) per ledger. */
+/** Signed closing balance (opening + movement ≤ asOn) per ledger — one grouped scan of
+ *  voucher_lines (same shape as masters.ledgerBalances) instead of a correlated subquery
+ *  per ledger row. */
 function closingBalances(db: DB, asOn: string): Map<number, number> {
   const rows = db
     .prepare(
-      `SELECT l.id, l.opening_balance + COALESCE((
-         SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END)
+      `SELECT l.id, l.opening_balance + COALESCE(m.movement, 0) AS bal
+       FROM ledgers l
+       LEFT JOIN (
+         SELECT vl.ledger_id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS movement
          FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-         WHERE vl.ledger_id = l.id AND v.date <= ? AND ${NOT_DELETED}
-       ), 0) AS bal
-       FROM ledgers l`
+         WHERE v.date <= ? AND ${NOT_DELETED}
+         GROUP BY vl.ledger_id
+       ) m ON m.ledger_id = l.id`
     )
     .all(asOn) as { id: number; bal: number }[]
   return new Map(rows.map((r) => [r.id, r.bal]))
 }
 
-interface LedgerLite { id: number; name: string; groupId: number }
+interface LedgerLite { id: number; name: string; groupId: number; openingBalance: number }
 
 function ledgersLite(db: DB): LedgerLite[] {
-  return (db.prepare('SELECT id, name, group_id AS groupId FROM ledgers').all() as LedgerLite[])
+  return (db.prepare('SELECT id, name, group_id AS groupId, opening_balance AS openingBalance FROM ledgers').all() as LedgerLite[])
 }
 
 /**
@@ -184,10 +189,7 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
   const lineRows = db
     .prepare(
       `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, v.number, v.narration,
-              vl.dr_cr AS drCr, vl.amount,
-              (SELECT GROUP_CONCAT(DISTINCT l2.name)
-               FROM voucher_lines vl2 JOIN ledgers l2 ON l2.id = vl2.ledger_id
-               WHERE vl2.voucher_id = v.id AND vl2.dr_cr <> vl.dr_cr) AS particulars
+              vl.dr_cr AS drCr, vl.amount
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
@@ -196,8 +198,32 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
     )
     .all(ledgerId, from, to) as {
       voucherId: number; date: string; voucherType: string; number: string; narration: string | null
-      drCr: 'dr' | 'cr'; amount: number; particulars: string | null
+      drCr: 'dr' | 'cr'; amount: number
     }[]
+
+  // Counterpart names for the "particulars" column — one batched query over the touched
+  // vouchers plus JS grouping, replacing the correlated GROUP_CONCAT subquery per line.
+  const voucherIds = [...new Set(lineRows.map((r) => r.voucherId))]
+  const namesBySide = new Map<string, string[]>() // `${voucherId}|${drCr}` -> distinct names, first-seen order
+  if (voucherIds.length > 0) {
+    const placeholders = voucherIds.map(() => '?').join(',')
+    const counterRows = db
+      .prepare(
+        `SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.name
+         FROM voucher_lines vl2 JOIN ledgers l2 ON l2.id = vl2.ledger_id
+         WHERE vl2.voucher_id IN (${placeholders})
+         ORDER BY vl2.id`
+      )
+      .all(...voucherIds) as { voucherId: number; drCr: 'dr' | 'cr'; name: string }[]
+    for (const r of counterRows) {
+      const key = `${r.voucherId}|${r.drCr}`
+      const list = namesBySide.get(key) ?? []
+      if (!list.includes(r.name)) list.push(r.name)
+      namesBySide.set(key, list)
+    }
+  }
+  const particularsFor = (voucherId: number, drCr: 'dr' | 'cr'): string =>
+    (namesBySide.get(`${voucherId}|${drCr === 'dr' ? 'cr' : 'dr'}`) ?? []).join(',')
 
   let running = opening
   let totalDebit = 0
@@ -213,7 +239,7 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
       date: r.date,
       voucherType: r.voucherType,
       number: r.number,
-      particulars: r.particulars ?? '',
+      particulars: particularsFor(r.voucherId, r.drCr),
       narration: r.narration,
       debit,
       credit,
@@ -253,7 +279,14 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
   }
 }
 
-export function profitAndLoss(db: DB, from: string, to: string): ProfitAndLoss {
+export function profitAndLoss(
+  db: DB,
+  from: string,
+  to: string,
+  /** Pre-computed stock figures (shared scans) — balanceSheet passes its own closing stock so
+   *  the inventory valuation runs once, not once per statement. */
+  stocks?: { openingStock?: number; closingStock?: number }
+): ProfitAndLoss {
   const move = movements(db, from, to)
   const amountOf = (id: number): number => move.get(id) ?? 0
   const groups = listGroups(db)
@@ -268,8 +301,8 @@ export function profitAndLoss(db: DB, from: string, to: string): ProfitAndLoss {
   const indirectIncomes = buildTrees(groups, ledgers, isNature('income', false), amountOf, -1)
   const indirectExpenses = buildTrees(groups, ledgers, isNature('expense', false), amountOf, 1)
 
-  const openingStock = stockValue(db, dayBefore(from))
-  const closingStock = stockValue(db, to)
+  const openingStock = stocks?.openingStock ?? stockValue(db, dayBefore(from))
+  const closingStock = stocks?.closingStock ?? stockValue(db, to)
 
   const grossProfit =
     sumNodes(tradingIncomes) + closingStock - sumNodes(tradingExpenses) - openingStock
@@ -297,7 +330,8 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string): BalanceSh
   const assets = buildTrees(groups, ledgers, (g) => g.nature === 'asset', amountOf, 1)
   const liabilities = buildTrees(groups, ledgers, (g) => g.nature === 'liability', amountOf, -1)
 
-  // Closing stock joins the assets side under Stock-in-Hand.
+  // Closing stock joins the assets side under Stock-in-Hand. Valued once here and shared with
+  // the P&L below (whose period also ends on asOn) — a single inventory scan for the statement.
   const closingStock = stockValue(db, asOn)
   if (closingStock !== 0) {
     const stockGroup = groups.find((g) => g.name === 'Stock-in-Hand')
@@ -316,7 +350,7 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string): BalanceSh
     }
   }
 
-  const pnl = profitAndLoss(db, booksFrom, asOn)
+  const pnl = profitAndLoss(db, booksFrom, asOn, { closingStock })
   const profitCurrentPeriod = pnl.netProfit
 
   // If user-entered opening balances don't balance, surface the gap Tally-style.
@@ -351,17 +385,37 @@ function addDaysISO(iso: string, delta: number): string {
   return dt.toISOString().slice(0, 10)
 }
 
-/** Top 5 ledgers under `groupNames` by outstanding balance, descending, zero/negative excluded.
- *  `sign` flips the dr-positive figure onto the "amount owed" axis (1 for debtors, -1 for
- *  creditors, whose natural balance is credit i.e. negative dr-positive). */
+/** Ids of all groups in the subtrees rooted at the named groups, computed in JS from an
+ *  already-loaded group list (dashboard loads groups once and derives every set from it).
+ *  Name matching is case-insensitive, mirroring the NOCASE collation on groups.name. */
+function descendantIdSet(groups: Group[], names: string[]): Set<number> {
+  const children = new Map<number | null, number[]>()
+  for (const g of groups) {
+    const list = children.get(g.parentId) ?? []
+    list.push(g.id)
+    children.set(g.parentId, list)
+  }
+  const wanted = new Set(names.map((n) => n.toLowerCase()))
+  const stack = groups.filter((g) => wanted.has(g.name.toLowerCase())).map((g) => g.id)
+  const result = new Set<number>()
+  while (stack.length) {
+    const id = stack.pop()!
+    if (result.has(id)) continue
+    result.add(id)
+    for (const c of children.get(id) ?? []) stack.push(c)
+  }
+  return result
+}
+
+/** Top 5 ledgers under the given group-id set by outstanding balance, descending, zero/negative
+ *  excluded. `sign` flips the dr-positive figure onto the "amount owed" axis (1 for debtors, -1
+ *  for creditors, whose natural balance is credit i.e. negative dr-positive). */
 function topLedgersFor(
-  db: DB,
   balances: Map<number, number>,
   ledgers: LedgerLite[],
-  groupNames: string[],
+  ids: Set<number>,
   sign: 1 | -1
 ): TopLedgerRow[] {
-  const ids = descendantIdsByName(db, groupNames)
   return ledgers
     .filter((l) => ids.has(l.groupId))
     .map((l) => ({ ledgerId: l.id, name: l.name, amount: sign * (balances.get(l.id) ?? 0) }))
@@ -373,19 +427,14 @@ function topLedgersFor(
 /** Cash + bank running balance, one point per day, for the trailing `days` days ending `today`.
  *  A single query gets the cumulative dr-positive balance (window-fn `SUM(...) OVER`) on every
  *  date that actually had cash/bank movement; the day-by-day walk below just carries the last
- *  known value forward across the gaps (weekends, days with no cash/bank voucher, ...). */
-function cashSpark(db: DB, today: string, days = 30): CashSparkPoint[] {
-  const groupIds = [...cashBankGroupIds(db)]
+ *  known value forward across the gaps (weekends, days with no cash/bank voucher, ...).
+ *  `groupIds`/`opening` come pre-computed from data the caller already holds. */
+function cashSpark(db: DB, today: string, groupIds: number[], opening: number, days = 30): CashSparkPoint[] {
   const windowStart = addDaysISO(today, -(days - 1))
 
-  let opening = 0
   const balanceByDate = new Map<string, number>()
   if (groupIds.length > 0) {
     const placeholders = groupIds.map(() => '?').join(',')
-    opening = (
-      db.prepare(`SELECT COALESCE(SUM(opening_balance), 0) AS ob FROM ledgers WHERE group_id IN (${placeholders})`)
-        .get(...groupIds) as { ob: number }
-    ).ob
     const rows = db
       .prepare(
         `SELECT v.date AS date,
@@ -421,11 +470,13 @@ function cashSpark(db: DB, today: string, days = 30): CashSparkPoint[] {
 }
 
 export function dashboard(db: DB, today: string, fyFrom: string): DashboardData {
+  // One balances scan, one ledger list, one group list — every group-subtree figure below is
+  // derived in JS from these instead of re-querying groups per metric (the old N-queries shape).
   const balances = closingBalances(db, today)
   const ledgers = ledgersLite(db)
+  const groups = listGroups(db)
 
-  const sumGroupSet = (names: string[], sign: 1 | -1, onlyPositive = false): number => {
-    const ids = descendantIdsByName(db, names)
+  const sumGroupSet = (ids: Set<number>, sign: 1 | -1, onlyPositive = false): number => {
     let total = 0
     for (const l of ledgers) {
       if (!ids.has(l.groupId)) continue
@@ -435,20 +486,30 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
     return total
   }
 
+  const cashIds = descendantIdSet(groups, ['Cash-in-Hand'])
+  const bankIds = descendantIdSet(groups, ['Bank Accounts', 'Bank OD A/c'])
+  const debtorIds = descendantIdSet(groups, ['Sundry Debtors'])
+  const creditorIds = descendantIdSet(groups, ['Sundry Creditors'])
+  const dutiesIds = descendantIdSet(groups, ['Duties & Taxes'])
+  const cashBankIds = descendantIdSet(groups, CASH_BANK_GROUPS)
+
   const monthStart = today.slice(0, 8) + '01'
 
-  const kindTotal = (kind: string, from: string, to: string): number => {
-    const row = db
-      .prepare(
-        `SELECT COALESCE(SUM(t.total), 0) AS s FROM vouchers v
-         JOIN voucher_types vt ON vt.id = v.voucher_type_id
-         JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
-           ON t.voucher_id = v.id
-         WHERE vt.kind = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
-      )
-      .get(kind, from, to) as { s: number }
-    return row.s
-  }
+  // Sales/purchase totals for today + month-to-date in a single grouped pass.
+  const kindRows = db
+    .prepare(
+      `SELECT vt.kind AS kind,
+              COALESCE(SUM(CASE WHEN v.date = ? THEN t.total ELSE 0 END), 0) AS todayTotal,
+              COALESCE(SUM(t.total), 0) AS monthTotal
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
+         ON t.voucher_id = v.id
+       WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       GROUP BY vt.kind`
+    )
+    .all(today, monthStart, today) as { kind: 'sales' | 'purchase'; todayTotal: number; monthTotal: number }[]
+  const kindTotals = new Map(kindRows.map((r) => [r.kind, r]))
 
   const recent = listVouchers(db, fyFrom, today)
     .slice(-8)
@@ -458,28 +519,36 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
       account: v.account, narration: v.narration, debit: v.amount, credit: v.amount
     }))
 
-  const partyIds = descendantIdsByName(db, ['Sundry Debtors', 'Sundry Creditors'])
+  const partyIds = new Set([...debtorIds, ...creditorIds])
   const partyCount = ledgers.filter((l) => partyIds.has(l.groupId)).length
-  const voucherCount = (db.prepare(`SELECT COUNT(*) AS c FROM vouchers v WHERE ${NOT_DELETED}`).get() as { c: number }).c
-  const itemCount = (db.prepare('SELECT COUNT(*) AS c FROM stock_items').get() as { c: number }).c
-  const hasEmployees = !!db.prepare('SELECT 1 FROM employees WHERE active = 1 LIMIT 1').get()
+  const counts = db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM vouchers v WHERE ${NOT_DELETED}) AS voucherCount,
+              (SELECT COUNT(*) FROM stock_items) AS itemCount,
+              EXISTS (SELECT 1 FROM employees WHERE active = 1) AS hasEmployees`
+    )
+    .get() as { voucherCount: number; itemCount: number; hasEmployees: number }
+
+  const cashBankOpening = ledgers
+    .filter((l) => cashBankIds.has(l.groupId))
+    .reduce((s, l) => s + l.openingBalance, 0)
 
   return {
-    cashBalance: sumGroupSet(['Cash-in-Hand'], 1),
-    bankBalance: sumGroupSet(['Bank Accounts', 'Bank OD A/c'], 1),
-    todaySales: kindTotal('sales', today, today),
-    monthSales: kindTotal('sales', monthStart, today),
-    monthPurchases: kindTotal('purchase', monthStart, today),
-    receivables: sumGroupSet(['Sundry Debtors'], 1, true),
-    payables: sumGroupSet(['Sundry Creditors'], -1, true),
-    gstPayable: sumGroupSet(['Duties & Taxes'], -1),
+    cashBalance: sumGroupSet(cashIds, 1),
+    bankBalance: sumGroupSet(bankIds, 1),
+    todaySales: kindTotals.get('sales')?.todayTotal ?? 0,
+    monthSales: kindTotals.get('sales')?.monthTotal ?? 0,
+    monthPurchases: kindTotals.get('purchase')?.monthTotal ?? 0,
+    receivables: sumGroupSet(debtorIds, 1, true),
+    payables: sumGroupSet(creditorIds, -1, true),
+    gstPayable: sumGroupSet(dutiesIds, -1),
     recentVouchers: recent,
-    topReceivables: topLedgersFor(db, balances, ledgers, ['Sundry Debtors'], 1),
-    topPayables: topLedgersFor(db, balances, ledgers, ['Sundry Creditors'], -1),
-    cashSpark: cashSpark(db, today),
-    voucherCount,
+    topReceivables: topLedgersFor(balances, ledgers, debtorIds, 1),
+    topPayables: topLedgersFor(balances, ledgers, creditorIds, -1),
+    cashSpark: cashSpark(db, today, [...cashBankIds], cashBankOpening),
+    voucherCount: counts.voucherCount,
     partyCount,
-    itemCount,
-    hasEmployees
+    itemCount: counts.itemCount,
+    hasEmployees: !!counts.hasEmployees
   }
 }
