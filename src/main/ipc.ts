@@ -15,10 +15,10 @@ import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, ensure
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
-  backupFileSchema, bankRuleInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
+  backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
-  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
-  searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
+  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
+  searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
@@ -38,6 +38,8 @@ import * as payroll from './services/payroll'
 import * as nic from './services/nic'
 import * as tds from './services/tds'
 import * as costCentres from './services/costCentres'
+import * as stockAnalysis from './services/stockAnalysis'
+import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
 import * as yearEnd from './services/yearEnd'
@@ -232,6 +234,9 @@ export function registerIpc(): void {
     }
     const purged = vouchers.purgeOldDeleted(db, 30)
     if (purged > 0) log('info', 'bin-purge', { purged })
+    // Post-dated vouchers whose date has arrived flip into the books (audited per voucher).
+    const matured = vouchers.maturePostDated(db, todayISO())
+    if (matured.length > 0) log('info', 'pdc-mature', { count: matured.length, ids: matured })
     touchLastOpened(slug)
     return { slug, info, integrity, locked: current.usersExist }
   })
@@ -466,6 +471,56 @@ export function registerIpc(): void {
   handle('master:stockItems:delete', (p) => masters.deleteStockItem(requireCompany().db, idSchema.parse(p).id))
   handle('master:godowns:list', () => masters.listGodowns(requireCompany().db), 'viewer')
   handle('master:godowns:create', (p) => masters.createGodown(requireCompany().db, godownInputSchema.parse(p)))
+
+  // ---------- inventory depth (lane I): godown CRUD, batches, stock analysis ----------
+  handle('master:godowns:update', (p) => {
+    const { id, data } = withIdSchema(godownInputSchema).parse(p)
+    return masters.updateGodown(requireCompany().db, id, data)
+  })
+  handle('master:godowns:delete', (p) => masters.deleteGodown(requireCompany().db, idSchema.parse(p).id))
+  handle('master:batches:list', (p) => {
+    const { stockItemId } = z.object({ stockItemId: z.number().int().positive().optional() }).default({}).parse(p ?? {})
+    return masters.listBatches(requireCompany().db, stockItemId)
+  }, 'viewer')
+  handle('master:batches:create', (p) => masters.createBatch(requireCompany().db, batchInputSchema.parse(p)))
+  handle('stock:summary', (p) => {
+    const { asOn, godownId } = stockQuerySchema.parse(p)
+    return stockAnalysis.stockSummary(requireCompany().db, asOn, { godownId })
+  }, 'viewer')
+  handle('stock:byGodown', (p) => {
+    const { asOn } = stockQuerySchema.parse(p)
+    return stockAnalysis.stockByGodown(requireCompany().db, asOn)
+  }, 'viewer')
+  handle('stock:batches', (p) => {
+    const { asOn, stockItemId } = z.object({ asOn: isoDate, stockItemId: z.number().int().positive().optional() }).parse(p)
+    return stockAnalysis.batchStock(requireCompany().db, asOn, stockItemId)
+  }, 'viewer')
+  handle('stock:expiry', (p) => {
+    const { asOn } = stockQuerySchema.parse(p)
+    return stockAnalysis.expiryAgeing(requireCompany().db, asOn)
+  }, 'viewer')
+  handle('stock:negative', (p) => {
+    const { asOn } = stockQuerySchema.parse(p)
+    return stockAnalysis.negativeStock(requireCompany().db, asOn)
+  }, 'viewer')
+  handle('master:priceLevels:list', () => priceLevels.listPriceLevels(requireCompany().db), 'viewer')
+  handle('master:priceLevels:create', (p) => priceLevels.savePriceLevel(requireCompany().db, priceLevelInputSchema.parse(p)))
+  handle('master:priceLevels:update', (p) => {
+    const { id, data } = withIdSchema(priceLevelInputSchema).parse(p)
+    return priceLevels.savePriceLevel(requireCompany().db, data, id)
+  })
+  handle('master:priceLevels:delete', (p) => priceLevels.deletePriceLevel(requireCompany().db, idSchema.parse(p).id))
+  handle('priceLevels:rates', (p) => {
+    const { priceLevelId } = z.object({ priceLevelId: z.number().int().positive() }).parse(p)
+    return priceLevels.listRates(requireCompany().db, priceLevelId)
+  }, 'viewer')
+  handle('priceLevels:saveRate', (p) => priceLevels.saveRate(requireCompany().db, priceRateInputSchema.parse(p)))
+  handle('priceLevels:deleteRate', (p) => priceLevels.deleteRate(requireCompany().db, idSchema.parse(p).id))
+  handle('priceLevels:rateFor', (p) => {
+    const q = z.object({ priceLevelId: z.number().int().positive(), stockItemId: z.number().int().positive(), date: isoDate }).parse(p)
+    return priceLevels.rateFor(requireCompany().db, q.priceLevelId, q.stockItemId, q.date)
+  }, 'viewer')
+  handle('pdc:list', () => vouchers.pdcRegister(requireCompany().db), 'viewer')
 
   // ---------- search ----------
   handle('search:global', (p) => globalSearch(requireCompany().db, searchGlobalSchema.parse(p).q), 'viewer')

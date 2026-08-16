@@ -17,10 +17,14 @@ export interface VoucherLineInput {
 export interface InventoryLineInput {
   stockItemId: number
   godownId: number | null
+  /** Batch this quantity moves in/out of; null/absent = untracked. */
+  batchId?: number | null
   qtyMilli: number
   ratePaise: number
   amount: number
   direction: 'in' | 'out'
+  /** Physical Stock line: qtyMilli is the counted closing quantity (may be 0), not a movement. */
+  isAbsolute?: boolean
 }
 
 export interface BillRefInput {
@@ -134,7 +138,8 @@ export function validateVoucher(
     if (!Number.isSafeInteger(inv.amount) || inv.amount < 0) {
       errors.push({ code: 'bad_inventory_amount', message: 'Inventory amounts cannot be negative' })
     }
-    if (!Number.isSafeInteger(inv.qtyMilli) || inv.qtyMilli <= 0) {
+    const minQtyOk = inv.isAbsolute ? inv.qtyMilli >= 0 : inv.qtyMilli > 0
+    if (!Number.isSafeInteger(inv.qtyMilli) || !minQtyOk) {
       errors.push({ code: 'bad_qty', message: 'Inventory quantity must be positive' })
     }
   })

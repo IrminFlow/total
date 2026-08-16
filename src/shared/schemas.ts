@@ -69,7 +69,11 @@ export const ledgerInputSchema = z.object({
   /** Reverse charge applies to this party's supplies (GSTR-1 rchrg / GSTR-3B 3.1(d)). */
   rcm: z.boolean().default(false),
   /** ITC eligibility class for purchases from this party — 'blocked' lands in 3B 4(D). */
-  itcEligibility: z.enum(['eligible', 'blocked', 'capital_goods', 'input_services']).default('eligible')
+  itcEligibility: z.enum(['eligible', 'blocked', 'capital_goods', 'input_services']).default('eligible'),
+  /** Price level whose rates prefill this party's invoice lines; absent/null = item base rate. */
+  priceLevelId: id.nullable().optional(),
+  /** Credit limit in paise; absent/null = no limit. */
+  creditLimit: paise.min(0).nullable().optional()
 })
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
  *  service callers (tests, importers) don't have to spell out every defaulted field. */
@@ -115,12 +119,15 @@ export const stockItemInputSchema = z.object({
     .default(null)
     .transform((s) => (s === '' ? null : s)),
   /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
-  reorderLevelMilli: z.number().int().min(0).nullable().default(null)
+  reorderLevelMilli: z.number().int().min(0).nullable().default(null),
+  /** Absent = keep existing (update) / 'weighted_avg' (create). */
+  valuationMethod: z.enum(['weighted_avg', 'fifo']).optional()
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
 
 export const godownInputSchema = z.object({
-  name: z.string().trim().min(1).max(120)
+  name: z.string().trim().min(1).max(120),
+  address: z.string().trim().max(500).nullable().optional()
 })
 export type GodownInput = z.infer<typeof godownInputSchema>
 
@@ -149,14 +156,23 @@ export const tdsSchema = z.object({
   tdsAmount: positivePaise
 })
 
-export const inventoryLineSchema = z.object({
-  stockItemId: id,
-  godownId: id.nullable().default(null),
-  qtyMilli: z.number().int().positive(),
-  ratePaise: paise.min(0),
-  amount: paise.min(0),
-  direction: z.enum(['in', 'out'])
-})
+export const inventoryLineSchema = z
+  .object({
+    stockItemId: id,
+    godownId: id.nullable().default(null),
+    /** Batch this quantity moves in/out of (F11 `batches`); null = untracked. */
+    batchId: id.nullable().optional(),
+    qtyMilli: z.number().int().min(0),
+    ratePaise: paise.min(0),
+    amount: paise.min(0),
+    direction: z.enum(['in', 'out']),
+    /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
+    isAbsolute: z.boolean().optional()
+  })
+  .refine((l) => l.isAbsolute || l.qtyMilli > 0, {
+    message: 'Inventory quantity must be positive',
+    path: ['qtyMilli']
+  })
 
 export const voucherInputSchema = z.object({
   voucherTypeId: id,
@@ -174,6 +190,10 @@ export const voucherInputSchema = z.object({
   posOverride: stateCodeSchema.nullable().default(null),
   currencyCode: z.string().trim().length(3).transform((s) => s.toUpperCase()).nullable().default(null),
   exchangeRate: z.number().positive().max(100000).nullable().default(null),
+  /** Post-dated: kept out of the books until the date arrives (auto-matures on company open). */
+  postDated: z.boolean().optional(),
+  /** Optional (memorandum) voucher: never counts toward the books. */
+  isOptional: z.boolean().optional(),
   lines: z.array(voucherLineSchema).max(200),
   inventory: z.array(inventoryLineSchema).max(200).default([]),
   billRefs: z.array(billRefSchema).max(50).default([]),
@@ -559,3 +579,33 @@ export const gst3bManualSchema = z.object({
   lateFee: z.object({ camt: paise.default(0), samt: paise.default(0) }).default({})
 })
 export type Gst3bManualInput = z.infer<typeof gst3bManualSchema>
+// ---------- inventory depth (lane I): batches, price levels, stock analysis ----------
+
+export const batchInputSchema = z.object({
+  stockItemId: id,
+  name: z.string().trim().min(1).max(60),
+  mfgDate: isoDate.nullable().default(null),
+  expiryDate: isoDate.nullable().default(null)
+})
+export type BatchInput = z.infer<typeof batchInputSchema>
+
+export const priceLevelInputSchema = z.object({
+  name: z.string().trim().min(1).max(60)
+})
+export type PriceLevelInput = z.infer<typeof priceLevelInputSchema>
+
+/** One date-effective per-item rate under a price level. `rate` is paise per whole unit. */
+export const priceRateInputSchema = z.object({
+  priceLevelId: id,
+  stockItemId: id,
+  rate: paise.min(0),
+  effectiveFrom: isoDate
+})
+export type PriceRateInput = z.infer<typeof priceRateInputSchema>
+
+/** stock:* report queries — asOn plus optional godown scope. */
+export const stockQuerySchema = z.object({
+  asOn: isoDate,
+  godownId: id.optional()
+})
+export type StockQueryInput = z.infer<typeof stockQuerySchema>

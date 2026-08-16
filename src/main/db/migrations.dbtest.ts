@@ -32,6 +32,9 @@ const EXPECTED_TABLES = [
   'budgets',
   'budget_lines',
   'voucher_transport',
+  'batches',
+  'price_levels',
+  'price_list_rates',
   'migrations'
 ]
 
@@ -347,5 +350,45 @@ describe('migrate', () => {
     db.prepare('DELETE FROM budgets WHERE id = ?').run(budgetId)
     const remaining = db.prepare('SELECT COUNT(*) AS n FROM budget_lines WHERE id = ?').get(lineId) as { n: number }
     expect(remaining.n).toBe(0)
+  })
+
+  it('014: inventory-depth columns, batches uniqueness, and price-level cascade', () => {
+    const db = freshDb()
+
+    // New columns exist with the expected defaults.
+    const stockCols = (db.prepare('PRAGMA table_info(stock_items)').all() as { name: string }[]).map((c) => c.name)
+    expect(stockCols).toContain('valuation_method')
+    const invCols = (db.prepare('PRAGMA table_info(inventory_lines)').all() as { name: string }[]).map((c) => c.name)
+    expect(invCols).toEqual(expect.arrayContaining(['batch_id', 'is_absolute']))
+    const ledgerCols = (db.prepare('PRAGMA table_info(ledgers)').all() as { name: string }[]).map((c) => c.name)
+    expect(ledgerCols).toEqual(expect.arrayContaining(['price_level_id', 'credit_limit']))
+    const voucherCols = (db.prepare('PRAGMA table_info(vouchers)').all() as { name: string }[]).map((c) => c.name)
+    expect(voucherCols).toEqual(expect.arrayContaining(['post_dated', 'is_optional']))
+    const godownCols = (db.prepare('PRAGMA table_info(godowns)').all() as { name: string }[]).map((c) => c.name)
+    expect(godownCols).toContain('address')
+
+    // valuation_method CHECK constraint.
+    db.prepare("INSERT INTO units (name, symbol) VALUES ('Nos', 'nos')").run()
+    const unitId = Number(db.prepare("SELECT id FROM units WHERE name = 'Nos'").get()!['id' as never])
+    db.prepare("INSERT INTO stock_items (name, unit_id, valuation_method) VALUES ('Widget', ?, 'fifo')").run(unitId)
+    expect(() =>
+      db.prepare("INSERT INTO stock_items (name, unit_id, valuation_method) VALUES ('Bad', ?, 'lifo')").run(unitId)
+    ).toThrow()
+    const itemId = Number(db.prepare("SELECT id FROM stock_items WHERE name = 'Widget'").get()!['id' as never])
+
+    // Batch names are unique per item, not globally.
+    db.prepare("INSERT INTO batches (stock_item_id, name) VALUES (?, 'B-1')").run(itemId)
+    expect(() => db.prepare("INSERT INTO batches (stock_item_id, name) VALUES (?, 'B-1')").run(itemId)).toThrow()
+    db.prepare("INSERT INTO stock_items (name, unit_id) VALUES ('Gadget', ?)").run(unitId)
+    const otherId = Number(db.prepare("SELECT id FROM stock_items WHERE name = 'Gadget'").get()!['id' as never])
+    db.prepare("INSERT INTO batches (stock_item_id, name) VALUES (?, 'B-1')").run(otherId)
+
+    // Deleting a price level cascades its rates.
+    const levelId = Number(db.prepare("INSERT INTO price_levels (name) VALUES ('Wholesale')").run().lastInsertRowid)
+    db.prepare('INSERT INTO price_list_rates (price_level_id, stock_item_id, rate, effective_from) VALUES (?, ?, 10000, ?)')
+      .run(levelId, itemId, '2025-04-01')
+    db.prepare('DELETE FROM price_levels WHERE id = ?').run(levelId)
+    const rates = db.prepare('SELECT COUNT(*) AS n FROM price_list_rates').get() as { n: number }
+    expect(rates.n).toBe(0)
   })
 })

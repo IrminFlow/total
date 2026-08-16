@@ -44,6 +44,11 @@ export interface Ledger {
   rcm: boolean
   /** ITC eligibility class for purchases booked against this party — 'blocked' feeds 3B 4(D). */
   itcEligibility: 'eligible' | 'blocked' | 'capital_goods' | 'input_services'
+  /** Price level whose rates prefill this party's invoice lines; null = item base rate. */
+  priceLevelId: number | null
+  /** Credit limit in paise; null = no limit. saveVoucher warns (or blocks, under F11
+   *  enforceCreditLimit) when the party's outstanding would exceed it. */
+  creditLimit: number | null
   isSystem: boolean
 }
 
@@ -168,6 +173,8 @@ export interface InventoryLine {
   id: number
   stockItemId: number
   godownId: number | null
+  /** Batch this quantity moves in/out of (F11 `batches`); null = untracked. */
+  batchId: number | null
   /** Quantity in base-unit thousandths (qty × 1000) to avoid float drift. */
   qtyMilli: number
   /** Paise per whole unit. */
@@ -175,6 +182,8 @@ export interface InventoryLine {
   /** Paise. */
   amount: number
   direction: 'in' | 'out'
+  /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
+  isAbsolute: boolean
 }
 
 export interface Voucher {
@@ -204,6 +213,11 @@ export interface Voucher {
   irnAckDate: string | null
   ewbNo: string | null
   ewbValidUpto: string | null
+  /** Post-dated cheque/voucher: excluded from books until it matures (auto-flipped to false
+   *  once its date arrives — see maturePostDated). */
+  postDated: boolean
+  /** Optional (memorandum) voucher: never counts toward the books. */
+  isOptional: boolean
   /** Set once the voucher is moved to the bin (soft delete); null while active. */
   deletedAt: string | null
   lines: VoucherLine[]
@@ -271,11 +285,64 @@ export interface StockItem {
   barcode: string | null
   /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
   reorderLevelMilli: number | null
+  /** How this item's stock is valued (src/shared/valuation.ts). */
+  valuationMethod: 'weighted_avg' | 'fifo'
 }
 
 export interface Godown {
   id: number
   name: string
+  address: string | null
+}
+
+/** A batch/lot of a stock item (F11 `batches`), created on the fly from voucher entry. */
+export interface Batch {
+  id: number
+  stockItemId: number
+  name: string
+  mfgDate: string | null
+  expiryDate: string | null
+}
+
+/** A named price list (e.g. Retail / Wholesale) assignable to party ledgers. */
+export interface PriceLevel {
+  id: number
+  name: string
+}
+
+/** A date-effective per-item rate under a price level. `rate` is paise per whole unit. */
+export interface PriceListRate {
+  id: number
+  priceLevelId: number
+  stockItemId: number
+  rate: number
+  effectiveFrom: string
+}
+
+// ---------- saveVoucher warnings (lane I: negative stock + credit limit) ----------
+
+export interface NegativeStockWarning {
+  stockItemId: number
+  name: string
+  unitSymbol: string
+  /** Closing quantity (thousandths) as of the voucher date — negative. */
+  closingQtyMilli: number
+}
+
+export interface CreditLimitWarning {
+  ledgerId: number
+  ledgerName: string
+  /** Paise. */
+  creditLimit: number
+  /** Party's outstanding (dr-positive, incl. this voucher), paise. */
+  outstanding: number
+}
+
+/** Non-blocking issues detected while saving a voucher. Additive: the saved Voucher rides
+ *  alongside (see SaveVoucherResult in src/main/services/vouchers.ts). */
+export interface SaveVoucherWarnings {
+  negativeStock: NegativeStockWarning[]
+  creditLimitExceeded: CreditLimitWarning | null
 }
 
 export interface CompanyInfo {

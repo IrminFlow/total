@@ -1,11 +1,14 @@
 import type { DB } from '../db/connection'
-import type { Voucher, VoucherLine, InventoryLine, VoucherType } from '@shared/domain'
+import type {
+  Voucher, VoucherLine, InventoryLine, VoucherType, NegativeStockWarning, SaveVoucherWarnings
+} from '@shared/domain'
 import { voucherInputSchema } from '@shared/schemas'
 import type { VoucherInput, VoucherInputParsed } from '@shared/schemas'
 import type { VoucherListRow } from '@shared/reports'
 import { validateVoucher, type LedgerFacts } from '@shared/posting'
 import { fyOf } from '@shared/dates'
 import { cashBankGroupIds } from './masters'
+import { getFeatures } from './config'
 import { writeAudit } from './audit'
 
 interface VoucherRow {
@@ -17,12 +20,23 @@ interface VoucherRow {
   currency_code: string | null; exchange_rate: number | null
   irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null
   ewb_no: string | null; ewb_valid_upto: string | null
+  post_dated: number; is_optional: number
   deleted_at: string | null
   created_at: string; updated_at: string
 }
 
 /** Greppable filter for every query joining `vouchers` as `v` that must exclude binned vouchers. */
 export const NOT_DELETED = 'v.deleted_at IS NULL'
+
+/** Post-dated vouchers stay out of the books until they mature (maturePostDated flips the flag). */
+export const NOT_POSTDATED = 'v.post_dated = 0'
+
+/** Optional (memorandum) vouchers never count toward the books. */
+export const NOT_OPTIONAL = 'v.is_optional = 0'
+
+/** Composite filter: the voucher counts toward the books — not binned, not post-dated, not
+ *  optional. New report queries should use this instead of NOT_DELETED alone. */
+export const IN_BOOKS = `${NOT_DELETED} AND ${NOT_POSTDATED} AND ${NOT_OPTIONAL}`
 
 /** Books-locked-up-to date (inclusive): vouchers dated on or before this date can't be
  *  saved/deleted/restored. Stored in `meta` under key 'lock_before'; null/absent = no lock. */
@@ -63,8 +77,11 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     .prepare('SELECT id, ledger_id, dr_cr, amount, bank_date FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as { id: number; ledger_id: number; dr_cr: 'dr' | 'cr'; amount: number; bank_date: string | null }[]
   const inventory = db
-    .prepare('SELECT id, stock_item_id, godown_id, qty_milli, rate_paise, amount, direction FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
-    .all(id) as { id: number; stock_item_id: number; godown_id: number | null; qty_milli: number; rate_paise: number; amount: number; direction: 'in' | 'out' }[]
+    .prepare('SELECT id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, amount, direction, is_absolute FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
+    .all(id) as {
+      id: number; stock_item_id: number; godown_id: number | null; batch_id: number | null
+      qty_milli: number; rate_paise: number; amount: number; direction: 'in' | 'out'; is_absolute: number
+    }[]
 
   const costAllocRows = lines.length
     ? (db
@@ -110,6 +127,8 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     irnAckDate: v.irn_ack_date,
     ewbNo: v.ewb_no,
     ewbValidUpto: v.ewb_valid_upto,
+    postDated: !!v.post_dated,
+    isOptional: !!v.is_optional,
     deletedAt: v.deleted_at,
     createdAt: v.created_at,
     updatedAt: v.updated_at,
@@ -121,8 +140,9 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     ),
     inventory: inventory.map(
       (l): InventoryLine => ({
-        id: l.id, stockItemId: l.stock_item_id, godownId: l.godown_id,
-        qtyMilli: l.qty_milli, ratePaise: l.rate_paise, amount: l.amount, direction: l.direction
+        id: l.id, stockItemId: l.stock_item_id, godownId: l.godown_id, batchId: l.batch_id,
+        qtyMilli: l.qty_milli, ratePaise: l.rate_paise, amount: l.amount, direction: l.direction,
+        isAbsolute: !!l.is_absolute
       })
     ),
     billRefs: billRefRows.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.due_date })),
@@ -214,7 +234,48 @@ function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
  *  decides whether to warn). */
 export type SavedVoucher = Voucher & { duplicateNumber?: boolean }
 
-export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): SavedVoucher {
+/**
+ * Closing quantity walk for the given stock items as of `date` (opening + chronological
+ * movements; physical-stock absolute lines pin the quantity). Returns a row per item whose
+ * closing quantity is negative. Used for the negative-stock save warning and by the
+ * Exceptions report (stockAnalysis.negativeStock).
+ */
+export function checkStock(db: DB, stockItemIds: number[], date: string): NegativeStockWarning[] {
+  if (stockItemIds.length === 0) return []
+  const placeholders = stockItemIds.map(() => '?').join(',')
+  const items = db
+    .prepare(
+      `SELECT si.id, si.name, si.opening_qty_milli AS openingQtyMilli, u.symbol AS unitSymbol
+       FROM stock_items si JOIN units u ON u.id = si.unit_id WHERE si.id IN (${placeholders})`
+    )
+    .all(...stockItemIds) as { id: number; name: string; openingQtyMilli: number; unitSymbol: string }[]
+  const movementsStmt = db.prepare(
+    `SELECT il.qty_milli AS qtyMilli, il.direction, il.is_absolute AS isAbsolute
+     FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
+     WHERE il.stock_item_id = ? AND v.date <= ? AND ${IN_BOOKS}
+     ORDER BY v.date, v.id, il.line_order, il.id`
+  )
+  const warnings: NegativeStockWarning[] = []
+  for (const item of items) {
+    let qty = item.openingQtyMilli
+    const moves = movementsStmt.all(item.id, date) as { qtyMilli: number; direction: 'in' | 'out'; isAbsolute: number }[]
+    for (const m of moves) {
+      if (m.isAbsolute) qty = m.qtyMilli
+      else qty += m.direction === 'in' ? m.qtyMilli : -m.qtyMilli
+    }
+    if (qty < 0) {
+      warnings.push({ stockItemId: item.id, name: item.name, unitSymbol: item.unitSymbol, closingQtyMilli: qty })
+    }
+  }
+  return warnings
+}
+
+/** The saved voucher plus any non-blocking warnings — additive over Voucher, so existing
+ *  callers that expect a plain Voucher keep working. Also carries lane R's soft
+ *  duplicate-number guard (SavedVoucher). */
+export type SaveVoucherResult = SavedVoucher & { warnings: SaveVoucherWarnings }
+
+export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): SaveVoucherResult {
   // Parse here as well as at the IPC boundary so direct callers (tests, recurring, importers)
   // get defaults for later-added fields (posOverride) applied consistently.
   const input: VoucherInputParsed = voucherInputSchema.parse(raw)
@@ -238,6 +299,13 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
     throw new Error(`Books are locked up to ${lock}`)
   }
 
+  const warnings: SaveVoucherWarnings = { negativeStock: [], creditLimitExceeded: null }
+
+  // Post-dated / optional flags (tasks 77–78): absent on the input = keep the stored value
+  // (an edit that doesn't mention them mustn't silently mature a PDC).
+  const postDated = input.postDated ?? before?.postDated ?? false
+  const isOptional = input.isOptional ?? before?.isOptional ?? false
+
   const run = db.transaction((): number => {
     let voucherId: number
     if (existingId) {
@@ -245,10 +313,11 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
         `UPDATE vouchers SET voucher_type_id = ?, date = ?, number = ?, party_ledger_id = ?,
          narration = ?, reference = ?, instrument_no = ?, instrument_date = ?,
          transporter_id = ?, vehicle_no = ?, transport_distance = ?, pos_override = ?,
-         currency_code = ?, exchange_rate = ?, updated_at = datetime('now') WHERE id = ?`
+         currency_code = ?, exchange_rate = ?, post_dated = ?, is_optional = ?,
+         updated_at = datetime('now') WHERE id = ?`
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
-        input.posOverride, input.currencyCode, input.exchangeRate, existingId)
+        input.posOverride, input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0, existingId)
       db.prepare('DELETE FROM voucher_lines WHERE voucher_id = ?').run(existingId)
       db.prepare('DELETE FROM inventory_lines WHERE voucher_id = ?').run(existingId)
       voucherId = existingId
@@ -256,11 +325,11 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
       const res = db.prepare(
         `INSERT INTO vouchers (voucher_type_id, date, number, party_ledger_id, narration, reference,
           instrument_no, instrument_date, transporter_id, vehicle_no, transport_distance, pos_override,
-          currency_code, exchange_rate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          currency_code, exchange_rate, post_dated, is_optional)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
-        input.posOverride, input.currencyCode, input.exchangeRate)
+        input.posOverride, input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0)
       voucherId = Number(res.lastInsertRowid)
     }
 
@@ -279,11 +348,12 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
     })
 
     const insertInv = db.prepare(
-      `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, qty_milli, rate_paise, amount, direction, line_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, amount, direction, is_absolute, line_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     input.inventory.forEach((l, i) =>
-      insertInv.run(voucherId, l.stockItemId, l.godownId, l.qtyMilli, l.ratePaise, l.amount, l.direction, i)
+      insertInv.run(voucherId, l.stockItemId, l.godownId, l.batchId ?? null, l.qtyMilli, l.ratePaise, l.amount,
+        l.direction, l.isAbsolute ? 1 : 0, i)
     )
 
     // Bill refs and TDS ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade
@@ -309,6 +379,82 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
       ).run(voucherId, input.tds.sectionId, input.partyLedgerId, party?.pan ?? null, input.tds.baseAmount, input.tds.tdsAmount)
     }
 
+    // ---- post-save checks (lane I): run INSIDE the transaction so a hard block rolls the
+    // whole save back; soft failures just ride out as warnings on the response. ----
+    const features = getFeatures(db)
+
+    // Batches: a line's batch must belong to its stock item, and an outward line can't take
+    // more out of a batch than it holds (hard errors — a batch is a physical lot).
+    const batchLines = input.inventory.filter((l) => l.batchId != null && !l.isAbsolute)
+    if (batchLines.length > 0) {
+      const batchStmt = db.prepare('SELECT id, stock_item_id, name FROM batches WHERE id = ?')
+      const balanceStmt = db.prepare(
+        `SELECT COALESCE(SUM(CASE WHEN il.direction = 'in' THEN il.qty_milli ELSE -il.qty_milli END), 0) AS bal
+         FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
+         WHERE il.batch_id = ? AND il.is_absolute = 0 AND ${IN_BOOKS}`
+      )
+      for (const line of batchLines) {
+        const batch = batchStmt.get(line.batchId) as { id: number; stock_item_id: number; name: string } | undefined
+        if (!batch) throw new Error('Batch not found')
+        if (batch.stock_item_id !== line.stockItemId) {
+          throw new Error(`Batch ${batch.name} belongs to a different stock item`)
+        }
+      }
+      const outBatchIds = [...new Set(batchLines.filter((l) => l.direction === 'out').map((l) => l.batchId!))]
+      for (const batchId of outBatchIds) {
+        const { bal } = balanceStmt.get(batchId) as { bal: number }
+        if (bal < 0) {
+          const batch = batchStmt.get(batchId) as { name: string }
+          throw new Error(`Not enough stock in batch ${batch.name} (short by ${-bal / 1000})`)
+        }
+      }
+    }
+
+    // Negative stock — only items this voucher takes out (or recounts) can go negative.
+    const outItemIds = [...new Set(
+      input.inventory.filter((l) => l.direction === 'out' && !l.isAbsolute).map((l) => l.stockItemId)
+    )]
+    warnings.negativeStock = checkStock(db, outItemIds, input.date)
+    if (features.preventNegativeStock && warnings.negativeStock.length > 0) {
+      const names = warnings.negativeStock.map((w) => w.name).join(', ')
+      throw new Error(`Insufficient stock for: ${names}`)
+    }
+
+    // Credit limit (task 76): with this voucher's lines now in the books, the party's
+    // dr-positive balance IS "outstanding + this invoice". Warn past the ledger's limit;
+    // block (roll back) under F11 enforceCreditLimit. Post-dated/optional vouchers are out
+    // of the books, so they never trip the limit.
+    if (input.partyLedgerId !== null && !postDated && !isOptional) {
+      const party = db
+        .prepare('SELECT id, name, opening_balance, credit_limit FROM ledgers WHERE id = ?')
+        .get(input.partyLedgerId) as
+        | { id: number; name: string; opening_balance: number; credit_limit: number | null }
+        | undefined
+      if (party && party.credit_limit !== null) {
+        const { bal } = db
+          .prepare(
+            `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS bal
+             FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+             WHERE vl.ledger_id = ? AND ${IN_BOOKS}`
+          )
+          .get(party.id) as { bal: number }
+        const outstanding = party.opening_balance + bal
+        if (outstanding > party.credit_limit) {
+          warnings.creditLimitExceeded = {
+            ledgerId: party.id,
+            ledgerName: party.name,
+            creditLimit: party.credit_limit,
+            outstanding
+          }
+          if (features.enforceCreditLimit) {
+            throw new Error(
+              `Credit limit exceeded for ${party.name}: outstanding ${outstanding} > limit ${party.credit_limit} paise`
+            )
+          }
+        }
+      }
+    }
+
     return voucherId
   })
 
@@ -320,7 +466,7 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
       `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id <> ? AND ${NOT_DELETED} LIMIT 1`
     )
     .get(vt.id, number, voucherId)
-  return duplicate ? { ...after, duplicateNumber: true } : after
+  return duplicate ? { ...after, warnings, duplicateNumber: true } : { ...after, warnings }
 }
 
 /** Move a voucher to the bin (soft delete). Report queries exclude it; restoreVoucher undoes this. */
@@ -342,6 +488,56 @@ export function restoreVoucher(db: DB, id: number): void {
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
   db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
   writeAudit(db, 'voucher', id, 'update', before, { restored: true })
+}
+
+// ---------- post-dated vouchers (lane I, task 77) ----------
+
+/** Flip matured post-dated vouchers (date ≤ `today`) into the books. Runs on company open;
+ *  each maturation is audit-logged individually. Returns the matured voucher ids. */
+export function maturePostDated(db: DB, today: string): number[] {
+  const rows = db
+    .prepare(`SELECT v.id FROM vouchers v WHERE v.post_dated = 1 AND v.date <= ? AND ${NOT_DELETED}`)
+    .all(today) as { id: number }[]
+  if (rows.length === 0) return []
+  const flip = db.prepare("UPDATE vouchers SET post_dated = 0, updated_at = datetime('now') WHERE id = ?")
+  const run = db.transaction(() => {
+    for (const { id } of rows) {
+      const before = getVoucher(db, id)!
+      flip.run(id)
+      writeAudit(db, 'voucher', id, 'update', before, { ...before, postDated: false, matured: true })
+    }
+  })
+  run()
+  return rows.map((r) => r.id)
+}
+
+export interface PdcRow {
+  id: number
+  date: string
+  number: string
+  voucherTypeName: string
+  partyName: string | null
+  instrumentNo: string | null
+  instrumentDate: string | null
+  /** Voucher total (sum of debit lines), paise. */
+  amount: number
+}
+
+/** PDC register (Banking view): every live post-dated voucher, soonest maturity first.
+ *  Deliberately NOT filtered by IN_BOOKS — this is the one listing that shows PDCs. */
+export function pdcRegister(db: DB): PdcRow[] {
+  return db
+    .prepare(
+      `SELECT v.id, v.date, v.number, vt.name AS voucherTypeName, l.name AS partyName,
+              v.instrument_no AS instrumentNo, v.instrument_date AS instrumentDate,
+              (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr') AS amount
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       LEFT JOIN ledgers l ON l.id = v.party_ledger_id
+       WHERE v.post_dated = 1 AND ${NOT_DELETED}
+       ORDER BY v.date, v.id`
+    )
+    .all() as PdcRow[]
 }
 
 /** Permanently remove a voucher that is already in the bin. Irreversible. */
