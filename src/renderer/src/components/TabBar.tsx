@@ -7,7 +7,7 @@ export interface TabItem<T extends string = string> {
 
 /**
  * The one tab bar (v0.3 lane S2) — unified active style for every tabbed screen
- * (Masters, Settings; Payroll/Outstandings/Registers adopt it in their own lanes).
+ * (Masters, Settings, Payroll, Outstandings, Registers).
  *
  * Testids follow lib/testids.ts: `tab-<screen>-<tab>`, where `screen` is the registry
  * screen name VERBATIM and `tab` is the tab id verbatim (e.g. tab-masters-ledgers,

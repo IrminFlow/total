@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import { TabBar } from '../components/TabBar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -75,18 +76,15 @@ export function RegistersScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
-            <div className="flex gap-1">
-              {(['sales', 'purchase'] as const).map((k) => (
-                <button
-                  key={k}
-                  data-testid={`tab-registers-${k}`}
-                  onClick={() => setKind(k)}
-                  className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${kind === k ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
-                >
-                  {k}
-                </button>
-              ))}
-            </div>
+            <TabBar
+              screen="registers"
+              tabs={[
+                { id: 'sales', label: 'Sales' },
+                { id: 'purchase', label: 'Purchase' }
+              ]}
+              active={kind}
+              onSelect={setKind}
+            />
             <Button
               variant="ghost"
               onClick={() =>

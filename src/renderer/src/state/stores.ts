@@ -36,7 +36,9 @@ export type Screen =
   // `draftId` forces VoucherEntry to remount when a new draft targets the same 'new' voucher slot
   // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.
   | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }
-  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' }
+  // Like 'settings', the active tab lives in the nav stack (nav.go per tab) so Esc/back
+  // retraces tabs and other screens can deep-link straight to one.
+  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' }
   | { name: 'trial-balance' }
   | { name: 'profit-loss' }
   | { name: 'balance-sheet' }

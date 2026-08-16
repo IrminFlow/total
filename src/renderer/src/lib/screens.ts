@@ -66,7 +66,7 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'masters',
-    keywords: ['ledgers', 'items', 'groups', 'units', 'voucher types', 'currencies'],
+    keywords: ['ledgers', 'items', 'groups', 'units', 'voucher types', 'currencies', 'godowns', 'stock groups'],
     title: 'Masters',
     screen: { name: 'masters' },
     navSection: 'top',
