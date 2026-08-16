@@ -6,6 +6,7 @@ import type { TdsSectionInput } from '@shared/schemas'
 import { computeTds, thresholdCrossed, tdsQuarterOf } from '@shared/tds'
 import { fyFromStartYear } from '@shared/dates'
 import { rowsToCsv } from '@shared/csv'
+import { plainRupees } from '@shared/money'
 import { companyExportsDir } from '../paths'
 import { findOrCreateLedger } from './masters'
 import { NOT_DELETED } from './vouchers'
@@ -172,8 +173,8 @@ export function export26qCsv(db: DB, _company: CompanyInfo, slug: string, fyStar
     r.section,
     r.date,
     r.number,
-    (r.base / 100).toFixed(2),
-    (r.tds / 100).toFixed(2)
+    plainRupees(r.base),
+    plainRupees(r.tds)
   ])
   const csv = rowsToCsv(['Deductee', 'PAN', 'Section', 'Voucher Date', 'Voucher No', 'Base (Rs)', 'TDS (Rs)'], csvRows)
   const fy = fyFromStartYear(fyStartYear)

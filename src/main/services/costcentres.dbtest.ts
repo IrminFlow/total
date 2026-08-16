@@ -154,6 +154,31 @@ describe('cost centres', () => {
     expect(row.net).toBe(5000)
   })
 
+  it('nets a reversal-direction allocation instead of dropping it (credit against an expense ledger reduces expense)', () => {
+    const db = seededDb()
+    const cc = saveCostCentre(db, { name: 'CC-A', parentId: null, active: true })
+    const cash = db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }
+    const expense = expenseLedger(db, 'Travel')
+
+    // Original expense: dr Travel 10000, allocated to CC-A.
+    journalVoucher(db, '2025-05-01', [
+      { ledgerId: expense.id, drCr: 'dr', amount: 10000, costAllocations: [{ costCentreId: cc.id, amount: 10000 }] },
+      { ledgerId: cash.id, drCr: 'cr', amount: 10000, costAllocations: [] }
+    ])
+    // Partial reversal (e.g. a refund/credit note): cr Travel 3000, allocated to CC-A. Without
+    // netting, this line was silently dropped by the old nature/drCr filter.
+    journalVoucher(db, '2025-05-15', [
+      { ledgerId: cash.id, drCr: 'dr', amount: 3000, costAllocations: [] },
+      { ledgerId: expense.id, drCr: 'cr', amount: 3000, costAllocations: [{ costCentreId: cc.id, amount: 3000 }] }
+    ])
+
+    const report = ccReport(db, '2025-04-01', '2025-06-30')
+    const row = report.find((r) => r.costCentreId === cc.id)!
+    expect(row.expense).toBe(7000) // 10000 - 3000
+    expect(row.income).toBe(0)
+    expect(row.net).toBe(-7000)
+  })
+
   it('ccStatement drills into every allocation posted to one cost centre', () => {
     const db = seededDb()
     const cc = saveCostCentre(db, { name: 'Mumbai Branch', parentId: null, active: true })

@@ -65,8 +65,10 @@ export function ccReport(db: DB, from: string, to: string): CcReportRow[] {
   const map = new Map<number, CcReportRow>()
   for (const r of rows) {
     const row = map.get(r.costCentreId) ?? { costCentreId: r.costCentreId, name: r.name, income: 0, expense: 0, net: 0 }
-    if (r.nature === 'expense' && r.drCr === 'dr') row.expense += r.amount
-    if (r.nature === 'income' && r.drCr === 'cr') row.income += r.amount
+    // Net rather than drop the reversal direction: a credit note or journal credit against an
+    // expense-natured ledger (or a debit against income) reduces that side instead of vanishing.
+    if (r.nature === 'expense') row.expense += r.drCr === 'dr' ? r.amount : -r.amount
+    if (r.nature === 'income') row.income += r.drCr === 'cr' ? r.amount : -r.amount
     map.set(r.costCentreId, row)
   }
   const result = [...map.values()]

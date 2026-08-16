@@ -35,6 +35,19 @@ export function formatPaise(paise: number, opts: { symbol?: boolean; zeroDash?: 
   return `${prefix}${grouped}.${frac}`
 }
 
+/**
+ * Format paise as a plain rupee decimal string — no digit grouping, no currency symbol — for
+ * numeric CSV/portal columns (e.g. NSDL RPU imports) that reject grouped or symbol-prefixed
+ * numbers. Pure integer math throughout; never divides paise as a float.
+ */
+export function plainRupees(paise: number): string {
+  const sign = paise < 0 ? '-' : ''
+  const abs = Math.abs(paise)
+  const whole = Math.trunc(abs / 100)
+  const frac = (abs % 100).toString().padStart(2, '0')
+  return `${sign}${whole}.${frac}`
+}
+
 /** Round a fractional paise value to an integer, half away from zero (GST convention). */
 export function roundPaise(value: number): number {
   return Math.sign(value) * Math.round(Math.abs(value))

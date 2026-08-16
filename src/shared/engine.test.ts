@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRupees, formatPaise, percentOf, roundToRupee, amountInWords } from './money'
+import { parseRupees, formatPaise, percentOf, roundToRupee, amountInWords, plainRupees } from './money'
 import { fyOf, parseSmartDate, gstPeriodOf, toPortalDate, isValidISODate } from './dates'
 import { validateGstin, gstinCheckChar, validateHsn } from './gst/validate'
 import { computeGst, supplyTypeFor } from './gst/calc'
@@ -33,6 +33,14 @@ describe('money', () => {
     expect(percentOf(9999, 18)).toBe(1800) // 1799.82 -> 1800
     expect(percentOf(101, 0.25)).toBe(0) // 0.2525 -> 0
     expect(percentOf(10050, 9)).toBe(905) // 904.5 rounds up
+  })
+
+  it('formats plain (ungrouped, symbol-free) rupee decimals for numeric CSV/portal columns', () => {
+    expect(plainRupees(123456)).toBe('1234.56')
+    expect(plainRupees(10000000)).toBe('100000.00')
+    expect(plainRupees(0)).toBe('0.00')
+    expect(plainRupees(5)).toBe('0.05')
+    expect(plainRupees(-4207)).toBe('-42.07')
   })
 
   it('rounds to whole rupees for invoice round-off', () => {
