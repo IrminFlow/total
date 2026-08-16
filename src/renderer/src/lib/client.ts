@@ -409,6 +409,10 @@ export const api = {
     apply: (kind: ImportKind, csvText: string) => call<ImportResult>('import:apply', { kind, csvText }),
     template: (kind: ImportKind) => call<{ path: string }>('import:template', { kind })
   },
+  exporter: {
+    caPack: (from: string, to: string) => call<{ path: string }>('export:caPack', { from, to }),
+    tallyXml: (from: string, to: string) => call<{ path: string }>('export:tallyXml', { from, to })
+  },
   nic: {
     get: () => call<NicCredentials>('nic:get'),
     save: (creds: NicCredentials) => call<{ configured: boolean }>('nic:save', creds),

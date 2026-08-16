@@ -55,6 +55,22 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
         feature: 'inventory',
         run: go({ name: 'voucher-entry', kindHint: 'stock_journal' })
       },
+      {
+        label: 'Export CA pack',
+        run: async () => {
+          const { from, to } = useSession.getState()
+          const r = await api.exporter.caPack(from, to)
+          toast.push('success', `Saved to ${r.path}`)
+        }
+      },
+      {
+        label: 'Export Tally XML',
+        run: async () => {
+          const { from, to } = useSession.getState()
+          const r = await api.exporter.tallyXml(from, to)
+          toast.push('success', `Saved to ${r.path}`)
+        }
+      },
       { label: 'Company details', run: go({ name: 'company-info' }) },
       { label: 'Settings', run: go({ name: 'settings' }) },
       { label: 'Backups', run: go({ name: 'settings', tab: 'backups' }) },

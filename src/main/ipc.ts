@@ -43,6 +43,7 @@ import * as yearEnd from './services/yearEnd'
 import { importTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
 import * as consolidated from './services/consolidated'
+import * as caPack from './services/caPack'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
 import { roleAllows, type Role } from './services/roles'
@@ -809,6 +810,22 @@ export function registerIpc(): void {
     }
     await backupCompany(c.db, c.slug, 'pre-tally-import')
     return importTallyXml(c.db, xml)
+  })
+
+  // ---------- CA export pack + Tally XML export ----------
+  handle('export:caPack', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    const r = caPack.exportCaPack(c.db, c.info, c.slug, from, to)
+    shell.showItemInFolder(r.path)
+    return r
+  })
+  handle('export:tallyXml', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    const r = caPack.exportTallyXml(c.db, c.info, c.slug, from, to)
+    shell.showItemInFolder(r.path)
+    return r
   })
 
   // ---------- live filing (NIC APIs) ----------
