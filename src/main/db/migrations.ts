@@ -465,5 +465,60 @@ export const MIGRATIONS: string[] = [
 
   ALTER TABLE vouchers ADD COLUMN post_dated INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE vouchers ADD COLUMN is_optional INTEGER NOT NULL DEFAULT 0;
+  `,
+  // 015 — payroll depth (lane Y, task Y1): custom pay heads (flat | percent-of-basic, earning |
+  // deduction) with per-employee overrides, the PT state an employee is taxed in, and the extra
+  // per-line statutory figures (EPS split, PF admin, EDLI, custom-head totals + JSON breakdown).
+  // Backward compatibility is DATA, not just schema: the legacy basic/hra/special columns are
+  // seeded as three pay heads with one override row per existing employee, so a migrated employee
+  // computes byte-identical pay through the head list (regression-tested in payroll.test.ts).
+  `
+  CREATE TABLE pay_heads (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    kind TEXT NOT NULL CHECK (kind IN ('earning','deduction')),
+    calc TEXT NOT NULL CHECK (calc IN ('flat','percent_of_basic')),
+    value INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE employee_pay_heads (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    pay_head_id INTEGER NOT NULL REFERENCES pay_heads(id) ON DELETE CASCADE,
+    override_value INTEGER,
+    UNIQUE (employee_id, pay_head_id)
+  );
+  CREATE INDEX idx_eph_head ON employee_pay_heads(pay_head_id);
+
+  ALTER TABLE employees ADD COLUMN pt_state TEXT NOT NULL DEFAULT 'MH';
+
+  ALTER TABLE payroll_lines ADD COLUMN other_earnings INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN other_deductions INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN eps_er INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN pf_admin INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN edli INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE payroll_lines ADD COLUMN heads_json TEXT;
+
+  INSERT INTO pay_heads (name, kind, calc, value) VALUES
+    ('Basic', 'earning', 'flat', 0),
+    ('HRA', 'earning', 'flat', 0),
+    ('Special Allowance', 'earning', 'flat', 0);
+
+  INSERT INTO employee_pay_heads (employee_id, pay_head_id, override_value)
+    SELECT e.id, (SELECT id FROM pay_heads WHERE name = 'Basic'), e.basic FROM employees e;
+  INSERT INTO employee_pay_heads (employee_id, pay_head_id, override_value)
+    SELECT e.id, (SELECT id FROM pay_heads WHERE name = 'HRA'), e.hra FROM employees e;
+  INSERT INTO employee_pay_heads (employee_id, pay_head_id, override_value)
+    SELECT e.id, (SELECT id FROM pay_heads WHERE name = 'Special Allowance'), e.special FROM employees e;
+  `,
+  // 016 — banking depth (lane Y, task Y2): bank rules gain an amount window (paise; NULL = no
+  // bound) and an audited opt-in auto-apply flag (auto-create the voucher on statement import
+  // when the rule matches exactly — off by default). match_field ('description' | 'reference')
+  // existed since 010 and is honored by the matcher from this version on.
+  `
+  ALTER TABLE bank_rules ADD COLUMN min_amount INTEGER;
+  ALTER TABLE bank_rules ADD COLUMN max_amount INTEGER;
+  ALTER TABLE bank_rules ADD COLUMN auto_apply INTEGER NOT NULL DEFAULT 0;
   `
 ]

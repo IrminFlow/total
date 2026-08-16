@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
 import { isUqc } from './gst/uqc'
+import { PT_STATES } from './payroll'
 
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
@@ -253,9 +254,12 @@ export const employeeInputSchema = z.object({
   pfEnabled: z.boolean().default(true),
   esiEnabled: z.boolean().default(true),
   ptEnabled: z.boolean().default(true),
+  ptState: z.enum(PT_STATES).default('MH'),
   active: z.boolean().default(true)
 })
 export type EmployeeInput = z.infer<typeof employeeInputSchema>
+/** What the renderer actually sends (defaulted fields optional) — keeps older forms compiling. */
+export type EmployeeInputPayload = z.input<typeof employeeInputSchema>
 
 export const bomLineInputSchema = z.object({
   componentId: z.number().int().positive(),
@@ -442,6 +446,13 @@ export const bankRuleInputSchema = z.object({
   pattern: z.string().trim().min(2).max(80),
   ledgerId: id,
   kind: z.enum(['payment', 'receipt']),
+  /** Statement cell the pattern matches against; defaults to 'description' server-side. */
+  matchField: z.enum(['description', 'reference']).optional(),
+  /** Amount window (paise, inclusive); null/omitted = unbounded on that side. */
+  minAmount: paise.min(0).nullable().optional(),
+  maxAmount: paise.min(0).nullable().optional(),
+  /** Opt-in: an applying statement import auto-creates the voucher on an exact rule match. */
+  autoApply: z.boolean().optional(),
   active: z.boolean().default(true)
 })
 
@@ -528,6 +539,37 @@ export const exportCsvSchema = z.object({
   csv: z.string().max(2 * 1024 * 1024)
 })
 export type ExportCsvInput = z.infer<typeof exportCsvSchema>
+
+// ---------- payroll pay heads + statutory exports (lane Y, task Y1) ----------
+
+/** payroll:heads:save input. `value` is monthly paise for calc 'flat', or percent × 100 (basis
+ *  points of basic, 4000 = 40%) for 'percent_of_basic'. */
+export const payHeadInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    kind: z.enum(['earning', 'deduction']),
+    calc: z.enum(['flat', 'percent_of_basic']),
+    value: z.number().int().min(0),
+    active: z.boolean().default(true)
+  })
+  .refine((v) => v.calc !== 'percent_of_basic' || v.value <= 10000, {
+    message: 'Percent-of-basic value is percent × 100 (max 10000 = 100%)',
+    path: ['value']
+  })
+export type PayHeadInput = z.infer<typeof payHeadInputSchema>
+
+/** payroll:employeeHeads:set input — replaces the employee's full head assignment list.
+ *  overrideValue null = use the head's default value. */
+export const employeeHeadsSetSchema = z.object({
+  employeeId: id,
+  heads: z
+    .array(z.object({ payHeadId: id, overrideValue: z.number().int().min(0).nullable().default(null) }))
+    .max(50)
+})
+export type EmployeeHeadsSetInput = z.infer<typeof employeeHeadsSetSchema>
+
+/** payroll:ecr / payroll:esi / payroll:ptSummary input. */
+export const payrollRunIdSchema = z.object({ runId: id })
 
 // ---------- Tally import wizard v2 (task 3.5) ----------
 

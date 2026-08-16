@@ -15,7 +15,8 @@ describe('payroll engine', () => {
     expect(p.esiEmp).toBe(0)
     expect(p.pt).toBe(200_00)
     expect(p.net).toBe(32_000_00 - 1_800_00 - 200_00)
-    expect(p.employerCost).toBe(32_000_00 + 1_800_00)
+    // Employer cost now includes the EPFO admin 0.5% + EDLI 0.5% charges on the capped wage.
+    expect(p.employerCost).toBe(32_000_00 + 1_800_00 + 75_00 + 75_00)
   })
 
   it('applies ESI below the limit with round-up-to-rupee', () => {

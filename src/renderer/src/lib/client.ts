@@ -17,7 +17,8 @@ import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
   AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
-  CurrencyInput, EmployeeInput, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials, PriceLevelInput,
+  CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
+  PayHeadInput, PriceLevelInput,
   PriceRateInput, RecurringInput,
   RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
   VoucherInputParsed
@@ -99,20 +100,31 @@ export interface BankRuleRecord {
   ledgerId: number
   ledgerName: string
   kind: 'payment' | 'receipt'
+  minAmount: number | null
+  maxAmount: number | null
+  autoApply: boolean
   active: boolean
   hits: number
 }
 
-/** Mirrors src/main/services/banking.ts's BankVoucherDraft / BankSuggestionRow shapes (kept
- *  local — that file is main-process only). */
+/** Mirrors src/main/services/banking.ts's BankVoucherDraft / BankSuggestionRow / UnmatchedRow /
+ *  BankMatchSuggestion / ImportResult / BrsReport shapes (kept local — main-process only). */
 export interface BankVoucherDraft {
   date: string
   narration: string
   lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
 }
 
+export interface BankUnmatchedRow {
+  date: string
+  description: string
+  reference: string
+  amount: number
+  kind: 'deposit' | 'withdrawal'
+}
+
 export interface BankSuggestionRow {
-  statementRow: { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal' }
+  statementRow: BankUnmatchedRow
   suggestion: {
     ruleId: number
     ledgerId: number
@@ -120,6 +132,72 @@ export interface BankSuggestionRow {
     kind: 'payment' | 'receipt'
     voucherDraft: BankVoucherDraft
   } | null
+}
+
+export interface BankMatchSuggestion {
+  statementRow: BankUnmatchedRow
+  kind: 'tolerance' | 'many_to_one'
+  lines: { lineId: number; voucherId: number; date: string; number: string; amount: number }[]
+}
+
+export interface BankImportResult {
+  statementRows: number
+  matched: number
+  alreadyReconciled: number
+  unmatched: BankUnmatchedRow[]
+  matches: { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal'; lineId: number }[]
+  autoCreated: { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal'; voucherId: number; ruleId: number }[]
+}
+
+export interface BrsItem {
+  lineId: number
+  voucherId: number
+  date: string
+  voucherType: string
+  number: string
+  particulars: string
+  instrumentNo: string | null
+  amount: number
+}
+
+export interface BrsReport {
+  ledgerId: number
+  ledgerName: string
+  asOn: string
+  bookBalance: number
+  uncredited: BrsItem[]
+  uncreditedTotal: number
+  unpresented: BrsItem[]
+  unpresentedTotal: number
+  bankBalance: number
+}
+
+/** Mirrors src/main/services/payroll.ts's PayHead / EmployeeHeadRow / PtSummaryRow shapes (kept
+ *  local — that file is main-process only). */
+export interface PayHead {
+  id: number
+  name: string
+  kind: 'earning' | 'deduction'
+  calc: 'flat' | 'percent_of_basic'
+  /** Paise for 'flat'; percent × 100 (4000 = 40%) for 'percent_of_basic'. */
+  value: number
+  active: boolean
+}
+
+export interface EmployeeHeadRow {
+  payHeadId: number
+  name: string
+  kind: 'earning' | 'deduction'
+  calc: 'flat' | 'percent_of_basic'
+  value: number
+  overrideValue: number | null
+}
+
+export interface PtSummaryRow {
+  state: string
+  employees: number
+  gross: number
+  pt: number
 }
 
 /** Mirrors src/main/services/tds.ts's TdsSuggestion shape (kept local — that file is main-process only). */
@@ -452,17 +530,13 @@ export const api = {
     ledgers: () => call<{ id: number; name: string }[]>('bank:ledgers'),
     recon: (ledgerId: number, from: string, to: string) => call<BankRecon>('bank:recon', { ledgerId, from, to }),
     setBankDate: (lineId: number, bankDate: string | null) => call<null>('bank:setBankDate', { lineId, bankDate }),
-    importCsv: (ledgerId: number) =>
-      call<
-        | {
-            statementRows: number
-            matched: number
-            unmatched: { date: string; description: string; amount: number; kind: string }[]
-            csvText: string
-          }
-        | null
-      >('bank:importCsv', { ledgerId }),
-    suggest: (ledgerId: number, csvText: string) => call<BankSuggestionRow[]>('banking:suggest', { ledgerId, csvText })
+    importCsv: (ledgerId: number, opts?: { csvText?: string; dryRun?: boolean }) =>
+      call<(BankImportResult & { csvText: string }) | null>('bank:importCsv', { ledgerId, ...opts }),
+    suggest: (ledgerId: number, csvText: string) => call<BankSuggestionRow[]>('banking:suggest', { ledgerId, csvText }),
+    matchSuggestions: (ledgerId: number, csvText: string, tolerancePaise?: number) =>
+      call<BankMatchSuggestion[]>('banking:matchSuggestions', { ledgerId, csvText, tolerancePaise }),
+    brs: (ledgerId: number, asOn: string) => call<BrsReport>('banking:brs', { ledgerId, asOn }),
+    brsPdf: (ledgerId: number, asOn: string) => call<{ path: string }>('banking:brsPdf', { ledgerId, asOn })
   },
   bankRules: {
     list: () => call<BankRuleRecord[]>('bankrule:list'),
@@ -520,7 +594,7 @@ export const api = {
   },
   payroll: {
     employees: () => call<Employee[]>('payroll:employees:list'),
-    saveEmployee: (data: EmployeeInput, id?: number) => call<Employee>('payroll:employees:save', { data, id }),
+    saveEmployee: (data: EmployeeInputPayload, id?: number) => call<Employee>('payroll:employees:save', { data, id }),
     removeEmployee: (id: number) => call<null>('payroll:employees:delete', { id }),
     preview: (month: string, days: { employeeId: number; payableDays: number }[]) =>
       call<Omit<PayrollLine, 'id'>[]>('payroll:preview', { month, days }),
@@ -528,7 +602,19 @@ export const api = {
       call<PayrollRun>('payroll:commit', { month, days }),
     runs: () => call<PayrollRun[]>('payroll:runs'),
     removeRun: (id: number) => call<null>('payroll:deleteRun', { id }),
-    payslip: (runId: number, employeeId: number) => call<{ path: string }>('payroll:payslip', { runId, employeeId })
+    payslip: (runId: number, employeeId: number) => call<{ path: string }>('payroll:payslip', { runId, employeeId }),
+    heads: {
+      list: () => call<PayHead[]>('payroll:heads:list'),
+      save: (data: PayHeadInput, id?: number) => call<PayHead>('payroll:heads:save', { data, id }),
+      remove: (id: number) => call<null>('payroll:heads:delete', { id })
+    },
+    employeeHeads: {
+      get: (employeeId: number) => call<EmployeeHeadRow[]>('payroll:employeeHeads:get', { employeeId }),
+      set: (input: EmployeeHeadsSetInput) => call<EmployeeHeadRow[]>('payroll:employeeHeads:set', input)
+    },
+    ecr: (runId: number) => call<{ path: string }>('payroll:ecr', { runId }),
+    esiCsv: (runId: number) => call<{ path: string }>('payroll:esi', { runId }),
+    ptSummary: (runId: number) => call<PtSummaryRow[]>('payroll:ptSummary', { runId })
   },
   yearEnd: {
     preview: (fyStartYear: number) =>
