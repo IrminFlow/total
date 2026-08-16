@@ -36,7 +36,7 @@ function widget(db: DB): number {
   const unit = db.prepare('SELECT id FROM units ORDER BY id LIMIT 1').get() as { id: number }
   return createStockItem(db, {
     name: 'Widget', groupId: null, unitId: unit.id, hsn: '8471', gstRate: 18, cessRate: null,
-    openingQtyMilli: 0, openingValue: 0, barcode: null
+    openingQtyMilli: 0, openingValue: 0, barcode: null, reorderLevelMilli: null
   }).id
 }
 

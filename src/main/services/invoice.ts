@@ -86,8 +86,12 @@ export interface HsnSummaryRow {
  * then run computeGst ONCE on each aggregate (portal semantics — mirrors the GSTR-1 HSN table's
  * bucket-then-round path, so the printed block can never disagree with the filed table on
  * anything but sub-paisa rounding of the individual line split). Pure — exported for tests.
- * NOTE (integrator): if lane G exports a shared bucketing helper with a compatible signature,
- * swap this local one for it (ledger ruling on Q2 #96).
+ * NOTE (integration, v0.3 wave 1): lane G's GSTR-1 HSN bucketing (hsnRows in
+ * src/shared/gst/returns.ts) is a local closure over NormalizedDoc, not an exported helper
+ * with a compatible (EdocInvoice) signature — per the ledger ruling on Q2 #96 this local
+ * helper stays. Both sides bucket by (hsn, rate, cess) and compute tax on the aggregate,
+ * so the printed block and the filed table agree by construction; if either side's bucket
+ * key or rounding path ever changes, change the other in lockstep.
  *
  * `supply` should be passed explicitly when known (buildInvoiceHtml derives it from the invoice
  * totals + place-of-supply vs company state); the `igst > 0` fallback misclassifies an inter-state
