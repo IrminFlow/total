@@ -92,6 +92,14 @@
       "maximum": 10000,
       "default": null
     },
+    "posOverride": {
+      "description": "Place-of-supply override: two-digit GST state code (e.g. \"27\"); null = derive from party/company state.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
     "currencyCode": {
       "description": "3-letter currency code for multi-currency vouchers (e.g. USD); null = base currency (INR).",
       "type": [
@@ -111,6 +119,14 @@
       "exclusiveMinimum": 0,
       "maximum": 100000,
       "default": null
+    },
+    "postDated": {
+      "description": "Post-dated voucher (PDC): stays out of the books until its date arrives, then matures automatically on company open.",
+      "type": "boolean"
+    },
+    "isOptional": {
+      "description": "Optional (memorandum) voucher: recorded but never counted in books or reports.",
+      "type": "boolean"
     },
     "lines": {
       "description": "Ledger lines. Every amount is INTEGER PAISE (₹1 = 100). The voucher must balance: sum of dr amounts must equal sum of cr amounts, or the whole voucher is rejected.",
@@ -186,11 +202,23 @@
             "exclusiveMinimum": 0,
             "default": null
           },
-          "qtyMilli": {
-            "type": "integer",
+          "batchId": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "exclusiveMinimum": 0
           },
+          "qtyMilli": {
+            "type": "integer",
+            "minimum": 0
+          },
           "ratePaise": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "discountPaise": {
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
@@ -206,6 +234,9 @@
               "in",
               "out"
             ]
+          },
+          "isAbsolute": {
+            "type": "boolean"
           }
         },
         "required": [

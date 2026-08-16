@@ -42,6 +42,9 @@ const FIELD_DOCS: Record<string, string> = {
   transporterId: 'Transporter GSTIN/id for e-way bill flows.',
   vehicleNo: 'Vehicle number for e-way bill flows.',
   transportDistanceKm: 'Transport distance in km (integer).',
+  posOverride: 'Place-of-supply override: two-digit GST state code (e.g. "27"); null = derive from party/company state.',
+  postDated: 'Post-dated voucher (PDC): stays out of the books until its date arrives, then matures automatically on company open.',
+  isOptional: 'Optional (memorandum) voucher: recorded but never counted in books or reports.',
   currencyCode: '3-letter currency code for multi-currency vouchers (e.g. USD); null = base currency (INR).',
   exchangeRate: 'Units of INR per 1 unit of currencyCode.',
   lines:
