@@ -12,7 +12,8 @@ import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
   AuditListInput, BankRuleInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
-  CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput, NicCredentials, RecurringInput,
+  CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, LedgerInput, NicCredentials,
+  PayHeadInput, RecurringInput,
   RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTypeInput,
   VoucherInputParsed
 } from '@shared/schemas'
@@ -114,6 +115,34 @@ export interface BankSuggestionRow {
     kind: 'payment' | 'receipt'
     voucherDraft: BankVoucherDraft
   } | null
+}
+
+/** Mirrors src/main/services/payroll.ts's PayHead / EmployeeHeadRow / PtSummaryRow shapes (kept
+ *  local — that file is main-process only). */
+export interface PayHead {
+  id: number
+  name: string
+  kind: 'earning' | 'deduction'
+  calc: 'flat' | 'percent_of_basic'
+  /** Paise for 'flat'; percent × 100 (4000 = 40%) for 'percent_of_basic'. */
+  value: number
+  active: boolean
+}
+
+export interface EmployeeHeadRow {
+  payHeadId: number
+  name: string
+  kind: 'earning' | 'deduction'
+  calc: 'flat' | 'percent_of_basic'
+  value: number
+  overrideValue: number | null
+}
+
+export interface PtSummaryRow {
+  state: string
+  employees: number
+  gross: number
+  pt: number
 }
 
 /** Mirrors src/main/services/tds.ts's TdsSuggestion shape (kept local — that file is main-process only). */
@@ -418,7 +447,7 @@ export const api = {
   },
   payroll: {
     employees: () => call<Employee[]>('payroll:employees:list'),
-    saveEmployee: (data: EmployeeInput, id?: number) => call<Employee>('payroll:employees:save', { data, id }),
+    saveEmployee: (data: EmployeeInputPayload, id?: number) => call<Employee>('payroll:employees:save', { data, id }),
     removeEmployee: (id: number) => call<null>('payroll:employees:delete', { id }),
     preview: (month: string, days: { employeeId: number; payableDays: number }[]) =>
       call<Omit<PayrollLine, 'id'>[]>('payroll:preview', { month, days }),
@@ -426,7 +455,19 @@ export const api = {
       call<PayrollRun>('payroll:commit', { month, days }),
     runs: () => call<PayrollRun[]>('payroll:runs'),
     removeRun: (id: number) => call<null>('payroll:deleteRun', { id }),
-    payslip: (runId: number, employeeId: number) => call<{ path: string }>('payroll:payslip', { runId, employeeId })
+    payslip: (runId: number, employeeId: number) => call<{ path: string }>('payroll:payslip', { runId, employeeId }),
+    heads: {
+      list: () => call<PayHead[]>('payroll:heads:list'),
+      save: (data: PayHeadInput, id?: number) => call<PayHead>('payroll:heads:save', { data, id }),
+      remove: (id: number) => call<null>('payroll:heads:delete', { id })
+    },
+    employeeHeads: {
+      get: (employeeId: number) => call<EmployeeHeadRow[]>('payroll:employeeHeads:get', { employeeId }),
+      set: (input: EmployeeHeadsSetInput) => call<EmployeeHeadRow[]>('payroll:employeeHeads:set', input)
+    },
+    ecr: (runId: number) => call<{ path: string }>('payroll:ecr', { runId }),
+    esiCsv: (runId: number) => call<{ path: string }>('payroll:esi', { runId }),
+    ptSummary: (runId: number) => call<PtSummaryRow[]>('payroll:ptSummary', { runId })
   },
   yearEnd: {
     preview: (fyStartYear: number) =>

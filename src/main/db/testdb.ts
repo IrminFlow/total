@@ -3,6 +3,7 @@
 import Database from 'better-sqlite3'
 import type { DB } from './connection'
 import { migrate } from './migrate'
+import { MIGRATIONS } from './migrations'
 import { seedCompany } from './seed'
 import type { CompanyInfo, Voucher, VoucherKind } from '@shared/domain'
 import { saveVoucher } from '../services/vouchers'
@@ -27,6 +28,19 @@ export function freshDb(): DB {
   const db = new Database(':memory:')
   db.pragma('foreign_keys = ON')
   migrate(db)
+  return db
+}
+
+/** An in-memory DB with only the first `count` migrations applied — for tests that need to
+ *  stage legacy data and then let migrate() finish (data-migration assertions). */
+export function freshPartialDb(count: number): DB {
+  const db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  db.exec('CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)')
+  for (let i = 0; i < count && i < MIGRATIONS.length; i++) {
+    db.exec(MIGRATIONS[i]!)
+    db.prepare('INSERT INTO migrations (id, applied_at) VALUES (?, ?)').run(i + 1, new Date().toISOString())
+  }
   return db
 }
 

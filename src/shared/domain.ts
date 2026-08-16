@@ -294,7 +294,16 @@ export interface Employee {
   pfEnabled: boolean
   esiEnabled: boolean
   ptEnabled: boolean
+  /** Professional-tax state code (PT_SLABS key in src/shared/payroll.ts), e.g. 'MH'. */
+  ptState: string
   active: boolean
+}
+
+/** One computed pay-head amount on a payroll line (mirrors PayHeadAmount in src/shared/payroll.ts). */
+export interface PayrollHeadAmount {
+  name: string
+  kind: 'earning' | 'deduction'
+  amount: number
 }
 
 export interface PayrollLine {
@@ -306,13 +315,23 @@ export interface PayrollLine {
   basic: number
   hra: number
   special: number
+  /** Custom earning heads beyond Basic/HRA/Special (prorated paise). */
+  otherEarnings: number
+  /** Custom deduction heads (subtracted from net). */
+  otherDeductions: number
   gross: number
   pfEmp: number
   pfEr: number
+  /** Employer 12% split (epsEr + the EPF remainder = pfEr) + EPFO admin/EDLI charges. */
+  epsEr: number
+  pfAdmin: number
+  edli: number
   esiEmp: number
   esiEr: number
   pt: number
   net: number
+  /** Per-head prorated amounts (empty for pre-pay-heads runs). */
+  headAmounts: PayrollHeadAmount[]
 }
 
 export interface PayrollRun {

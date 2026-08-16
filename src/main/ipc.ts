@@ -55,7 +55,7 @@ import { assertDeleteAuthorized } from './services/companyDelete'
 import { roleAllows, type Role } from './services/roles'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
-  userInputSchema, authLoginSchema
+  userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
 import { featuresSchema } from '@shared/features'
@@ -812,6 +812,41 @@ export function registerIpc(): void {
     shell.openPath(path)
     return { path }
   })
+  // pay heads + per-employee assignments (lane Y, task Y1)
+  handle('payroll:heads:list', () => payroll.listPayHeads(requireCompany().db), 'viewer')
+  handle('payroll:heads:save', (p) => {
+    const { data, id } = z.object({ data: payHeadInputSchema, id: z.number().int().positive().optional() }).parse(p)
+    return payroll.savePayHead(requireCompany().db, data, id)
+  })
+  handle('payroll:heads:delete', (p) => {
+    payroll.deletePayHead(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+  handle('payroll:employeeHeads:get', (p) => {
+    const { employeeId } = z.object({ employeeId: z.number().int().positive() }).parse(p)
+    return payroll.getEmployeeHeads(requireCompany().db, employeeId)
+  }, 'viewer')
+  handle('payroll:employeeHeads:set', (p) => payroll.setEmployeeHeads(requireCompany().db, employeeHeadsSetSchema.parse(p)))
+  // statutory exports: PF ECR text, ESI upload CSV, PT summary per state (lane Y, task Y1)
+  handle('payroll:ecr', (p) => {
+    const { runId } = payrollRunIdSchema.parse(p)
+    const c = requireCompany()
+    const { filename, text } = payroll.ecrForRun(c.db, runId)
+    const path = join(companyExportsDir(c.slug), filename)
+    writeFileSync(path, text, 'utf8')
+    shell.showItemInFolder(path)
+    return { path }
+  })
+  handle('payroll:esi', (p) => {
+    const { runId } = payrollRunIdSchema.parse(p)
+    const c = requireCompany()
+    const { filename, text } = payroll.esiForRun(c.db, runId)
+    const path = join(companyExportsDir(c.slug), filename)
+    writeFileSync(path, text, 'utf8')
+    shell.showItemInFolder(path)
+    return { path }
+  })
+  handle('payroll:ptSummary', (p) => payroll.ptSummaryForRun(requireCompany().db, payrollRunIdSchema.parse(p).runId), 'viewer')
 
   // ---------- CSV master import ----------
   const importKindSchema = z.enum(['ledgers', 'items', 'openings'])

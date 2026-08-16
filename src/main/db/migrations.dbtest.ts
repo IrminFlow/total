@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { migrate } from './migrate'
 import { MIGRATIONS } from './migrations'
-import { freshDb } from './testdb'
+import { freshDb, freshPartialDb } from './testdb'
 
 const EXPECTED_TABLES = [
   'meta',
@@ -31,6 +31,8 @@ const EXPECTED_TABLES = [
   'bank_rules',
   'budgets',
   'budget_lines',
+  'pay_heads',
+  'employee_pay_heads',
   'migrations'
 ]
 
@@ -272,5 +274,91 @@ describe('migrate', () => {
     db.prepare('DELETE FROM budgets WHERE id = ?').run(budgetId)
     const remaining = db.prepare('SELECT COUNT(*) AS n FROM budget_lines WHERE id = ?').get(lineId) as { n: number }
     expect(remaining.n).toBe(0)
+  })
+
+  it('015: creates pay_heads/employee_pay_heads with CHECKs, seeds the three legacy heads, and adds pt_state + payroll_lines columns', () => {
+    const db = freshDb()
+
+    const headColumns = (db.prepare('PRAGMA table_info(pay_heads)').all() as { name: string }[]).map((c) => c.name)
+    expect(headColumns).toEqual(expect.arrayContaining(['id', 'name', 'kind', 'calc', 'value', 'active']))
+    expect(() =>
+      db.prepare("INSERT INTO pay_heads (name, kind, calc) VALUES ('Bad', 'not_a_kind', 'flat')").run()
+    ).toThrow()
+    expect(() =>
+      db.prepare("INSERT INTO pay_heads (name, kind, calc) VALUES ('Bad', 'earning', 'not_a_calc')").run()
+    ).toThrow()
+
+    const seeded = (db.prepare('SELECT name, kind, calc, value, active FROM pay_heads ORDER BY id').all() as {
+      name: string; kind: string; calc: string; value: number; active: number
+    }[])
+    expect(seeded).toEqual([
+      { name: 'Basic', kind: 'earning', calc: 'flat', value: 0, active: 1 },
+      { name: 'HRA', kind: 'earning', calc: 'flat', value: 0, active: 1 },
+      { name: 'Special Allowance', kind: 'earning', calc: 'flat', value: 0, active: 1 }
+    ])
+
+    const empColumns = (db.prepare('PRAGMA table_info(employees)').all() as { name: string; dflt_value: string | null }[])
+    expect(empColumns.map((c) => c.name)).toContain('pt_state')
+    const empId = Number(db.prepare("INSERT INTO employees (name) VALUES ('Asha')").run().lastInsertRowid)
+    const row = db.prepare('SELECT pt_state FROM employees WHERE id = ?').get(empId) as { pt_state: string }
+    expect(row.pt_state).toBe('MH')
+
+    const lineColumns = (db.prepare('PRAGMA table_info(payroll_lines)').all() as { name: string }[]).map((c) => c.name)
+    expect(lineColumns).toEqual(
+      expect.arrayContaining(['other_earnings', 'other_deductions', 'eps_er', 'pf_admin', 'edli', 'heads_json'])
+    )
+
+    // (employee_id, pay_head_id) is unique
+    const basicId = (db.prepare("SELECT id FROM pay_heads WHERE name = 'Basic'").get() as { id: number }).id
+    db.prepare('INSERT INTO employee_pay_heads (employee_id, pay_head_id, override_value) VALUES (?, ?, 100)').run(empId, basicId)
+    expect(() =>
+      db.prepare('INSERT INTO employee_pay_heads (employee_id, pay_head_id, override_value) VALUES (?, ?, 200)').run(empId, basicId)
+    ).toThrow()
+  })
+
+  it('015: migrates existing employees\' basic/hra/special into per-employee head overrides (data, not just schema)', () => {
+    // Build a DB stopped just before the payroll-heads migration, insert a legacy employee,
+    // then let migrate() finish — the migration must seed that employee's override rows.
+    const payrollHeadsIdx = MIGRATIONS.findIndex((m) => m.includes('CREATE TABLE pay_heads'))
+    expect(payrollHeadsIdx).toBeGreaterThan(0)
+
+    const db = freshPartialDb(payrollHeadsIdx)
+    db.prepare(
+      "INSERT INTO employees (name, basic, hra, special) VALUES ('Asha', 2000000, 800000, 400000)"
+    ).run()
+    migrate(db)
+
+    const rows = db
+      .prepare(
+        `SELECT ph.name, eph.override_value AS v
+         FROM employee_pay_heads eph JOIN pay_heads ph ON ph.id = eph.pay_head_id
+         JOIN employees e ON e.id = eph.employee_id WHERE e.name = 'Asha' ORDER BY ph.id`
+      )
+      .all() as { name: string; v: number }[]
+    expect(rows).toEqual([
+      { name: 'Basic', v: 2000000 },
+      { name: 'HRA', v: 800000 },
+      { name: 'Special Allowance', v: 400000 }
+    ])
+  })
+
+  it('016: bank_rules gains min_amount/max_amount (NULL default) and auto_apply defaulting off', () => {
+    const db = freshDb()
+    const columns = (db.prepare('PRAGMA table_info(bank_rules)').all() as { name: string }[]).map((c) => c.name)
+    expect(columns).toEqual(expect.arrayContaining(['min_amount', 'max_amount', 'auto_apply']))
+
+    const groupId = Number(
+      db.prepare("INSERT INTO groups (name, nature, is_system) VALUES ('Test Group', 'liability', 0)").run().lastInsertRowid
+    )
+    const ledgerId = Number(
+      db.prepare("INSERT INTO ledgers (name, group_id) VALUES ('Test Ledger', ?)").run(groupId).lastInsertRowid
+    )
+    const id = db
+      .prepare("INSERT INTO bank_rules (pattern, ledger_id, kind) VALUES ('ACME', ?, 'payment')")
+      .run(ledgerId).lastInsertRowid
+    const row = db.prepare('SELECT min_amount, max_amount, auto_apply FROM bank_rules WHERE id = ?').get(id) as {
+      min_amount: number | null; max_amount: number | null; auto_apply: number
+    }
+    expect(row).toEqual({ min_amount: null, max_amount: null, auto_apply: 0 })
   })
 })
