@@ -1,6 +1,7 @@
 import type { DB } from '../db/connection'
 import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@shared/reports'
 import { allocateBills, type BillEvent, type BillRef } from '@shared/outstanding'
+import { fyOf } from '@shared/dates'
 import { descendantIdsByName } from './masters'
 import { NOT_DELETED } from './vouchers'
 
@@ -91,7 +92,9 @@ function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number
  *  separate first event (never carries refs) — matches the pre-refactor behavior exactly. */
 function openingEvent(asOn: string, openingBalance: number, sign: number): BillEvent[] {
   if (openingBalance === 0) return []
-  return [{ voucherId: null, date: `${asOn.slice(0, 4)}-04-01`, number: 'Opening', amount: sign * openingBalance, refs: [] }]
+  // v0.3 #62: the FY start of asOn — `${asOn.year}-04-01` was wrong for Jan–Mar dates (it
+  // produced a date in asOn's FUTURE, zeroing the opening bill's age).
+  return [{ voucherId: null, date: fyOf(asOn).from, number: 'Opening', amount: sign * openingBalance, refs: [] }]
 }
 
 /**
@@ -114,8 +117,8 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
   const eventsByParty = partyEventsBatch(db, parties.map((p) => p.id), asOn, sign)
   for (const party of parties) {
     const events = [...openingEvent(asOn, party.opening_balance, sign), ...(eventsByParty.get(party.id) ?? [])]
-    const { bills } = allocateBills(events, asOn, party.credit_days)
-    if (bills.length === 0) continue
+    const { bills, warnings } = allocateBills(events, asOn, party.credit_days)
+    if (bills.length === 0 && warnings.length === 0) continue
 
     const buckets: [number, number, number, number] = [0, 0, 0, 0]
     for (const bill of bills) {
@@ -127,7 +130,8 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
       name: party.name,
       pending: bills.reduce((s, b) => s + b.pending, 0),
       buckets,
-      bills
+      bills,
+      ...(warnings.length > 0 ? { warnings } : {})
     })
   }
   return result.sort((a, b) => b.pending - a.pending)

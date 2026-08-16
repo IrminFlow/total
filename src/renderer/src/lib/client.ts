@@ -283,7 +283,8 @@ export const api = {
     list: (from: string, to: string, voucherTypeId?: number) =>
       call<VoucherListRow[]>('voucher:list', { from, to, voucherTypeId }),
     get: (id: number) => call<Voucher | null>('voucher:get', { id }),
-    save: (data: VoucherInputParsed, id?: number) => call<Voucher>('voucher:save', { data, id }),
+    save: (data: VoucherInputParsed, id?: number) =>
+      call<Voucher & { duplicateNumber?: boolean }>('voucher:save', { data, id }),
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),

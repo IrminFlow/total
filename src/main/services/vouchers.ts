@@ -206,7 +206,12 @@ function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
   }
 }
 
-export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: number): Voucher {
+/** Voucher as saved, plus the v0.3 #69 soft guard: `duplicateNumber` is set when another live
+ *  voucher of the same type already carries this number (the save still succeeds — the UI
+ *  decides whether to warn). */
+export type SavedVoucher = Voucher & { duplicateNumber?: boolean }
+
+export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: number): SavedVoucher {
   const vt = getVoucherType(db, input.voucherTypeId)
   const errors = validateVoucher(input, vt.kind, ledgerFactsResolver(db))
   if (errors.length) {
@@ -303,7 +308,12 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
   const voucherId = run()
   const after = getVoucher(db, voucherId)!
   writeAudit(db, 'voucher', voucherId, existingId ? 'update' : 'create', before, after)
-  return after
+  const duplicate = db
+    .prepare(
+      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id <> ? AND ${NOT_DELETED} LIMIT 1`
+    )
+    .get(vt.id, number, voucherId)
+  return duplicate ? { ...after, duplicateNumber: true } : after
 }
 
 /** Move a voucher to the bin (soft delete). Report queries exclude it; restoreVoucher undoes this. */

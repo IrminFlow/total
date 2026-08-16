@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsvLine, rowsToCsv } from './csv'
+import { parseCsv, parseCsvLine, rowsToCsv } from './csv'
 
 describe('parseCsvLine', () => {
   it('splits plain comma-separated cells', () => {
@@ -10,14 +10,43 @@ describe('parseCsvLine', () => {
     expect(parseCsvLine('a,"b, with comma",c')).toEqual(['a', 'b, with comma', 'c'])
   })
 
-  it('unescapes doubled quotes inside a quoted cell', () => {
-    // splitCsvLine's historical behavior: quote chars simply toggle in/out of quoting and are
-    // dropped from the output, so a doubled "" collapses to a single " with no residual quoting.
-    expect(parseCsvLine('a,"say ""hi""",c')).toEqual(['a', 'say hi', 'c'])
+  it('unescapes doubled quotes inside a quoted cell to a literal quote (v0.3 #67)', () => {
+    // RFC 4180: "" inside a quoted field is one literal ". The historical parser dropped the
+    // quotes entirely ('say hi') — that was the bug.
+    expect(parseCsvLine('a,"say ""hi""",c')).toEqual(['a', 'say "hi"', 'c'])
   })
 
   it('handles an empty line as a single empty cell', () => {
     expect(parseCsvLine('')).toEqual([''])
+  })
+})
+
+describe('parseCsv (full-text, v0.3 #67)', () => {
+  it('parses simple rows with 1-based line numbers, skipping blank lines', () => {
+    expect(parseCsv('a,b\n\n1,2\r\n3,4\n')).toEqual([
+      { line: 1, cells: ['a', 'b'] },
+      { line: 3, cells: ['1', '2'] },
+      { line: 4, cells: ['3', '4'] }
+    ])
+  })
+
+  it('supports line breaks inside quoted fields (one record spanning physical lines)', () => {
+    const records = parseCsv('name,note\nAcme,"first line\nsecond line"\nBeta,plain')
+    expect(records).toEqual([
+      { line: 1, cells: ['name', 'note'] },
+      { line: 2, cells: ['Acme', 'first line\nsecond line'] },
+      { line: 4, cells: ['Beta', 'plain'] }
+    ])
+  })
+
+  it('unescapes doubled quotes and keeps quoted commas', () => {
+    expect(parseCsv('"say ""hi""","a, b"')).toEqual([{ line: 1, cells: ['say "hi"', 'a, b'] }])
+  })
+
+  it('round-trips rowsToCsv output including embedded newlines and quotes', () => {
+    const rows = [['plain', 'with, comma'], ['multi\nline', 'has "quotes"']]
+    const csv = rowsToCsv(['h1', 'h2'], rows).slice(1) // drop BOM
+    expect(parseCsv(csv).map((r) => r.cells)).toEqual([['h1', 'h2'], ...rows])
   })
 })
 

@@ -89,7 +89,7 @@ describe('allocateBills — named bill refs', () => {
     expect(bills[0]).toMatchObject({ number: 'INV-1', pending: 6000 })
   })
 
-  it("'against' a bill name that isn't open falls back to FIFO", () => {
+  it("'against' a bill name that isn't open surfaces a warning instead of silently FIFO-ing (v0.3 #66)", () => {
     const events: BillEvent[] = [
       {
         voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000,
@@ -100,9 +100,24 @@ describe('allocateBills — named bill refs', () => {
         refs: [{ kind: 'against', name: 'UNKNOWN-99', amount: 3000, dueDate: null }]
       }
     ]
-    const { bills } = allocateBills(events, '2025-06-01', null)
+    const { bills, unappliedCredit, warnings } = allocateBills(events, '2025-06-01', null)
+    // The named settlement no longer silently eats INV-1 — it stays fully open, the amount sits
+    // as unapplied credit, and the mismatch is called out.
     expect(bills).toHaveLength(1)
-    expect(bills[0]).toMatchObject({ number: 'INV-1', pending: 7000 }) // FIFO fallback still hit INV-1
+    expect(bills[0]).toMatchObject({ number: 'INV-1', pending: 10000 })
+    expect(unappliedCredit).toBe(3000)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('UNKNOWN-99')
+  })
+
+  it('refless settlements still FIFO with no warnings', () => {
+    const events: BillEvent[] = [
+      { voucherId: 1, date: '2025-05-01', number: 'INV-1', amount: 10000, refs: [] },
+      { voucherId: 2, date: '2025-05-20', number: 'RCPT-1', amount: -3000, refs: [] }
+    ]
+    const { bills, warnings } = allocateBills(events, '2025-06-01', null)
+    expect(bills[0]).toMatchObject({ number: 'INV-1', pending: 7000 })
+    expect(warnings).toEqual([])
   })
 
   it('two named bills settled independently and out of order', () => {

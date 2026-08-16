@@ -34,6 +34,9 @@ export interface AllocateBillsResult {
   bills: OutstandingBill[]
   /** Settlement paise that outran every open bill (an advance sitting on the account). */
   unappliedCredit: number
+  /** Data problems surfaced instead of silently absorbed (v0.3 #66): currently, 'against'
+   *  references naming a bill that isn't open. */
+  warnings: string[]
 }
 
 function addDays(date: string, days: number): string {
@@ -54,6 +57,7 @@ function daysBetween(fromDate: string, toDate: string): number {
 export function allocateBills(events: BillEvent[], asOn: string, creditDays: number | null): AllocateBillsResult {
   const open: OutstandingBill[] = []
   let credit = 0
+  const warnings: string[] = []
 
   const dueDateFor = (date: string, ref?: BillRef): string | null => {
     if (ref?.dueDate) return ref.dueDate
@@ -72,10 +76,13 @@ export function allocateBills(events: BillEvent[], asOn: string, creditDays: num
     credit += remaining
   }
 
-  const settleNamed = (name: string, amount: number): void => {
+  const settleNamed = (name: string, amount: number, eventNumber: string): void => {
     const idx = open.findIndex((b) => b.number === name)
     if (idx === -1) {
-      settleFifo(amount)
+      // v0.3 #66: no silent FIFO fallback — the amount sits as unapplied credit (it still nets
+      // off future bills, so totals stay honest) and the broken reference is called out.
+      warnings.push(`${eventNumber}: settlement references bill "${name}", which is not open — amount held as unadjusted credit`)
+      credit += amount
       return
     }
     const bill = open[idx]!
@@ -109,7 +116,7 @@ export function allocateBills(events: BillEvent[], asOn: string, creditDays: num
             overdueDays: 0
           })
         } else {
-          settleNamed(ref.name, ref.amount)
+          settleNamed(ref.name, ref.amount, ev.number)
         }
       }
     } else if (ev.amount > 0) {
@@ -134,7 +141,7 @@ export function allocateBills(events: BillEvent[], asOn: string, creditDays: num
     bill.overdueDays = Math.max(0, daysBetween(dueBasis, asOn))
   }
 
-  return { bills: open, unappliedCredit: credit }
+  return { bills: open, unappliedCredit: credit, warnings }
 }
 
 export interface ReminderCompany {

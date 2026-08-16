@@ -14,6 +14,7 @@ function fmtQty(qtyMilli: number, decimals: number): string {
 }
 
 const COLUMNS: ReportColumn[] = [
+  { key: 'opening', label: 'Opening', defaultOn: true },
   { key: 'inwards', label: 'Inwards', defaultOn: true },
   { key: 'outwards', label: 'Outwards', defaultOn: true },
   { key: 'closingQty', label: 'Closing qty', defaultOn: true },
@@ -29,6 +30,7 @@ export function StockSummaryScreen(): React.JSX.Element {
 
   const exportColumns: PdfColumn[] = [
     { label: 'Item', align: 'l' },
+    ...(visible.opening ? [{ label: 'Opening', align: 'r' as const }] : []),
     ...(visible.inwards ? [{ label: 'Inwards', align: 'r' as const }] : []),
     ...(visible.outwards ? [{ label: 'Outwards', align: 'r' as const }] : []),
     ...(visible.closingQty ? [{ label: 'Closing qty', align: 'r' as const }] : []),
@@ -38,6 +40,7 @@ export function StockSummaryScreen(): React.JSX.Element {
     ...rows.map((r) => ({
       cells: [
         r.name,
+        ...(visible.opening ? [`${fmtQty(r.openingQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
         ...(visible.inwards ? [`${fmtQty(r.inwardQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
         ...(visible.outwards ? [`${fmtQty(r.outwardQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
         ...(visible.closingQty ? [`${fmtQty(r.closingQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
@@ -47,6 +50,7 @@ export function StockSummaryScreen(): React.JSX.Element {
     {
       cells: [
         'Total',
+        ...(visible.opening ? [''] : []),
         ...(visible.inwards ? [''] : []),
         ...(visible.outwards ? [''] : []),
         ...(visible.closingQty ? [''] : []),
@@ -94,6 +98,7 @@ export function StockSummaryScreen(): React.JSX.Element {
             <thead>
               <tr>
                 <th>Item</th>
+                {visible.opening && <th className="r w-32">Opening</th>}
                 {visible.inwards && <th className="r w-32">Inwards</th>}
                 {visible.outwards && <th className="r w-32">Outwards</th>}
                 {visible.closingQty && <th className="r w-32">Closing qty</th>}
@@ -107,6 +112,11 @@ export function StockSummaryScreen(): React.JSX.Element {
                     {r.name}
                     {r.closingQtyMilli < 0 && <span className="ml-2 text-[11px]">— negative stock, check entries</span>}
                   </td>
+                  {visible.opening && (
+                    <td className="r num">
+                      {fmtQty(r.openingQtyMilli, r.decimals)} {r.unitSymbol}
+                    </td>
+                  )}
                   {visible.inwards && (
                     <td className="r num">
                       {fmtQty(r.inwardQtyMilli, r.decimals)} {r.unitSymbol}
@@ -130,7 +140,7 @@ export function StockSummaryScreen(): React.JSX.Element {
                 </tr>
               ))}
               <tr className="total-row">
-                <td colSpan={1 + (visible.inwards ? 1 : 0) + (visible.outwards ? 1 : 0) + (visible.closingQty ? 1 : 0)}>
+                <td colSpan={1 + (visible.opening ? 1 : 0) + (visible.inwards ? 1 : 0) + (visible.outwards ? 1 : 0) + (visible.closingQty ? 1 : 0)}>
                   Total
                 </td>
                 {visible.closingValue && (

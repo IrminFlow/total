@@ -248,6 +248,55 @@ describe('voucher posting rules', () => {
     expect(validateVoucher(receiptGood, 'receipt', resolve)).toEqual([])
   })
 
+  it('payment/receipt must actually have their cash/bank money side (v0.3 #65)', () => {
+    // A "payment" with no credit line at all used to slip past the cash/bank rule entirely
+    // (only the unbalanced check caught it). The money side is now mandatory.
+    const paymentNoMoneySide = {
+      ...base,
+      lines: [
+        { ledgerId: 3, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'dr' as const, amount: 5000 }
+      ]
+    }
+    expect(validateVoucher(paymentNoMoneySide, 'payment', resolve).map((e) => e.code)).toContain('cash_bank_rule')
+
+    const receiptNoMoneySide = {
+      ...base,
+      lines: [
+        { ledgerId: 3, drCr: 'cr' as const, amount: 5000 },
+        { ledgerId: 4, drCr: 'cr' as const, amount: 5000 }
+      ]
+    }
+    expect(validateVoucher(receiptNoMoneySide, 'receipt', resolve).map((e) => e.code)).toContain('cash_bank_rule')
+  })
+
+  it('the cash/bank lines must carry the FULL money side, unknown ledgers included (v0.3 #65)', () => {
+    // A cr line on an unknown ledger used to be skipped by the cash/bank check ("some" over
+    // known ledgers only); the sum-based rule counts it as non-cash.
+    const paymentUnknownOnMoneySide = {
+      ...base,
+      lines: [
+        { ledgerId: 4, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 1, drCr: 'cr' as const, amount: 3000 },
+        { ledgerId: 99, drCr: 'cr' as const, amount: 2000 }
+      ]
+    }
+    const codes = validateVoucher(paymentUnknownOnMoneySide, 'payment', resolve).map((e) => e.code)
+    expect(codes).toContain('unknown_ledger')
+    expect(codes).toContain('cash_bank_rule')
+
+    // A split money side that is ALL cash/bank stays valid.
+    const paymentSplitCash = {
+      ...base,
+      lines: [
+        { ledgerId: 4, drCr: 'dr' as const, amount: 5000 },
+        { ledgerId: 1, drCr: 'cr' as const, amount: 3000 },
+        { ledgerId: 2, drCr: 'cr' as const, amount: 2000 }
+      ]
+    }
+    expect(validateVoucher(paymentSplitCash, 'payment', resolve)).toEqual([])
+  })
+
   it('requires a party ledger when billRefs are given', () => {
     const v = {
       ...base,

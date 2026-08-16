@@ -154,17 +154,31 @@ export function validateVoucher(
     }
   }
 
-  // Tally kind rules: which side must be cash/bank.
-  const cashBankRule: Partial<Record<VoucherKind, { side: DrCr | 'both'; message: string }>> = {
-    contra: { side: 'both', message: 'Contra vouchers move money between cash and bank ledgers only' },
-    payment: { side: 'cr', message: 'Payment vouchers must credit a cash or bank ledger' },
-    receipt: { side: 'dr', message: 'Receipt vouchers must debit a cash or bank ledger' }
+  // Tally kind rules (tightened v0.3 #65): contra moves money between cash/bank ONLY — every
+  // line must be a cash/bank ledger. Payment/receipt must carry their money side (cr for
+  // payment, dr for receipt) entirely on cash/bank ledgers: the cash/bank lines must add up to
+  // the FULL one-side amount, and lines on unknown ledgers count as non-cash (the old check
+  // skipped them, and a voucher with no money-side line at all slipped through).
+  const isCashBank = (ledgerId: number): boolean => {
+    const facts = ledgerFacts(ledgerId)
+    return facts.exists && facts.isCashOrBank
   }
-  const rule = cashBankRule[kind]
+  if (kind === 'contra') {
+    const violating = input.lines.some((l) => !isCashBank(l.ledgerId))
+    if (input.lines.length > 0 && violating) {
+      errors.push({ code: 'cash_bank_rule', message: 'Contra vouchers move money between cash and bank ledgers only' })
+    }
+  }
+  const moneySideRule: Partial<Record<VoucherKind, { side: DrCr; message: string }>> = {
+    payment: { side: 'cr', message: 'Payment vouchers must credit a cash or bank ledger for the full amount' },
+    receipt: { side: 'dr', message: 'Receipt vouchers must debit a cash or bank ledger for the full amount' }
+  }
+  const rule = moneySideRule[kind]
   if (rule) {
-    const relevant = input.lines.filter((l) => rule.side === 'both' || l.drCr === rule.side)
-    const violating = relevant.some((l) => ledgerFacts(l.ledgerId).exists && !ledgerFacts(l.ledgerId).isCashOrBank)
-    if (relevant.length > 0 && violating) {
+    const moneySide = input.lines.filter((l) => l.drCr === rule.side)
+    const sideTotal = moneySide.reduce((s, l) => s + l.amount, 0)
+    const cashBankTotal = moneySide.filter((l) => isCashBank(l.ledgerId)).reduce((s, l) => s + l.amount, 0)
+    if (moneySide.length === 0 || cashBankTotal !== sideTotal) {
       errors.push({ code: 'cash_bank_rule', message: rule.message })
     }
   }

@@ -159,15 +159,25 @@ export function importItems(db: DB, csvText: string): ImportResult {
   let updated = 0
   const run = db.transaction(() => {
     for (const { row, unitId, groupId, existingId } of ok) {
+      // The items CSV never carries cess/barcode/reorder columns — on an update, preserve what
+      // the existing item already has instead of clobbering to null (v0.3 #68).
+      const existing =
+        existingId !== null
+          ? (db
+              .prepare('SELECT cess_rate AS cessRate, barcode, reorder_level_milli AS reorderLevelMilli FROM stock_items WHERE id = ?')
+              .get(existingId) as { cessRate: number | null; barcode: string | null; reorderLevelMilli: number | null })
+          : null
       const input = stockItemInputSchema.parse({
         name: row.name,
         groupId,
         unitId,
         hsn: row.hsn,
         gstRate: row.gstRate,
-        cessRate: null,
+        cessRate: existing?.cessRate ?? null,
         openingQtyMilli: row.openingQtyMilli,
-        openingValue: row.openingValue
+        openingValue: row.openingValue,
+        barcode: existing?.barcode ?? null,
+        reorderLevelMilli: existing?.reorderLevelMilli ?? null
       })
       if (existingId !== null) {
         masters.updateStockItem(db, existingId, input)

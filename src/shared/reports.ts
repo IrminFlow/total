@@ -116,6 +116,10 @@ export interface StockSummaryRow {
   name: string
   unitSymbol: string
   decimals: number
+  /** Book opening (v0.3 #64 — previously folded into inwardQtyMilli). */
+  openingQtyMilli: number
+  openingValue: number
+  /** Pure period inwards, opening excluded. */
   inwardQtyMilli: number
   outwardQtyMilli: number
   closingQtyMilli: number
@@ -273,6 +277,9 @@ export interface OutstandingParty {
   pending: number
   buckets: [number, number, number, number] // 0-30, 31-60, 61-90, 90+
   bills: OutstandingBill[]
+  /** Bill-reference problems surfaced by the allocator (v0.3 #66), e.g. an 'against' ref
+   *  naming a bill that isn't open. */
+  warnings?: string[]
 }
 
 export interface BankLineRow {

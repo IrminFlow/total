@@ -135,7 +135,10 @@ export function stockSummary(db: DB, asOn: string): StockSummaryRow[] {
       name: r.name,
       unitSymbol: r.unitSymbol,
       decimals: r.decimals,
-      inwardQtyMilli: r.openingQtyMilli + r.inwardQtyMilli,
+      openingQtyMilli: r.openingQtyMilli,
+      openingValue: r.openingValue,
+      // v0.3 #64: pure inwards — opening is its own column now, not folded into inwards.
+      inwardQtyMilli: r.inwardQtyMilli,
       outwardQtyMilli: r.outwardQtyMilli,
       closingQtyMilli,
       closingValue
@@ -364,15 +367,42 @@ function yearBefore(date: string): string {
 // ---------- reports ----------
 
 export function dayBook(db: DB, from: string, to: string): DayBookRow[] {
-  return listVouchers(db, from, to).map((v) => ({
-    voucherId: v.id,
-    date: v.date,
-    voucherType: v.voucherType,
-    number: v.number,
-    account: v.account,
-    narration: v.narration,
-    debit: v.amount,
-    credit: v.amount
+  // v0.3 #61: real Dr/Cr split — the shown account's net signed amount lands in the column of
+  // its actual side, instead of the voucher total being printed under BOTH Debit and Credit.
+  const rows = db
+    .prepare(
+      `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, v.number, v.narration,
+              COALESCE(pl.name, fl.name, '') AS account,
+              COALESCE(anet.net, 0) AS accountNet
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
+       LEFT JOIN (
+         SELECT voucher_id, MIN(id) AS first_line FROM voucher_lines GROUP BY voucher_id
+       ) f ON f.voucher_id = v.id
+       LEFT JOIN voucher_lines fvl ON fvl.id = f.first_line
+       LEFT JOIN ledgers fl ON fl.id = fvl.ledger_id
+       LEFT JOIN (
+         SELECT vl.voucher_id, vl.ledger_id,
+                SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
+         FROM voucher_lines vl GROUP BY vl.voucher_id, vl.ledger_id
+       ) anet ON anet.voucher_id = v.id AND anet.ledger_id = COALESCE(pl.id, fl.id)
+       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       ORDER BY v.date, v.id`
+    )
+    .all(from, to) as {
+      voucherId: number; date: string; voucherType: string; number: string
+      narration: string | null; account: string; accountNet: number
+    }[]
+  return rows.map((r) => ({
+    voucherId: r.voucherId,
+    date: r.date,
+    voucherType: r.voucherType,
+    number: r.number,
+    account: r.account,
+    narration: r.narration,
+    debit: r.accountNet > 0 ? r.accountNet : 0,
+    credit: r.accountNet < 0 ? -r.accountNet : 0
   }))
 }
 
@@ -640,9 +670,15 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string, comparePri
   const pnl = profitAndLoss(db, booksFrom, asOn, { closingStock })
   const profitCurrentPeriod = pnl.netProfit
 
-  // If user-entered opening balances don't balance, surface the gap Tally-style.
+  // If user-entered opening balances don't balance, surface the gap Tally-style. The synthetic
+  // stock-opening component stands down when a Stock-in-Hand ledger actually carries the stock
+  // (v0.3 #63 — it double-counted before).
   const ledgerOpeningSum = (db.prepare('SELECT COALESCE(SUM(opening_balance), 0) AS s FROM ledgers').get() as { s: number }).s
-  const openingDiff = ledgerOpeningSum + stockOpeningValueTotal(db)
+  const stockLedgerIds = descendantIdSet(groups, ['Stock-in-Hand'])
+  const hasStockLedger = ledgers.some(
+    (l) => stockLedgerIds.has(l.groupId) && (l.openingBalance !== 0 || (balances.get(l.id) ?? 0) !== 0)
+  )
+  const openingDiff = ledgerOpeningSum + (hasStockLedger ? 0 : stockOpeningValueTotal(db))
 
   const totalAssets = sumNodes(assets)
   let totalLiabilities = sumNodes(liabilities) + profitCurrentPeriod
