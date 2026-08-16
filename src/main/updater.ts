@@ -12,13 +12,13 @@
 import { app, dialog, shell } from 'electron'
 import electronUpdater from 'electron-updater'
 import { log } from './log'
+import { GITHUB_REPO, SITE_URL } from '@shared/product'
 
 const { autoUpdater } = electronUpdater
 
-export const GITHUB_REPO = 'IrminFlow/total'
 const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases/latest`
 /** The marketing site proxies release info for the private repo (see site/app/api/latest). */
-const SITE_LATEST_URL = 'https://devjindal.tech/api/latest'
+const SITE_LATEST_URL = `${SITE_URL}/api/latest`
 
 let fallbackDone = false
 
