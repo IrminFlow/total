@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { RecurringTemplate, VoucherKind } from '@shared/domain'
 import type { Screen, VoucherDraft } from '../state/stores'
@@ -107,9 +107,24 @@ export function RecurringScreen(): React.JSX.Element {
     nav.go(screen)
   }
 
+  const newTemplate = (): void => {
+    // Templates carry a full voucher body, so "new" starts in the voucher editor — fill it in
+    // and use "Save as recurring…" in its footer (the only way to produce a postable template).
+    toast.push('info', 'Fill in the voucher, then choose "Save as recurring…" in its footer')
+    nav.go({ name: 'voucher-entry' })
+  }
+
   return (
     <div className="mx-auto max-w-4xl">
-      <SectionTitle>Recurring vouchers</SectionTitle>
+      <SectionTitle
+        right={
+          <Button data-testid="btn-recurring-new" variant="primary" onClick={newTemplate}>
+            New template
+          </Button>
+        }
+      >
+        Recurring vouchers
+      </SectionTitle>
 
       <Panel>
         {isLoading ? (
@@ -128,7 +143,7 @@ export function RecurringScreen(): React.JSX.Element {
                 <th>Next due</th>
                 <th>Last posted</th>
                 <th className="w-16">Active</th>
-                <th className="w-64"></th>
+                <th className="w-32"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-recurring">
@@ -145,28 +160,23 @@ export function RecurringScreen(): React.JSX.Element {
                   </td>
                   <td className="r">
                     <button
+                      data-testid={`btn-recurring-post-${t.id}`}
                       disabled={busyId === t.id}
-                      className="mr-3 text-[12px] text-blue hover:underline disabled:opacity-40"
+                      className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
                       onClick={() => void postNow(t)}
                     >
                       Post now
                     </button>
-                    <button
+                    <RowMenu
+                      testId={`btn-recurring-menu-${t.id}`}
                       disabled={busyId === t.id}
-                      className="mr-3 text-[12px] text-blue hover:underline disabled:opacity-40"
-                      onClick={() => void skip(t)}
-                    >
-                      Skip
-                    </button>
-                    <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => setEditing(t)}>
-                      Edit
-                    </button>
-                    <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => openInVoucherEntry(t)}>
-                      Open in voucher entry
-                    </button>
-                    <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(t)}>
-                      Delete
-                    </button>
+                      actions={[
+                        { label: 'Skip this occurrence', onClick: () => void skip(t) },
+                        { label: 'Edit template…', onClick: () => setEditing(t) },
+                        { label: 'Open in voucher entry', onClick: () => openInVoucherEntry(t) },
+                        { label: 'Delete…', danger: true, onClick: () => void remove(t) }
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}
@@ -177,6 +187,88 @@ export function RecurringScreen(): React.JSX.Element {
 
       {editing && <RecurringFormModal template={editing} onClose={() => setEditing(null)} />}
     </div>
+  )
+}
+
+/** Per-row "⋯" actions menu. Positioned `fixed` from the trigger's rect so the Panel's
+ *  overflow-hidden can't clip it; closes on outside click, Escape, or any scroll. */
+function RowMenu({
+  testId,
+  disabled = false,
+  actions
+}: {
+  testId: string
+  disabled?: boolean
+  actions: { label: string; danger?: boolean; onClick: () => void }[]
+}): React.JSX.Element {
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
+
+  useEffect(() => {
+    if (!pos) return
+    const close = (): void => setPos(null)
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as Node
+      if (menuRef.current?.contains(target) || btnRef.current?.contains(target)) return
+      close()
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close()
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [pos])
+
+  const toggle = (): void => {
+    if (pos) return setPos(null)
+    const r = btnRef.current!.getBoundingClientRect()
+    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        data-testid={testId}
+        aria-haspopup="menu"
+        aria-expanded={pos != null}
+        disabled={disabled}
+        title="More actions"
+        className="rounded px-1.5 py-0.5 text-[13px] leading-none text-muted hover:bg-panel2 hover:text-ink disabled:opacity-40"
+        onClick={toggle}
+      >
+        ⋯
+      </button>
+      {pos && (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-30 min-w-[12rem] rounded-md border border-line bg-panel py-1 text-left panel-shadow"
+          style={{ top: pos.top, right: pos.right }}
+        >
+          {actions.map((a) => (
+            <button
+              key={a.label}
+              role="menuitem"
+              className={`block w-full px-3 py-1.5 text-left text-[12.5px] hover:bg-panel2 ${a.danger ? 'text-cr' : 'text-ink'}`}
+              onClick={() => {
+                setPos(null)
+                a.onClick()
+              }}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
