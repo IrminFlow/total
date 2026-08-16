@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, Money, Panel, SectionTitle, Select } from '../components/ui'
+import { Button, Money, Panel, SectionTitle, Select, SkeletonRows } from '../components/ui'
 import { todayISO } from '@shared/dates'
 
 export interface MonthChoice {
@@ -65,7 +65,7 @@ export function Gstr1Screen(): React.JSX.Element {
   const month = months.find((m) => m.key === monthKey)!
   const { info } = useSession()
   const toast = useToasts()
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['gstr1', month.key],
     queryFn: () => api.gst.gstr1(month.from, month.to, month.period)
   })
@@ -101,6 +101,9 @@ export function Gstr1Screen(): React.JSX.Element {
       )}
 
       <Panel>
+        {isLoading ? (
+          <SkeletonRows />
+        ) : (
         <table className="ledger-table">
           <thead>
             <tr>
@@ -138,6 +141,7 @@ export function Gstr1Screen(): React.JSX.Element {
             )}
           </tbody>
         </table>
+        )}
       </Panel>
       <p className="mt-3 text-[12px] text-muted">
         The exported JSON matches the GST offline-tool schema — upload it on the portal under Returns → GSTR-1 → Prepare offline. A CSV summary lands beside it in exports/.
@@ -152,7 +156,7 @@ export function Gstr3bScreen(): React.JSX.Element {
   const month = months.find((m) => m.key === monthKey)!
   const { info } = useSession()
   const toast = useToasts()
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['gstr3b', month.key],
     queryFn: () => api.gst.gstr3b(month.from, month.to, month.period)
   })
@@ -193,6 +197,9 @@ export function Gstr3bScreen(): React.JSX.Element {
       </SectionTitle>
 
       <Panel>
+        {isLoading ? (
+          <SkeletonRows />
+        ) : (
         <table className="ledger-table">
           <thead>
             <tr>
@@ -220,6 +227,7 @@ export function Gstr3bScreen(): React.JSX.Element {
             )}
           </tbody>
         </table>
+        )}
       </Panel>
       <p className="mt-3 text-[12px] text-muted">
         Net payable assumes full ITC set-off per head. Cross-head set-off order (IGST first) is applied on the portal at payment time.

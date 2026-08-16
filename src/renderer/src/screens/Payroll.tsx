@@ -5,7 +5,8 @@ import { computeMonthlyPay, daysInMonth } from '@shared/payroll'
 import { todayISO } from '@shared/dates'
 import { api } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, TextInput } from '../components/ui'
+import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, SkeletonRows, TextInput } from '../components/ui'
+import { confirmDialog } from '../lib/dialogs'
 
 type Tab = 'employees' | 'runs'
 
@@ -199,7 +200,7 @@ function RunsTab(): React.JSX.Element {
   const nav = useNav()
   const queryClient = useQueryClient()
   const { data: employees } = useQuery({ queryKey: ['employees'], queryFn: api.payroll.employees })
-  const { data: runs } = useQuery({ queryKey: ['payrollRuns'], queryFn: api.payroll.runs })
+  const { data: runs, isLoading: runsLoading } = useQuery({ queryKey: ['payrollRuns'], queryFn: api.payroll.runs })
   const [month, setMonth] = useState(todayISO().slice(0, 7))
   const [daysOverride, setDaysOverride] = useState<Record<number, string>>({})
   const [posting, setPosting] = useState(false)
@@ -304,7 +305,9 @@ function RunsTab(): React.JSX.Element {
         <p className="border-b border-line px-4 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
           Posted runs
         </p>
-        {!runs?.length ? (
+        {runsLoading ? (
+          <SkeletonRows rows={3} />
+        ) : !runs?.length ? (
           <EmptyState title="Nothing posted yet" />
         ) : (
           runs.map((run) => (
@@ -321,10 +324,20 @@ function RunsTab(): React.JSX.Element {
                   <button
                     className="text-cr hover:underline"
                     onClick={async () => {
-                      if (!window.confirm(`Delete the ${run.month} pay run and its voucher?`)) return
-                      await api.payroll.removeRun(run.id)
-                      await queryClient.invalidateQueries()
-                      toast.push('success', `${run.month} pay run deleted`)
+                      const proceed = await confirmDialog({
+                        title: 'Delete pay run',
+                        message: `Delete the ${run.month} pay run and its voucher?`,
+                        confirmLabel: 'Delete',
+                        danger: true
+                      })
+                      if (!proceed) return
+                      try {
+                        await api.payroll.removeRun(run.id)
+                        await queryClient.invalidateQueries()
+                        toast.push('success', `${run.month} pay run deleted`)
+                      } catch (err) {
+                        toast.push('error', (err as Error).message)
+                      }
                     }}
                   >
                     Delete
@@ -336,7 +349,9 @@ function RunsTab(): React.JSX.Element {
                   <button
                     key={l.id}
                     className="text-[12px] text-muted hover:text-blue hover:underline"
-                    onClick={() => void api.payroll.payslip(run.id, l.employeeId)}
+                    onClick={() => {
+                      api.payroll.payslip(run.id, l.employeeId).catch((err: Error) => toast.push('error', err.message))
+                    }}
                     title="Open payslip PDF"
                   >
                     {l.employeeName} · payslip

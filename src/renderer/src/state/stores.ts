@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import type { CompanyInfo, VoucherKind } from '@shared/domain'
 import { fyOf, todayISO } from '@shared/dates'
 import type { SessionUser } from '../lib/client'
+import { confirmDialog } from '../lib/dialogs'
+import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
 
 // ---------- navigation ----------
 
@@ -34,7 +36,7 @@ export type Screen =
   // `draftId` forces VoucherEntry to remount when a new draft targets the same 'new' voucher slot
   // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.
   | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }
-  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' }
+  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' }
   | { name: 'trial-balance' }
   | { name: 'profit-loss' }
   | { name: 'balance-sheet' }
@@ -67,12 +69,37 @@ interface NavState {
   home: () => void
 }
 
+/** True when navigation may proceed — asks to discard when a screen registered unsaved changes.
+ *  `replace` deliberately skips this: it's only used programmatically right after a save. */
+async function confirmLeave(): Promise<boolean> {
+  if (!hasUnsavedChanges()) return true
+  return confirmDialog({
+    title: 'Unsaved changes',
+    message: 'Leave this screen and discard your unsaved changes?',
+    confirmLabel: 'Discard changes',
+    cancelLabel: 'Stay',
+    danger: true
+  })
+}
+
 export const useNav = create<NavState>((set) => ({
   stack: [{ name: 'gateway' }],
-  go: (screen) => set((s) => ({ stack: [...s.stack, screen] })),
+  go: (screen) => {
+    void confirmLeave().then((ok) => {
+      if (ok) set((s) => ({ stack: [...s.stack, screen] }))
+    })
+  },
   replace: (screen) => set((s) => ({ stack: [...s.stack.slice(0, -1), screen] })),
-  back: () => set((s) => (s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s)),
-  home: () => set({ stack: [{ name: 'gateway' }] })
+  back: () => {
+    void confirmLeave().then((ok) => {
+      if (ok) set((s) => (s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s))
+    })
+  },
+  home: () => {
+    void confirmLeave().then((ok) => {
+      if (ok) set({ stack: [{ name: 'gateway' }] })
+    })
+  }
 }))
 
 export const useScreen = (): Screen => useNav((s) => s.stack[s.stack.length - 1]!)

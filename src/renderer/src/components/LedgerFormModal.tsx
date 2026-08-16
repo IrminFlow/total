@@ -8,6 +8,7 @@ import { useGroups } from './pickers'
 import { GST_STATES } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
 import { GST_RATE_PRESETS } from '@shared/seed'
+import { confirmDialog } from '../lib/dialogs'
 
 const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
   { value: '', label: 'None (domestic)' },
@@ -112,7 +113,13 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
 
   const remove = async (): Promise<void> => {
     if (!ledger) return
-    if (!window.confirm(`Delete ledger “${ledger.name}”?`)) return
+    const proceed = await confirmDialog({
+      title: 'Delete ledger',
+      message: `Delete ledger “${ledger.name}”?`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!proceed) return
     try {
       await api.ledgers.remove(ledger.id)
       await queryClient.invalidateQueries()

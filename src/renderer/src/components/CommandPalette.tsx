@@ -4,12 +4,15 @@ import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { api } from '../lib/client'
 import { useKeyNav } from './ui'
 import { useFeatures } from '../lib/useFeatures'
+import { SCREENS } from '../lib/screens'
 import type { CompanyFeatures } from '@shared/features'
 import type { SearchHit } from '@shared/search'
 
 interface Command {
   label: string
   hint?: string
+  /** Extra search terms (from the screen registry). */
+  keywords?: string[]
   /** Hidden (render-only) when this feature is off. */
   feature?: keyof CompanyFeatures
   run: () => void | Promise<void>
@@ -30,37 +33,23 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   const commands = useMemo<Command[]>(() => {
     const go = (screen: Screen) => () => nav.go(screen)
+    // Every navigable screen comes from the single registry; action commands are appended below.
+    const screenCommands: Command[] = SCREENS.filter((s) => s.screen != null).map((s) => ({
+      label: s.title,
+      hint: s.card?.key,
+      keywords: s.keywords,
+      feature: s.feature,
+      run: s.name === 'gateway' ? () => nav.home() : go(s.screen!)
+    }))
     return [
       { label: 'New voucher', hint: 'V', run: go({ name: 'voucher-entry' }) },
       { label: 'New sales invoice', run: go({ name: 'voucher-entry', kindHint: 'sales' }) },
       { label: 'New purchase', run: go({ name: 'voucher-entry', kindHint: 'purchase' }) },
       { label: 'New payment', run: go({ name: 'voucher-entry', kindHint: 'payment' }) },
       { label: 'New receipt', run: go({ name: 'voucher-entry', kindHint: 'receipt' }) },
-      { label: 'Gateway', run: () => nav.home() },
-      { label: 'Day book', run: go({ name: 'daybook' }) },
-      { label: 'Import from Tally', run: go({ name: 'import-tally' }) },
-      { label: 'Ledgers & masters', run: go({ name: 'masters' }) },
+      ...screenCommands,
       { label: 'Stock items', feature: 'inventory', run: go({ name: 'masters', tab: 'items' }) },
-      { label: 'Trial balance', run: go({ name: 'trial-balance' }) },
-      { label: 'Profit & Loss', run: go({ name: 'profit-loss' }) },
-      { label: 'Balance sheet', run: go({ name: 'balance-sheet' }) },
-      { label: 'Cash flow statement', run: go({ name: 'cash-flow' }) },
-      { label: 'Exception reports', run: go({ name: 'exceptions' }) },
-      { label: 'Stock summary', feature: 'inventory', run: go({ name: 'stock-summary' }) },
-      { label: 'Year-end close', run: go({ name: 'year-end' }) },
-      { label: 'GSTR-1', run: go({ name: 'gstr1' }) },
-      { label: 'GSTR-3B', run: go({ name: 'gstr3b' }) },
-      { label: 'GSTR-2B reconciliation', run: go({ name: 'gstr2b' }) },
-      { label: 'e-Invoice & e-Way bill', run: go({ name: 'edocs' }) },
-      { label: 'Sales register', run: go({ name: 'registers' }) },
-      { label: 'Outstandings & ageing', run: go({ name: 'outstandings' }) },
-      { label: 'Consolidated reports', run: go({ name: 'consolidated' }) },
-      { label: 'Recurring vouchers', run: go({ name: 'recurring' }) },
-      { label: 'Cost centres', feature: 'costCentres', run: go({ name: 'cost-centres' }) },
-      { label: 'Budgets', run: go({ name: 'budgets' }) },
-      { label: 'TDS', feature: 'tds', run: go({ name: 'tds' }) },
-      { label: 'Bank reconciliation', run: go({ name: 'banking' }) },
-      { label: 'Payroll — employees & runs', feature: 'payroll', run: go({ name: 'payroll' }) },
+      { label: 'Currencies', run: go({ name: 'masters', tab: 'currencies' }) },
       {
         label: 'New manufacture (stock journal)',
         feature: 'inventory',
@@ -69,21 +58,27 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       {
         label: 'Export CA pack',
         run: async () => {
-          const { from, to } = useSession.getState()
-          const r = await api.exporter.caPack(from, to)
-          toast.push('success', `Saved to ${r.path}`)
+          try {
+            const { from, to } = useSession.getState()
+            const r = await api.exporter.caPack(from, to)
+            toast.push('success', `Saved to ${r.path}`)
+          } catch (err) {
+            toast.push('error', (err as Error).message)
+          }
         }
       },
       {
         label: 'Export Tally XML',
         run: async () => {
-          const { from, to } = useSession.getState()
-          const r = await api.exporter.tallyXml(from, to)
-          toast.push('success', `Saved to ${r.path}`)
+          try {
+            const { from, to } = useSession.getState()
+            const r = await api.exporter.tallyXml(from, to)
+            toast.push('success', `Saved to ${r.path}`)
+          } catch (err) {
+            toast.push('error', (err as Error).message)
+          }
         }
       },
-      { label: 'Company details', run: go({ name: 'company-info' }) },
-      { label: 'Settings', run: go({ name: 'settings' }) },
       { label: 'Backups', run: go({ name: 'settings', tab: 'backups' }) },
       { label: 'Bin', run: go({ name: 'settings', tab: 'bin' }) },
       { label: 'Audit trail', run: go({ name: 'settings', tab: 'audit' }) },
@@ -93,20 +88,34 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       {
         label: 'Back up company now',
         run: async () => {
-          await api.company.backup()
-          toast.push('success', 'Backup saved')
+          try {
+            await api.company.backup()
+            toast.push('success', 'Backup saved')
+          } catch (err) {
+            toast.push('error', (err as Error).message)
+          }
         }
       },
       {
         label: 'Show exports in Finder',
-        run: () => api.company.revealExports()
+        run: async () => {
+          try {
+            await api.company.revealExports()
+          } catch (err) {
+            toast.push('error', (err as Error).message)
+          }
+        }
       },
       {
         label: 'Switch company',
         run: async () => {
-          await api.company.close()
-          clearCompany()
-          nav.home()
+          try {
+            await api.company.close()
+            clearCompany()
+            nav.home()
+          } catch (err) {
+            toast.push('error', (err as Error).message)
+          }
         }
       }
     ]
@@ -116,7 +125,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     const visible = commands.filter((c) => !c.feature || features[c.feature])
     const q = query.trim().toLowerCase()
     if (!q) return visible
-    return visible.filter((c) => c.label.toLowerCase().includes(q))
+    return visible.filter(
+      (c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q))
+    )
   }, [commands, query, features])
 
   // Books search: debounced 150ms, only fires once the query is meaningfully specific (2+ chars).

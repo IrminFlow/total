@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -36,7 +36,7 @@ export function OutstandingsScreen(): React.JSX.Element {
   const toast = useToasts()
   const [side, setSide] = useState<'receivable' | 'payable'>('receivable')
   const [openParty, setOpenParty] = useState<number | null>(null)
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['outstandings', side, to],
     queryFn: () => api.analysis.outstandings(side, to)
   })
@@ -111,7 +111,9 @@ export function OutstandingsScreen(): React.JSX.Element {
         {side === 'receivable' ? 'Receivables' : 'Payables'} · ageing
       </SectionTitle>
       <Panel>
-        {parties.length === 0 ? (
+        {isLoading ? (
+          <SkeletonRows />
+        ) : parties.length === 0 ? (
           <EmptyState title={`Nothing ${side === 'receivable' ? 'to collect' : 'to pay'} as on ${toDisplayDate(to)}`} />
         ) : (
           <table className="ledger-table">

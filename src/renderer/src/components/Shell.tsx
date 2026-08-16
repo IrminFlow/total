@@ -1,82 +1,20 @@
 import { useState, type ReactNode } from 'react'
-import { useNav, useScreen, useSession, useTheme, useToasts, type Screen } from '../state/stores'
+import { useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
 import { Button, DateInput, Kbd, Modal } from './ui'
 import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
-import type { CompanyFeatures } from '@shared/features'
+import { NAV_SECTIONS, SCREENS } from '../lib/screens'
 
-interface NavEntry {
-  label: string
-  screen: Screen
-  /** Hidden (render-only — never affects saved data or reports) when this feature is off. */
-  feature?: keyof CompanyFeatures
-}
-interface NavSection {
-  title: string | null
-  items: NavEntry[]
-  /** Hidden entirely (all its items gate on the same feature) when this feature is off. */
-  feature?: keyof CompanyFeatures
-}
-
-const NAV: NavSection[] = [
-  {
-    title: null,
-    items: [
-      { label: 'Gateway', screen: { name: 'gateway' } },
-      { label: 'Voucher entry', screen: { name: 'voucher-entry' } },
-      { label: 'Day book', screen: { name: 'daybook' } },
-      { label: 'Masters', screen: { name: 'masters' } },
-      { label: 'Recurring vouchers', screen: { name: 'recurring' } },
-      { label: 'Import from Tally', screen: { name: 'import-tally' } }
-    ]
-  },
-  {
-    title: 'Books',
-    items: [
-      { label: 'Trial balance', screen: { name: 'trial-balance' } },
-      { label: 'Profit & Loss', screen: { name: 'profit-loss' } },
-      { label: 'Balance sheet', screen: { name: 'balance-sheet' } },
-      { label: 'Cash flow', screen: { name: 'cash-flow' } },
-      { label: 'Stock summary', screen: { name: 'stock-summary' }, feature: 'inventory' },
-      { label: 'Year-end close', screen: { name: 'year-end' } }
-    ]
-  },
-  {
-    title: 'Analysis',
-    items: [
-      { label: 'Registers', screen: { name: 'registers' } },
-      { label: 'Outstandings', screen: { name: 'outstandings' } },
-      { label: 'Consolidated reports', screen: { name: 'consolidated' } },
-      { label: 'Cost centres', screen: { name: 'cost-centres' }, feature: 'costCentres' },
-      { label: 'Budgets', screen: { name: 'budgets' } },
-      { label: 'Exceptions', screen: { name: 'exceptions' } }
-    ]
-  },
-  {
-    title: 'Banking',
-    items: [{ label: 'Reconciliation', screen: { name: 'banking' } }]
-  },
-  {
-    title: 'Payroll',
-    feature: 'payroll',
-    items: [{ label: 'Employees & runs', screen: { name: 'payroll' } }]
-  },
-  {
-    title: 'GST',
-    items: [
-      { label: 'GSTR-1', screen: { name: 'gstr1' } },
-      { label: 'GSTR-3B', screen: { name: 'gstr3b' } },
-      { label: 'GSTR-2B recon', screen: { name: 'gstr2b' } },
-      { label: 'e-Invoice & e-Way', screen: { name: 'edocs' } },
-      { label: 'TDS', screen: { name: 'tds' }, feature: 'tds' }
-    ]
-  },
-  {
-    title: 'System',
-    items: [{ label: 'Settings', screen: { name: 'settings' } }]
-  }
-]
+/** Sidebar derived from the single screen registry (lib/screens.ts). */
+const NAV = NAV_SECTIONS.map((section) => ({
+  ...section,
+  items: SCREENS.filter((s) => s.navSection === section.id && s.screen != null).map((s) => ({
+    label: s.navLabel ?? s.title,
+    screen: s.screen!,
+    feature: s.feature
+  }))
+}))
 
 export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpenPalette: () => void }): React.JSX.Element {
   const { info, from, to, clearCompany, user, setUser, setLocked } = useSession()

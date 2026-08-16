@@ -35,6 +35,8 @@ import { CommandPalette } from './components/CommandPalette'
 import { ShortcutHelp } from './components/ShortcutHelp'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LockScreen } from './components/LockScreen'
+import { DialogHost } from './components/dialogs'
+import { invalidationFamilies } from './lib/screens'
 
 export default function App(): React.JSX.Element {
   const { slug, locked, integrityWarning, setIntegrityWarning } = useSession()
@@ -74,9 +76,12 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [paletteOpen, nav, integrityWarning])
 
-  // Fresh data whenever the visible screen changes (vouchers affect every report).
+  // Fresh data whenever the visible screen changes — scoped to that screen's query-key
+  // families (see the registry) instead of nuking the whole cache on every navigation.
   useEffect(() => {
-    queryClient.invalidateQueries()
+    for (const family of invalidationFamilies(screen.name)) {
+      void queryClient.invalidateQueries({ queryKey: [family] })
+    }
   }, [screen.name, queryClient])
 
   // Rendered once, below, regardless of which of the three layouts is active — so it survives
@@ -90,6 +95,7 @@ export default function App(): React.JSX.Element {
     <>
       <CompanySelect />
       {integrityModal}
+      <DialogHost />
       <Toasts />
     </>
   )
@@ -98,6 +104,7 @@ export default function App(): React.JSX.Element {
     <>
       <LockScreen />
       {integrityModal}
+      <DialogHost />
       <Toasts />
     </>
   )
@@ -146,6 +153,7 @@ export default function App(): React.JSX.Element {
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
       {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
       {integrityModal}
+      <DialogHost />
       <Toasts />
     </>
   )

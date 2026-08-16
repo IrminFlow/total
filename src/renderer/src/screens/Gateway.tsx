@@ -2,26 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { Button, Money, Panel, ScrollList } from '../components/ui'
+import { Button, Money, Panel, ScrollList, Skeleton } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { useFeatures } from '../lib/useFeatures'
-import type { CompanyFeatures } from '@shared/features'
 import type { RecurringTemplate } from '@shared/domain'
 import type { CashSparkPoint, TopLedgerRow } from '@shared/reports'
 import { templateOpenTarget } from './Recurring'
+import { CARD_SCREENS } from '../lib/screens'
 
-const CARDS: { label: string; sub: string; screen: Screen; key: string; feature?: keyof CompanyFeatures }[] = [
-  { label: 'Voucher entry', sub: 'Sales, purchase, payment…', screen: { name: 'voucher-entry' }, key: 'V' },
-  { label: 'Day book', sub: 'Every entry, in order', screen: { name: 'daybook' }, key: 'D' },
-  { label: 'Masters', sub: 'Ledgers, items, groups', screen: { name: 'masters' }, key: 'M' },
-  { label: 'Trial balance', sub: 'All closing balances', screen: { name: 'trial-balance' }, key: 'T' },
-  { label: 'Profit & Loss', sub: 'Trading + P&L account', screen: { name: 'profit-loss' }, key: 'P' },
-  { label: 'Balance sheet', sub: 'Assets and liabilities', screen: { name: 'balance-sheet' }, key: 'B' },
-  { label: 'Stock summary', sub: 'Quantities and value', screen: { name: 'stock-summary' }, key: 'S', feature: 'inventory' },
-  { label: 'GSTR-1', sub: 'Outward supplies return', screen: { name: 'gstr1' }, key: '1' },
-  { label: 'GSTR-3B', sub: 'Summary return + ITC', screen: { name: 'gstr3b' }, key: '3' }
-]
+/** Cards derived from the single screen registry (lib/screens.ts). */
+const CARDS: { label: string; sub: string; screen: Screen; key: string; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] =
+  CARD_SCREENS.map((s) => ({ label: s.title, sub: s.card.sub, screen: s.screen, key: s.card.key, feature: s.feature }))
 
 export function Gateway(): React.JSX.Element {
   const nav = useNav()
@@ -73,9 +65,14 @@ export function Gateway(): React.JSX.Element {
         {tiles.map((t) => (
           <Panel key={t.label} className="px-4 py-3">
             <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">{t.label}</p>
-            <p className={`mt-1.5 text-[16px] font-medium ${t.text ? '' : 'num'}`}>
-              {t.text ?? <Money paise={t.value ?? 0} />}
-            </p>
+            {data === undefined && t.text === undefined ? (
+              // Loading — a skeleton, not a misleading ₹0.00.
+              <Skeleton className="mt-2.5 h-4 w-20" />
+            ) : (
+              <p className={`mt-1.5 text-[16px] font-medium ${t.text ? '' : 'num'}`}>
+                {t.text ?? <Money paise={t.value ?? 0} />}
+              </p>
+            )}
           </Panel>
         ))}
       </div>

@@ -13,6 +13,8 @@ import { AmountInput, Button, DateInput, Field, Kbd, Modal, Money, Panel, Select
 import { ItemPicker, LedgerPicker, useGroups, useLedgers, useStockItems, useTaxLedgers } from '../components/pickers'
 import { LedgerFormModal, groupAncestryNames, PARTY_GROUPS, TRADING_GROUPS } from '../components/LedgerFormModal'
 import { useFeatures } from '../lib/useFeatures'
+import { confirmDialog } from '../lib/dialogs'
+import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
 const TRADING_KINDS: VoucherKind[] = ['sales', 'purchase', 'credit_note', 'debit_note']
 const FKEYS: Record<string, VoucherKind> = {
@@ -257,6 +259,11 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
 
   const numberField = useVoucherNumberField(typeId, date)
   const isSalesSide = kind === 'sales' || kind === 'credit_note'
+
+  // Unsaved-entry guard: anything meaningful typed into a fresh invoice blocks accidental
+  // navigation until it's saved (save resets all of these).
+  useUnsavedGuard(partyId != null || rows.some((r) => r.itemId != null) || narration.trim() !== '')
+
   const party = ledgers.find((l) => l.id === partyId) ?? null
   const account = ledgers.find((l) => l.id === accountId) ?? null
 
@@ -432,9 +439,11 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
       const dupes = await api.vouchers.duplicates(input)
       if (dupes.length > 0) {
         const first = dupes[0]!
-        const proceed = window.confirm(
-          `Possible duplicate: voucher ${first.number} on ${first.date} has the same party and amount. Save anyway?`
-        )
+        const proceed = await confirmDialog({
+          title: 'Possible duplicate',
+          message: `Voucher ${first.number} on ${first.date} has the same party and amount. Save anyway?`,
+          confirmLabel: 'Save anyway'
+        })
         if (!proceed) return
       }
       const saved = await api.vouchers.save(input)
@@ -1061,6 +1070,13 @@ function AccountingEntry({
   const totalCr = rows.reduce((s, r) => s + (r.drCr === 'cr' ? (r.amount ?? 0) : 0), 0)
   const balanced = totalDr === totalCr && totalDr > 0
 
+  // Unsaved-entry guard for NEW vouchers only (save resets the form). Alterations are exempt:
+  // rows are seeded from the stored voucher, so content alone can't distinguish edited from
+  // pristine — guarding them would also fire on the programmatic nav.back() after save.
+  useUnsavedGuard(
+    !voucherId && (rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== '')
+  )
+
   const setRow = (i: number, patch: Partial<AcctRow>): void => {
     setRows((rs) => {
       const next = rs.map((r, j) => (j === i ? { ...r, ...patch } : r))
@@ -1305,9 +1321,11 @@ function AccountingEntry({
       const largest = [...input.lines].sort((a, b) => b.amount - a.amount)[0]!
       const anomaly = await api.intel.anomaly(largest.ledgerId, largest.amount)
       if (anomaly.unusual && anomaly.typicalAmount != null) {
-        const proceed = window.confirm(
-          `${formatPaise(largest.amount, { symbol: true })} is far above this ledger's usual ${formatPaise(anomaly.typicalAmount, { symbol: true })}. Save anyway?`
-        )
+        const proceed = await confirmDialog({
+          title: 'Unusual amount',
+          message: `${formatPaise(largest.amount, { symbol: true })} is far above this ledger's usual ${formatPaise(anomaly.typicalAmount, { symbol: true })}. Save anyway?`,
+          confirmLabel: 'Save anyway'
+        })
         if (!proceed) return
       }
       const saved = await api.vouchers.save(input, voucherId)
@@ -1344,11 +1362,21 @@ function AccountingEntry({
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
-    if (!window.confirm('Move to Bin? You can restore it from the bin for 30 days.')) return
-    await api.vouchers.remove(voucherId)
-    toast.push('success', 'Moved to Bin')
-    await queryClient.invalidateQueries()
-    nav.back()
+    const proceed = await confirmDialog({
+      title: 'Move to Bin',
+      message: 'Move this voucher to the Bin? You can restore it from the bin for 30 days.',
+      confirmLabel: 'Move to Bin',
+      danger: true
+    })
+    if (!proceed) return
+    try {
+      await api.vouchers.remove(voucherId)
+      toast.push('success', 'Moved to Bin')
+      await queryClient.invalidateQueries()
+      nav.back()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
   }
 
   // ---------- cheque printing + payment advice (saved payment vouchers only) ----------

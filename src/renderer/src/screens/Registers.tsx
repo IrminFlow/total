@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -28,7 +28,7 @@ export function RegistersScreen(): React.JSX.Element {
   const toast = useToasts()
   const [kind, setKind] = useState<'sales' | 'purchase'>('sales')
   const [busy, setBusy] = useState<'caPack' | 'tallyXml' | null>(null)
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['register', kind, from, to],
     queryFn: () => api.analysis.register(kind, from, to)
   })
@@ -117,7 +117,9 @@ export function RegistersScreen(): React.JSX.Element {
         {kind === 'sales' ? 'Sales register' : 'Purchase register'}
       </SectionTitle>
       <Panel>
-        {rows.length === 0 ? (
+        {isLoading ? (
+          <SkeletonRows />
+        ) : rows.length === 0 ? (
           <EmptyState title={`No ${kind} vouchers in this period`} />
         ) : (
           <table className="ledger-table">

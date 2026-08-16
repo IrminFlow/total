@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, TextInput, useKeyNav } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, TextInput, useKeyNav } from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
@@ -79,7 +79,7 @@ export function DayBook(): React.JSX.Element {
   const toast = useToasts()
   const [filter, setFilter] = useState('')
   const [limit, setLimit] = useState(PAGE)
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['daybook', from, to],
     queryFn: () => api.reports.dayBook(from, to)
   })
@@ -190,7 +190,9 @@ export function DayBook(): React.JSX.Element {
         Day book
       </SectionTitle>
       <Panel>
-        {rows.length === 0 ? (
+        {isLoading ? (
+          <SkeletonRows />
+        ) : rows.length === 0 ? (
           <EmptyState title="No entries in this period" hint="Press V for voucher entry" />
         ) : (
           <table className="ledger-table">

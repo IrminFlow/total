@@ -6,8 +6,10 @@ import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput, SkeletonRows } from '../components/ui'
 import { LedgerPicker, useGroups } from '../components/pickers'
+import { confirmDialog } from '../lib/dialogs'
+import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -42,10 +44,13 @@ export function BudgetsScreen(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const groups = useGroups()
-  const { data: budgetList } = useQuery({ queryKey: ['budgets'], queryFn: api.budget.list })
+  const { data: budgetList, isLoading: budgetsLoading } = useQuery({ queryKey: ['budgets'], queryFn: api.budget.list })
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [newOpen, setNewOpen] = useState(false)
   const [rows, setRows] = useState<EditRow[]>([])
+  // Editor dirtiness — flipped by any line edit, cleared on save / budget switch.
+  const [editorDirty, setEditorDirty] = useState(false)
+  useUnsavedGuard(editorDirty)
   const [upToMonth, setUpToMonth] = useState(todayISO().slice(0, 7))
 
   const budgets = budgetList ?? []
@@ -73,12 +78,13 @@ export function BudgetsScreen(): React.JSX.Element {
           }))
         : [newRow()]
     )
+    setEditorDirty(false)
     const months = fyMonths(selected.fyStartYear)
     const currentMonth = todayISO().slice(0, 7)
     setUpToMonth(months.includes(currentMonth) ? currentMonth : months[months.length - 1]!)
   }, [selected?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { data: variance } = useQuery({
+  const { data: variance, isLoading: varianceLoading } = useQuery({
     queryKey: ['budgetVariance', selected?.id, upToMonth],
     queryFn: () => api.budget.variance(selected!.id, upToMonth),
     enabled: !!selected
@@ -88,9 +94,13 @@ export function BudgetsScreen(): React.JSX.Element {
   const groupMap = new Map(groups.map((g) => [g.id, g]))
 
   const updateRow = (key: number, patch: Partial<EditRow>): void => {
+    setEditorDirty(true)
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))
   }
-  const removeRow = (key: number): void => setRows((prev) => prev.filter((r) => r.key !== key))
+  const removeRow = (key: number): void => {
+    setEditorDirty(true)
+    setRows((prev) => prev.filter((r) => r.key !== key))
+  }
 
   const save = async (): Promise<void> => {
     if (!selected) return
@@ -107,6 +117,7 @@ export function BudgetsScreen(): React.JSX.Element {
     }
     try {
       await api.budget.save({ name: selected.name, fyStartYear: selected.fyStartYear, lines }, selected.id)
+      setEditorDirty(false)
       await queryClient.invalidateQueries({ queryKey: ['budgets'] })
       await queryClient.invalidateQueries({ queryKey: ['budgetVariance'] })
       toast.push('success', 'Budget saved')
@@ -116,7 +127,13 @@ export function BudgetsScreen(): React.JSX.Element {
   }
 
   const remove = async (b: Budget): Promise<void> => {
-    if (!window.confirm(`Delete budget “${b.name}”?`)) return
+    const proceed = await confirmDialog({
+      title: 'Delete budget',
+      message: `Delete budget “${b.name}”?`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!proceed) return
     try {
       await api.budget.remove(b.id)
       setSelectedId(null)
@@ -140,7 +157,9 @@ export function BudgetsScreen(): React.JSX.Element {
       </SectionTitle>
 
       <Panel className="mb-6 p-4">
-        {budgets.length === 0 ? (
+        {budgetsLoading ? (
+          <SkeletonRows rows={2} />
+        ) : budgets.length === 0 ? (
           <EmptyState title="No budgets yet" hint="Set targets by ledger or group and track actuals against them" />
         ) : (
           <div className="flex items-center gap-3">
@@ -231,7 +250,13 @@ export function BudgetsScreen(): React.JSX.Element {
               </tbody>
             </table>
             <div className="flex items-center justify-between border-t border-line p-3">
-              <button className="text-[12.5px] text-blue hover:underline" onClick={() => setRows((prev) => [...prev, newRow()])}>
+              <button
+                className="text-[12.5px] text-blue hover:underline"
+                onClick={() => {
+                  setEditorDirty(true)
+                  setRows((prev) => [...prev, newRow()])
+                }}
+              >
                 + Add line
               </button>
               <Button variant="primary" onClick={() => void save()}>
@@ -254,7 +279,9 @@ export function BudgetsScreen(): React.JSX.Element {
             Variance · through {monthLabel(upToMonth)}
           </SectionTitle>
           <Panel>
-            {!variance?.length ? (
+            {varianceLoading ? (
+              <SkeletonRows rows={4} />
+            ) : !variance?.length ? (
               <EmptyState title="No budget lines to compare yet" hint="Add a line above and save the budget" />
             ) : (
               <table className="ledger-table">

@@ -5,6 +5,7 @@ import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../components/ui'
 import { GST_STATES } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
+import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
 const TAN_RE = /^[A-Z]{4}\d{5}[A-Z]$/
@@ -22,6 +23,19 @@ export function CompanyInfoScreen(): React.JSX.Element {
   const [phone, setPhone] = useState(info?.phone ?? '')
   const [pan, setPan] = useState(info?.pan ?? '')
   const [tan, setTan] = useState(info?.tan ?? '')
+
+  // Guard in-app navigation while the form differs from what's saved.
+  const dirty =
+    name !== (info?.name ?? '') ||
+    stateCode !== (info?.stateCode ?? '27') ||
+    gstin !== (info?.gstin ?? '') ||
+    regType !== (info?.gstRegistrationType ?? 'unregistered') ||
+    address !== (info?.address ?? '') ||
+    email !== (info?.email ?? '') ||
+    phone !== (info?.phone ?? '') ||
+    pan !== (info?.pan ?? '') ||
+    tan !== (info?.tan ?? '')
+  useUnsavedGuard(dirty)
 
   const gstinCheck = gstin.trim() ? validateGstin(gstin) : null
   const gstinError = gstinCheck && !gstinCheck.valid ? 'Invalid GSTIN — check each character' : null

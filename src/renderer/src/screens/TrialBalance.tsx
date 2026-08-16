@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, useKeyNav } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useKeyNav } from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
@@ -20,7 +20,7 @@ export function TrialBalanceScreen(): React.JSX.Element {
   const { to } = useSession()
   const nav = useNav()
   const toast = useToasts()
-  const { data } = useQuery({ queryKey: ['trialBalance', to], queryFn: () => api.reports.trialBalance(to) })
+  const { data, isLoading } = useQuery({ queryKey: ['trialBalance', to], queryFn: () => api.reports.trialBalance(to) })
   const rows = data?.rows ?? []
   const { active, setActive } = useKeyNav(rows.length, (i) => {
     const r = rows[i]
@@ -108,7 +108,9 @@ export function TrialBalanceScreen(): React.JSX.Element {
         Trial balance
       </SectionTitle>
       <Panel>
-        {rows.length === 0 ? (
+        {isLoading ? (
+          <SkeletonRows />
+        ) : rows.length === 0 ? (
           <EmptyState title="No balances yet" hint="Enter a voucher or set opening balances" />
         ) : (
           <table className="ledger-table">

@@ -8,6 +8,7 @@ import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, SectionTit
 import { useGroups, useLedgers, useStockItems } from '../components/pickers'
 import { LedgerFormModal } from '../components/LedgerFormModal'
 import { validateHsn } from '@shared/gst/validate'
+import { confirmDialog } from '../lib/dialogs'
 
 type Tab = 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies'
 const TABS: { id: Tab; label: string }[] = [
@@ -404,7 +405,13 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
 
   const remove = async (): Promise<void> => {
     if (!item) return
-    if (!window.confirm(`Delete item “${item.name}”?`)) return
+    const proceed = await confirmDialog({
+      title: 'Delete item',
+      message: `Delete item “${item.name}”?`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!proceed) return
     try {
       await api.stockItems.remove(item.id)
       await queryClient.invalidateQueries()

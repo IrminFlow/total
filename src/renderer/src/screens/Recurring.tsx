@@ -4,10 +4,11 @@ import type { RecurringTemplate, VoucherKind } from '@shared/domain'
 import type { Screen, VoucherDraft } from '../state/stores'
 import { api } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
-import { Button, DateInput, EmptyState, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { Button, DateInput, EmptyState, Field, Modal, Panel, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { nextDueAfter } from '@shared/recurring'
 import type { VoucherInputParsed } from '@shared/schemas'
+import { confirmDialog } from '../lib/dialogs'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -53,7 +54,7 @@ export function RecurringScreen(): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const { data: templates } = useQuery({ queryKey: ['recurring'], queryFn: api.recurring.list })
+  const { data: templates, isLoading } = useQuery({ queryKey: ['recurring'], queryFn: api.recurring.list })
   const [editing, setEditing] = useState<RecurringTemplate | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
 
@@ -84,7 +85,13 @@ export function RecurringScreen(): React.JSX.Element {
   }
 
   const remove = async (t: RecurringTemplate): Promise<void> => {
-    if (!window.confirm(`Delete recurring template "${t.name}"? This does not affect vouchers already posted from it.`)) return
+    const proceed = await confirmDialog({
+      title: 'Delete recurring template',
+      message: `Delete recurring template "${t.name}"? This does not affect vouchers already posted from it.`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!proceed) return
     try {
       await api.recurring.remove(t.id)
       await queryClient.invalidateQueries()
@@ -105,7 +112,9 @@ export function RecurringScreen(): React.JSX.Element {
       <SectionTitle>Recurring vouchers</SectionTitle>
 
       <Panel>
-        {!templates?.length ? (
+        {isLoading ? (
+          <SkeletonRows />
+        ) : !templates?.length ? (
           <EmptyState
             title="No recurring templates yet"
             hint={'Open a voucher, fill it in, then use "Save as recurring…" in its footer to create one'}

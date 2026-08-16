@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
@@ -24,7 +24,7 @@ const COLUMNS: ReportColumn[] = [
 export function StockSummaryScreen(): React.JSX.Element {
   const { to } = useSession()
   const toast = useToasts()
-  const { data } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.reports.stockSummary(to) })
+  const { data, isLoading } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.reports.stockSummary(to) })
   const rows = data ?? []
   const { visible, toggle } = useReportConfig('stock-summary', COLUMNS)
 
@@ -91,7 +91,9 @@ export function StockSummaryScreen(): React.JSX.Element {
         Stock summary
       </SectionTitle>
       <Panel>
-        {rows.length === 0 ? (
+        {isLoading ? (
+          <SkeletonRows />
+        ) : rows.length === 0 ? (
           <EmptyState title="No stock items yet" hint="Create items under Masters, or straight from a sales/purchase voucher" />
         ) : (
           <table className="ledger-table">

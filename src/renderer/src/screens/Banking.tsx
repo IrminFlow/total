@@ -7,6 +7,8 @@ import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, T
 import { LedgerPicker } from '../components/pickers'
 import { parseSmartDate, toDisplayDate, todayISO } from '@shared/dates'
 import { suggestPattern } from '@shared/bankRules'
+import { confirmDialog, promptDialog } from '../lib/dialogs'
+import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
 export function BankingScreen(): React.JSX.Element {
   const nav = useNav()
@@ -39,26 +41,45 @@ export function BankingScreen(): React.JSX.Element {
   const refresh = (): Promise<void> => queryClient.invalidateQueries({ queryKey: ['bankRecon'] }).then(() => undefined)
 
   const markToday = async (lineId: number, current: string | null): Promise<void> => {
-    await api.bank.setBankDate(lineId, current ? null : todayISO())
-    await refresh()
+    try {
+      await api.bank.setBankDate(lineId, current ? null : todayISO())
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
   }
 
   const editBankDate = async (lineId: number, current: string | null): Promise<void> => {
-    const answer = window.prompt('Bank date (e.g. 15-08-2026, or 7, 7/4, t, y). Empty clears it.', current ? toDisplayDate(current) : '')
+    const answer = await promptDialog({
+      title: 'Bank date',
+      message: 'When did this clear at the bank? e.g. 15-08-2026, or 7, 7/4, t, y. Empty clears it.',
+      initial: current ? toDisplayDate(current) : '',
+      confirmLabel: 'Set date'
+    })
     if (answer === null) return
-    if (answer.trim() === '') {
-      await api.bank.setBankDate(lineId, null)
-    } else {
-      const parsed = parseSmartDate(answer, todayISO())
-      if (!parsed) return void toast.push('error', 'That date didn’t parse')
-      await api.bank.setBankDate(lineId, parsed)
+    try {
+      if (answer.trim() === '') {
+        await api.bank.setBankDate(lineId, null)
+      } else {
+        const parsed = parseSmartDate(answer, todayISO())
+        if (!parsed) return void toast.push('error', 'That date didn’t parse')
+        await api.bank.setBankDate(lineId, parsed)
+      }
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
     }
-    await refresh()
   }
 
   const doImport = async (): Promise<void> => {
     if (ledgerId == null) return
-    const result = await api.bank.importCsv(ledgerId)
+    let result
+    try {
+      result = await api.bank.importCsv(ledgerId)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+      return
+    }
     if (!result) return
     toast.push(
       result.matched > 0 ? 'success' : 'warning',
@@ -325,7 +346,13 @@ function BankRulesModal({
   }
 
   const remove = async (r: BankRuleRecord): Promise<void> => {
-    if (!window.confirm(`Delete rule "${r.pattern}"?`)) return
+    const proceed = await confirmDialog({
+      title: 'Delete rule',
+      message: `Delete rule "${r.pattern}"?`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!proceed) return
     try {
       await api.bankRules.remove(r.id)
       await invalidate()
@@ -449,18 +476,26 @@ function ChequeSetupModal({
   const toast = useToasts()
   const { data: saved } = useQuery({ queryKey: ['chequeConfig', bankLedgerId], queryFn: () => api.cheque.config.get(bankLedgerId) })
   const [form, setForm] = useState<ChequeConfig | null>(null)
+  const [savedSnapshot, setSavedSnapshot] = useState<ChequeConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const [printing, setPrinting] = useState(false)
 
   useEffect(() => {
-    if (saved && !form) setForm(saved)
+    if (saved && !form) {
+      setForm(saved)
+      setSavedSnapshot(saved)
+    }
   }, [saved, form])
+
+  const dirty = form != null && savedSnapshot != null && JSON.stringify(form) !== JSON.stringify(savedSnapshot)
+  useUnsavedGuard(dirty)
 
   const save = async (): Promise<void> => {
     if (!form) return
     setSaving(true)
     try {
       await api.cheque.config.set(bankLedgerId, form)
+      setSavedSnapshot(form)
       toast.push('success', 'Cheque layout saved')
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -475,6 +510,7 @@ function ChequeSetupModal({
     try {
       // Save first so the printed grid reflects any unsaved edits in the form.
       await api.cheque.config.set(bankLedgerId, form)
+      setSavedSnapshot(form)
       const r = await api.cheque.testGrid(bankLedgerId)
       toast.push('success', `Test grid: ${r.path}`)
     } catch (err) {
@@ -485,7 +521,7 @@ function ChequeSetupModal({
   }
 
   return (
-    <Modal title={`Cheque setup — ${bankLedgerName}`} onClose={onClose} wide>
+    <Modal title={`Cheque setup — ${bankLedgerName}`} onClose={onClose} wide dirty={dirty}>
       {!form ? (
         <p className="text-[13px] text-muted">Loading…</p>
       ) : (
