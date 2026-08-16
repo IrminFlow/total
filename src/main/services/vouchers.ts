@@ -525,6 +525,18 @@ export function maturePostDated(db: DB, today: string): number[] {
   return rows.map((r) => r.id)
 }
 
+/** Mature ONE post-dated voucher on demand (Banking → PDC register's "Mature now"), regardless
+ *  of its date — the user is asserting the instrument has cleared early. Audit-logged the same
+ *  way maturePostDated logs automatic maturations. */
+export function maturePdcNow(db: DB, id: number): void {
+  const before = getVoucher(db, id)
+  if (!before) throw new Error('Voucher not found')
+  if (before.deletedAt) throw new Error('Voucher is in the bin')
+  if (!before.postDated) throw new Error('Voucher is not post-dated')
+  db.prepare("UPDATE vouchers SET post_dated = 0, updated_at = datetime('now') WHERE id = ?").run(id)
+  writeAudit(db, 'voucher', id, 'update', before, { ...before, postDated: false, matured: true })
+}
+
 export interface PdcRow {
   id: number
   date: string

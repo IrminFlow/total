@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  computeMonthlyPay, professionalTax, buildEcr, buildEsiCsv,
+  computeMonthlyPay, professionalTax, buildEcr, buildEsiCsv, buildPtCsv,
   PT_SLABS, PT_STATES,
   type EmployeePayInput, type PayComputation, type PayHeadSpec
 } from './payroll'
@@ -221,5 +221,20 @@ describe('ESI upload CSV builder', () => {
     expect(lines[0]).toBe('IP Number,IP Name,No of Days,Total Monthly Wages,Reason Code for Zero Workdays,Last Working Day')
     expect(lines[1]).toBe('1234567890,Asha Kumar,26,18000,0,')
     expect(lines[2]).toBe('9876543210,"Ravi, Jr",31,15500,0,')
+  })
+})
+
+describe('PT return CSV builder', () => {
+  it('emits one row per state plus a TOTAL row, amounts in whole rupees', () => {
+    const csv = buildPtCsv([
+      { state: 'KA', employees: 2, gross: 55_000_00, pt: 400_00 },
+      { state: 'MH', employees: 1, gross: 30_000_00, pt: 200_00 }
+    ])
+    expect(csv.split('\n')).toEqual([
+      'State,Employees,Gross Wages,PT Payable',
+      'KA,2,55000,400',
+      'MH,1,30000,200',
+      'TOTAL,3,85000,600'
+    ])
   })
 })

@@ -557,6 +557,10 @@ export function registerIpc(): void {
     return priceLevels.rateFor(requireCompany().db, q.priceLevelId, q.stockItemId, q.date)
   }, 'viewer')
   handle('pdc:list', () => vouchers.pdcRegister(requireCompany().db), 'viewer')
+  handle('pdc:mature', (p) => {
+    vouchers.maturePdcNow(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
 
   // ---------- search ----------
   handle('search:global', (p) => globalSearch(requireCompany().db, searchGlobalSchema.parse(p).q), 'viewer')
@@ -1080,6 +1084,15 @@ export function registerIpc(): void {
     return { path }
   })
   handle('payroll:ptSummary', (p) => payroll.ptSummaryForRun(requireCompany().db, payrollRunIdSchema.parse(p).runId), 'viewer')
+  handle('payroll:ptCsv', (p) => {
+    const { runId } = payrollRunIdSchema.parse(p)
+    const c = requireCompany()
+    const { filename, text } = payroll.ptCsvForRun(c.db, runId)
+    const path = join(companyExportsDir(c.slug), filename)
+    writeFileSync(path, text, 'utf8')
+    shell.showItemInFolder(path)
+    return { path }
+  })
 
   // ---------- CSV master import ----------
   const importKindSchema = z.enum(['ledgers', 'items', 'openings'])

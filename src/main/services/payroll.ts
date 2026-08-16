@@ -1,7 +1,7 @@
 import type { DB } from '../db/connection'
 import type { CompanyInfo, Employee, PayrollHeadAmount, PayrollLine, PayrollRun } from '@shared/domain'
 import type { EmployeeInput, EmployeeHeadsSetInput, PayHeadInput } from '@shared/schemas'
-import { buildEcr, buildEsiCsv, computeMonthlyPay, daysInMonth, type PayHeadSpec } from '@shared/payroll'
+import { buildEcr, buildEsiCsv, buildPtCsv, computeMonthlyPay, daysInMonth, type PayHeadSpec } from '@shared/payroll'
 import { amountInWords, formatPaise } from '@shared/money'
 import { deleteVoucher, getLockDate, saveVoucher } from './vouchers'
 import { findOrCreateLedger } from './masters'
@@ -410,6 +410,15 @@ export function ptSummaryForRun(db: DB, runId: number): PtSummaryRow[] {
     byState.set(state, row)
   }
   return [...byState.values()].sort((a, b) => a.state.localeCompare(b.state))
+}
+
+/** State-wise PT return CSV for a posted run (the file the state challan is filled from). */
+export function ptCsvForRun(db: DB, runId: number): { filename: string; text: string } {
+  const run = getRun(db, runId)
+  if (!run) throw new Error('Pay run not found')
+  const rows = ptSummaryForRun(db, runId).filter((r) => r.pt > 0)
+  if (rows.length === 0) throw new Error('No professional tax in this run')
+  return { filename: `pt-return-${run.month}.csv`, text: buildPtCsv(rows) }
 }
 
 // ---------- payslip PDF ----------
