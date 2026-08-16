@@ -31,7 +31,9 @@ describe('voucherJsonSchema', () => {
   })
 
   it('matches the committed agent-skill/voucher.schema.json byte for byte', () => {
-    const committed = readFileSync(join(__dirname, '..', '..', '..', 'agent-skill', 'voucher.schema.json'), 'utf8')
+    // Normalize CRLF: Windows checkouts may rewrite the committed file's line endings
+    // (.gitattributes pins LF now, but stay robust) — the guarantee is content, not EOL flavor.
+    const committed = readFileSync(join(__dirname, '..', '..', '..', 'agent-skill', 'voucher.schema.json'), 'utf8').replace(/\r\n/g, '\n')
     expect(committed).toBe(JSON.stringify(voucherJsonSchema(), null, 2) + '\n')
   })
 })

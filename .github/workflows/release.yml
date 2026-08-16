@@ -40,6 +40,13 @@ jobs:
           TOTAL_DATA_DIR: ${{ runner.temp }}/total-data
           SMOKE_OUT: ${{ runner.temp }}/smoke
 
+      - name: Ensure the release exists (one per tag)
+        # electron-builder's parallel asset uploads race to CREATE the release and can end up
+        # with two releases on one tag (observed on v0.3.0) — pre-creating makes it only upload.
+        run: gh release create "$GITHUB_REF_NAME" --title "Total ${GITHUB_REF_NAME#v}" --notes "Release notes to follow." --repo "$GITHUB_REPOSITORY" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish DMG + ZIP to the release
         run: npx electron-builder --mac --publish always
         env:
