@@ -109,27 +109,32 @@ export function Gateway(): React.JSX.Element {
         <CashSparklinePanel points={data?.cashSpark ?? []} />
       </div>
 
-      {data && data.recentVouchers.length > 0 && (
-        <Panel className="mt-6">
-          <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
-            Recent entries
-          </p>
-          <div>
-            {data.recentVouchers.map((v) => (
-              <button
-                key={v.voucherId}
-                className="flex w-full items-center gap-4 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2"
-                onClick={() => nav.go({ name: 'voucher-entry', voucherId: v.voucherId })}
-              >
-                <span className="num w-20 text-[12px] text-muted">{toDisplayDate(v.date)}</span>
-                <span className="w-24 text-[12.5px] text-muted">{v.voucherType}</span>
-                <span className="num w-14 text-[12px] text-muted">{v.number}</span>
-                <span className="flex-1 truncate text-[13px]">{v.account}</span>
-                <Money paise={v.debit} className="text-[13px]" />
-              </button>
-            ))}
-          </div>
-        </Panel>
+      {data && data.voucherCount === 0 ? (
+        <OnboardingChecklist partyCount={data.partyCount} itemCount={data.itemCount} />
+      ) : (
+        data &&
+        data.recentVouchers.length > 0 && (
+          <Panel className="mt-6">
+            <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+              Recent entries
+            </p>
+            <div>
+              {data.recentVouchers.map((v) => (
+                <button
+                  key={v.voucherId}
+                  className="flex w-full items-center gap-4 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2"
+                  onClick={() => nav.go({ name: 'voucher-entry', voucherId: v.voucherId })}
+                >
+                  <span className="num w-20 text-[12px] text-muted">{toDisplayDate(v.date)}</span>
+                  <span className="w-24 text-[12.5px] text-muted">{v.voucherType}</span>
+                  <span className="num w-14 text-[12px] text-muted">{v.number}</span>
+                  <span className="flex-1 truncate text-[13px]">{v.account}</span>
+                  <Money paise={v.debit} className="text-[13px]" />
+                </button>
+              ))}
+            </div>
+          </Panel>
+        )
       )}
     </div>
   )
@@ -262,6 +267,56 @@ function CompliancePanel({ hasEmployees }: { hasEmployees: boolean }): React.JSX
             <span className="w-28 text-[12.5px] text-muted">{d.form}</span>
             <span className="flex-1 truncate text-[13px]">{d.title}</span>
           </div>
+        ))}
+      </div>
+    </Panel>
+  )
+}
+
+/** Replaces "Recent entries" for a brand-new company (voucherCount === 0) with a short setup
+ *  checklist — each step's "done" check is derived from data the dashboard already fetched, no
+ *  extra round-trip. Disappears on its own once the first voucher is posted. */
+function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; itemCount: number }): React.JSX.Element {
+  const nav = useNav()
+  const steps = [
+    {
+      label: 'Import your books from Tally',
+      hint: 'Or start from scratch — either way, head to Company info',
+      done: partyCount > 0 || itemCount > 0,
+      onClick: () => nav.go({ name: 'company-info' })
+    },
+    {
+      label: 'Add a party and an item',
+      hint: 'Masters → Ledgers / Stock items',
+      done: partyCount > 0 && itemCount > 0,
+      onClick: () => nav.go({ name: 'masters' })
+    },
+    {
+      label: 'Post your first invoice',
+      hint: 'Voucher entry, F8 for Sales',
+      done: false,
+      onClick: () => nav.go({ name: 'voucher-entry', kindHint: 'sales' })
+    }
+  ]
+
+  return (
+    <Panel className="mt-6">
+      <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+        Set up your books
+      </p>
+      <div>
+        {steps.map((s) => (
+          <button
+            key={s.label}
+            onClick={s.onClick}
+            className="flex w-full items-center gap-3 border-b border-line/40 px-5 py-3 text-left last:border-b-0 hover:bg-panel2"
+          >
+            <span className={`text-[15px] ${s.done ? 'text-amber' : 'text-muted/60'}`}>{s.done ? '✓' : '○'}</span>
+            <span className="flex-1">
+              <span className={`block text-[13.5px] ${s.done ? 'text-muted line-through' : 'text-ink'}`}>{s.label}</span>
+              <span className="block text-[11.5px] text-muted/70">{s.hint}</span>
+            </span>
+          </button>
         ))}
       </div>
     </Panel>
