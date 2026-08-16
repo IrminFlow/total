@@ -9,7 +9,7 @@ import { saveUser, login } from './users'
 import { setAuditContext, writeAudit, pruneAudit } from './audit'
 import { getAuditKeepDays, setAuditKeepDays } from './config'
 import { importTallyXml, dryRunTallyXml } from './tallyImport'
-import { deleteVoucher, purgeOldDeleted } from './vouchers'
+import { deleteVoucher, purgeOldDeleted, setLockDate } from './vouchers'
 import { importStatement } from './banking'
 import { postClose } from './yearEnd'
 import type { CompanyInfo } from '@shared/domain'
@@ -125,8 +125,8 @@ describe('tallyImport transaction + summary audit (Q1 #90/#94)', () => {
   })
 })
 
-describe('purgeOldDeleted is batched (Q1 #92)', () => {
-  it('purges every over-age binned voucher in one statement with a single summary audit row', () => {
+describe('purgeOldDeleted writes one summary audit row (Q1 #92, lock-gated by F1 #6)', () => {
+  it('purges every over-age LOCKED-period binned voucher with a single summary audit row', () => {
     const db = seededDb()
     const v1 = postSimpleVoucher(db, { date: '2025-04-10', amount: 10000, kind: 'receipt' })
     const v2 = postSimpleVoucher(db, { date: '2025-04-11', amount: 20000, kind: 'receipt' })
@@ -136,6 +136,8 @@ describe('purgeOldDeleted is batched (Q1 #92)', () => {
     deleteVoucher(db, keep.id)
     // Backdate two of the three past the 30-day window.
     db.prepare("UPDATE vouchers SET deleted_at = datetime('now', '-45 days') WHERE id IN (?, ?)").run(v1.id, v2.id)
+    // Auto-purge only touches vouchers in the locked (closed/filed) period — see F1 #6.
+    setLockDate(db, '2025-04-30')
 
     const auditCountBefore = (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n
     const purged = purgeOldDeleted(db, 30)

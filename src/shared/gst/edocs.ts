@@ -66,6 +66,8 @@ export interface EdocInvoice {
   partyAddress: string | null
   partyStateCode: string
   pos: string
+  /** Reverse charge applies (party ledger rcm flag) — drives TranDtls.RegRev. Defaults false. */
+  rchrg?: boolean
   items: EdocItem[]
   taxable: number
   cgst: number
@@ -147,7 +149,7 @@ export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany)
     const shipTo = inv.shipTo
     return {
       Version: '1.1',
-      TranDtls: { TaxSch: 'GST', SupTyp: supTyp, RegRev: 'N', IgstOnIntra: 'N' },
+      TranDtls: { TaxSch: 'GST', SupTyp: supTyp, RegRev: inv.rchrg ? 'Y' : 'N', IgstOnIntra: 'N' },
       DocDtls: { Typ: docType, No: inv.number, Dt: slashDate(inv.date) },
       SellerDtls: {
         Gstin: company.gstin,
@@ -264,7 +266,10 @@ function buildEwbBill(inv: EdocInvoice, company: EdocCompany): Record<string, un
 
   // Rates come straight from the item's master rate + supply type — never back-derived
   // from rounded tax amounts (audit D9: a tax amount rounding to 0 must not zero the rate).
-  const intra = inv.pos === company.stateCode
+  // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act) even when the SEZ
+  // unit sits in the company's own state — IGST rates, never a CGST/SGST split.
+  const isSez = inv.supTyp === 'SEZWP' || inv.supTyp === 'SEZWOP'
+  const intra = !isExport && !isSez && inv.pos === company.stateCode
 
   // Highest-value item's HSN leads the bill (mainHsnCode).
   const mainItem = [...inv.items].sort((a, b) => b.taxablePaise - a.taxablePaise)[0]

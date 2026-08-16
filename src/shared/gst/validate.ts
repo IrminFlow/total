@@ -1,5 +1,5 @@
 import { GST_STATES } from './states'
-import { B2CL_THRESHOLD_PAISE, type GstDoc } from './returns'
+import { B2CL_THRESHOLD_PAISE, isZeroRatedTyp, type GstDoc } from './returns'
 import { isUqc } from './uqc'
 
 const CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -72,6 +72,7 @@ export interface GstIssue {
     | 'composition'
     | 'rate_zero_untyped'
     | 'b2cl_edge'
+    | 'zero_rated_intra_tax'
   severity: 'blocking' | 'warning'
   message: string
   /** Vouchers to drill into from the issues panel (empty for company-level issues). */
@@ -154,6 +155,21 @@ export function validateGstr1(docs: GstDoc[], company: Gstr1ValidationCompany): 
       severity: 'blocking',
       message: `${valMismatch.length} document${valMismatch.length === 1 ? '' : 's'} where the booked total differs from taxable + computed tax by more than ₹1 — tax lines were likely hand-edited.`,
       voucherIds: valMismatch.map((d) => d.voucherId)
+    })
+  }
+
+  // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act) — CGST/SGST on a
+  // zero-rated document means it was extracted before the SEZ-intra fix (or hand-built
+  // wrong). The portal rejects such invoices and 3B would drop the tax silently, so block.
+  const zrIntraTax = docs.filter(
+    (d) => isZeroRatedTyp(d.invTyp ?? 'R') && d.items.some((i) => i.cgst !== 0 || i.sgst !== 0)
+  )
+  if (zrIntraTax.length) {
+    issues.push({
+      code: 'zero_rated_intra_tax',
+      severity: 'blocking',
+      message: `${zrIntraTax.length} SEZ/export document${zrIntraTax.length === 1 ? '' : 's'} carry CGST/SGST — zero-rated supplies are always inter-state (IGST only, sec 7(5)(b) IGST Act).`,
+      voucherIds: zrIntraTax.map((d) => d.voucherId)
     })
   }
 

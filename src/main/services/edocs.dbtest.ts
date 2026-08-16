@@ -10,6 +10,7 @@ import { saveVoucher } from './vouchers'
 import {
   exportEInvoices, exportEwb, extractEdocInvoices, getTransport, setTransport
 } from './edocs'
+import { deleteVoucher } from './vouchers'
 
 const INFO: CompanyInfo = {
   ...TEST_INFO,
@@ -86,7 +87,7 @@ describe('edocs service — transport, per-bill EWB, service invoices, preceding
     expect(r.count).toBe(1)
     expect(r.skipped).toEqual([])
     expect(existsSync(r.path)).toBe(true)
-    const perBill = join(r.dir, `ewb-${v.number}.json`)
+    const perBill = join(r.dir, `ewb-${v.number}-v${v.id}.json`)
     expect(existsSync(perBill)).toBe(true)
     const bill = (JSON.parse(readFileSync(perBill, 'utf8')) as any).billLists[0]
     expect(bill.transactionType).toBe(2)
@@ -149,5 +150,130 @@ describe('edocs service — transport, per-bill EWB, service invoices, preceding
     expect(crnDoc.precedingDoc).toEqual({ invNo: orig.number, invDate: '2026-07-05' })
     const orphanDoc = docs.find((d) => d.voucherId === orphan.id)!
     expect(orphanDoc.precedingDoc).toBeNull()
+  })
+
+  it('exportEInvoices excludes purchase-side debit notes (no spurious IRN for purchase returns)', () => {
+    const s = setup()
+    const groupId = (name: string): number =>
+      (s.db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+    const vendor = createLedger(s.db, {
+      name: 'Vendor', groupId: groupId('Sundry Creditors'), gstin: '27AABCS1429B1ZU', stateCode: '27'
+    }).id
+    const purchases = createLedger(s.db, { name: 'Purchases 18', groupId: groupId('Purchase Accounts'), gstRate: 18 }).id
+
+    // Regular sale — must export.
+    s.post('sales', '2026-07-05', s.buyer, [
+      { ledgerId: s.buyer, drCr: 'dr', amount: 118000 },
+      { ledgerId: s.sales, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 9000 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 9000 }
+    ])
+    // Outward debit note (credits income) — must export as DBN.
+    const outDbn = s.post('debit_note', '2026-07-06', s.buyer, [
+      { ledgerId: s.buyer, drCr: 'dr', amount: 11800 },
+      { ledgerId: s.sales, drCr: 'cr', amount: 10000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 900 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 900 }
+    ])
+    // Purchase-return debit note to a GSTIN-bearing supplier — must NOT export.
+    const purDbn = s.post('debit_note', '2026-07-07', vendor, [
+      { ledgerId: vendor, drCr: 'dr', amount: 5900 },
+      { ledgerId: purchases, drCr: 'cr', amount: 5000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 450 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 450 }
+    ])
+
+    const e = exportEInvoices(s.db, INFO, SLUG, '2026-07-01', '2026-07-31', '072026')
+    expect(e.count).toBe(2)
+    const docs = JSON.parse(readFileSync(e.path, 'utf8')) as any[]
+    const numbers = docs.map((d) => d.DocDtls.No)
+    expect(numbers).toContain(outDbn.number)
+    expect(numbers).not.toContain(purDbn.number)
+    expect(docs.filter((d) => d.DocDtls.Typ === 'DBN')).toHaveLength(1)
+  })
+
+  it('same-state SEZ buyers get IGST (sec 7(5)(b) IGST Act), never CGST/SGST, in the e-doc payload', () => {
+    const s = setup()
+    const groupId = (name: string): number =>
+      (s.db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+    const sez = createLedger(s.db, {
+      name: 'SEZ Unit 27', groupId: groupId('Sundry Debtors'), gstin: '27AABCS1429B1ZU',
+      stateCode: '27', exportType: 'sez_wp', address: 'SEZ Phase 1, Pune 411057'
+    }).id
+    const v = s.post('sales', '2026-07-08', sez, [
+      { ledgerId: sez, drCr: 'dr', amount: 118000 },
+      { ledgerId: s.sales, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 9000 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 9000 }
+    ], [{ stockItemId: s.itemId, qtyMilli: 1000, ratePaise: 100000, amount: 100000, direction: 'out' }])
+
+    const inv = extractEdocInvoices(s.db, INFO, '2026-07-01', '2026-07-31').find((d) => d.voucherId === v.id)!
+    expect(inv.supTyp).toBe('SEZWP')
+    expect(inv.pos).toBe('27') // POS stays the SEZ unit's real state
+    expect(inv.igst).toBe(18000)
+    expect(inv.cgst).toBe(0)
+    expect(inv.sgst).toBe(0)
+  })
+
+  it('e-invoice RegRev is Y for RCM-flagged parties', () => {
+    const s = setup()
+    const groupId = (name: string): number =>
+      (s.db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+    const rcmBuyer = createLedger(s.db, {
+      name: 'RCM Buyer', groupId: groupId('Sundry Debtors'), gstin: '29AACCR7832C1ZD', stateCode: '29', rcm: true
+    }).id
+    s.post('sales', '2026-07-09', rcmBuyer, [
+      { ledgerId: rcmBuyer, drCr: 'dr', amount: 118000 },
+      { ledgerId: s.sales, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 9000 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 9000 }
+    ])
+    const e = exportEInvoices(s.db, INFO, SLUG, '2026-07-01', '2026-07-31', '072026')
+    const [doc] = JSON.parse(readFileSync(e.path, 'utf8')) as any[]
+    expect(doc.TranDtls.RegRev).toBe('Y')
+  })
+
+  it('per-bill EWB files include the voucher id so sanitised-number collisions cannot overwrite', () => {
+    const s = setup()
+    // Sales invoice and outward debit note both auto-number '1' in their own series — the
+    // sanitised file names collide unless the voucher id disambiguates.
+    const inv = s.post('sales', '2026-07-05', s.buyer, [
+      { ledgerId: s.buyer, drCr: 'dr', amount: 118000 },
+      { ledgerId: s.sales, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 9000 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 9000 }
+    ], [{ stockItemId: s.itemId, qtyMilli: 1000, ratePaise: 100000, amount: 100000, direction: 'out' }])
+    const dbn = s.post('debit_note', '2026-07-06', s.buyer, [
+      { ledgerId: s.buyer, drCr: 'dr', amount: 118000 },
+      { ledgerId: s.sales, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 9000 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 9000 }
+    ], [{ stockItemId: s.itemId, qtyMilli: 1000, ratePaise: 100000, amount: 100000, direction: 'out' }])
+    expect(inv.number).toBe(dbn.number) // the collision precondition — both series start at 1
+
+    const r = exportEwb(s.db, INFO, SLUG, '2026-07-01', '2026-07-31', '072026', { includeBelowThreshold: true })
+    expect(r.count).toBe(2)
+    expect(existsSync(join(r.dir, `ewb-${inv.number}-v${inv.id}.json`))).toBe(true)
+    expect(existsSync(join(r.dir, `ewb-${dbn.number}-v${dbn.id}.json`))).toBe(true)
+  })
+
+  it('setTransport refuses a binned voucher; getTransport reads as absent once binned', () => {
+    const s = setup()
+    const v = s.post('sales', '2026-07-05', s.buyer, [
+      { ledgerId: s.buyer, drCr: 'dr', amount: 118000 },
+      { ledgerId: s.sales, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 9000 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 9000 }
+    ])
+    const input = {
+      transMode: '1' as const, transDistanceKm: 10, transporterId: null, transporterName: null,
+      transDocNo: null, transDocDate: null, vehicleNo: null, vehicleType: null,
+      shipToName: null, shipToGstin: null, shipToAddr1: null, shipToAddr2: null,
+      shipToPlace: null, shipToPincode: null, shipToState: null
+    }
+    setTransport(s.db, v.id, input)
+    deleteVoucher(s.db, v.id)
+    expect(getTransport(s.db, v.id)).toBeNull()
+    expect(() => setTransport(s.db, v.id, input)).toThrow(/not found/i)
   })
 })

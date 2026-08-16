@@ -705,6 +705,9 @@ export function registerIpc(): void {
   handle('gst:exportGstr3b', (p) => {
     const { from, to, period } = gstPeriodInput.parse(p)
     const c = requireCompany()
+    // Same server-side gate as gst:exportGstr1 — 3B is computed from the same extracted
+    // documents, so a period with blocking validation issues must not export either return.
+    gst.assertExportable(c.db, c.info, from, to)
     const result = gst.gstr3b(c.db, c.info, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr3b', period, result.json)
     auditExport(c.db, 'gstr3b', { period, path: jsonPath })

@@ -470,7 +470,10 @@ export async function invoicePdfBatch(
     }
     const safe = rendered.number.replace(/[^a-zA-Z0-9-_]/g, '_')
     const pdf = await htmlToPdf(rendered.html, { pageSize: 'A4', pageNumbers: true })
-    const path = join(dir, `invoice-${safe}.pdf`)
+    // The voucher id keeps sanitised numbers unique: 'INV/25-26/001' vs 'INV-25-26/001', or a
+    // sales invoice and another type sharing the same number, must never overwrite each other
+    // (the folder would silently hold N-1 PDFs while the batch reports N).
+    const path = join(dir, `invoice-${safe}-v${voucherId}.pdf`)
     writeFileSync(path, pdf)
     paths.push(path)
   }

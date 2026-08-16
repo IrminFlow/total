@@ -3,8 +3,8 @@ import { readFileSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
-  assertExportable, exportGstr1Csv, extractOutwardDocs, extractDocSeries, gstValidate,
-  itcBreakdown, rcmInwardSummary, turnover
+  assertExportable, exportGstr1Csv, extractAdvances, extractOutwardDocs, extractDocSeries,
+  gstValidate, itcBreakdown, rcmInwardSummary, turnover
 } from './gst'
 import { companyExportsDir, ensureCompanyTree } from '../paths'
 import type { Gstr1Result } from '@shared/gst/returns'
@@ -180,6 +180,74 @@ describe('gst service — extraction (G1)', () => {
     expect(extractOutwardDocs(s.db, TEST_INFO, FROM, TO)).toHaveLength(1)
   })
 
+  it('SEZ supplies to a SAME-STATE SEZ unit are inter-state — IGST, never CGST/SGST (sec 7(5)(b))', () => {
+    const s = setup()
+    const groupId = (name: string): number =>
+      (s.db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+    // SEZ unit in the company's own state (27) — the classic trap: POS 27 looks intra.
+    const sez = createLedger(s.db, {
+      name: 'SEZ Unit 27', groupId: groupId('Sundry Debtors'), gstin: '27AABCS1429B1ZU',
+      stateCode: '27', exportType: 'sez_wp'
+    }).id
+    s.post('sales', '2026-07-08', sez, [
+      { ledgerId: sez, drCr: 'dr', amount: 118000 },
+      { ledgerId: s.sales, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.igstL, drCr: 'cr', amount: 18000 }
+    ])
+
+    const [doc] = extractOutwardDocs(s.db, TEST_INFO, '2026-07-01', '2026-07-31')
+    expect(doc!.invTyp).toBe('SEWP')
+    expect(doc!.pos).toBe('27') // POS stays the SEZ unit's actual state
+    // Tax must be IGST at the full rate — CGST/SGST here is portal-rejected AND silently
+    // dropped from GSTR-3B's zero-rated bucket (the confirmed defect).
+    expect(doc!.items).toEqual([{ rate: 18, taxable: 100000, cgst: 0, sgst: 0, igst: 18000, cess: 0 }])
+    // And the validation gate stays clean for the corrected extraction.
+    expect(
+      gstValidate(s.db, TEST_INFO, '2026-07-01', '2026-07-31').filter((i) => i.code === 'zero_rated_intra_tax')
+    ).toEqual([])
+  })
+
+  it('advances (11A) back the tax OUT of the gross receipt — ₹1,18,000 at 18% is ₹1,00,000 + ₹18,000', () => {
+    const s = setup()
+    const cash = (s.db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    // Party ledger carries the GST rate — that is what classifies the advance.
+    const groupId = (s.db.prepare("SELECT id FROM groups WHERE name = 'Sundry Debtors'").get() as { id: number }).id
+    const advParty = createLedger(s.db, { name: 'Advance Buyer', groupId, stateCode: '27', gstRate: 18 }).id
+    saveVoucher(s.db, {
+      voucherTypeId: (s.db.prepare("SELECT id FROM voucher_types WHERE kind = 'receipt'").get() as { id: number }).id,
+      date: '2026-07-20', partyLedgerId: advParty,
+      lines: [
+        { ledgerId: cash, drCr: 'dr', amount: 118000, costAllocations: [] },
+        { ledgerId: advParty, drCr: 'cr', amount: 118000, costAllocations: [] }
+      ],
+      inventory: [], billRefs: [{ kind: 'new', name: 'ADV-1', amount: 118000, dueDate: null }], tds: null
+    })
+
+    const advances = extractAdvances(s.db, TEST_INFO, '2026-07-01', '2026-07-31')
+    // Rule 35: taxable = 118000 × 100/118 = 100000; tax = the 18000 residue (intra: split).
+    expect(advances).toEqual([
+      { pos: '27', supply: 'intra', rate: 18, taxable: 100000, cgst: 9000, sgst: 9000, igst: 0, cess: 0 }
+    ])
+  })
+
+  it('purchase returns to RCM suppliers reduce 3.1(d) and the ISRC credit', () => {
+    const s = setup()
+    s.post('purchase', '2026-07-12', s.rcmVendor, [
+      { ledgerId: s.purchases, drCr: 'dr', amount: 100000 },
+      { ledgerId: s.rcmVendor, drCr: 'cr', amount: 100000 }
+    ])
+    // Return ₹40,000 of it as a debit note — no tax lines, mirroring RCM purchase entry.
+    s.post('debit_note', '2026-07-20', s.rcmVendor, [
+      { ledgerId: s.rcmVendor, drCr: 'dr', amount: 40000 },
+      { ledgerId: s.purchases, drCr: 'cr', amount: 40000 }
+    ])
+
+    const rcm = rcmInwardSummary(s.db, TEST_INFO, FROM, TO)
+    expect(rcm).toEqual({ taxable: 60000, igst: 0, cgst: 5400, sgst: 5400, cess: 0 })
+    const itc = itcBreakdown(s.db, TEST_INFO, FROM, TO)
+    expect(itc.isrc).toEqual({ igst: 0, cgst: 5400, sgst: 5400, cess: 0 })
+  })
+
   it('gstValidate flags missing HSN (blocking) and assertExportable refuses the export (G7 gate)', () => {
     const s = setup()
     // A sales ledger line with no HSN — value present but absent from Table 12.
@@ -200,7 +268,7 @@ describe('gst service — extraction (G1)', () => {
     expect(missing.severity).toBe('blocking')
     expect(missing.voucherIds).toHaveLength(1)
 
-    expect(() => assertExportable(s.db, TEST_INFO, FROM, TO)).toThrow(/GSTR-1 export blocked/)
+    expect(() => assertExportable(s.db, TEST_INFO, FROM, TO)).toThrow(/GST export blocked/)
 
     // Composition companies are refused outright, with an explanation.
     expect(() =>

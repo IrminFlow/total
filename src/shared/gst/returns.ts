@@ -184,9 +184,17 @@ function itmDet(item: GstDocRateItem) {
   }
 }
 
-function sumItems(docs: GstDoc[]) {
+/** Zero-rated invoice types (sec 16 IGST Act): exports and supplies to SEZ. */
+export function isZeroRatedTyp(typ: GstInvTyp): boolean {
+  return typ === 'EXPWP' || typ === 'EXPWOP' || typ === 'SEWP' || typ === 'SEWOP'
+}
+
+/** Section summary totals come from the SAME rated buckets the JSON tables are built from —
+ *  never the raw d.items (whose rate-0 lines are re-routed to Table 8 and would double-count
+ *  against the nil row on screen/CSV). */
+function sumItems(docs: NormalizedDoc[]) {
   let taxable = 0, igst = 0, cgst = 0, sgst = 0, cess = 0
-  for (const d of docs) for (const i of d.items) {
+  for (const d of docs) for (const i of d.ratedItems) {
     taxable += i.taxable; igst += i.igst; cgst += i.cgst; sgst += i.sgst; cess += i.cess
   }
   return { taxable, igst, cgst, sgst, cess }
@@ -198,16 +206,40 @@ interface NormalizedDoc extends GstDoc {
   ratedItems: GstDocRateItem[]
 }
 
-/** Apply defaults and route any rate-0 items into the nil bucket — a rt:0 row must never
- *  reach b2b/b2cl/b2cs (the portal rejects it); it belongs in Table 8. */
+/**
+ * Apply defaults and route any rate-0 items into the nil bucket — a rt:0 row must never
+ * reach b2b/b2cl/b2cs for DOMESTIC documents (the portal rejects it); it belongs in Table 8.
+ *
+ * ZERO-RATED documents (exports/SEZ) are the exception: their rate-0 lines stay on the
+ * document as a single rt:0 item so the invoice itself is still reported in Table 6A/6B
+ * (LUT exports of nil-rated goods legitimately file at rt 0 with iamt 0). Routing them into
+ * the nil bucket would drop the export invoice from GSTR-1 entirely and misfile its value
+ * as domestic nil-rated in Table 8 — contradicting 3B 3.1(b) and the shipping-bill trail.
+ */
 function normalize(d: GstDoc): NormalizedDoc {
-  const nil = [...(d.nilLines ?? [])]
+  const typ = d.invTyp ?? 'R'
+  const zeroRated = isZeroRatedTyp(typ)
+  const nil: GstNilLine[] = []
   const ratedItems: GstDocRateItem[] = []
-  for (const item of d.items) {
-    if (item.rate === 0) nil.push({ taxable: item.taxable })
-    else ratedItems.push(item)
+  let rate0: GstDocRateItem | null = null
+  const addRate0 = (taxable: number, cess: number): void => {
+    if (!rate0) {
+      rate0 = { rate: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0 }
+      ratedItems.push(rate0)
+    }
+    rate0.taxable += taxable
+    rate0.cess += cess
   }
-  return { ...d, nil, typ: d.invTyp ?? 'R', ratedItems }
+  for (const l of d.nilLines ?? []) {
+    if (zeroRated) addRate0(l.taxable, 0)
+    else nil.push(l)
+  }
+  for (const item of d.items) {
+    if (item.rate !== 0) ratedItems.push(item)
+    else if (zeroRated) addRate0(item.taxable, item.cess)
+    else nil.push({ taxable: item.taxable })
+  }
+  return { ...d, nil, typ, ratedItems }
 }
 
 const noteSign = (kind: GstDoc['kind']): number => (kind === 'credit_note' ? -1 : 1)
@@ -688,18 +720,26 @@ export function buildGstr3b(
   let nilTaxable = 0
   for (const d of all) {
     const sign = d.kind === 'sales' ? 1 : noteSign(d.kind)
-    const zeroRated = d.typ !== 'R' && d.typ !== 'DE'
+    const zeroRated = isZeroRatedTyp(d.typ)
+    // Outward reverse-charge supplies (rchrg='Y'): per the GSTN GSTR-1→3B auto-population
+    // rules only the TAXABLE VALUE enters 3.1(a) — the tax is payable by the RECIPIENT via
+    // their 3.1(d), so it must not enter osup_det amounts or this supplier's liability.
+    const taxPayableBySupplier = !d.rchrg
     for (const item of d.ratedItems) {
       if (zeroRated) {
         zrTaxable += sign * item.taxable
-        zrIgst += sign * item.igst
-        zrCess += sign * item.cess
+        if (taxPayableBySupplier) {
+          zrIgst += sign * item.igst
+          zrCess += sign * item.cess
+        }
       } else {
         taxable += sign * item.taxable
-        igst += sign * item.igst
-        cgst += sign * item.cgst
-        sgst += sign * item.sgst
-        cess += sign * item.cess
+        if (taxPayableBySupplier) {
+          igst += sign * item.igst
+          cgst += sign * item.cgst
+          sgst += sign * item.sgst
+          cess += sign * item.cess
+        }
       }
     }
     const nilSum = d.nil.reduce((s, l) => s + l.taxable, 0)

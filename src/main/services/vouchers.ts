@@ -576,17 +576,40 @@ export function purgeVoucher(db: DB, id: number): void {
 }
 
 /** Vouchers auto-purged after sitting in the bin longer than `days` (default 30). Returns the
- *  count purged. One batched DELETE (task Q1 #92) — child rows (voucher_lines, inventory_lines,
- *  bill_refs, tds_entries, cost allocations) all cascade — plus a single summary audit row
- *  instead of one row per purged voucher. */
+ *  count purged. Child rows (voucher_lines, inventory_lines, bill_refs, tds_entries, cost
+ *  allocations) cascade; a single summary audit row covers the batch.
+ *
+ *  Two guards (GST audit F1):
+ *  - Only vouchers dated on/before the books LOCK date are auto-purged. Binned vouchers in
+ *    unlocked periods are still needed — GSTR-1 Table 13 reports them as CANCELLED documents
+ *    and nextVoucherNumber relies on them so a deleted number is never reissued. With no lock
+ *    date set, nothing is auto-purged (manual purge via the Bin screen remains available).
+ *  - Per-voucher DELETE with continue-past-failures: one purge-blocked voucher (e.g. still
+ *    referenced by payroll_runs, which has no ON DELETE CASCADE) must not stop the whole
+ *    purge forever. */
 export function purgeOldDeleted(db: DB, days = 30): number {
-  const res = db
-    .prepare(`DELETE FROM vouchers WHERE deleted_at IS NOT NULL AND deleted_at <= datetime('now', ?)`)
-    .run(`-${days} days`)
-  if (res.changes > 0) {
-    writeAudit(db, 'voucher', 0, 'delete', { autoPurgedFromBin: res.changes, olderThanDays: days }, null)
+  const lock = getLockDate(db)
+  if (!lock) return 0
+  const rows = db
+    .prepare(
+      `SELECT id FROM vouchers v
+       WHERE v.deleted_at IS NOT NULL AND v.deleted_at <= datetime('now', ?) AND v.date <= ?`
+    )
+    .all(`-${days} days`, lock) as { id: number }[]
+  const del = db.prepare('DELETE FROM vouchers WHERE id = ?')
+  let purged = 0
+  for (const { id } of rows) {
+    try {
+      del.run(id)
+      purged++
+    } catch {
+      // e.g. an FK from payroll_runs — leave this voucher in the bin, keep purging the rest.
+    }
   }
-  return res.changes
+  if (purged > 0) {
+    writeAudit(db, 'voucher', 0, 'delete', { autoPurgedFromBin: purged, olderThanDays: days }, null)
+  }
+  return purged
 }
 
 export interface BinRow {

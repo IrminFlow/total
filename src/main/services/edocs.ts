@@ -110,12 +110,18 @@ const mapTransport = (r: TransportRow): VoucherTransport => ({
 })
 
 export function getTransport(db: DB, voucherId: number): VoucherTransport | null {
-  const row = db.prepare('SELECT * FROM voucher_transport WHERE voucher_id = ?').get(voucherId) as TransportRow | undefined
+  // Joined to vouchers so transport on a binned voucher reads as absent (house NOT_DELETED rule).
+  const row = db
+    .prepare(
+      `SELECT t.* FROM voucher_transport t JOIN vouchers v ON v.id = t.voucher_id
+       WHERE t.voucher_id = ? AND ${NOT_DELETED}`
+    )
+    .get(voucherId) as TransportRow | undefined
   return row ? mapTransport(row) : null
 }
 
 export function setTransport(db: DB, voucherId: number, input: VoucherTransportInput): VoucherTransport {
-  const exists = db.prepare(`SELECT id FROM vouchers WHERE id = ?`).get(voucherId)
+  const exists = db.prepare(`SELECT id FROM vouchers v WHERE id = ? AND ${NOT_DELETED}`).get(voucherId)
   if (!exists) throw new Error('Voucher not found')
   const before = getTransport(db, voucherId)
   db.prepare(
@@ -156,7 +162,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
               v.transporter_id AS transporterId, v.vehicle_no AS vehicleNo,
               v.transport_distance AS distanceKm, v.pos_override AS posOverride, v.irn,
               p.name AS partyName, p.gstin AS partyGstin, p.state_code AS partyState, p.address AS partyAddress,
-              p.export_type AS partyExportType,
+              p.export_type AS partyExportType, COALESCE(p.rcm, 0) AS partyRcm,
               t.trans_mode, t.trans_distance, t.transporter_id AS tTransporterId, t.transporter_name,
               t.trans_doc_no, t.trans_doc_date, t.vehicle_no AS tVehicleNo, t.vehicle_type,
               t.ship_to_name, t.ship_to_gstin, t.ship_to_addr1, t.ship_to_addr2,
@@ -174,7 +180,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
       transporterId: string | null; vehicleNo: string | null; distanceKm: number | null
       posOverride: string | null; irn: string | null
       partyName: string | null; partyGstin: string | null; partyState: string | null; partyAddress: string | null
-      partyExportType: string | null
+      partyExportType: string | null; partyRcm: number
       trans_mode: string | null; trans_distance: number | null; tTransporterId: string | null
       transporter_name: string | null; trans_doc_no: string | null; trans_doc_date: string | null
       tVehicleNo: string | null; vehicle_type: string | null
@@ -209,8 +215,11 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
   )
 
   return vouchers.map((v) => {
+    const supTyp = supTypFor(v.partyExportType, v.partyState)
     const pos = v.posOverride ?? v.partyState ?? company.stateCode
-    const supply = supplyTypeFor(company.stateCode, pos)
+    // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act): a same-state SEZ
+    // unit must be billed IGST — the IRP rejects SEZWP/SEZWOP payloads carrying CGST/SGST.
+    const supply = supTyp !== 'B2B' ? 'inter' : supplyTypeFor(company.stateCode, pos)
     const rawItems = invStmt.all(v.id) as {
       qtyMilli: number; ratePaise: number; amount: number
       name: string; hsn: string | null; gstRate: number | null; cessRate: number | null; barcode: string | null; uqc: string
@@ -308,7 +317,8 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
       number: v.number,
       date: v.date,
       docType: docTypeFor(v.kind),
-      supTyp: supTypFor(v.partyExportType, v.partyState),
+      supTyp,
+      rchrg: !!v.partyRcm,
       partyName: v.partyName,
       partyGstin: v.partyGstin,
       partyAddress: v.partyAddress,
@@ -344,10 +354,17 @@ function edocCompany(company: CompanyInfo): EdocCompany {
 }
 
 export function exportEInvoices(db: DB, company: CompanyInfo, slug: string, from: string, to: string, period: string): { path: string; count: number } {
+  // Purchase-side debit notes (goods returned to a supplier) are NOT outward documents —
+  // e-invoicing one would register a spurious IRN and auto-populate portal GSTR-1 with
+  // output tax the books don't contain. Same outwardDebitNoteIds split as every sibling
+  // path (listSalesInvoices, ewbInvoicesFor, GSTR-1 extraction).
+  const outwardDbn = outwardDebitNoteIds(db, from, to)
   // A GSTIN is required for domestic/SEZ buyers, but exports legitimately have none — the
   // builder maps those to BuyerDtls.Gstin 'URP', so don't drop them here.
   const invoices = extractEdocInvoices(db, company, from, to).filter(
-    (i) => i.partyGstin || i.supTyp === 'EXPWP' || i.supTyp === 'EXPWOP'
+    (i) =>
+      (i.docType !== 'DBN' || (i.voucherId != null && outwardDbn.has(i.voucherId))) &&
+      (i.partyGstin || i.supTyp === 'EXPWP' || i.supTyp === 'EXPWOP')
   )
   const json = buildEInvoiceJson(invoices, edocCompany(company))
   const path = join(companyExportsDir(slug), `einvoice-${period}.json`)
@@ -372,6 +389,13 @@ export interface EwbExportResult {
 }
 
 const safeFileName = (s: string): string => s.replace(/[^A-Za-z0-9._-]+/g, '-')
+
+/** Per-bill file name. Sanitising voucher numbers can collide ('INV/25-26/001' and
+ *  'INV-25-26/001' both sanitise to 'INV-25-26-001', and sales/DBN series share numbers), so
+ *  the unique voucher id is always part of the name — a later bill must never silently
+ *  overwrite an earlier one in the NIC bulk-upload folder. */
+const ewbFileName = (inv: EdocInvoice): string =>
+  `ewb-${safeFileName(inv.number)}-v${inv.voucherId ?? 0}.json`
 
 /**
  * EWB-eligible invoices for a period: sales + OUTWARD debit notes that move goods, above the
@@ -433,7 +457,7 @@ export function exportEwb(
   mkdirSync(dir, { recursive: true })
   for (const inv of eligible) {
     const single = buildEwbJson([inv], comp)
-    writeFileSync(join(dir, `ewb-${safeFileName(inv.number)}.json`), JSON.stringify(single, null, 2))
+    writeFileSync(join(dir, ewbFileName(inv)), JSON.stringify(single, null, 2))
   }
 
   return { path, dir, count: eligible.length, skipped }
@@ -451,7 +475,7 @@ export function ewbJsonForVoucher(db: DB, company: CompanyInfo, slug: string, vo
   const json = buildEwbJson([inv], edocCompany(company))
   const dir = join(companyExportsDir(slug), 'ewb')
   mkdirSync(dir, { recursive: true })
-  const path = join(dir, `ewb-${safeFileName(inv.number)}.json`)
+  const path = join(dir, ewbFileName(inv))
   writeFileSync(path, JSON.stringify(json, null, 2))
   return { path }
 }
