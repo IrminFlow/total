@@ -8,22 +8,26 @@ import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
 import { ItemPicker, LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
-import { addDaysLocal, NUMBER_LOADING, useVoucherNumberField } from './hooks'
+import { addDaysLocal, nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
 interface ItemRow {
+  /** Stable React key — survives the trailing-blank-row insertions (never an array index). */
+  key: number
   itemId: number | null
   qtyText: string
   rate: number | null
 }
+
+const blankItemRow = (): ItemRow => ({ key: nextLineKey(), itemId: null, qtyText: '', rate: null })
 
 export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKind; draft?: VoucherDraft }): React.JSX.Element {
   const { info, workingDate, setWorkingDate } = useSession()
@@ -39,7 +43,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const [date, setDate] = useState(draft?.date ?? workingDate)
   const [partyId, setPartyId] = useState<number | null>(draft?.partyLedgerId ?? null)
   const [accountId, setAccountId] = useState<number | null>(null)
-  const [rows, setRows] = useState<ItemRow[]>([{ itemId: null, qtyText: '', rate: null }])
+  const [rows, setRows] = useState<ItemRow[]>(() => [blankItemRow()])
   const [narration, setNarration] = useState(draft?.narration ?? '')
   const [vehicleNo, setVehicleNo] = useState('')
   const [transporterId, setTransporterId] = useState('')
@@ -249,7 +253,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       }
       setWorkingDate(date)
       setPartyId(null)
-      setRows([{ itemId: null, qtyText: '', rate: null }])
+      setRows([blankItemRow()])
       setNarration('')
       setVehicleNo('')
       setDistanceKm('')
@@ -268,6 +272,8 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        // A modal's own ⌘↵ (or a stray one) must not save the invoice underneath it.
+        if (isAnyModalOpen()) return
         e.preventDefault()
         void save()
       }
@@ -280,7 +286,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     setRows((rs) => {
       const next = rs.map((r, j) => (j === i ? { ...r, ...patch } : r))
       const last = next[next.length - 1]!
-      if (last.itemId != null) next.push({ itemId: null, qtyText: '', rate: null })
+      if (last.itemId != null) next.push(blankItemRow())
       return next
     })
   }
@@ -377,7 +383,11 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         )}
       </div>
 
-      <table className="ledger-table mt-4">
+      {/* Long invoices scroll inside a capped container instead of pushing the totals
+          off-screen. Short ones stay unwrapped: any overflow container would clip the
+          absolutely-positioned TypeAhead dropdowns. */}
+      <LineTableScroller active={rows.length > 8} className="mt-4">
+      <table className="ledger-table">
         <thead>
           <tr>
             <th>Item</th>
@@ -393,7 +403,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
             const qty = parseFloat(r.qtyText || '0')
             const amount = item && qty > 0 && r.rate != null ? Math.round(qty * r.rate) : 0
             return (
-              <tr key={i}>
+              <tr key={r.key}>
                 <td>
                   <ItemPicker
                     value={r.itemId}
@@ -430,6 +440,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
           })}
         </tbody>
       </table>
+      </LineTableScroller>
 
       <div className="mt-4 flex items-start justify-between gap-6">
         <div className="flex-1">

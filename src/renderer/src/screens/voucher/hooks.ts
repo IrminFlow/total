@@ -5,6 +5,16 @@ import { api } from '../../lib/client'
 
 export const TRADING_KINDS: VoucherKind[] = ['sales', 'purchase', 'credit_note', 'debit_note']
 
+// ---------- stable line keys ----------
+
+let lineKeySeq = 0
+/** Monotonic id for voucher line rows — React keys must survive row insertion/removal, which
+ *  array indexes don't (an index key re-binds input state to whatever row slides into that
+ *  slot, e.g. after applyTds splices a line in). */
+export function nextLineKey(): number {
+  return ++lineKeySeq
+}
+
 // ---------- shared ledger-group helpers (party detection, cash/bank detection) ----------
 
 export function groupChain(groupId: number, groupMap: Map<number, Group>): Group[] {

@@ -4,7 +4,7 @@ import type { VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import { api } from '../lib/client'
 import { useSession, type VoucherDraft } from '../state/stores'
-import { Kbd } from '../components/ui'
+import { isAnyModalOpen, Kbd } from '../components/ui'
 import { useFeatures } from '../lib/useFeatures'
 import { TRADING_KINDS } from './voucher/hooks'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
@@ -57,6 +57,8 @@ export function VoucherEntry({
     const onKey = (e: KeyboardEvent): void => {
       const kind = FKEYS[e.key]
       if (!kind || voucherId || !types) return
+      // Never switch voucher type underneath an open dialog (quick-create ledger, confirm…).
+      if (isAnyModalOpen()) return
       const withCtrl = e.ctrlKey || e.altKey
       const target = withCtrl && kind === 'sales' ? 'credit_note' : withCtrl && kind === 'purchase' ? 'debit_note' : kind
       const t = types.find((t) => t.kind === target)

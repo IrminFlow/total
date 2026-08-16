@@ -7,26 +7,28 @@ import { formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api, type TdsSuggestion } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, Money, Panel, Select, TextInput } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
 import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
-import { isBankLedger, isCashOrBankLedger, isPartyLedger, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
+import { isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
 import { CostAllocModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
 import { TransportModal } from './TransportModal'
 
 // ---------- accounting mode (payment / receipt / contra / journal + alteration) ----------
 
 interface AcctRow {
+  /** Stable React key — survives applyTds splicing a payable line in mid-list (never an index). */
+  key: number
   drCr: 'dr' | 'cr'
   ledgerId: number | null
   amount: number | null
   costAllocations: { costCentreId: number; amount: number }[]
 }
 
-const blankAcctRow = (drCr: 'dr' | 'cr'): AcctRow => ({ drCr, ledgerId: null, amount: null, costAllocations: [] })
+const blankAcctRow = (drCr: 'dr' | 'cr'): AcctRow => ({ key: nextLineKey(), drCr, ledgerId: null, amount: null, costAllocations: [] })
 
 export function AccountingEntry({
   typeId,
@@ -50,7 +52,7 @@ export function AccountingEntry({
   const [date, setDate] = useState(draft?.date ?? workingDate)
   const [rows, setRows] = useState<AcctRow[]>(
     draft?.lines?.length
-      ? [...draft.lines.map((l) => ({ ...l, costAllocations: [] as AcctRow['costAllocations'] })), blankAcctRow('cr')]
+      ? [...draft.lines.map((l) => ({ ...l, key: nextLineKey(), costAllocations: [] as AcctRow['costAllocations'] })), blankAcctRow('cr')]
       : [blankAcctRow('dr'), blankAcctRow('cr')]
   )
   const [narration, setNarration] = useState(draft?.narration ?? '')
@@ -100,7 +102,7 @@ export function AccountingEntry({
       setAlterNumber(existing.number)
       setNarration(existing.narration ?? '')
       setInstrumentNo(existing.instrumentNo ?? '')
-      setRows(existing.lines.map((l) => ({ drCr: l.drCr, ledgerId: l.ledgerId, amount: l.amount, costAllocations: l.costAllocations })))
+      setRows(existing.lines.map((l) => ({ key: nextLineKey(), drCr: l.drCr, ledgerId: l.ledgerId, amount: l.amount, costAllocations: l.costAllocations })))
       setBillRefs(existing.billRefs)
       setTds(existing.tds)
       if (existing.tds) {
@@ -280,7 +282,7 @@ export function AccountingEntry({
 
       next[targetIdx] = { ...next[targetIdx]!, amount: (next[targetIdx]!.amount ?? 0) - tdsAmount }
       const insertAt = next.length > 0 && next[next.length - 1]!.ledgerId == null ? next.length - 1 : next.length
-      const tdsRow: AcctRow = { drCr: 'cr', ledgerId: tdsSuggestion.payableLedgerId, amount: tdsAmount, costAllocations: [] }
+      const tdsRow: AcctRow = { key: nextLineKey(), drCr: 'cr', ledgerId: tdsSuggestion.payableLedgerId, amount: tdsAmount, costAllocations: [] }
       next = [...next.slice(0, insertAt), tdsRow, ...next.slice(insertAt)]
       if (next[next.length - 1]!.ledgerId != null) next.push(blankAcctRow('cr'))
       return next
@@ -397,6 +399,8 @@ export function AccountingEntry({
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        // A modal's own ⌘↵ (or a stray one) must not save the voucher underneath it.
+        if (isAnyModalOpen()) return
         e.preventDefault()
         void save()
       }
@@ -482,7 +486,10 @@ export function AccountingEntry({
         </div>
       </div>
 
-      <table className="ledger-table mt-4">
+      {/* Long journals scroll inside a capped container; short ones stay unwrapped so the
+          absolutely-positioned LedgerPicker dropdowns are never clipped. */}
+      <LineTableScroller active={rows.length > 8} className="mt-4">
+      <table className="ledger-table">
         <thead>
           <tr>
             <th className="w-20">Dr / Cr</th>
@@ -493,7 +500,7 @@ export function AccountingEntry({
         </thead>
         <tbody data-testid="rows-voucher-lines">
           {rows.map((r, i) => (
-            <tr key={i}>
+            <tr key={r.key}>
               <td>
                 <button
                   className={`num w-12 rounded-md border border-line px-2 py-1 text-[12.5px] font-medium ${
@@ -563,6 +570,7 @@ export function AccountingEntry({
           </tr>
         </tbody>
       </table>
+      </LineTableScroller>
 
       {existing && existing.inventory.length > 0 && (
         <p className="mt-3 text-[12px] text-muted">
