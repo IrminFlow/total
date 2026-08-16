@@ -19,14 +19,22 @@ export function openCompanyDb(slug: string): DB {
   // queries off the disk; ANALYZE below refreshes planner stats after any new migration.
   db.pragma('cache_size = -64000')
   db.pragma('mmap_size = 268435456')
-  migrate(db)
-  db.exec('ANALYZE')
+  try {
+    migrate(db)
+    db.exec('ANALYZE')
+  } catch (err) {
+    // Never leak an open handle on a failed open — on Windows it would also block any
+    // later restore/rollback rename of this file (EPERM on open files).
+    db.close()
+    throw err
+  }
   return db
 }
 
 /** Close a company DB, first letting SQLite fold fresh ANALYZE-style stats into the schema
  *  (`PRAGMA optimize` is the documented cheap pre-close hook). Failures never block the close. */
 export function closeCompanyDb(db: DB): void {
+  if (!db.open) return // restoreCompanyDb closes the handle itself before swapping files
   try {
     db.pragma('optimize')
   } catch {

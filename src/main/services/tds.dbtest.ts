@@ -160,7 +160,7 @@ describe('tds service', () => {
     paymentVoucherWithTds(db, { date: '2025-05-10', partyLedgerId: party.id, base: 5000000, tds: 100000, sectionId: section.id, sectionCode: '194C' })
 
     const path = export26qCsv(db, INFO, slug, 2025, 1)
-    expect(path).toBe(`${companyExportsDir(slug)}/tds-26q-2025-26-Q1.csv`)
+    expect(path).toBe(join(companyExportsDir(slug), 'tds-26q-2025-26-Q1.csv'))
     const csv = readFileSync(path, 'utf8')
     expect(csv).toContain('Deductee,PAN,Section,Voucher Date,Voucher No,Base (Rs),TDS (Rs)')
     expect(csv).toContain('Contractor A')

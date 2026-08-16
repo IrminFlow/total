@@ -195,9 +195,11 @@ export interface RestoreResult {
 }
 
 /**
- * File-level restore orchestration, Electron-free and dbtest-able. Does NOT close or reopen
- * `db` — the caller owns that lifecycle (it also owns any in-memory "currently open company"
- * bookkeeping). Order of operations matters for safety:
+ * File-level restore orchestration, Electron-free and dbtest-able. CLOSES `db` before the
+ * swap — Windows cannot rename over a file another handle holds open (EPERM), so the handle
+ * must die first; on POSIX it's harmless. If validation throws (step 1), `db` is still open
+ * and untouched. The caller reopens `dbPath` afterwards and owns the in-memory bookkeeping.
+ * Order of operations matters for safety:
  *
  *  1. Validate the chosen backup file BEFORE touching the live DB at all — a corrupted or
  *     unrelated file throws here and `dbPath` is never touched.
@@ -218,6 +220,8 @@ export function restoreCompanyDb(db: DB, dbPath: string, backupPath: string, bac
   const preRestoreSnapshotPath = join(backupsDir, `${backupStamp()}-pre-restore.db`)
   snapshotSync(db, preRestoreSnapshotPath)
 
+  // Windows: the rename in swapInPlace EPERMs while any handle holds dbPath open.
+  db.close()
   swapInPlace(backupPath, dbPath)
 
   return { preRestoreSnapshotPath }

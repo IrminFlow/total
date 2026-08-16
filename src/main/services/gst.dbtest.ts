@@ -36,7 +36,7 @@ describe('gst service — exportGstr1Csv', () => {
     }
 
     const path = exportGstr1Csv(slug, result)
-    expect(path).toBe(`${companyExportsDir(slug)}/gstr1-072026-summary.csv`)
+    expect(path).toBe(join(companyExportsDir(slug), 'gstr1-072026-summary.csv'))
     const csv = readFileSync(path, 'utf8')
     const lines = csv.split('\n')
     expect(lines[0]).toBe('Section,Documents,Taxable Value,IGST,CGST,SGST,Cess')

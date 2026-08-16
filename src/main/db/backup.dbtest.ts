@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import Database from 'better-sqlite3'
 import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, utimesSync, existsSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, basename as nodeBasename } from 'path'
 import { migrate } from './migrate'
 import { seedCompany } from './seed'
 import { TEST_INFO, postSimpleVoucher } from './testdb'
@@ -74,7 +74,9 @@ describe('listBackupsIn / tagOf / backupStamp', () => {
 })
 
 function basename(p: string): string {
-  return p.split('/').pop()!
+  // Node's path.basename splits on the platform separator — a hand-rolled '/' split
+  // returns the full path on Windows and broke this suite on the CI runner.
+  return nodeBasename(p)
 }
 
 describe('pruneBackupsIn', () => {
@@ -148,7 +150,7 @@ describe('restoreCompanyDb', () => {
     makeCompanyDbFile(backupPath, 5)
 
     const { preRestoreSnapshotPath } = restoreCompanyDb(db, dbPath, backupPath, backupsDir)
-    db.close() // the caller (ipc.ts) closes the live handle right after restoreCompanyDb returns
+    expect(db.open).toBe(false) // restore closes the handle itself (Windows rename locks)
 
     // The pre-restore safety snapshot captured the live DB's state (2 vouchers) before the swap.
     expect(existsSync(preRestoreSnapshotPath)).toBe(true)
