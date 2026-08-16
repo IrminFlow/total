@@ -110,33 +110,12 @@ export function CompanyInfoScreen(): React.JSX.Element {
           </Field>
         </div>
         <div className="flex justify-between">
-          <Button
-            onClick={async () => {
-              try {
-                const r = await api.tally.import()
-                if (!r) return
-                toast.push(
-                  'success',
-                  `Imported from Tally: ${r.groups} groups, ${r.ledgers} ledgers, ${r.units} units, ${r.items} items, ${r.vouchers} vouchers${r.skipped ? ` (${r.skipped} skipped)` : ''}`
-                )
-                if (r.warnings.length) {
-                  toast.push('warning', `${r.warnings.length} warning${r.warnings.length > 1 ? 's' : ''}: ${r.warnings[0]}${r.warnings.length > 1 ? ' …' : ''}`)
-                }
-              } catch (err) {
-                toast.push('error', (err as Error).message)
-              }
-            }}
-          >
-            Import from Tally (XML)
-          </Button>
+          <Button onClick={() => nav.go({ name: 'import-tally' })}>Import from Tally (XML)</Button>
           <Button variant="primary" onClick={() => void save()}>
             Save details
           </Button>
         </div>
       </Panel>
-      <p className="mt-3 text-[12px] text-muted">
-        Tally import reads Masters and Voucher XML exports (Gateway of Tally → Display → List of Accounts / Day Book → Export → XML). Import masters first, then vouchers. A backup is taken automatically before importing.
-      </p>
       <p className="mt-3 text-[12px] text-muted">
         Books from FY {info?.booksFrom}-{((info?.booksFrom ?? 0) + 1) % 100}. Data lives in ~/Documents/total/companies/{slug} — back it up like any folder.
       </p>

@@ -6,6 +6,7 @@ import { CompanySelect } from './screens/CompanySelect'
 import { Shell } from './components/Shell'
 import { Gateway } from './screens/Gateway'
 import { DayBook } from './screens/DayBook'
+import { ImportTallyScreen } from './screens/ImportTally'
 import { VoucherEntry } from './screens/VoucherEntry'
 import { Masters } from './screens/Masters'
 import { TrialBalanceScreen } from './screens/TrialBalance'
@@ -94,6 +95,7 @@ export default function App(): React.JSX.Element {
         <ErrorBoundary key={screen.name} screen={screen.name}>
           {screen.name === 'gateway' && <Gateway />}
           {screen.name === 'daybook' && <DayBook />}
+          {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'voucher-entry' && (
             <VoucherEntry
               key={screen.voucherId ?? (screen.draftId ? `draft-${screen.draftId}` : 'new')}

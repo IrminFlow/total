@@ -30,6 +30,7 @@ export function nextDraftId(): number {
 export type Screen =
   | { name: 'gateway' }
   | { name: 'daybook' }
+  | { name: 'import-tally' }
   // `draftId` forces VoucherEntry to remount when a new draft targets the same 'new' voucher slot
   // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.
   | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }

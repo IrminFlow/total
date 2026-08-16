@@ -34,6 +34,23 @@ function stateCodeFromName(stateName: string | null): string | null {
   return entry ? entry[0] : null
 }
 
+/** Parse-only sibling of importTallyXml: reads what the file contains without touching the
+ *  database at all — no ledger/group lookups (which would run against whatever company happens
+ *  to be open), so a dry run always sees the same counts for the same file. Used by the wizard's
+ *  Preview step; `skipped` is always 0 here since nothing is attempted against a live company. */
+export function dryRunTallyXml(xml: string): ImportSummary {
+  const data: TallyImport = parseTallyExport(xml)
+  return {
+    groups: data.groups.length,
+    ledgers: data.ledgers.length,
+    units: data.units.length,
+    items: data.items.length,
+    vouchers: data.vouchers.length,
+    skipped: 0,
+    warnings: [...data.warnings]
+  }
+}
+
 /** Apply a parsed Tally export to the open company. Idempotent-ish: existing names are reused, not duplicated. */
 export function importTallyXml(db: DB, xml: string): ImportSummary {
   const data: TallyImport = parseTallyExport(xml)

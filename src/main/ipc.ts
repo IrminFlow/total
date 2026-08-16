@@ -18,7 +18,7 @@ import {
   backupFileSchema, bankRuleInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
-  stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
+  stockGroupInputSchema, stockItemInputSchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import * as configSvc from './services/config'
@@ -40,7 +40,7 @@ import * as costCentres from './services/costCentres'
 import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
 import * as yearEnd from './services/yearEnd'
-import { importTallyXml } from './services/tallyImport'
+import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
 import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
@@ -798,9 +798,13 @@ export function registerIpc(): void {
 
   // ---------- Tally import ----------
   handle('tally:import', async (p) => {
-    const { xmlText } = z.object({ xmlText: z.string().optional() }).default({}).parse(p ?? {})
+    const { xmlText, filePath, dryRun } = tallyImportSchema.parse(p ?? {})
     const c = requireCompany()
     let xml = xmlText
+    let resolvedPath = filePath
+    if (xml === undefined && filePath !== undefined) {
+      xml = readFileSync(filePath, 'utf8')
+    }
     if (xml === undefined) {
       const picked = await dialog.showOpenDialog({
         title: 'Choose a Tally XML export (Masters and/or Vouchers)',
@@ -808,10 +812,13 @@ export function registerIpc(): void {
         properties: ['openFile']
       })
       if (picked.canceled || !picked.filePaths[0]) return null
-      xml = readFileSync(picked.filePaths[0], 'utf8')
+      resolvedPath = picked.filePaths[0]
+      xml = readFileSync(resolvedPath, 'utf8')
     }
+    // Dry run is parse-only — zero DB writes, so no backup is taken (nothing to roll back to).
+    if (dryRun) return { filePath: resolvedPath ?? null, summary: dryRunTallyXml(xml) }
     await backupCompany(c.db, c.slug, 'pre-tally-import')
-    return importTallyXml(c.db, xml)
+    return { filePath: resolvedPath ?? null, summary: importTallyXml(c.db, xml) }
   })
 
   // ---------- report print/export (task 3.6) ----------

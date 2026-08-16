@@ -471,3 +471,14 @@ export const exportCsvSchema = z.object({
   csv: z.string().max(2 * 1024 * 1024)
 })
 export type ExportCsvInput = z.infer<typeof exportCsvSchema>
+
+// ---------- Tally import wizard v2 (task 3.5) ----------
+
+export const tallyImportSchema = z
+  .object({
+    xmlText: z.string().optional(),
+    filePath: z.string().optional(),
+    dryRun: z.boolean().default(false)
+  })
+  .default({})
+export type TallyImportInput = z.infer<typeof tallyImportSchema>
