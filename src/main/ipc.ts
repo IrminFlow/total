@@ -244,8 +244,14 @@ export function registerIpc(): void {
     if (weekly.ran && !weekly.ok) {
       log('warn', 'integrity-weekly-failed', { slug, detail: weekly.detail })
     }
-    const purged = vouchers.purgeOldDeleted(db, 30)
-    if (purged > 0) log('info', 'bin-purge', { purged })
+    try {
+      const purged = vouchers.purgeOldDeleted(db, 30)
+      if (purged > 0) log('info', 'bin-purge', { purged })
+    } catch (err) {
+      // e.g. an over-age binned voucher still referenced by payroll_runs — housekeeping must
+      // never block opening the company.
+      log('warn', 'bin-purge-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
     // [lane-Q audit] retention: prune audit rows older than the configured window (default: keep
     // forever — getAuditKeepDays returns null and nothing is pruned).
     const auditKeepDays = configSvc.getAuditKeepDays(db)

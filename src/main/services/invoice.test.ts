@@ -179,6 +179,27 @@ describe('hsnSummaryForInvoice (Q2 #96 — HSN-wise tax summary block)', () => {
     expect(rows[1]).toMatchObject({ igst: 18000, cgst: 0, sgst: 0 })
   })
 
+  it('uses the IGST column for an inter-state invoice whose lines are all 0%/exempt', () => {
+    // All taxes are zero, so the amounts alone cannot reveal the supply type — buildInvoiceHtml
+    // must fall back to place-of-supply vs company state ('29' vs COMPANY's '27' here).
+    const inv: EdocInvoice = {
+      ...SAMPLE_INVOICE,
+      partyStateCode: '29',
+      pos: '29',
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      total: 1000000,
+      items: [item({ rate: 0, cgst: 0, sgst: 0, igst: 0 })]
+    }
+    const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, inv)
+    expect(html).toContain('>IGST<')
+    expect(html).not.toContain('>CGST<')
+
+    const rows = hsnSummaryForInvoice(inv, 'inter')
+    expect(rows[0]).toMatchObject({ rate: 0, cgst: 0, sgst: 0, igst: 0 })
+  })
+
   it('renders the HSN summary block on the invoice when showHsn is on, with — for no-HSN lines', () => {
     const inv: EdocInvoice = {
       ...SAMPLE_INVOICE,

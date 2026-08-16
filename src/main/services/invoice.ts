@@ -88,9 +88,13 @@ export interface HsnSummaryRow {
  * anything but sub-paisa rounding of the individual line split). Pure — exported for tests.
  * NOTE (integrator): if lane G exports a shared bucketing helper with a compatible signature,
  * swap this local one for it (ledger ruling on Q2 #96).
+ *
+ * `supply` should be passed explicitly when known (buildInvoiceHtml derives it from the invoice
+ * totals + place-of-supply vs company state); the `igst > 0` fallback misclassifies an inter-state
+ * invoice whose lines are all 0%/exempt.
  */
-export function hsnSummaryForInvoice(inv: EdocInvoice): HsnSummaryRow[] {
-  const supply = inv.igst > 0 ? 'inter' : 'intra'
+export function hsnSummaryForInvoice(inv: EdocInvoice, supplyHint?: 'inter' | 'intra'): HsnSummaryRow[] {
+  const supply: 'inter' | 'intra' = supplyHint ?? (inv.igst > 0 ? 'inter' : 'intra')
   const buckets = new Map<string, { hsn: string; rate: number; cessRate: number; qtyMilli: number; taxable: number }>()
   for (const item of inv.items) {
     const hsn = item.hsn ?? ''
@@ -127,7 +131,15 @@ export function buildInvoiceHtml(
   inv: EdocInvoice,
   audit?: InvoiceAuditTrail
 ): string {
-  const isIntra = inv.igst === 0
+  // Supply type for the tax columns: any IGST → inter; any CGST/SGST → intra; when every line is
+  // 0%/exempt (all taxes zero) the amounts can't tell us, so fall back to supply type + place of
+  // supply vs company state (SEZ/export supplies are inter-state by law even within one state).
+  const isIntra =
+    inv.igst > 0
+      ? false
+      : inv.cgst > 0 || inv.sgst > 0
+        ? true
+        : (inv.supTyp == null || inv.supTyp === 'B2B') && inv.pos === company.stateCode
   const showHsn = config.showHsn
   const showDiscount = config.showDiscount
   const showBarcode = config.showItemBarcode && inv.items.some((i) => i.barcode)
@@ -188,7 +200,7 @@ export function buildInvoiceHtml(
   }
 
   // HSN-wise tax summary block (#96), printed above the totals whenever HSN display is on.
-  const hsnRows = showHsn ? hsnSummaryForInvoice(inv) : []
+  const hsnRows = showHsn ? hsnSummaryForInvoice(inv, isIntra ? 'intra' : 'inter') : []
   const anyCess = hsnRows.some((r) => r.cess > 0)
   const hsnBlock = hsnRows.length
     ? `
