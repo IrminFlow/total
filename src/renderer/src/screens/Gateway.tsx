@@ -4,10 +4,11 @@ import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { Button, Money, Panel } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
-import { upcomingDeadlines } from '@shared/compliance'
+import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { useFeatures } from '../lib/useFeatures'
 import type { CompanyFeatures } from '@shared/features'
 import type { RecurringTemplate } from '@shared/domain'
+import type { CashSparkPoint, TopLedgerRow } from '@shared/reports'
 import { templateOpenTarget } from './Recurring'
 
 const CARDS: { label: string; sub: string; screen: Screen; key: string; feature?: keyof CompanyFeatures }[] = [
@@ -24,7 +25,7 @@ const CARDS: { label: string; sub: string; screen: Screen; key: string; feature?
 
 export function Gateway(): React.JSX.Element {
   const nav = useNav()
-  const { from } = useSession()
+  const { from, info } = useSession()
   const today = todayISO()
   const features = useFeatures()
   const cards = useMemo(() => CARDS.filter((c) => !c.feature || features[c.feature]), [features])
@@ -45,7 +46,18 @@ export function Gateway(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [nav, cards])
 
-  const tiles = [
+  const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
+
+  // hasPayroll doesn't matter for a 'gst'-kind deadline, so `false` is fine here.
+  const nearestGst = useMemo(
+    () =>
+      gstRegistrationType === 'unregistered'
+        ? null
+        : (upcomingDeadlines(today, gstRegistrationType, false, 30).find((d) => d.kind === 'gst') ?? null),
+    [today, gstRegistrationType]
+  )
+
+  const tiles: { label: string; value?: number; text?: string }[] = [
     { label: 'Cash in hand', value: data?.cashBalance ?? 0 },
     { label: 'Bank balance', value: data?.bankBalance ?? 0 },
     { label: 'Receivables', value: data?.receivables ?? 0 },
@@ -53,6 +65,7 @@ export function Gateway(): React.JSX.Element {
     { label: 'Sales this month', value: data?.monthSales ?? 0 },
     { label: 'GST payable', value: data?.gstPayable ?? 0 }
   ]
+  if (nearestGst) tiles.push({ label: 'Next GST due', text: deadlineCountdown(nearestGst, today) })
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -60,15 +73,15 @@ export function Gateway(): React.JSX.Element {
         {tiles.map((t) => (
           <Panel key={t.label} className="px-4 py-3">
             <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">{t.label}</p>
-            <p className="num mt-1.5 text-[16px] font-medium">
-              <Money paise={t.value} />
+            <p className={`mt-1.5 text-[16px] font-medium ${t.text ? '' : 'num'}`}>
+              {t.text ?? <Money paise={t.value ?? 0} />}
             </p>
           </Panel>
         ))}
       </div>
 
       <DueTodayPanel />
-      <CompliancePanel />
+      <CompliancePanel hasEmployees={data?.hasEmployees ?? false} />
 
       <div className="mt-6 grid grid-cols-3 gap-3">
         {cards.map((c) => (
@@ -86,6 +99,14 @@ export function Gateway(): React.JSX.Element {
             <p className="mt-1 text-[12px] text-muted">{c.sub}</p>
           </button>
         ))}
+      </div>
+
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-3">
+          <TopLedgersPanel title="Top receivables" rows={data?.topReceivables ?? []} />
+          <TopLedgersPanel title="Top payables" rows={data?.topPayables ?? []} />
+        </div>
+        <CashSparklinePanel points={data?.cashSpark ?? []} />
       </div>
 
       {data && data.recentVouchers.length > 0 && (
@@ -185,35 +206,44 @@ function DueTodayPanel(): React.JSX.Element | null {
   )
 }
 
+/** "GSTR-3B in 5 days" / "GSTR-1 tomorrow" / "GSTR-3B due today". */
+function deadlineCountdown(d: Deadline, today: string): string {
+  const days = Math.round(
+    (new Date(d.date + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000
+  )
+  if (days <= 0) return `${d.form} due today`
+  if (days === 1) return `${d.form} tomorrow`
+  return `${d.form} in ${days} days`
+}
+
 /** Fires once per app session (not per Gateway mount/remount) — a module-level flag rather than
  *  component state, so navigating away and back to the Gateway doesn't re-notify. */
 let notifiedThisSession = false
 
-function CompliancePanel(): React.JSX.Element | null {
+function CompliancePanel({ hasEmployees }: { hasEmployees: boolean }): React.JSX.Element | null {
   const nav = useNav()
   const { info } = useSession()
-  const features = useFeatures()
   const today = todayISO()
   const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
 
   const deadlines = useMemo(
-    () => upcomingDeadlines(today, gstRegistrationType, features.payroll, 30),
-    [today, gstRegistrationType, features.payroll]
+    () => upcomingDeadlines(today, gstRegistrationType, hasEmployees, 30),
+    [today, gstRegistrationType, hasEmployees]
   )
 
   useEffect(() => {
     if (notifiedThisSession || !info) return
     notifiedThisSession = true
-    const soon = upcomingDeadlines(today, gstRegistrationType, features.payroll, 3)
+    const soon = upcomingDeadlines(today, gstRegistrationType, hasEmployees, 3)
     if (soon.length) {
       void api.app.notifyDeadlines(
         soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` }))
       )
     }
     // Deliberately no dependency-driven re-fire: the module flag above is the real guard, this
-    // effect just needs to run once `info` is available so gstRegistrationType is known.
+    // effect just needs to run once `info` (and the dashboard's `hasEmployees`) are available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info])
+  }, [info, hasEmployees])
 
   if (!deadlines.length) return null
 
@@ -234,6 +264,70 @@ function CompliancePanel(): React.JSX.Element | null {
           </div>
         ))}
       </div>
+    </Panel>
+  )
+}
+
+/** Shared by "Top receivables" / "Top payables" — rows navigate straight to the ledger's statement. */
+function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] }): React.JSX.Element {
+  const nav = useNav()
+  return (
+    <Panel className="flex-1">
+      <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+        {title}
+      </p>
+      {rows.length === 0 ? (
+        <p className="px-5 py-6 text-center text-[12.5px] text-muted">Nothing outstanding</p>
+      ) : (
+        <div>
+          {rows.map((r) => (
+            <button
+              key={r.ledgerId}
+              onClick={() => nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })}
+              className="flex w-full items-center gap-3 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2"
+            >
+              <span className="flex-1 truncate text-[13px]">{r.name}</span>
+              <Money paise={r.amount} className="text-[13px]" />
+            </button>
+          ))}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+/** Inline SVG polyline — no chart library. `viewBox` is normalized to the point count so the
+ *  path always fills the panel regardless of how many trailing days actually had data. */
+function CashSparklinePanel({ points }: { points: CashSparkPoint[] }): React.JSX.Element {
+  const w = 100
+  const h = 32
+  const values = points.map((p) => p.balance)
+  const min = Math.min(0, ...values)
+  const max = Math.max(0, ...values)
+  const range = max - min || 1
+  const coords = points
+    .map((p, i) => {
+      const x = points.length > 1 ? (i / (points.length - 1)) * w : 0
+      const y = h - ((p.balance - min) / range) * h
+      return `${x.toFixed(2)},${y.toFixed(2)}`
+    })
+    .join(' ')
+  const last = points[points.length - 1]
+
+  return (
+    <Panel className="flex flex-1 flex-col p-5">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Cash + bank · 30 days</p>
+        {last && <Money paise={last.balance} className="text-[13px]" />}
+      </div>
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        preserveAspectRatio="none"
+        className="mt-4 h-24 w-full flex-1 text-blue"
+        aria-hidden="true"
+      >
+        <polyline points={coords} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      </svg>
     </Panel>
   )
 }
