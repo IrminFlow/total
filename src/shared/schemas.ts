@@ -136,6 +136,10 @@ export const inventoryLineSchema = z.object({
   godownId: id.nullable().default(null),
   qtyMilli: z.number().int().positive(),
   ratePaise: paise.min(0),
+  /** Per-line trade discount (lane Q #97): display + gross math only — `amount` is already the
+   *  post-discount taxable value, so GST is unaffected by construction. Optional (treated as 0)
+   *  so existing callers that never heard of discounts keep compiling and working. */
+  discountPaise: paise.min(0).optional(),
   amount: paise.min(0),
   direction: z.enum(['in', 'out'])
 })
@@ -491,7 +495,9 @@ export const reportPdfSchema = z.object({
   columns: z.array(reportColumnSchema).min(1).max(20),
   rows: z.array(reportRowSchema).max(5000),
   footNote: z.string().max(500).optional(),
-  filename: exportFilename
+  filename: exportFilename,
+  /** Landscape orientation for wide reports (lane Q #95). */
+  landscape: z.boolean().default(false)
 })
 export type ReportPdfInput = z.infer<typeof reportPdfSchema>
 

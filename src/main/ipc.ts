@@ -753,6 +753,16 @@ export function registerIpc(): void {
     shell.openPath(path)
     return { path }
   })
+  // ---------- batch invoice printing (lane Q, task Q2 #98) ----------
+  handle('invoice:pdfBatch', async (p) => {
+    const { voucherIds } = invoicePdfBatchSchema.parse(p)
+    const c = requireCompany()
+    const r = await invoice.invoicePdfBatch(c.db, c.info, c.slug, voucherIds)
+    auditExport(c.db, 'invoice_pdf_batch', { count: r.paths.length, dir: r.dir })
+    shell.showItemInFolder(r.paths[0] ?? r.dir)
+    return r
+  })
+
   handle('invoice:previewHtml', (p) => {
     const { voucherId, config } = z
       .object({ voucherId: z.number().int().positive().optional(), config: invoiceConfigPartialSchema.optional() })
@@ -893,10 +903,10 @@ export function registerIpc(): void {
 
   // ---------- report print/export (task 3.6) ----------
   handle('report:pdf', async (p) => {
-    const { title, periodLabel, columns, rows, footNote, filename } = reportPdfSchema.parse(p)
+    const { title, periodLabel, columns, rows, footNote, filename, landscape } = reportPdfSchema.parse(p)
     const c = requireCompany()
     const html = reportHtml({ title, company: c.info, periodLabel, columns, rows, footNote })
-    const path = await writeExportPdf(c.slug, `${filename}.pdf`, html, { pageSize: 'A4' })
+    const path = await writeExportPdf(c.slug, `${filename}.pdf`, html, { pageSize: 'A4', landscape, pageNumbers: true })
     auditExport(c.db, 'report_pdf', { filename, path })
     return { path }
   }, 'viewer')

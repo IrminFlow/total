@@ -194,6 +194,8 @@ export interface ReportPdfInput {
   rows: ReportRow[]
   footNote?: string
   filename: string
+  /** Landscape orientation for wide reports (lane Q #95); defaults to portrait. */
+  landscape?: boolean
 }
 
 /** Mirrors src/main/services/tallyImport.ts's ImportSummary shape (kept local — main-process only). */
@@ -384,6 +386,7 @@ export const api = {
   },
   invoice: {
     pdf: (voucherId: number) => call<{ path: string }>('invoice:pdf', { voucherId }),
+    pdfBatch: (voucherIds: number[]) => call<{ dir: string; paths: string[] }>('invoice:pdfBatch', { voucherIds }),
     previewHtml: (voucherId?: number, config?: Partial<InvoiceConfig>) =>
       call<{ html: string }>('invoice:previewHtml', { voucherId, config })
   },

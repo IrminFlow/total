@@ -61,8 +61,8 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     .prepare('SELECT id, ledger_id, dr_cr, amount, bank_date FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as { id: number; ledger_id: number; dr_cr: 'dr' | 'cr'; amount: number; bank_date: string | null }[]
   const inventory = db
-    .prepare('SELECT id, stock_item_id, godown_id, qty_milli, rate_paise, amount, direction FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
-    .all(id) as { id: number; stock_item_id: number; godown_id: number | null; qty_milli: number; rate_paise: number; amount: number; direction: 'in' | 'out' }[]
+    .prepare('SELECT id, stock_item_id, godown_id, qty_milli, rate_paise, discount_paise, amount, direction FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
+    .all(id) as { id: number; stock_item_id: number; godown_id: number | null; qty_milli: number; rate_paise: number; discount_paise: number; amount: number; direction: 'in' | 'out' }[]
 
   const costAllocRows = lines.length
     ? (db
@@ -119,7 +119,8 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     inventory: inventory.map(
       (l): InventoryLine => ({
         id: l.id, stockItemId: l.stock_item_id, godownId: l.godown_id,
-        qtyMilli: l.qty_milli, ratePaise: l.rate_paise, amount: l.amount, direction: l.direction
+        qtyMilli: l.qty_milli, ratePaise: l.rate_paise, discountPaise: l.discount_paise,
+        amount: l.amount, direction: l.direction
       })
     ),
     billRefs: billRefRows.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.due_date })),
@@ -258,11 +259,11 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
     })
 
     const insertInv = db.prepare(
-      `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, qty_milli, rate_paise, amount, direction, line_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, qty_milli, rate_paise, discount_paise, amount, direction, line_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     input.inventory.forEach((l, i) =>
-      insertInv.run(voucherId, l.stockItemId, l.godownId, l.qtyMilli, l.ratePaise, l.amount, l.direction, i)
+      insertInv.run(voucherId, l.stockItemId, l.godownId, l.qtyMilli, l.ratePaise, l.discountPaise ?? 0, l.amount, l.direction, i)
     )
 
     // Bill refs and TDS ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade
