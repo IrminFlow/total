@@ -254,6 +254,13 @@ export const auditListSchema = z.object({
 })
 export type AuditListInput = z.infer<typeof auditListSchema>
 
+/** search:global input — ⌘K global search query (min 1 so an empty string is rejected outright;
+ *  the palette itself gates the IPC call to 2+ chars). */
+export const searchGlobalSchema = z.object({
+  q: z.string().trim().min(1).max(80)
+})
+export type SearchGlobalInput = z.infer<typeof searchGlobalSchema>
+
 /** users:save input — pin is digits-only, 4-12 long; required on create, optional on update
  *  (an update without a pin keeps the existing hash). Role requests are honored except for the
  *  very first user of a company, which the service always forces to 'owner'. */
