@@ -61,6 +61,37 @@ jobs:
           name: smoke-shots
           path: ${{ runner.temp }}/smoke
 
+  # Full UI E2E suite (scripts/e2e/*.mjs via npm run e2e) against the built app. Push-to-main
+  # only — it's the slowest job, and PRs already get the smoke-mac coverage above.
+  e2e-mac:
+    if: github.event_name == 'push'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: E2E scenarios
+        run: npm run e2e
+        env:
+          SMOKE_OUT: ${{ runner.temp }}/e2e
+
+      - name: Upload E2E screenshots + results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-shots
+          path: ${{ runner.temp }}/e2e
+
   build-win:
     runs-on: windows-latest
     steps:
