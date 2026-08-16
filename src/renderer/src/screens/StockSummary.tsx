@@ -1,10 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useSession } from '../state/stores'
-import { EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { useSession, useToasts } from '../state/stores'
+import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
+import { csvReport, printReport } from '../lib/reportExport'
+import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
+import { formatPaise } from '@shared/money'
 
 function fmtQty(qtyMilli: number, decimals: number): string {
   return (qtyMilli / 1000).toFixed(decimals)
@@ -19,9 +22,41 @@ const COLUMNS: ReportColumn[] = [
 
 export function StockSummaryScreen(): React.JSX.Element {
   const { to } = useSession()
+  const toast = useToasts()
   const { data } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.reports.stockSummary(to) })
   const rows = data ?? []
   const { visible, toggle } = useReportConfig('stock-summary', COLUMNS)
+
+  const exportColumns: PdfColumn[] = [
+    { label: 'Item', align: 'l' },
+    ...(visible.inwards ? [{ label: 'Inwards', align: 'r' as const }] : []),
+    ...(visible.outwards ? [{ label: 'Outwards', align: 'r' as const }] : []),
+    ...(visible.closingQty ? [{ label: 'Closing qty', align: 'r' as const }] : []),
+    ...(visible.closingValue ? [{ label: 'Closing value', align: 'r' as const }] : [])
+  ]
+  const exportRows: PdfRow[] = [
+    ...rows.map((r) => ({
+      cells: [
+        r.name,
+        ...(visible.inwards ? [`${fmtQty(r.inwardQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
+        ...(visible.outwards ? [`${fmtQty(r.outwardQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
+        ...(visible.closingQty ? [`${fmtQty(r.closingQtyMilli, r.decimals)} ${r.unitSymbol}`] : []),
+        ...(visible.closingValue ? [formatPaise(r.closingValue, { zeroDash: true })] : [])
+      ]
+    })),
+    {
+      cells: [
+        'Total',
+        ...(visible.inwards ? [''] : []),
+        ...(visible.outwards ? [''] : []),
+        ...(visible.closingQty ? [''] : []),
+        ...(visible.closingValue ? [formatPaise(rows.reduce((s, r) => s + r.closingValue, 0), { zeroDash: true })] : [])
+      ],
+      bold: true,
+      rule: true
+    }
+  ]
+  const periodLabel = `as on ${toDisplayDate(to)}`
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -30,6 +65,22 @@ export function StockSummaryScreen(): React.JSX.Element {
           <div className="flex items-center gap-2">
             <span className="num text-[12px] text-muted">as on {toDisplayDate(to)}</span>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void printReport({ title: 'Stock summary', periodLabel, columns: exportColumns, rows: exportRows }, toast)
+              }
+            >
+              PDF
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'stock-summary', toast)
+              }
+            >
+              CSV
+            </Button>
           </div>
         }
       >

@@ -1,22 +1,71 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useSession } from '../state/stores'
-import { Money, Panel, SectionTitle } from '../components/ui'
+import { useSession, useToasts } from '../state/stores'
+import { Button, Money, Panel, SectionTitle } from '../components/ui'
 import { StatementTree } from '../components/StatementTree'
+import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
+import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
+import { formatPaise } from '@shared/money'
+
+const EXPORT_COLUMNS: PdfColumn[] = [
+  { label: 'Particulars', align: 'l' },
+  { label: 'Amount', align: 'r' }
+]
 
 export function ProfitLossScreen(): React.JSX.Element {
   const { from, to } = useSession()
+  const toast = useToasts()
   const { data } = useQuery({ queryKey: ['pnl', from, to], queryFn: () => api.reports.profitLoss(from, to) })
   if (!data) return <p className="text-muted">Loading…</p>
+
+  const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
+  const flat = (label: string, paise: number): PdfRow => ({ cells: [label, formatPaise(paise, { zeroDash: true })], bold: true })
+  const exportRows: PdfRow[] = [
+    { cells: ['Expenses', ''], bold: true },
+    ...(data.openingStock !== 0 ? [flat('Opening stock', data.openingStock)] : []),
+    ...flattenNodes(data.tradingExpenses, 1),
+    ...(data.grossProfit > 0 ? [flat('Gross profit c/o', data.grossProfit)] : []),
+    ...flattenNodes(data.indirectExpenses, 1),
+    ...(data.netProfit > 0 ? [flat('Net profit', data.netProfit)] : []),
+    { cells: ['Incomes', ''], bold: true },
+    ...flattenNodes(data.tradingIncomes, 1),
+    ...(data.closingStock !== 0 ? [flat('Closing stock', data.closingStock)] : []),
+    ...(data.grossProfit < 0 ? [flat('Gross loss c/o', -data.grossProfit)] : []),
+    ...flattenNodes(data.indirectIncomes, 1),
+    ...(data.grossProfit > 0 ? [flat('Gross profit b/f', data.grossProfit)] : []),
+    ...(data.netProfit < 0 ? [flat('Net loss', -data.netProfit)] : []),
+    {
+      cells: [
+        data.netProfit >= 0 ? 'Net profit for the period' : 'Net loss for the period',
+        formatPaise(Math.abs(data.netProfit), { zeroDash: true })
+      ],
+      bold: true,
+      rule: true
+    }
+  ]
 
   return (
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <span className="num text-[12px] text-muted">
-            {toDisplayDate(from)} → {toDisplayDate(to)}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="num text-[12px] text-muted">{periodLabel}</span>
+            <Button
+              variant="ghost"
+              onClick={() => void printReport({ title: 'Profit & Loss', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
+            >
+              PDF
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'profit-loss', toast)
+              }
+            >
+              CSV
+            </Button>
+          </div>
         }
       >
         Profit &amp; Loss

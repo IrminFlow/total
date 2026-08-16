@@ -1,5 +1,5 @@
 import { app, dialog, ipcMain, shell } from 'electron'
-import { readFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
@@ -16,8 +16,8 @@ import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
-  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
-  isoDate, ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema,
+  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
+  isoDate, ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
   stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
@@ -44,6 +44,8 @@ import { importTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
 import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
+import { writeExportPdf } from './services/pdf'
+import { reportHtml } from './services/reportHtml'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
 import { roleAllows, type Role } from './services/roles'
@@ -811,6 +813,22 @@ export function registerIpc(): void {
     await backupCompany(c.db, c.slug, 'pre-tally-import')
     return importTallyXml(c.db, xml)
   })
+
+  // ---------- report print/export (task 3.6) ----------
+  handle('report:pdf', async (p) => {
+    const { title, periodLabel, columns, rows, footNote, filename } = reportPdfSchema.parse(p)
+    const c = requireCompany()
+    const html = reportHtml({ title, company: c.info, periodLabel, columns, rows, footNote })
+    const path = await writeExportPdf(c.slug, `${filename}.pdf`, html, { pageSize: 'A4' })
+    return { path }
+  }, 'viewer')
+  handle('export:csv', (p) => {
+    const { filename, csv } = exportCsvSchema.parse(p)
+    const c = requireCompany()
+    const path = join(companyExportsDir(c.slug), `${filename}.csv`)
+    writeFileSync(path, csv, 'utf8')
+    return { path }
+  }, 'viewer')
 
   // ---------- CA export pack + Tally XML export ----------
   handle('export:caPack', (p) => {
