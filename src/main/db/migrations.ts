@@ -369,5 +369,49 @@ export const MIGRATIONS: string[] = [
     amount INTEGER NOT NULL,
     CHECK ((ledger_id IS NULL) <> (group_id IS NULL))
   );
+  `,
+  // 014 — inventory depth (lane I, v0.3): per-item valuation method (FIFO vs perpetual weighted
+  // average, consumed by src/shared/valuation.ts), batches with mfg/expiry, physical-stock
+  // absolute lines (is_absolute=1: qty_milli is the counted closing quantity), price levels with
+  // date-effective per-item rates, party credit limits, godown addresses, and post-dated /
+  // optional (memorandum) voucher flags. Number pre-assigned by the v0.3 migration ledger.
+  `
+  ALTER TABLE stock_items ADD COLUMN valuation_method TEXT NOT NULL DEFAULT 'weighted_avg'
+    CHECK (valuation_method IN ('weighted_avg','fifo'));
+
+  CREATE TABLE batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    name TEXT NOT NULL,
+    mfg_date TEXT,
+    expiry_date TEXT,
+    UNIQUE (stock_item_id, name)
+  );
+
+  ALTER TABLE inventory_lines ADD COLUMN batch_id INTEGER REFERENCES batches(id);
+  ALTER TABLE inventory_lines ADD COLUMN is_absolute INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX idx_inv_batch ON inventory_lines(batch_id) WHERE batch_id IS NOT NULL;
+
+  CREATE TABLE price_levels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+  );
+
+  CREATE TABLE price_list_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    price_level_id INTEGER NOT NULL REFERENCES price_levels(id) ON DELETE CASCADE,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    rate INTEGER NOT NULL,
+    effective_from TEXT NOT NULL,
+    UNIQUE (price_level_id, stock_item_id, effective_from)
+  );
+
+  ALTER TABLE ledgers ADD COLUMN price_level_id INTEGER REFERENCES price_levels(id);
+  ALTER TABLE ledgers ADD COLUMN credit_limit INTEGER;
+
+  ALTER TABLE godowns ADD COLUMN address TEXT;
+
+  ALTER TABLE vouchers ADD COLUMN post_dated INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE vouchers ADD COLUMN is_optional INTEGER NOT NULL DEFAULT 0;
   `
 ]

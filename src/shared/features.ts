@@ -12,6 +12,12 @@ export interface CompanyFeatures {
   tds: boolean
   multiCurrency: boolean
   payroll: boolean
+  /** Turn negative-stock save warnings into hard blocks. */
+  preventNegativeStock: boolean
+  /** Batch/lot tracking on inventory lines. */
+  batches: boolean
+  /** Turn credit-limit save warnings into hard blocks. */
+  enforceCreditLimit: boolean
 }
 
 export const DEFAULT_FEATURES: CompanyFeatures = {
@@ -20,7 +26,10 @@ export const DEFAULT_FEATURES: CompanyFeatures = {
   costCentres: true,
   tds: true,
   multiCurrency: true,
-  payroll: true
+  payroll: true,
+  preventNegativeStock: false,
+  batches: false,
+  enforceCreditLimit: false
 }
 
 export const featuresSchema = z.object({
@@ -29,7 +38,10 @@ export const featuresSchema = z.object({
   costCentres: z.boolean(),
   tds: z.boolean(),
   multiCurrency: z.boolean(),
-  payroll: z.boolean()
+  payroll: z.boolean(),
+  preventNegativeStock: z.boolean(),
+  batches: z.boolean(),
+  enforceCreditLimit: z.boolean()
 })
 
 /**

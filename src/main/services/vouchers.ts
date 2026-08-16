@@ -1,10 +1,13 @@
 import type { DB } from '../db/connection'
-import type { Voucher, VoucherLine, InventoryLine, VoucherType } from '@shared/domain'
+import type {
+  Voucher, VoucherLine, InventoryLine, VoucherType, NegativeStockWarning, SaveVoucherWarnings
+} from '@shared/domain'
 import type { VoucherInputParsed } from '@shared/schemas'
 import type { VoucherListRow } from '@shared/reports'
 import { validateVoucher, type LedgerFacts } from '@shared/posting'
 import { fyOf } from '@shared/dates'
 import { cashBankGroupIds } from './masters'
+import { getFeatures } from './config'
 import { writeAudit } from './audit'
 
 interface VoucherRow {
@@ -15,12 +18,23 @@ interface VoucherRow {
   currency_code: string | null; exchange_rate: number | null
   irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null
   ewb_no: string | null; ewb_valid_upto: string | null
+  post_dated: number; is_optional: number
   deleted_at: string | null
   created_at: string; updated_at: string
 }
 
 /** Greppable filter for every query joining `vouchers` as `v` that must exclude binned vouchers. */
 export const NOT_DELETED = 'v.deleted_at IS NULL'
+
+/** Post-dated vouchers stay out of the books until they mature (maturePostDated flips the flag). */
+export const NOT_POSTDATED = 'v.post_dated = 0'
+
+/** Optional (memorandum) vouchers never count toward the books. */
+export const NOT_OPTIONAL = 'v.is_optional = 0'
+
+/** Composite filter: the voucher counts toward the books — not binned, not post-dated, not
+ *  optional. New report queries should use this instead of NOT_DELETED alone. */
+export const IN_BOOKS = `${NOT_DELETED} AND ${NOT_POSTDATED} AND ${NOT_OPTIONAL}`
 
 /** Books-locked-up-to date (inclusive): vouchers dated on or before this date can't be
  *  saved/deleted/restored. Stored in `meta` under key 'lock_before'; null/absent = no lock. */
@@ -61,8 +75,11 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     .prepare('SELECT id, ledger_id, dr_cr, amount, bank_date FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as { id: number; ledger_id: number; dr_cr: 'dr' | 'cr'; amount: number; bank_date: string | null }[]
   const inventory = db
-    .prepare('SELECT id, stock_item_id, godown_id, qty_milli, rate_paise, amount, direction FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
-    .all(id) as { id: number; stock_item_id: number; godown_id: number | null; qty_milli: number; rate_paise: number; amount: number; direction: 'in' | 'out' }[]
+    .prepare('SELECT id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, amount, direction, is_absolute FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
+    .all(id) as {
+      id: number; stock_item_id: number; godown_id: number | null; batch_id: number | null
+      qty_milli: number; rate_paise: number; amount: number; direction: 'in' | 'out'; is_absolute: number
+    }[]
 
   const costAllocRows = lines.length
     ? (db
@@ -107,6 +124,8 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     irnAckDate: v.irn_ack_date,
     ewbNo: v.ewb_no,
     ewbValidUpto: v.ewb_valid_upto,
+    postDated: !!v.post_dated,
+    isOptional: !!v.is_optional,
     deletedAt: v.deleted_at,
     createdAt: v.created_at,
     updatedAt: v.updated_at,
@@ -118,8 +137,9 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     ),
     inventory: inventory.map(
       (l): InventoryLine => ({
-        id: l.id, stockItemId: l.stock_item_id, godownId: l.godown_id,
-        qtyMilli: l.qty_milli, ratePaise: l.rate_paise, amount: l.amount, direction: l.direction
+        id: l.id, stockItemId: l.stock_item_id, godownId: l.godown_id, batchId: l.batch_id,
+        qtyMilli: l.qty_milli, ratePaise: l.rate_paise, amount: l.amount, direction: l.direction,
+        isAbsolute: !!l.is_absolute
       })
     ),
     billRefs: billRefRows.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.due_date })),
@@ -197,7 +217,47 @@ function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
   }
 }
 
-export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: number): Voucher {
+/**
+ * Closing quantity walk for the given stock items as of `date` (opening + chronological
+ * movements; physical-stock absolute lines pin the quantity). Returns a row per item whose
+ * closing quantity is negative. Used for the negative-stock save warning and by the
+ * Exceptions report (stockAnalysis.negativeStock).
+ */
+export function checkStock(db: DB, stockItemIds: number[], date: string): NegativeStockWarning[] {
+  if (stockItemIds.length === 0) return []
+  const placeholders = stockItemIds.map(() => '?').join(',')
+  const items = db
+    .prepare(
+      `SELECT si.id, si.name, si.opening_qty_milli AS openingQtyMilli, u.symbol AS unitSymbol
+       FROM stock_items si JOIN units u ON u.id = si.unit_id WHERE si.id IN (${placeholders})`
+    )
+    .all(...stockItemIds) as { id: number; name: string; openingQtyMilli: number; unitSymbol: string }[]
+  const movementsStmt = db.prepare(
+    `SELECT il.qty_milli AS qtyMilli, il.direction, il.is_absolute AS isAbsolute
+     FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
+     WHERE il.stock_item_id = ? AND v.date <= ? AND ${IN_BOOKS}
+     ORDER BY v.date, v.id, il.line_order, il.id`
+  )
+  const warnings: NegativeStockWarning[] = []
+  for (const item of items) {
+    let qty = item.openingQtyMilli
+    const moves = movementsStmt.all(item.id, date) as { qtyMilli: number; direction: 'in' | 'out'; isAbsolute: number }[]
+    for (const m of moves) {
+      if (m.isAbsolute) qty = m.qtyMilli
+      else qty += m.direction === 'in' ? m.qtyMilli : -m.qtyMilli
+    }
+    if (qty < 0) {
+      warnings.push({ stockItemId: item.id, name: item.name, unitSymbol: item.unitSymbol, closingQtyMilli: qty })
+    }
+  }
+  return warnings
+}
+
+/** The saved voucher plus any non-blocking warnings — additive over Voucher, so existing
+ *  callers that expect a plain Voucher keep working. */
+export type SaveVoucherResult = Voucher & { warnings: SaveVoucherWarnings }
+
+export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: number): SaveVoucherResult {
   const vt = getVoucherType(db, input.voucherTypeId)
   const errors = validateVoucher(input, vt.kind, ledgerFactsResolver(db))
   if (errors.length) {
@@ -217,6 +277,8 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
   if (lock && (input.date <= lock || (before && before.date <= lock))) {
     throw new Error(`Books are locked up to ${lock}`)
   }
+
+  const warnings: SaveVoucherWarnings = { negativeStock: [], creditLimitExceeded: null }
 
   const run = db.transaction((): number => {
     let voucherId: number
@@ -258,11 +320,12 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
     })
 
     const insertInv = db.prepare(
-      `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, qty_milli, rate_paise, amount, direction, line_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, amount, direction, is_absolute, line_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     input.inventory.forEach((l, i) =>
-      insertInv.run(voucherId, l.stockItemId, l.godownId, l.qtyMilli, l.ratePaise, l.amount, l.direction, i)
+      insertInv.run(voucherId, l.stockItemId, l.godownId, l.batchId ?? null, l.qtyMilli, l.ratePaise, l.amount,
+        l.direction, l.isAbsolute ? 1 : 0, i)
     )
 
     // Bill refs and TDS ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade
@@ -288,13 +351,27 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
       ).run(voucherId, input.tds.sectionId, input.partyLedgerId, party?.pan ?? null, input.tds.baseAmount, input.tds.tdsAmount)
     }
 
+    // ---- post-save checks (lane I): run INSIDE the transaction so a hard block rolls the
+    // whole save back; soft failures just ride out as warnings on the response. ----
+    const features = getFeatures(db)
+
+    // Negative stock — only items this voucher takes out (or recounts) can go negative.
+    const outItemIds = [...new Set(
+      input.inventory.filter((l) => l.direction === 'out' && !l.isAbsolute).map((l) => l.stockItemId)
+    )]
+    warnings.negativeStock = checkStock(db, outItemIds, input.date)
+    if (features.preventNegativeStock && warnings.negativeStock.length > 0) {
+      const names = warnings.negativeStock.map((w) => w.name).join(', ')
+      throw new Error(`Insufficient stock for: ${names}`)
+    }
+
     return voucherId
   })
 
   const voucherId = run()
   const after = getVoucher(db, voucherId)!
   writeAudit(db, 'voucher', voucherId, existingId ? 'update' : 'create', before, after)
-  return after
+  return { ...after, warnings }
 }
 
 /** Move a voucher to the bin (soft delete). Report queries exclude it; restoreVoucher undoes this. */

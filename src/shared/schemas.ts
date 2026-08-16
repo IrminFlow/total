@@ -97,12 +97,15 @@ export const stockItemInputSchema = z.object({
     .max(64)
     .nullable()
     .default(null)
-    .transform((s) => (s === '' ? null : s))
+    .transform((s) => (s === '' ? null : s)),
+  /** Absent = keep existing (update) / 'weighted_avg' (create). */
+  valuationMethod: z.enum(['weighted_avg', 'fifo']).optional()
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
 
 export const godownInputSchema = z.object({
-  name: z.string().trim().min(1).max(120)
+  name: z.string().trim().min(1).max(120),
+  address: z.string().trim().max(500).nullable().optional()
 })
 export type GodownInput = z.infer<typeof godownInputSchema>
 
@@ -131,14 +134,23 @@ export const tdsSchema = z.object({
   tdsAmount: positivePaise
 })
 
-export const inventoryLineSchema = z.object({
-  stockItemId: id,
-  godownId: id.nullable().default(null),
-  qtyMilli: z.number().int().positive(),
-  ratePaise: paise.min(0),
-  amount: paise.min(0),
-  direction: z.enum(['in', 'out'])
-})
+export const inventoryLineSchema = z
+  .object({
+    stockItemId: id,
+    godownId: id.nullable().default(null),
+    /** Batch this quantity moves in/out of (F11 `batches`); null = untracked. */
+    batchId: id.nullable().optional(),
+    qtyMilli: z.number().int().min(0),
+    ratePaise: paise.min(0),
+    amount: paise.min(0),
+    direction: z.enum(['in', 'out']),
+    /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
+    isAbsolute: z.boolean().optional()
+  })
+  .refine((l) => l.isAbsolute || l.qtyMilli > 0, {
+    message: 'Inventory quantity must be positive',
+    path: ['qtyMilli']
+  })
 
 export const voucherInputSchema = z.object({
   voucherTypeId: id,
@@ -497,3 +509,34 @@ export const tallyImportSchema = z
   })
   .default({})
 export type TallyImportInput = z.infer<typeof tallyImportSchema>
+
+// ---------- inventory depth (lane I): batches, price levels, stock analysis ----------
+
+export const batchInputSchema = z.object({
+  stockItemId: id,
+  name: z.string().trim().min(1).max(60),
+  mfgDate: isoDate.nullable().default(null),
+  expiryDate: isoDate.nullable().default(null)
+})
+export type BatchInput = z.infer<typeof batchInputSchema>
+
+export const priceLevelInputSchema = z.object({
+  name: z.string().trim().min(1).max(60)
+})
+export type PriceLevelInput = z.infer<typeof priceLevelInputSchema>
+
+/** One date-effective per-item rate under a price level. `rate` is paise per whole unit. */
+export const priceRateInputSchema = z.object({
+  priceLevelId: id,
+  stockItemId: id,
+  rate: paise.min(0),
+  effectiveFrom: isoDate
+})
+export type PriceRateInput = z.infer<typeof priceRateInputSchema>
+
+/** stock:* report queries — asOn plus optional godown scope. */
+export const stockQuerySchema = z.object({
+  asOn: isoDate,
+  godownId: id.optional()
+})
+export type StockQueryInput = z.infer<typeof stockQuerySchema>
