@@ -18,8 +18,8 @@ import {
   backupFileSchema, bankRuleInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema,
-  stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
-  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
+  searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema,
+  tdsSuggestSchema, tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
@@ -44,6 +44,7 @@ import { importTallyXml } from './services/tallyImport'
 import * as importer from './services/importers'
 import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
+import { globalSearch } from './services/search'
 import { setAuditContext, writeAudit, listAudit } from './services/audit'
 import * as users from './services/users'
 import { roleAllows, type Role } from './services/roles'
@@ -421,6 +422,9 @@ export function registerIpc(): void {
   handle('master:stockItems:delete', (p) => masters.deleteStockItem(requireCompany().db, idSchema.parse(p).id))
   handle('master:godowns:list', () => masters.listGodowns(requireCompany().db), 'viewer')
   handle('master:godowns:create', (p) => masters.createGodown(requireCompany().db, godownInputSchema.parse(p)))
+
+  // ---------- search ----------
+  handle('search:global', (p) => globalSearch(requireCompany().db, searchGlobalSchema.parse(p).q), 'viewer')
 
   // ---------- vouchers ----------
   handle('voucher:list', (p) => {

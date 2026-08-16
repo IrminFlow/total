@@ -17,6 +17,7 @@ import type {
   VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
+import type { SearchHit } from '@shared/search'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { ConsolidatedResult } from '@shared/consolidate'
@@ -429,6 +430,9 @@ export const api = {
   log: {
     renderer: (input: RendererLogInput) => call<null>('log:renderer', input),
     reveal: () => call<null>('log:reveal')
+  },
+  search: {
+    global: (q: string) => call<SearchHit[]>('search:global', { q })
   },
   audit: {
     list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number }>('audit:list', query)
