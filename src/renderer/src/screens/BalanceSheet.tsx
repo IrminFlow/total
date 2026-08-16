@@ -59,7 +59,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
         <Panel className="p-4">
           <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Liabilities</p>
           <StatementTree nodes={data.liabilities} />
-          <div className="mt-2 flex justify-between border-t border-ink px-2 pt-1.5 font-semibold" style={{ borderBottom: '3px double var(--color-ink)' }}>
+          <div className="total-row mt-2 flex justify-between px-2 pt-1.5 pb-0.5">
             <span>Total</span>
             <Money paise={data.totalLiabilities} />
           </div>
@@ -67,7 +67,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
         <Panel className="p-4">
           <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Assets</p>
           <StatementTree nodes={data.assets} />
-          <div className="mt-2 flex justify-between border-t border-ink px-2 pt-1.5 font-semibold" style={{ borderBottom: '3px double var(--color-ink)' }}>
+          <div className="total-row mt-2 flex justify-between px-2 pt-1.5 pb-0.5">
             <span>Total</span>
             <Money paise={data.totalAssets} />
           </div>

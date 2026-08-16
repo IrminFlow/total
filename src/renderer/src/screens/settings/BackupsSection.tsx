@@ -86,7 +86,7 @@ export function BackupsSection(): React.JSX.Element {
       >
         Backups
       </SectionTitle>
-      <Panel>
+      <Panel scroll={{ maxH: '60vh' }}>
         {rows.length === 0 ? (
           <EmptyState title="No backups yet" />
         ) : (

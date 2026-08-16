@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { Button, Money, Panel } from '../components/ui'
+import { Button, Money, Panel, ScrollList } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { useFeatures } from '../lib/useFeatures'
@@ -118,7 +118,7 @@ export function Gateway(): React.JSX.Element {
             <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
               Recent entries
             </p>
-            <div>
+            <ScrollList maxH="20rem">
               {data.recentVouchers.map((v) => (
                 <button
                   key={v.voucherId}
@@ -132,7 +132,7 @@ export function Gateway(): React.JSX.Element {
                   <Money paise={v.debit} className="text-[13px]" />
                 </button>
               ))}
-            </div>
+            </ScrollList>
           </Panel>
         )
       )}
@@ -343,7 +343,7 @@ function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] 
       {rows.length === 0 ? (
         <p className="px-5 py-6 text-center text-[12.5px] text-muted">Nothing outstanding</p>
       ) : (
-        <div>
+        <ScrollList maxH="15rem">
           {rows.map((r) => (
             <button
               key={r.ledgerId}
@@ -354,7 +354,7 @@ function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] 
               <Money paise={r.amount} className="text-[13px]" />
             </button>
           ))}
-        </div>
+        </ScrollList>
       )}
     </Panel>
   )

@@ -167,15 +167,63 @@ export interface ToastState {
   toasts: Toast[]
   push: (kind: Toast['kind'], text: string) => void
   dismiss: (id: number) => void
+  /** Pause auto-dismissal (hovering the toast stack); resume() restarts the remaining time. */
+  pause: () => void
+  resume: () => void
 }
 
 let toastId = 0
-export const useToasts = create<ToastState>((set) => ({
-  toasts: [],
-  push: (kind, text) => {
-    const id = ++toastId
-    set((s) => ({ toasts: [...s.toasts, { id, kind, text }] }))
-    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), kind === 'error' ? 6000 : 3500)
-  },
-  dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
-}))
+/** Per-toast auto-dismiss bookkeeping so hover can pause/resume with the remaining time intact. */
+const toastTimers = new Map<number, { timer: ReturnType<typeof setTimeout>; deadline: number }>()
+let toastRemaining: Map<number, number> | null = null // non-null while paused
+
+export const useToasts = create<ToastState>((set, get) => {
+  const expire = (id: number): void => {
+    toastTimers.delete(id)
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+  }
+  const arm = (id: number, ms: number): void => {
+    toastTimers.set(id, { timer: setTimeout(() => expire(id), ms), deadline: Date.now() + ms })
+  }
+  return {
+    toasts: [],
+    push: (kind, text) => {
+      // Dedupe consecutive identical toasts: just restart the existing one's clock.
+      const last = get().toasts[get().toasts.length - 1]
+      const ttl = kind === 'error' ? 6000 : 3500
+      if (last && last.kind === kind && last.text === text) {
+        const entry = toastTimers.get(last.id)
+        if (entry) clearTimeout(entry.timer)
+        if (toastRemaining) toastRemaining.set(last.id, ttl)
+        else arm(last.id, ttl)
+        return
+      }
+      const id = ++toastId
+      set((s) => ({ toasts: [...s.toasts, { id, kind, text }] }))
+      if (toastRemaining) toastRemaining.set(id, ttl)
+      else arm(id, ttl)
+    },
+    dismiss: (id) => {
+      const entry = toastTimers.get(id)
+      if (entry) clearTimeout(entry.timer)
+      toastTimers.delete(id)
+      toastRemaining?.delete(id)
+      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+    },
+    pause: () => {
+      if (toastRemaining) return
+      toastRemaining = new Map()
+      for (const [id, entry] of toastTimers) {
+        clearTimeout(entry.timer)
+        toastRemaining.set(id, Math.max(500, entry.deadline - Date.now()))
+      }
+      toastTimers.clear()
+    },
+    resume: () => {
+      if (!toastRemaining) return
+      const remaining = toastRemaining
+      toastRemaining = null
+      for (const [id, ms] of remaining) arm(id, ms)
+    }
+  }
+})
