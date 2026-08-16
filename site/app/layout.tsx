@@ -7,7 +7,7 @@ const serif = IBM_Plex_Serif({ subsets: ['latin'], weight: ['600', '700'], varia
 const mono = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-mono' })
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://total-site.vercel.app'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://devjindal.tech'),
   title: 'Total — offline accounting for macOS',
   description:
     'Tally-grade double-entry accounting rebuilt for macOS. GST returns, invoices, stock, banking and payroll — fully offline, in a folder you own.',
