@@ -36,6 +36,10 @@ export const GST_STATES: Record<string, string> = {
   '36': 'Telangana',
   '37': 'Andhra Pradesh',
   '38': 'Ladakh',
+  // 96/97 — non-state codes used for exports: 96 is "Other Country" (foreign buyers,
+  // e-invoice Stcd/Pos for exports), 97 is "Other Territory". The e-way bill system maps
+  // both to its own 99 "Other Country" code — see ewbStateCode in gst/edocs.ts.
+  '96': 'Other Country',
   '97': 'Other Territory'
 }
 

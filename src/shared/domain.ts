@@ -40,6 +40,10 @@ export interface Ledger {
   creditDays: number | null
   /** SEZ/export classification for GST e-invoicing (task 2.8); null for a normal domestic party. */
   exportType: 'sez_wp' | 'sez_wop' | 'exp_wp' | 'exp_wop' | null
+  /** Reverse charge applies to supplies from/to this party (GSTR-1 rchrg, GSTR-3B 3.1(d)). */
+  rcm: boolean
+  /** ITC eligibility class for purchases booked against this party — 'blocked' feeds 3B 4(D). */
+  itcEligibility: 'eligible' | 'blocked' | 'capital_goods' | 'input_services'
   isSystem: boolean
 }
 
@@ -189,6 +193,8 @@ export interface Voucher {
   transporterId: string | null
   vehicleNo: string | null
   transportDistanceKm: number | null
+  /** Place-of-supply override (two-digit state code); null = derive from party/company state. */
+  posOverride: string | null
   /** Foreign-currency invoice: ISO code + base-currency (INR) per unit rate. */
   currencyCode: string | null
   exchangeRate: number | null
@@ -208,6 +214,31 @@ export interface Voucher {
   tds: VoucherTds | null
   createdAt: string
   updatedAt: string
+}
+
+/** Per-voucher transport + ship-to details (voucher_transport row) for e-way bills /
+ *  e-invoices. All fields nullable — the row exists only once the user opens the
+ *  Transport details modal (or an importer writes it). */
+export interface VoucherTransport {
+  voucherId: number
+  /** NIC mode: '1' road, '2' rail, '3' air, '4' ship. */
+  transMode: string | null
+  transDistanceKm: number | null
+  transporterId: string | null
+  transporterName: string | null
+  /** Transport doc (LR/RR/airway bill) — doubles as the shipping bill for exports. */
+  transDocNo: string | null
+  transDocDate: string | null
+  vehicleNo: string | null
+  /** 'R' regular / 'O' over-dimensional cargo. */
+  vehicleType: string | null
+  shipToName: string | null
+  shipToGstin: string | null
+  shipToAddr1: string | null
+  shipToAddr2: string | null
+  shipToPlace: string | null
+  shipToPincode: string | null
+  shipToState: string | null
 }
 
 export interface StockGroup {

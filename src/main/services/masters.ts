@@ -1,5 +1,6 @@
 import type { DB } from '../db/connection'
 import type { Godown, Group, Ledger, StockGroup, StockItem, Unit, VoucherType } from '@shared/domain'
+import { ledgerInputSchema } from '@shared/schemas'
 import type { GroupInput, GodownInput, LedgerInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput } from '@shared/schemas'
 import type { GroupTreeNode, LedgerBalanceRow } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
@@ -21,12 +22,14 @@ interface LedgerRow {
   gstin: string | null; state_code: string | null; address: string | null
   tax_type: Ledger['taxType']; gst_rate: number | null; hsn: string | null; is_system: number
   tds_section_id: number | null; pan: string | null; credit_days: number | null; export_type: Ledger['exportType']
+  rcm: number; itc_eligibility: Ledger['itcEligibility'] | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
   gstin: r.gstin, stateCode: r.state_code, address: r.address,
   taxType: r.tax_type, gstRate: r.gst_rate, hsn: r.hsn, isSystem: !!r.is_system,
-  tdsSectionId: r.tds_section_id, pan: r.pan, creditDays: r.credit_days, exportType: r.export_type
+  tdsSectionId: r.tds_section_id, pan: r.pan, creditDays: r.credit_days, exportType: r.export_type,
+  rcm: !!r.rcm, itcEligibility: r.itc_eligibility ?? 'eligible'
 })
 
 // ---------- groups ----------
@@ -142,29 +145,36 @@ export function getLedger(db: DB, id: number): Ledger | null {
   return row ? mapLedger(row) : null
 }
 
-export function createLedger(db: DB, input: LedgerInput): Ledger {
+export function createLedger(db: DB, raw: LedgerInput): Ledger {
+  // Parse here (not just at the IPC boundary) so direct service callers — tests, importers,
+  // the Tally import — get defaults for later-added fields (rcm/itcEligibility) applied too.
+  const input = ledgerInputSchema.parse(raw)
   const res = db
     .prepare(
       `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, tax_type, gst_rate, hsn,
-        tds_section_id, pan, credit_days, export_type, is_system)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+        tds_section_id, pan, credit_days, export_type, rcm, itc_eligibility, is_system)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType)
+      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+      input.rcm ? 1 : 0, input.itcEligibility)
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
 }
 
-export function updateLedger(db: DB, id: number, input: LedgerInput): Ledger {
+export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
+  const input = ledgerInputSchema.parse(raw)
   const existing = getLedger(db, id)
   if (!existing) throw new Error('Ledger not found')
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
-     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?
+     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
+     rcm = ?, itc_eligibility = ?
      WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType, id)
+    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+    input.rcm ? 1 : 0, input.itcEligibility, id)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
   return updated

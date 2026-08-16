@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
+import { isUqc } from './gst/uqc'
 
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
@@ -64,15 +65,30 @@ export const ledgerInputSchema = z.object({
   tdsSectionId: id.nullable().default(null),
   pan: panSchema,
   creditDays: z.number().int().min(0).max(365).nullable().default(null),
-  exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null)
+  exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null),
+  /** Reverse charge applies to this party's supplies (GSTR-1 rchrg / GSTR-3B 3.1(d)). */
+  rcm: z.boolean().default(false),
+  /** ITC eligibility class for purchases from this party — 'blocked' lands in 3B 4(D). */
+  itcEligibility: z.enum(['eligible', 'blocked', 'capital_goods', 'input_services']).default('eligible')
 })
-export type LedgerInput = z.infer<typeof ledgerInputSchema>
+/** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
+ *  service callers (tests, importers) don't have to spell out every defaulted field. */
+export type LedgerInput = z.input<typeof ledgerInputSchema>
+export type LedgerInputParsed = z.infer<typeof ledgerInputSchema>
 
 export const unitInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
   symbol: z.string().trim().min(1).max(12),
   decimals: z.number().int().min(0).max(3),
-  uqc: z.string().trim().min(2).max(8).transform((s) => s.toUpperCase())
+  // Must be a real portal UQC — anything else is rejected by the GSTR-1/EWB upload tools
+  // (full CBIC enum + alias mapper in src/shared/gst/uqc.ts).
+  uqc: z
+    .string()
+    .trim()
+    .min(2)
+    .max(8)
+    .transform((s) => s.toUpperCase())
+    .refine((s) => isUqc(s), 'Not a valid GST portal UQC code')
 })
 export type UnitInput = z.infer<typeof unitInputSchema>
 
@@ -152,6 +168,8 @@ export const voucherInputSchema = z.object({
   transporterId: z.string().trim().max(20).nullable().default(null),
   vehicleNo: z.string().trim().max(20).nullable().default(null),
   transportDistanceKm: z.number().int().min(0).max(10000).nullable().default(null),
+  /** Place-of-supply override (two-digit state code) for GST returns; null = party/company state. */
+  posOverride: stateCodeSchema.nullable().default(null),
   currencyCode: z.string().trim().length(3).transform((s) => s.toUpperCase()).nullable().default(null),
   exchangeRate: z.number().positive().max(100000).nullable().default(null),
   lines: z.array(voucherLineSchema).max(200),
@@ -160,6 +178,8 @@ export const voucherInputSchema = z.object({
   tds: tdsSchema.nullable().default(null)
 })
 export type VoucherInputParsed = z.infer<typeof voucherInputSchema>
+/** Unparsed shape (defaults optional) — saveVoucher parses internally. */
+export type VoucherInput = z.input<typeof voucherInputSchema>
 
 export const voucherTypeInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -497,3 +517,43 @@ export const tallyImportSchema = z
   })
   .default({})
 export type TallyImportInput = z.infer<typeof tallyImportSchema>
+
+// ---------- GST rebuild (lane G): voucher transport + GSTR-3B manual adjustments ----------
+
+/** edoc:transportSet payload — per-voucher transporter/vehicle/transport-doc + ship-to block
+ *  persisted to voucher_transport (migration 013); consumed by the EWB/e-invoice builders. */
+export const voucherTransportSchema = z.object({
+  transMode: z.enum(['1', '2', '3', '4']).nullable().default(null),
+  transDistanceKm: z.number().int().min(0).max(10000).nullable().default(null),
+  transporterId: z.string().trim().max(20).nullable().default(null),
+  transporterName: z.string().trim().max(120).nullable().default(null),
+  transDocNo: z.string().trim().max(30).nullable().default(null),
+  transDocDate: isoDate.nullable().default(null),
+  vehicleNo: z.string().trim().max(20).nullable().default(null),
+  vehicleType: z.enum(['R', 'O']).nullable().default(null),
+  shipToName: z.string().trim().max(120).nullable().default(null),
+  shipToGstin: gstinSchema.nullable().default(null),
+  shipToAddr1: z.string().trim().max(200).nullable().default(null),
+  shipToAddr2: z.string().trim().max(200).nullable().default(null),
+  shipToPlace: z.string().trim().max(80).nullable().default(null),
+  shipToPincode: z.string().trim().regex(/^\d{6}$/, 'PIN code must be 6 digits').nullable().default(null),
+  shipToState: stateCodeSchema.nullable().default(null)
+})
+export type VoucherTransportInput = z.infer<typeof voucherTransportSchema>
+
+const itcPartSchema = z.object({
+  igst: paise.default(0),
+  cgst: paise.default(0),
+  sgst: paise.default(0),
+  cess: paise.default(0)
+})
+
+/** Manual GSTR-3B adjustments for one period, persisted in meta `gst3b.manual.<MMYYYY>`:
+ *  4(B) ITC reversals, 5.1 interest and late fee. All amounts integer paise. */
+export const gst3bManualSchema = z.object({
+  itcRevRul: itcPartSchema.default({}),
+  itcRevOth: itcPartSchema.default({}),
+  interest: itcPartSchema.default({}),
+  lateFee: z.object({ camt: paise.default(0), samt: paise.default(0) }).default({})
+})
+export type Gst3bManualInput = z.infer<typeof gst3bManualSchema>

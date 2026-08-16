@@ -395,6 +395,8 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
       transporterId: transporterId.trim() || null,
       vehicleNo: vehicleNo.trim().toUpperCase() || null,
       transportDistanceKm: distanceKm.trim() ? Number(distanceKm) : null,
+      // POS override select lands with the Wave-3 "GST details" collapsible (S4).
+      posOverride: null,
       currencyCode: fxActive ? currencyCode : null,
       exchangeRate: fxActive ? fxRate : null,
       lines,
@@ -857,6 +859,7 @@ function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Element {
         transporterId: null,
         vehicleNo: null,
         transportDistanceKm: null,
+        posOverride: null,
         currencyCode: null,
         exchangeRate: null,
         lines: [],
@@ -1278,6 +1281,8 @@ function AccountingEntry({
       transporterId: existing?.transporterId ?? null,
       vehicleNo: existing?.vehicleNo ?? null,
       transportDistanceKm: existing?.transportDistanceKm ?? null,
+      // Preserve an existing override on alteration; the edit UI itself is Wave-3 (S4).
+      posOverride: existing?.posOverride ?? null,
       currencyCode: existing?.currencyCode ?? null,
       exchangeRate: existing?.exchangeRate ?? null,
       lines,

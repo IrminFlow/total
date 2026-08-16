@@ -24,6 +24,30 @@ export interface EdocItem {
   barcode?: string | null
 }
 
+/** Per-voucher transport details (voucher_transport row), consumed by the EWB/e-invoice builders. */
+export interface EdocTransport {
+  /** NIC transport mode: '1' road, '2' rail, '3' air, '4' ship. */
+  mode: string | null
+  docNo: string | null
+  /** ISO date. */
+  docDate: string | null
+  transporterName: string | null
+  /** 'R' regular / 'O' over-dimensional cargo. */
+  vehicleType: string | null
+}
+
+/** Ship-to (Bill To – Ship To) block from voucher_transport. */
+export interface EdocShipTo {
+  name: string | null
+  gstin: string | null
+  addr1: string | null
+  addr2: string | null
+  place: string | null
+  pincode: string | null
+  /** Two-digit state code. */
+  state: string | null
+}
+
 export interface EdocInvoice {
   number: string
   date: string // ISO
@@ -48,6 +72,12 @@ export interface EdocInvoice {
   transporterId: string | null
   vehicleNo: string | null
   distanceKm: number | null
+  /** Extended transport details (voucher_transport); null when never captured. */
+  transport?: EdocTransport | null
+  /** Ship-to block when goods go somewhere other than the buyer's billing address. */
+  shipTo?: EdocShipTo | null
+  /** Original invoice (RefDtls.PrecDocDtls) for CRN/DBN, when the reference resolves. */
+  precedingDoc?: { invNo: string; invDate: string } | null
   /** NIC-issued Invoice Reference Number, once this invoice has been e-invoiced. Drives which
    *  QR payload buildInvoiceHtml prints — see src/shared/einvoiceQr.ts. */
   irn?: string | null
@@ -59,6 +89,9 @@ export interface EdocCompany {
   stateCode: string
   address: string
 }
+
+/** E-way bills are mandatory for goods movements above ₹50,000 invoice value. */
+export const EWB_THRESHOLD_PAISE = 50_000 * 100
 
 const toRupees = (paise: number): number => Math.round(paise) / 100
 
@@ -74,6 +107,31 @@ export function pinFromAddress(address: string | null): number {
   return match ? Number(match[1]) : 0
 }
 
+export interface AddressParts {
+  addr1: string
+  addr2: string
+  /** City/place heuristic: the last address segment with any trailing PIN code stripped. */
+  place: string
+}
+
+/**
+ * Split a one-string address into the addr1/addr2/place shape the NIC schemas want.
+ * Segments are newline-separated (or comma-separated when single-line); the place is the
+ * last segment minus its PIN code — editable per-voucher via the Transport modal.
+ */
+export function splitAddress(address: string | null): AddressParts {
+  const raw = (address ?? '').trim()
+  if (!raw) return { addr1: '', addr2: '', place: '' }
+  const segments = (raw.includes('\n') ? raw.split('\n') : raw.split(','))
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const addr1 = segments[0] ?? ''
+  const last = segments.length > 1 ? segments[segments.length - 1]! : ''
+  const middle = segments.slice(1, -1).join(', ')
+  const place = last.replace(/\b\d{6}\b/g, '').trim().replace(/[,\s]+$/, '')
+  return { addr1, addr2: middle, place }
+}
+
 export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany): Record<string, unknown>[] {
   return invoices.map((inv) => {
     const docType = inv.docType ?? 'INV'
@@ -81,6 +139,7 @@ export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany)
     // Exports have no Indian buyer GSTIN/POS — NIC schema requires Pos '96' (Other Territory)
     // and Gstin 'URP' for EXPWP/EXPWOP regardless of any party GSTIN captured locally.
     const isExport = supTyp === 'EXPWP' || supTyp === 'EXPWOP'
+    const shipTo = inv.shipTo
     return {
       Version: '1.1',
       TranDtls: { TaxSch: 'GST', SupTyp: supTyp, RegRev: 'N', IgstOnIntra: 'N' },
@@ -102,14 +161,29 @@ export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany)
         Pin: pinFromAddress(inv.partyAddress),
         Stcd: inv.partyStateCode
       },
+      // Ship-to block (Bill To – Ship To) when goods are delivered elsewhere. DispDtls
+      // (dispatch-from) needs a dispatch address the books don't capture — not emitted.
+      ...(shipTo && (shipTo.name || shipTo.addr1)
+        ? {
+            ShipDtls: {
+              Gstin: shipTo.gstin ?? null,
+              LglNm: shipTo.name ?? inv.partyName ?? 'NA',
+              Addr1: shipTo.addr1 || 'NA',
+              ...(shipTo.addr2 ? { Addr2: shipTo.addr2 } : {}),
+              Loc: shipTo.place || 'NA',
+              Pin: shipTo.pincode ? Number(shipTo.pincode) : 0,
+              Stcd: shipTo.state ?? inv.partyStateCode
+            }
+          }
+        : {}),
       ItemList: inv.items.map((item, i) => ({
         SlNo: String(i + 1),
         PrdDesc: item.name,
         IsServc: item.isService ? 'Y' : 'N',
         HsnCd: item.hsn,
-        Qty: item.qtyMilli / 1000,
-        Unit: item.uqc,
-        UnitPrice: toRupees(item.unitPricePaise),
+        Qty: item.isService ? 1 : item.qtyMilli / 1000,
+        Unit: item.isService ? 'OTH' : item.uqc,
+        UnitPrice: toRupees(item.isService ? item.taxablePaise : item.unitPricePaise),
         TotAmt: toRupees(item.taxablePaise),
         Discount: 0,
         AssAmt: toRupees(item.taxablePaise),
@@ -129,57 +203,170 @@ export function buildEInvoiceJson(invoices: EdocInvoice[], company: EdocCompany)
         CesVal: toRupees(inv.cess),
         RndOffAmt: toRupees(inv.roundOff),
         TotInvVal: toRupees(inv.total)
-      }
+      },
+      // Export details — mandatory block for EXPWP/EXPWOP. Shipping bill no/date come from
+      // voucher_transport (docNo/docDate); currency/country are nullable (not captured).
+      ...(isExport
+        ? {
+            ExpDtls: {
+              ShipBNo: inv.transport?.docNo ?? null,
+              ShipBDt: inv.transport?.docDate ? slashDate(inv.transport.docDate) : null,
+              Port: null,
+              ForCur: null,
+              CntCode: null
+            }
+          }
+        : {}),
+      // Preceding-document reference for credit/debit notes, when voucher.reference resolved
+      // to an actual invoice in the books (null-safe: omitted otherwise).
+      ...((docType === 'CRN' || docType === 'DBN') && inv.precedingDoc
+        ? {
+            RefDtls: {
+              PrecDocDtls: [{ InvNo: inv.precedingDoc.invNo, InvDt: slashDate(inv.precedingDoc.invDate) }]
+            }
+          }
+        : {})
     }
   })
+}
+
+/** EWB state-code field: NIC's e-way bill system uses 99 for "Other Country" where the GST
+ *  masters use 96/97 (other territory / foreign buyer). */
+function ewbStateCode(code: string): number {
+  return code === '96' || code === '97' ? 99 : Number(code)
+}
+
+/**
+ * Build one EWB bulk-tool bill entry. `transactionType` (mandatory): 1 = regular,
+ * 2 = Bill To – Ship To (goods delivered somewhere other than the buyer's address — derived
+ * from the voucher_transport ship-to block). 3/4 (Bill From – Dispatch From / combination)
+ * need a dispatch-from address the books don't capture, so they are never derived.
+ */
+function buildEwbBill(inv: EdocInvoice, company: EdocCompany): Record<string, unknown> {
+  const from = splitAddress(company.address)
+  const partyParts = splitAddress(inv.partyAddress)
+  const rawShipTo = inv.shipTo
+  const st = rawShipTo && (rawShipTo.addr1 || rawShipTo.pincode || rawShipTo.state) ? rawShipTo : null
+  const shipping = st !== null
+  const isExport = inv.supTyp === 'EXPWP' || inv.supTyp === 'EXPWOP'
+
+  // Destination: ship-to when present, else the buyer's billing address.
+  const toAddr1 = st ? (st.addr1 ?? '') : partyParts.addr1
+  const toAddr2 = st ? (st.addr2 ?? '') : partyParts.addr2
+  const toPlace = st ? (st.place ?? '') : partyParts.place
+  const toPincode = st?.pincode ? Number(st.pincode) : pinFromAddress(inv.partyAddress)
+  const toState = st?.state ? st.state : inv.partyStateCode
+
+  // Rates come straight from the item's master rate + supply type — never back-derived
+  // from rounded tax amounts (audit D9: a tax amount rounding to 0 must not zero the rate).
+  const intra = inv.pos === company.stateCode
+
+  // Highest-value item's HSN leads the bill (mainHsnCode).
+  const mainItem = [...inv.items].sort((a, b) => b.taxablePaise - a.taxablePaise)[0]
+
+  return {
+    userGstin: company.gstin,
+    supplyType: 'O',
+    subSupplyType: '1',
+    subSupplyDesc: '',
+    docType: inv.docType ?? 'INV',
+    docNo: inv.number,
+    docDate: slashDate(inv.date),
+    transactionType: shipping ? 2 : 1,
+    fromGstin: company.gstin,
+    fromTrdName: company.name,
+    fromAddr1: from.addr1,
+    fromAddr2: from.addr2,
+    fromPlace: from.place,
+    fromStateCode: Number(company.stateCode),
+    actualFromStateCode: Number(company.stateCode),
+    fromPincode: pinFromAddress(company.address),
+    toGstin: isExport ? 'URP' : (inv.partyGstin ?? 'URP'),
+    toTrdName: inv.partyName ?? 'Unregistered buyer',
+    toAddr1,
+    toAddr2,
+    toPlace,
+    // 99 = Other Country (exports); actual movement state comes from pos/ship-to.
+    toStateCode: isExport ? 99 : ewbStateCode(toState),
+    actualToStateCode: isExport ? 99 : ewbStateCode(shipping ? toState : inv.pos),
+    toPincode: isExport && !toPincode ? 999999 : toPincode,
+    mainHsnCode: mainItem?.hsn ?? '',
+    itemList: inv.items.map((item) => ({
+      productName: item.name,
+      productDesc: item.name,
+      hsnCode: item.hsn,
+      quantity: item.qtyMilli / 1000,
+      qtyUnit: item.uqc,
+      taxableAmount: toRupees(item.taxablePaise),
+      cgstRate: intra ? item.rate / 2 : 0,
+      sgstRate: intra ? item.rate / 2 : 0,
+      igstRate: intra ? 0 : item.rate,
+      cessRate: item.cessRate
+    })),
+    totalValue: toRupees(inv.taxable),
+    cgstValue: toRupees(inv.cgst),
+    sgstValue: toRupees(inv.sgst),
+    igstValue: toRupees(inv.igst),
+    cessValue: toRupees(inv.cess),
+    totInvValue: toRupees(inv.total),
+    transMode: inv.transport?.mode ?? '1',
+    transDistance: String(inv.distanceKm ?? 0),
+    transporterId: inv.transporterId ?? '',
+    transporterName: inv.transport?.transporterName ?? '',
+    transDocNo: inv.transport?.docNo ?? '',
+    transDocDate: inv.transport?.docDate ? slashDate(inv.transport.docDate) : '',
+    vehicleNo: inv.vehicleNo ?? '',
+    vehicleType: inv.transport?.vehicleType ?? 'R'
+  }
 }
 
 export function buildEwbJson(invoices: EdocInvoice[], company: EdocCompany): Record<string, unknown> {
   return {
     version: '1.0.0421',
-    billLists: invoices.map((inv) => ({
-      userGstin: company.gstin,
-      supplyType: 'O',
-      subSupplyType: '1',
-      docType: inv.docType ?? 'INV',
-      docNo: inv.number,
-      docDate: slashDate(inv.date),
-      fromGstin: company.gstin,
-      fromTrdName: company.name,
-      fromAddr1: company.address || '',
-      fromStateCode: Number(company.stateCode),
-      actualFromStateCode: Number(company.stateCode),
-      fromPincode: pinFromAddress(company.address),
-      toGstin: inv.partyGstin ?? 'URP',
-      toTrdName: inv.partyName ?? 'Unregistered buyer',
-      toAddr1: inv.partyAddress ?? '',
-      toStateCode: Number(inv.partyStateCode),
-      actualToStateCode: Number(inv.pos),
-      toPincode: pinFromAddress(inv.partyAddress),
-      itemList: inv.items.map((item) => ({
-        productName: item.name,
-        productDesc: item.name,
-        hsnCode: item.hsn,
-        quantity: item.qtyMilli / 1000,
-        qtyUnit: item.uqc,
-        taxableAmount: toRupees(item.taxablePaise),
-        cgstRate: item.cgst > 0 ? item.rate / 2 : 0,
-        sgstRate: item.sgst > 0 ? item.rate / 2 : 0,
-        igstRate: item.igst > 0 ? item.rate : 0,
-        cessRate: item.cessRate
-      })),
-      totalValue: toRupees(inv.taxable),
-      cgstValue: toRupees(inv.cgst),
-      sgstValue: toRupees(inv.sgst),
-      igstValue: toRupees(inv.igst),
-      cessValue: toRupees(inv.cess),
-      totInvValue: toRupees(inv.total),
-      transMode: '1',
-      transDistance: String(inv.distanceKm ?? 0),
-      transporterId: inv.transporterId ?? '',
-      transporterName: '',
-      vehicleNo: inv.vehicleNo ?? '',
-      vehicleType: 'R'
-    }))
+    billLists: invoices.map((inv) => buildEwbBill(inv, company))
   }
+}
+
+/**
+ * Blocking problems that would make the NIC bulk tool (or the live API) reject this bill —
+ * chiefly the mandatory pincode/place/state fields that used to silently export as 0/''.
+ */
+export function ewbIssues(inv: EdocInvoice, company: EdocCompany): string[] {
+  const issues: string[] = []
+  const bill = buildEwbBill(inv, company) as {
+    fromPincode: number; toPincode: number; fromPlace: string; toPlace: string
+    fromStateCode: number; toStateCode: number
+  }
+  if (!/^\d{6}$/.test(String(bill.fromPincode))) issues.push('Company address has no 6-digit PIN code')
+  if (!/^\d{6}$/.test(String(bill.toPincode))) issues.push('Destination has no 6-digit PIN code')
+  if (!bill.fromPlace) issues.push('Dispatch place (city) missing — set it in the company address or Transport details')
+  if (!bill.toPlace) issues.push('Destination place (city) missing — set it on the party address or Transport details')
+  if (!Number.isFinite(bill.fromStateCode) || bill.fromStateCode <= 0) issues.push('Company state code invalid')
+  if (!Number.isFinite(bill.toStateCode) || bill.toStateCode <= 0) issues.push('Destination state code invalid')
+  for (const item of inv.items) {
+    if (!item.hsn) {
+      issues.push(`Item "${item.name}" has no HSN code`)
+      break
+    }
+  }
+  return issues
+}
+
+/** Why a voucher is (in)eligible for an e-way bill. */
+export interface EwbEligibility {
+  eligible: boolean
+  reason: string | null
+}
+
+/**
+ * E-way bills accompany goods movement: services-only invoices are excluded, and bills at or
+ * under ₹50,000 are excluded unless the caller opts in (`includeBelowThreshold`).
+ */
+export function ewbEligibility(inv: EdocInvoice, includeBelowThreshold = false): EwbEligibility {
+  const hasGoods = inv.items.some((i) => !i.isService && i.qtyMilli !== 0)
+  if (!hasGoods) return { eligible: false, reason: 'Services only — no goods movement' }
+  if (!includeBelowThreshold && inv.total <= EWB_THRESHOLD_PAISE) {
+    return { eligible: false, reason: 'Invoice value at or below ₹50,000' }
+  }
+  return { eligible: true, reason: null }
 }

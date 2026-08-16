@@ -1,6 +1,7 @@
 import type { DB } from '../db/connection'
 import type { Voucher, VoucherLine, InventoryLine, VoucherType } from '@shared/domain'
-import type { VoucherInputParsed } from '@shared/schemas'
+import { voucherInputSchema } from '@shared/schemas'
+import type { VoucherInput, VoucherInputParsed } from '@shared/schemas'
 import type { VoucherListRow } from '@shared/reports'
 import { validateVoucher, type LedgerFacts } from '@shared/posting'
 import { fyOf } from '@shared/dates'
@@ -12,6 +13,7 @@ interface VoucherRow {
   party_ledger_id: number | null; narration: string | null; reference: string | null
   instrument_no: string | null; instrument_date: string | null
   transporter_id: string | null; vehicle_no: string | null; transport_distance: number | null
+  pos_override: string | null
   currency_code: string | null; exchange_rate: number | null
   irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null
   ewb_no: string | null; ewb_valid_upto: string | null
@@ -100,6 +102,7 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     transporterId: v.transporter_id,
     vehicleNo: v.vehicle_no,
     transportDistanceKm: v.transport_distance,
+    posOverride: v.pos_override,
     currencyCode: v.currency_code,
     exchangeRate: v.exchange_rate,
     irn: v.irn,
@@ -197,7 +200,10 @@ function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
   }
 }
 
-export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: number): Voucher {
+export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Voucher {
+  // Parse here as well as at the IPC boundary so direct callers (tests, recurring, importers)
+  // get defaults for later-added fields (posOverride) applied consistently.
+  const input: VoucherInputParsed = voucherInputSchema.parse(raw)
   const vt = getVoucherType(db, input.voucherTypeId)
   const errors = validateVoucher(input, vt.kind, ledgerFactsResolver(db))
   if (errors.length) {
@@ -224,22 +230,23 @@ export function saveVoucher(db: DB, input: VoucherInputParsed, existingId?: numb
       db.prepare(
         `UPDATE vouchers SET voucher_type_id = ?, date = ?, number = ?, party_ledger_id = ?,
          narration = ?, reference = ?, instrument_no = ?, instrument_date = ?,
-         transporter_id = ?, vehicle_no = ?, transport_distance = ?,
+         transporter_id = ?, vehicle_no = ?, transport_distance = ?, pos_override = ?,
          currency_code = ?, exchange_rate = ?, updated_at = datetime('now') WHERE id = ?`
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
-        input.currencyCode, input.exchangeRate, existingId)
+        input.posOverride, input.currencyCode, input.exchangeRate, existingId)
       db.prepare('DELETE FROM voucher_lines WHERE voucher_id = ?').run(existingId)
       db.prepare('DELETE FROM inventory_lines WHERE voucher_id = ?').run(existingId)
       voucherId = existingId
     } else {
       const res = db.prepare(
         `INSERT INTO vouchers (voucher_type_id, date, number, party_ledger_id, narration, reference,
-          instrument_no, instrument_date, transporter_id, vehicle_no, transport_distance, currency_code, exchange_rate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          instrument_no, instrument_date, transporter_id, vehicle_no, transport_distance, pos_override,
+          currency_code, exchange_rate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
-        input.currencyCode, input.exchangeRate)
+        input.posOverride, input.currencyCode, input.exchangeRate)
       voucherId = Number(res.lastInsertRowid)
     }
 

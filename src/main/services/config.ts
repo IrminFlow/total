@@ -1,7 +1,7 @@
 import type { DB } from '../db/connection'
 import { featuresSchema, mergeFeatures, type CompanyFeatures } from '@shared/features'
 import { invoiceConfigSchema, mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
-import { chequeConfigSchema, mergeChequeConfig, type ChequeConfig } from '@shared/schemas'
+import { chequeConfigSchema, gst3bManualSchema, mergeChequeConfig, type ChequeConfig, type Gst3bManualInput } from '@shared/schemas'
 import { writeAudit } from './audit'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
@@ -67,6 +67,21 @@ export function setChequeConfig(db: DB, bankLedgerId: number, input: ChequeConfi
   const parsed = chequeConfigSchema.parse(input)
   writeMeta(db, `cheque.${bankLedgerId}`, parsed)
   writeAudit(db, 'cheque_config', bankLedgerId, 'update', before, parsed)
+  return parsed
+}
+
+// ---------- GSTR-3B manual adjustments (per period, meta `gst3b.manual.<MMYYYY>`) ----------
+
+export function getGst3bManual(db: DB, period: string): Gst3bManualInput {
+  const parsed = gst3bManualSchema.safeParse(readMeta(db, `gst3b.manual.${period}`) ?? {})
+  return parsed.success ? parsed.data : gst3bManualSchema.parse({})
+}
+
+export function setGst3bManual(db: DB, period: string, input: unknown): Gst3bManualInput {
+  const before = getGst3bManual(db, period)
+  const parsed = gst3bManualSchema.parse(input)
+  writeMeta(db, `gst3b.manual.${period}`, parsed)
+  writeAudit(db, 'company', 0, 'update', { gst3bManual: { period, ...before } }, { gst3bManual: { period, ...parsed } })
   return parsed
 }
 

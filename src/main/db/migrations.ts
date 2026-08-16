@@ -369,5 +369,33 @@ export const MIGRATIONS: string[] = [
     amount INTEGER NOT NULL,
     CHECK ((ledger_id IS NULL) <> (group_id IS NULL))
   );
+  `,
+  // 013 — GST rebuild (lane G, pre-assigned number 013 in the v0.3 migration ledger):
+  // party-level reverse charge + ITC eligibility flags, a per-voucher place-of-supply
+  // override, and the voucher_transport table (per-voucher transporter/vehicle/transport
+  // doc + ship-to block) feeding e-way bill / e-invoice ExpDtls-ShipDtls generation.
+  `
+  ALTER TABLE ledgers ADD COLUMN rcm INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE ledgers ADD COLUMN itc_eligibility TEXT CHECK(itc_eligibility IN ('eligible','blocked','capital_goods','input_services')) DEFAULT 'eligible';
+  ALTER TABLE vouchers ADD COLUMN pos_override TEXT;
+
+  CREATE TABLE voucher_transport (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    trans_mode TEXT,
+    trans_distance INTEGER,
+    transporter_id TEXT,
+    transporter_name TEXT,
+    trans_doc_no TEXT,
+    trans_doc_date TEXT,
+    vehicle_no TEXT,
+    vehicle_type TEXT,
+    ship_to_name TEXT,
+    ship_to_gstin TEXT,
+    ship_to_addr1 TEXT,
+    ship_to_addr2 TEXT,
+    ship_to_place TEXT,
+    ship_to_pincode TEXT,
+    ship_to_state TEXT
+  );
   `
 ]
