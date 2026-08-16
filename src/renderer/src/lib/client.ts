@@ -11,9 +11,10 @@ import type {
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
-  AuditListInput, BankRuleInput, BomInput, BudgetInput, CompanyCreateInput, CostCentreInput, CurrencyInput,
-  EmployeeInput, GodownInput, GroupInput, LedgerInput, NicCredentials, RecurringInput, RendererLogInput,
-  StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTypeInput, VoucherInputParsed
+  AuditListInput, BankRuleInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
+  CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput, NicCredentials, RecurringInput,
+  RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTypeInput,
+  VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
@@ -325,6 +326,15 @@ export const api = {
     pdf: (voucherId: number) => call<{ path: string }>('invoice:pdf', { voucherId }),
     previewHtml: (voucherId?: number, config?: Partial<InvoiceConfig>) =>
       call<{ html: string }>('invoice:previewHtml', { voucherId, config })
+  },
+  cheque: {
+    config: {
+      get: (bankLedgerId: number) => call<ChequeConfig>('cheque:config:get', { bankLedgerId }),
+      set: (bankLedgerId: number, config: ChequeConfig) => call<ChequeConfig>('cheque:config:set', { bankLedgerId, config })
+    },
+    pdf: (voucherId: number, bankLedgerId: number) => call<{ path: string }>('cheque:pdf', { voucherId, bankLedgerId }),
+    testGrid: (bankLedgerId: number) => call<{ path: string }>('cheque:testGrid', { bankLedgerId }),
+    advice: (voucherId: number) => call<{ path: string }>('cheque:advice', { voucherId })
   },
   config: {
     features: {

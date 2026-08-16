@@ -1,6 +1,3 @@
-import { BrowserWindow } from 'electron'
-import { writeFileSync } from 'fs'
-import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import type { EdocInvoice } from '@shared/gst/edocs'
@@ -8,9 +5,9 @@ import { amountInWords, formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { GST_STATES } from '@shared/gst/states'
 import { mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
-import { companyExportsDir } from '../paths'
 import { extractEdocInvoices } from './edocs'
 import { getInvoiceConfig } from './config'
+import { writeExportPdf } from './pdf'
 
 const esc = (s: string | null): string =>
   (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -222,15 +219,6 @@ export function invoicePreviewHtml(
 /** Render the invoice to a PDF in the company's exports folder. Returns the file path. */
 export async function invoicePdf(db: DB, company: CompanyInfo, slug: string, voucherId: number): Promise<string> {
   const { html, number } = invoiceHtml(db, company, voucherId)
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
-  try {
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true })
-    const safe = number.replace(/[^a-zA-Z0-9-_]/g, '_')
-    const path = join(companyExportsDir(slug), `invoice-${safe}.pdf`)
-    writeFileSync(path, pdf)
-    return path
-  } finally {
-    win.destroy()
-  }
+  const safe = number.replace(/[^a-zA-Z0-9-_]/g, '_')
+  return writeExportPdf(slug, `invoice-${safe}.pdf`, html, { pageSize: 'A4' })
 }

@@ -38,6 +38,11 @@ function isCashOrBankLedger(l: Ledger, groupMap: Map<number, Group>): boolean {
   return groupChain(l.groupId, groupMap).some((g) => ['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'].includes(g.name))
 }
 
+/** Bank only (excludes Cash-in-Hand) — a cheque can only be drawn against a bank ledger. */
+function isBankLedger(l: Ledger, groupMap: Map<number, Group>): boolean {
+  return groupChain(l.groupId, groupMap).some((g) => ['Bank Accounts', 'Bank OD A/c'].includes(g.name))
+}
+
 /** Local UTC date-add — mirrors @shared/outstanding's private helper (that one isn't exported). */
 function addDaysLocal(date: string, days: number): string {
   const dt = new Date(`${date}T00:00:00Z`)
@@ -1248,6 +1253,40 @@ function AccountingEntry({
     nav.back()
   }
 
+  // ---------- cheque printing + payment advice (saved payment vouchers only) ----------
+  const bankCrLine = useMemo(() => {
+    if (!voucherId || kind !== 'payment' || !existing) return null
+    let best: { ledgerId: number; amount: number } | null = null
+    for (const l of existing.lines) {
+      if (l.drCr !== 'cr') continue
+      const ledger = ledgers.find((x) => x.id === l.ledgerId)
+      if (ledger && isBankLedger(ledger, groupMap) && (!best || l.amount > best.amount)) {
+        best = { ledgerId: l.ledgerId, amount: l.amount }
+      }
+    }
+    return best
+  }, [voucherId, kind, existing, ledgers, groupMap])
+
+  const printCheque = async (): Promise<void> => {
+    if (!voucherId || !bankCrLine) return
+    try {
+      const r = await api.cheque.pdf(voucherId, bankCrLine.ledgerId)
+      toast.push('success', `Cheque PDF: ${r.path}`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const printAdvice = async (): Promise<void> => {
+    if (!voucherId) return
+    try {
+      const r = await api.cheque.advice(voucherId)
+      toast.push('success', `Payment advice: ${r.path}`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
   return (
     <Panel className="p-5">
       <div className="grid grid-cols-4 gap-3">
@@ -1458,6 +1497,12 @@ function AccountingEntry({
       <div className="mt-5 flex justify-between">
         <div>{voucherId && <Button variant="danger" onClick={() => void remove()}>Delete voucher</Button>}</div>
         <div className="flex gap-2">
+          {voucherId && kind === 'payment' && bankCrLine && (
+            <>
+              <Button onClick={() => void printCheque()}>Print cheque</Button>
+              <Button onClick={() => void printAdvice()}>Payment advice</Button>
+            </>
+          )}
           {balanced && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
           <Button onClick={() => nav.back()}>Cancel</Button>
           <Button variant="primary" disabled={!balanced || saving} onClick={() => void save()}>

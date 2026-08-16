@@ -16,10 +16,10 @@ import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
-  companyCreateSchema, costCentreInputSchema, godownInputSchema, groupInputSchema, gstr2bSchema, isoDate,
-  ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema, stockGroupInputSchema,
-  stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema, tdsSummarySchema, unitInputSchema,
-  voucherInputSchema, voucherTypeInputSchema
+  chequeConfigSchema, companyCreateSchema, costCentreInputSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
+  isoDate, ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema,
+  stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
+  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
@@ -31,6 +31,7 @@ import * as analysis from './services/analysis'
 import * as banking from './services/banking'
 import * as edocs from './services/edocs'
 import * as invoice from './services/invoice'
+import * as cheque from './services/cheque'
 import * as extras from './services/extras'
 import * as payroll from './services/payroll'
 import * as nic from './services/nic'
@@ -681,6 +682,38 @@ export function registerIpc(): void {
     const c = requireCompany()
     return invoice.invoicePreviewHtml(c.db, c.info, voucherId, config)
   }, 'viewer')
+
+  // ---------- cheque printing + payment advice (task 2.7) ----------
+  const bankLedgerIdSchema = z.object({ bankLedgerId: z.number().int().positive() })
+  handle('cheque:config:get', (p) => configSvc.getChequeConfig(requireCompany().db, bankLedgerIdSchema.parse(p).bankLedgerId), 'viewer')
+  handle('cheque:config:set', (p) => {
+    const { bankLedgerId, config } = z.object({ bankLedgerId: z.number().int().positive(), config: chequeConfigSchema }).parse(p)
+    return configSvc.setChequeConfig(requireCompany().db, bankLedgerId, config)
+  })
+  handle('cheque:pdf', async (p) => {
+    const { voucherId, bankLedgerId } = z
+      .object({ voucherId: z.number().int().positive(), bankLedgerId: z.number().int().positive() })
+      .parse(p)
+    const c = requireCompany()
+    // chequePdf itself reveals the file in Finder — a cheque is meant to be loaded into the
+    // printer tray and checked for alignment, not opened in a PDF viewer.
+    const path = await cheque.chequePdf(c.db, c.info, c.slug, voucherId, bankLedgerId)
+    return { path }
+  })
+  handle('cheque:testGrid', async (p) => {
+    const { bankLedgerId } = bankLedgerIdSchema.parse(p)
+    const c = requireCompany()
+    const path = await cheque.testGridPdf(c.db, c.info, c.slug, bankLedgerId)
+    shell.openPath(path)
+    return { path }
+  })
+  handle('cheque:advice', async (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const path = await cheque.paymentAdvicePdf(c.db, c.info, c.slug, voucherId)
+    shell.openPath(path)
+    return { path }
+  })
 
   // ---------- F11 features + F12 invoice print config ----------
   handle('config:features:get', () => configSvc.getFeatures(requireCompany().db), 'viewer')

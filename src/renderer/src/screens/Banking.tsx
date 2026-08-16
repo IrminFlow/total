@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ChequeConfig } from '@shared/schemas'
 import { api, type BankRuleRecord, type BankSuggestionRow } from '../lib/client'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
-import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput, inputCls } from '../components/ui'
 import { LedgerPicker } from '../components/pickers'
 import { parseSmartDate, toDisplayDate, todayISO } from '@shared/dates'
 import { suggestPattern } from '@shared/bankRules'
@@ -18,6 +19,7 @@ export function BankingScreen(): React.JSX.Element {
   const [rulesOpen, setRulesOpen] = useState(false)
   const [rulesPrefill, setRulesPrefill] = useState<{ pattern: string; kind: 'payment' | 'receipt' } | null>(null)
   const [rulesModalKey, setRulesModalKey] = useState(0)
+  const [chequeSetupOpen, setChequeSetupOpen] = useState(false)
 
   useEffect(() => {
     if (ledgerId == null && ledgers?.length) setLedgerId(ledgers[0]!.id)
@@ -137,6 +139,7 @@ export function BankingScreen(): React.JSX.Element {
               ))}
             </Select>
             <Button onClick={() => openRules(null)}>Rules…</Button>
+            {ledgerId != null && <Button onClick={() => setChequeSetupOpen(true)}>Cheque setup…</Button>}
             <Button variant="primary" onClick={() => void doImport()}>
               Import statement CSV
             </Button>
@@ -258,6 +261,13 @@ export function BankingScreen(): React.JSX.Element {
 
       {rulesOpen && (
         <BankRulesModal key={rulesModalKey} prefill={rulesPrefill} onClose={() => setRulesOpen(false)} />
+      )}
+      {chequeSetupOpen && ledgerId != null && (
+        <ChequeSetupModal
+          bankLedgerId={ledgerId}
+          bankLedgerName={(ledgers ?? []).find((l) => l.id === ledgerId)?.name ?? ''}
+          onClose={() => setChequeSetupOpen(false)}
+        />
       )}
     </div>
   )
@@ -408,6 +418,149 @@ function BankRulesModal({
           </div>
         </div>
       </div>
+    </Modal>
+  )
+}
+
+/** mm-offset number field — plain <input type="number"> (no rupee/date parsing needed here). */
+function MmField({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }): React.JSX.Element {
+  return (
+    <Field label={label}>
+      <input
+        type="number"
+        step="0.5"
+        className={`${inputCls} num text-right`}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value) || 0)}
+      />
+    </Field>
+  )
+}
+
+function ChequeSetupModal({
+  bankLedgerId,
+  bankLedgerName,
+  onClose
+}: {
+  bankLedgerId: number
+  bankLedgerName: string
+  onClose: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const { data: saved } = useQuery({ queryKey: ['chequeConfig', bankLedgerId], queryFn: () => api.cheque.config.get(bankLedgerId) })
+  const [form, setForm] = useState<ChequeConfig | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [printing, setPrinting] = useState(false)
+
+  useEffect(() => {
+    if (saved && !form) setForm(saved)
+  }, [saved, form])
+
+  const save = async (): Promise<void> => {
+    if (!form) return
+    setSaving(true)
+    try {
+      await api.cheque.config.set(bankLedgerId, form)
+      toast.push('success', 'Cheque layout saved')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const printGrid = async (): Promise<void> => {
+    if (!form) return
+    setPrinting(true)
+    try {
+      // Save first so the printed grid reflects any unsaved edits in the form.
+      await api.cheque.config.set(bankLedgerId, form)
+      const r = await api.cheque.testGrid(bankLedgerId)
+      toast.push('success', `Test grid: ${r.path}`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setPrinting(false)
+    }
+  }
+
+  return (
+    <Modal title={`Cheque setup — ${bankLedgerName}`} onClose={onClose} wide>
+      {!form ? (
+        <p className="text-[13px] text-muted">Loading…</p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-4 gap-3">
+            <MmField label="Cheque width (mm)" value={form.widthMm} onChange={(n) => setForm({ ...form, widthMm: n })} />
+            <MmField label="Cheque height (mm)" value={form.heightMm} onChange={(n) => setForm({ ...form, heightMm: n })} />
+            <div className="col-span-2 flex items-end pb-1.5">
+              <label className="flex items-center gap-2 text-[13px] text-ink">
+                <input
+                  type="checkbox"
+                  checked={form.acPayee}
+                  onChange={(e) => setForm({ ...form, acPayee: e.target.checked })}
+                />
+                Print &quot;A/C Payee only&quot; stamp
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Date boxes</p>
+            <div className="grid grid-cols-4 gap-3">
+              <MmField label="X (mm)" value={form.date.xMm} onChange={(n) => setForm({ ...form, date: { ...form.date, xMm: n } })} />
+              <MmField label="Y (mm)" value={form.date.yMm} onChange={(n) => setForm({ ...form, date: { ...form.date, yMm: n } })} />
+              <MmField
+                label="Digit gap (mm)"
+                value={form.date.charGapMm}
+                onChange={(n) => setForm({ ...form, date: { ...form.date, charGapMm: n } })}
+              />
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Payee</p>
+            <div className="grid grid-cols-4 gap-3">
+              <MmField label="X (mm)" value={form.payee.xMm} onChange={(n) => setForm({ ...form, payee: { ...form.payee, xMm: n } })} />
+              <MmField label="Y (mm)" value={form.payee.yMm} onChange={(n) => setForm({ ...form, payee: { ...form.payee, yMm: n } })} />
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Amount in words</p>
+            <div className="grid grid-cols-4 gap-3">
+              <MmField label="X (mm)" value={form.words.xMm} onChange={(n) => setForm({ ...form, words: { ...form.words, xMm: n } })} />
+              <MmField label="Y (mm)" value={form.words.yMm} onChange={(n) => setForm({ ...form, words: { ...form.words, yMm: n } })} />
+              <MmField label="Width (mm)" value={form.words.wMm} onChange={(n) => setForm({ ...form, words: { ...form.words, wMm: n } })} />
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Amount in figures</p>
+            <div className="grid grid-cols-4 gap-3">
+              <MmField
+                label="X (mm)"
+                value={form.figures.xMm}
+                onChange={(n) => setForm({ ...form, figures: { ...form.figures, xMm: n } })}
+              />
+              <MmField
+                label="Y (mm)"
+                value={form.figures.yMm}
+                onChange={(n) => setForm({ ...form, figures: { ...form.figures, yMm: n } })}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-line pt-4">
+            <Button disabled={printing} onClick={() => void printGrid()}>
+              Print test grid
+            </Button>
+            <Button variant="primary" disabled={saving} onClick={() => void save()}>
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
     </Modal>
   )
 }

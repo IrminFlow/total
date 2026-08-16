@@ -387,4 +387,44 @@ export const bankRuleInputSchema = z.object({
   kind: z.enum(['payment', 'receipt']),
   active: z.boolean().default(true)
 })
+
+// ---------- cheque printing (task 2.7) ----------
+
+/** mm offset/size fields on a cheque layout — positive and boxed under a sane printable-page cap. */
+const mm = z.number().positive().max(300)
+
+/** Per-bank-ledger cheque print calibration, stored in `meta` under key `cheque.<bankLedgerId>`.
+ *  Consumed by src/main/services/cheque.ts. */
+export const chequeConfigSchema = z.object({
+  widthMm: mm,
+  heightMm: mm,
+  /** Top-right CTS date boxes: first box's position, plus the per-digit horizontal gap. */
+  date: z.object({ xMm: mm, yMm: mm, charGapMm: mm }),
+  payee: z.object({ xMm: mm, yMm: mm }),
+  words: z.object({ xMm: mm, yMm: mm, wMm: mm }),
+  figures: z.object({ xMm: mm, yMm: mm }),
+  acPayee: z.boolean()
+})
+export type ChequeConfig = z.infer<typeof chequeConfigSchema>
+
+/** Standard CTS-2010 cheque leaf (202×92mm) — a reasonable starting point until the user
+ *  calibrates their own stationery via Banking → "Cheque setup…" + the test-grid printout. */
+export const DEFAULT_CHEQUE_CONFIG: ChequeConfig = {
+  widthMm: 202,
+  heightMm: 92,
+  date: { xMm: 152, yMm: 8, charGapMm: 4.5 },
+  payee: { xMm: 18, yMm: 22 },
+  words: { xMm: 28, yMm: 32, wMm: 150 },
+  figures: { xMm: 158, yMm: 38 },
+  acPayee: true
+}
+
+/** Merge a partial/unknown-shaped object over the defaults, then validate. Never throws — falls
+ *  back to all-defaults if the merged shape still doesn't validate (mirrors mergeInvoiceConfig). */
+export function mergeChequeConfig(partial: unknown): ChequeConfig {
+  const obj = partial && typeof partial === 'object' ? (partial as Record<string, unknown>) : {}
+  const merged = { ...DEFAULT_CHEQUE_CONFIG, ...obj }
+  const parsed = chequeConfigSchema.safeParse(merged)
+  return parsed.success ? parsed.data : { ...DEFAULT_CHEQUE_CONFIG }
+}
 export type BankRuleInput = z.infer<typeof bankRuleInputSchema>

@@ -1,6 +1,3 @@
-import { BrowserWindow } from 'electron'
-import { writeFileSync } from 'fs'
-import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo, Employee, PayrollLine, PayrollRun } from '@shared/domain'
 import type { EmployeeInput } from '@shared/schemas'
@@ -8,8 +5,8 @@ import { computeMonthlyPay, daysInMonth } from '@shared/payroll'
 import { amountInWords, formatPaise } from '@shared/money'
 import { deleteVoucher, saveVoucher } from './vouchers'
 import { findOrCreateLedger } from './masters'
-import { companyExportsDir } from '../paths'
 import { writeAudit } from './audit'
+import { writeExportPdf } from './pdf'
 
 // ---------- employees ----------
 
@@ -248,15 +245,6 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
     <div class="words">${esc(amountInWords(line.net))}</div>
   </div></body></html>`
 
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
-  try {
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true })
-    const safeName = line.employeeName.replace(/[^a-zA-Z0-9-_]/g, '_')
-    const path = join(companyExportsDir(slug), `payslip-${run.month}-${safeName}.pdf`)
-    writeFileSync(path, pdf)
-    return path
-  } finally {
-    win.destroy()
-  }
+  const safeName = line.employeeName.replace(/[^a-zA-Z0-9-_]/g, '_')
+  return writeExportPdf(slug, `payslip-${run.month}-${safeName}.pdf`, html, { pageSize: 'A4' })
 }

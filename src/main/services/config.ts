@@ -1,6 +1,7 @@
 import type { DB } from '../db/connection'
 import { featuresSchema, mergeFeatures, type CompanyFeatures } from '@shared/features'
 import { invoiceConfigSchema, mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
+import { chequeConfigSchema, mergeChequeConfig, type ChequeConfig } from '@shared/schemas'
 import { writeAudit } from './audit'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
@@ -52,5 +53,19 @@ export function setInvoiceConfig(db: DB, input: InvoiceConfig): InvoiceConfig {
     logoDataUrl: c.logoDataUrl ? `[logo ${c.logoDataUrl.length} chars]` : null
   })
   writeAudit(db, 'company', 0, 'update', { invoice: redact(before) }, { invoice: redact(parsed) })
+  return parsed
+}
+
+// ---------- cheque print calibration (per bank ledger) ----------
+
+export function getChequeConfig(db: DB, bankLedgerId: number): ChequeConfig {
+  return mergeChequeConfig(readMeta(db, `cheque.${bankLedgerId}`))
+}
+
+export function setChequeConfig(db: DB, bankLedgerId: number, input: ChequeConfig): ChequeConfig {
+  const before = getChequeConfig(db, bankLedgerId)
+  const parsed = chequeConfigSchema.parse(input)
+  writeMeta(db, `cheque.${bankLedgerId}`, parsed)
+  writeAudit(db, 'cheque_config', bankLedgerId, 'update', before, parsed)
   return parsed
 }
