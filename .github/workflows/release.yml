@@ -57,7 +57,13 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build and publish NSIS installer to the release
-        run: npm run build && npx electron-builder --win --publish always
+      - name: Build NSIS installer (no publish — electron-builder creates a DUPLICATE
+          release for the tag even when one exists; observed on v0.2.0)
+        run: npm run build && npx electron-builder --win --publish never
+
+      - name: Upload installer to the existing release
+        shell: bash
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" dist/*.exe dist/*.exe.blockmap dist/latest.yml --clobber --repo "${GITHUB_REPOSITORY}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
