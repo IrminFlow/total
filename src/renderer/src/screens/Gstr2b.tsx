@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useNav, useToasts } from '../state/stores'
+import { useNav, useToasts, nextDraftId } from '../state/stores'
 import { Button, EmptyState, Modal, Money, Panel, SectionTitle } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
@@ -151,7 +151,7 @@ export function Gstr2bScreen(): React.JSX.Element {
     nav.go({
       name: 'voucher-entry',
       kindHint: 'purchase',
-      draftId: Date.now(),
+      draftId: nextDraftId(),
       draft: {
         date: portal.date,
         narration: `2B ${portal.number} ${portal.gstin}`

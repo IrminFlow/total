@@ -16,6 +16,17 @@ export interface VoucherDraft {
   lines?: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
 }
 
+/**
+ * Monotonic counter for `Screen`'s voucher-entry `draftId` — a plain in-memory counter rather
+ * than `Date.now()`, since two drafts navigated within the same millisecond (e.g. rapid double
+ * clicks) would otherwise collide and fail to force VoucherEntry's remount.
+ */
+let draftIdCounter = 0
+export function nextDraftId(): number {
+  draftIdCounter += 1
+  return draftIdCounter
+}
+
 export type Screen =
   | { name: 'gateway' }
   | { name: 'daybook' }

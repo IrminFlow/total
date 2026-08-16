@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre, Group, Ledger, VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
@@ -180,13 +180,19 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
   const party = ledgers.find((l) => l.id === partyId) ?? null
   const account = ledgers.find((l) => l.id === accountId) ?? null
 
-  // ---------- bill allocation: one default 'new' ref named after the voucher no, auto-synced
-  // to the party-line total until the user edits the name/due-date directly. ----------
+  // ---------- bill allocation ----------
+  // sales/purchase: one default 'new' ref named after the voucher no, auto-synced to the
+  // party-line total until the user edits the name/due-date directly.
+  // credit/debit notes: default to allocating AGAINST the party's open bills (a note adjusts an
+  // existing invoice) — "create new bill instead" restores the sales/purchase-style single ref.
+  const isNoteKind = kind === 'credit_note' || kind === 'debit_note'
   const [billsOpen, setBillsOpen] = useState(true)
   const [billName, setBillName] = useState('')
   const [billNameTouched, setBillNameTouched] = useState(false)
   const [billDueDate, setBillDueDate] = useState(date)
   const [billDueDateTouched, setBillDueDateTouched] = useState(false)
+  const [manualNewBillMode, setManualNewBillMode] = useState(false)
+  const [noteBillRefs, setNoteBillRefs] = useState<VoucherBillRef[]>([])
 
   useEffect(() => {
     if (!billNameTouched && number !== '…') setBillName(number)
@@ -196,6 +202,12 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
     if (billDueDateTouched) return
     setBillDueDate(addDaysLocal(date, party?.creditDays ?? 0))
   }, [date, party?.creditDays, billDueDateTouched])
+
+  const { data: openBillsForNote } = useQuery({
+    queryKey: ['billsOpen', partyId, date],
+    queryFn: () => api.bills.open(partyId!, date),
+    enabled: !!partyId && isNoteKind && !manualNewBillMode
+  })
 
   const supply = supplyTypeFor(info!.stateCode, party?.stateCode ?? info!.stateCode)
 
@@ -230,6 +242,21 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
     const rounded = roundToRupee(gst.total)
     return { detail, gst, rounded, roundDiff: rounded - gst.total }
   }, [rows, items, account, supply, fxActive, fxRate])
+
+  const noteAllocatedTotal = noteBillRefs.reduce((s, r) => s + r.amount, 0)
+
+  const toggleNoteBill = (bill: OutstandingBill, checked: boolean): void => {
+    setNoteBillRefs((refs) => {
+      if (checked) {
+        const remaining = Math.max(0, computed.rounded - refs.reduce((s, r) => s + r.amount, 0))
+        const amount = Math.min(bill.pending, remaining || bill.pending)
+        return [...refs, { kind: 'against', name: bill.number, amount, dueDate: null }]
+      }
+      return refs.filter((r) => !(r.kind === 'against' && r.name === bill.number))
+    })
+  }
+  const setNoteBillAmount = (name: string, amount: number): void =>
+    setNoteBillRefs((refs) => refs.map((r) => (r.name === name ? { ...r, amount } : r)))
 
   const save = useCallback(async (andPdf = false): Promise<void> => {
     if (saving) return
@@ -285,9 +312,12 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
           amount: d.amount,
           direction: goodsIn ? ('in' as const) : ('out' as const)
         })),
-        billRefs: billName.trim()
-          ? [{ kind: 'new', name: billName.trim(), amount: rounded, dueDate: billDueDate || null }]
-          : [],
+        billRefs:
+          isNoteKind && !manualNewBillMode
+            ? noteBillRefs
+            : billName.trim()
+              ? [{ kind: 'new', name: billName.trim(), amount: rounded, dueDate: billDueDate || null }]
+              : [],
         tds: null
       }
       const dupes = await api.vouchers.duplicates(input)
@@ -311,13 +341,14 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
       setDistanceKm('')
       setBillNameTouched(false)
       setBillDueDateTouched(false)
+      setNoteBillRefs([])
       await queryClient.invalidateQueries()
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, kind, typeId, date, narration, vehicleNo, transporterId, distanceKm, fxActive, fxRate, currencyCode, isSalesSide, billName, billDueDate, ensureTax, ensureRoundOff, toast, setWorkingDate, queryClient, nav])
+  }, [saving, partyId, accountId, computed, kind, typeId, date, narration, vehicleNo, transporterId, distanceKm, fxActive, fxRate, currencyCode, isSalesSide, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff, toast, setWorkingDate, queryClient, nav])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -515,33 +546,80 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
           >
             <span className="inline-block w-3 text-[10px]">{billsOpen ? '▾' : '▸'}</span>
             Bill allocation
+            {isNoteKind && !manualNewBillMode && (
+              <span className="normal-case text-muted/80">
+                {' '}
+                · allocated {formatPaise(noteAllocatedTotal)} / {formatPaise(computed.rounded)}
+              </span>
+            )}
           </button>
           {billsOpen && (
-            <div className="mt-2 grid grid-cols-3 gap-3">
-              <Field label="Bill name">
-                <TextInput
-                  value={billName}
-                  onChange={(e) => {
-                    setBillName(e.target.value)
-                    setBillNameTouched(true)
-                  }}
-                />
-              </Field>
-              <Field label="Due date" hint={party?.creditDays != null ? `${party.creditDays} credit days` : undefined}>
-                <DateInput
-                  value={billDueDate}
-                  context={date}
-                  onChange={(d) => {
-                    setBillDueDate(d)
-                    setBillDueDateTouched(true)
-                  }}
-                />
-              </Field>
-              <Field label="Amount">
-                <div className={`${inputCls} num bg-panel text-right text-muted`}>
-                  <Money paise={computed.rounded} />
+            <div className="mt-2">
+              {isNoteKind && !manualNewBillMode ? (
+                <>
+                  {(openBillsForNote ?? []).length === 0 ? (
+                    <p className="text-[12px] text-muted">No open bills for this party.</p>
+                  ) : (
+                    <div className="flex flex-col gap-1">
+                      {(openBillsForNote ?? []).map((b) => {
+                        const ref = noteBillRefs.find((r) => r.kind === 'against' && r.name === b.number)
+                        return (
+                          <div key={b.number} className="flex items-center gap-3 rounded-md px-1 py-1 text-[12.5px] hover:bg-panel2">
+                            <input type="checkbox" checked={!!ref} onChange={(e) => toggleNoteBill(b, e.target.checked)} />
+                            <span className="flex-1">{b.number}</span>
+                            <span className="num w-24 text-muted">{toDisplayDate(b.date)}</span>
+                            <span className={`num w-24 ${b.overdueDays > 0 ? 'text-cr' : 'text-muted'}`}>
+                              {b.dueDate ? toDisplayDate(b.dueDate) : '—'}
+                            </span>
+                            <Money paise={b.pending} className="w-24 text-right" />
+                            {ref && (
+                              <AmountInput paise={ref.amount} onPaise={(p) => setNoteBillAmount(b.number, p ?? 0)} className="w-28" />
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <button className="mt-2 text-[11.5px] text-blue hover:underline" onClick={() => setManualNewBillMode(true)}>
+                    Create new bill instead
+                  </button>
+                </>
+              ) : (
+                <div className="grid grid-cols-3 gap-3">
+                  <Field label="Bill name">
+                    <TextInput
+                      value={billName}
+                      onChange={(e) => {
+                        setBillName(e.target.value)
+                        setBillNameTouched(true)
+                      }}
+                    />
+                  </Field>
+                  <Field label="Due date" hint={party?.creditDays != null ? `${party.creditDays} credit days` : undefined}>
+                    <DateInput
+                      value={billDueDate}
+                      context={date}
+                      onChange={(d) => {
+                        setBillDueDate(d)
+                        setBillDueDateTouched(true)
+                      }}
+                    />
+                  </Field>
+                  <Field label="Amount">
+                    <div className={`${inputCls} num bg-panel text-right text-muted`}>
+                      <Money paise={computed.rounded} />
+                    </div>
+                  </Field>
+                  {isNoteKind && (
+                    <button
+                      className="col-span-3 self-start text-[11.5px] text-blue hover:underline"
+                      onClick={() => setManualNewBillMode(false)}
+                    >
+                      Allocate against open bills instead
+                    </button>
+                  )}
                 </div>
-              </Field>
+              )}
             </div>
           )}
         </div>
@@ -812,6 +890,11 @@ function AccountingEntry({
   const [tds, setTds] = useState<{ sectionId: number; baseAmount: number; tdsAmount: number } | null>(null)
   const [tdsSuggestion, setTdsSuggestion] = useState<TdsSuggestion | null>(null)
   const [tdsDismissed, setTdsDismissed] = useState(false)
+  // Set right before WE mutate rows in a way that would otherwise re-trigger the suggestion
+  // effect (applying TDS onto the flagged CR row itself, or loading a voucher that already has
+  // tds applied) — the effect consumes it once and skips, so the banner doesn't re-fetch/reopen
+  // off of our own write. Genuine user edits always leave it false and behave normally.
+  const skipNextTdsEffectRef = useRef(false)
 
   // ---------- bill allocations (receipt/payment checkbox list; trading-kind alteration editor) ----------
   const [billRefs, setBillRefs] = useState<VoucherBillRef[]>([])
@@ -830,6 +913,10 @@ function AccountingEntry({
       setRows(existing.lines.map((l) => ({ drCr: l.drCr, ledgerId: l.ledgerId, amount: l.amount, costAllocations: l.costAllocations })))
       setBillRefs(existing.billRefs)
       setTds(existing.tds)
+      if (existing.tds) {
+        setTdsDismissed(true)
+        skipNextTdsEffectRef.current = true
+      }
       setLoaded(true)
     }
   }, [existing, loaded])
@@ -862,17 +949,65 @@ function AccountingEntry({
     return draftPartyId
   }, [rows, ledgers, groupMap, draftPartyId])
 
+  // The dr-side (payment: "Dr Vendor / Cr Bank") is checked first; journal additionally checks
+  // the cr side, since the standard journal shape is "Dr Expense / Cr Vendor(flagged)" — the
+  // vendor never appears as a debit there. `rowSide` records which one matched, since it decides
+  // both the suggestion's base amount and (in applyTds) which line absorbs the deduction.
   const tdsCandidateRow = useMemo(() => {
     if (kind !== 'payment' && kind !== 'journal') return null
     for (const r of rows) {
       if (r.drCr !== 'dr' || r.ledgerId == null || !r.amount) continue
       const l = ledgers.find((x) => x.id === r.ledgerId)
-      if (l?.tdsSectionId != null) return { ledgerId: r.ledgerId, amount: r.amount }
+      if (l?.tdsSectionId != null) return { ledgerId: r.ledgerId, amount: r.amount, rowSide: 'dr' as const }
+    }
+    if (kind === 'journal') {
+      for (const r of rows) {
+        if (r.drCr !== 'cr' || r.ledgerId == null || !r.amount) continue
+        const l = ledgers.find((x) => x.id === r.ledgerId)
+        if (l?.tdsSectionId != null) return { ledgerId: r.ledgerId, amount: r.amount, rowSide: 'cr' as const }
+      }
     }
     return null
   }, [rows, kind, ledgers])
 
+  // Where the TDS amount would come out of: the flagged CR row itself for the journal vendor
+  // shape (Dr Expense / Cr Vendor 9000 / Cr TDS 1000 — the textbook entry), or the largest
+  // cash/bank credit line for the payment shape.
+  const tdsTargetIdx = useMemo(() => {
+    if (!tdsCandidateRow) return -1
+    if (tdsCandidateRow.rowSide === 'cr') {
+      return rows.findIndex((r) => r.drCr === 'cr' && r.ledgerId === tdsCandidateRow.ledgerId)
+    }
+    let idx = -1
+    let max = -1
+    rows.forEach((r, i) => {
+      if (r.drCr !== 'cr' || r.ledgerId == null) return
+      const l = ledgers.find((x) => x.id === r.ledgerId)
+      if (l && isCashOrBankLedger(l, groupMap) && (r.amount ?? 0) > max) {
+        max = r.amount ?? 0
+        idx = i
+      }
+    })
+    return idx
+  }, [rows, tdsCandidateRow, ledgers, groupMap])
+
+  // Capacity of the target line = its current amount plus whatever a prior Apply already carved
+  // out of it (tracked as the current TDS payable line's amount, which always equals the
+  // cumulative reduction — see applyTds). This lets a re-apply after editing the base amount
+  // compare against the pre-TDS amount, not the already-reduced one.
+  const existingTdsPayableAmount = useMemo(() => {
+    if (!tds || !tdsSuggestion) return 0
+    return rows.find((r) => r.drCr === 'cr' && r.ledgerId === tdsSuggestion.payableLedgerId)?.amount ?? 0
+  }, [rows, tds, tdsSuggestion])
+
+  const tdsTargetCapacity = tdsTargetIdx === -1 ? 0 : (rows[tdsTargetIdx]!.amount ?? 0) + existingTdsPayableAmount
+  const tdsApplyBlocked = !!tdsSuggestion && (tdsTargetIdx === -1 || tdsTargetCapacity < tdsSuggestion.tdsPaise)
+
   useEffect(() => {
+    if (skipNextTdsEffectRef.current) {
+      skipNextTdsEffectRef.current = false
+      return
+    }
     setTdsDismissed(false)
     if (!tdsCandidateRow) {
       setTdsSuggestion(null)
@@ -894,24 +1029,33 @@ function AccountingEntry({
   }, [tdsCandidateRow?.ledgerId, tdsCandidateRow?.amount, date])
 
   const applyTds = (): void => {
-    if (!tdsCandidateRow || !tdsSuggestion) return
+    if (!tdsCandidateRow || !tdsSuggestion || tdsApplyBlocked) return
     const tdsAmount = tdsSuggestion.tdsPaise
+    const isVendorTarget = tdsCandidateRow.rowSide === 'cr'
+    // The vendor-CR shape reduces the very row the candidate/suggestion is keyed on — mark it so
+    // the debounce effect above doesn't treat our own write as a fresh user edit and re-suggest
+    // off the now-smaller amount. The payment shape reduces an unrelated bank line, so the
+    // candidate row is untouched and no suppression is needed there.
+    if (isVendorTarget) skipNextTdsEffectRef.current = true
     setRows((rs) => {
       let next = rs.map((r) => ({ ...r }))
 
-      const findBankIdx = (skip: number): number => {
-        let idx = -1
+      let targetIdx = -1
+      if (isVendorTarget) {
+        targetIdx = next.findIndex((r) => r.drCr === 'cr' && r.ledgerId === tdsCandidateRow.ledgerId)
+      } else {
         let max = -1
         next.forEach((r, i) => {
-          if (i === skip || r.drCr !== 'cr' || r.ledgerId == null) return
+          if (r.drCr !== 'cr' || r.ledgerId == null) return
           const l = ledgers.find((x) => x.id === r.ledgerId)
           if (l && isCashOrBankLedger(l, groupMap) && (r.amount ?? 0) > max) {
             max = r.amount ?? 0
-            idx = i
+            targetIdx = i
           }
         })
-        return idx
       }
+      // Guarded by tdsApplyBlocked above — should always be found, but never mutate blind.
+      if (targetIdx === -1) return next
 
       // Re-applying (e.g. after editing the base amount) adjusts the TDS payable line already on
       // the voucher instead of inserting a duplicate.
@@ -919,15 +1063,11 @@ function AccountingEntry({
       if (existingIdx !== -1) {
         const delta = tdsAmount - (next[existingIdx]!.amount ?? 0)
         next[existingIdx] = { ...next[existingIdx]!, amount: tdsAmount }
-        const bankIdx = findBankIdx(existingIdx)
-        if (bankIdx !== -1) next[bankIdx] = { ...next[bankIdx]!, amount: Math.max(0, (next[bankIdx]!.amount ?? 0) - delta) }
+        next[targetIdx] = { ...next[targetIdx]!, amount: (next[targetIdx]!.amount ?? 0) - delta }
         return next
       }
 
-      const bankIdx = findBankIdx(-1)
-      if (bankIdx !== -1) {
-        next[bankIdx] = { ...next[bankIdx]!, amount: Math.max(0, (next[bankIdx]!.amount ?? 0) - tdsAmount) }
-      }
+      next[targetIdx] = { ...next[targetIdx]!, amount: (next[targetIdx]!.amount ?? 0) - tdsAmount }
       const insertAt = next.length > 0 && next[next.length - 1]!.ledgerId == null ? next.length - 1 : next.length
       const tdsRow: AcctRow = { drCr: 'cr', ledgerId: tdsSuggestion.payableLedgerId, amount: tdsAmount, costAllocations: [] }
       next = [...next.slice(0, insertAt), tdsRow, ...next.slice(insertAt)]
@@ -1146,18 +1286,26 @@ function AccountingEntry({
       )}
 
       {tdsSuggestion && !tdsDismissed && (
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-[12.5px] text-amber">
-          <span>
-            TDS u/s {tdsSuggestion.code}: deduct <Money paise={tdsSuggestion.tdsPaise} className="text-amber" />
-            {!tdsSuggestion.panAvailable && <span className="ml-2 text-cr">PAN missing — 20% rate</span>}
-            {!tdsSuggestion.thresholdCrossed && <span className="ml-2 text-muted">(below threshold — applying anyway is your call)</span>}
-          </span>
-          <div className="flex shrink-0 gap-2">
-            <Button onClick={() => setTdsDismissed(true)}>Dismiss</Button>
-            <Button variant="primary" onClick={applyTds}>
-              Apply
-            </Button>
+        <div className="mt-3 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-[12.5px] text-amber">
+          <div className="flex items-center justify-between gap-3">
+            <span>
+              TDS u/s {tdsSuggestion.code}: deduct <Money paise={tdsSuggestion.tdsPaise} className="text-amber" />
+              {!tdsSuggestion.panAvailable && <span className="ml-2 text-cr">PAN missing — 20% rate</span>}
+              {!tdsSuggestion.thresholdCrossed && <span className="ml-2 text-muted">(below threshold — applying anyway is your call)</span>}
+            </span>
+            <div className="flex shrink-0 gap-2">
+              <Button onClick={() => setTdsDismissed(true)}>Dismiss</Button>
+              <Button variant="primary" disabled={tdsApplyBlocked} onClick={applyTds}>
+                Apply
+              </Button>
+            </div>
           </div>
+          {tdsApplyBlocked && (
+            <p className="mt-1.5 text-cr">
+              Apply would unbalance: the {formatPaise(tdsTargetIdx === -1 ? 0 : (rows[tdsTargetIdx]?.amount ?? 0), { symbol: true })} line
+              can&apos;t absorb {formatPaise(tdsSuggestion.tdsPaise, { symbol: true })} TDS — adjust lines manually.
+            </p>
+          )}
         </div>
       )}
 
@@ -1214,11 +1362,11 @@ function AccountingEntry({
                       </Select>
                       <TextInput value={r.name} onChange={(e) => setManualBillRef(i, { name: e.target.value })} placeholder="Bill name" className="flex-1" />
                       <AmountInput paise={r.amount} onPaise={(p) => setManualBillRef(i, { amount: p ?? 0 })} className="w-28" />
-                      <TextInput
-                        value={r.dueDate ?? ''}
-                        onChange={(e) => setManualBillRef(i, { dueDate: e.target.value || null })}
-                        placeholder="YYYY-MM-DD"
-                        className="num w-32"
+                      <DateInput
+                        value={r.dueDate ?? date}
+                        context={date}
+                        onChange={(d) => setManualBillRef(i, { dueDate: d })}
+                        className="w-32"
                       />
                       <button className="text-[12px] text-cr" onClick={() => removeManualBillRef(i)}>
                         ×
