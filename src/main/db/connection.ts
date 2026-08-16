@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3'
+import { rmSync } from 'fs'
 import { join } from 'path'
 import { companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
 import { migrate } from './migrate'
-import { backupStamp, pruneBackupsIn, snapshotTo } from './backup'
+import { backupStamp, pruneBackupsIn, quickCheckOk, snapshotTo } from './backup'
 
 export type DB = Database.Database
 
@@ -28,6 +29,13 @@ const MAX_BACKUPS = 20
 export async function backupCompany(db: DB, slug: string, tag = 'auto'): Promise<string> {
   const dest = join(companyBackupsDir(slug), `${backupStamp()}-${tag}.db`)
   await snapshotTo(db, dest)
+  // Post-write verification (task Q3 #99): a backup that doesn't pass quick_check is worse than
+  // no backup — it silently displaces a good one in the pruning window. Remove it and fail loudly
+  // (manual backups surface this as an error toast; scheduled ones log it).
+  if (!quickCheckOk(dest)) {
+    rmSync(dest, { force: true })
+    throw new Error('Backup verification failed (quick_check) — the snapshot was discarded')
+  }
   pruneBackupsIn(companyBackupsDir(slug), MAX_BACKUPS)
   return dest
 }

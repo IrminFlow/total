@@ -6,7 +6,7 @@ import { z } from 'zod'
 import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
 import { backupCompany, openCompanyDb } from './db/connection'
-import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, type BackupInfo } from './db/backup'
+import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheck, type BackupInfo } from './db/backup'
 import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
@@ -237,6 +237,12 @@ export function registerIpc(): void {
     const integrity = checkIntegrity(db)
     if (!integrity.ok) {
       log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
+    }
+    // [lane-Q] scheduled weekly FULL integrity check (task Q3 #99) — the check above is the cheap
+    // quick_check; this one is `PRAGMA integrity_check`, throttled to once per 7 days via meta.
+    const weekly = runWeeklyIntegrityCheck(db)
+    if (weekly.ran && !weekly.ok) {
+      log('warn', 'integrity-weekly-failed', { slug, detail: weekly.detail })
     }
     const purged = vouchers.purgeOldDeleted(db, 30)
     if (purged > 0) log('info', 'bin-purge', { purged })
