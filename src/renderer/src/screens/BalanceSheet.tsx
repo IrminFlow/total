@@ -1,7 +1,8 @@
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, DateInput, Money, Panel, SectionTitle } from '../components/ui'
 import { StatementTree } from '../components/StatementTree'
 import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -14,9 +15,13 @@ const EXPORT_COLUMNS: PdfColumn[] = [
 ]
 
 export function BalanceSheetScreen(): React.JSX.Element {
-  const { to } = useSession()
+  const { to: sessionTo } = useSession()
   const toast = useToasts()
-  const { data } = useQuery({ queryKey: ['balanceSheet', to], queryFn: () => api.reports.balanceSheet(to) })
+  // Local, on-screen as-on date (user ask): seeded from the header period, editable here
+  // without touching the global session period other screens read.
+  const [asOn, setAsOn] = useState(sessionTo)
+  useEffect(() => setAsOn(sessionTo), [sessionTo])
+  const { data } = useQuery({ queryKey: ['balanceSheet', asOn], queryFn: () => api.reports.balanceSheet(asOn) })
   if (!data) return <p className="text-muted">Loading…</p>
 
   const balanced = data.totalAssets === data.totalLiabilities
@@ -35,7 +40,8 @@ export function BalanceSheetScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
-            <span className="num text-[12px] text-muted">{periodLabel}</span>
+            <span className="text-[12px] text-muted">as on</span>
+            <DateInput value={asOn} context={asOn} onChange={setAsOn} className="w-28" testId="input-bs-ason" />
             <Button
               variant="ghost"
               onClick={() => void printReport({ title: 'Balance sheet', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}

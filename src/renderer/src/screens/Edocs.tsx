@@ -5,7 +5,7 @@ import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, DateInput, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
 import { gstPeriodOf, toDisplayDate, todayISO } from '@shared/dates'
 import { GST_STATES } from '@shared/gst/states'
-import type { VoucherTransportInput } from '@shared/schemas'
+import { TransportModal } from './voucher/TransportModal'
 
 type DocTypeFilter = 'all' | 'INV' | 'CRN' | 'DBN'
 
@@ -285,11 +285,10 @@ export function EdocsScreen(): React.JSX.Element {
       )}
 
       {transportFor && (
-        <TransportModalLite
+        <TransportModal
           voucherId={transportFor.voucherId}
           voucherNumber={transportFor.number}
-          onClose={() => setTransportFor(null)}
-          onSaved={() => {
+          onClose={() => {
             setTransportFor(null)
             void queryClient.invalidateQueries({ queryKey: ['edocList'] })
           }}
@@ -299,193 +298,6 @@ export function EdocsScreen(): React.JSX.Element {
   )
 }
 
-// ---------- Transport details (lite) ----------
-//
-// NOTE for the integrator: lane S1 creates the canonical TransportModal at
-// src/renderer/src/screens/voucher/TransportModal.tsx — it did not exist in this worktree,
-// so this is the brief's fallback TransportModalLite. When both land, keep S1's modal and
-// point the launcher below at it (the edoc:transportGet/Set contract is identical).
-
-const EMPTY_TRANSPORT: VoucherTransportInput = {
-  transMode: null,
-  transDistanceKm: null,
-  transporterId: null,
-  transporterName: null,
-  transDocNo: null,
-  transDocDate: null,
-  vehicleNo: null,
-  vehicleType: null,
-  shipToName: null,
-  shipToGstin: null,
-  shipToAddr1: null,
-  shipToAddr2: null,
-  shipToPlace: null,
-  shipToPincode: null,
-  shipToState: null
-}
-
-function TransportModalLite({
-  voucherId,
-  voucherNumber,
-  onClose,
-  onSaved
-}: {
-  voucherId: number
-  voucherNumber: string
-  onClose: () => void
-  onSaved: () => void
-}): React.JSX.Element {
-  const toast = useToasts()
-  const { data: saved, isLoading } = useQuery({
-    queryKey: ['edocTransport', voucherId],
-    queryFn: () => api.edoc.transportGet(voucherId)
-  })
-  const [draft, setDraft] = useState<VoucherTransportInput | null>(null)
-  const [initial, setInitial] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  useEffect(() => {
-    if (saved !== undefined && draft == null) {
-      const { voucherId: _vid, ...rest } = saved ?? { voucherId, ...EMPTY_TRANSPORT }
-      // Stored rows type transMode/vehicleType as plain strings; narrow to the input enums.
-      const loaded: VoucherTransportInput = {
-        ...EMPTY_TRANSPORT,
-        ...rest,
-        transMode: rest.transMode === '1' || rest.transMode === '2' || rest.transMode === '3' || rest.transMode === '4' ? rest.transMode : null,
-        vehicleType: rest.vehicleType === 'R' || rest.vehicleType === 'O' ? rest.vehicleType : null
-      }
-      setDraft(loaded)
-      setInitial(JSON.stringify(loaded))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved])
-  const value = draft ?? EMPTY_TRANSPORT
-  const dirty = draft != null && initial != null && JSON.stringify(draft) !== initial
-
-  const set = <K extends keyof VoucherTransportInput>(k: K, v: VoucherTransportInput[K]): void =>
-    setDraft({ ...value, [k]: v })
-  const str = (v: string): string | null => (v.trim() === '' ? null : v)
-
-  const doSave = async (): Promise<void> => {
-    if (!draft) return
-    setSaving(true)
-    try {
-      await api.edoc.transportSet(voucherId, draft)
-      toast.push('success', 'Transport details saved')
-      onSaved()
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Modal title={`Transport details — ${voucherNumber}`} onClose={onClose} wide dirty={dirty}>
-      {isLoading ? (
-        <SkeletonRows rows={4} />
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 md:grid-cols-4">
-            <Field label="Mode">
-              <Select
-                data-testid="input-transport-mode"
-                value={value.transMode ?? ''}
-                onChange={(e) => set('transMode', (e.target.value || null) as VoucherTransportInput['transMode'])}
-              >
-                <option value="">—</option>
-                <option value="1">Road</option>
-                <option value="2">Rail</option>
-                <option value="3">Air</option>
-                <option value="4">Ship</option>
-              </Select>
-            </Field>
-            <Field label="Distance (km)">
-              <TextInput
-                data-testid="input-transport-distance"
-                inputMode="numeric"
-                value={value.transDistanceKm ?? ''}
-                onChange={(e) => {
-                  const n = e.target.value.trim() === '' ? null : Number.parseInt(e.target.value, 10)
-                  set('transDistanceKm', n != null && Number.isFinite(n) ? n : null)
-                }}
-              />
-            </Field>
-            <Field label="Vehicle no.">
-              <TextInput data-testid="input-transport-vehicle" value={value.vehicleNo ?? ''} onChange={(e) => set('vehicleNo', str(e.target.value))} />
-            </Field>
-            <Field label="Vehicle type">
-              <Select
-                data-testid="input-transport-vehicle-type"
-                value={value.vehicleType ?? ''}
-                onChange={(e) => set('vehicleType', (e.target.value || null) as VoucherTransportInput['vehicleType'])}
-              >
-                <option value="">—</option>
-                <option value="R">Regular</option>
-                <option value="O">Over-dimensional cargo</option>
-              </Select>
-            </Field>
-            <Field label="Transporter ID (GSTIN/TRANSIN)">
-              <TextInput data-testid="input-transport-id" value={value.transporterId ?? ''} onChange={(e) => set('transporterId', str(e.target.value))} />
-            </Field>
-            <Field label="Transporter name">
-              <TextInput data-testid="input-transport-name" value={value.transporterName ?? ''} onChange={(e) => set('transporterName', str(e.target.value))} />
-            </Field>
-            <Field label="Transport doc no. (LR/RR/AWB)">
-              <TextInput data-testid="input-transport-doc-no" value={value.transDocNo ?? ''} onChange={(e) => set('transDocNo', str(e.target.value))} />
-            </Field>
-            <Field label="Transport doc date">
-              <DateInput
-                testId="input-transport-doc-date"
-                value={value.transDocDate ?? todayISO()}
-                context={todayISO()}
-                onChange={(iso) => set('transDocDate', iso)}
-              />
-            </Field>
-          </div>
-          <p className="mb-1 mt-4 text-[12px] font-medium text-muted">Ship-to (when different from the buyer's billing address)</p>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 md:grid-cols-4">
-            <Field label="Name">
-              <TextInput data-testid="input-transport-shipto-name" value={value.shipToName ?? ''} onChange={(e) => set('shipToName', str(e.target.value))} />
-            </Field>
-            <Field label="GSTIN">
-              <TextInput data-testid="input-transport-shipto-gstin" value={value.shipToGstin ?? ''} onChange={(e) => set('shipToGstin', str(e.target.value.toUpperCase()))} />
-            </Field>
-            <Field label="Address line 1">
-              <TextInput data-testid="input-transport-shipto-addr1" value={value.shipToAddr1 ?? ''} onChange={(e) => set('shipToAddr1', str(e.target.value))} />
-            </Field>
-            <Field label="Address line 2">
-              <TextInput data-testid="input-transport-shipto-addr2" value={value.shipToAddr2 ?? ''} onChange={(e) => set('shipToAddr2', str(e.target.value))} />
-            </Field>
-            <Field label="Place (city)">
-              <TextInput data-testid="input-transport-shipto-place" value={value.shipToPlace ?? ''} onChange={(e) => set('shipToPlace', str(e.target.value))} />
-            </Field>
-            <Field label="PIN code">
-              <TextInput data-testid="input-transport-shipto-pincode" inputMode="numeric" value={value.shipToPincode ?? ''} onChange={(e) => set('shipToPincode', str(e.target.value))} />
-            </Field>
-            <Field label="State">
-              <Select
-                data-testid="input-transport-shipto-state"
-                value={value.shipToState ?? ''}
-                onChange={(e) => set('shipToState', str(e.target.value))}
-              >
-                <option value="">—</option>
-                {Object.entries(GST_STATES).map(([code, name]) => (
-                  <option key={code} value={code}>{code} — {name}</option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" data-testid="btn-edocs-save-transport" disabled={saving || draft == null} onClick={() => void doSave()}>
-              {saving ? 'Saving…' : 'Save transport details'}
-            </Button>
-          </div>
-        </>
-      )}
-    </Modal>
-  )
-}
 
 function LiveApiConfirmModal({
   onCancel,
