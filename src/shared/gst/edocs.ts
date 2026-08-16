@@ -49,6 +49,8 @@ export interface EdocShipTo {
 }
 
 export interface EdocInvoice {
+  /** Books voucher id, when extracted from the database (absent on hand-built samples). */
+  voucherId?: number
   number: string
   date: string // ISO
   /** Document type for DocDtls.Typ / EWB docType. Defaults to 'INV' (regular invoice) when absent. */

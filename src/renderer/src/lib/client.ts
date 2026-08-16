@@ -1,6 +1,6 @@
 import type {
   BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, PayrollLine, PayrollRun,
-  RecurringTemplate, StockGroup, StockItem, TdsSection, Unit, Voucher, VoucherType
+  RecurringTemplate, StockGroup, StockItem, TdsSection, Unit, Voucher, VoucherTransport, VoucherType
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
@@ -9,11 +9,12 @@ import type {
   VoucherListRow
 } from '@shared/reports'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
+import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type {
   AuditListInput, BankRuleInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
-  CurrencyInput, EmployeeInput, GodownInput, GroupInput, LedgerInput, NicCredentials, RecurringInput,
-  RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTypeInput,
+  CurrencyInput, EmployeeInput, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials, RecurringInput,
+  RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
   VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
@@ -313,7 +314,15 @@ export const api = {
       call<{ jsonPath: string }>('gst:exportGstr3b', { from, to, period }),
     recon2b: (jsonText: string, from: string, to: string) =>
       call<{ result: Recon2bResult; errors: string[]; period: string | null }>('gst:recon2b', { jsonText, from, to }),
-    recon2bPickFile: () => call<{ jsonText: string; fileName: string } | null>('gst:recon2bPickFile')
+    recon2bPickFile: () => call<{ jsonText: string; fileName: string } | null>('gst:recon2bPickFile'),
+    validate: (from: string, to: string) =>
+      call<{
+        issues: GstIssue[]
+        roundOff: { voucherId: number; number: string; roundOff: number; lines: string[] }[]
+      }>('gst:validate', { from, to }),
+    get3bManual: (period: string) => call<Gst3bManualInput>('gst:3bManualGet', { period }),
+    set3bManual: (period: string, data: Gst3bManualInput) =>
+      call<Gst3bManualInput>('gst:3bManualSet', { period, data })
   },
   analysis: {
     register: (kind: 'sales' | 'purchase', from: string, to: string) =>
@@ -379,8 +388,15 @@ export const api = {
     list: (from: string, to: string) => call<EdocListRow[]>('edoc:list', { from, to }),
     exportEInvoice: (from: string, to: string, period: string) =>
       call<{ path: string; count: number }>('edoc:exportEInvoice', { from, to, period }),
-    exportEwb: (from: string, to: string, period: string) =>
-      call<{ path: string; count: number }>('edoc:exportEwb', { from, to, period })
+    exportEwb: (from: string, to: string, period: string, opts?: { voucherIds?: number[]; includeBelowThreshold?: boolean }) =>
+      call<{ path: string; dir: string; count: number; skipped: { number: string; reason: string }[] }>(
+        'edoc:exportEwb',
+        { from, to, period, ...opts }
+      ),
+    ewbJson: (voucherId: number) => call<{ path: string }>('edoc:ewbJson', { voucherId }),
+    transportGet: (voucherId: number) => call<VoucherTransport | null>('edoc:transportGet', { voucherId }),
+    transportSet: (voucherId: number, data: VoucherTransportInput) =>
+      call<VoucherTransport>('edoc:transportSet', { voucherId, data })
   },
   invoice: {
     pdf: (voucherId: number) => call<{ path: string }>('invoice:pdf', { voucherId }),

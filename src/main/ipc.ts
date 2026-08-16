@@ -16,10 +16,10 @@ import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
-  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
+  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
-  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
+  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
 import * as configSvc from './services/config'
@@ -547,11 +547,30 @@ export function registerIpc(): void {
   handle('gst:exportGstr1', (p) => {
     const { from, to, period } = gstPeriodInput.parse(p)
     const c = requireCompany()
+    // Server-side export gate (G7): blocking validation issues refuse the export outright —
+    // the renderer disables the button too, but the gate must hold for any caller.
+    gst.assertExportable(c.db, c.info, from, to)
     const result = gst.gstr1(c.db, c.info, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr1', period, result.json)
     const csvPath = gst.exportGstr1Csv(c.slug, result)
     shell.showItemInFolder(jsonPath)
     return { jsonPath, csvPath }
+  })
+  // ---------- gst rebuild (lane G): validation panel + 3B manual adjustments ----------
+  handle('gst:validate', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    const issues = gst.gstValidate(c.db, c.info, from, to)
+    const roundOff = edocs.einvoiceRoundOffIssues(c.db, c.info, from, to)
+    return { issues, roundOff }
+  }, 'viewer')
+  handle('gst:3bManualGet', (p) => {
+    const { period } = z.object({ period: z.string().regex(/^\d{6}$/) }).parse(p)
+    return configSvc.getGst3bManual(requireCompany().db, period)
+  }, 'viewer')
+  handle('gst:3bManualSet', (p) => {
+    const { period, data } = z.object({ period: z.string().regex(/^\d{6}$/), data: gst3bManualSchema }).parse(p)
+    return configSvc.setGst3bManual(requireCompany().db, period, data)
   })
   handle('gst:exportGstr3b', (p) => {
     const { from, to, period } = gstPeriodInput.parse(p)
@@ -718,11 +737,34 @@ export function registerIpc(): void {
     return r
   })
   handle('edoc:exportEwb', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    const { from, to, period, voucherIds, includeBelowThreshold } = gstPeriodInput
+      .extend({
+        voucherIds: z.array(z.number().int().positive()).max(500).optional(),
+        includeBelowThreshold: z.boolean().default(false)
+      })
+      .parse(p)
     const c = requireCompany()
-    const r = edocs.exportEwb(c.db, c.info, c.slug, from, to, period)
+    // Writes the combined bulk file AND one single-bill file per voucher (exports/ewb/<period>/).
+    const r = edocs.exportEwb(c.db, c.info, c.slug, from, to, period, { voucherIds, includeBelowThreshold })
     shell.showItemInFolder(r.path)
     return r
+  })
+  handle('edoc:ewbJson', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const r = edocs.ewbJsonForVoucher(c.db, c.info, c.slug, voucherId)
+    shell.showItemInFolder(r.path)
+    return r
+  })
+  handle('edoc:transportGet', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    return edocs.getTransport(requireCompany().db, voucherId)
+  }, 'viewer')
+  handle('edoc:transportSet', (p) => {
+    const { voucherId, data } = z
+      .object({ voucherId: z.number().int().positive(), data: voucherTransportSchema })
+      .parse(p)
+    return edocs.setTransport(requireCompany().db, voucherId, data)
   })
   handle('invoice:pdf', async (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
