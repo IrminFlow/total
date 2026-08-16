@@ -15,19 +15,24 @@ export function YearEndScreen(): React.JSX.Element {
   const queryClient = useQueryClient()
 
   const currentFy = fyOf(todayISO())
-  const [fyStartYear, setFyStartYear] = useState(currentFy.startYear)
+  // Only completed FYs are closeable — the running FY isn't over yet, so it never appears here.
+  const lastCompletedStartYear = currentFy.startYear - 1
+  const years: number[] = []
+  for (let y = lastCompletedStartYear; y >= (info?.booksFrom ?? lastCompletedStartYear); y--) years.push(y)
+  const noCompletedFy = years.length === 0
+
+  const [fyStartYear, setFyStartYear] = useState(years[0] ?? lastCompletedStartYear)
   const [step, setStep] = useState<Step>(1)
   const [confirmText, setConfirmText] = useState('')
   const [posting, setPosting] = useState(false)
   const [result, setResult] = useState<{ voucherId: number; netProfit: number; lockedUpTo: string } | null>(null)
 
-  const years: number[] = []
-  for (let y = currentFy.startYear; y >= (info?.booksFrom ?? currentFy.startYear); y--) years.push(y)
   const fy = fyFromStartYear(fyStartYear)
 
   const { data: preview, isLoading } = useQuery({
     queryKey: ['yearEndPreview', fyStartYear],
-    queryFn: () => api.yearEnd.preview(fyStartYear)
+    queryFn: () => api.yearEnd.preview(fyStartYear),
+    enabled: !noCompletedFy
   })
 
   const incomeRows = (preview?.rows ?? []).filter((r) => r.nature === 'income')
@@ -48,9 +53,18 @@ export function YearEndScreen(): React.JSX.Element {
   }
 
   const post = async (): Promise<void> => {
-    if (posting) return
+    if (posting || !preview) return
     setPosting(true)
     try {
+      // The P&L may have moved since step 2 (another voucher posted in the meantime) — re-check
+      // right before posting rather than trust a stale preview.
+      const fresh = await api.yearEnd.preview(fyStartYear)
+      if (fresh.netProfit !== preview.netProfit || fresh.alreadyClosed) {
+        toast.push('error', 'The P&L changed since you reviewed it — recheck before closing.')
+        await queryClient.invalidateQueries({ queryKey: ['yearEndPreview', fyStartYear] })
+        setStep(1)
+        return
+      }
       const r = await api.yearEnd.close(fyStartYear)
       setResult(r)
       const nextFy = fyFromStartYear(fyStartYear + 1)
@@ -62,6 +76,20 @@ export function YearEndScreen(): React.JSX.Element {
     } finally {
       setPosting(false)
     }
+  }
+
+  if (noCompletedFy) {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <SectionTitle>Year-end close</SectionTitle>
+        <Panel>
+          <EmptyState
+            title="The first financial year is still in progress"
+            hint={`Come back after 31 Mar ${currentFy.startYear + 1}`}
+          />
+        </Panel>
+      </div>
+    )
   }
 
   if (result) {
@@ -81,7 +109,7 @@ export function YearEndScreen(): React.JSX.Element {
             <Button
               onClick={() => {
                 setResult(null)
-                changeYear(fyStartYear + 1 <= currentFy.startYear ? fyStartYear + 1 : fyStartYear)
+                changeYear(Math.min(fyStartYear + 1, lastCompletedStartYear))
               }}
             >
               Done
@@ -216,7 +244,7 @@ export function YearEndScreen(): React.JSX.Element {
               Posting will lock all entries up to {toDisplayDate(fy.to)}.
             </p>
             <p className="mt-1 text-[12.5px] text-muted">
-              This cannot be undone from this wizard — an owner can adjust the lock date later if needed.
+              This cannot be undone from this wizard — an owner can adjust the lock date later from Settings → About.
             </p>
           </Panel>
           <div className="flex justify-between">

@@ -4,6 +4,7 @@ import { createLedger } from './masters'
 import { saveVoucher, getLockDate } from './vouchers'
 import { closePreview, postClose } from './yearEnd'
 import { trialBalance } from './reports'
+import { fyOf, todayISO } from '@shared/dates'
 import type { VoucherInputParsed } from '@shared/schemas'
 
 function ledgerUnder(db: ReturnType<typeof seededDb>, name: string, groupName: string): number {
@@ -129,5 +130,11 @@ describe('year-end close', () => {
   it('refuses to close a FY with no income/expense activity', () => {
     const db = seededDb()
     expect(() => postClose(db, TEST_INFO, 2025)).toThrow(/no income or expense activity/i)
+  })
+
+  it('refuses to close the running (not-yet-ended) financial year', () => {
+    const db = seededDb()
+    const currentFy = fyOf(todayISO()) // still in progress by definition — its 31 Mar is in the future
+    expect(() => postClose(db, TEST_INFO, currentFy.startYear)).toThrow(/has not ended/i)
   })
 })

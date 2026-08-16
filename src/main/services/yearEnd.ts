@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
-import { fyFromStartYear } from '@shared/dates'
+import { fyFromStartYear, todayISO } from '@shared/dates'
 import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { findOrCreateLedger } from './masters'
 import { saveVoucher, setLockDate, NOT_DELETED } from './vouchers'
@@ -64,6 +64,9 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
   const fy = fyFromStartYear(fyStartYear)
   if (fyStartYear < company.booksFrom) {
     throw new Error(`Books start in FY ${fyFromStartYear(company.booksFrom).label} — nothing to close before that`)
+  }
+  if (fy.to >= todayISO()) {
+    throw new Error('Cannot close a financial year that has not ended')
   }
 
   const preview = closePreview(db, fyStartYear)
