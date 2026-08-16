@@ -435,4 +435,12 @@ export function mergeChequeConfig(partial: unknown): ChequeConfig {
   const parsed = chequeConfigSchema.safeParse(merged)
   return parsed.success ? parsed.data : { ...DEFAULT_CHEQUE_CONFIG }
 }
+
+/** `app:notifyDeadlines` — the renderer hands over titles/bodies it already computed from
+ *  `src/shared/compliance.ts`; the main process just guards the once-per-day fire and pops the
+ *  OS notifications (see `services/notifications.ts`). */
+export const notifyDeadlinesSchema = z.object({
+  items: z.array(z.object({ title: z.string().min(1), body: z.string().min(1) }))
+})
+export type NotifyDeadlinesInput = z.infer<typeof notifyDeadlinesSchema>
 export type BankRuleInput = z.infer<typeof bankRuleInputSchema>

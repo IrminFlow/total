@@ -69,3 +69,17 @@ export function setChequeConfig(db: DB, bankLedgerId: number, input: ChequeConfi
   writeAudit(db, 'cheque_config', bankLedgerId, 'update', before, parsed)
   return parsed
 }
+
+// ---------- compliance-deadline notifications (once-per-day guard) ----------
+
+/** True the first time it's called on a given `today`, false on every subsequent call the same
+ *  day — the app checks compliance deadlines once per launch/dashboard-load, and this stops a
+ *  user who reopens the app (or a background refresh) from re-popping the same OS notifications.
+ *  Guard state lives in `meta` under 'deadline_notified' as the last date it fired, following the
+ *  same read/write-through-JSON pattern as the rest of this file. */
+export function shouldNotifyDeadlinesToday(db: DB, today: string): boolean {
+  const last = readMeta(db, 'deadline_notified')
+  if (last === today) return false
+  writeMeta(db, 'deadline_notified', today)
+  return true
+}

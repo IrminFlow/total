@@ -1,10 +1,10 @@
 import type { DB } from '../db/connection'
 import type {
-  BalanceSheet, DashboardData, DayBookRow, LedgerStatement, LedgerStatementRow,
-  ProfitAndLoss, StatementNode, StockSummaryRow, TrialBalance
+  BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, LedgerStatement, LedgerStatementRow,
+  ProfitAndLoss, StatementNode, StockSummaryRow, TopLedgerRow, TrialBalance
 } from '@shared/reports'
 import type { Group, Nature } from '@shared/domain'
-import { listGroups, descendantIdsByName } from './masters'
+import { listGroups, descendantIdsByName, cashBankGroupIds } from './masters'
 import { listVouchers, NOT_DELETED } from './vouchers'
 
 // ---------- shared helpers ----------
@@ -345,6 +345,81 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string): BalanceSh
   return result
 }
 
+function addDaysISO(iso: string, delta: number): string {
+  const dt = new Date(iso + 'T00:00:00Z')
+  dt.setUTCDate(dt.getUTCDate() + delta)
+  return dt.toISOString().slice(0, 10)
+}
+
+/** Top 5 ledgers under `groupNames` by outstanding balance, descending, zero/negative excluded.
+ *  `sign` flips the dr-positive figure onto the "amount owed" axis (1 for debtors, -1 for
+ *  creditors, whose natural balance is credit i.e. negative dr-positive). */
+function topLedgersFor(
+  db: DB,
+  balances: Map<number, number>,
+  ledgers: LedgerLite[],
+  groupNames: string[],
+  sign: 1 | -1
+): TopLedgerRow[] {
+  const ids = descendantIdsByName(db, groupNames)
+  return ledgers
+    .filter((l) => ids.has(l.groupId))
+    .map((l) => ({ ledgerId: l.id, name: l.name, amount: sign * (balances.get(l.id) ?? 0) }))
+    .filter((r) => r.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 5)
+}
+
+/** Cash + bank running balance, one point per day, for the trailing `days` days ending `today`.
+ *  A single query gets the cumulative dr-positive balance (window-fn `SUM(...) OVER`) on every
+ *  date that actually had cash/bank movement; the day-by-day walk below just carries the last
+ *  known value forward across the gaps (weekends, days with no cash/bank voucher, ...). */
+function cashSpark(db: DB, today: string, days = 30): CashSparkPoint[] {
+  const groupIds = [...cashBankGroupIds(db)]
+  const windowStart = addDaysISO(today, -(days - 1))
+
+  let opening = 0
+  const balanceByDate = new Map<string, number>()
+  if (groupIds.length > 0) {
+    const placeholders = groupIds.map(() => '?').join(',')
+    opening = (
+      db.prepare(`SELECT COALESCE(SUM(opening_balance), 0) AS ob FROM ledgers WHERE group_id IN (${placeholders})`)
+        .get(...groupIds) as { ob: number }
+    ).ob
+    const rows = db
+      .prepare(
+        `SELECT v.date AS date,
+                SUM(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END))
+                  OVER (ORDER BY v.date) AS cum
+         FROM voucher_lines vl
+         JOIN vouchers v ON v.id = vl.voucher_id
+         JOIN ledgers l ON l.id = vl.ledger_id
+         WHERE l.group_id IN (${placeholders}) AND v.date <= ? AND ${NOT_DELETED}
+         GROUP BY v.date
+         ORDER BY v.date`
+      )
+      .all(...groupIds, today) as { date: string; cum: number }[]
+    for (const r of rows) balanceByDate.set(r.date, opening + r.cum)
+  }
+
+  // Carry the last known balance strictly before the window into its opening point.
+  let carry = opening
+  for (const [date, bal] of balanceByDate) {
+    if (date < windowStart) carry = bal
+    else break
+  }
+
+  const points: CashSparkPoint[] = []
+  let current = carry
+  let d = windowStart
+  for (let i = 0; i < days; i++) {
+    if (balanceByDate.has(d)) current = balanceByDate.get(d)!
+    points.push({ date: d, balance: current })
+    d = addDaysISO(d, 1)
+  }
+  return points
+}
+
 export function dashboard(db: DB, today: string, fyFrom: string): DashboardData {
   const balances = closingBalances(db, today)
   const ledgers = ledgersLite(db)
@@ -383,6 +458,12 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
       account: v.account, narration: v.narration, debit: v.amount, credit: v.amount
     }))
 
+  const partyIds = descendantIdsByName(db, ['Sundry Debtors', 'Sundry Creditors'])
+  const partyCount = ledgers.filter((l) => partyIds.has(l.groupId)).length
+  const voucherCount = (db.prepare(`SELECT COUNT(*) AS c FROM vouchers v WHERE ${NOT_DELETED}`).get() as { c: number }).c
+  const itemCount = (db.prepare('SELECT COUNT(*) AS c FROM stock_items').get() as { c: number }).c
+  const hasEmployees = !!db.prepare('SELECT 1 FROM employees WHERE active = 1 LIMIT 1').get()
+
   return {
     cashBalance: sumGroupSet(['Cash-in-Hand'], 1),
     bankBalance: sumGroupSet(['Bank Accounts', 'Bank OD A/c'], 1),
@@ -392,6 +473,13 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
     receivables: sumGroupSet(['Sundry Debtors'], 1, true),
     payables: sumGroupSet(['Sundry Creditors'], -1, true),
     gstPayable: sumGroupSet(['Duties & Taxes'], -1),
-    recentVouchers: recent
+    recentVouchers: recent,
+    topReceivables: topLedgersFor(db, balances, ledgers, ['Sundry Debtors'], 1),
+    topPayables: topLedgersFor(db, balances, ledgers, ['Sundry Creditors'], -1),
+    cashSpark: cashSpark(db, today),
+    voucherCount,
+    partyCount,
+    itemCount,
+    hasEmployees
   }
 }

@@ -29,6 +29,7 @@ import { BudgetsScreen } from './screens/Budgets'
 import { YearEndScreen } from './screens/YearEnd'
 import { Settings } from './screens/Settings'
 import { CommandPalette } from './components/CommandPalette'
+import { ShortcutHelp } from './components/ShortcutHelp'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LockScreen } from './components/LockScreen'
 
@@ -37,6 +38,7 @@ export default function App(): React.JSX.Element {
   const screen = useScreen()
   const nav = useNav()
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -54,6 +56,12 @@ export default function App(): React.JSX.Element {
           return
         }
         nav.back()
+        return
+      }
+      if (e.key === '?') {
+        const tag = (e.target as HTMLElement).tagName
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+        setHelpOpen(true)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -127,6 +135,7 @@ export default function App(): React.JSX.Element {
         </ErrorBoundary>
       </Shell>
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
       {integrityModal}
       <Toasts />
     </>

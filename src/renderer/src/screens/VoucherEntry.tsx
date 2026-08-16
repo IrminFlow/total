@@ -68,6 +68,14 @@ export function VoucherEntry({
   })
   const features = useFeatures()
   const [typeId, setTypeId] = useState<number | null>(null)
+  const [hintDismissed, setHintDismissed] = useState(false)
+
+  // Same queryKey Gateway uses for report:dashboard — a brand-new company (no vouchers yet) gets a
+  // first-time hint here; react-query dedupes the request rather than firing a second round-trip.
+  const { from } = useSession()
+  const today = todayISO()
+  const { data: dash } = useQuery({ queryKey: ['dashboard', today, from], queryFn: () => api.reports.dashboard(today, from) })
+  const showFirstVoucherHint = !voucherId && !hintDismissed && dash?.voucherCount === 0
 
   useEffect(() => {
     if (!types || typeId != null) return
@@ -104,6 +112,21 @@ export function VoucherEntry({
 
   return (
     <div className="mx-auto max-w-4xl">
+      {showFirstVoucherHint && (
+        <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5">
+          <p className="text-[12.5px] text-ink">
+            First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then{' '}
+            <Kbd>⌘↵</Kbd> to save.
+          </p>
+          <button
+            onClick={() => setHintDismissed(true)}
+            aria-label="Dismiss"
+            className="shrink-0 text-[12px] text-muted hover:text-ink"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <div className="mb-4 flex items-center gap-2">
         <h2 className="mr-3 font-serif text-[19px] font-semibold tracking-tight">
           {voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
