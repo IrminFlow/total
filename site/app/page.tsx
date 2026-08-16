@@ -1,4 +1,5 @@
 import Image from 'next/image'
+import Link from 'next/link'
 import { latestRelease } from '@/lib/release'
 import gatewayLight from '@/public/gateway-light.jpg'
 import voucherDark from '@/public/voucher-dark.jpg'
@@ -26,6 +27,11 @@ export default async function Home(): Promise<React.JSX.Element> {
         <div className="top">
           <span className="wordmark serif">Total</span>
           <span className="tag">for macOS · fully offline</span>
+          <span className="top-links">
+            <Link href="/docs">Docs</Link>
+            <Link href="/compare">Compare</Link>
+            <Link href="/changelog">Changelog</Link>
+          </span>
           <span className="cta-mini">
             <a className="btn small" href="/api/download">
               Download
