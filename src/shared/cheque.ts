@@ -28,3 +28,11 @@ export function chequeFields(input: ChequeFieldsInput): ChequeFields {
     figures: `${formatPaise(input.amount)}/-`
   }
 }
+
+/** mm → inches, for Electron's `printToPDF` custom `pageSize` — that option (unlike
+ *  `webContents.print`'s, which takes microns) takes an object of height/width in INCHES
+ *  (see node_modules/electron/electron.d.ts's PrintToPDFOptions.pageSize doc). The cheque config
+ *  itself stays in mm throughout — this conversion only happens at the printToPDF call site. */
+export function mmToInches(mm: number): number {
+  return mm / 25.4
+}

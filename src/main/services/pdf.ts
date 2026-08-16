@@ -5,8 +5,11 @@ import { companyExportsDir } from '../paths'
 
 export interface HtmlToPdfOptions {
   /** A named page size, or a custom size. Custom sizes are consumed as-is by Electron's
-   *  printToPDF — callers pass microns for the mm-precision layouts this app needs (e.g.
-   *  cheque printing); the plain 'A4' etc. named sizes cover everything else. */
+   *  printToPDF, which (unlike webContents.print's pageSize, which takes microns) takes an
+   *  object of height/width in INCHES — see PrintToPDFOptions.pageSize's doc in
+   *  node_modules/electron/electron.d.ts. Callers with an mm-precision layout (e.g. cheque
+   *  printing) must convert mm → inches themselves (see @shared/cheque's mmToInches) before
+   *  passing a custom size here; the plain 'A4' etc. named sizes cover everything else. */
   pageSize?: Electron.PrintToPDFOptions['pageSize'] | { width: number; height: number }
   /** 'none' drops all page margins — for layouts (e.g. a cheque) that are absolutely
    *  positioned against the physical page edge and must not be inset by a default margin. */

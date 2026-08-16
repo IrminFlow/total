@@ -2,7 +2,7 @@ import { shell } from 'electron'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import type { ChequeConfig } from '@shared/schemas'
-import { chequeFields, type ChequeFields } from '@shared/cheque'
+import { chequeFields, mmToInches, type ChequeFields } from '@shared/cheque'
 import { formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { getVoucher } from './vouchers'
@@ -67,10 +67,15 @@ export function chequeData(db: DB, voucherId: number, bankLedgerId: number): Che
   }
 }
 
-/** Absolutely-positioned mm layout — the config's widthMm/heightMm becomes the physical page
- *  size (in microns) at print time, so these positions map 1:1 onto the printed leaf regardless
- *  of what the page ends up sized as (a misbehaving custom size just prints the same layout with
- *  extra/less margin around it, never shifted content — see htmlToPdf's pageSize option). */
+/** printToPDF's custom pageSize wants inches (mmToInches — see @shared/cheque); the HTML body
+ *  itself stays in CSS mm throughout (Chromium maps CSS mm correctly regardless of page size), so
+ *  a misbehaving/clamped custom page size just prints the same mm layout with extra/less margin
+ *  around it, never shifted content. */
+function chequePageSize(config: ChequeConfig): { width: number; height: number } {
+  return { width: mmToInches(config.widthMm), height: mmToInches(config.heightMm) }
+}
+
+/** Absolutely-positioned mm layout, printed onto a page sized to match (see chequePageSize). */
 function buildChequeHtml(config: ChequeConfig, fields: ChequeFields): string {
   const dateDigits = fields.dateBoxes
     .split('')
@@ -120,7 +125,7 @@ export async function chequePdf(
   const html = buildChequeHtml(config, fields)
   const safe = data.voucherNumber.replace(/[^a-zA-Z0-9-_]/g, '_')
   const path = await writeExportPdf(slug, `cheque-${safe}.pdf`, html, {
-    pageSize: { width: config.widthMm * 1000, height: config.heightMm * 1000 },
+    pageSize: chequePageSize(config),
     margins: 'none'
   })
   shell.showItemInFolder(path)
@@ -164,7 +169,7 @@ export async function testGridPdf(db: DB, company: CompanyInfo, slug: string, ba
   const config = getChequeConfig(db, bankLedgerId)
   const html = buildGridHtml(config)
   return writeExportPdf(slug, 'cheque-test-grid.pdf', html, {
-    pageSize: { width: config.widthMm * 1000, height: config.heightMm * 1000 },
+    pageSize: chequePageSize(config),
     margins: 'none'
   })
 }

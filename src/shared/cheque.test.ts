@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chequeFields } from './cheque'
+import { chequeFields, mmToInches } from './cheque'
 import { amountInWords, formatPaise } from './money'
 
 describe('chequeFields', () => {
@@ -32,5 +32,21 @@ describe('chequeFields', () => {
     const f = chequeFields({ date: '2026-01-05', payee: 'X', amount: 0 })
     expect(f.words).toBe('Zero Rupees Only')
     expect(f.figures).toBe('0.00/-')
+  })
+})
+
+describe('mmToInches', () => {
+  it('converts a standard CTS-2010 cheque leaf (202×92mm) to inches', () => {
+    expect(mmToInches(202)).toBeCloseTo(7.9528, 4)
+    expect(mmToInches(92)).toBeCloseTo(3.6220, 4)
+  })
+
+  it('converts A4 (210×297mm) close to the familiar 8.27×11.69in', () => {
+    expect(mmToInches(210)).toBeCloseTo(8.2677, 4)
+    expect(mmToInches(297)).toBeCloseTo(11.6929, 4)
+  })
+
+  it('zero stays zero', () => {
+    expect(mmToInches(0)).toBe(0)
   })
 })
