@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api } from '../lib/client'
-import { useSession, useToasts } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../components/ui'
 import { GST_STATES } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
@@ -11,6 +11,7 @@ const TAN_RE = /^[A-Z]{4}\d{5}[A-Z]$/
 export function CompanyInfoScreen(): React.JSX.Element {
   const { info, slug, setCompany } = useSession()
   const toast = useToasts()
+  const nav = useNav()
   const [name, setName] = useState(info?.name ?? '')
   const [stateCode, setStateCode] = useState(info?.stateCode ?? '27')
   const [gstin, setGstin] = useState(info?.gstin ?? '')
@@ -53,6 +54,16 @@ export function CompanyInfoScreen(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-2xl">
       <SectionTitle>Company details</SectionTitle>
+      <button
+        onClick={() => nav.go({ name: 'settings', tab: 'invoice' })}
+        className="mb-4 flex w-full items-center justify-between rounded-lg border border-line bg-panel2 px-4 py-3 text-left transition-colors hover:border-amber/50 hover:bg-amber/10"
+      >
+        <span>
+          <span className="block text-[13.5px] font-medium">Invoice layout &amp; contents…</span>
+          <span className="block text-[11.5px] text-muted">Logo, declaration, bank details, QR, barcode column, copies to print</span>
+        </span>
+        <span className="text-[13px] text-amber">→</span>
+      </button>
       <Panel className="flex flex-col gap-4 p-5">
         <Field label="Name">
           <TextInput value={name} onChange={(e) => setName(e.target.value)} />

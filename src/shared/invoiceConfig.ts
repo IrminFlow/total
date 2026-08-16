@@ -23,6 +23,11 @@ export interface InvoiceConfig {
   showDiscount: boolean
   /** One PDF page rendered per label, e.g. ['Original for Recipient', 'Duplicate for Transporter']. */
   copyLabels: string[]
+  /** Verification QR near the title — the NIC-signed IRN QR when an e-invoice IRN exists, else a
+   *  plain (unsigned) JSON summary of the invoice essentials. See src/shared/einvoiceQr.ts. */
+  showQr: boolean
+  /** Adds a "Barcode" column when at least one line item carries a stored barcode. */
+  showItemBarcode: boolean
 }
 
 export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
@@ -35,7 +40,9 @@ export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
   terms: '',
   showHsn: true,
   showDiscount: false,
-  copyLabels: ['Original for Recipient']
+  copyLabels: ['Original for Recipient'],
+  showQr: true,
+  showItemBarcode: false
 }
 
 /** ~200KB of base64 (280,000 chars covers 200KB with base64's ~4/3 expansion plus headroom). */
@@ -61,7 +68,9 @@ export const invoiceConfigSchema = z.object({
   terms: z.string().trim().max(2000),
   showHsn: z.boolean(),
   showDiscount: z.boolean(),
-  copyLabels: z.array(z.string().trim().min(1).max(40)).min(1).max(3)
+  copyLabels: z.array(z.string().trim().min(1).max(40)).min(1).max(3),
+  showQr: z.boolean(),
+  showItemBarcode: z.boolean()
 })
 
 /** Every field optional — for previewing unsaved edits. The renderer's draft form state is

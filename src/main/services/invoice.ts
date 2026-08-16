@@ -1,3 +1,4 @@
+import qrcode from 'qrcode-generator'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import type { EdocInvoice } from '@shared/gst/edocs'
@@ -5,6 +6,7 @@ import { amountInWords, formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { GST_STATES } from '@shared/gst/states'
 import { mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
+import { einvoiceQrPayload } from '@shared/einvoiceQr'
 import { extractEdocInvoices } from './edocs'
 import { getInvoiceConfig } from './config'
 import { writeExportPdf } from './pdf'
@@ -29,7 +31,7 @@ export const SAMPLE_INVOICE: EdocInvoice = {
     {
       name: 'Sample product', hsn: '8471', qtyMilli: 2000, uqc: 'NOS',
       unitPricePaise: 500000, taxablePaise: 1000000, rate: 18, cessRate: 0,
-      cgst: 90000, sgst: 90000, igst: 0, cess: 0, isService: false
+      cgst: 90000, sgst: 90000, igst: 0, cess: 0, isService: false, barcode: 'SAMPLE-BC-001'
     }
   ],
   taxable: 1000000,
@@ -41,7 +43,19 @@ export const SAMPLE_INVOICE: EdocInvoice = {
   total: 1180000,
   transporterId: null,
   vehicleNo: null,
-  distanceKm: null
+  distanceKm: null,
+  irn: null
+}
+
+/** Renders `text` as an inline SVG QR code (auto type number, 'M' error correction) sized to
+ *  roughly `sizeMm` on a 96dpi-ish print scale — the lib's own SVG units are cell-count based, so
+ *  we just wrap its markup in a fixed-size container. */
+function qrSvg(text: string, sizeMm = 28): string {
+  const qr = qrcode(0, 'M')
+  qr.addData(text)
+  qr.make()
+  const inner = qr.createSvgTag({ scalable: true })
+  return `<div style="width:${sizeMm}mm;height:${sizeMm}mm">${inner}</div>`
 }
 
 /** Pure HTML builder — no DB access — so the live preview and the real/sample invoice paths share
@@ -50,6 +64,7 @@ export function buildInvoiceHtml(company: CompanyInfo, config: InvoiceConfig, in
   const isIntra = inv.igst === 0
   const showHsn = config.showHsn
   const showDiscount = config.showDiscount
+  const showBarcode = config.showItemBarcode && inv.items.some((i) => i.barcode)
 
   const itemRows = inv.items
     .map(
@@ -58,6 +73,7 @@ export function buildInvoiceHtml(company: CompanyInfo, config: InvoiceConfig, in
         <td class="c">${i + 1}</td>
         <td>${esc(item.name)}</td>
         ${showHsn ? `<td class="c num">${esc(item.hsn)}</td>` : ''}
+        ${showBarcode ? `<td class="c num">${esc(item.barcode ?? '')}</td>` : ''}
         <td class="r num">${item.qtyMilli / 1000} ${esc(item.uqc)}</td>
         <td class="r num">${money(item.unitPricePaise)}</td>
         ${showDiscount ? `<td class="r num">–</td>` : ''}
@@ -88,6 +104,28 @@ export function buildInvoiceHtml(company: CompanyInfo, config: InvoiceConfig, in
     ? `<div style="margin-top:10px" class="lbl">Terms</div><div style="font-size:10.5px">${esc(config.terms).replace(/\n/g, '<br/>')}</div>`
     : ''
 
+  // Verification QR — see src/shared/einvoiceQr.ts for why this is never labelled "IRN QR": it's
+  // our own unsigned JSON summary, not the NIC-signed IRP QR (which we have no key to forge). When
+  // an IRN exists it rides along inside the JSON so the invoice still surfaces it, just honestly.
+  const qrBlock = config.showQr
+    ? `<div style="margin-top:8px">
+         ${qrSvg(
+           einvoiceQrPayload({
+             sellerGstin: company.gstin,
+             buyerGstin: inv.partyGstin,
+             docNo: inv.number,
+             docType: inv.docType ?? 'INV',
+             docDate: inv.date,
+             totalPaise: inv.total,
+             itemCount: inv.items.length,
+             mainHsn: inv.items[0]?.hsn ?? null,
+             irn: inv.irn ?? null
+           })
+         )}
+         <div style="font-size:8.5px;color:#555;text-align:center;margin-top:2px">Verification QR</div>
+       </div>`
+    : ''
+
   const sheet = `
     <div class="sheet">
       <div class="head">
@@ -99,6 +137,7 @@ export function buildInvoiceHtml(company: CompanyInfo, config: InvoiceConfig, in
         </div>
         <div class="tag">
           <b>${esc(config.title)}</b>
+          ${qrBlock}
         </div>
       </div>
       <div class="meta">
@@ -120,6 +159,7 @@ export function buildInvoiceHtml(company: CompanyInfo, config: InvoiceConfig, in
         <thead><tr>
           <th class="c" style="width:34px">#</th><th>Description</th>
           ${showHsn ? '<th class="c" style="width:80px">HSN</th>' : ''}
+          ${showBarcode ? '<th class="c" style="width:100px">Barcode</th>' : ''}
           <th class="r" style="width:90px">Qty</th><th class="r" style="width:100px">Rate</th>
           ${showDiscount ? '<th class="r" style="width:80px">Discount</th>' : ''}
           <th class="c" style="width:60px">GST</th><th class="r" style="width:110px">Amount</th>

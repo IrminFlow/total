@@ -26,9 +26,16 @@ describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
       terms: 'Payment due in 30 days',
       showHsn: false,
       showDiscount: true,
-      copyLabels: ['Original for Recipient', 'Duplicate for Transporter', 'Triplicate for Supplier']
+      copyLabels: ['Original for Recipient', 'Duplicate for Transporter', 'Triplicate for Supplier'],
+      showQr: false,
+      showItemBarcode: true
     }
     expect(invoiceConfigSchema.parse(input)).toEqual(input)
+  })
+
+  it('defaults showQr to true and showItemBarcode to false', () => {
+    expect(DEFAULT_INVOICE_CONFIG.showQr).toBe(true)
+    expect(DEFAULT_INVOICE_CONFIG.showItemBarcode).toBe(false)
   })
 
   it('rejects a logoDataUrl over ~200KB', () => {

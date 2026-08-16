@@ -62,7 +62,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
   const vouchers = db
     .prepare(
       `SELECT v.id, v.number, v.date, vt.kind AS kind, v.transporter_id AS transporterId, v.vehicle_no AS vehicleNo,
-              v.transport_distance AS distanceKm,
+              v.transport_distance AS distanceKm, v.irn,
               p.name AS partyName, p.gstin AS partyGstin, p.state_code AS partyState, p.address AS partyAddress,
               p.export_type AS partyExportType
        FROM vouchers v
@@ -74,14 +74,14 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
     )
     .all(...EDOC_KINDS, from, to, voucherId ?? null, voucherId ?? null) as {
       id: number; number: string; date: string; kind: 'sales' | 'credit_note' | 'debit_note'
-      transporterId: string | null; vehicleNo: string | null; distanceKm: number | null
+      transporterId: string | null; vehicleNo: string | null; distanceKm: number | null; irn: string | null
       partyName: string | null; partyGstin: string | null; partyState: string | null; partyAddress: string | null
       partyExportType: string | null
     }[]
 
   const invStmt = db.prepare(
     `SELECT il.qty_milli AS qtyMilli, il.rate_paise AS ratePaise, il.amount,
-            si.name, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate, u.uqc
+            si.name, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate, si.barcode, u.uqc
      FROM inventory_lines il
      JOIN stock_items si ON si.id = il.stock_item_id
      JOIN units u ON u.id = si.unit_id
@@ -96,7 +96,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
     const supply = supplyTypeFor(company.stateCode, pos)
     const rawItems = invStmt.all(v.id) as {
       qtyMilli: number; ratePaise: number; amount: number
-      name: string; hsn: string | null; gstRate: number | null; cessRate: number | null; uqc: string
+      name: string; hsn: string | null; gstRate: number | null; cessRate: number | null; barcode: string | null; uqc: string
     }[]
     const items: EdocItem[] = rawItems.map((item) => {
       const rate = item.gstRate ?? 0
@@ -115,7 +115,8 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
         sgst: g.sgst,
         igst: g.igst,
         cess: g.cess,
-        isService: false
+        isService: false,
+        barcode: item.barcode
       }
     })
     const taxable = items.reduce((s, i) => s + i.taxablePaise, 0)
@@ -144,7 +145,8 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
       total,
       transporterId: v.transporterId,
       vehicleNo: v.vehicleNo,
-      distanceKm: v.distanceKm
+      distanceKm: v.distanceKm,
+      irn: v.irn
     }
   })
 }

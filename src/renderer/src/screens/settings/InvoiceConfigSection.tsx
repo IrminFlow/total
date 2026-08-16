@@ -195,6 +195,24 @@ export function InvoiceConfigSection(): React.JSX.Element {
                 />
                 Show discount column
               </label>
+              <label className="flex items-center gap-2 text-[12.5px]">
+                <input
+                  type="checkbox"
+                  checked={value.showQr}
+                  disabled={!canEdit}
+                  onChange={(e) => set({ showQr: e.target.checked })}
+                />
+                Show verification QR
+              </label>
+              <label className="flex items-center gap-2 text-[12.5px]">
+                <input
+                  type="checkbox"
+                  checked={value.showItemBarcode}
+                  disabled={!canEdit}
+                  onChange={(e) => set({ showItemBarcode: e.target.checked })}
+                />
+                Show item barcode column
+              </label>
             </div>
 
             <div>

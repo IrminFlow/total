@@ -133,49 +133,49 @@ describe('saveVoucher / getVoucher round-trip', () => {
   })
 })
 
-describe('nextVoucherNumber — suffix/pad/restart (task 2.12)', () => {
-  function postJournal(db: ReturnType<typeof seededDb>, voucherTypeId: number, date: string, number?: string) {
-    const cashId = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
-    const incomeGroupId = (db.prepare("SELECT id FROM groups WHERE name = 'Direct Incomes'").get() as { id: number }).id
-    const otherId = createLedger(db, {
-      name: `Other ${Math.random()}`,
-      groupId: incomeGroupId,
-      openingBalance: 0,
-      gstin: null,
-      stateCode: null,
-      address: null,
-      taxType: null,
-      gstRate: null,
-      hsn: null,
-      tdsSectionId: null,
-      pan: null,
-      creditDays: null,
-      exportType: null
-    }).id
-    return saveVoucher(db, {
-      voucherTypeId,
-      date,
-      number,
-      partyLedgerId: null,
-      narration: null,
-      reference: null,
-      instrumentNo: null,
-      instrumentDate: null,
-      transporterId: null,
-      vehicleNo: null,
-      transportDistanceKm: null,
-      currencyCode: null,
-      exchangeRate: null,
-      lines: [
-        { ledgerId: cashId, drCr: 'dr', amount: 10000, costAllocations: [] },
-        { ledgerId: otherId, drCr: 'cr', amount: 10000, costAllocations: [] }
-      ],
-      inventory: [],
-      billRefs: [],
-      tds: null
-    })
-  }
+function postJournal(db: ReturnType<typeof seededDb>, voucherTypeId: number, date: string, number?: string) {
+  const cashId = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+  const incomeGroupId = (db.prepare("SELECT id FROM groups WHERE name = 'Direct Incomes'").get() as { id: number }).id
+  const otherId = createLedger(db, {
+    name: `Other ${Math.random()}`,
+    groupId: incomeGroupId,
+    openingBalance: 0,
+    gstin: null,
+    stateCode: null,
+    address: null,
+    taxType: null,
+    gstRate: null,
+    hsn: null,
+    tdsSectionId: null,
+    pan: null,
+    creditDays: null,
+    exportType: null
+  }).id
+  return saveVoucher(db, {
+    voucherTypeId,
+    date,
+    number,
+    partyLedgerId: null,
+    narration: null,
+    reference: null,
+    instrumentNo: null,
+    instrumentDate: null,
+    transporterId: null,
+    vehicleNo: null,
+    transportDistanceKm: null,
+    currencyCode: null,
+    exchangeRate: null,
+    lines: [
+      { ledgerId: cashId, drCr: 'dr', amount: 10000, costAllocations: [] },
+      { ledgerId: otherId, drCr: 'cr', amount: 10000, costAllocations: [] }
+    ],
+    inventory: [],
+    billRefs: [],
+    tds: null
+  })
+}
 
+describe('nextVoucherNumber — suffix/pad/restart (task 2.12)', () => {
   it('applies prefix + zero-padded sequence + suffix, e.g. INV-001/24-25', () => {
     const db = seededDb()
     const vt = createVoucherType(db, {
@@ -225,5 +225,47 @@ describe('nextVoucherNumber — suffix/pad/restart (task 2.12)', () => {
     expect(nextVoucherNumber(db, vt.id, '2024-07-01')).toBe('2')
     const v2 = postJournal(db, vt.id, '2024-07-01')
     expect(v2.number).toBe('2')
+  })
+})
+
+describe('saveVoucher — explicit input.number override (task 2.13)', () => {
+  it('an auto-numbered type still saves an explicit non-empty number verbatim', () => {
+    const db = seededDb()
+    const vt = createVoucherType(db, {
+      name: 'Auto Override', kind: 'journal', numbering: 'auto', prefix: '', suffix: '', padWidth: 0, restartFy: true
+    })
+    const v1 = postJournal(db, vt.id, '2024-06-15', 'CUSTOM-99')
+    expect(v1.number).toBe('CUSTOM-99')
+  })
+
+  it('an empty/whitespace number on an auto type falls back to the auto sequence', () => {
+    const db = seededDb()
+    const vt = createVoucherType(db, {
+      name: 'Auto Blank', kind: 'journal', numbering: 'auto', prefix: '', suffix: '', padWidth: 0, restartFy: true
+    })
+    const v1 = postJournal(db, vt.id, '2024-06-15', '   ')
+    expect(v1.number).toBe('1')
+  })
+
+  it('a manually-entered numeric override is picked up by the next auto sequence', () => {
+    const db = seededDb()
+    const vt = createVoucherType(db, {
+      name: 'Override Then Auto', kind: 'journal', numbering: 'auto', prefix: '', suffix: '', padWidth: 0, restartFy: true
+    })
+    const v1 = postJournal(db, vt.id, '2024-06-15', '5')
+    expect(v1.number).toBe('5')
+    // The next auto-assigned number continues past the manually-entered one, not from 1.
+    const v2 = postJournal(db, vt.id, '2024-06-16')
+    expect(v2.number).toBe('6')
+  })
+
+  it('a manual-numbering type still requires a non-empty number', () => {
+    const db = seededDb()
+    const vt = createVoucherType(db, {
+      name: 'Manual Type', kind: 'journal', numbering: 'manual', prefix: '', suffix: '', padWidth: 0, restartFy: true
+    })
+    expect(() => postJournal(db, vt.id, '2024-06-15')).toThrow('Voucher number is required')
+    const v1 = postJournal(db, vt.id, '2024-06-15', 'MAN-1')
+    expect(v1.number).toBe('MAN-1')
   })
 })

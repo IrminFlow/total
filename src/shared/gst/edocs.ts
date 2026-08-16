@@ -19,6 +19,9 @@ export interface EdocItem {
   igst: number
   cess: number
   isService: boolean
+  /** Scannable barcode/SKU stored on the stock item, if any — printed on the invoice's optional
+   *  Barcode column (see invoiceConfig.showItemBarcode). */
+  barcode?: string | null
 }
 
 export interface EdocInvoice {
@@ -45,6 +48,9 @@ export interface EdocInvoice {
   transporterId: string | null
   vehicleNo: string | null
   distanceKm: number | null
+  /** NIC-issued Invoice Reference Number, once this invoice has been e-invoiced. Drives which
+   *  QR payload buildInvoiceHtml prints — see src/shared/einvoiceQr.ts. */
+  irn?: string | null
 }
 
 export interface EdocCompany {

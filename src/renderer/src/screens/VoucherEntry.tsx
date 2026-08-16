@@ -11,6 +11,7 @@ import { api, type TdsSuggestion } from '../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../state/stores'
 import { AmountInput, Button, DateInput, Field, Kbd, Modal, Money, Panel, Select, TextInput, inputCls } from '../components/ui'
 import { ItemPicker, LedgerPicker, useGroups, useLedgers, useStockItems, useTaxLedgers } from '../components/pickers'
+import { LedgerFormModal } from '../components/LedgerFormModal'
 import { useFeatures } from '../lib/useFeatures'
 
 const TRADING_KINDS: VoucherKind[] = ['sales', 'purchase', 'credit_note', 'debit_note']
@@ -152,6 +153,49 @@ function useVoucherNumber(typeId: number, date: string, excludeId?: number): str
   return data?.number ?? '…'
 }
 
+/** Loading placeholder for the suggested next number, before voucher:nextNumber resolves. Never
+ *  sent as input.number — see numberField.value below. */
+const NUMBER_LOADING = '…'
+
+/** The voucher No. field: a plain TextInput pre-filled from voucher:nextNumber, but editable —
+ *  once the user types into it ("touched"), further nextNumber results stop overwriting it. A
+ *  type or date change is a new numbering context, so it resets `touched` and re-syncs to the
+ *  freshly suggested number. `reset()` clears touched after a successful save so the field goes
+ *  back to tracking the (now-advanced) suggestion for the next voucher. */
+function useVoucherNumberField(typeId: number, date: string, excludeId?: number): {
+  value: string
+  onChange: (v: string) => void
+  reset: () => void
+  /** For posting: '' when untouched-and-still-loading (never send the '…' placeholder), else the
+   *  trimmed value the user is looking at (empty string included — that means "auto-assign"). */
+  forPayload: string
+} {
+  const fetched = useVoucherNumber(typeId, date, excludeId)
+  const [value, setValue] = useState(fetched)
+  const [touched, setTouched] = useState(false)
+  const keyRef = useRef(`${typeId}|${date}`)
+
+  useEffect(() => {
+    const key = `${typeId}|${date}`
+    if (keyRef.current !== key) {
+      keyRef.current = key
+      setTouched(false)
+    }
+  }, [typeId, date])
+
+  useEffect(() => {
+    if (!touched) setValue(fetched)
+  }, [fetched, touched])
+
+  const onChange = useCallback((v: string): void => {
+    setTouched(true)
+    setValue(v)
+  }, [])
+  const reset = useCallback((): void => setTouched(false), [])
+
+  return { value, onChange, reset, forPayload: value === NUMBER_LOADING ? '' : value.trim() }
+}
+
 // ---------- invoice mode (sales / purchase / notes) ----------
 
 interface ItemRow {
@@ -186,8 +230,9 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
   const [quickItem, setQuickItem] = useState<{ name: string; row: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
+  const [editingParty, setEditingParty] = useState(false)
 
-  const number = useVoucherNumber(typeId, date)
+  const numberField = useVoucherNumberField(typeId, date)
   const isSalesSide = kind === 'sales' || kind === 'credit_note'
   const party = ledgers.find((l) => l.id === partyId) ?? null
   const account = ledgers.find((l) => l.id === accountId) ?? null
@@ -207,8 +252,8 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
   const [noteBillRefs, setNoteBillRefs] = useState<VoucherBillRef[]>([])
 
   useEffect(() => {
-    if (!billNameTouched && number !== '…') setBillName(number)
-  }, [number, billNameTouched])
+    if (!billNameTouched && numberField.value !== '…') setBillName(numberField.value)
+  }, [numberField.value, billNameTouched])
 
   useEffect(() => {
     if (billDueDateTouched) return
@@ -318,6 +363,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
     return {
       voucherTypeId: typeId,
       date,
+      number: numberField.forPayload || undefined,
       partyLedgerId: partyId,
       narration: narration.trim() || null,
       reference: null,
@@ -345,7 +391,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
             : [],
       tds: null
     }
-  }, [partyId, accountId, computed, kind, typeId, date, narration, transporterId, vehicleNo, distanceKm, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
+  }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
 
   const formValid = !!partyId && !!accountId && computed.detail.length > 0
 
@@ -380,13 +426,14 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
       setBillNameTouched(false)
       setBillDueDateTouched(false)
       setNoteBillRefs([])
+      numberField.reset()
       await queryClient.invalidateQueries()
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, date, toast, setWorkingDate, queryClient])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, date, toast, setWorkingDate, queryClient, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -418,20 +465,33 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
   return (
     <Panel className="p-5">
       <div className="grid grid-cols-4 gap-3">
-        <Field label="No.">
-          <div className={`${inputCls} num bg-panel text-muted`}>{number}</div>
+        <Field label="No." hint={numberField.value === '…' ? undefined : 'Auto — edit to override'}>
+          <TextInput
+            value={numberField.value === '…' ? '' : numberField.value}
+            onChange={(e) => numberField.onChange(e.target.value)}
+            placeholder="Auto"
+            className="num"
+          />
         </Field>
         <Field label="Date">
           <DateInput value={date} context={workingDate} onChange={setDate} />
         </Field>
         <Field label={isSalesSide ? 'Party (buyer)' : 'Party (supplier)'}>
-          <LedgerPicker
-            autoFocus
-            value={partyId}
-            onPick={setPartyId}
-            placeholder="Party ledger"
-            onCreateRequest={(name) => setQuickLedger({ name, forParty: true })}
-          />
+          <div className="flex items-center gap-1.5">
+            <LedgerPicker
+              autoFocus
+              value={partyId}
+              onPick={setPartyId}
+              placeholder="Party ledger"
+              onCreateRequest={(name) => setQuickLedger({ name, forParty: true })}
+              className="flex-1"
+            />
+            {party && (
+              <Button variant="ghost" className="shrink-0 px-2 py-1 text-[11px]" onClick={() => setEditingParty(true)}>
+                Edit
+              </Button>
+            )}
+          </div>
         </Field>
         <Field label={isSalesSide ? 'Sales ledger' : 'Purchase ledger'}>
           <LedgerPicker
@@ -700,6 +760,7 @@ function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKi
         />
       )}
       {showRecurring && <SaveAsRecurringModal buildPayload={buildPayload} onClose={() => setShowRecurring(false)} />}
+      {editingParty && party && <LedgerFormModal ledger={party} onClose={() => setEditingParty(false)} />}
     </Panel>
   )
 }
@@ -919,7 +980,13 @@ function AccountingEntry({
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
-  const number = useVoucherNumber(typeId, date, voucherId)
+  const [editingParty, setEditingParty] = useState<Ledger | null>(null)
+  // Alteration keeps the voucher's own number editable but never auto-suggests a fresh one off
+  // voucher:nextNumber (that would rename an existing document to "the next available number"
+  // the moment you touch its date) — it's seeded once from the loaded voucher below. New-entry
+  // mode uses the touched/refetch hook instead, same as InvoiceEntry.
+  const [alterNumber, setAlterNumber] = useState('')
+  const numberField = useVoucherNumberField(typeId, date, voucherId)
   const [draftPartyId] = useState(draft?.partyLedgerId ?? null)
 
   const { data: existing } = useQuery({
@@ -950,6 +1017,7 @@ function AccountingEntry({
   useEffect(() => {
     if (existing && !loaded) {
       setDate(existing.date)
+      setAlterNumber(existing.number)
       setNarration(existing.narration ?? '')
       setInstrumentNo(existing.instrumentNo ?? '')
       setRows(existing.lines.map((l) => ({ drCr: l.drCr, ledgerId: l.ledgerId, amount: l.amount, costAllocations: l.costAllocations })))
@@ -1178,6 +1246,7 @@ function AccountingEntry({
     return {
       voucherTypeId: typeId,
       date,
+      number: (voucherId ? alterNumber.trim() : numberField.forPayload) || undefined,
       partyLedgerId: effectivePartyId,
       narration: narration.trim() || null,
       reference: null,
@@ -1196,7 +1265,7 @@ function AccountingEntry({
       billRefs: effectivePartyId != null ? billRefs : [],
       tds: tds && effectivePartyId != null ? tds : null
     }
-  }, [rows, derivedPartyId, existing, typeId, date, narration, instrumentNo, billRefs, tds])
+  }, [rows, derivedPartyId, existing, typeId, date, voucherId, alterNumber, numberField.forPayload, narration, instrumentNo, billRefs, tds])
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
@@ -1225,13 +1294,14 @@ function AccountingEntry({
         setTds(null)
         setTdsSuggestion(null)
         setTdsDismissed(false)
+        numberField.reset()
       }
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
       setSaving(false)
     }
-  }, [saving, buildPayload, date, voucherId, toast, setWorkingDate, queryClient, nav])
+  }, [saving, buildPayload, date, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -1290,8 +1360,13 @@ function AccountingEntry({
   return (
     <Panel className="p-5">
       <div className="grid grid-cols-4 gap-3">
-        <Field label="No.">
-          <div className={`${inputCls} num bg-panel text-muted`}>{voucherId ? (existing?.number ?? '…') : number}</div>
+        <Field label="No." hint={voucherId || numberField.value === '…' ? undefined : 'Auto — edit to override'}>
+          <TextInput
+            value={voucherId ? alterNumber : numberField.value === '…' ? '' : numberField.value}
+            onChange={(e) => (voucherId ? setAlterNumber(e.target.value) : numberField.onChange(e.target.value))}
+            placeholder="Auto"
+            className="num"
+          />
         </Field>
         <Field label="Date">
           <DateInput value={date} context={workingDate} onChange={setDate} />
@@ -1330,24 +1405,35 @@ function AccountingEntry({
                 </button>
               </td>
               <td>
-                <LedgerPicker
-                  value={r.ledgerId}
-                  onPick={(id) => setRow(i, { ledgerId: id })}
-                  autoFocus={i === 0 && !voucherId}
-                  filter={
-                    kind === 'contra'
-                      ? (l, groups) => {
-                          let g = groups.get(l.groupId)
-                          while (g) {
-                            if (['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'].includes(g.name)) return true
-                            g = g.parentId ? groups.get(g.parentId) : undefined
+                <div className="flex items-center gap-1.5">
+                  <LedgerPicker
+                    value={r.ledgerId}
+                    onPick={(id) => setRow(i, { ledgerId: id })}
+                    autoFocus={i === 0 && !voucherId}
+                    filter={
+                      kind === 'contra'
+                        ? (l, groups) => {
+                            let g = groups.get(l.groupId)
+                            while (g) {
+                              if (['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'].includes(g.name)) return true
+                              g = g.parentId ? groups.get(g.parentId) : undefined
+                            }
+                            return false
                           }
-                          return false
-                        }
-                      : undefined
-                  }
-                  onCreateRequest={(name) => setQuickLedger({ name, row: i })}
-                />
+                        : undefined
+                    }
+                    onCreateRequest={(name) => setQuickLedger({ name, row: i })}
+                    className="flex-1"
+                  />
+                  {(() => {
+                    const rowLedger = r.ledgerId != null ? ledgers.find((l) => l.id === r.ledgerId) : null
+                    return rowLedger && isPartyLedger(rowLedger, groupMap) ? (
+                      <Button variant="ghost" className="shrink-0 px-2 py-1 text-[11px]" onClick={() => setEditingParty(rowLedger)}>
+                        Edit
+                      </Button>
+                    ) : null
+                  })()}
+                </div>
               </td>
               <td className="r">
                 <AmountInput
@@ -1533,6 +1619,7 @@ function AccountingEntry({
         />
       )}
       {showRecurring && <SaveAsRecurringModal buildPayload={buildPayload} onClose={() => setShowRecurring(false)} />}
+      {editingParty && <LedgerFormModal ledger={editingParty} onClose={() => setEditingParty(null)} />}
     </Panel>
   )
 }
