@@ -51,7 +51,7 @@ npm run build:mac           # DMG in dist/
 If better-sqlite3 complains about `NODE_MODULE_VERSION`, rebuild it for Electron:
 `npx @electron/rebuild -f -w better-sqlite3` (needed after any plain `npm rebuild`, which targets system Node instead).
 
-`scripts/drive*.mjs` are Playwright smoke-drivers that launch the built app and walk company creation → vouchers → reports, saving screenshots (used for agent-driven verification; run `npm run build` first).
+`scripts/e2e/*.mjs` (run with `npm run e2e`) are Playwright E2E scenarios that launch the built app on scratch data dirs and walk onboarding → vouchers → GST → payroll → backup, saving screenshots and JSON results (run `npm run build` first).
 
 ## Architecture
 

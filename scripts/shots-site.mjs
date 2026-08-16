@@ -2,7 +2,7 @@
 // drives the real "Explore with sample data" flow (createDemo + open, chained by the renderer
 // itself — see CompanySelect.tsx), and captures Gateway / GSTR-1 / dark-theme voucher shots
 // straight into site/public/. Modeled on scripts/smoke-ci.mjs (launch pattern) and
-// scripts/drive.mjs (clickText DOM-click pattern). Run `npm run build` first.
+// the scripts/lib/harness.mjs conventions (clickText DOM-click pattern). Run `npm run build` first.
 import { _electron as electron } from 'playwright-core'
 import { createRequire } from 'node:module'
 import * as fs from 'node:fs'
