@@ -11,7 +11,7 @@ import { fyFromStartYear, gstPeriodOf } from '@shared/dates'
 import { GST_STATES } from '@shared/gst/states'
 import { companyExportsDir } from '../paths'
 import { descendantIdsByName, listGroups, listLedgers, listStockItems, listUnits, listVoucherTypes } from './masters'
-import { getVoucher, NOT_DELETED } from './vouchers'
+import { getVoucher, IN_BOOKS } from './vouchers'
 import { balanceSheet, dayBook, ledgerStatement, profitAndLoss, trialBalance } from './reports'
 import { outstandings } from './analysis'
 import { gstr1 } from './gst'
@@ -58,8 +58,8 @@ export function tallyMastersOf(db: DB): { groups: TallyGroup[]; ledgers: TallyLe
   return { groups, ledgers, units, items }
 }
 
-/** Vouchers dated within [from, to] (excluding soft-deleted ones), mapped to the neutral Tally
- *  shape (names, not ids). */
+/** In-books vouchers dated within [from, to] (no binned, memorandum, or unmatured post-dated
+ *  ones — a migration must carry the books, not marginalia), mapped to the neutral Tally shape. */
 export function tallyVouchersOf(db: DB, from: string, to: string): TallyVoucher[] {
   const ledgerName = new Map(listLedgers(db).map((l) => [l.id, l.name]))
   const itemName = new Map(listStockItems(db).map((i) => [i.id, i.name]))
@@ -67,7 +67,7 @@ export function tallyVouchersOf(db: DB, from: string, to: string): TallyVoucher[
 
   const ids = (
     db
-      .prepare(`SELECT id FROM vouchers v WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED} ORDER BY v.date, v.id`)
+      .prepare(`SELECT id FROM vouchers v WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} ORDER BY v.date, v.id`)
       .all(from, to) as { id: number }[]
   ).map((r) => r.id)
 
@@ -166,7 +166,7 @@ function voucherRegister(db: DB, kind: 'sales' | 'purchase', from: string, to: s
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE vt.kind = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(kind, from, to) as { id: number; date: string; number: string; party: string }[]
@@ -235,7 +235,7 @@ function writeLedgerStatements(dir: string, db: DB, from: string, to: string): n
 
 /** Deductee-wise TDS entries for the period, matching tds.ts#export26qCsv's row shape — joins
  *  tds_entries (voucher_id/section_id/party_ledger_id/pan/base_amount/tds_amount) to the section
- *  code and the voucher's date/number, filtered to [from, to] and NOT_DELETED. Returns null (no
+ *  code and the voucher's date/number, filtered to [from, to] and IN_BOOKS (books figures only, matching tds.ts). Returns null (no
  *  file written) if there are no entries in the period. */
 function tdsCsv(db: DB, from: string, to: string): string | null {
   const rows = db
@@ -246,7 +246,7 @@ function tdsCsv(db: DB, from: string, to: string): string | null {
        JOIN vouchers v ON v.id = te.voucher_id
        JOIN tds_sections ts ON ts.id = te.section_id
        JOIN ledgers l ON l.id = te.party_ledger_id
-       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as { deductee: string; pan: string | null; section: string; date: string; number: string; base: number; tds: number }[]
