@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, shell } from 'electron'
+import { app, dialog, ipcMain, Notification, shell } from 'electron'
 import { readFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -17,10 +17,11 @@ import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, godownInputSchema, groupInputSchema, gstr2bSchema,
-  isoDate, ledgerInputSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema,
+  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, recurringInputSchema, rendererLogSchema,
   stockGroupInputSchema, stockItemInputSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTypeInputSchema
 } from '@shared/schemas'
+import { todayISO } from '@shared/dates'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
@@ -930,4 +931,19 @@ export function registerIpc(): void {
   // ---------- app info + updates ----------
   handle('app:info', () => ({ version: app.getVersion(), platform: process.platform }))
   handle('app:checkUpdates', () => checkForUpdatesInteractive(), 'viewer')
+
+  // ---------- compliance-deadline notifications ----------
+  // The renderer computes *which* deadlines to notify about (pure `src/shared/compliance.ts`,
+  // driven off the dashboard data it already has) and hands over ready-to-show title/body pairs;
+  // this just applies the once-per-day guard and pops native OS notifications.
+  handle('app:notifyDeadlines', (p) => {
+    const { items } = notifyDeadlinesSchema.parse(p)
+    const db = requireCompany().db
+    if (configSvc.shouldNotifyDeadlinesToday(db, todayISO())) {
+      for (const item of items) {
+        new Notification({ title: item.title, body: item.body }).show()
+      }
+    }
+    return null
+  }, 'viewer')
 }

@@ -4,6 +4,7 @@ import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { Button, Money, Panel } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
+import { upcomingDeadlines } from '@shared/compliance'
 import { useFeatures } from '../lib/useFeatures'
 import type { CompanyFeatures } from '@shared/features'
 import type { RecurringTemplate } from '@shared/domain'
@@ -67,6 +68,7 @@ export function Gateway(): React.JSX.Element {
       </div>
 
       <DueTodayPanel />
+      <CompliancePanel />
 
       <div className="mt-6 grid grid-cols-3 gap-3">
         {cards.map((c) => (
@@ -176,6 +178,59 @@ function DueTodayPanel(): React.JSX.Element | null {
             <Button variant="ghost" disabled={busyId === t.id} onClick={() => openInVoucherEntry(t)}>
               Open in voucher entry
             </Button>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  )
+}
+
+/** Fires once per app session (not per Gateway mount/remount) — a module-level flag rather than
+ *  component state, so navigating away and back to the Gateway doesn't re-notify. */
+let notifiedThisSession = false
+
+function CompliancePanel(): React.JSX.Element | null {
+  const nav = useNav()
+  const { info } = useSession()
+  const features = useFeatures()
+  const today = todayISO()
+  const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
+
+  const deadlines = useMemo(
+    () => upcomingDeadlines(today, gstRegistrationType, features.payroll, 30),
+    [today, gstRegistrationType, features.payroll]
+  )
+
+  useEffect(() => {
+    if (notifiedThisSession || !info) return
+    notifiedThisSession = true
+    const soon = upcomingDeadlines(today, gstRegistrationType, features.payroll, 3)
+    if (soon.length) {
+      void api.app.notifyDeadlines(
+        soon.map((d) => ({ title: d.form, body: `${d.title} — due ${toDisplayDate(d.date)}` }))
+      )
+    }
+    // Deliberately no dependency-driven re-fire: the module flag above is the real guard, this
+    // effect just needs to run once `info` is available so gstRegistrationType is known.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info])
+
+  if (!deadlines.length) return null
+
+  return (
+    <Panel className="mt-6">
+      <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
+        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Compliance calendar</p>
+        <button className="text-[11.5px] text-blue hover:underline" onClick={() => nav.go({ name: 'gstr3b' })}>
+          GSTR-3B
+        </button>
+      </div>
+      <div>
+        {deadlines.slice(0, 6).map((d) => (
+          <div key={d.id} className="flex items-center gap-4 border-b border-line/40 px-5 py-2 last:border-b-0">
+            <span className="num w-20 text-[12px] text-muted">{toDisplayDate(d.date)}</span>
+            <span className="w-28 text-[12.5px] text-muted">{d.form}</span>
+            <span className="flex-1 truncate text-[13px]">{d.title}</span>
           </div>
         ))}
       </div>

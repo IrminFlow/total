@@ -449,6 +449,8 @@ export const api = {
     checkUpdates: () =>
       call<{ status: 'dev' | 'available' | 'up-to-date' | 'error'; current: string; latest?: string }>(
         'app:checkUpdates'
-      )
+      ),
+    notifyDeadlines: (items: { title: string; body: string }[]) =>
+      call<null>('app:notifyDeadlines', { items })
   }
 }
