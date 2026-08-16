@@ -501,21 +501,23 @@ export function registerIpc(): void {
     return reports.dayBook(requireCompany().db, from, to)
   }, 'viewer')
   handle('report:ledger', (p) => {
-    const { ledgerId, from, to } = periodSchema.extend({ ledgerId: z.number().int().positive() }).parse(p)
-    return reports.ledgerStatement(requireCompany().db, ledgerId, from, to)
+    const { ledgerId, from, to, groupBy } = periodSchema
+      .extend({ ledgerId: z.number().int().positive(), groupBy: z.enum(['month']).optional() })
+      .parse(p)
+    return reports.ledgerStatement(requireCompany().db, ledgerId, from, to, groupBy)
   }, 'viewer')
   handle('report:trialBalance', (p) => {
     const { asOn } = z.object({ asOn: z.string() }).parse(p)
     return reports.trialBalance(requireCompany().db, asOn)
   }, 'viewer')
   handle('report:profitLoss', (p) => {
-    const { from, to } = periodSchema.parse(p)
-    return reports.profitAndLoss(requireCompany().db, from, to)
+    const { from, to, comparePrior } = periodSchema.extend({ comparePrior: z.boolean().optional() }).parse(p)
+    return reports.profitAndLoss(requireCompany().db, from, to, comparePrior ? { comparePrior } : undefined)
   }, 'viewer')
   handle('report:balanceSheet', (p) => {
-    const { asOn } = z.object({ asOn: z.string() }).parse(p)
+    const { asOn, comparePrior } = z.object({ asOn: z.string(), comparePrior: z.boolean().optional() }).parse(p)
     const c = requireCompany()
-    return reports.balanceSheet(c.db, `${c.info.booksFrom}-04-01`, asOn)
+    return reports.balanceSheet(c.db, `${c.info.booksFrom}-04-01`, asOn, comparePrior)
   }, 'viewer')
   handle('report:stockSummary', (p) => {
     const { asOn } = z.object({ asOn: z.string() }).parse(p)

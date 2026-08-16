@@ -78,11 +78,12 @@ describe('year-end close', () => {
     const cr = lines.filter((l) => l.drCr === 'cr').reduce((s, l) => s + l.amount, 0)
     expect(dr).toBe(cr)
 
-    // As-on 31 Mar 2026: Sales Income and Rent are fully zeroed (dropped from the trial balance,
-    // which omits zero-balance ledgers); Retained Earnings carries the ₹400 profit as a credit.
+    // As-on 31 Mar 2026: Sales Income and Rent are fully zeroed. Since v0.3 (#56) the trial
+    // balance keeps transacted ledgers with a nil closing (their movement columns carry the
+    // story), so assert zero closing rather than absence.
     const tb = trialBalance(db, '2026-03-31')
-    expect(tb.rows.find((r) => r.ledgerId === salesId)).toBeUndefined()
-    expect(tb.rows.find((r) => r.ledgerId === rentId)).toBeUndefined()
+    expect(tb.rows.find((r) => r.ledgerId === salesId)).toMatchObject({ debit: 0, credit: 0 })
+    expect(tb.rows.find((r) => r.ledgerId === rentId)).toMatchObject({ debit: 0, credit: 0 })
     const retained = tb.rows.find((r) => r.ledgerName === 'Retained Earnings')
     expect(retained).toBeDefined()
     expect(retained!.credit).toBe(40000)

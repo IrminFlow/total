@@ -5,7 +5,7 @@ import { seededDb, postSimpleVoucher } from '../db/testdb'
 import { createLedger } from './masters'
 import { saveVoucher } from './vouchers'
 import type { VoucherInputParsed } from '@shared/schemas'
-import { cashFlow, dashboard } from './reports'
+import { cashFlow, dashboard, ledgerStatement, trialBalance, profitAndLoss, balanceSheet } from './reports'
 
 const LEDGER_DEFAULTS = {
   gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
@@ -73,6 +73,75 @@ describe('cashFlow (#53)', () => {
     expect(cf.openingCash).toBe(0)
     expect(cf.closingCash).toBe(20000)
     expect(cf.netChange).toBe(cf.closingCash - cf.openingCash)
+  })
+})
+
+describe('columnar monthly ledger (#55)', () => {
+  it('returns a month matrix with carried closings when groupBy month is requested', () => {
+    const db = seededDb()
+    postSimpleVoucher(db, { date: '2025-04-10', amount: 50000, kind: 'receipt' })
+    postSimpleVoucher(db, { date: '2025-06-05', amount: 20000, kind: 'payment' })
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+
+    const plain = ledgerStatement(db, cash, '2025-04-01', '2025-07-31')
+    expect(plain.months).toBeUndefined()
+
+    const stmt = ledgerStatement(db, cash, '2025-04-01', '2025-07-31', 'month')
+    expect(stmt.months).toEqual([
+      { month: '2025-04', debit: 50000, credit: 0, closing: 50000 },
+      { month: '2025-05', debit: 0, credit: 0, closing: 50000 },
+      { month: '2025-06', debit: 0, credit: 20000, closing: 30000 },
+      { month: '2025-07', debit: 0, credit: 0, closing: 30000 }
+    ])
+  })
+})
+
+describe('trial balance opening/movement columns (#56)', () => {
+  it('carries opening, gross movement, and closing per ledger, with totals', () => {
+    const db = seededDb()
+    const fixtures = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Fixtures', groupId: groupId(db, 'Fixed Assets'), openingBalance: 70000 }).id
+    createLedger(db, { ...LEDGER_DEFAULTS, name: 'Capital', groupId: groupId(db, 'Capital Account'), openingBalance: -70000 })
+    postSimpleVoucher(db, { date: '2025-04-10', amount: 50000, kind: 'receipt' })
+    postSimpleVoucher(db, { date: '2025-04-20', amount: 20000, kind: 'payment' })
+
+    const tb = trialBalance(db, '2025-04-30')
+    const cashRow = tb.rows.find((r) => r.ledgerName === 'Cash')!
+    expect(cashRow).toMatchObject({ opening: 0, movementDebit: 50000, movementCredit: 20000, debit: 30000, credit: 0 })
+    const fixturesRow = tb.rows.find((r) => r.ledgerId === fixtures)!
+    expect(fixturesRow).toMatchObject({ opening: 70000, movementDebit: 0, movementCredit: 0, debit: 70000 })
+    expect(tb.openingDebitTotal).toBe(70000)
+    expect(tb.openingCreditTotal).toBe(70000)
+    expect(tb.movementDebitTotal).toBe(tb.movementCreditTotal)
+    expect(tb.totalDebit).toBe(tb.totalCredit)
+  })
+
+  it('keeps a ledger whose closing nets to zero but which had movement', () => {
+    const db = seededDb()
+    postSimpleVoucher(db, { date: '2025-04-10', amount: 50000, kind: 'receipt' })
+    postSimpleVoucher(db, { date: '2025-04-20', amount: 50000, kind: 'payment' })
+    const tb = trialBalance(db, '2025-04-30')
+    const cashRow = tb.rows.find((r) => r.ledgerName === 'Cash')
+    expect(cashRow).toMatchObject({ debit: 0, credit: 0, movementDebit: 50000, movementCredit: 50000 })
+  })
+})
+
+describe('prior-year comparison (#57)', () => {
+  it('attaches the year-earlier P&L and balance sheet when asked', () => {
+    const db = seededDb()
+    postSimpleVoucher(db, { date: '2024-05-10', amount: 30000, kind: 'receipt' })
+    postSimpleVoucher(db, { date: '2025-05-10', amount: 80000, kind: 'receipt' })
+
+    const pnl = profitAndLoss(db, '2025-04-01', '2026-03-31', { comparePrior: true })
+    expect(pnl.netProfit).toBe(80000)
+    expect(pnl.prior?.period).toEqual({ from: '2024-04-01', to: '2025-03-31' })
+    expect(pnl.prior?.netProfit).toBe(30000)
+    expect(pnl.prior?.prior).toBeUndefined()
+
+    const bs = balanceSheet(db, '2024-04-01', '2026-03-31', true)
+    expect(bs.prior?.asOn).toBe('2025-03-31')
+    expect(bs.prior?.prior).toBeUndefined()
+
+    expect(profitAndLoss(db, '2025-04-01', '2026-03-31').prior).toBeUndefined()
   })
 })
 

@@ -157,6 +157,13 @@ function dayBefore(date: string): string {
   return dt.toISOString().slice(0, 10)
 }
 
+/** Same date one year earlier, clamped for Feb 29. */
+function yearBefore(date: string): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number]
+  const maxDay = new Date(Date.UTC(y - 1, m, 0)).getUTCDate()
+  return `${y - 1}-${String(m).padStart(2, '0')}-${String(Math.min(d, maxDay)).padStart(2, '0')}`
+}
+
 // ---------- reports ----------
 
 export function dayBook(db: DB, from: string, to: string): DayBookRow[] {
@@ -172,7 +179,22 @@ export function dayBook(db: DB, from: string, to: string): DayBookRow[] {
   }))
 }
 
-export function ledgerStatement(db: DB, ledgerId: number, from: string, to: string): LedgerStatement {
+/** 'YYYY-MM' months from `from` to `to`, inclusive. */
+function monthRange(from: string, to: string): string[] {
+  const months: string[] = []
+  let [y, m] = [Number(from.slice(0, 4)), Number(from.slice(5, 7))]
+  const end = to.slice(0, 7)
+  for (;;) {
+    const key = `${y}-${String(m).padStart(2, '0')}`
+    months.push(key)
+    if (key === end || months.length > 1200) break
+    m += 1
+    if (m > 12) { m = 1; y += 1 }
+  }
+  return months
+}
+
+export function ledgerStatement(db: DB, ledgerId: number, from: string, to: string, groupBy?: 'month'): LedgerStatement {
   const ledger = db.prepare('SELECT id, name, opening_balance FROM ledgers WHERE id = ?').get(ledgerId) as
     | { id: number; name: string; opening_balance: number }
     | undefined
@@ -248,35 +270,96 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
     }
   })
 
-  return { ledgerId, ledgerName: ledger.name, opening, rows, closing: running, totalDebit, totalCredit }
+  const result: LedgerStatement = {
+    ledgerId, ledgerName: ledger.name, opening, rows, closing: running, totalDebit, totalCredit
+  }
+
+  // Columnar monthly matrix (v0.3 #55): every month in the period, with the running closing
+  // carried across months that had no activity.
+  if (groupBy === 'month') {
+    const byMonth = new Map<string, { debit: number; credit: number; closing: number }>()
+    for (const r of rows) {
+      const key = r.date.slice(0, 7)
+      const m = byMonth.get(key) ?? { debit: 0, credit: 0, closing: opening }
+      m.debit += r.debit
+      m.credit += r.credit
+      m.closing = r.running
+      byMonth.set(key, m)
+    }
+    let carried = opening
+    result.months = monthRange(from, to).map((month) => {
+      const m = byMonth.get(month)
+      if (m) {
+        carried = m.closing
+        return { month, debit: m.debit, credit: m.credit, closing: m.closing }
+      }
+      return { month, debit: 0, credit: 0, closing: carried }
+    })
+  }
+
+  return result
 }
 
 export function trialBalance(db: DB, asOn: string): TrialBalance {
-  const balances = closingBalances(db, asOn)
-  const rows = ledgersLite(db)
-  const groups = new Map(listGroups(db).map((g) => [g.id, g]))
+  // Opening + gross Dr/Cr movement per ledger in one grouped pass; closing derives from them.
+  const rows = db
+    .prepare(
+      `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName,
+              l.opening_balance AS opening,
+              COALESCE(m.drTotal, 0) AS movementDebit,
+              COALESCE(m.crTotal, 0) AS movementCredit
+       FROM ledgers l
+       JOIN groups g ON g.id = l.group_id
+       LEFT JOIN (
+         SELECT vl.ledger_id,
+                SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END) AS drTotal,
+                SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END) AS crTotal
+         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+         WHERE v.date <= ? AND ${NOT_DELETED}
+         GROUP BY vl.ledger_id
+       ) m ON m.ledger_id = l.id`
+    )
+    .all(asOn) as {
+      ledgerId: number; ledgerName: string; groupName: string
+      opening: number; movementDebit: number; movementCredit: number
+    }[]
+
   const result = rows
-    .map((l) => {
-      const bal = balances.get(l.id) ?? 0
+    .map((r) => {
+      const bal = r.opening + r.movementDebit - r.movementCredit
       return {
-        ledgerId: l.id,
-        ledgerName: l.name,
-        groupName: groups.get(l.groupId)?.name ?? '',
+        ledgerId: r.ledgerId,
+        ledgerName: r.ledgerName,
+        groupName: r.groupName,
         debit: bal > 0 ? bal : 0,
-        credit: bal < 0 ? -bal : 0
+        credit: bal < 0 ? -bal : 0,
+        opening: r.opening,
+        movementDebit: r.movementDebit,
+        movementCredit: r.movementCredit
       }
     })
-    .filter((r) => r.debit !== 0 || r.credit !== 0)
+    .filter((r) => r.debit !== 0 || r.credit !== 0 || r.movementDebit !== 0 || r.movementCredit !== 0)
 
+  // Opening stock joins the debit side so a stock-carrying book still balances — but only when
+  // no ledger actually lives under Stock-in-Hand; if one does, its balance already carries the
+  // stock and a synthetic row would double-count (v0.3 #63 guard).
   const stockOpening = stockOpeningValueTotal(db)
-  if (stockOpening !== 0) {
-    result.push({ ledgerId: -1, ledgerName: 'Stock-in-Hand (opening)', groupName: 'Stock-in-Hand', debit: stockOpening, credit: 0 })
+  const hasStockLedger = rows.some((r) => r.groupName === 'Stock-in-Hand' && (r.opening !== 0 || r.movementDebit !== 0 || r.movementCredit !== 0))
+  if (stockOpening !== 0 && !hasStockLedger) {
+    result.push({
+      ledgerId: -1, ledgerName: 'Stock-in-Hand (opening)', groupName: 'Stock-in-Hand',
+      debit: stockOpening, credit: 0, opening: stockOpening, movementDebit: 0, movementCredit: 0
+    })
   }
   result.sort((a, b) => a.ledgerName.localeCompare(b.ledgerName))
   return {
     rows: result,
     totalDebit: result.reduce((s, r) => s + r.debit, 0),
-    totalCredit: result.reduce((s, r) => s + r.credit, 0)
+    totalCredit: result.reduce((s, r) => s + r.credit, 0),
+    openingDebitTotal: result.reduce((s, r) => s + (r.opening > 0 ? r.opening : 0), 0),
+    openingCreditTotal: result.reduce((s, r) => s + (r.opening < 0 ? -r.opening : 0), 0),
+    movementDebitTotal: result.reduce((s, r) => s + r.movementDebit, 0),
+    movementCreditTotal: result.reduce((s, r) => s + r.movementCredit, 0)
   }
 }
 
@@ -284,10 +367,12 @@ export function profitAndLoss(
   db: DB,
   from: string,
   to: string,
-  /** Pre-computed stock figures (shared scans) — balanceSheet passes its own closing stock so
-   *  the inventory valuation runs once, not once per statement. */
-  stocks?: { openingStock?: number; closingStock?: number }
+  /** `openingStock`/`closingStock`: pre-computed stock figures (shared scans) — balanceSheet
+   *  passes its own closing stock so the inventory valuation runs once, not once per statement.
+   *  `comparePrior`: attach the same statement for the period shifted one year back (#57). */
+  opts?: { openingStock?: number; closingStock?: number; comparePrior?: boolean }
 ): ProfitAndLoss {
+  const stocks = opts
   const move = movements(db, from, to)
   const amountOf = (id: number): number => move.get(id) ?? 0
   const groups = listGroups(db)
@@ -309,7 +394,7 @@ export function profitAndLoss(
     sumNodes(tradingIncomes) + closingStock - sumNodes(tradingExpenses) - openingStock
   const netProfit = grossProfit + sumNodes(indirectIncomes) - sumNodes(indirectExpenses)
 
-  return {
+  const result: ProfitAndLoss = {
     period: { from, to },
     openingStock,
     closingStock,
@@ -320,9 +405,13 @@ export function profitAndLoss(
     indirectIncomes,
     netProfit
   }
+  if (opts?.comparePrior) {
+    result.prior = profitAndLoss(db, yearBefore(from), yearBefore(to))
+  }
+  return result
 }
 
-export function balanceSheet(db: DB, booksFrom: string, asOn: string): BalanceSheet {
+export function balanceSheet(db: DB, booksFrom: string, asOn: string, comparePrior?: boolean): BalanceSheet {
   const balances = closingBalances(db, asOn)
   const amountOf = (id: number): number => balances.get(id) ?? 0
   const groups = listGroups(db)
@@ -376,6 +465,9 @@ export function balanceSheet(db: DB, booksFrom: string, asOn: string): BalanceSh
     result.liabilities.push({ id: -4, kind: 'computed', name: 'Difference in Opening Balances', amount: openingDiff, children: [] })
     totalLiabilities += openingDiff
     result.totalLiabilities = totalLiabilities
+  }
+  if (comparePrior) {
+    result.prior = balanceSheet(db, booksFrom, yearBefore(asOn))
   }
   return result
 }

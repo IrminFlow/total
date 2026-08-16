@@ -28,6 +28,15 @@ export interface LedgerStatementRow {
   running: number
 }
 
+export interface LedgerMonthRow {
+  /** 'YYYY-MM' */
+  month: string
+  debit: number
+  credit: number
+  /** Signed running balance at month end, positive = Dr. */
+  closing: number
+}
+
 export interface LedgerStatement {
   ledgerId: number
   ledgerName: string
@@ -36,20 +45,32 @@ export interface LedgerStatement {
   closing: number
   totalDebit: number
   totalCredit: number
+  /** Columnar month matrix (v0.3 #55) — present when requested with groupBy: 'month'. */
+  months?: LedgerMonthRow[]
 }
 
 export interface TrialBalanceRow {
   ledgerId: number
   ledgerName: string
   groupName: string
+  /** Closing balance split by side (paise). */
   debit: number
   credit: number
+  /** Book opening balance, signed dr-positive (v0.3 #56 opt-in column). */
+  opening: number
+  /** Gross movement up to asOn, by side (v0.3 #56 opt-in columns). */
+  movementDebit: number
+  movementCredit: number
 }
 
 export interface TrialBalance {
   rows: TrialBalanceRow[]
   totalDebit: number
   totalCredit: number
+  openingDebitTotal: number
+  openingCreditTotal: number
+  movementDebitTotal: number
+  movementCreditTotal: number
 }
 
 export interface StatementNode {
@@ -74,6 +95,8 @@ export interface ProfitAndLoss {
   indirectExpenses: StatementNode[]
   indirectIncomes: StatementNode[]
   netProfit: number
+  /** Same statement for the corresponding prior-year period (v0.3 #57, opt-in; never nested). */
+  prior?: ProfitAndLoss
 }
 
 export interface BalanceSheet {
@@ -84,6 +107,8 @@ export interface BalanceSheet {
   profitCurrentPeriod: number
   totalLiabilities: number
   totalAssets: number
+  /** Same statement as on the prior-year date (v0.3 #57, opt-in; never nested). */
+  prior?: BalanceSheet
 }
 
 export interface StockSummaryRow {

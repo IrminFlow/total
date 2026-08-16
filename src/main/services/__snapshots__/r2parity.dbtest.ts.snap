@@ -791,6 +791,10 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
 
 exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock summary are unchanged by the rewrites > trialBalance 1`] = `
 {
+  "movementCreditTotal": 379600,
+  "movementDebitTotal": 379600,
+  "openingCreditTotal": 750000,
+  "openingDebitTotal": 1250000,
   "rows": [
     {
       "credit": 650000,
@@ -798,6 +802,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "groupName": "Capital Account",
       "ledgerId": 9,
       "ledgerName": "Capital",
+      "movementCredit": 0,
+      "movementDebit": 0,
+      "opening": -650000,
     },
     {
       "credit": 0,
@@ -805,6 +812,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "groupName": "Cash-in-Hand",
       "ledgerId": 1,
       "ledgerName": "Cash",
+      "movementCredit": 30000,
+      "movementDebit": 40000,
+      "opening": 0,
     },
     {
       "credit": 182600,
@@ -812,6 +822,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "groupName": "Sundry Creditors",
       "ledgerId": 4,
       "ledgerName": "Creditor X",
+      "movementCredit": 82600,
+      "movementDebit": 0,
+      "opening": -100000,
     },
     {
       "credit": 0,
@@ -819,6 +832,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "groupName": "Sundry Debtors",
       "ledgerId": 2,
       "ledgerName": "Debtor A",
+      "movementCredit": 50000,
+      "movementDebit": 118000,
+      "opening": 250000,
     },
     {
       "credit": 0,
@@ -826,6 +842,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "groupName": "Sundry Debtors",
       "ledgerId": 3,
       "ledgerName": "Debtor B",
+      "movementCredit": 20000,
+      "movementDebit": 59000,
+      "opening": 0,
     },
     {
       "credit": 0,
@@ -833,6 +852,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "groupName": "Bank Accounts",
       "ledgerId": 5,
       "ledgerName": "HDFC Bank",
+      "movementCredit": 20000,
+      "movementDebit": 50000,
+      "opening": 500000,
     },
     {
       "credit": 0,
@@ -840,6 +862,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "groupName": "Purchase Accounts",
       "ledgerId": 7,
       "ledgerName": "Purchases",
+      "movementCredit": 0,
+      "movementDebit": 82600,
+      "opening": 0,
     },
     {
       "credit": 0,
@@ -847,6 +872,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "groupName": "Indirect Expenses",
       "ledgerId": 6,
       "ledgerName": "Rent",
+      "movementCredit": 0,
+      "movementDebit": 30000,
+      "opening": 0,
     },
     {
       "credit": 177000,
@@ -854,6 +882,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "groupName": "Sales Accounts",
       "ledgerId": 8,
       "ledgerName": "Sales Local",
+      "movementCredit": 177000,
+      "movementDebit": 0,
+      "opening": 0,
     },
     {
       "credit": 0,
@@ -861,6 +892,9 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "groupName": "Stock-in-Hand",
       "ledgerId": -1,
       "ledgerName": "Stock-in-Hand (opening)",
+      "movementCredit": 0,
+      "movementDebit": 0,
+      "opening": 500000,
     },
   ],
   "totalCredit": 1009600,

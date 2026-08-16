@@ -293,11 +293,13 @@ export const api = {
   },
   reports: {
     dayBook: (from: string, to: string) => call<DayBookRow[]>('report:dayBook', { from, to }),
-    ledger: (ledgerId: number, from: string, to: string) =>
-      call<LedgerStatement>('report:ledger', { ledgerId, from, to }),
+    ledger: (ledgerId: number, from: string, to: string, groupBy?: 'month') =>
+      call<LedgerStatement>('report:ledger', { ledgerId, from, to, groupBy }),
     trialBalance: (asOn: string) => call<TrialBalance>('report:trialBalance', { asOn }),
-    profitLoss: (from: string, to: string) => call<ProfitAndLoss>('report:profitLoss', { from, to }),
-    balanceSheet: (asOn: string) => call<BalanceSheet>('report:balanceSheet', { asOn }),
+    profitLoss: (from: string, to: string, comparePrior?: boolean) =>
+      call<ProfitAndLoss>('report:profitLoss', { from, to, comparePrior }),
+    balanceSheet: (asOn: string, comparePrior?: boolean) =>
+      call<BalanceSheet>('report:balanceSheet', { asOn, comparePrior }),
     stockSummary: (asOn: string) => call<StockSummaryRow[]>('report:stockSummary', { asOn }),
     dashboard: (today: string, fyFrom: string) => call<DashboardData>('report:dashboard', { today, fyFrom }),
     cashFlow: (from: string, to: string) => call<CashFlowStatement>('report:cashFlow', { from, to })
