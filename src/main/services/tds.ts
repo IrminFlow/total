@@ -9,7 +9,10 @@ import { rowsToCsv } from '@shared/csv'
 import { plainRupees } from '@shared/money'
 import { companyExportsDir } from '../paths'
 import { findOrCreateLedger } from './masters'
-import { NOT_DELETED } from './vouchers'
+// IN_BOOKS, not NOT_DELETED: optional (memorandum) and unmatured post-dated vouchers are out of
+// the books, so their TDS entries must not reach the 26Q export, the summary, or the FY-to-date
+// threshold base — filing figures must tie to the ledger.
+import { IN_BOOKS } from './vouchers'
 import { writeAudit } from './audit'
 
 interface SectionRow {
@@ -78,7 +81,7 @@ export function tdsSuggestion(db: DB, partyLedgerId: number, basePaise: number, 
     .prepare(
       `SELECT COALESCE(SUM(te.base_amount), 0) AS total
        FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id
-       WHERE te.party_ledger_id = ? AND te.section_id = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
+       WHERE te.party_ledger_id = ? AND te.section_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
     .get(partyLedgerId, section.id, fyFrom, fyTo) as { total: number }
 
@@ -118,7 +121,7 @@ export function tdsSummary(db: DB, fyStartYear: number): TdsSummaryRow[] {
        FROM tds_entries te
        JOIN vouchers v ON v.id = te.voucher_id
        JOIN tds_sections ts ON ts.id = te.section_id
-       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
     .all(fyFrom, fyTo) as { partyLedgerId: number; base: number; tds: number; sectionCode: string; date: string }[]
 
@@ -162,7 +165,7 @@ export function export26qCsv(db: DB, _company: CompanyInfo, slug: string, fyStar
        JOIN vouchers v ON v.id = te.voucher_id
        JOIN tds_sections ts ON ts.id = te.section_id
        JOIN ledgers l ON l.id = te.party_ledger_id
-       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as { deductee: string; pan: string | null; section: string; date: string; number: string; base: number; tds: number }[]

@@ -3,7 +3,10 @@ import type { BankLineRow, BankRecon } from '@shared/reports'
 import { descendantIdsByName } from './masters'
 import { isValidISODate } from '@shared/dates'
 import { parseCsv } from '@shared/csv'
-import { NOT_DELETED, saveVoucher } from './vouchers'
+// IN_BOOKS, not NOT_DELETED: optional (memorandum) and unmatured post-dated vouchers are out of
+// the books — the BRS/recon book balance must tie to the same ledger's statement (IN_BOOKS), and
+// bank dates must not be assignable to out-of-books entries.
+import { IN_BOOKS, saveVoucher } from './vouchers'
 import { writeAudit } from './audit'
 import { findSumCombos, matchRules, type RuleRow } from '@shared/bankRules'
 import type { BankRuleInput } from '@shared/schemas'
@@ -31,7 +34,7 @@ export function bankRecon(db: DB, ledgerId: number, from: string, to: string): B
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(ledgerId, from, to) as (Omit<BankLineRow, 'deposit' | 'withdrawal'> & { drCr: 'dr' | 'cr'; amount: number })[]
@@ -53,7 +56,7 @@ export function bankRecon(db: DB, ledgerId: number, from: string, to: string): B
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND v.date <= ? AND ${NOT_DELETED}`
+       WHERE vl.ledger_id = ? AND v.date <= ? AND ${IN_BOOKS}`
     )
     .get(ledgerId, to) as { m: number }
   const bookBalance = ledger.opening_balance + bookRow.m
@@ -219,14 +222,14 @@ function matchStatement(
     .prepare(
       `SELECT vl.id AS lineId, v.date, vl.dr_cr AS drCr, vl.amount
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND vl.bank_date IS NULL AND ${NOT_DELETED}`
+       WHERE vl.ledger_id = ? AND vl.bank_date IS NULL AND ${IN_BOOKS}`
     )
     .all(ledgerId) as { lineId: number; date: string; drCr: 'dr' | 'cr'; amount: number }[]
   const reconciled = db
     .prepare(
       `SELECT vl.id AS lineId, v.date, vl.dr_cr AS drCr, vl.amount
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND vl.bank_date IS NOT NULL AND ${NOT_DELETED}`
+       WHERE vl.ledger_id = ? AND vl.bank_date IS NOT NULL AND ${IN_BOOKS}`
     )
     .all(ledgerId) as { lineId: number; date: string; drCr: 'dr' | 'cr'; amount: number }[]
 
@@ -565,7 +568,7 @@ export function matchSuggestions(db: DB, ledgerId: number, csv: string, toleranc
                        (SELECT MIN(vl2.ledger_id) FROM voucher_lines vl2
                         WHERE vl2.voucher_id = v.id AND vl2.ledger_id <> vl.ledger_id)) AS partyKey
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND vl.bank_date IS NULL AND ${NOT_DELETED}
+       WHERE vl.ledger_id = ? AND vl.bank_date IS NULL AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(ledgerId) as {
@@ -673,7 +676,7 @@ export function brs(db: DB, ledgerId: number, asOn: string): BrsReport {
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        WHERE vl.ledger_id = ? AND v.date <= ? AND (vl.bank_date IS NULL OR vl.bank_date > ?)
-         AND ${NOT_DELETED}
+         AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(ledgerId, asOn, asOn) as (Omit<BrsItem, 'particulars'> & { drCr: 'dr' | 'cr'; particulars: string | null })[]
@@ -682,7 +685,7 @@ export function brs(db: DB, ledgerId: number, asOn: string): BrsReport {
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
-       WHERE vl.ledger_id = ? AND v.date <= ? AND ${NOT_DELETED}`
+       WHERE vl.ledger_id = ? AND v.date <= ? AND ${IN_BOOKS}`
     )
     .get(ledgerId, asOn) as { m: number }
   const bookBalance = ledger.opening_balance + bookRow.m

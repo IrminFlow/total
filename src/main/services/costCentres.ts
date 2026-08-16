@@ -2,7 +2,9 @@ import type { DB } from '../db/connection'
 import type { CostCentre } from '@shared/domain'
 import type { CostCentreInput } from '@shared/schemas'
 import { writeAudit } from './audit'
-import { NOT_DELETED } from './vouchers'
+// IN_BOOKS, not NOT_DELETED: cost-centre figures must tie to the P&L for the same period, which
+// excludes optional (memorandum) and unmatured post-dated vouchers.
+import { IN_BOOKS } from './vouchers'
 
 interface CcRow { id: number; name: string; parent_id: number | null; active: number }
 const mapCc = (r: CcRow): CostCentre => ({ id: r.id, name: r.name, parentId: r.parent_id, active: !!r.active })
@@ -58,7 +60,7 @@ export function ccReport(db: DB, from: string, to: string): CcReportRow[] {
        JOIN ledgers l ON l.id = vl.ledger_id
        JOIN groups g ON g.id = l.group_id
        JOIN cost_centres cc ON cc.id = vlca.cost_centre_id
-       WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED}`
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
     .all(from, to) as { costCentreId: number; name: string; nature: string; drCr: 'dr' | 'cr'; amount: number }[]
 
@@ -94,7 +96,7 @@ export function ccStatement(db: DB, ccId: number, from: string, to: string): CcS
        JOIN voucher_lines vl ON vl.id = vlca.voucher_line_id
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN ledgers l ON l.id = vl.ledger_id
-       WHERE vlca.cost_centre_id = ? AND v.date BETWEEN ? AND ? AND ${NOT_DELETED}
+       WHERE vlca.cost_centre_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(ccId, from, to) as CcStatementRow[]

@@ -4,7 +4,7 @@ import { createLedger } from './masters'
 import { setAuditContext, listAudit } from './audit'
 import {
   listRules, saveRule, deleteRule, recordRuleHit, suggestVouchers, importStatement,
-  matchSuggestions, brs
+  matchSuggestions, brs, bankRecon
 } from './banking'
 
 function bankLedger(db: ReturnType<typeof seededDb>, name = 'HDFC Bank') {
@@ -198,12 +198,12 @@ function bookBankEntry(
   date: string,
   amount: number,
   bankSide: 'dr' | 'cr',
-  opts: { number?: string; partyLedgerId?: number; kind?: string } = {}
+  opts: { number?: string; partyLedgerId?: number; kind?: string; postDated?: boolean; isOptional?: boolean } = {}
 ): number {
   const vt = db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(opts.kind ?? 'payment') as { id: number }
   const number = opts.number ?? `T/${Math.random().toString(36).slice(2, 8)}`
-  db.prepare('INSERT INTO vouchers (voucher_type_id, date, number, party_ledger_id) VALUES (?, ?, ?, ?)')
-    .run(vt.id, date, number, opts.partyLedgerId ?? null)
+  db.prepare('INSERT INTO vouchers (voucher_type_id, date, number, party_ledger_id, post_dated, is_optional) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(vt.id, date, number, opts.partyLedgerId ?? null, opts.postDated ? 1 : 0, opts.isOptional ? 1 : 0)
   const vid = (db.prepare('SELECT id FROM vouchers WHERE number = ?').get(number) as { id: number }).id
   db.prepare("INSERT INTO voucher_lines (voucher_id, ledger_id, dr_cr, amount) VALUES (?, ?, ?, ?)")
     .run(vid, counterId, bankSide === 'cr' ? 'dr' : 'cr', amount)
@@ -396,5 +396,35 @@ describe('BRS', () => {
     expect(asOnAug.unpresented.map((i) => i.lineId)).toEqual([lineId]) // cleared later → outstanding in Aug
     const asOnSep = brs(db, bank.id, '2026-09-30')
     expect(asOnSep.unpresented).toHaveLength(0) // cleared by end-Sep
+  })
+
+  it('excludes optional (memorandum) and unmatured post-dated vouchers from the BRS and recon pools (IN_BOOKS)', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Office Supplies')
+    // One real open withdrawal of ₹3,000.
+    const realLine = bookBankEntry(db, bank.id, office.id, '2026-08-05', 300000, 'cr')
+    // Optional (memorandum) withdrawal of ₹500 and an unmatured PDC of ₹700 — both out of the
+    // books, so the ledger statement/balance sheet exclude them and the BRS must too.
+    bookBankEntry(db, bank.id, office.id, '2026-08-10', 50000, 'cr', { isOptional: true })
+    bookBankEntry(db, bank.id, office.id, '2026-08-20', 70000, 'cr', { postDated: true })
+
+    const r = brs(db, bank.id, '2026-08-31')
+    expect(r.bookBalance).toBe(-300000) // only the real withdrawal
+    expect(r.unpresented.map((i) => i.lineId)).toEqual([realLine])
+    expect(r.uncredited).toHaveLength(0)
+    expect(r.bankBalance).toBe(r.bookBalance + 300000)
+
+    // The reconcile view shares the scope: out-of-books entries never appear, so a bank date
+    // can't be assigned to them.
+    const recon = bankRecon(db, bank.id, '2026-08-01', '2026-08-31')
+    expect(recon.rows.map((row) => row.lineId)).toEqual([realLine])
+    expect(recon.bookBalance).toBe(-300000)
+
+    // And statement matching can't silently reconcile an out-of-books entry: the ₹500 optional
+    // withdrawal finds no open book entry.
+    const csv = [CSV_HEADER, '2026-08-10,MEMO ENTRY,500.00,'].join('\n')
+    const result = importStatement(db, bank.id, csv)
+    expect(result.matched).toBe(0)
   })
 })
