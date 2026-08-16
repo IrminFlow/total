@@ -5,7 +5,7 @@ import type { CompanyInfo, VoucherTransport } from '@shared/domain'
 import type { EdocListRow } from '@shared/reports'
 import type { VoucherTransportInput } from '@shared/schemas'
 import {
-  buildEInvoiceJson, buildEwbJson, ewbEligibility, ewbIssues,
+  buildEInvoiceJson, buildEwbJson, ewbEligibility, ewbIssues, EWB_THRESHOLD_PAISE,
   type EdocCompany, type EdocInvoice, type EdocItem, type EdocShipTo, type EdocTransport
 } from '@shared/gst/edocs'
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
@@ -43,12 +43,14 @@ function supTypFor(exportType: string | null, partyStateCode: string | null): 'B
 
 export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow[] {
   const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
+  const outwardDbn = outwardDebitNoteIds(db, from, to)
   return db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date, vt.kind AS kind, p.name AS partyName, p.gstin AS partyGstin,
               COALESCE(t.total, 0) AS total, v.vehicle_no AS vehicleNo, v.irn, v.ewb_no AS ewbNo,
               EXISTS(SELECT 1 FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id
-                     WHERE il.voucher_id = v.id AND si.hsn IS NOT NULL) AS hasHsn
+                     WHERE il.voucher_id = v.id AND si.hsn IS NOT NULL) AS hasHsn,
+              EXISTS(SELECT 1 FROM inventory_lines il2 WHERE il2.voucher_id = v.id AND il2.qty_milli != 0) AS hasGoods
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
@@ -59,8 +61,20 @@ export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow
     )
     .all(...EDOC_KINDS, from, to)
     .map((r: any) => {
-      const { kind, ...rest } = r
-      return { ...rest, docType: docTypeFor(kind), hasHsn: !!r.hasHsn }
+      const { kind, hasGoods, ...rest } = r
+      const docType = docTypeFor(kind)
+      const isOutwardDbn = docType === 'DBN' && outwardDbn.has(r.voucherId)
+      const ewbReason =
+        docType === 'CRN'
+          ? 'Credit note — e-way bills accompany goods movement'
+          : docType === 'DBN' && !isOutwardDbn
+            ? 'Purchase-side debit note'
+            : !hasGoods
+              ? 'Services only — no goods movement'
+              : r.total <= EWB_THRESHOLD_PAISE
+                ? 'At or below ₹50,000 — per-bill export overrides'
+                : null
+      return { ...rest, docType, hasHsn: !!r.hasHsn, outwardDbn: isOutwardDbn, ewbReason }
     }) as EdocListRow[]
 }
 
