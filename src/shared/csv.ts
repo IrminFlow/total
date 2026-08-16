@@ -91,12 +91,30 @@ export function parseCsv(text: string): CsvRecord[] {
   return records
 }
 
-/** Quote a field per RFC 4180 if it contains a comma, quote, or line break; double embedded quotes. */
+/**
+ * Spreadsheet formula-injection guard (v0.3 security review, lane F3): Excel/Sheets/Numbers treat
+ * a cell whose text begins with `=`, `+`, `-`, or `@` (and the tab/CR-prefixed variants) as a
+ * formula — or worse, a DDE command — when the CSV is opened. Names and narrations enter the books
+ * from untrusted channels (Tally XML import, bank-statement CSVs, the agent inbox), and our CSVs
+ * are handed to third parties (the CA pack, the agent mirror), so such cells are neutralized with
+ * the standard leading single quote. Purely numeric cells (e.g. `-500` paise) are exempt: a plain
+ * number can never be a formula, and amount columns must stay machine-readable.
+ */
+const FORMULA_TRIGGER = /^[=+\-@\t\r]/
+const PLAIN_NUMBER = /^[+-]?\d+(\.\d+)?$/
+
+export function neutralizeCsvFormula(field: string): string {
+  return FORMULA_TRIGGER.test(field) && !PLAIN_NUMBER.test(field) ? `'${field}` : field
+}
+
+/** Quote a field per RFC 4180 if it contains a comma, quote, or line break; double embedded
+ *  quotes. Formula-triggering cells are neutralized first (see neutralizeCsvFormula). */
 function quoteCsvField(field: string): string {
-  if (/["\n\r,]/.test(field)) {
-    return `"${field.replace(/"/g, '""')}"`
+  const safe = neutralizeCsvFormula(field)
+  if (/["\n\r,]/.test(safe)) {
+    return `"${safe.replace(/"/g, '""')}"`
   }
-  return field
+  return safe
 }
 
 /**

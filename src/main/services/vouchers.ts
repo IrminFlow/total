@@ -506,33 +506,51 @@ export function restoreVoucher(db: DB, id: number): void {
 
 // ---------- post-dated vouchers (lane I, task 77) ----------
 
+export interface MaturePostDatedResult {
+  matured: number[]
+  /** PDCs whose date has arrived but falls on/before the books lock: maturing them would
+   *  silently change a locked (possibly year-end-closed) period, exactly what saveVoucher/
+   *  deleteVoucher refuse to do — so they stay post-dated (visible in the PDC register) and are
+   *  reported here for the caller to log/surface. Unlock the period to let them mature. */
+  blockedByLock: number[]
+}
+
 /** Flip matured post-dated vouchers (date ≤ `today`) into the books. Runs on company open;
- *  each maturation is audit-logged individually. Returns the matured voucher ids. */
-export function maturePostDated(db: DB, today: string): number[] {
+ *  each maturation is audit-logged individually. Vouchers dated inside the locked period are
+ *  refused, not flipped (v0.3 review F3) — see MaturePostDatedResult.blockedByLock. */
+export function maturePostDated(db: DB, today: string): MaturePostDatedResult {
   const rows = db
-    .prepare(`SELECT v.id FROM vouchers v WHERE v.post_dated = 1 AND v.date <= ? AND ${NOT_DELETED}`)
-    .all(today) as { id: number }[]
-  if (rows.length === 0) return []
+    .prepare(`SELECT v.id, v.date FROM vouchers v WHERE v.post_dated = 1 AND v.date <= ? AND ${NOT_DELETED}`)
+    .all(today) as { id: number; date: string }[]
+  const lock = getLockDate(db)
+  const due = lock === null ? rows : rows.filter((r) => r.date > lock)
+  const blockedByLock = lock === null ? [] : rows.filter((r) => r.date <= lock).map((r) => r.id)
+  if (due.length === 0) return { matured: [], blockedByLock }
   const flip = db.prepare("UPDATE vouchers SET post_dated = 0, updated_at = datetime('now') WHERE id = ?")
   const run = db.transaction(() => {
-    for (const { id } of rows) {
+    for (const { id } of due) {
       const before = getVoucher(db, id)!
       flip.run(id)
       writeAudit(db, 'voucher', id, 'update', before, { ...before, postDated: false, matured: true })
     }
   })
   run()
-  return rows.map((r) => r.id)
+  return { matured: due.map((r) => r.id), blockedByLock }
 }
 
 /** Mature ONE post-dated voucher on demand (Banking → PDC register's "Mature now"), regardless
- *  of its date — the user is asserting the instrument has cleared early. Audit-logged the same
- *  way maturePostDated logs automatic maturations. */
+ *  of its date — the user is asserting the instrument has cleared early. Refuses vouchers dated
+ *  inside the locked period, same as saveVoucher/deleteVoucher (v0.3 review F3). Audit-logged
+ *  the same way maturePostDated logs automatic maturations. */
 export function maturePdcNow(db: DB, id: number): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
   if (before.deletedAt) throw new Error('Voucher is in the bin')
   if (!before.postDated) throw new Error('Voucher is not post-dated')
+  const lock = getLockDate(db)
+  if (lock && before.date <= lock) {
+    throw new Error(`Books are locked up to ${lock} — this voucher (dated ${before.date}) cannot mature into the locked period`)
+  }
   db.prepare("UPDATE vouchers SET post_dated = 0, updated_at = datetime('now') WHERE id = ?").run(id)
   writeAudit(db, 'voucher', id, 'update', before, { ...before, postDated: false, matured: true })
 }

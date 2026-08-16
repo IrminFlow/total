@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsv, parseCsvLine, rowsToCsv } from './csv'
+import { neutralizeCsvFormula, parseCsv, parseCsvLine, rowsToCsv } from './csv'
 
 describe('parseCsvLine', () => {
   it('splits plain comma-separated cells', () => {
@@ -105,6 +105,49 @@ describe('rowsToCsv', () => {
     expect(lines[1]).toEqual(rows[0])
     expect(lines[2]).toEqual(rows[1])
     expect(lines[3]).toEqual(rows[2])
+  })
+})
+
+describe('formula-injection neutralization (v0.3 review F3)', () => {
+  it('prefixes formula-triggering cells with a single quote', () => {
+    expect(neutralizeCsvFormula('=HYPERLINK("http://evil.example","x")')).toBe(`'=HYPERLINK("http://evil.example","x")`)
+    expect(neutralizeCsvFormula("=cmd|' /C calc'!A0")).toBe(`'=cmd|' /C calc'!A0`)
+    expect(neutralizeCsvFormula('+cmd')).toBe(`'+cmd`)
+    expect(neutralizeCsvFormula('-2+3')).toBe(`'-2+3`)
+    expect(neutralizeCsvFormula('@SUM(A1)')).toBe(`'@SUM(A1)`)
+    expect(neutralizeCsvFormula('\t=1+1')).toBe(`'\t=1+1`)
+    expect(neutralizeCsvFormula('\r=1+1')).toBe(`'\r=1+1`)
+  })
+
+  it('leaves plain numbers untouched — formatted amount/qty columns never gain a quote', () => {
+    expect(neutralizeCsvFormula('500')).toBe('500')
+    expect(neutralizeCsvFormula('-500')).toBe('-500')
+    expect(neutralizeCsvFormula('+91')).toBe('+91')
+    expect(neutralizeCsvFormula('-1234.56')).toBe('-1234.56')
+    expect(neutralizeCsvFormula('')).toBe('')
+    expect(neutralizeCsvFormula('Acme Traders')).toBe('Acme Traders')
+  })
+
+  it('rowsToCsv writes the neutralized cell (quoted if it also contains commas/quotes)', () => {
+    const csv = rowsToCsv(
+      ['name', 'opening_balance_paise'],
+      [
+        ['=HYPERLINK("http://evil.example")', '-500'],
+        ['+cmd|foo', '0'],
+        ['=SUM(A1,B1)', '100']
+      ]
+    ).slice(1) // drop BOM
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"")",-500`)
+    expect(csv).toContain(`'+cmd|foo,0`)
+    // Comma-bearing formula: neutralized first, then RFC-quoted.
+    expect(csv).toContain(`"'=SUM(A1,B1)",100`)
+    // The raw formula (no leading apostrophe) never appears at a cell start.
+    expect(csv).not.toMatch(/(^|,|\r\n)"?=/)
+  })
+
+  it('the parsed round-trip carries the guard apostrophe as data (deliberate, lossy by design)', () => {
+    const csv = rowsToCsv(['h'], [['=1+1']]).slice(1)
+    expect(parseCsv(csv).map((r) => r.cells)).toEqual([['h'], [`'=1+1`]])
   })
 })
 

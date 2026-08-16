@@ -261,8 +261,13 @@ export function registerIpc(): void {
       log('warn', 'bin-purge-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
     // Post-dated vouchers whose date has arrived flip into the books (audited per voucher).
-    const matured = vouchers.maturePostDated(db, todayISO())
+    // PDCs dated inside a locked period are refused, not silently posted — they stay in the
+    // PDC register until the lock is lifted (v0.3 review F3).
+    const { matured, blockedByLock } = vouchers.maturePostDated(db, todayISO())
     if (matured.length > 0) log('info', 'pdc-mature', { count: matured.length, ids: matured })
+    if (blockedByLock.length > 0) {
+      log('warn', 'pdc-mature-blocked-by-lock', { count: blockedByLock.length, ids: blockedByLock })
+    }
     // [lane-Q audit] retention: prune audit rows older than the configured window (default: keep
     // forever — getAuditKeepDays returns null and nothing is pruned).
     const auditKeepDays = configSvc.getAuditKeepDays(db)
@@ -1194,14 +1199,23 @@ export function registerIpc(): void {
   // ---------- live filing (NIC APIs) ----------
   handle('nic:get', () => {
     const creds = nic.readNicCredentials(requireCompany().db)
-    // Never send the password back to the UI in full.
-    return { ...creds, password: creds.password ? '••••••••' : '' }
+    // Never send live secrets back to the UI in full — password AND clientSecret are the two
+    // halves of the NIC auth credential pair (username/password + client_id/client_secret),
+    // and nic:get is viewer-gated (v0.3 review F3).
+    return {
+      ...creds,
+      password: creds.password ? '••••••••' : '',
+      clientSecret: creds.clientSecret ? '••••••••' : ''
+    }
   }, 'viewer')
   handle('nic:save', (p) => {
     const c = requireCompany()
     const incoming = nicCredentialsSchema.parse(p)
     const existing = nic.readNicCredentials(c.db)
+    // Re-saving the mask sentinel means "keep what's stored" — the settings form round-trips
+    // nic:get values verbatim when the owner doesn't retype them.
     if (incoming.password === '••••••••') incoming.password = existing.password
+    if (incoming.clientSecret === '••••••••') incoming.clientSecret = existing.clientSecret
     nic.writeNicCredentials(c.db, incoming)
     nic.resetNicSession()
     return { configured: nic.nicConfigured(c.db) }

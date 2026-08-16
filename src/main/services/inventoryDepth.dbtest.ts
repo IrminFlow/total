@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { seededDb } from '../db/testdb'
 import type { DB } from '../db/connection'
-import { saveVoucher, checkStock, getVoucher, maturePostDated, pdcRegister, type SaveVoucherResult } from './vouchers'
+import {
+  saveVoucher, checkStock, getVoucher, maturePostDated, maturePdcNow, pdcRegister, setLockDate,
+  type SaveVoucherResult
+} from './vouchers'
 import {
   createStockItem, createUnit, createGodown, updateGodown, deleteGodown, createBatch, listBatches, createLedger
 } from './masters'
@@ -427,7 +430,7 @@ describe('post-dated and optional vouchers', () => {
     })
     expect(rowFor(db, item, '2025-05-31').closingQtyMilli).toBe(10000)
 
-    const matured = maturePostDated(db, '2025-05-31')
+    const { matured } = maturePostDated(db, '2025-05-31')
     expect(matured).toHaveLength(1)
     // The PDC now counts; the optional voucher still doesn't.
     expect(rowFor(db, item, '2025-05-31').closingQtyMilli).toBe(6000)
@@ -446,7 +449,7 @@ describe('post-dated and optional vouchers', () => {
       [future.id, 500, 'Register Party']
     ])
 
-    const matured = maturePostDated(db, '2025-06-01')
+    const { matured } = maturePostDated(db, '2025-06-01')
     expect(matured).toEqual([due.id])
     expect(getVoucher(db, due.id)!.postDated).toBe(false)
     expect(getVoucher(db, future.id)!.postDated).toBe(true)
@@ -455,6 +458,30 @@ describe('post-dated and optional vouchers', () => {
       .prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'voucher' AND entity_id = ? AND action = 'update'")
       .get(due.id) as { n: number }
     expect(audits.n).toBeGreaterThanOrEqual(1)
+  })
+
+  it('maturation respects the books lock: due PDCs dated inside a locked period are refused, not posted (v0.3 review F3)', () => {
+    const db = seededDb()
+    const party = makeLedgerIn(db, 'Lock Party', 'Sundry Debtors')
+    const sales = makeLedgerIn(db, 'Sales Lock', 'Sales Accounts')
+    const inLocked = postSales(db, '2025-05-10', party, sales, 7000, { postDated: true })
+    const afterLock = postSales(db, '2025-07-10', party, sales, 9000, { postDated: true })
+    // Year-end-close style lock: everything up to 30 Jun is closed.
+    setLockDate(db, '2025-06-30')
+
+    const res = maturePostDated(db, '2025-08-01')
+    expect(res.matured).toEqual([afterLock.id])
+    expect(res.blockedByLock).toEqual([inLocked.id])
+    // The blocked PDC stays out of the books (still post-dated, still in the register)...
+    expect(getVoucher(db, inLocked.id)!.postDated).toBe(true)
+    expect(pdcRegister(db).map((r) => r.id)).toEqual([inLocked.id])
+    // ...and "Mature now" refuses it too, same as saveVoucher/deleteVoucher on locked dates.
+    expect(() => maturePdcNow(db, inLocked.id)).toThrow(/locked/i)
+
+    // Lifting the lock lets it mature normally.
+    setLockDate(db, null)
+    expect(maturePostDated(db, '2025-08-01')).toEqual({ matured: [inLocked.id], blockedByLock: [] })
+    expect(getVoucher(db, inLocked.id)!.postDated).toBe(false)
   })
 
   it('editing a voucher without mentioning the flags preserves them', () => {

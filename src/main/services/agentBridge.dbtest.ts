@@ -157,6 +157,40 @@ describe('inbox drop processing', () => {
     expect(outcome.detail).toContain('Unsupported file type')
   })
 
+  it('rolls back the WHOLE CSV when any row fails — nothing is applied (v0.3 review F3)', () => {
+    const csv = [
+      'Name,Group,Opening Balance',
+      'Good Ledger A,Sales Accounts,0',
+      'Bad Ledger,No Such Group,0',
+      'Good Ledger B,Sales Accounts,150000'
+    ].join('\n')
+    const file = join(inbox, 'partial.csv')
+    writeFileSync(file, csv)
+    const outcome = processInboxFile(db, slug, file)
+    expect(outcome.ok).toBe(false)
+    expect(outcome.detail).toContain('nothing was applied')
+    expect(outcome.detail).toContain('No Such Group')
+    // The resolvable rows rolled back too — no half-applied drops, matching what the failure
+    // report (and agent-skill/SKILL.md) promises.
+    const n = (
+      db.prepare("SELECT COUNT(*) AS n FROM ledgers WHERE name IN ('Good Ledger A', 'Good Ledger B')").get() as {
+        n: number
+      }
+    ).n
+    expect(n).toBe(0)
+    expect(existsSync(join(inbox, 'failed', 'partial.csv'))).toBe(true)
+    expect(readFileSync(join(inbox, 'failed', 'partial.csv.error.txt'), 'utf8')).toContain('nothing was applied')
+  })
+
+  it('rejects drops over the 5 MB cap with a clear report, without reading them into memory', () => {
+    const file = join(inbox, 'huge.json')
+    writeFileSync(file, Buffer.alloc(5 * 1024 * 1024 + 1, 0x20))
+    const outcome = processInboxFile(db, slug, file)
+    expect(outcome.ok).toBe(false)
+    expect(outcome.detail).toContain('5 MB')
+    expect(existsSync(join(inbox, 'failed', 'huge.json'))).toBe(true)
+  })
+
   it('scanInbox ignores subfolders and non-droppable files', () => {
     // processed/, failed/ and the leftovers from previous tests must not be re-processed.
     const outcomes = scanInbox(db, slug)

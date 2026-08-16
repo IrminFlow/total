@@ -230,12 +230,38 @@ function sniffCsvKind(headerLine: string): ImportKind | null {
   return null
 }
 
+/** Inbox drops larger than this are rejected outright — a runaway agent must not be able to
+ *  block/OOM the single-threaded main process with a giant readFileSync + JSON.parse. */
+export const MAX_INBOX_FILE_BYTES = 5 * 1024 * 1024
+const REREAD_DELAY_MS = 250
+const MAX_REREADS = 5
+
+/** Synchronous sleep (Node allows Atomics.wait on the main thread) — used only on the rare
+ *  parse-failure path while waiting out a writer that is still streaming the dropped file. */
+function sleepMs(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/** Thrown inside the CSV transaction to roll the whole import back while keeping the row-error
+ *  report — the inbox contract is all-or-nothing per file (unlike the UI's preview-then-apply
+ *  Data Import screen, which deliberately skips bad rows). */
+class CsvRowErrors extends Error {
+  constructor(readonly result: ImportResult) {
+    super('csv row errors')
+  }
+}
+
 /**
  * Validate + apply one dropped file, then move it to `inbox/processed/<ts>-<file>` on success or
  * `inbox/failed/<file>` (+ `<file>.error.txt`) on failure. `*.json` = voucher input (single object
- * or array; posted atomically — all vouchers in the file or none); `*.csv` = masters import
- * (ledgers/items, sniffed from the header). All writes are audited as user 'agent-inbox' and run
- * through the same validation/period-lock path as the UI.
+ * or array); `*.csv` = masters import (ledgers/items, sniffed from the header). BOTH kinds apply
+ * atomically per file — any bad voucher or bad CSV row rolls back the entire drop, so a failure
+ * report always truthfully means "nothing was applied". All writes are audited as user
+ * 'agent-inbox' and run through the same validation/period-lock path as the UI.
+ *
+ * Concurrent writers: agents that write the drop in place (no temp-file-then-rename) can be read
+ * mid-write. When the content doesn't parse, the file is re-read after a short pause for as long
+ * as it keeps changing (bounded) — a static malformed file costs exactly one extra read.
  */
 export function processInboxFile(db: DB, slug: string, filePath: string): InboxOutcome {
   const inbox = inboxDir(slug)
@@ -259,17 +285,48 @@ export function processInboxFile(db: DB, slug: string, filePath: string): InboxO
     return { file: name, ok: true, detail, movedTo: dest }
   }
 
+  const overCap = (bytes: number): InboxOutcome =>
+    fail(
+      `File is ${(bytes / (1024 * 1024)).toFixed(1)} MB — the inbox caps drops at 5 MB. ` +
+        'Split the file into smaller batches. Nothing was applied.'
+    )
+
   let text: string
   try {
+    const bytes = statSync(filePath).size
+    if (bytes > MAX_INBOX_FILE_BYTES) return overCap(bytes)
     text = readFileSync(filePath, 'utf8')
   } catch (err) {
     return { file: name, ok: false, detail: err instanceof Error ? err.message : String(err), movedTo: filePath }
   }
 
+  /** Re-read after a pause; null = give up (file unchanged/gone/over cap — caller reports on
+   *  the content it already has). Tolerates writers still streaming the drop in place. */
+  const reread = (): string | null => {
+    sleepMs(REREAD_DELAY_MS)
+    try {
+      if (statSync(filePath).size > MAX_INBOX_FILE_BYTES) return null
+      const next = readFileSync(filePath, 'utf8')
+      return next === text ? null : next
+    } catch {
+      return null
+    }
+  }
+
   const ext = extname(name).toLowerCase()
   try {
     if (ext === '.json') {
-      const parsed: unknown = JSON.parse(text)
+      let parsed: unknown
+      for (let attempt = 0; ; attempt++) {
+        try {
+          parsed = JSON.parse(text)
+          break
+        } catch (err) {
+          const next = attempt < MAX_REREADS ? reread() : null
+          if (next === null) throw err // static (or gone/over-cap) file — genuinely malformed
+          text = next
+        }
+      }
       const items = Array.isArray(parsed) ? parsed : [parsed]
       if (items.length === 0) return fail('Empty voucher array')
       // All-or-nothing per file: saveVoucher's own transaction nests as a savepoint inside this
@@ -285,16 +342,42 @@ export function processInboxFile(db: DB, slug: string, filePath: string): InboxO
       return succeed(`posted ${posted.length} voucher(s): ${posted.map((v) => `#${v.number} (id ${v.id})`).join(', ')}`)
     }
     if (ext === '.csv') {
-      const kind = sniffCsvKind(text.split('\n')[0] ?? '')
-      if (!kind) return fail('Cannot tell whether this CSV is ledgers or items — use the template headers')
-      const result: ImportResult = runAsAuditUser('agent-inbox', () => applyImport(db, kind, text))
-      if (result.errors.length > 0) {
+      for (let attempt = 0; ; attempt++) {
+        const kind = sniffCsvKind(text.split('\n')[0] ?? '')
+        let result: ImportResult | null = null
+        if (kind) {
+          // All-or-nothing, same contract as the JSON path (v0.3 review F3): applyImport's own
+          // transaction nests as a savepoint inside this one, so ANY row error rolls back every
+          // row — the failure report below is truthful when it says nothing was applied.
+          try {
+            result = runAsAuditUser('agent-inbox', () =>
+              db.transaction((): ImportResult => {
+                const r = applyImport(db, kind, text)
+                if (r.errors.length > 0) throw new CsvRowErrors(r)
+                return r
+              })()
+            )
+          } catch (err) {
+            if (!(err instanceof CsvRowErrors)) throw err
+            result = err.result
+          }
+          if (result.errors.length === 0) {
+            return succeed(`${kind}: created ${result.created}, updated ${result.updated}`)
+          }
+        }
+        // Bad header or row errors — the writer may still be streaming the file; retry while
+        // the content keeps changing, then report on the final content.
+        const next = attempt < MAX_REREADS ? reread() : null
+        if (next !== null) {
+          text = next
+          continue
+        }
+        if (!kind) return fail('Cannot tell whether this CSV is ledgers or items — use the template headers')
         return fail(
-          `${kind} import had row errors (created ${result.created}, updated ${result.updated} before/around them):\n` +
-            result.errors.map((e) => `line ${e.line}: ${e.message}`).join('\n')
+          `${kind} import failed — nothing was applied (${result!.errors.length} row error(s), all rows rolled back):\n` +
+            result!.errors.map((e) => `line ${e.line}: ${e.message}`).join('\n')
         )
       }
-      return succeed(`${kind}: created ${result.created}, updated ${result.updated}`)
     }
     return fail(`Unsupported file type '${ext}' — drop .json (vouchers) or .csv (masters)`)
   } catch (err) {
