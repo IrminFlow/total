@@ -1,8 +1,23 @@
-// Launch the PACKAGED 0.1.0 app and intercept the updater's dialog call.
+// Launch the PACKAGED app (built at whatever version you want to test) and intercept the
+// updater's dialog call, proving an older install discovers the current release.
+//
+//   npm run build && npx electron-builder --mac --dir && node scripts/verify-update.mjs
+//
+// Runs on a scratch TOTAL_DATA_DIR — it must never touch ~/Documents/total.
 import { _electron as electron } from 'playwright-core'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const appPath = process.env.APP_PATH ?? join(process.cwd(), 'dist/mac-arm64/Total.app/Contents/MacOS/Total')
 const app = await electron.launch({
-  executablePath: '/Users/irmin/total-t/dist/mac-arm64/Total.app/Contents/MacOS/Total',
-  timeout: 30000
+  executablePath: appPath,
+  timeout: 60000,
+  env: {
+    ...process.env,
+    TOTAL_DATA_DIR: mkdtempSync(join(tmpdir(), 'total-update-check-')),
+    TOTAL_SUPPRESS_SYNC_WARNING: '1'
+  }
 })
 // Patch dialog.showMessageBox before the 5s update check fires.
 await app.evaluate(({ dialog }) => {
