@@ -62,6 +62,7 @@ export function FeaturesSection(): React.JSX.Element {
           >
             <input
               type="checkbox"
+              data-testid={`toggle-feature-${t.key}`}
               checked={value[t.key]}
               disabled={!canEdit}
               onChange={() => toggle(t.key)}
@@ -77,7 +78,7 @@ export function FeaturesSection(): React.JSX.Element {
       <div className="mt-4 flex items-center justify-end gap-3">
         {!canEdit && <span className="text-[11.5px] text-muted">Only owners can change features</span>}
         {canEdit && (
-          <Button variant="primary" disabled={busy || !draft} onClick={() => void save()}>
+          <Button variant="primary" data-testid="btn-features-save" disabled={busy || !draft} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save features'}
           </Button>
         )}

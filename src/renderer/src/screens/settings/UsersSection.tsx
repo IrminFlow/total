@@ -151,6 +151,7 @@ function UserModal({
       <div className="flex flex-col gap-3">
         <Field label="Name" error={error}>
           <TextInput
+            data-testid="input-user-name"
             value={name}
             onChange={(e) => {
               setName(e.target.value)
