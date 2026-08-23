@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type TallyImportSummary } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, EmptyState, Field, Money, Panel, SectionTitle, TextInput } from '../components/ui'
 import { printReport } from '../lib/reportExport'
 import { todayISO, toDisplayDate } from '@shared/dates'
-import { formatPaise } from '@shared/money'
+import { formatPaise, parseRupees } from '@shared/money'
 
 type Step =
   | { kind: 'pick' }
@@ -176,6 +176,79 @@ function PreviewStep({
   )
 }
 
+/**
+ * The reconciliation step: the moment the import becomes trustworthy.
+ *
+ * A migrating business has three years of books and one question, which is not "did the file
+ * parse" but "is it all here". Counts cannot answer that; a number they can read off their own
+ * Tally screen can. The Trial Balance debit total is the right number to ask for because it is
+ * one figure, it is on a screen they already know, and it moves if anything at all is missing.
+ */
+function Reconcile({ totalDebit, skipped }: { totalDebit: number; skipped: number }): React.JSX.Element {
+  const [typed, setTyped] = useState('')
+  const expected = parseRupees(typed)
+  const difference = expected == null ? null : expected - totalDebit
+  const matched = difference === 0
+
+  return (
+    <Panel className="mt-4 p-6">
+      <p className="text-detail font-medium">Check it matched</p>
+      <p className="mt-1 text-body-sm text-muted">
+        In Tally: Gateway → Display → Trial Balance. Type the <b>Debit total</b> here.
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-end gap-4">
+        <Field label="Tally's Trial Balance debit total">
+          <TextInput
+            data-testid="input-reconcile-total"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder="e.g. 12,45,600.00"
+            className="num w-56"
+            inputMode="decimal"
+          />
+        </Field>
+        <div className="pb-1">
+          <p className="text-caption tracking-[0.08em] text-muted uppercase">Total imported</p>
+          <p className="num text-lead font-semibold">{formatPaise(totalDebit)}</p>
+        </div>
+      </div>
+
+      {expected != null && (
+        <div
+          data-testid="reconcile-verdict"
+          className={`mt-4 rounded-md border px-4 py-3 ${
+            matched ? 'border-dr/50 bg-dr/10' : 'border-cr/50 bg-cr/10'
+          }`}
+        >
+          {matched ? (
+            <p className="text-detail font-medium text-dr">
+              Matched to the paise. Your books came across complete.
+            </p>
+          ) : (
+            <>
+              <p className="text-detail font-medium text-cr">
+                Off by {formatPaise(Math.abs(difference!))}. {difference! > 0 ? 'Tally shows more.' : 'Total shows more.'}
+              </p>
+              <p className="mt-1.5 text-body-sm text-muted">Where the difference usually comes from:</p>
+              <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-body-sm text-muted">
+                <li>The Day Book export covered a shorter period than Tally&rsquo;s Trial Balance date.</li>
+                <li>Opening balances live in the masters export. Import that file too if you have not.</li>
+                {skipped > 0 && (
+                  <li className="text-cr">
+                    {skipped} voucher{skipped > 1 ? 's were' : ' was'} skipped on import. The warnings above say why.
+                  </li>
+                )}
+                <li>Tally&rsquo;s Trial Balance was taken as on a different date.</li>
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
 function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGateway: () => void }): React.JSX.Element {
   const toast = useToasts()
   const today = todayISO()
@@ -217,10 +290,10 @@ function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGatew
         <WarningsBox warnings={summary.warnings} />
       </Panel>
 
+      <Reconcile totalDebit={tb?.totalDebit ?? 0} skipped={summary.skipped} />
+
       <div className="mt-4 flex items-center justify-between">
-        <p className="text-body-sm text-muted">
-          Compare with Tally&rsquo;s Trial Balance — should match to the paise.
-        </p>
+        <p className="text-body-sm text-muted">Every ledger Total imported, as on {toDisplayDate(today)}.</p>
         <div className="flex gap-2">
           <Button variant="ghost" onClick={printTb}>
             PDF
