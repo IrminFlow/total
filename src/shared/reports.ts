@@ -35,12 +35,14 @@ export interface LedgerStatementRow {
   running: number
 }
 
-export interface LedgerMonthRow {
-  /** 'YYYY-MM' */
-  month: string
+export interface LedgerPeriodRow {
+  /** Opaque bucket key from `periodKey` — 'YYYY-MM', 'YYYY-Qn', 'YYYY-Hn' or 'YYYY-FY'. */
+  period: string
+  /** Ready-to-render column header, e.g. 'Apr 2026' or 'Q1 FY2026-27'. */
+  label: string
   debit: number
   credit: number
-  /** Signed running balance at month end, positive = Dr. */
+  /** Signed running balance at period end, positive = Dr. */
   closing: number
 }
 
@@ -52,8 +54,8 @@ export interface LedgerStatement {
   closing: number
   totalDebit: number
   totalCredit: number
-  /** Columnar month matrix (v0.3 #55) — present when requested with groupBy: 'month'. */
-  months?: LedgerMonthRow[]
+  /** Columnar period matrix — present when requested with a `groupBy` granularity. */
+  periods?: LedgerPeriodRow[]
 }
 
 export interface TrialBalanceRow {
@@ -257,9 +259,11 @@ export interface VoucherDetailLine {
   amount: number
 }
 
-export interface RegisterMonthRow {
-  /** 'YYYY-MM' */
-  month: string
+export interface RegisterPeriodRow {
+  /** Opaque bucket key from `periodKey`. */
+  period: string
+  /** Ready-to-render column header. */
+  label: string
   vouchers: number
   taxable: number
   tax: number

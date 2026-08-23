@@ -66,6 +66,7 @@ import {
 import type { CompanyInfo } from '@shared/domain'
 import { featuresSchema } from '@shared/features'
 import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig'
+import { PERIODS } from '@shared/period'
 
 export interface OpenCompany {
   slug: string
@@ -618,7 +619,7 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('report:ledger', (p) => {
     const { ledgerId, from, to, groupBy } = periodSchema
-      .extend({ ledgerId: z.number().int().positive(), groupBy: z.enum(['month']).optional() })
+      .extend({ ledgerId: z.number().int().positive(), groupBy: z.enum(PERIODS).optional() })
       .parse(p)
     return reports.ledgerStatement(requireCompany().db, ledgerId, from, to, groupBy)
   }, 'viewer')
@@ -736,8 +737,10 @@ export function registerIpc(): void {
 
   // ---------- analysis ----------
   handle('analysis:register', (p) => {
-    const { kind, from, to } = periodSchema.extend({ kind: z.enum(['sales', 'purchase']) }).parse(p)
-    return analysis.registerByMonth(requireCompany().db, kind, from, to)
+    const { kind, from, to, groupBy } = periodSchema
+      .extend({ kind: z.enum(['sales', 'purchase']), groupBy: z.enum(PERIODS).optional() })
+      .parse(p)
+    return analysis.registerByPeriod(requireCompany().db, kind, from, to, groupBy)
   }, 'viewer')
   handle('analysis:outstandings', (p) => {
     const { side, asOn } = z.object({ side: z.enum(['receivable', 'payable']), asOn: z.string() }).parse(p)

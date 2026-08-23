@@ -7,7 +7,7 @@ import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, ExceptionsReport, GroupTreeNode,
   ItemProfitRow, LedgerBalanceRow,
-  LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterMonthRow, StockAgeingRow,
+  LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterPeriodRow, StockAgeingRow,
   StockSummaryRow, TrialBalance,
   VoucherListRow
 } from '@shared/reports'
@@ -29,6 +29,7 @@ import type { SearchHit } from '@shared/search'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { ConsolidatedResult } from '@shared/consolidate'
+import type { Period } from '@shared/period'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -459,7 +460,7 @@ export const api = {
   reports: {
     dayBook: (from: string, to: string, includeOutOfBooks?: boolean) =>
       call<DayBookRow[]>('report:dayBook', { from, to, includeOutOfBooks }),
-    ledger: (ledgerId: number, from: string, to: string, groupBy?: 'month') =>
+    ledger: (ledgerId: number, from: string, to: string, groupBy?: Period) =>
       call<LedgerStatement>('report:ledger', { ledgerId, from, to, groupBy }),
     trialBalance: (asOn: string) => call<TrialBalance>('report:trialBalance', { asOn }),
     profitLoss: (from: string, to: string, comparePrior?: boolean) =>
@@ -497,8 +498,8 @@ export const api = {
       call<Gst3bManualInput>('gst:3bManualSet', { period, data })
   },
   analysis: {
-    register: (kind: 'sales' | 'purchase', from: string, to: string) =>
-      call<RegisterMonthRow[]>('analysis:register', { kind, from, to }),
+    register: (kind: 'sales' | 'purchase', from: string, to: string, groupBy?: Period) =>
+      call<RegisterPeriodRow[]>('analysis:register', { kind, from, to, groupBy }),
     outstandings: (side: 'receivable' | 'payable', asOn: string) =>
       call<OutstandingParty[]>('analysis:outstandings', { side, asOn })
   },

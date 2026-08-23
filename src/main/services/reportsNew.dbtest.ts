@@ -99,14 +99,14 @@ describe('columnar monthly ledger (#55)', () => {
     const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
 
     const plain = ledgerStatement(db, cash, '2025-04-01', '2025-07-31')
-    expect(plain.months).toBeUndefined()
+    expect(plain.periods).toBeUndefined()
 
     const stmt = ledgerStatement(db, cash, '2025-04-01', '2025-07-31', 'month')
-    expect(stmt.months).toEqual([
-      { month: '2025-04', debit: 50000, credit: 0, closing: 50000 },
-      { month: '2025-05', debit: 0, credit: 0, closing: 50000 },
-      { month: '2025-06', debit: 0, credit: 20000, closing: 30000 },
-      { month: '2025-07', debit: 0, credit: 0, closing: 30000 }
+    expect(stmt.periods).toEqual([
+      { period: '2025-04', label: 'Apr 2025', debit: 50000, credit: 0, closing: 50000 },
+      { period: '2025-05', label: 'May 2025', debit: 0, credit: 0, closing: 50000 },
+      { period: '2025-06', label: 'Jun 2025', debit: 0, credit: 20000, closing: 30000 },
+      { period: '2025-07', label: 'Jul 2025', debit: 0, credit: 0, closing: 30000 }
     ])
   })
 })

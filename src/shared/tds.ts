@@ -3,7 +3,7 @@
  * suggestions) and renderer (voucher-entry banner, Tds screen). No I/O, no DB.
  */
 import { roundToRupee } from './money'
-import { fyOf } from './dates'
+import { periodBounds, periodKey, periodLabel } from './period'
 
 /**
  * Amount to deduct at source. Without a PAN on file, section 206AA forces the higher of the
@@ -44,18 +44,21 @@ export interface TdsQuarter {
   to: string
 }
 
-/** Indian TDS quarters: Q1 Apr-Jun, Q2 Jul-Sep, Q3 Oct-Dec, Q4 Jan-Mar (of fyStartYear + 1). */
+/**
+ * Indian TDS quarters: Q1 Apr-Jun, Q2 Jul-Sep, Q3 Oct-Dec, Q4 Jan-Mar (of fyStartYear + 1).
+ *
+ * The FY-quarter convention itself lives in ./period.ts, which every columnar report also
+ * uses — deriving from it here keeps the statutory quarter and the report quarter provably
+ * the same thing.
+ */
 export function tdsQuarterOf(dateISO: string): TdsQuarter {
-  const fy = fyOf(dateISO)
-  const month = Number(dateISO.split('-')[1])
-  if (month >= 4 && month <= 6) {
-    return { q: 1, label: `Q1 FY${fy.label}`, fyStartYear: fy.startYear, from: `${fy.startYear}-04-01`, to: `${fy.startYear}-06-30` }
+  const key = periodKey(dateISO, 'quarter')
+  const { from, to } = periodBounds(key, 'quarter')
+  return {
+    q: Number(key.slice(-1)) as 1 | 2 | 3 | 4,
+    label: periodLabel(key, 'quarter'),
+    fyStartYear: Number(key.slice(0, 4)),
+    from,
+    to
   }
-  if (month >= 7 && month <= 9) {
-    return { q: 2, label: `Q2 FY${fy.label}`, fyStartYear: fy.startYear, from: `${fy.startYear}-07-01`, to: `${fy.startYear}-09-30` }
-  }
-  if (month >= 10 && month <= 12) {
-    return { q: 3, label: `Q3 FY${fy.label}`, fyStartYear: fy.startYear, from: `${fy.startYear}-10-01`, to: `${fy.startYear}-12-31` }
-  }
-  return { q: 4, label: `Q4 FY${fy.label}`, fyStartYear: fy.startYear, from: `${fy.startYear + 1}-01-01`, to: `${fy.startYear + 1}-03-31` }
 }

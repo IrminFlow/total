@@ -33,7 +33,7 @@ export type Screen =
   | { name: 'gateway' }
   // Optional drill params (Registers month rows → filtered Day Book): restrict to one
   // 'YYYY-MM' month and/or one voucher-type kind ('sales' | 'purchase' | …).
-  | { name: 'daybook'; month?: string; kind?: string }
+  | { name: 'daybook'; span?: { from: string; to: string; label: string }; kind?: string }
   | { name: 'import-tally' }
   // `draftId` forces VoucherEntry to remount when a new draft targets the same 'new' voucher slot
   // (e.g. two "Create purchase" nudges in a row) — App.tsx keys the component on it, see there.

@@ -31,11 +31,13 @@ const SCOPE_LABELS: { value: Scope; label: string }[] = [
   { value: 'post-dated', label: 'Post-dated only' }
 ]
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-function monthLabel(ym: string): string {
-  const [y, m] = ym.split('-').map(Number) as [number, number]
-  return `${MONTH_NAMES[(m ?? 1) - 1]} ${y}`
+/** A drilled-into date span handed over by the Registers screen. */
+export interface DrillSpan {
+  from: string
+  to: string
+  /** Pre-rendered period label, e.g. 'Q1 FY2026-27'. */
+  label: string
 }
 
 const DayBookRowView = memo(function DayBookRowView({
@@ -101,19 +103,20 @@ const DayBookRowView = memo(function DayBookRowView({
   )
 })
 
-export function DayBook({ month, kind }: { month?: string; kind?: string } = {}): React.JSX.Element {
+export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}): React.JSX.Element {
   const { from, to } = useSession()
   const nav = useNav()
   const toast = useToasts()
   const [filter, setFilter] = useState('')
   const [scope, setScope] = useState<Scope>('books')
   const [limit, setLimit] = useState(PAGE)
-  // The Registers drill-through hands over a month + kind; keep them as dismissible local state
-  // so the chip's ✕ clears the drill without a navigation.
-  const [drill, setDrill] = useState<{ month?: string; kind?: string }>({ month, kind })
+  // The Registers drill-through hands over a date span + kind; keep them as dismissible local
+  // state so the chip's ✕ clears the drill without a navigation. The span is a period range
+  // rather than a month so a quarterly (or half-yearly, or annual) register row can drill too.
+  const [drill, setDrill] = useState<{ span?: DrillSpan; kind?: string }>({ span, kind })
   useEffect(() => {
-    setDrill({ month, kind })
-  }, [month, kind])
+    setDrill({ span, kind })
+  }, [span, kind])
   const { data, isLoading } = useQuery({
     queryKey: ['daybook', from, to, 'all'],
     queryFn: () => api.reports.dayBook(from, to, true)
@@ -125,7 +128,7 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
     if (scope === 'books') all = all.filter((r) => !r.isOptional && !r.postDated)
     else if (scope === 'optional') all = all.filter((r) => r.isOptional)
     else if (scope === 'post-dated') all = all.filter((r) => r.postDated)
-    if (drill.month) all = all.filter((r) => r.date.startsWith(drill.month!))
+    if (drill.span) all = all.filter((r) => r.date >= drill.span!.from && r.date <= drill.span!.to)
     if (drill.kind) all = all.filter((r) => r.kind === drill.kind)
     const q = filter.trim().toLowerCase()
     if (!q) return all
@@ -252,16 +255,16 @@ export function DayBook({ month, kind }: { month?: string; kind?: string } = {})
       >
         Day book
       </SectionTitle>
-      {(drill.month || drill.kind) && (
+      {(drill.span || drill.kind) && (
         <div className="mb-3 flex items-center gap-2">
           <span className="flex items-center gap-1.5 rounded-full border border-amberbar/50 bg-amberbar/10 px-3 py-1 text-[12px]">
-            {drill.month ? monthLabel(drill.month) : null}
-            {drill.month && drill.kind ? ' · ' : ''}
+            {drill.span ? drill.span.label : null}
+            {drill.span && drill.kind ? ' · ' : ''}
             {drill.kind ? <span className="capitalize">{drill.kind.replace('_', ' ')}</span> : null}
             <button
               type="button"
               data-testid="daybook-clear-drill"
-              aria-label="Clear the month/kind filter"
+              aria-label="Clear the period/kind filter"
               className="ml-1 text-muted hover:text-ink"
               onClick={() => setDrill({})}
             >

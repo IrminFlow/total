@@ -8,6 +8,7 @@ import type { Group, Nature } from '@shared/domain'
 import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
+import { periodKey, periodLabel, periodRange, type Period } from '@shared/period'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
 
@@ -404,22 +405,8 @@ export function dayBook(
   }))
 }
 
-/** 'YYYY-MM' months from `from` to `to`, inclusive. */
-function monthRange(from: string, to: string): string[] {
-  const months: string[] = []
-  let [y, m] = [Number(from.slice(0, 4)), Number(from.slice(5, 7))]
-  const end = to.slice(0, 7)
-  for (;;) {
-    const key = `${y}-${String(m).padStart(2, '0')}`
-    months.push(key)
-    if (key === end || months.length > 1200) break
-    m += 1
-    if (m > 12) { m = 1; y += 1 }
-  }
-  return months
-}
 
-export function ledgerStatement(db: DB, ledgerId: number, from: string, to: string, groupBy?: 'month'): LedgerStatement {
+export function ledgerStatement(db: DB, ledgerId: number, from: string, to: string, groupBy?: Period): LedgerStatement {
   const ledger = db.prepare('SELECT id, name, opening_balance FROM ledgers WHERE id = ?').get(ledgerId) as
     | { id: number; name: string; opening_balance: number }
     | undefined
@@ -499,26 +486,27 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
     ledgerId, ledgerName: ledger.name, opening, rows, closing: running, totalDebit, totalCredit
   }
 
-  // Columnar monthly matrix (v0.3 #55): every month in the period, with the running closing
-  // carried across months that had no activity.
-  if (groupBy === 'month') {
-    const byMonth = new Map<string, { debit: number; credit: number; closing: number }>()
+  // Columnar period matrix (v0.3 #55, generalised to any granularity in v0.5): every bucket in
+  // the range, with the running closing carried across buckets that had no activity.
+  if (groupBy) {
+    const byPeriod = new Map<string, { debit: number; credit: number; closing: number }>()
     for (const r of rows) {
-      const key = r.date.slice(0, 7)
-      const m = byMonth.get(key) ?? { debit: 0, credit: 0, closing: opening }
+      const key = periodKey(r.date, groupBy)
+      const m = byPeriod.get(key) ?? { debit: 0, credit: 0, closing: opening }
       m.debit += r.debit
       m.credit += r.credit
       m.closing = r.running
-      byMonth.set(key, m)
+      byPeriod.set(key, m)
     }
     let carried = opening
-    result.months = monthRange(from, to).map((month) => {
-      const m = byMonth.get(month)
+    result.periods = periodRange(from, to, groupBy).map((period) => {
+      const label = periodLabel(period, groupBy)
+      const m = byPeriod.get(period)
       if (m) {
         carried = m.closing
-        return { month, debit: m.debit, credit: m.credit, closing: m.closing }
+        return { period, label, debit: m.debit, credit: m.credit, closing: m.closing }
       }
-      return { month, debit: 0, credit: 0, closing: carried }
+      return { period, label, debit: 0, credit: 0, closing: carried }
     })
   }
 

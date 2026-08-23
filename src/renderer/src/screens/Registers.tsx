@@ -8,8 +8,8 @@ import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
+import { periodBounds, type Period } from '@shared/period'
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Month', align: 'l' },
@@ -28,10 +28,17 @@ const ITEM_COLUMNS: PdfColumn[] = [
   { label: 'Margin', align: 'r' }
 ]
 
-function monthLabel(ym: string): string {
-  const [y, m] = ym.split('-').map(Number) as [number, number]
-  return `${MONTH_NAMES[m - 1]} ${y}`
-}
+/**
+ * Register granularity. Quarters are Indian FY quarters (Q1 = Apr-Jun) via `@shared/period`,
+ * which is what a QRMP filer means by "the quarter" — so this register lines up with the GST
+ * return it feeds. Row labels come from the service; nothing is re-derived here.
+ */
+const GRANULARITIES: { period: Period; label: string; heading: string }[] = [
+  { period: 'month', label: 'Monthly', heading: 'Month' },
+  { period: 'quarter', label: 'Quarterly', heading: 'Quarter' },
+  { period: 'half', label: 'Half-year', heading: 'Half-year' },
+  { period: 'year', label: 'Yearly', heading: 'Year' }
+]
 
 function fmtQty(qtyMilli: number, decimals: number): string {
   return (qtyMilli / 1000).toFixed(decimals)
@@ -45,20 +52,22 @@ export function RegistersScreen(): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
   const [tab, setTab] = useState<Tab>('sales')
+  const [granularity, setGranularity] = useState<Period>('month')
   const [busy, setBusy] = useState<'caPack' | 'tallyXml' | null>(null)
   const kind = tab === 'items' ? 'sales' : tab
   const { data, isLoading } = useQuery({
-    queryKey: ['register', kind, from, to],
-    queryFn: () => api.analysis.register(kind, from, to),
+    queryKey: ['register', kind, from, to, granularity],
+    queryFn: () => api.analysis.register(kind, from, to, granularity),
     enabled: tab !== 'items'
   })
   const rows = data ?? []
+  const heading = GRANULARITIES.find((g) => g.period === granularity)?.heading ?? 'Period'
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
   const exportRows: PdfRow[] = [
     ...rows.map((r) => ({
       cells: [
-        monthLabel(r.month),
+        r.label,
         String(r.vouchers),
         formatPaise(r.taxable, { zeroDash: true }),
         formatPaise(r.tax, { zeroDash: true }),
@@ -104,6 +113,22 @@ export function RegistersScreen(): React.JSX.Element {
               onSelect={setTab}
             />
             {tab !== 'items' && (
+              <div className="flex gap-1" role="group" aria-label="Register period">
+                {GRANULARITIES.map((g) => (
+                  <button
+                    key={g.period}
+                    type="button"
+                    data-testid={`tab-registers-period-${g.period}`}
+                    aria-pressed={granularity === g.period}
+                    onClick={() => setGranularity(g.period)}
+                    className={`rounded-md px-2.5 py-1 text-[12px] ${granularity === g.period ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {tab !== 'items' && (
               <>
                 <Button
                   variant="ghost"
@@ -116,7 +141,7 @@ export function RegistersScreen(): React.JSX.Element {
                 <Button
                   variant="ghost"
                   onClick={() =>
-                    void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `${kind}-register`, toast)
+                    void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `${kind}-register-${granularity}`, toast)
                   }
                 >
                   CSV
@@ -147,7 +172,7 @@ export function RegistersScreen(): React.JSX.Element {
               <table className="ledger-table">
                 <thead>
                   <tr>
-                    <th>Month</th>
+                    <th>{heading}</th>
                     <th className="r w-24">Vouchers</th>
                     <th className="r w-40">Taxable value</th>
                     <th className="r w-36">GST</th>
@@ -156,7 +181,17 @@ export function RegistersScreen(): React.JSX.Element {
                 </thead>
                 <tbody data-testid="rows-registers">
                   {rows.map((r) => (
-                    <MonthRow key={r.month} month={r.month} kind={kind} vouchers={r.vouchers} taxable={r.taxable} tax={r.tax} total={r.total} />
+                    <PeriodRow
+                      key={r.period}
+                      period={r.period}
+                      label={r.label}
+                      granularity={granularity}
+                      kind={kind}
+                      vouchers={r.vouchers}
+                      taxable={r.taxable}
+                      tax={r.tax}
+                      total={r.total}
+                    />
                   ))}
                   <tr className="total-row">
                     <td>Total</td>
@@ -176,15 +211,19 @@ export function RegistersScreen(): React.JSX.Element {
   )
 }
 
-function MonthRow({
-  month,
+function PeriodRow({
+  period,
+  label,
+  granularity,
   kind,
   vouchers,
   taxable,
   tax,
   total
 }: {
-  month: string
+  period: string
+  label: string
+  granularity: Period
   kind: 'sales' | 'purchase'
   vouchers: number
   taxable: number
@@ -192,14 +231,17 @@ function MonthRow({
   total: number
 }): React.JSX.Element {
   const nav = useNav()
+  // Drill into the Day Book over this bucket's real date span, so a quarterly row opens the
+  // whole quarter rather than one month of it.
+  const span = { ...periodBounds(period, granularity), label }
   return (
     <tr
-      data-row-id={month}
+      data-row-id={period}
       className="cursor-pointer hover:bg-panel2"
-      title="Open this month in the Day Book"
-      onClick={() => nav.go({ name: 'daybook', month, kind })}
+      title={`Open ${label} in the Day Book`}
+      onClick={() => nav.go({ name: 'daybook', span, kind })}
     >
-      <td className="text-blue">{monthLabel(month)}</td>
+      <td className="text-blue">{label}</td>
       <td className="r num">{vouchers}</td>
       <td className="r"><Money paise={taxable} /></td>
       <td className="r"><Money paise={tax} /></td>

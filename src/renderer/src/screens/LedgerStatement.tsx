@@ -8,6 +8,7 @@ import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/clie
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import type { LedgerStatementRow } from '@shared/reports'
+import type { Period } from '@shared/period'
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Date', align: 'l' },
@@ -18,19 +19,31 @@ const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Balance', align: 'r' }
 ]
 
-const MONTHLY_COLUMNS: PdfColumn[] = [
-  { label: 'Month', align: 'l' },
-  { label: 'Debit', align: 'r' },
-  { label: 'Credit', align: 'r' },
-  { label: 'Closing', align: 'r' }
-]
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function monthLabel(ym: string): string {
-  const [y, m] = ym.split('-').map(Number) as [number, number]
-  return `${MONTH_NAMES[(m ?? 1) - 1]} ${y}`
+/** Export columns for a columnar summary; the first header tracks the chosen granularity. */
+function summaryColumns(heading: string): PdfColumn[] {
+  return [
+    { label: heading, align: 'l' },
+    { label: 'Debit', align: 'r' },
+    { label: 'Credit', align: 'r' },
+    { label: 'Closing', align: 'r' }
+  ]
 }
+
+/**
+ * Summary granularities. `detail` is the voucher-by-voucher view; the rest are columnar
+ * summaries bucketed by `@shared/period`, which anchors quarters to the Indian financial year
+ * (Q1 = Apr-Jun) so this agrees with GSTR/TDS quarters. Row labels come from the service, so
+ * there is no label logic to drift here.
+ */
+type Mode = 'detail' | Period
+
+const MODES: { mode: Mode; tab: string; testid: string; heading: string }[] = [
+  { mode: 'detail', tab: 'Vouchers', testid: 'detail', heading: 'Date' },
+  { mode: 'month', tab: 'Monthly', testid: 'monthly', heading: 'Month' },
+  { mode: 'quarter', tab: 'Quarterly', testid: 'quarterly', heading: 'Quarter' },
+  { mode: 'half', tab: 'Half-year', testid: 'half-yearly', heading: 'Half-year' },
+  { mode: 'year', tab: 'Yearly', testid: 'yearly', heading: 'Year' }
+]
 
 const PAGE = 500
 
@@ -78,15 +91,17 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   const nav = useNav()
   const toast = useToasts()
   const [limit, setLimit] = useState(PAGE)
-  // Columnar month mode (v0.3 #55): one row per month with period totals + closing balance.
-  const [mode, setMode] = useState<'detail' | 'monthly'>('detail')
+  // Columnar summary mode (v0.3 #55, any granularity since v0.5): one row per period with
+  // period totals + the closing balance carried across periods with no activity.
+  const [mode, setMode] = useState<Mode>('detail')
   const { data, isLoading } = useQuery({
     queryKey: ['ledgerStatement', ledgerId, from, to, mode],
-    queryFn: () => api.reports.ledger(ledgerId, from, to, mode === 'monthly' ? 'month' : undefined)
+    queryFn: () => api.reports.ledger(ledgerId, from, to, mode === 'detail' ? undefined : mode)
   })
 
   const rows = data?.rows ?? []
-  const months = data?.months ?? []
+  const periods = data?.periods ?? []
+  const summaryHeading = MODES.find((m) => m.mode === mode)?.heading ?? 'Period'
 
   useEffect(() => {
     setLimit(PAGE)
@@ -122,13 +137,13 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   }
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
-  const exportColumns = mode === 'monthly' ? MONTHLY_COLUMNS : EXPORT_COLUMNS
+  const exportColumns = mode === 'detail' ? EXPORT_COLUMNS : summaryColumns(summaryHeading)
   const exportRows: PdfRow[] =
-    mode === 'monthly'
+    mode !== 'detail'
       ? [
-          ...months.map((m) => ({
+          ...periods.map((m) => ({
             cells: [
-              monthLabel(m.month),
+              m.label,
               formatPaise(m.debit, { zeroDash: true }),
               formatPaise(m.credit, { zeroDash: true }),
               formatPaise(m.closing, { zeroDash: true })
@@ -176,14 +191,14 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
         right={
           <div className="flex items-center gap-2">
             <div className="flex gap-1">
-              {(['detail', 'monthly'] as const).map((m) => (
+              {MODES.map((m) => (
                 <button
-                  key={m}
-                  data-testid={`tab-ledger-statement-${m}`}
-                  onClick={() => setMode(m)}
-                  className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${mode === m ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                  key={m.mode}
+                  data-testid={`tab-ledger-statement-${m.testid}`}
+                  onClick={() => setMode(m.mode)}
+                  className={`rounded-md px-3 py-1 text-[12.5px] ${mode === m.mode ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
                 >
-                  {m === 'detail' ? 'Vouchers' : 'Monthly'}
+                  {m.tab}
                 </button>
               ))}
             </div>
@@ -201,7 +216,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
                 void csvReport(
                   exportColumns.map((c) => c.label),
                   exportRows.map((r) => r.cells),
-                  `ledger-${slugFilename(data.ledgerName)}${mode === 'monthly' ? '-monthly' : ''}`,
+                  `ledger-${slugFilename(data.ledgerName)}${mode === 'detail' ? '' : `-${mode}`}`,
                   toast
                 )
               }
@@ -225,23 +240,23 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
         </div>
         {isLoading ? (
           <SkeletonRows />
-        ) : mode === 'monthly' ? (
-          months.length === 0 ? (
+        ) : mode !== 'detail' ? (
+          periods.length === 0 ? (
             <EmptyState title="No entries for this ledger in the period" />
           ) : (
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th>Month</th>
+                  <th>{summaryHeading}</th>
                   <th className="r w-36">Debit</th>
                   <th className="r w-36">Credit</th>
                   <th className="r w-40">Closing</th>
                 </tr>
               </thead>
-              <tbody data-testid="rows-ledger-statement-monthly">
-                {months.map((m) => (
-                  <tr key={m.month}>
-                    <td>{monthLabel(m.month)}</td>
+              <tbody data-testid="rows-ledger-statement-summary">
+                {periods.map((m) => (
+                  <tr key={m.period}>
+                    <td>{m.label}</td>
                     <td className="r">
                       <Money paise={m.debit} />
                     </td>

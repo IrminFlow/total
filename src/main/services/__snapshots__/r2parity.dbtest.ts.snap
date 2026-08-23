@@ -567,10 +567,11 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
 }
 `;
 
-exports[`R2 parity — statements > registers by month are unchanged > purchase register 1`] = `
+exports[`R2 parity — statements > registers by period are unchanged > purchase register 1`] = `
 [
   {
-    "month": "2025-05",
+    "label": "May 2025",
+    "period": "2025-05",
     "tax": 0,
     "taxable": 82600,
     "total": 82600,
@@ -579,17 +580,19 @@ exports[`R2 parity — statements > registers by month are unchanged > purchase 
 ]
 `;
 
-exports[`R2 parity — statements > registers by month are unchanged > sales register 1`] = `
+exports[`R2 parity — statements > registers by period are unchanged > sales register 1`] = `
 [
   {
-    "month": "2025-04",
+    "label": "Apr 2025",
+    "period": "2025-04",
     "tax": 0,
     "taxable": 118000,
     "total": 118000,
     "vouchers": 1,
   },
   {
-    "month": "2025-06",
+    "label": "Jun 2025",
+    "period": "2025-06",
     "tax": 0,
     "taxable": 59000,
     "total": 59000,
