@@ -1,6 +1,6 @@
 {
   "name": "total",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Total — fully offline accounting for macOS. Tally-grade books, modern experience.",
   "main": "out/main/index.js",
   "author": "Irmin Labs",
