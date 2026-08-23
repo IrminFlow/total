@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { formatPaise, parseRupees } from '@shared/money'
+import { isExpression, parseAmountExpression } from '@shared/amountExpr'
 import { parseSmartDate, toDisplayDate } from '@shared/dates'
 import { useToasts } from '../state/stores'
 import { isBlocked, isTypingTarget, topLayer, useKeyLayer } from '../lib/keyboard'
@@ -155,9 +156,15 @@ export function AmountInput({
   const [text, setText] = useState(paise != null && paise !== 0 ? formatPaise(paise) : '')
   useEffect(() => {
     // Reflect external resets (e.g. clearing a form).
-    if (paise == null || paise === 0) setText((t) => (parseRupees(t) ? t : ''))
+    if (paise == null || paise === 0) setText((t) => (parseAmountExpression(t) ? t : ''))
   }, [paise])
-  const invalid = text.trim() !== '' && parseRupees(text) == null
+
+  const parsed = text.trim() === '' ? null : parseAmountExpression(text)
+  const invalid = text.trim() !== '' && parsed == null
+  // Only worth previewing when the user typed something a plain number parser would reject —
+  // otherwise the preview just repeats what is already in the box.
+  const preview = parsed != null && isExpression(text) ? formatPaise(parsed) : null
+
   return (
     <span className={`block min-w-0 ${className ?? ''}`}>
       <input
@@ -170,10 +177,10 @@ export function AmountInput({
         aria-invalid={invalid || undefined}
         onChange={(e) => {
           setText(e.target.value)
-          onPaise(parseRupees(e.target.value))
+          onPaise(parseAmountExpression(e.target.value))
         }}
         onBlur={() => {
-          const parsed = parseRupees(text)
+          // Resolve the expression in place on blur, so what is stored and what is shown agree.
           if (parsed != null) setText(formatPaise(parsed))
         }}
         onKeyDown={(e) => {
@@ -181,6 +188,11 @@ export function AmountInput({
         }}
       />
       {invalid && <span className="mt-0.5 block text-hint text-cr">Not an amount</span>}
+      {preview && (
+        <span className="mt-0.5 block text-right text-hint text-muted" data-testid={`${testId}-preview`}>
+          = {preview}
+        </span>
+      )}
     </span>
   )
 }

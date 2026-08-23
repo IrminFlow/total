@@ -4,7 +4,7 @@ import type { RecurringTemplate, VoucherKind } from '@shared/domain'
 import type { Screen, VoucherDraft } from '../state/stores'
 import { api } from '../lib/client'
 import { useNav, useToasts, nextDraftId } from '../state/stores'
-import { Button, DateInput, EmptyState, Field, Modal, Panel, SectionTitle, Select, SkeletonRows, TextInput } from '../components/ui'
+import { Button, DateInput, EmptyState, Field, Modal, Panel, SectionTitle, Select, SkeletonRows, TextInput, useTableNav } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { nextDueAfter } from '@shared/recurring'
 import type { VoucherInputParsed } from '@shared/schemas'
@@ -57,6 +57,11 @@ export function RecurringScreen(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: templates, isLoading } = useQuery({ queryKey: ['recurring'], queryFn: api.recurring.list })
+  // Enter opens the selected template in voucher entry, the same thing its row button does.
+  const table = useTableNav(templates ?? [], {
+    rowId: (t) => t.id,
+    onEnter: (t) => nav.go(templateOpenTarget(t).screen)
+  })
   const [editing, setEditing] = useState<RecurringTemplate | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
 
@@ -149,8 +154,8 @@ export function RecurringScreen(): React.JSX.Element {
               </tr>
             </thead>
             <tbody data-testid="rows-recurring">
-              {templates.map((t) => (
-                <tr key={t.id} className="hover:bg-panel2">
+              {templates.map((t, i) => (
+                <tr key={t.id} {...table.rowProps(i, t)}>
                   <td>{t.name}</td>
                   <td className="text-muted">{cadenceSummary(t)}</td>
                   <td className="num">{toDisplayDate(t.nextDue)}</td>

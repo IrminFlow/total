@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner } from '../components/ui'
+import { AmountInput, Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner, useTableNav } from '../components/ui'
 import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { posLabel } from '@shared/gst/states'
@@ -167,6 +167,10 @@ export function Gstr1Screen(): React.JSX.Element {
     queryFn: () => api.gst.validate(month!.from, month!.to),
     enabled: !!month
   })
+  // Selection only: these are section totals with nowhere to drill. It still earns its place --
+  // a user who has learned the arrows work everywhere should not meet a screen where they do
+  // not, and the bar is how you keep your place in a dense table.
+  const summaryTable = useTableNav(data?.summary ?? [], { rowId: (s) => s.section })
 
   const issues = validation?.issues ?? []
   const blocking = issues.filter((i) => i.severity === 'blocking')
@@ -268,8 +272,12 @@ export function Gstr1Screen(): React.JSX.Element {
             </tr>
           </thead>
           <tbody data-testid="rows-gstr1">
-            {(data?.summary ?? []).map((s) => (
-              <tr key={s.section} className={s.docs === 0 && s.taxable === 0 ? 'opacity-40' : ''}>
+            {(data?.summary ?? []).map((s, i) => (
+              <tr
+                key={s.section}
+                {...summaryTable.rowProps(i, s)}
+                className={`${summaryTable.rowProps(i, s).className} ${s.docs === 0 && s.taxable === 0 ? 'opacity-40' : ''}`}
+              >
                 <td>{s.label}</td>
                 <td className="r num">{s.docs}</td>
                 <td className="r"><Money paise={s.taxable} /></td>

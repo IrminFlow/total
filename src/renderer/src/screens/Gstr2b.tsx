@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useToasts, nextDraftId } from '../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, EmptyState, Modal, Money, Panel, SectionTitle, useTableNav } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
 import { MonthBar, NoMonths, useMonth } from './GstReturns'
@@ -59,10 +59,12 @@ function taxTotal(t: { igst: number; cgst: number; sgst: number; cess: number })
 
 function PairRow({
   pair,
+  rowProps,
   onOpenVoucher,
   onCreatePurchase
 }: {
   pair: Recon2bPair
+  rowProps: React.ComponentProps<'tr'>
   onOpenVoucher: (voucherId: number) => void
   onCreatePurchase: (portal: NonNullable<Recon2bPair['portal']>) => void
 }): React.JSX.Element {
@@ -70,7 +72,8 @@ function PairRow({
   const clickable = !!book
   return (
     <tr
-      className={clickable ? 'kbar-row cursor-pointer' : ''}
+      {...rowProps}
+      className={`${rowProps.className ?? ''}${clickable ? ' cursor-pointer' : ''}`}
       onClick={clickable ? () => onOpenVoucher(book!.voucherId) : undefined}
     >
       <td>{portal ? portal.number : <span className="text-muted">—</span>}</td>
@@ -162,6 +165,14 @@ export function Gstr2bScreen(): React.JSX.Element {
 
   const result = data?.result
   const pairs = result?.pairs.filter((p) => p.bucket === bucket) ?? []
+  // Enter opens the matched voucher, the same thing clicking the row does. Rows with no book
+  // side have nothing to open and simply do not fire.
+  const pairTable = useTableNav(pairs, {
+    rowId: (p, i) => p.book?.voucherId ?? `portal-${i}`,
+    onEnter: (p) => {
+      if (p.book) openVoucher(p.book.voucherId)
+    }
+  })
 
   if (!month) {
     return (
@@ -259,7 +270,13 @@ export function Gstr2bScreen(): React.JSX.Element {
                   </thead>
                   <tbody data-testid="rows-2b-pairs">
                     {pairs.map((p, i) => (
-                      <PairRow key={i} pair={p} onOpenVoucher={openVoucher} onCreatePurchase={createPurchase} />
+                      <PairRow
+                        key={i}
+                        pair={p}
+                        rowProps={pairTable.rowProps(i, p)}
+                        onOpenVoucher={openVoucher}
+                        onCreatePurchase={createPurchase}
+                      />
                     ))}
                   </tbody>
                 </table>

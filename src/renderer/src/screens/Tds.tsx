@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TdsSection } from '@shared/domain'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, TextInput } from '../components/ui'
+import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, TextInput, useTableNav } from '../components/ui'
 import { useLedgers } from '../components/pickers'
 import { fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { tdsQuarterOf } from '@shared/tds'
@@ -180,6 +180,8 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
   const [form, setForm] = useState<SectionForm>(blankSection())
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Enter edits the selected section, which is what its row button does.
+  const sectionTable = useTableNav(sections, { rowId: (s) => s.id, onEnter: (s) => edit(s) })
 
   const edit = (s: TdsSection): void => {
     setError(null)
@@ -238,8 +240,12 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
                 </tr>
               </thead>
               <tbody data-testid="rows-tds-sections">
-                {sections.map((s) => (
-                  <tr key={s.id} className={form.id === s.id ? 'bg-amberbar/10' : ''}>
+                {sections.map((s, i) => (
+                  <tr
+                    key={s.id}
+                    {...sectionTable.rowProps(i, s)}
+                    className={`${sectionTable.rowProps(i, s).className} ${form.id === s.id ? 'bg-amberbar/10' : ''}`}
+                  >
                     <td className="num">{s.code}</td>
                     <td>{s.description}</td>
                     <td className="r num">{s.rate}%</td>
