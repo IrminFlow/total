@@ -31,6 +31,7 @@ import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Period } from '@shared/period'
 import type { AiConfigView, AiSettings } from '@shared/ai/config'
+import type { LicenseState } from '@shared/license'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -687,6 +688,10 @@ export const api = {
         'mcp:snippet',
         { client, allowWrites }
       )
+  },
+  license: {
+    get: () => call<LicenseState>('license:get'),
+    apply: (token: string) => call<LicenseState>('license:apply', { token })
   },
   log: {
     renderer: (input: RendererLogInput) => call<null>('log:renderer', input),

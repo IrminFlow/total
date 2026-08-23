@@ -24,6 +24,7 @@ import {
 import { todayISO } from '@shared/dates'
 import { aiSettingsSchema } from '@shared/ai/config'
 import * as aiConfig from './services/ai/config'
+import * as licenseSvc from './services/license'
 import { mcpSnippet } from './mcp/snippet'
 import { formatPaise } from '@shared/money'
 import * as configSvc from './services/config'
@@ -148,6 +149,53 @@ const UNGATED_CHANNELS = new Set([
   'app:info'
 ])
 
+/**
+ * Channels that keep working when the licence has lapsed.
+ *
+ * The promise is that an expired licence never locks anyone out of their own accounts, so
+ * everything that gets data OUT stays available forever: opening a company, backing it up,
+ * exporting it, printing it, and of course entering a licence. Only posting new entries stops.
+ */
+const LICENSE_EXEMPT_CHANNELS = new Set([
+  'company:list',
+  'company:open',
+  'company:close',
+  'company:create',
+  'backup:list',
+  'backup:run',
+  'backup:restore',
+  'backup:exportEncrypted',
+  'backup:importEncrypted',
+  'export:csv',
+  'export:caPack',
+  'export:tallyXml',
+  'license:get',
+  'license:apply',
+  'log:renderer',
+  'log:reveal',
+  'log:diagnostics',
+  'app:info',
+  'auth:login',
+  'auth:logout',
+  'auth:current'
+])
+
+/**
+ * Cached licence state. `currentState()` reads a file, and this wrapper runs on all 200-odd
+ * channels, so re-reading per call would put a stat in the path of every query for no benefit —
+ * the state only changes when a key is entered, or at midnight.
+ */
+let licenseCache: { readOnly: boolean; at: number } | null = null
+function licenseReadOnly(): boolean {
+  if (licenseCache && Date.now() - licenseCache.at < 60_000) return licenseCache.readOnly
+  const readOnly = licenseSvc.isReadOnly()
+  licenseCache = { readOnly, at: Date.now() }
+  return readOnly
+}
+export function invalidateLicenseCache(): void {
+  licenseCache = null
+}
+
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
   ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
     try {
@@ -164,6 +212,14 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
         if (!roleAllows(sessionUser.role, minRole)) {
           throw new Error('You do not have permission to do that')
         }
+      }
+      // A lapsed licence is exactly "everyone is a viewer": every read channel is declared
+      // `viewer`, so gating on minRole alone leaves reading, printing, exporting and backup
+      // working without listing them one by one.
+      if (minRole !== 'viewer' && !LICENSE_EXEMPT_CHANNELS.has(channel) && licenseReadOnly()) {
+        throw new Error(
+          'Your licence has lapsed. Your books are still here — you can read, print, export and back up everything. Add a licence in Settings to post new entries.'
+        )
       }
       return { ok: true, data: await fn(payload) }
     } catch (err) {
@@ -1404,6 +1460,15 @@ export function registerIpc(): void {
       })
       .parse(p)
     return mcpSnippet(requireCompany().slug, client, allowWrites)
+  }, 'owner')
+
+  // ---------- licence ----------
+  handle('license:get', () => licenseSvc.currentState(), 'viewer')
+  handle('license:apply', (p) => {
+    const { token } = z.object({ token: z.string().max(4000) }).parse(p)
+    const state = licenseSvc.applyToken(token)
+    invalidateLicenseCache()
+    return state
   }, 'owner')
 
   // ---------- logging ----------

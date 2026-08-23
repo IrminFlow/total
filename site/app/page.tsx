@@ -44,6 +44,7 @@ export default async function Home(): Promise<React.JSX.Element> {
           <span className="tag">for macOS and Windows · fully offline</span>
           <span className="top-links">
             <Link href="/docs">Docs</Link>
+            <Link href="/pricing">Pricing</Link>
             <Link href="/compare">Compare</Link>
             <Link href="/changelog">Changelog</Link>
           </span>
