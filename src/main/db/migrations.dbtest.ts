@@ -520,3 +520,39 @@ describe('migrate', () => {
     expect(row).toEqual({ min_amount: null, max_amount: null, auto_apply: 0 })
   })
 })
+
+describe('migration 18 — party contact', () => {
+  it('adds phone and email to an existing company without touching its data', () => {
+    // Stage a company at the schema version before this migration, with a ledger in it, then
+    // let migrate() finish. The point is that an existing install gains the columns and keeps
+    // every row it had.
+    const db = freshPartialDb(17)
+    const group = db.prepare("SELECT id FROM groups WHERE name = 'Sundry Debtors'").get() as { id: number } | undefined
+    if (group) {
+      db.prepare('INSERT INTO ledgers (name, group_id, opening_balance) VALUES (?, ?, ?)').run(
+        'Pre-existing Party',
+        group.id,
+        12345
+      )
+    }
+
+    migrate(db)
+
+    const cols = (db.prepare('PRAGMA table_info(ledgers)').all() as { name: string }[]).map((c) => c.name)
+    expect(cols).toContain('phone')
+    expect(cols).toContain('email')
+
+    if (group) {
+      const row = db.prepare("SELECT name, opening_balance, phone, email FROM ledgers WHERE name = 'Pre-existing Party'").get() as {
+        opening_balance: number
+        phone: string | null
+        email: string | null
+      }
+      expect(row.opening_balance).toBe(12345)
+      // Existing parties simply have no contact yet; nothing is invented for them.
+      expect(row.phone).toBeNull()
+      expect(row.email).toBeNull()
+    }
+    db.close()
+  })
+})

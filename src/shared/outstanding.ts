@@ -151,12 +151,36 @@ export interface ReminderCompany {
 export interface ReminderParty {
   name: string
   email: string | null
+  phone?: string | null
 }
 
 export interface Reminder {
   subject: string
   body: string
   mailto: string
+  /** A wa.me link, when the party has a usable number. Null when it cannot be built. */
+  whatsapp: string | null
+}
+
+/**
+ * Turn a typed phone number into the digits wa.me wants.
+ *
+ * Deliberately conservative. It strips punctuation, drops a leading `+` or `00`, and adds the
+ * Indian country code to a bare ten-digit mobile — the one case that is unambiguous here. Any
+ * other length is returned as-is if it already looks international, and otherwise refused,
+ * because sending a payment reminder to the wrong person is worse than not sending one.
+ */
+export function whatsappNumber(raw: string | null, defaultCountryCode = '91'): string | null {
+  if (!raw) return null
+  let digits = raw.replace(/[^\d+]/g, '')
+  if (digits.startsWith('+')) digits = digits.slice(1)
+  else if (digits.startsWith('00')) digits = digits.slice(2)
+  digits = digits.replace(/\D/g, '')
+  if (digits.length === 10) return `${defaultCountryCode}${digits}`
+  // A leading 0 is a domestic trunk prefix, not part of the subscriber number.
+  if (digits.length === 11 && digits.startsWith('0')) return `${defaultCountryCode}${digits.slice(1)}`
+  if (digits.length >= 11 && digits.length <= 15) return digits
+  return null
 }
 
 /** A plain-text payment-reminder email for a party's open bills. */
@@ -179,5 +203,8 @@ export function buildReminder(company: ReminderCompany, party: ReminderParty, bi
     company.name
   ].join('\n')
   const mailto = `mailto:${party.email ?? ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-  return { subject, body, mailto }
+  // Same text through both channels, so what the user previews is what the party receives.
+  const number = whatsappNumber(party.phone ?? null)
+  const whatsapp = number ? `https://wa.me/${number}?text=${encodeURIComponent(body)}` : null
+  return { subject, body, mailto, whatsapp }
 }

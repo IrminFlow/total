@@ -127,8 +127,9 @@ function openingEvent(asOn: string, openingBalance: number, sign: number): BillE
 export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: string): OutstandingParty[] {
   const groupIds = descendantIdsByName(db, [side === 'receivable' ? 'Sundry Debtors' : 'Sundry Creditors'])
   const parties = (
-    db.prepare('SELECT id, name, opening_balance, group_id, credit_days FROM ledgers').all() as {
+    db.prepare('SELECT id, name, opening_balance, group_id, credit_days, phone, email FROM ledgers').all() as {
       id: number; name: string; opening_balance: number; group_id: number; credit_days: number | null
+      phone: string | null; email: string | null
     }[]
   ).filter((l) => groupIds.has(l.group_id))
 
@@ -149,6 +150,8 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
     result.push({
       ledgerId: party.id,
       name: party.name,
+      phone: party.phone,
+      email: party.email,
       pending: bills.reduce((s, b) => s + b.pending, 0),
       buckets,
       bills,

@@ -74,7 +74,11 @@ export const ledgerInputSchema = z.object({
   /** Price level whose rates prefill this party's invoice lines; absent/null = item base rate. */
   priceLevelId: id.nullable().optional(),
   /** Credit limit in paise; absent/null = no limit. */
-  creditLimit: paise.min(0).nullable().optional()
+  creditLimit: paise.min(0).nullable().optional(),
+  // Stored as typed. Normalising to E.164 happens at the point of use, because a user pasting
+  // a number from a phonebook should not have it silently rewritten in their master data.
+  phone: z.string().trim().max(24).nullable().optional(),
+  email: z.string().trim().max(120).nullable().optional()
 })
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
  *  service callers (tests, importers) don't have to spell out every defaulted field. */

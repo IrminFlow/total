@@ -407,9 +407,11 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
       100000,
       0,
     ],
+    "email": null,
     "ledgerId": 4,
     "name": "Creditor X",
     "pending": 182600,
+    "phone": null,
   },
 ]
 `;
@@ -445,9 +447,11 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
       0,
       0,
     ],
+    "email": null,
     "ledgerId": 2,
     "name": "Debtor A",
     "pending": 318000,
+    "phone": null,
   },
   {
     "bills": [
@@ -468,9 +472,11 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
       0,
       0,
     ],
+    "email": null,
     "ledgerId": 3,
     "name": "Debtor B",
     "pending": 39000,
+    "phone": null,
   },
 ]
 `;

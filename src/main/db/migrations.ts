@@ -550,5 +550,15 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE audit_log_new RENAME TO audit_log;
   CREATE INDEX idx_audit_at ON audit_log(at);
   CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
+  `,
+
+  // 18 — party contact details.
+  //
+  // Reminders had only an email address to work with, and in this market almost nobody sends a
+  // payment reminder by email. A phone number turns the existing reminder text into a WhatsApp
+  // message, which is how these conversations actually happen.
+  `
+  ALTER TABLE ledgers ADD COLUMN phone TEXT;
+  ALTER TABLE ledgers ADD COLUMN email TEXT;
   `
 ]

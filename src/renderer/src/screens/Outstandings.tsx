@@ -20,18 +20,42 @@ const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Pending', align: 'r' }
 ]
 
-async function remind(companyName: string, partyName: string, bills: OutstandingBill[], toast: ToastState): Promise<void> {
-  const reminder = buildReminder({ name: companyName }, { name: partyName, email: null }, bills)
+/**
+ * Send a payment reminder.
+ *
+ * WhatsApp when the party has a usable number, email otherwise. That order is not a preference:
+ * in this market almost nobody chases a payment by email, and the number is the reason the
+ * ledger gained a phone field. The body is identical either way, and is copied to the clipboard
+ * so the user can paste it anywhere the two channels do not reach.
+ */
+async function remind(
+  companyName: string,
+  party: { name: string; phone: string | null; email: string | null },
+  bills: OutstandingBill[],
+  toast: ToastState
+): Promise<void> {
+  const reminder = buildReminder({ name: companyName }, party, bills)
   let copied = true
   try {
     await navigator.clipboard.writeText(reminder.body)
   } catch {
-    // Clipboard access can fail in some sandboxes — the mailto still opens with the body.
+    // Clipboard access can fail in some sandboxes — the draft still carries the full text.
     copied = false
   }
+
+  if (reminder.whatsapp) {
+    window.open(reminder.whatsapp)
+    toast.push('success', `WhatsApp opened for ${party.name}${copied ? ' — text also copied' : ''}`)
+    return
+  }
+
   window.open(reminder.mailto)
-  if (copied) toast.push('success', 'Reminder copied — email draft opened')
-  else toast.push('warning', "Couldn't copy to the clipboard — the email draft still has the full text")
+  toast.push(
+    copied ? 'success' : 'warning',
+    party.phone
+      ? `${party.name}'s phone number isn't one WhatsApp can use — opened an email draft instead`
+      : `No phone number for ${party.name} — opened an email draft. Add one in Masters to send on WhatsApp.`
+  )
 }
 
 export function OutstandingsScreen(): React.JSX.Element {
@@ -157,10 +181,15 @@ export function OutstandingsScreen(): React.JSX.Element {
                         className="text-hint text-blue hover:underline"
                         onClick={(e) => {
                           e.stopPropagation()
-                          void remind(info?.name ?? '', p.name, p.bills, toast)
+                          void remind(
+                            info?.name ?? '',
+                            { name: p.name, phone: p.phone ?? null, email: p.email ?? null },
+                            p.bills,
+                            toast
+                          )
                         }}
                       >
-                        Remind
+                        {p.phone ? 'WhatsApp' : 'Remind'}
                       </button>
                     </td>
                   </tr>

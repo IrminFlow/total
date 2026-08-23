@@ -291,6 +291,9 @@ export interface OutstandingParty {
   /** Total pending (paise, positive). */
   pending: number
   buckets: [number, number, number, number] // 0-30, 31-60, 61-90, 90+
+  /** Party contact, carried through so a reminder can be sent without a second query. */
+  phone: string | null
+  email: string | null
   bills: OutstandingBill[]
   /** Bill-reference problems surfaced by the allocator (v0.3 #66), e.g. an 'against' ref
    *  naming a bill that isn't open. */

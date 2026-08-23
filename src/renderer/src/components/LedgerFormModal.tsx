@@ -65,6 +65,8 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [tdsSectionId, setTdsSectionId] = useState<number | ''>(ledger?.tdsSectionId ?? '')
   const [pan, setPan] = useState(ledger?.pan ?? '')
   const [creditDays, setCreditDays] = useState(ledger?.creditDays?.toString() ?? '')
+  const [phone, setPhone] = useState(ledger?.phone ?? '')
+  const [email, setEmail] = useState(ledger?.email ?? '')
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
 
   const ancestry = useMemo(() => groupAncestryNames(groupId, groups), [groupId, groups])
@@ -99,6 +101,8 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         tdsSectionId: tdsSectionId === '' ? null : tdsSectionId,
         pan: pan.trim() ? pan.trim().toUpperCase() : null,
         creditDays: creditDays.trim() ? Number(creditDays) : null,
+        phone: phone.trim() || null,
+        email: email.trim() || null,
         exportType: exportType || null
       }
       if (ledger) await api.ledgers.update(ledger.id, data)
@@ -205,6 +209,25 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
               </Field>
               <Field label="Credit days" hint="Default due date for bills">
                 <TextInput value={creditDays} onChange={(e) => setCreditDays(e.target.value)} className="num text-right" placeholder="0" />
+              </Field>
+              <Field label="Phone" hint="Used to send payment reminders on WhatsApp">
+                <TextInput
+                  data-testid="input-ledger-phone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="num"
+                  placeholder="98765 43210"
+                  inputMode="tel"
+                />
+              </Field>
+              <Field label="Email" hint="Falls back to an email draft when there is no phone">
+                <TextInput
+                  data-testid="input-ledger-email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="accounts@example.com"
+                  inputMode="email"
+                />
               </Field>
             </div>
             <Field label="Export / SEZ type" hint="For e-invoice/e-way classification">
