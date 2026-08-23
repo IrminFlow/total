@@ -24,6 +24,7 @@ import {
 import { todayISO } from '@shared/dates'
 import { aiSettingsSchema } from '@shared/ai/config'
 import * as aiConfig from './services/ai/config'
+import { mcpSnippet } from './mcp/snippet'
 import { formatPaise } from '@shared/money'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
@@ -1384,6 +1385,16 @@ export function registerIpc(): void {
     const { abortRun } = await import('./services/ai/runner')
     return { cancelled: abortRun(runId) }
   }, 'viewer')
+
+  handle('mcp:snippet', (p) => {
+    const { client, allowWrites } = z
+      .object({
+        client: z.enum(['claude-desktop', 'claude-code', 'codex']),
+        allowWrites: z.boolean().default(false)
+      })
+      .parse(p)
+    return mcpSnippet(requireCompany().slug, client, allowWrites)
+  }, 'owner')
 
   // ---------- logging ----------
   handle('log:renderer', (p) => {

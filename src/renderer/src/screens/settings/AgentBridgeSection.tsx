@@ -52,6 +52,7 @@ export function AgentBridgeSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>Agent access</SectionTitle>
+      <McpPanel isOwner={isOwner} />
       <Panel className="p-5">
         {!config ? (
           <div className="flex flex-col gap-2.5" aria-hidden="true">
@@ -116,5 +117,93 @@ export function AgentBridgeSection(): React.JSX.Element {
         point Claude Code or any other agent at it.
       </p>
     </div>
+  )
+}
+
+
+/**
+ * The MCP server: live, validated access to these books for Claude Desktop, Claude Code or Codex.
+ *
+ * Sits above the file-drop bridge because it supersedes the read mirror for interactive agents —
+ * `<company>/agent/*.json` is a snapshot that goes stale the moment someone posts a voucher. It
+ * does not supersede the inbox for bulk writes, which is why both are on this screen.
+ */
+function McpPanel({ isOwner }: { isOwner: boolean }): React.JSX.Element {
+  const toast = useToasts()
+  const [client, setClient] = useState<'claude-desktop' | 'claude-code' | 'codex'>('claude-desktop')
+  const [allowWrites, setAllowWrites] = useState(false)
+  const { data: snippet } = useQuery({
+    queryKey: ['mcpSnippet', client, allowWrites],
+    queryFn: () => api.mcp.snippet(client, allowWrites),
+    enabled: isOwner
+  })
+
+  return (
+    <Panel className="mb-4 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[13px] font-medium">Connect an AI agent (MCP)</p>
+          <p className="mt-0.5 text-[12px] text-muted">
+            Live, read-only access to these books for Claude Desktop, Claude Code or Codex — no export step, and every
+            figure comes from the same reports the app draws.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-1">
+          {(['claude-desktop', 'claude-code', 'codex'] as const).map((c) => (
+            <button
+              key={c}
+              onClick={() => setClient(c)}
+              className={`rounded-md px-2.5 py-1 text-[12px] ${client === c ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+            >
+              {c === 'claude-desktop' ? 'Claude Desktop' : c === 'claude-code' ? 'Claude Code' : 'Codex'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <label className="mt-3 flex items-start gap-2 text-[12px]">
+        <input
+          type="checkbox"
+          checked={allowWrites}
+          disabled={!isOwner}
+          onChange={() => setAllowWrites((v) => !v)}
+          className="mt-0.5"
+        />
+        <span className="text-muted">
+          Let the agent post vouchers. Needs the inbox watcher above switched on as well — two separate switches, so
+          revoking either one stops writes immediately. Entries are validated exactly as the voucher screen validates
+          them, and audited as <span className="num">agent-mcp</span>.
+        </span>
+      </label>
+
+      {snippet && (
+        <>
+          <pre className="num mt-3 max-h-48 overflow-auto rounded-md border border-line bg-panel2 p-3 text-[11px] leading-relaxed whitespace-pre-wrap">
+            {snippet.text}
+          </pre>
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(snippet.text)
+                  toast.push('success', 'Copied')
+                } catch {
+                  toast.push('error', 'Clipboard is blocked — select the text above instead')
+                }
+              }}
+            >
+              Copy
+            </Button>
+            <span className="text-[11.5px] text-muted">
+              {client === 'claude-desktop'
+                ? 'Paste into claude_desktop_config.json, then restart Claude.'
+                : client === 'claude-code'
+                  ? 'Run this in a terminal.'
+                  : 'Paste into ~/.codex/config.toml.'}
+            </span>
+          </div>
+        </>
+      )}
+    </Panel>
   )
 }

@@ -676,6 +676,13 @@ export const api = {
       call<{ runId: string }>('ai:chat', input),
     cancel: (runId: string) => call<{ cancelled: boolean }>('ai:cancel', { runId })
   },
+  mcp: {
+    snippet: (client: 'claude-desktop' | 'claude-code' | 'codex', allowWrites: boolean) =>
+      call<{ command: string; args: string[]; env: Record<string, string>; resolvedFrom: string; text: string }>(
+        'mcp:snippet',
+        { client, allowWrites }
+      )
+  },
   log: {
     renderer: (input: RendererLogInput) => call<null>('log:renderer', input),
     reveal: () => call<null>('log:reveal'),
