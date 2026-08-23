@@ -79,6 +79,21 @@ function createWindow(): void {
 
   win.on('ready-to-show', () => win.show())
 
+  // A renderer that dies outright (OOM, a GPU fault, a native crash) never reaches React's
+  // ErrorBoundary — the whole window goes blank instead. Record it so the support report can
+  // show what happened, and reload once so the user is not left staring at nothing.
+  let reloadedAfterCrash = false
+  win.webContents.on('render-process-gone', (_e, details) => {
+    log('error', 'render-process-gone', { reason: details.reason, exitCode: details.exitCode })
+    if (details.reason === 'clean-exit' || reloadedAfterCrash) return
+    reloadedAfterCrash = true
+    win.reload()
+  })
+  win.webContents.on('unresponsive', () => log('warn', 'renderer-unresponsive', {}))
+  app.on('child-process-gone', (_e, details) => {
+    log('error', 'child-process-gone', { type: details.type, reason: details.reason })
+  })
+
   win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }

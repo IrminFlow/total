@@ -5,7 +5,7 @@
  * Never log IPC payloads — only channel names and error messages (redaction by construction).
  */
 import { app, shell } from 'electron'
-import { appendFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { dataRoot } from './paths'
 import { formatLine, isExpiredLogName, type LogLevel } from './logformat'
@@ -82,6 +82,34 @@ export function initLogging(): void {
 }
 
 /** Reveal the logs folder in Finder. */
+/**
+ * The most recent log lines, newest last — what the support dialog shows the user *before*
+ * anything is sent anywhere.
+ *
+ * Safe to surface verbatim by construction: `log()` records channel names, event names and
+ * error messages, never IPC payloads, so no ledger name, party or amount can be in here. That
+ * invariant is what lets the dialog print the report in full rather than asking the user to
+ * trust a summary.
+ */
+export function recentLogLines(limit = 80): string[] {
+  const lines: string[] = []
+  try {
+    // Today's file first, then yesterday's, so a crash just after midnight still has context.
+    const days = [0, 1].map((back) => {
+      const d = new Date()
+      d.setUTCDate(d.getUTCDate() - back)
+      return join(logsDir(), `total-${d.toISOString().slice(0, 10)}.log`)
+    })
+    for (const file of days.reverse()) {
+      if (!existsSync(file)) continue
+      lines.push(...readFileSync(file, 'utf8').split('\n').filter(Boolean))
+    }
+  } catch {
+    // Diagnostics must never be the thing that fails.
+  }
+  return lines.slice(-limit)
+}
+
 export function revealLogs(): void {
   try {
     mkdirSync(logsDir(), { recursive: true })

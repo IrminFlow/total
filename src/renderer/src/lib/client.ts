@@ -668,7 +668,15 @@ export const api = {
   },
   log: {
     renderer: (input: RendererLogInput) => call<null>('log:renderer', input),
-    reveal: () => call<null>('log:reveal')
+    reveal: () => call<null>('log:reveal'),
+    diagnostics: () =>
+      call<{
+        version: string
+        platform: string
+        electron: string
+        companyOpen: boolean
+        lines: string[]
+      }>('log:diagnostics')
   },
   search: {
     global: (q: string) => call<SearchHit[]>('search:global', { q })

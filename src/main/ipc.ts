@@ -12,7 +12,7 @@ import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
 import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, ensureCompanyTree, slugify } from './paths'
-import { log, revealLogs } from './log'
+import { log, recentLogLines, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
@@ -140,6 +140,7 @@ const UNGATED_CHANNELS = new Set([
   'auth:current',
   'log:renderer',
   'log:reveal',
+  'log:diagnostics',
   'backup:importEncrypted',
   'app:info'
 ])
@@ -1322,6 +1323,21 @@ export function registerIpc(): void {
     revealLogs()
     return null
   })
+  /**
+   * The diagnostics block the support dialog shows the user before they send anything. Built in
+   * main because the version, platform and log tail live here — and returned as plain text so
+   * the dialog can print it verbatim rather than describing it.
+   */
+  handle('log:diagnostics', () => {
+    const company = getCurrentCompany()
+    return {
+      version: app.getVersion(),
+      platform: `${process.platform} ${process.arch}`,
+      electron: process.versions.electron,
+      companyOpen: company != null,
+      lines: recentLogLines()
+    }
+  }, 'viewer')
 
   // ---------- app info + updates ----------
   handle('app:info', () => ({ version: app.getVersion(), platform: process.platform }))
