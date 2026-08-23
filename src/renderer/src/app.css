@@ -22,6 +22,9 @@
   --t-dr: #157a53;
   --t-cr: #bb4433;
   --t-blue: #1f5fc2;
+  /* Accelerator letters. Deliberately NOT --t-cr: that red means "credit" throughout the
+     app, and a menu label sharing it would read as an amount. */
+  --t-accel: #c02f1d;
   --t-shadow: 0 1px 2px rgba(30, 35, 60, 0.06), 0 4px 16px rgba(30, 35, 60, 0.05);
   --t-rule: #3a4053;
 }
@@ -39,6 +42,7 @@
   --t-dr: #6ec6a0;
   --t-cr: #e4796b;
   --t-blue: #6e8ef5;
+  --t-accel: #ff8a75;
   --t-shadow: none;
   --t-rule: #e9e9e2;
 }
@@ -59,6 +63,7 @@
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);
   --color-rule: var(--t-rule);
+  --color-accel: var(--t-accel);
 
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-serif: 'IBM Plex Serif', Georgia, serif;
@@ -92,6 +97,18 @@ body {
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
+}
+
+/* The highlighted letter of a menu label -- press it to go there. `.accel-muted` is the same
+   letter while the current screen has claimed that key for one of its own actions. */
+.accel {
+  color: var(--t-accel);
+  font-weight: 600;
+}
+
+.accel-muted {
+  color: var(--t-muted);
+  font-weight: 600;
 }
 
 .num {

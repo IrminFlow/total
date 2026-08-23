@@ -7,7 +7,7 @@ import { api, type EmployeeHeadRow, type PayHead } from '../lib/client'
 import { formatPaise, parseRupees } from '@shared/money'
 import { useNav, useToasts } from '../state/stores'
 import {
-  AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, Select, SkeletonRows, Spinner, TextInput, inputCls
+  AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, Select, SkeletonRows, Spinner, TextInput, inputCls, useTableNav
 } from '../components/ui'
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
@@ -55,6 +55,8 @@ function EmployeesTab(): React.JSX.Element {
   const [editing, setEditing] = useState<Employee | 'new' | null>(null)
   const [headsOpen, setHeadsOpen] = useState(false)
   const [overridesFor, setOverridesFor] = useState<Employee | null>(null)
+  // Enter opens the selected employee for editing, matching the row's Edit button.
+  const table = useTableNav(employees ?? [], { rowId: (e) => e.id, onEnter: (e) => setEditing(e) })
 
   const remove = async (e: Employee): Promise<void> => {
     const proceed = await confirmDialog({
@@ -100,8 +102,12 @@ function EmployeesTab(): React.JSX.Element {
               </tr>
             </thead>
             <tbody data-testid="rows-payroll-employees">
-              {employees.map((e) => (
-                <tr key={e.id} data-row-id={e.id} className={e.active ? '' : 'opacity-50'}>
+              {employees.map((e, i) => (
+                <tr
+                  key={e.id}
+                  {...table.rowProps(i, e)}
+                  className={`${table.rowProps(i, e).className} ${e.active ? '' : 'opacity-50'}`}
+                >
                   <td>
                     {e.name}
                     {!e.active && <span className="ml-2 text-[11px] text-muted">inactive</span>}

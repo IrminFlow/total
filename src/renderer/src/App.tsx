@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNav, useScreen, useSession } from './state/stores'
+import { isPlainKey, isTypingTarget, useKeyLayer } from './lib/keyboard'
+import { NAV_ACCEL } from './lib/accel'
+import { useFeatures } from './lib/useFeatures'
 import { Button, Modal, Toasts } from './components/ui'
 import { CompanySelect } from './screens/CompanySelect'
 import { Shell } from './components/Shell'
@@ -44,37 +47,47 @@ export default function App(): React.JSX.Element {
   const nav = useNav()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const features = useFeatures()
   const queryClient = useQueryClient()
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        // A blocking integrity warning must be resolved (or dismissed) before anything else is
-        // reachable — opening the palette over it would let the user navigate around it.
-        if (integrityWarning) return
-        setPaletteOpen((v) => !v)
-        return
-      }
-      if (paletteOpen) return
-      if (e.key === 'Escape') {
-        const tag = (e.target as HTMLElement).tagName
-        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
-          ;(e.target as HTMLElement).blur()
-          return
-        }
-        nav.back()
-        return
-      }
-      if (e.key === '?') {
-        const tag = (e.target as HTMLElement).tagName
-        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
-        setHelpOpen(true)
-      }
+  /**
+   * The bottom `nav` layer: the registry accelerators plus the three app-wide keys. Everything
+   * above it (a screen's own letters, a list's arrows, a modal) gets first refusal, so this is
+   * reached only when nothing more specific wanted the key.
+   */
+  useKeyLayer('nav', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault()
+      // A blocking integrity warning must be resolved (or dismissed) before anything else is
+      // reachable — opening the palette over it would let the user navigate around it.
+      if (integrityWarning) return true
+      setPaletteOpen((v) => !v)
+      return true
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [paletteOpen, nav, integrityWarning])
+    if (e.key === 'Escape') {
+      // Esc in a field means "leave the field", not "leave the screen".
+      if (isTypingTarget(e)) {
+        ;(e.target as HTMLElement).blur()
+        return true
+      }
+      nav.back()
+      return true
+    }
+    if (e.key === '?') {
+      if (isTypingTarget(e)) return false
+      setHelpOpen(true)
+      return true
+    }
+    // Registry accelerators — pressing V opens voucher entry from anywhere, not just the Gateway.
+    if (!isPlainKey(e) || isTypingTarget(e)) return false
+    const target = NAV_ACCEL.get(e.key.toUpperCase())
+    if (!target?.screen) return false
+    if (target.feature && !features[target.feature]) return false
+    e.preventDefault()
+    if (target.name === 'gateway') nav.home()
+    else nav.go(target.screen)
+    return true
+  })
 
   // Fresh data whenever the visible screen changes — scoped to that screen's query-key
   // families (see the registry) instead of nuking the whole cache on every navigation.

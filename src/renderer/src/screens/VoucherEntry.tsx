@@ -4,17 +4,45 @@ import type { VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import { api } from '../lib/client'
 import { useSession, type VoucherDraft } from '../state/stores'
-import { isAnyModalOpen, Kbd } from '../components/ui'
+import { Kbd } from '../components/ui'
 import { useFeatures } from '../lib/useFeatures'
 import { TRADING_KINDS } from './voucher/hooks'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
 import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureEntry } from './voucher/ManufactureEntry'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
+import { useScreenAccels } from '../lib/screenAccels'
 
-const FKEYS: Record<string, VoucherKind> = {
-  F4: 'contra', F5: 'payment', F6: 'receipt', F7: 'journal', F8: 'sales', F9: 'purchase'
-}
+/**
+ * Voucher types reachable by keyboard, each with BOTH a Tally function key and a bare letter.
+ *
+ * The F-keys are twenty years of muscle memory and are the primary path here, because they fire
+ * even with the cursor in a field — which is where it almost always is on this screen. The
+ * letters are the "just arrived, or just pressed Esc" path, and they are what makes the screen
+ * consistent with every menu in the app. Both are advertised in the footer and in `?`.
+ *
+ * Letters that collide with a navigation accelerator (C = cost centres, P = P&L, R = registers,
+ * S = stock summary, U = budgets, J is free) win while this screen is open, because the screen
+ * layer sits above the nav layer. The sidebar greys those letters out so the shadowing is
+ * visible rather than surprising.
+ */
+const TYPE_KEYS: { kind: VoucherKind; fkey?: string; key?: string; label: string; ctrlOrAlt?: boolean }[] = [
+  { kind: 'contra', fkey: 'F4', key: 'c', label: 'Contra' },
+  { kind: 'payment', fkey: 'F5', key: 'p', label: 'Payment' },
+  { kind: 'receipt', fkey: 'F6', key: 'r', label: 'Receipt' },
+  { kind: 'journal', fkey: 'F7', key: 'j', label: 'Journal' },
+  { kind: 'sales', fkey: 'F8', key: 's', label: 'Sales' },
+  { kind: 'purchase', fkey: 'F9', key: 'u', label: 'Purchase' },
+  // Credit/debit note keep ONLY their Tally modifier keys. A bare letter for them would have to
+  // be D and E, which are Day book and Settings — shadowing the two most-used destinations in
+  // the app for two rarely-used voucher types is a bad trade. Ctrl/Alt+F8/F9 is what a Tally
+  // user reaches for anyway, and the type pills and Cmd-K still work.
+  { kind: 'credit_note', fkey: 'F8', label: 'Credit note', ctrlOrAlt: true },
+  { kind: 'debit_note', fkey: 'F9', label: 'Debit note', ctrlOrAlt: true },
+  // No Tally F-key exists for these two; before now they had no keyboard path at all.
+  { kind: 'stock_journal', key: 'k', label: 'Stock journal' },
+  { kind: 'physical_stock', key: 'y', label: 'Physical stock' }
+]
 
 export function VoucherEntry({
   voucherId,
@@ -54,23 +82,23 @@ export function VoucherEntry({
     if (existing) setTypeId(existing.voucherTypeId)
   }, [existing])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const kind = FKEYS[e.key]
-      if (!kind || voucherId || !types) return
-      // Never switch voucher type underneath an open dialog (quick-create ledger, confirm…).
-      if (isAnyModalOpen()) return
-      const withCtrl = e.ctrlKey || e.altKey
-      const target = withCtrl && kind === 'sales' ? 'credit_note' : withCtrl && kind === 'purchase' ? 'debit_note' : kind
-      const t = types.find((t) => t.kind === target)
-      if (t) {
-        e.preventDefault()
-        setTypeId(t.id)
+  // Switching type only makes sense while creating; altering an existing voucher keeps its type.
+  // A dialog on top pushes an opaque layer, so nothing here needs to check for one any more.
+  const canSwitchType = !voucherId && !!types
+  useScreenAccels(
+    'voucher-entry',
+    TYPE_KEYS.map((t) => ({
+      key: t.key,
+      fkey: t.fkey,
+      ctrlOrAlt: t.ctrlOrAlt,
+      label: t.label,
+      when: () => canSwitchType && types!.some((v) => v.kind === t.kind),
+      run: () => {
+        const target = types?.find((v) => v.kind === t.kind)
+        if (target) setTypeId(target.id)
       }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [types, voucherId])
+    }))
+  )
 
   if (!types || (voucherId && !existing)) return <p className="text-muted">Loading…</p>
   const currentType = types.find((t) => t.id === typeId) ?? types[0]!
@@ -131,7 +159,9 @@ export function VoucherEntry({
         />
       )}
       <p className="mt-3 text-[11.5px] text-muted">
-        <Kbd>F4</Kbd>–<Kbd>F9</Kbd> switch type · <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>, <span className="num">7/4</span>, <span className="num">y</span>
+        <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>,{' '}
+        <span className="num">7/4</span>, <span className="num">y</span> · the type keys are in the
+        bar below and under <Kbd>?</Kbd>
       </p>
     </div>
   )

@@ -2,19 +2,23 @@ import { useState, type ReactNode } from 'react'
 import { useIsFetching } from '@tanstack/react-query'
 import { useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
-import { Button, DateInput, Kbd, Modal } from './ui'
+import { Accel, Button, DateInput, Kbd, Modal } from './ui'
 import { SupportLink } from './SupportLink'
+import { HintBar } from './HintBar'
 import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
 import { NAV_SECTIONS, SCREENS } from '../lib/screens'
+import { useShadowedAccels } from '../lib/screenAccels'
 
 /** Sidebar derived from the single screen registry (lib/screens.ts). */
 const NAV = NAV_SECTIONS.map((section) => ({
   ...section,
   items: SCREENS.filter((s) => s.navSection === section.id && s.screen != null).map((s) => ({
+    name: s.name,
     label: s.navLabel ?? s.title,
     screen: s.screen!,
-    feature: s.feature
+    feature: s.feature,
+    accel: s.accel
   }))
 }))
 
@@ -23,6 +27,9 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const screen = useScreen()
   const nav = useNav()
   const toast = useToasts()
+  // Letters the active screen has taken over render grey rather than red, so a shadowed
+  // shortcut is visible instead of being discovered by pressing it and going nowhere.
+  const shadowed = useShadowedAccels()
   const { theme, toggle } = useTheme()
   const [periodOpen, setPeriodOpen] = useState(false)
   const fetching = useIsFetching()
@@ -104,12 +111,13 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                   <button
                     key={item.label}
                     data-testid={`nav-${item.screen.name}`}
+                    data-nav-accel={item.accel}
                     onClick={() => nav.go(item.screen)}
                     className={`block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] transition-colors ${
                       active ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'
                     }`}
                   >
-                    {item.label}
+                    <Accel label={item.label} accel={item.accel} muted={shadowed.has(item.accel ?? '')} />
                   </button>
                 )
               })}
@@ -158,6 +166,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           {children}
         </main>
       </div>
+      <HintBar />
 
       {periodOpen && <PeriodModal onClose={() => setPeriodOpen(false)} />}
     </div>

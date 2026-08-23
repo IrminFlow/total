@@ -32,8 +32,22 @@ export interface ScreenDef {
   navLabel?: string
   /** Hidden everywhere (render-only) when this feature is off. */
   feature?: keyof CompanyFeatures
-  /** Gateway card: subtitle + single-letter shortcut (also ShortcutHelp's Gateway group). */
-  card?: { sub: string; key: string }
+  /** Gateway card subtitle. The card's shortcut badge comes from `accel`. */
+  card?: { sub: string }
+  /**
+   * Bare-key accelerator — the letter rendered red in the sidebar and on the Gateway card, and
+   * the key that navigates here from anywhere (the `nav` keyboard layer in App.tsx).
+   *
+   * Single uppercase A-Z or 0-9, unique across SCREENS, and normally a letter that actually
+   * occurs in the rendered label so it can be highlighted in place (Tally's convention:
+   * "Ba_l_ance Sheet"). `accel.test.ts` enforces all three, so adding a screen without a letter
+   * -- or reusing one -- fails CI rather than silently shadowing an existing shortcut.
+   *
+   * A screen whose label has no free letter left may use one that is not in the label (only TDS
+   * today); it renders as a trailing key badge instead of a highlight, and must be listed in
+   * that test's BADGE_ACCELS allowlist.
+   */
+  accel?: string
   /** Extra command-palette search terms beyond the title. */
   keywords?: string[]
   /**
@@ -51,6 +65,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Gateway',
     screen: { name: 'gateway' },
     navSection: 'top',
+    accel: 'G',
     invalidates: ['dashboard', 'recurring']
   },
   {
@@ -58,7 +73,8 @@ export const SCREENS: ScreenDef[] = [
     title: 'Voucher entry',
     screen: { name: 'voucher-entry' },
     navSection: 'top',
-    card: { sub: 'Sales, purchase, payment…', key: 'V' },
+    accel: 'V',
+    card: { sub: 'Sales, purchase, payment…' },
     invalidates: ['voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes']
   },
   {
@@ -66,7 +82,8 @@ export const SCREENS: ScreenDef[] = [
     title: 'Day book',
     screen: { name: 'daybook' },
     navSection: 'top',
-    card: { sub: 'Every entry, in order', key: 'D' },
+    accel: 'D',
+    card: { sub: 'Every entry, in order' },
     invalidates: ['daybook']
   },
   {
@@ -75,7 +92,8 @@ export const SCREENS: ScreenDef[] = [
     title: 'Masters',
     screen: { name: 'masters' },
     navSection: 'top',
-    card: { sub: 'Ledgers, items, groups', key: 'M' },
+    accel: 'M',
+    card: { sub: 'Ledgers, items, groups' },
     invalidates: [
       'ledgers', 'groups', 'groupTree', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
       'godowns', 'stockGroups'
@@ -87,6 +105,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Recurring vouchers',
     screen: { name: 'recurring' },
     navSection: 'top',
+    accel: 'H',
     invalidates: ['recurring']
   },
   {
@@ -94,6 +113,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Import from Tally',
     screen: { name: 'import-tally' },
     navSection: 'top',
+    accel: 'I',
     invalidates: []
   },
 
@@ -102,7 +122,8 @@ export const SCREENS: ScreenDef[] = [
     title: 'Trial balance',
     screen: { name: 'trial-balance' },
     navSection: 'books',
-    card: { sub: 'All closing balances', key: 'T' },
+    accel: 'T',
+    card: { sub: 'All closing balances' },
     invalidates: ['trialBalance']
   },
   {
@@ -110,7 +131,8 @@ export const SCREENS: ScreenDef[] = [
     title: 'Profit & Loss',
     screen: { name: 'profit-loss' },
     navSection: 'books',
-    card: { sub: 'Trading + P&L account', key: 'P' },
+    accel: 'P',
+    card: { sub: 'Trading + P&L account' },
     invalidates: ['pnl']
   },
   {
@@ -118,7 +140,8 @@ export const SCREENS: ScreenDef[] = [
     title: 'Balance sheet',
     screen: { name: 'balance-sheet' },
     navSection: 'books',
-    card: { sub: 'Assets and liabilities', key: 'B' },
+    accel: 'B',
+    card: { sub: 'Assets and liabilities' },
     invalidates: ['balanceSheet']
   },
   {
@@ -127,6 +150,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Cash flow',
     screen: { name: 'cash-flow' },
     navSection: 'books',
+    accel: 'F',
     invalidates: ['cashFlow']
   },
   {
@@ -134,8 +158,9 @@ export const SCREENS: ScreenDef[] = [
     title: 'Stock summary',
     screen: { name: 'stock-summary' },
     navSection: 'books',
+    accel: 'S',
     feature: 'inventory',
-    card: { sub: 'Quantities and value', key: 'S' },
+    card: { sub: 'Quantities and value' },
     invalidates: ['stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches']
   },
   {
@@ -143,6 +168,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Year-end close',
     screen: { name: 'year-end' },
     navSection: 'books',
+    accel: 'A',
     invalidates: ['yearEndPreview']
   },
 
@@ -152,6 +178,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Registers',
     screen: { name: 'registers' },
     navSection: 'analysis',
+    accel: 'R',
     invalidates: ['register']
   },
   {
@@ -160,6 +187,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Outstandings',
     screen: { name: 'outstandings' },
     navSection: 'analysis',
+    accel: 'O',
     invalidates: ['outstandings']
   },
   {
@@ -167,6 +195,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Consolidated reports',
     screen: { name: 'consolidated' },
     navSection: 'analysis',
+    accel: 'L',
     invalidates: ['consolidated', 'company-registry']
   },
   {
@@ -174,6 +203,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Cost centres',
     screen: { name: 'cost-centres' },
     navSection: 'analysis',
+    accel: 'C',
     feature: 'costCentres',
     invalidates: ['costCentres', 'ccReport', 'ccStatement']
   },
@@ -182,6 +212,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Budgets',
     screen: { name: 'budgets' },
     navSection: 'analysis',
+    accel: 'U',
     invalidates: ['budgets', 'budgetVariance']
   },
   {
@@ -190,6 +221,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Exceptions',
     screen: { name: 'exceptions' },
     navSection: 'analysis',
+    accel: 'X',
     invalidates: ['exceptions']
   },
 
@@ -199,6 +231,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Banking — reconciliation, BRS & post-dated',
     screen: { name: 'banking' },
     navSection: 'banking',
+    accel: 'N',
     navLabel: 'Reconciliation',
     invalidates: ['bankLedgers', 'bankRecon', 'bankRules', 'chequeConfig', 'brs', 'pdc']
   },
@@ -208,7 +241,8 @@ export const SCREENS: ScreenDef[] = [
     title: 'Payroll — employees & runs',
     screen: { name: 'payroll' },
     navSection: 'payroll',
-    navLabel: 'Employees & runs',
+    accel: 'Y',
+    navLabel: 'Payroll',
     feature: 'payroll',
     invalidates: ['employees', 'payrollRuns', 'payrollPreview', 'payHeads', 'employeeHeads', 'ptSummary']
   },
@@ -218,7 +252,8 @@ export const SCREENS: ScreenDef[] = [
     title: 'GSTR-1',
     screen: { name: 'gstr1' },
     navSection: 'gst',
-    card: { sub: 'Outward supplies return', key: '1' },
+    accel: '1',
+    card: { sub: 'Outward supplies return' },
     invalidates: ['gstr1', 'gstValidate']
   },
   {
@@ -226,7 +261,8 @@ export const SCREENS: ScreenDef[] = [
     title: 'GSTR-3B',
     screen: { name: 'gstr3b' },
     navSection: 'gst',
-    card: { sub: 'Summary return + ITC', key: '3' },
+    accel: '3',
+    card: { sub: 'Summary return + ITC' },
     invalidates: ['gstr3b', 'gst3bManual']
   },
   {
@@ -235,6 +271,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'GSTR-2B recon',
     screen: { name: 'gstr2b' },
     navSection: 'gst',
+    accel: '2',
     invalidates: ['gstr2b', 'ledgers']
   },
   {
@@ -243,6 +280,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'e-Invoice & e-Way',
     screen: { name: 'edocs' },
     navSection: 'gst',
+    accel: 'W',
     invalidates: ['edocList', 'nicStatus', 'nicCreds']
   },
   {
@@ -250,6 +288,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'TDS',
     screen: { name: 'tds' },
     navSection: 'gst',
+    accel: 'K',
     feature: 'tds',
     invalidates: ['tdsSummary', 'tdsSections']
   },
@@ -259,6 +298,7 @@ export const SCREENS: ScreenDef[] = [
     title: 'Settings',
     screen: { name: 'settings' },
     navSection: 'system',
+    accel: 'E',
     invalidates: [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
       'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig'

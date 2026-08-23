@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useTableNav } from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -45,6 +45,11 @@ export function OutstandingsScreen(): React.JSX.Element {
     queryFn: () => api.analysis.outstandings(side, to)
   })
   const parties = data ?? []
+  // Enter expands the party's bill breakdown, matching the click.
+  const table = useTableNav(parties, {
+    rowId: (p) => p.ledgerId,
+    onEnter: (p) => setOpenParty((cur) => (cur === p.ledgerId ? null : p.ledgerId))
+  })
   const total = parties.reduce((s, p) => s + p.pending, 0)
   const bucketTotals = [0, 1, 2, 3].map((i) => parties.reduce((s, p) => s + p.buckets[i as 0 | 1 | 2 | 3], 0))
 
@@ -133,13 +138,9 @@ export function OutstandingsScreen(): React.JSX.Element {
               </tr>
             </thead>
             <tbody data-testid="rows-outstandings">
-              {parties.map((p) => (
+              {parties.map((p, i) => (
                 <Fragment key={p.ledgerId}>
-                  <tr
-                    data-row-id={p.ledgerId}
-                    className="cursor-pointer"
-                    onClick={() => setOpenParty(openParty === p.ledgerId ? null : p.ledgerId)}
-                  >
+                  <tr {...table.rowProps(i, p)}>
                     <td>
                       <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">{openParty === p.ledgerId ? '▾' : '▸'}</span>
                       {p.name}

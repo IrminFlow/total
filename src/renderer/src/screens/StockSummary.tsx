@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useTableNav } from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
@@ -31,6 +31,12 @@ export function StockSummaryScreen(): React.JSX.Element {
   // Expandable item rows (user ask): one item at a time unfolds into its godown- and
   // batch-wise closing position, fetched on demand.
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  // Enter (and click) expands the item's godown/batch breakdown, so the keyboard reaches the
+  // same detail the mouse does.
+  const nav = useTableNav(rows, {
+    rowId: (r) => r.stockItemId,
+    onEnter: (r) => setExpandedId((cur) => (cur === r.stockItemId ? null : r.stockItemId))
+  })
   const colCount =
     1 + (visible.opening ? 1 : 0) + (visible.inwards ? 1 : 0) + (visible.outwards ? 1 : 0) +
     (visible.closingQty ? 1 : 0) + (visible.closingValue ? 1 : 0)
@@ -115,12 +121,11 @@ export function StockSummaryScreen(): React.JSX.Element {
               </tr>
             </thead>
             <tbody data-testid="rows-stock-summary">
-              {rows.map((r) => (
+              {rows.map((r, i) => (
                 <Fragment key={r.stockItemId}>
                 <tr
-                  data-row-id={r.stockItemId}
-                  className={`cursor-pointer ${r.closingQtyMilli < 0 ? 'text-cr' : ''}`}
-                  onClick={() => setExpandedId((cur) => (cur === r.stockItemId ? null : r.stockItemId))}
+                  {...nav.rowProps(i, r)}
+                  className={`${nav.rowProps(i, r).className} ${r.closingQtyMilli < 0 ? 'text-cr' : ''}`}
                 >
                   <td>
                     <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">

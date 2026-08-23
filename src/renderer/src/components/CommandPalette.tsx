@@ -36,7 +36,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     // Every navigable screen comes from the single registry; action commands are appended below.
     const screenCommands: Command[] = SCREENS.filter((s) => s.screen != null).map((s) => ({
       label: s.title,
-      hint: s.card?.key,
+      hint: s.accel,
       keywords: s.keywords,
       feature: s.feature,
       run: s.name === 'gateway' ? () => nav.home() : go(s.screen!)

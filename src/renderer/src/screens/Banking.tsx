@@ -4,7 +4,7 @@ import type { ChequeConfig } from '@shared/schemas'
 import { api, type BankImportResult, type BankRuleRecord, type BankSuggestionRow, type BrsItem } from '../lib/client'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
 import {
-  Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, Spinner, TextInput
+  Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, Spinner, TextInput, useTableNav
 } from '../components/ui'
 import { LedgerPicker } from '../components/pickers'
 import { toDisplayDate, todayISO } from '@shared/dates'
@@ -45,6 +45,14 @@ export function BankingScreen(): React.JSX.Element {
     queryKey: ['bankRecon', ledgerId, from, to],
     queryFn: () => api.bank.recon(ledgerId!, from, to),
     enabled: ledgerId != null
+  })
+
+  // Enter opens the voucher behind the selected statement line. Gated on the Reconcile tab so
+  // the BRS and post-dated tables never compete for the arrow keys.
+  const reconTable = useTableNav(recon?.rows ?? [], {
+    rowId: (r) => r.lineId,
+    enabled: tab === 'recon',
+    onEnter: (r) => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
   })
 
   const refresh = (): Promise<void> =>
@@ -244,8 +252,12 @@ export function BankingScreen(): React.JSX.Element {
                   </tr>
                 </thead>
                 <tbody data-testid="rows-banking">
-                  {recon.rows.map((r) => (
-                    <tr key={r.lineId} data-row-id={r.lineId} className={r.bankDate ? 'opacity-60' : ''}>
+                  {recon.rows.map((r, i) => (
+                    <tr
+                      key={r.lineId}
+                      {...reconTable.rowProps(i, r)}
+                      className={`${reconTable.rowProps(i, r).className} ${r.bankDate ? 'opacity-60' : ''}`}
+                    >
                       <td className="num text-muted">{toDisplayDate(r.date)}</td>
                       <td className="max-w-56 truncate">{r.particulars}</td>
                       <td className="num text-muted">{r.instrumentNo ?? ''}</td>

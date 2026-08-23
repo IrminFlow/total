@@ -2,6 +2,8 @@ import { forwardRef, useCallback, useEffect, useId, useRef, useState, type React
 import { formatPaise, parseRupees } from '@shared/money'
 import { parseSmartDate, toDisplayDate } from '@shared/dates'
 import { useToasts } from '../state/stores'
+import { isBlocked, isTypingTarget, topLayer, useKeyLayer } from '../lib/keyboard'
+import { splitAccel } from '../lib/accel'
 
 // ---------- text + labels ----------
 
@@ -10,6 +12,46 @@ export function Kbd({ children }: { children: ReactNode }): React.JSX.Element {
     <kbd className="rounded border border-line bg-panel2 px-1.5 py-0.5 font-mono text-label text-muted">
       {children}
     </kbd>
+  )
+}
+
+/**
+ * A label with its accelerator letter highlighted, e.g. Ba<span class=accel>l</span>ance sheet.
+ *
+ * The accessible name is unchanged because the text stays one contiguous run — screen readers
+ * and Playwright's text matching both still see "Balance sheet".
+ *
+ * `muted` renders the letter grey instead of red: used when the current screen has claimed that
+ * letter for itself, so the sidebar shows at a glance which shortcuts are temporarily shadowed
+ * rather than leaving the user to discover it by pressing one.
+ */
+export function Accel({
+  label,
+  accel,
+  at,
+  muted = false
+}: {
+  label: string
+  accel?: string
+  at?: number
+  muted?: boolean
+}): React.JSX.Element {
+  const { before, hit, after } = splitAccel(label, accel, at)
+  if (!hit) {
+    // The accelerator isn't a letter of the label (only TDS today) — show it as a trailing key.
+    return (
+      <span>
+        {label}
+        {accel ? <span className={`ml-1.5 ${muted ? 'accel-muted' : 'accel'}`}>{accel}</span> : null}
+      </span>
+    )
+  }
+  return (
+    <span>
+      {before}
+      <span className={muted ? 'accel-muted' : 'accel'}>{hit}</span>
+      {after}
+    </span>
   )
 }
 
@@ -262,17 +304,15 @@ export function LineTableScroller({
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-/** Stack of mounted modals — only the topmost one responds to Esc/Tab, so stacked modals
- *  (e.g. a ConfirmModal over a form modal) close one at a time. */
-let modalSeq = 0
-const modalStack: number[] = []
-
-/** True while any Modal is mounted — screens use it to suppress their own global shortcuts
- *  (Gateway single-letter keys, VoucherEntry F-keys / ⌘↵) so keys aimed at a dialog never
- *  leak through to the screen underneath. useKeyNav already checks this internally. */
-export function isAnyModalOpen(): boolean {
-  return modalStack.length > 0
-}
+/**
+ * True while a dialog or the command palette owns the keyboard — screens use it to suppress
+ * their own shortcuts so keys aimed at a dialog never leak to the screen underneath.
+ *
+ * Modal stacking (a ConfirmModal over a form modal) and "only the topmost list takes the
+ * arrows" are both handled by the shared layer registry in lib/keyboard.ts now; this is kept
+ * as the familiar name for the predicate.
+ */
+export const isAnyModalOpen = isBlocked
 
 export function Modal({
   title,
@@ -321,20 +361,29 @@ export function Modal({
     }
   }, [])
 
+  // Escape goes through the layer registry as an OPAQUE layer: it closes this dialog and, by
+  // being opaque, stops the key reaching the screen's own shortcuts or nav's Esc-to-go-back.
+  const modalLayer = useKeyLayer(
+    'modal',
+    (e) => {
+      if (e.key !== 'Escape') return false
+      if (confirmRef.current) {
+        setConfirmDiscard(false) // Esc on the discard prompt = keep editing
+        return true
+      }
+      requestClose()
+      return true
+    },
+    { opaque: true }
+  )
+
   useEffect(() => {
-    const id = ++modalSeq
-    modalStack.push(id)
-    const isTop = (): boolean => modalStack[modalStack.length - 1] === id
+    // Tab stays a capture-phase element listener: the focus trap has to beat the browser's own
+    // default focus move, which the bubble-phase dispatcher runs too late to do.
+    const isTop = (): boolean => topLayer('modal')?.id === modalLayer.current
     const onKey = (e: KeyboardEvent): void => {
       if (!isTop()) return
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        if (confirmRef.current) {
-          setConfirmDiscard(false) // Esc on the discard prompt = keep editing
-          return
-        }
-        requestClose()
-      } else if (e.key === 'Tab') {
+      if (e.key === 'Tab') {
         const dialog = dialogRef.current
         if (!dialog) return
         const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
@@ -357,12 +406,8 @@ export function Modal({
       }
     }
     window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      const i = modalStack.indexOf(id)
-      if (i >= 0) modalStack.splice(i, 1)
-    }
-  }, [requestClose])
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [modalLayer])
 
   return (
     <div
@@ -484,10 +529,17 @@ export function SkeletonRows({ rows = 8, className = '' }: { rows?: number; clas
 
 // ---------- keyboard list navigation (the amber bar) ----------
 
-/** Stack of mounted keyboard lists — only the topmost enabled list responds to ↑↓↵, so an
- *  overlay's list doesn't fight the screen's list underneath it. */
-let keyNavSeq = 0
-const keyNavStack: number[] = []
+/** What `useKeyNav` binds, as data — ShortcutHelp renders this rather than restating it. */
+export const LIST_SHORTCUTS: { keys: string[]; label: string }[] = [
+  { keys: ['↑', '↓'], label: 'Move the selection' },
+  { keys: ['↵'], label: 'Open the selected row' },
+  { keys: ['Home', 'End'], label: 'Jump to the first or last row' },
+  { keys: ['PgUp', 'PgDn'], label: 'Move ten rows at a time' }
+]
+
+/** Rows moved by PageUp/PageDown. Reports routinely run to hundreds of rows, so one screenful
+ *  of arrow-key presses is not a realistic way to reach the bottom. */
+const PAGE_JUMP = 10
 
 export function useKeyNav(count: number, onEnter: (index: number) => void, enabled = true): {
   active: number
@@ -500,49 +552,121 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
   activeRef.current = active
   const onEnterRef = useRef(onEnter)
   onEnterRef.current = onEnter
-  const idRef = useRef(0)
   useEffect(() => {
     if (active >= count && count > 0) setActive(count - 1)
   }, [count, active])
-  useEffect(() => {
-    if (!enabled) return
-    const id = ++keyNavSeq
-    idRef.current = id
-    keyNavStack.push(id)
-    const isTop = (): boolean => keyNavStack[keyNavStack.length - 1] === id
-    const onKey = (e: KeyboardEvent): void => {
-      if (!isTop()) return
-      // While any Modal is up it owns the keyboard — a screen's list behind it must not
-      // move its selection (or fire Enter) from keys aimed at the dialog.
-      if (modalStack.length > 0) return
-      const tag = (e.target as HTMLElement).tagName
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+
+  // A 'list' layer. Being below any modal in the stack is what keeps a screen's list from
+  // reacting to keys aimed at a dialog on top of it — the old explicit modalStack check.
+  const listLayer = useKeyLayer(
+    'list',
+    (e) => {
+      if (isTypingTarget(e)) return false
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setActive((a) => Math.min(countRef.current - 1, a + 1))
-      } else if (e.key === 'ArrowUp') {
+        return true
+      }
+      if (e.key === 'ArrowUp') {
         e.preventDefault()
         setActive((a) => Math.max(0, a - 1))
-      } else if (e.key === 'Enter') {
+        return true
+      }
+      if (e.key === 'Home') {
+        e.preventDefault()
+        setActive(0)
+        return true
+      }
+      if (e.key === 'End') {
+        e.preventDefault()
+        setActive(Math.max(0, countRef.current - 1))
+        return true
+      }
+      if (e.key === 'PageDown') {
+        e.preventDefault()
+        setActive((a) => Math.min(countRef.current - 1, a + PAGE_JUMP))
+        return true
+      }
+      if (e.key === 'PageUp') {
+        e.preventDefault()
+        setActive((a) => Math.max(0, a - PAGE_JUMP))
+        return true
+      }
+      if (e.key === 'Enter') {
         // Side-effect outside the state updater — updaters can run twice under StrictMode.
         if (countRef.current > 0) onEnterRef.current(activeRef.current)
+        return true
       }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      const i = keyNavStack.indexOf(id)
-      if (i >= 0) keyNavStack.splice(i, 1)
-    }
-  }, [enabled])
+      return false
+    },
+    { enabled, topOfKind: true }
+  )
   // Keep the active row visible as the selection moves. Rows follow the `.kbar-row` +
   // `data-active` convention; the last match wins because overlays render after the screen.
   useEffect(() => {
-    if (enabled && keyNavStack[keyNavStack.length - 1] !== idRef.current) return
+    if (enabled && topLayer('list')?.id !== listLayer.current) return
     const rows = document.querySelectorAll<HTMLElement>('.kbar-row[data-active="true"]')
     rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' })
-  }, [active, enabled])
+  }, [active, enabled, listLayer])
   return { active, setActive }
+}
+
+/**
+ * List navigation for a `.ledger-table` — `useKeyNav` plus the row markup it depends on.
+ *
+ * Rows are plain hand-written `<tr>`s all over this app (screens do their own colSpan maths,
+ * expandable sub-rows, per-report column visibility), so a `<DataTable>` would mean rewriting
+ * thousands of lines of screen code against a 13-scenario E2E suite. Instead `rowProps` emits
+ * the three things the amber bar and the E2E harness rely on — `.kbar-row`, `data-active` and
+ * `data-row-id` — so they cannot be typed correctly on one screen and wrongly on the next.
+ *
+ * Screens with several tables pass `enabled` for the visible one; the topmost enabled list is
+ * the only one that reacts, so the tables never fight over the arrow keys.
+ */
+export function useTableNav<T>(
+  rows: T[],
+  opts: {
+    onEnter?: (row: T, index: number) => void
+    rowId?: (row: T, index: number) => string | number
+    enabled?: boolean
+  } = {}
+): {
+  active: number
+  setActive: (i: number) => void
+  rowProps: (index: number, row: T) => {
+    'data-active': boolean
+    'data-row-id'?: string | number
+    className: string
+    onMouseEnter: () => void
+    onClick?: () => void
+  }
+} {
+  const { onEnter, rowId, enabled = true } = opts
+  const onEnterRef = useRef(onEnter)
+  onEnterRef.current = onEnter
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+
+  const { active, setActive } = useKeyNav(
+    rows.length,
+    (index) => {
+      const row = rowsRef.current[index]
+      if (row !== undefined) onEnterRef.current?.(row, index)
+    },
+    enabled
+  )
+
+  return {
+    active,
+    setActive,
+    rowProps: (index, row) => ({
+      'data-active': index === active,
+      'data-row-id': rowId ? rowId(row, index) : undefined,
+      className: `kbar-row${onEnter ? ' cursor-pointer' : ''}`,
+      onMouseEnter: () => setActive(index),
+      onClick: onEnter ? () => onEnter(row, index) : undefined
+    })
+  }
 }
 
 export function EmptyState({

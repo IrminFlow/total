@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, SkeletonRows } from '../components/ui'
+import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, useTableNav } from '../components/ui'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
 import { TransportModal } from './voucher/TransportModal'
 
@@ -41,6 +41,12 @@ export function EdocsScreen(): React.JSX.Element {
     () => (docTypeFilter === 'all' ? allRows : allRows.filter((r) => r.docType === docTypeFilter)),
     [allRows, docTypeFilter]
   )
+  // Enter opens the underlying voucher; the per-row e-invoice/EWB actions stay buttons.
+  const table = useTableNav(rows, {
+    rowId: (r) => r.voucherId,
+    onEnter: (r) => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
+  })
+
   const period = gstPeriodOf(to)
   const live = nicStatus?.configured ?? false
 
@@ -170,8 +176,8 @@ export function EdocsScreen(): React.JSX.Element {
               </tr>
             </thead>
             <tbody data-testid="rows-edocs">
-              {rows.map((r) => (
-                <tr key={r.voucherId} data-row-id={r.voucherId}>
+              {rows.map((r, i) => (
+                <tr key={r.voucherId} {...table.rowProps(i, r)}>
                   <td className="num text-muted">{toDisplayDate(r.date)}</td>
                   <td className="num">
                     {r.number}

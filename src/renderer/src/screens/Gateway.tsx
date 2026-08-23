@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { Button, isAnyModalOpen, Money, Panel, ScrollList, Skeleton } from '../components/ui'
+import { Accel, Button, Money, Panel, ScrollList, Skeleton } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { useFeatures } from '../lib/useFeatures'
@@ -12,8 +12,8 @@ import { templateOpenTarget } from './Recurring'
 import { CARD_SCREENS } from '../lib/screens'
 
 /** Cards derived from the single screen registry (lib/screens.ts). */
-const CARDS: { name: string; label: string; sub: string; screen: Screen; key: string; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] =
-  CARD_SCREENS.map((s) => ({ name: s.name, label: s.title, sub: s.card.sub, screen: s.screen, key: s.card.key, feature: s.feature }))
+const CARDS: { name: string; label: string; sub: string; screen: Screen; accel?: string; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] =
+  CARD_SCREENS.map((s) => ({ name: s.name, label: s.title, sub: s.card.sub, screen: s.screen, accel: s.accel, feature: s.feature }))
 
 export function Gateway(): React.JSX.Element {
   const nav = useNav()
@@ -26,20 +26,8 @@ export function Gateway(): React.JSX.Element {
     queryFn: () => api.reports.dashboard(today, from)
   })
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      // A key aimed at an open dialog (ConfirmModal "y", PromptModal text…) must never
-      // double as a Gateway navigation shortcut underneath it.
-      if (isAnyModalOpen()) return
-      const tag = (e.target as HTMLElement).tagName
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
-      const card = cards.find((c) => c.key.toLowerCase() === e.key.toLowerCase())
-      if (card) nav.go(card.screen)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [nav, cards])
+  // Card letters are not handled here any more: they are registry accelerators bound by App's
+  // `nav` keyboard layer, so they work from every screen rather than only this one.
 
   const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
 
@@ -92,9 +80,11 @@ export function Gateway(): React.JSX.Element {
             className="group rounded-lg border border-line bg-panel px-5 py-4 text-left transition-colors hover:border-amber/50"
           >
             <div className="flex items-center justify-between">
-              <span className="text-[14.5px] font-medium">{c.label}</span>
+              <span className="text-[14.5px] font-medium">
+                <Accel label={c.label} accel={c.accel} />
+              </span>
               <span className="rounded border border-line px-1.5 text-[10.5px] text-muted group-hover:border-amber/50 group-hover:text-amber">
-                {c.key}
+                {c.accel}
               </span>
             </div>
             <p className="mt-1 text-[12px] text-muted">{c.sub}</p>

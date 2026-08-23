@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useTableNav } from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
+import type { RegisterPeriodRow } from '@shared/reports'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { periodBounds, type Period } from '@shared/period'
@@ -62,6 +63,14 @@ export function RegistersScreen(): React.JSX.Element {
   })
   const rows = data ?? []
   const heading = GRANULARITIES.find((g) => g.period === granularity)?.heading ?? 'Period'
+  // Enter drills the selected period into the Day Book, same as clicking it.
+  const nav = useNav()
+  const table = useTableNav(rows, {
+    rowId: (r) => r.period,
+    enabled: tab !== 'items',
+    onEnter: (r) =>
+      nav.go({ name: 'daybook', span: { ...periodBounds(r.period, granularity), label: r.label }, kind })
+  })
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
   const exportRows: PdfRow[] = [
@@ -180,18 +189,8 @@ export function RegistersScreen(): React.JSX.Element {
                   </tr>
                 </thead>
                 <tbody data-testid="rows-registers">
-                  {rows.map((r) => (
-                    <PeriodRow
-                      key={r.period}
-                      period={r.period}
-                      label={r.label}
-                      granularity={granularity}
-                      kind={kind}
-                      vouchers={r.vouchers}
-                      taxable={r.taxable}
-                      tax={r.tax}
-                      total={r.total}
-                    />
+                  {rows.map((r, i) => (
+                    <PeriodRow key={r.period} row={r} rowProps={table.rowProps(i, r)} />
                   ))}
                   <tr className="total-row">
                     <td>Total</td>
@@ -211,41 +210,21 @@ export function RegistersScreen(): React.JSX.Element {
   )
 }
 
+/** One period row. Selection/keyboard markup comes from the parent's useTableNav. */
 function PeriodRow({
-  period,
-  label,
-  granularity,
-  kind,
-  vouchers,
-  taxable,
-  tax,
-  total
+  row,
+  rowProps
 }: {
-  period: string
-  label: string
-  granularity: Period
-  kind: 'sales' | 'purchase'
-  vouchers: number
-  taxable: number
-  tax: number
-  total: number
+  row: RegisterPeriodRow
+  rowProps: React.ComponentProps<'tr'>
 }): React.JSX.Element {
-  const nav = useNav()
-  // Drill into the Day Book over this bucket's real date span, so a quarterly row opens the
-  // whole quarter rather than one month of it.
-  const span = { ...periodBounds(period, granularity), label }
   return (
-    <tr
-      data-row-id={period}
-      className="cursor-pointer hover:bg-panel2"
-      title={`Open ${label} in the Day Book`}
-      onClick={() => nav.go({ name: 'daybook', span, kind })}
-    >
-      <td className="text-blue">{label}</td>
-      <td className="r num">{vouchers}</td>
-      <td className="r"><Money paise={taxable} /></td>
-      <td className="r"><Money paise={tax} /></td>
-      <td className="r"><Money paise={total} /></td>
+    <tr {...rowProps} title={`Open ${row.label} in the Day Book`}>
+      <td className="text-blue">{row.label}</td>
+      <td className="r num">{row.vouchers}</td>
+      <td className="r"><Money paise={row.taxable} /></td>
+      <td className="r"><Money paise={row.tax} /></td>
+      <td className="r"><Money paise={row.total} /></td>
     </tr>
   )
 }
