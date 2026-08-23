@@ -7,7 +7,9 @@ import { formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api, type TdsSuggestion } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
+import { useKeyLayer } from '../../lib/keyboard'
+import { useFieldChain } from '../../lib/useFieldChain'
 import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
@@ -428,18 +430,40 @@ export function AccountingEntry({
     }
   }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        // A modal's own ⌘↵ (or a stray one) must not save the voucher underneath it.
-        if (isAnyModalOpen()) return
+  // ⌘↵ = save now, skipping the Accept bar. A modal pushes an opaque layer above this one, so
+  // a dialog's own ⌘↵ can no longer reach the voucher underneath it.
+  useKeyLayer('screen', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.key !== 'Enter') return false
+    e.preventDefault()
+    void save()
+    return true
+  })
+
+  // Tally Enter-chaining: Enter walks the fields, and Enter past the last one raises the
+  // "Accept?" bar rather than saving outright — the operator still confirms, as in Tally.
+  const formRef = useRef<HTMLDivElement>(null)
+  const [accepting, setAccepting] = useState(false)
+  const chain = useFieldChain(formRef, { onAccept: () => setAccepting(true) })
+
+  useKeyLayer(
+    'screen',
+    (e) => {
+      if (!accepting) return false
+      if (e.key === 'Enter' || e.key.toLowerCase() === 'y') {
         e.preventDefault()
+        setAccepting(false)
         void save()
+        return true
       }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [save])
+      if (e.key === 'Escape' || e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        setAccepting(false)
+        return true
+      }
+      return false
+    },
+    { enabled: accepting }
+  )
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
@@ -495,10 +519,11 @@ export function AccountingEntry({
   }
 
   return (
-    <Panel className="p-5">
+    <Panel className="p-5" ref={formRef} {...chain.containerProps}>
       <div className="grid grid-cols-4 gap-3">
         <Field label="No." hint={voucherId || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
           <TextInput
+            data-testid="input-voucher-number"
             value={voucherId ? alterNumber : numberField.value === NUMBER_LOADING ? '' : numberField.value}
             onChange={(e) => (voucherId ? setAlterNumber(e.target.value) : numberField.onChange(e.target.value))}
             placeholder="Auto"
@@ -535,11 +560,23 @@ export function AccountingEntry({
             <tr key={r.key}>
               <td>
                 <button
+                  data-chain="drcr"
                   className={`num w-12 rounded-md border border-line px-2 py-1 text-[12.5px] font-medium ${
                     r.drCr === 'dr' ? 'text-dr' : 'text-cr'
                   }`}
                   onClick={() => setRow(i, { drCr: r.drCr === 'dr' ? 'cr' : 'dr' })}
-                  title="Toggle Dr/Cr"
+                  onKeyDown={(e) => {
+                    // D and C set the side outright; Space flips it. Enter is left to the chain.
+                    const k = e.key.toLowerCase()
+                    if (k === 'd' || k === 'c') {
+                      e.preventDefault()
+                      setRow(i, { drCr: k === 'd' ? 'dr' : 'cr' })
+                    } else if (e.key === ' ') {
+                      e.preventDefault()
+                      setRow(i, { drCr: r.drCr === 'dr' ? 'cr' : 'dr' })
+                    }
+                  }}
+                  title="Toggle Dr/Cr — D or C sets it, Space flips it"
                 >
                   {r.drCr === 'dr' ? 'Dr' : 'Cr'}
                 </button>
@@ -767,6 +804,38 @@ export function AccountingEntry({
           </Button>
         </div>
       </div>
+
+      {/* Tally's "Accept?" prompt, raised by pressing Enter past the last field. Inline rather
+          than a Modal on purpose: a modal would push an opaque keyboard layer and break the
+          flow the operator is in, and Tally's own accept prompt is inline too. */}
+      {accepting && (
+        <div
+          data-testid="voucher-accept-bar"
+          className="mt-3 flex items-center justify-between gap-4 rounded-md border border-amberbar/60 bg-amberbar/15 px-4 py-2.5"
+        >
+          <span className="text-[13px]">
+            {totalDr + totalCr === 0
+              ? 'Nothing entered yet — fill in the lines above.'
+              : balanced
+                ? `Accept this voucher? ${formatPaise(Math.max(totalDr, totalCr))}`
+                : `Not balanced — off by ${formatPaise(Math.abs(totalDr - totalCr))}`}
+          </span>
+          <span className="flex items-center gap-2">
+            <Button
+              data-testid="btn-voucher-accept"
+              variant="primary"
+              disabled={!balanced || saving}
+              onClick={() => {
+                setAccepting(false)
+                void save()
+              }}
+            >
+              Yes ↵
+            </Button>
+            <Button onClick={() => setAccepting(false)}>No · Esc</Button>
+          </span>
+        </div>
+      )}
 
       {quickLedger && (
         <QuickLedgerModal

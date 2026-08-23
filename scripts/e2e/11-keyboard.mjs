@@ -94,6 +94,42 @@ await scenario('11-keyboard', async (h) => {
     await h.page.keyboard.press('Escape')
   }
 
+  // ---- Tally Enter-chaining: Enter walks the fields and raises the Accept bar at the end ----
+  await home()
+  await h.page.keyboard.press('v')
+  await h.waitScreen('voucher-entry', 20000)
+  await h.page.keyboard.press('F7') // Journal — a plain accounting form, no invoice extras
+  await h.page.waitForSelector('[data-testid="rows-voucher-lines"]', { timeout: 10000 })
+
+  const focusedTag = () => h.page.evaluate(() => document.activeElement?.tagName ?? null)
+  const focusedMark = () =>
+    h.page.evaluate(() => {
+      const el = document.activeElement
+      if (!el) return null
+      return el.getAttribute('data-chain') ?? el.getAttribute('placeholder') ?? el.tagName
+    })
+
+  // Start from the voucher number field and walk forward. Enter must move focus, never submit.
+  await h.page.click('[data-testid="input-voucher-number"]')
+  const seen = new Set()
+  for (let i = 0; i < 25; i++) {
+    seen.add(await focusedMark())
+    await h.page.keyboard.press('Enter')
+    if (await h.page.$('[data-testid="voucher-accept-bar"]')) break
+  }
+  assert(seen.size > 2, `Enter moved focus across several fields (saw ${seen.size})`)
+  assert(await focusedTag(), 'focus stayed inside the form while chaining')
+
+  const acceptBar = await h.page.$('[data-testid="voucher-accept-bar"]')
+  assert(acceptBar != null, 'Enter past the last field raised the Accept bar')
+  await h.shot('06-accept-bar')
+
+  // Esc dismisses the Accept bar without saving, exactly as answering "No" does.
+  await h.page.keyboard.press('Escape')
+  await h.page.waitForSelector('[data-testid="voucher-accept-bar"]', { state: 'detached', timeout: 10000 })
+  const stillEntry = await h.page.getAttribute('[data-screen]', 'data-screen')
+  assert(stillEntry === 'voucher-entry', 'declining the Accept bar stays on the voucher')
+
   // Ctrl+K opens the command palette; typing filters; ↵ runs the navigation command.
   await h.page.keyboard.press('Control+k')
   await h.page.waitForSelector('[data-testid="input-palette"]', { timeout: 10000 })

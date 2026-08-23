@@ -55,6 +55,9 @@ function TypeAhead({
   const selected = options.find((o) => o.id === value) ?? null
   const [text, setText] = useState(selected?.label ?? '')
   const [open, setOpen] = useState(false)
+  /** Has the user arrowed within the dropdown? Distinguishes "Enter means pick the highlighted
+   *  row" from "Enter on a field I never touched", which must not commit anything. */
+  const [movedSelection, setMovedSelection] = useState(false)
   const [active, setActive] = useState(0)
   const wrapRef = useRef<HTMLDivElement>(null)
 
@@ -106,11 +109,13 @@ function TypeAhead({
           e.target.select()
           setOpen(true)
           setActive(0)
+          setMovedSelection(false)
         }}
         onChange={(e) => {
           setText(e.target.value)
           setOpen(true)
           setActive(0)
+          setMovedSelection(false)
           if (e.target.value.trim() === '') onPick(null)
         }}
         onKeyDown={(e) => {
@@ -121,11 +126,22 @@ function TypeAhead({
           }
           if (e.key === 'ArrowDown') {
             e.preventDefault()
+            setMovedSelection(true)
             setActive((a) => Math.min(filtered.length - (showCreate ? 0 : 1), a + 1))
           } else if (e.key === 'ArrowUp') {
             e.preventDefault()
+            setMovedSelection(true)
             setActive((a) => Math.max(0, a - 1))
           } else if (e.key === 'Enter') {
+            // Enter on an untouched, empty field means "nothing goes here" — close and let the
+            // key fall through to the form's Enter-chain. Picking `filtered[0]` here would
+            // silently commit whichever ledger happens to sort first, and in the voucher line
+            // grid that also appends a fresh row, so Enter-chaining could never reach the end
+            // of the form.
+            if (text.trim() === '' && !movedSelection) {
+              setOpen(false)
+              return
+            }
             e.preventDefault()
             if (showCreate && active === filtered.length) {
               onCreate(text.trim())

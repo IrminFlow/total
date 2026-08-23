@@ -51,3 +51,16 @@ function install(name: 'localStorage' | 'sessionStorage'): void {
 
 install('localStorage')
 install('sessionStorage')
+
+/**
+ * React Testing Library normally registers its own `afterEach(cleanup)` through the global test
+ * hooks, but this project runs vitest without `globals: true`, so that registration never
+ * happens and rendered trees pile up in document.body across tests within a file — queries then
+ * fail with "Found multiple elements". Register it explicitly.
+ */
+import { afterEach } from 'vitest'
+import { cleanup } from '@testing-library/react'
+
+afterEach(() => {
+  cleanup()
+})

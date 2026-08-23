@@ -237,19 +237,24 @@ export function DateInput({
 
 // ---------- panels + modal ----------
 
-export function Panel({
-  children,
-  className = '',
-  scroll
-}: {
-  children: ReactNode
-  className?: string
-  /** Cap the panel's content height — anything longer scrolls inside the panel instead of
-   *  growing the page (Gateway top-lists, Settings backups, …). */
-  scroll?: { maxH: string }
-}): React.JSX.Element {
+export const Panel = forwardRef<
+  HTMLDivElement,
+  {
+    children: ReactNode
+    className?: string
+    /** Cap the panel's content height — anything longer scrolls inside the panel instead of
+     *  growing the page (Gateway top-lists, Settings backups, …). */
+    scroll?: { maxH: string }
+    /** Entry forms attach the Enter-chaining handler to the panel that wraps their fields. */
+    onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void
+  }
+>(function Panel({ children, className = '', scroll, onKeyDown }, ref): React.JSX.Element {
   return (
-    <div className={`rounded-lg border border-line bg-panel panel-shadow overflow-hidden ${className}`}>
+    <div
+      ref={ref}
+      onKeyDown={onKeyDown}
+      className={`rounded-lg border border-line bg-panel panel-shadow overflow-hidden ${className}`}
+    >
       {scroll ? (
         <div className="overflow-y-auto" style={{ maxHeight: scroll.maxH }}>
           {children}
@@ -259,7 +264,7 @@ export function Panel({
       )}
     </div>
   )
-}
+})
 
 /** Bare capped-height scroll container for lists that already live inside a Panel (or none). */
 export function ScrollList({
