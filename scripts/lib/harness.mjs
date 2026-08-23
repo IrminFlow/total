@@ -59,6 +59,12 @@ export class Harness {
         timeout: 60000,
         env: {
           ...process.env,
+          // `npm run test:db` runs Electron as a plain Node process, and that variable leaking
+          // into this environment makes electron.launch fail with a bare "Process failed to
+          // launch!" -- the app's main entry sees `electron.app` as undefined and exits before
+          // Playwright can attach. Clear it explicitly so the failure can never reappear as a
+          // mystery in CI or on a developer's shell.
+          ELECTRON_RUN_AS_NODE: undefined,
           TOTAL_DATA_DIR: this.dataDir,
           TOTAL_SUPPRESS_SYNC_WARNING: '1'
         }

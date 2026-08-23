@@ -21,7 +21,9 @@ async function launchApp() {
     executablePath: electronPath,
     args: [process.cwd()],
     timeout: 60000,
-    env: { ...process.env, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
+    // ELECTRON_RUN_AS_NODE (set by `npm run test:db`) makes launch fail with a bare
+    // "Process failed to launch!"; clear it so a leaked shell variable can't break CI.
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
   })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')

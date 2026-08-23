@@ -79,9 +79,18 @@ jobs:
       - name: DB-layer tests (Electron-as-Node)
         run: npm run test:db
 
+      - name: Renderer tests (jsdom + RTL)
+        run: npm run test:renderer
+
       - name: Build NSIS installer (no publish — electron-builder creates a DUPLICATE
           release for the tag even when one exists; observed on v0.2.0)
         run: npm run build && npx electron-builder --win --publish never
+
+      # Gate the Windows artefact on the app actually starting and answering IPC there, the way
+      # the macOS job does. Publishing a Windows build nobody has launched is how a broken
+      # release reaches the majority of the target market.
+      - name: Hermetic IPC smoke test against the build
+        run: npm run smoke
 
       - name: Upload installer to the existing release
         shell: bash

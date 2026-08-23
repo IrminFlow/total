@@ -95,6 +95,10 @@ jobs:
           name: e2e-shots
           path: ${{ runner.temp }}/e2e
 
+  # Windows used to build and stop there, which meant the platform most of the target market
+  # runs on had its UI, native dialogs, PDF printing and path handling verified by nothing.
+  # It now runs the same smoke test as macOS on every push/PR, and the full E2E suite on
+  # push-to-main.
   build-win:
     runs-on: windows-latest
     steps:
@@ -111,8 +115,57 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Renderer tests (jsdom + RTL)
+        run: npm run test:renderer
+
+      - name: DB-layer tests (Electron-as-Node)
+        run: npm run test:db
+
       - name: Build
         run: npm run build
 
+      - name: Hermetic IPC smoke test
+        run: npm run smoke
+        env:
+          TOTAL_DATA_DIR: ${{ runner.temp }}\total-data
+          SMOKE_OUT: ${{ runner.temp }}\smoke
+
+      - name: Upload smoke screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-shots-win
+          path: ${{ runner.temp }}\smoke
+
       - name: Electron-builder dir build (no publish)
         run: npx electron-builder --win --dir --publish never
+
+  # Same rationale as e2e-mac: slowest job, push-to-main only.
+  e2e-win:
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: E2E scenarios
+        run: npm run e2e
+        env:
+          SMOKE_OUT: ${{ runner.temp }}\e2e
+
+      - name: Upload E2E screenshots + results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-shots-win
+          path: ${{ runner.temp }}\e2e
