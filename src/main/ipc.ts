@@ -616,10 +616,20 @@ export function registerIpc(): void {
 
   // ---------- reports ----------
   handle('report:dayBook', (p) => {
-    const { from, to, includeOutOfBooks } = periodSchema
-      .extend({ includeOutOfBooks: z.boolean().optional() })
+    const { from, to, includeOutOfBooks, limit, offset } = periodSchema
+      .extend({
+        includeOutOfBooks: z.boolean().optional(),
+        limit: z.number().int().min(1).max(2000).optional(),
+        offset: z.number().int().min(0).optional()
+      })
       .parse(p)
-    return reports.dayBook(requireCompany().db, from, to, { includeOutOfBooks })
+    const { db } = requireCompany()
+    // Paged by default from the screen; the CA pack and Tally export call the service directly
+    // and still get every row.
+    return {
+      rows: reports.dayBook(db, from, to, { includeOutOfBooks, limit, offset }),
+      total: reports.dayBookCount(db, from, to, includeOutOfBooks)
+    }
   }, 'viewer')
   handle('report:ledger', (p) => {
     const { ledgerId, from, to, groupBy } = periodSchema
