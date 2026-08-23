@@ -47,15 +47,38 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Signing is driven entirely by whether the secrets exist, so this needs no code change on
+      # the day the certificate arrives: add the secrets and the next tag is signed.
+      #
+      # macOS (Apple Developer ID, ~2 days to obtain):
+      #   CSC_LINK                       base64 of the .p12
+      #   CSC_KEY_PASSWORD               its password
+      #   APPLE_ID                       the developer account email
+      #   APPLE_APP_SPECIFIC_PASSWORD    app-specific password for notarytool
+      #   APPLE_TEAM_ID                  10-character team id
+      #
+      # Until then builds stay unsigned: macOS says the app "cannot be checked for malicious
+      # software", the user right-clicks -> Open once, and the in-app updater falls back to the
+      # site's download prompt instead of updating silently.
       - name: Publish DMG + ZIP to the release
         run: npx electron-builder --mac --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Unsigned beta builds: users right-click → Open on first launch, and the
-          # in-app updater falls back to a "download the new version" prompt.
-          # When you have an Apple Developer ID, add CSC_LINK + CSC_KEY_PASSWORD
-          # secrets here and auto-update becomes fully silent.
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Without a certificate, stop electron-builder hunting for one and failing the build.
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK && 'true' || 'false' }}
+
+      - name: Report signing status
+        run: |
+          if [ -n "${{ secrets.CSC_LINK }}" ]; then
+            echo "::notice::macOS build signed and submitted for notarization."
+          else
+            echo "::warning::macOS build is UNSIGNED. Gatekeeper warns on first launch and silent auto-update stays disabled. Add CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID to enable signing."
+          fi
 
   release-win:
     # Runs after the mac job so both publish into the SAME release —
@@ -84,13 +107,28 @@ jobs:
 
       - name: Build NSIS installer (no publish — electron-builder creates a DUPLICATE
           release for the tag even when one exists; observed on v0.2.0)
+        # Windows signing (OV or Azure Trusted Signing certificate, 1-3 weeks to obtain):
+        #   WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD
+        # Unsigned NSIS installers get a full-screen SmartScreen block on first run.
         run: npm run build && npx electron-builder --win --publish never
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
       # Gate the Windows artefact on the app actually starting and answering IPC there, the way
       # the macOS job does. Publishing a Windows build nobody has launched is how a broken
       # release reaches the majority of the target market.
       - name: Hermetic IPC smoke test against the build
         run: npm run smoke
+
+      - name: Report signing status
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.WIN_CSC_LINK }}" ]; then
+            echo "::notice::Windows installer signed."
+          else
+            echo "::warning::Windows installer is UNSIGNED. SmartScreen will block it on first run. Add WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD to enable signing."
+          fi
 
       - name: Upload installer to the existing release
         shell: bash

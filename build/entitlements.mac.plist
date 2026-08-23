@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!--
+      The hardened runtime is required for notarization, and it blocks two things a stock
+      Electron app cannot do without: V8 allocating writable-executable memory for its JIT, and
+      loading the bundled Electron framework, which Apple did not sign for us.
+
+      Nothing else is granted. Total has no camera, microphone, location or network-server use,
+      and an entitlement it does not need is an entitlement that widens the app's blast radius
+      for no benefit.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>

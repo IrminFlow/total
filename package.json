@@ -71,12 +71,20 @@
       "target": [
         "dmg",
         "zip"
-      ]
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true
     },
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "signtoolOptions": {
+        "publisherName": "Irmin Labs"
+      }
     },
     "nsis": {
       "oneClick": true,
@@ -91,7 +99,10 @@
       }
     ],
     "asarUnpack": [
-      "out/mcp/**"
+      "out/mcp/**",
+      "**/node_modules/better-sqlite3/**",
+      "**/node_modules/bindings/**",
+      "**/node_modules/file-uri-to-path/**"
     ]
   },
   "allowScripts": {

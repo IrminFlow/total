@@ -23,10 +23,15 @@ esbuild.buildSync({
   format: 'cjs',
   target: 'node20',
   outfile,
-  external: ['electron', 'better-sqlite3'],
+  // better-sqlite3 stays external: it is a native module loaded from the app's node_modules.
+  // `electron` is NOT external -- under ELECTRON_RUN_AS_NODE inside a packaged bundle there is
+  // no node_modules/electron to resolve, so requiring it fails at load. The stub supplies the
+  // one thing the server needs from it.
+  external: ['better-sqlite3'],
   alias: {
     '@shared': join(root, 'src', 'shared'),
-    '@main': join(root, 'src', 'main')
+    '@main': join(root, 'src', 'main'),
+    electron: join(root, 'src', 'main', 'mcp', 'electron-stub.ts')
   },
   loader: { '.md': 'text' },
   logLevel: 'warning'
