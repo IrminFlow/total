@@ -8,7 +8,7 @@ import gstr1Light from '@/public/gstr1-light.jpg'
 const FEATURES: { f: string; p: string }[] = [
   { f: 'Vouchers', p: 'Contra to credit note, invoice mode with live GST, audit log on every change' },
   { f: 'GST returns', p: "GSTR-1 and GSTR-3B on screen, exported as JSON the portal's offline tool accepts" },
-  { f: 'e-Invoice & e-Way', p: 'Offline JSON for the government tools — or live IRN and e-way bill generation with your NIC credentials' },
+  { f: 'e-Invoice & e-Way', p: 'Offline JSON the government tools accept, with HSN and CRN/DBN references. Live NIC filing ships as an experiment' },
   { f: 'Invoice PDF', p: 'GST tax invoice with HSN, tax breakup, amount in words and the double rule' },
   { f: 'Stock & manufacturing', p: 'Weighted-average valuation, bills of materials, one-screen manufacture vouchers' },
   { f: 'Banking', p: 'Reconciliation with statement CSV import that matches entries by amount and date' },

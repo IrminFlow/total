@@ -654,9 +654,9 @@ export const api = {
     csv: (filename: string, csv: string) => call<{ path: string }>('export:csv', { filename, csv })
   },
   nic: {
-    get: () => call<NicCredentials>('nic:get'),
+    get: () => call<NicCredentials & { secretStorage: 'keychain' | 'session' }>('nic:get'),
     save: (creds: NicCredentials) => call<{ configured: boolean }>('nic:save', creds),
-    status: () => call<{ configured: boolean }>('nic:status'),
+    status: () => call<{ configured: boolean; secretStorage: 'keychain' | 'session' }>('nic:status'),
     generateIrn: (voucherId: number) => call<{ irn: string; ackNo: string; ackDate: string }>('nic:generateIrn', { voucherId }),
     generateEwb: (voucherId: number) => call<{ ewbNo: string; validUpto: string }>('nic:generateEwb', { voucherId })
   },
