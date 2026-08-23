@@ -95,8 +95,18 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   // period totals + the closing balance carried across periods with no activity.
   const [mode, setMode] = useState<Mode>('detail')
   const { data, isLoading } = useQuery({
-    queryKey: ['ledgerStatement', ledgerId, from, to, mode],
-    queryFn: () => api.reports.ledger(ledgerId, from, to, mode === 'detail' ? undefined : mode)
+    queryKey: ['ledgerStatement', ledgerId, from, to, mode, limit],
+    queryFn: () =>
+      api.reports.ledger(
+        ledgerId,
+        from,
+        to,
+        mode === 'detail' ? undefined : mode,
+        // Only the detail view has rows worth paging; the columnar summaries are a few dozen.
+        mode === 'detail' ? { limit } : undefined
+      ),
+    // Keep the current page visible while the next loads, so "Show more" grows the list.
+    placeholderData: (prev) => prev
   })
 
   const rows = data?.rows ?? []
@@ -107,8 +117,8 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
     setLimit(PAGE)
   }, [ledgerId, from, to, mode])
 
-  const displayRows = useMemo(() => rows.slice(0, limit), [rows, limit])
-  const remaining = rows.length - displayRows.length
+  const displayRows = rows
+  const remaining = (data?.totalRows ?? 0) - rows.length
 
   const { active, setActive } = useKeyNav(
     displayRows.length,
@@ -138,7 +148,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
   const exportColumns = mode === 'detail' ? EXPORT_COLUMNS : summaryColumns(summaryHeading)
-  const exportRows: PdfRow[] =
+  const buildExportRows = (detailRows: typeof rows): PdfRow[] =>
     mode !== 'detail'
       ? [
           ...periods.map((m) => ({
@@ -161,7 +171,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
           }
         ]
       : [
-          ...rows.map((r) => ({
+          ...detailRows.map((r) => ({
             cells: [
               toDisplayDate(r.date),
               r.particulars,
@@ -185,6 +195,18 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
           }
         ]
 
+  /**
+   * Exports cover the whole period, not the page on screen.
+   *
+   * The detail view fetches a window to keep the payload small, so building an export from what
+   * is rendered would silently ship 500 rows of a 30,000-row statement and look complete.
+   */
+  const fullExportRows = async (): Promise<PdfRow[]> => {
+    if (mode !== 'detail') return buildExportRows([])
+    const complete = await api.reports.ledger(ledgerId, from, to)
+    return buildExportRows(complete.rows)
+  }
+
   return (
     <div className="mx-auto max-w-5xl">
       <SectionTitle
@@ -205,7 +227,11 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
             <Button
               variant="ghost"
               onClick={() =>
-                void printReport({ title: data.ledgerName, periodLabel, columns: exportColumns, rows: exportRows }, toast)
+                void fullExportRows()
+                  .then((all) =>
+                    printReport({ title: data.ledgerName, periodLabel, columns: exportColumns, rows: all }, toast)
+                  )
+                  .catch((err: Error) => toast.push('error', err.message))
               }
             >
               PDF
@@ -213,12 +239,16 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
             <Button
               variant="ghost"
               onClick={() =>
-                void csvReport(
-                  exportColumns.map((c) => c.label),
-                  exportRows.map((r) => r.cells),
-                  `ledger-${slugFilename(data.ledgerName)}${mode === 'detail' ? '' : `-${mode}`}`,
-                  toast
-                )
+                void fullExportRows()
+                  .then((all) =>
+                    csvReport(
+                      exportColumns.map((c) => c.label),
+                      all.map((r) => r.cells),
+                      `ledger-${slugFilename(data.ledgerName)}${mode === 'detail' ? '' : `-${mode}`}`,
+                      toast
+                    )
+                  )
+                  .catch((err: Error) => toast.push('error', err.message))
               }
             >
               CSV
@@ -312,7 +342,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
                 <tr>
                   <td colSpan={6} className="py-2 text-center">
                     <Button variant="ghost" onClick={() => setLimit((l) => l + PAGE)}>
-                      Show 500 more ({remaining} remaining)
+                      Show 500 more ({remaining.toLocaleString('en-IN')} more in this period)
                     </Button>
                   </td>
                 </tr>

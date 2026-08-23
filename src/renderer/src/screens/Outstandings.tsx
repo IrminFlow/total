@@ -64,9 +64,19 @@ export function OutstandingsScreen(): React.JSX.Element {
   const toast = useToasts()
   const [side, setSide] = useState<'receivable' | 'payable'>('receivable')
   const [openParty, setOpenParty] = useState<number | null>(null)
+  // Summary only. Every party's bills came down on load even though the screen hides them
+  // behind the expand toggle -- ~4 MB of JSON at 30,000 vouchers to render a list of names.
   const { data, isLoading } = useQuery({
     queryKey: ['outstandings', side, to],
-    queryFn: () => api.analysis.outstandings(side, to)
+    queryFn: () => api.analysis.outstandings(side, to, false)
+  })
+
+  // The expanded party's bills, fetched when it opens. `bills:open` is the same endpoint the
+  // receipt/payment settle-against picker already uses.
+  const { data: openBills } = useQuery({
+    queryKey: ['openBills', openParty, to],
+    queryFn: () => api.bills.open(openParty!, to),
+    enabled: openParty != null
   })
   const parties = data ?? []
   // Enter expands the party's bill breakdown, matching the click.
@@ -181,12 +191,17 @@ export function OutstandingsScreen(): React.JSX.Element {
                         className="text-hint text-blue hover:underline"
                         onClick={(e) => {
                           e.stopPropagation()
-                          void remind(
-                            info?.name ?? '',
-                            { name: p.name, phone: p.phone ?? null, email: p.email ?? null },
-                            p.bills,
-                            toast
-                          )
+                          void api.bills
+                            .open(p.ledgerId, to)
+                            .then((bills) =>
+                              remind(
+                                info?.name ?? '',
+                                { name: p.name, phone: p.phone ?? null, email: p.email ?? null },
+                                bills,
+                                toast
+                              )
+                            )
+                            .catch((err: Error) => toast.push('error', err.message))
                         }}
                       >
                         {p.phone ? 'WhatsApp' : 'Remind'}
@@ -194,7 +209,7 @@ export function OutstandingsScreen(): React.JSX.Element {
                     </td>
                   </tr>
                   {openParty === p.ledgerId &&
-                    p.bills.map((b, i) => (
+                    (openBills ?? []).map((b, i) => (
                       <tr key={`${p.ledgerId}-${i}`} className={`bg-panel2/50 ${b.overdueDays > 0 ? 'text-cr' : ''}`}>
                         <td className="pl-9 text-muted">
                           <button

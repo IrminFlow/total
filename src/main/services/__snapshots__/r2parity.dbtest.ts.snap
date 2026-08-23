@@ -379,6 +379,7 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
 exports[`R2 parity — outstandings > receivables/payables and open bills are unchanged > payables 1`] = `
 [
   {
+    "billCount": 2,
     "bills": [
       {
         "ageDays": 90,
@@ -419,6 +420,7 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
 exports[`R2 parity — outstandings > receivables/payables and open bills are unchanged > receivables 1`] = `
 [
   {
+    "billCount": 2,
     "bills": [
       {
         "ageDays": 90,
@@ -454,6 +456,7 @@ exports[`R2 parity — outstandings > receivables/payables and open bills are un
     "phone": null,
   },
   {
+    "billCount": 1,
     "bills": [
       {
         "ageDays": 29,
@@ -535,6 +538,7 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
   ],
   "totalCredit": 40000,
   "totalDebit": 40000,
+  "totalRows": 4,
 }
 `;
 
@@ -570,6 +574,7 @@ exports[`R2 parity — statements > ledger statements (incl. multi-name particul
   ],
   "totalCredit": 50000,
   "totalDebit": 118000,
+  "totalRows": 2,
 }
 `;
 

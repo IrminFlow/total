@@ -467,8 +467,8 @@ export const api = {
         includeOutOfBooks,
         ...page
       }),
-    ledger: (ledgerId: number, from: string, to: string, groupBy?: Period) =>
-      call<LedgerStatement>('report:ledger', { ledgerId, from, to, groupBy }),
+    ledger: (ledgerId: number, from: string, to: string, groupBy?: Period, page?: { limit: number; offset?: number }) =>
+      call<LedgerStatement>('report:ledger', { ledgerId, from, to, groupBy, ...page }),
     trialBalance: (asOn: string) => call<TrialBalance>('report:trialBalance', { asOn }),
     profitLoss: (from: string, to: string, comparePrior?: boolean) =>
       call<ProfitAndLoss>('report:profitLoss', { from, to, comparePrior }),
@@ -507,8 +507,8 @@ export const api = {
   analysis: {
     register: (kind: 'sales' | 'purchase', from: string, to: string, groupBy?: Period) =>
       call<RegisterPeriodRow[]>('analysis:register', { kind, from, to, groupBy }),
-    outstandings: (side: 'receivable' | 'payable', asOn: string) =>
-      call<OutstandingParty[]>('analysis:outstandings', { side, asOn })
+    outstandings: (side: 'receivable' | 'payable', asOn: string, includeBills = true) =>
+      call<OutstandingParty[]>('analysis:outstandings', { side, asOn, includeBills })
   },
   bills: {
     open: (partyLedgerId: number, asOn: string) => call<OutstandingBill[]>('bills:open', { partyLedgerId, asOn })

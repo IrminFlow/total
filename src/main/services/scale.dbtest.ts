@@ -122,6 +122,23 @@ describe(`reports at ${VOUCHERS.toLocaleString('en-IN')} vouchers`, () => {
     const register = timed('registerByPeriod month', () => analysis.registerByPeriod(db, 'sales', from, to, 'month'))
     expect(register.result.length).toBeGreaterThan(0)
 
+    // Payload is the number that decided the Day Book fix: the SQL was never slow, but
+    // serialising a whole period and structure-cloning it across IPC was. Measure every row
+    // report the same way, so paging effort goes where the bytes actually are.
+    const ledgerId = (db.prepare("SELECT id FROM ledgers WHERE name = 'Sales A/c'").get() as { id: number }).id
+    const payloads: [string, unknown][] = [
+      ['dayBook', day.result],
+      ['ledgerStatement', reports.ledgerStatement(db, ledgerId, from, to)],
+      ['trialBalance', tb.result],
+      ['outstandings', outstandings.result],
+      ['registerByPeriod', register.result],
+      ['stockSummary', reports.stockSummary(db, to)]
+    ]
+    for (const [name, value] of payloads) {
+      const kb = Math.round(JSON.stringify(value).length / 1024)
+      console.log(`[scale] payload ${name.padEnd(18)} ${String(kb).padStart(6)} KB`)
+    }
+
     db.close()
   })
 })
@@ -158,6 +175,55 @@ describe('day book pagination', () => {
     console.log(`[scale] payload whole ${Math.round(wholeKb)} KB vs window ${Math.round(windowKb)} KB`)
     expect(windowKb).toBeLessThan(wholeKb / 4)
 
+    db.close()
+  })
+
+  it('a paged ledger statement still foots', { timeout: 600_000 }, () => {
+    const { db } = bigBook()
+    const from = '2025-01-01'
+    const to = '2028-12-31'
+    const ledgerId = (db.prepare("SELECT id FROM ledgers WHERE name = 'Sales A/c'").get() as { id: number }).id
+
+    const whole = reports.ledgerStatement(db, ledgerId, from, to)
+    const page = reports.ledgerStatement(db, ledgerId, from, to, undefined, { limit: 50 })
+
+    expect(page.rows).toHaveLength(50)
+    expect(page.totalRows).toBe(whole.rows.length)
+    // The figures that make a statement a statement are computed over every row, not the page.
+    expect(page.opening).toBe(whole.opening)
+    expect(page.closing).toBe(whole.closing)
+    expect(page.totalDebit).toBe(whole.totalDebit)
+    expect(page.totalCredit).toBe(whole.totalCredit)
+    // And the page is the head of the same ordering.
+    expect(page.rows.map((r) => r.voucherId)).toEqual(whole.rows.slice(0, 50).map((r) => r.voucherId))
+
+    const wholeKb = JSON.stringify(whole).length / 1024
+    const pageKb = JSON.stringify(page).length / 1024
+    console.log(`[scale] ledgerStatement whole ${Math.round(wholeKb)} KB vs page ${Math.round(pageKb)} KB`)
+    expect(pageKb).toBeLessThan(wholeKb / 4)
+    db.close()
+  })
+
+  it('an outstandings summary omits bills but keeps every figure', { timeout: 600_000 }, () => {
+    const { db } = bigBook()
+    const asOn = '2028-12-31'
+    const full = analysis.outstandings(db, 'receivable', asOn)
+    const summary = analysis.outstandings(db, 'receivable', asOn, { includeBills: false })
+
+    expect(summary).toHaveLength(full.length)
+    for (const [i, party] of summary.entries()) {
+      // The bucket totals and the pending figure are what the screen renders, and they come
+      // from every bill regardless of whether the bills themselves were sent.
+      expect(party.pending, party.name).toBe(full[i]!.pending)
+      expect(party.buckets, party.name).toEqual(full[i]!.buckets)
+      expect(party.billCount, party.name).toBe(full[i]!.bills.length)
+      expect(party.bills).toEqual([])
+    }
+
+    const fullKb = JSON.stringify(full).length / 1024
+    const summaryKb = JSON.stringify(summary).length / 1024
+    console.log(`[scale] outstandings full ${Math.round(fullKb)} KB vs summary ${Math.round(summaryKb)} KB`)
+    expect(summaryKb).toBeLessThan(fullKb / 4)
     db.close()
   })
 

@@ -124,7 +124,20 @@ function openingEvent(asOn: string, openingBalance: number, sign: number): BillE
  * creditors. Buckets are keyed on days overdue from the due date (or the bill date, when no due
  * date is known) — see shared/outstanding.ts's `allocateBills`.
  */
-export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: string): OutstandingParty[] {
+/**
+ * Open bills per party, as on a date.
+ *
+ * `includeBills` defaults to true so the CA pack, the agent mirror and every existing caller keep
+ * the whole picture. The Outstandings SCREEN passes false: it collapses each party's bills behind
+ * an expand toggle and fetches them with `openBills` when one is opened, so shipping every bill
+ * for every party was ~4 MB of JSON to render a list of party names. Measured in scale.dbtest.ts.
+ */
+export function outstandings(
+  db: DB,
+  side: 'receivable' | 'payable',
+  asOn: string,
+  opts: { includeBills?: boolean } = {}
+): OutstandingParty[] {
   const groupIds = descendantIdsByName(db, [side === 'receivable' ? 'Sundry Debtors' : 'Sundry Creditors'])
   const parties = (
     db.prepare('SELECT id, name, opening_balance, group_id, credit_days, phone, email FROM ledgers').all() as {
@@ -154,7 +167,10 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
       email: party.email,
       pending: bills.reduce((s, b) => s + b.pending, 0),
       buckets,
-      bills,
+      billCount: bills.length,
+      // The buckets and the total above are computed from every bill regardless; only the bill
+      // rows themselves are withheld.
+      bills: opts.includeBills === false ? [] : bills,
       ...(warnings.length > 0 ? { warnings } : {})
     })
   }

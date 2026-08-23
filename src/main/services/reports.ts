@@ -432,7 +432,21 @@ export function dayBookCount(db: DB, from: string, to: string, includeOutOfBooks
   return row.n
 }
 
-export function ledgerStatement(db: DB, ledgerId: number, from: string, to: string, groupBy?: Period): LedgerStatement {
+/**
+ * A ledger's entries over a period.
+ *
+ * `limit` pages the detail rows only. Opening, closing and the period totals are always computed
+ * from every row, so a paged statement still foots -- the same discipline the tool envelopes use.
+ * Measured at 30,000 vouchers the whole statement serialises to ~5 MB; the screen shows 500.
+ */
+export function ledgerStatement(
+  db: DB,
+  ledgerId: number,
+  from: string,
+  to: string,
+  groupBy?: Period,
+  page?: { limit: number; offset?: number }
+): LedgerStatement {
   const ledger = db.prepare('SELECT id, name, opening_balance FROM ledgers WHERE id = ?').get(ledgerId) as
     | { id: number; name: string; opening_balance: number }
     | undefined
@@ -509,7 +523,15 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
   })
 
   const result: LedgerStatement = {
-    ledgerId, ledgerName: ledger.name, opening, rows, closing: running, totalDebit, totalCredit
+    ledgerId,
+    ledgerName: ledger.name,
+    opening,
+    // Totals above are computed over every row before this slice, so a page still foots.
+    rows: page ? rows.slice(page.offset ?? 0, (page.offset ?? 0) + page.limit) : rows,
+    totalRows: rows.length,
+    closing: running,
+    totalDebit,
+    totalCredit
   }
 
   // Columnar period matrix (v0.3 #55, generalised to any granularity in v0.5): every bucket in

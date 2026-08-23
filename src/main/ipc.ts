@@ -688,10 +688,22 @@ export function registerIpc(): void {
     }
   }, 'viewer')
   handle('report:ledger', (p) => {
-    const { ledgerId, from, to, groupBy } = periodSchema
-      .extend({ ledgerId: z.number().int().positive(), groupBy: z.enum(PERIODS).optional() })
+    const { ledgerId, from, to, groupBy, limit, offset } = periodSchema
+      .extend({
+        ledgerId: z.number().int().positive(),
+        groupBy: z.enum(PERIODS).optional(),
+        limit: z.number().int().min(1).max(2000).optional(),
+        offset: z.number().int().min(0).optional()
+      })
       .parse(p)
-    return reports.ledgerStatement(requireCompany().db, ledgerId, from, to, groupBy)
+    return reports.ledgerStatement(
+      requireCompany().db,
+      ledgerId,
+      from,
+      to,
+      groupBy,
+      limit == null ? undefined : { limit, offset }
+    )
   }, 'viewer')
   handle('report:trialBalance', (p) => {
     const { asOn } = z.object({ asOn: z.string() }).parse(p)
@@ -813,8 +825,16 @@ export function registerIpc(): void {
     return analysis.registerByPeriod(requireCompany().db, kind, from, to, groupBy)
   }, 'viewer')
   handle('analysis:outstandings', (p) => {
-    const { side, asOn } = z.object({ side: z.enum(['receivable', 'payable']), asOn: z.string() }).parse(p)
-    return analysis.outstandings(requireCompany().db, side, asOn)
+    const { side, asOn, includeBills } = z
+      .object({
+        side: z.enum(['receivable', 'payable']),
+        asOn: z.string(),
+        // The screen asks for a summary and fetches a party's bills on expand; exports ask for
+        // everything. At 30k vouchers that is the difference between ~4 MB and a few KB.
+        includeBills: z.boolean().default(true)
+      })
+      .parse(p)
+    return analysis.outstandings(requireCompany().db, side, asOn, { includeBills })
   }, 'viewer')
 
   // ---------- outstanding bills (party picker for receipt/payment "settle against") ----------

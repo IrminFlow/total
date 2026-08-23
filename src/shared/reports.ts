@@ -51,6 +51,8 @@ export interface LedgerStatement {
   ledgerName: string
   opening: number
   rows: LedgerStatementRow[]
+  /** Rows in the period, which is more than `rows.length` when a page was requested. */
+  totalRows: number
   closing: number
   totalDebit: number
   totalCredit: number
@@ -294,6 +296,9 @@ export interface OutstandingParty {
   /** Party contact, carried through so a reminder can be sent without a second query. */
   phone: string | null
   email: string | null
+  /** How many open bills this party has, always present even when `bills` was withheld. */
+  billCount: number
+  /** Empty when the caller asked for a summary; fetch with `analysis:openBills`. */
   bills: OutstandingBill[]
   /** Bill-reference problems surfaced by the allocator (v0.3 #66), e.g. an 'against' ref
    *  naming a bill that isn't open. */
