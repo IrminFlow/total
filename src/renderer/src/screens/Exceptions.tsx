@@ -18,9 +18,9 @@ function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Ele
         onClick={() => setOpen((v) => !v)}
         disabled={clean}
       >
-        <span className="text-[13.5px] font-medium">{section.label}</span>
+        <span className="text-body font-medium">{section.label}</span>
         <span
-          className={`num rounded-full px-2.5 py-0.5 text-[12px] ${
+          className={`num rounded-full px-2.5 py-0.5 text-small ${
             clean ? 'bg-panel2 text-muted' : 'bg-cr/10 text-cr font-semibold'
           }`}
         >
@@ -48,7 +48,7 @@ function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Ele
         </table>
       )}
       {open && section.count > section.rows.length && (
-        <p className="mt-1 px-1 text-[11.5px] text-muted">Showing first {section.rows.length} of {section.count}.</p>
+        <p className="mt-1 px-1 text-hint text-muted">Showing first {section.rows.length} of {section.count}.</p>
       )}
     </Panel>
   )
@@ -62,7 +62,7 @@ export function ExceptionsScreen(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl">
       <SectionTitle
-        right={<span className="num text-[12px] text-muted">{toDisplayDate(from)} → {toDisplayDate(to)}</span>}
+        right={<span className="num text-small text-muted">{toDisplayDate(from)} → {toDisplayDate(to)}</span>}
       >
         Exception reports
       </SectionTitle>

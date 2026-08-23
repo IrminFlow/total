@@ -30,7 +30,7 @@ export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl">
       <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-[19px] font-semibold tracking-tight">Masters</h2>
+        <h2 className="mr-4 font-serif text-heading font-semibold tracking-tight">Masters</h2>
         {/* Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
             other screens can deep-link straight to a tab — same pattern as Settings. */}
         <TabBar
@@ -105,7 +105,7 @@ function CurrenciesTab(): React.JSX.Element {
                   <td className="text-muted">{c.name}</td>
                   <td className="r">
                     <button
-                      className="text-[12px] text-cr hover:underline"
+                      className="text-small text-cr hover:underline"
                       onClick={async () => {
                         try {
                           await api.currencies.remove(c.id)
@@ -255,7 +255,7 @@ function LedgersTab(): React.JSX.Element {
                   <td className="r">
                     <button
                       data-testid="btn-masters-edit-ledger"
-                      className="text-[12px] text-blue hover:underline"
+                      className="text-small text-blue hover:underline"
                       onClick={(e) => {
                         e.stopPropagation()
                         setEditing(l)
@@ -464,20 +464,20 @@ function GroupNode({
     <>
       <div
         data-row-id={node.id}
-        className="group flex items-center justify-between rounded px-2 py-1 hover:bg-panel2"
+        className="group flex items-center justify-between rounded-md px-2 py-1 hover:bg-panel2"
         style={{ paddingLeft: `${8 + depth * 18}px` }}
       >
-        <span className={`text-[13px] ${depth === 0 ? 'font-medium' : 'text-muted'}`}>{node.name}</span>
-        {depth === 0 && <span className={`text-[10.5px] uppercase tracking-wider ${natureTone}`}>{node.nature}</span>}
+        <span className={`text-detail ${depth === 0 ? 'font-medium' : 'text-muted'}`}>{node.name}</span>
+        {depth === 0 && <span className={`text-label uppercase tracking-wider ${natureTone}`}>{node.nature}</span>}
         {!node.isSystem && (
           <span className="flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-            <button data-testid="btn-masters-group-rename" className="text-[11.5px] text-blue hover:underline" onClick={() => void onRename(node)}>
+            <button data-testid="btn-masters-group-rename" className="text-hint text-blue hover:underline" onClick={() => void onRename(node)}>
               Rename
             </button>
-            <button data-testid="btn-masters-group-move" className="text-[11.5px] text-blue hover:underline" onClick={() => onMove(node)}>
+            <button data-testid="btn-masters-group-move" className="text-hint text-blue hover:underline" onClick={() => onMove(node)}>
               Move
             </button>
-            <button data-testid="btn-masters-group-delete" className="text-[11.5px] text-cr hover:underline" onClick={() => void onDelete(node)}>
+            <button data-testid="btn-masters-group-delete" className="text-hint text-cr hover:underline" onClick={() => void onDelete(node)}>
               Delete
             </button>
           </span>
@@ -529,7 +529,7 @@ function ItemsTab(): React.JSX.Element {
                   <td className="r num">{i.gstRate ?? '–'}</td>
                   <td className="r num">{(i.openingQtyMilli / 1000).toString()}</td>
                   <td className="r">
-                    <button className="text-[12px] text-blue hover:underline" onClick={() => setEditing(i)}>
+                    <button className="text-small text-blue hover:underline" onClick={() => setEditing(i)}>
                       Edit
                     </button>
                   </td>
@@ -664,7 +664,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         </Field>
         {item && (
           <div>
-            <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+            <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
               Bill of materials — components per 1 unit
             </span>
             {[...effectiveBomRows, { componentId: '' as const, qtyText: '' }].map((row, i) => (
@@ -703,7 +703,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
                 )}
               </div>
             ))}
-            <span className="text-[11px] text-muted">Used by the Manufacture voucher to consume inputs automatically.</span>
+            <span className="text-caption text-muted">Used by the Manufacture voucher to consume inputs automatically.</span>
           </div>
         )}
         <div className="flex justify-between">
@@ -840,10 +840,10 @@ function TypesTab(): React.JSX.Element {
                   {t.prefix}
                   {'#'.repeat(Math.max(1, t.padWidth))}
                   {t.suffix}
-                  {!t.restartFy && <span className="ml-1 normal-case text-[10px]">(no FY restart)</span>}
+                  {!t.restartFy && <span className="ml-1 normal-case text-label">(no FY restart)</span>}
                 </td>
                 <td className="r">
-                  <button className="text-[12px] text-blue hover:underline" onClick={() => setEditing(t)}>
+                  <button className="text-small text-blue hover:underline" onClick={() => setEditing(t)}>
                     Edit
                   </button>
                 </td>
@@ -924,12 +924,12 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
           <TextInput value={padWidth} onChange={(e) => setPadWidth(e.target.value)} className="num" />
         </Field>
       </div>
-      <label className="mt-3 flex items-center gap-2 text-[12.5px]">
+      <label className="mt-3 flex items-center gap-2 text-body-sm">
         <input type="checkbox" checked={restartFy} onChange={(e) => setRestartFy(e.target.checked)} />
         Restart numbering at 1 each financial year
       </label>
       {numbering === 'auto' && (
-        <p className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2 text-[12px] text-muted">
+        <p className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2 text-small text-muted">
           Preview: <span className="num text-ink">{previewNumber(1)}</span>, <span className="num text-ink">{previewNumber(2)}</span>
           {!restartFy && <span> … continuing across financial years</span>}
         </p>
@@ -975,7 +975,7 @@ function GodownsTab(): React.JSX.Element {
                   <td>{g.name}</td>
                   <td className="max-w-72 truncate text-muted">{g.address ?? ''}</td>
                   <td className="r">
-                    <button data-testid="btn-masters-edit-godown" className="text-[12px] text-blue hover:underline" onClick={() => setEditing(g)}>
+                    <button data-testid="btn-masters-edit-godown" className="text-small text-blue hover:underline" onClick={() => setEditing(g)}>
                       Edit
                     </button>
                   </td>
@@ -1111,10 +1111,10 @@ function StockGroupsTab(): React.JSX.Element {
               <div
                 key={group.id}
                 data-row-id={group.id}
-                className="flex items-center rounded px-2 py-1 hover:bg-panel2"
+                className="flex items-center rounded-md px-2 py-1 hover:bg-panel2"
                 style={{ paddingLeft: `${8 + depth * 18}px` }}
               >
-                <span className={`text-[13px] ${depth === 0 ? '' : 'text-muted'}`}>{group.name}</span>
+                <span className={`text-detail ${depth === 0 ? '' : 'text-muted'}`}>{group.name}</span>
               </div>
             ))}
           </div>

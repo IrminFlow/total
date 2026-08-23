@@ -53,15 +53,15 @@ export function CompanySelect(): React.JSX.Element {
       className="drag-region flex h-full flex-col items-center justify-center"
     >
       <div className="w-full max-w-lg">
-        <h1 className="text-center font-serif text-[34px] font-semibold tracking-tight">Total</h1>
-        <p className="mt-1 mb-8 text-center text-[13px] text-muted">
+        <h1 className="text-center font-serif text-display font-semibold tracking-tight">Total</h1>
+        <p className="mt-1 mb-8 text-center text-detail text-muted">
           Your books, on this Mac, nowhere else · ~/Documents/total
         </p>
 
-        <div className="overflow-hidden rounded-xl border border-line bg-panel">
+        <div className="overflow-hidden rounded-lg border border-line bg-panel">
           <ScrollList maxH="50vh">
           {companies.length === 0 && (
-            <p className="px-6 py-10 text-center text-[13.5px] text-muted">
+            <p className="px-6 py-10 text-center text-body text-muted">
               No companies yet. Create your first — books open in seconds.
             </p>
           )}
@@ -74,19 +74,19 @@ export function CompanySelect(): React.JSX.Element {
               onClick={() => void open(c.slug)}
             >
               <div>
-                <p className="text-[14.5px] font-medium">{c.name}</p>
-                <p className="num mt-0.5 text-[11px] text-muted">
+                <p className="text-lead font-medium">{c.name}</p>
+                <p className="num mt-0.5 text-caption text-muted">
                   {GST_STATES[c.stateCode] ?? c.stateCode}
                   {c.gstin ? ` · ${c.gstin}` : ' · Unregistered'}
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-[11.5px] text-muted">Enter ↵</span>
+                <span className="text-hint text-muted">Enter ↵</span>
                 <button
                   type="button"
                   data-testid={`btn-company-delete-${c.slug}`}
                   title={`Delete ${c.name}`}
-                  className="rounded px-1.5 py-0.5 text-[13px] text-muted opacity-0 transition-opacity hover:border hover:border-cr/50 hover:text-cr group-hover:opacity-100 focus-visible:opacity-100 focus-visible:text-cr focus-visible:outline-2 focus-visible:outline-cr/60"
+                  className="rounded-md px-1.5 py-0.5 text-detail text-muted opacity-0 transition-opacity hover:border hover:border-cr/50 hover:text-cr group-hover:opacity-100 focus-visible:opacity-100 focus-visible:text-cr focus-visible:outline-2 focus-visible:outline-cr/60"
                   onClick={(e) => {
                     e.stopPropagation()
                     setDeleting(c)
@@ -210,11 +210,11 @@ function IntegrityIssueModal({
   return (
     <Modal title="Database check found problems" onClose={onCancel}>
       <div className="flex flex-col gap-4">
-        <p className="text-[13px] text-muted">
+        <p className="text-detail text-muted">
           This company's database failed an integrity check. You can open it anyway, or cancel and restore an
           earlier backup.
         </p>
-        <ul className="flex flex-col gap-1 text-[13px]">
+        <ul className="flex flex-col gap-1 text-detail">
           {integrity.quickCheck !== 'ok' && (
             <li className="rounded-md border border-line bg-canvas px-3 py-2">
               <span className="text-muted">quick_check:</span> <span className="num">{integrity.quickCheck}</span>
@@ -275,7 +275,7 @@ function ImportBackupModal({
   return (
     <Modal title="Import encrypted backup" onClose={onClose}>
       <div className="flex flex-col gap-4">
-        <p className="text-[13px] text-muted">
+        <p className="text-detail text-muted">
           Choose a <span className="num">.totalbak</span> file and enter the passphrase it was exported with.
         </p>
         <Field label="Passphrase">
@@ -343,7 +343,7 @@ function DeleteCompanyModal({
   return (
     <Modal title={`Delete ${company.name}`} onClose={onClose}>
       <div className="flex flex-col gap-4">
-        <p className="text-[13px] text-muted">
+        <p className="text-detail text-muted">
           This permanently deletes <span className="font-medium text-ink">{company.name}</span> and every voucher,
           ledger and backup stored for it. This cannot be undone.
         </p>

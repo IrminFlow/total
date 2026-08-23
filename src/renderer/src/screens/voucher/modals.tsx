@@ -185,13 +185,13 @@ export function CostAllocModal({
             </Select>
             <AmountInput paise={r.amount} onPaise={(p) => setRow(i, { amount: p })} className="w-32" />
             {i < rows.length - 1 && (
-              <button className="text-[12px] text-cr" onClick={() => removeRow(i)}>
+              <button className="text-small text-cr" onClick={() => removeRow(i)}>
                 ×
               </button>
             )}
           </div>
         ))}
-        <p className={`text-[12px] ${remaining === 0 ? 'text-muted' : remaining < 0 ? 'text-cr' : 'text-amber'}`}>
+        <p className={`text-small ${remaining === 0 ? 'text-muted' : remaining < 0 ? 'text-cr' : 'text-amber'}`}>
           Allocated {formatPaise(allocated)} of {formatPaise(lineAmount)}
           {remaining !== 0 ? ` — ${formatPaise(Math.abs(remaining))} ${remaining > 0 ? 'remaining' : 'over'}` : ''}
         </p>

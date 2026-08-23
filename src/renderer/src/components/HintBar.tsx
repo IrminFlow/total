@@ -16,7 +16,7 @@ export function HintBar(): React.JSX.Element | null {
   return (
     <div
       data-testid="hint-bar"
-      className="flex shrink-0 items-center gap-3 overflow-hidden border-t border-line px-5 py-1.5 text-[11.5px] whitespace-nowrap text-muted"
+      className="flex shrink-0 items-center gap-3 overflow-hidden border-t border-line px-5 py-1.5 text-hint whitespace-nowrap text-muted"
     >
       {actions.map((a) => (
         <span

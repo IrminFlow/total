@@ -26,10 +26,10 @@ function CountsGrid({ summary }: { summary: TallyImportSummary }): React.JSX.Ele
     <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
       {COUNT_LABELS.map(({ key, label }) => (
         <div key={key} className="rounded-md border border-line bg-panel2 px-3 py-2.5 text-center">
-          <div className={`num text-[20px] font-semibold ${key === 'skipped' && summary[key] > 0 ? 'text-cr' : ''}`}>
+          <div className={`num text-heading font-semibold ${key === 'skipped' && summary[key] > 0 ? 'text-cr' : ''}`}>
             {summary[key]}
           </div>
-          <div className="text-[11px] text-muted uppercase tracking-[0.06em]">{label}</div>
+          <div className="text-caption text-muted uppercase tracking-[0.06em]">{label}</div>
         </div>
       ))}
     </div>
@@ -45,21 +45,21 @@ function WarningsBox({ warnings }: { warnings: string[] }): React.JSX.Element | 
   const hidden = warnings.length - shown.length
   return (
     <div className="mt-4 max-h-56 overflow-auto rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2">
-      <p className="flex items-center gap-2 py-0.5 text-[12.5px] font-medium text-ink">
-        <span data-testid="badge-import-tally-warnings" className="rounded bg-amberbar/40 px-1.5 py-0.5 num text-[11px]">
+      <p className="flex items-center gap-2 py-0.5 text-body-sm font-medium text-ink">
+        <span data-testid="badge-import-tally-warnings" className="rounded-md bg-amberbar/40 px-1.5 py-0.5 num text-caption">
           {warnings.length}
         </span>
         warning{warnings.length > 1 ? 's' : ''}
       </p>
       {shown.map((w, i) => (
-        <p key={i} className="py-0.5 text-[12.5px] text-ink">
+        <p key={i} className="py-0.5 text-body-sm text-ink">
           {w}
         </p>
       ))}
       {hidden > 0 && (
         <button
           data-testid="btn-import-tally-warnings-more"
-          className="py-0.5 text-[12.5px] text-blue hover:underline"
+          className="py-0.5 text-body-sm text-blue hover:underline"
           onClick={() => setExpanded(true)}
         >
           {hidden} more…
@@ -123,10 +123,10 @@ function PickStep({ busy, onPick }: { busy: boolean; onPick: () => void }): Reac
   return (
     <>
       <Panel className="p-6">
-        <p className="text-[13.5px] text-muted">
+        <p className="text-body text-muted">
           Export your books from Tally first:
         </p>
-        <ol className="mt-3 flex flex-col gap-1.5 text-[13px]">
+        <ol className="mt-3 flex flex-col gap-1.5 text-detail">
           <li>
             <b>Masters</b> — Gateway of Tally → Display → List of Accounts → <span className="num">Export</span> → XML
           </li>
@@ -134,12 +134,12 @@ function PickStep({ busy, onPick }: { busy: boolean; onPick: () => void }): Reac
             <b>Vouchers</b> — Gateway of Tally → Display → Day Book → <span className="num">Export</span> → XML for the period you want
           </li>
         </ol>
-        <p className="mt-3 text-[12.5px] text-muted">
+        <p className="mt-3 text-body-sm text-muted">
           Import the masters export first (groups, ledgers, stock items), then the vouchers export. Nothing is written to
           your books until you confirm on the next screen.
         </p>
         <div className="mt-5 flex justify-center">
-          <Button variant="primary" data-testid="btn-import-tally-pick" disabled={busy} onClick={onPick} className="px-8 py-3 text-[14px]">
+          <Button variant="primary" data-testid="btn-import-tally-pick" disabled={busy} onClick={onPick} className="px-8 py-3 text-lead">
             {busy ? 'Reading…' : 'Choose Tally XML…'}
           </Button>
         </div>
@@ -161,7 +161,7 @@ function PreviewStep({
 }): React.JSX.Element {
   return (
     <Panel className="p-6">
-      <p className="mb-3 text-[13px] text-muted">Here&rsquo;s what this file contains — nothing has been imported yet.</p>
+      <p className="mb-3 text-detail text-muted">Here&rsquo;s what this file contains — nothing has been imported yet.</p>
       <CountsGrid summary={summary} />
       <WarningsBox warnings={summary.warnings} />
       <div className="mt-5 flex justify-end gap-2">
@@ -212,13 +212,13 @@ function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGatew
   return (
     <>
       <Panel className="p-6">
-        <p className="mb-3 text-[13px] text-dr font-medium">Import complete.</p>
+        <p className="mb-3 text-detail text-dr font-medium">Import complete.</p>
         <CountsGrid summary={summary} />
         <WarningsBox warnings={summary.warnings} />
       </Panel>
 
       <div className="mt-4 flex items-center justify-between">
-        <p className="text-[12.5px] text-muted">
+        <p className="text-body-sm text-muted">
           Compare with Tally&rsquo;s Trial Balance — should match to the paise.
         </p>
         <div className="flex gap-2">

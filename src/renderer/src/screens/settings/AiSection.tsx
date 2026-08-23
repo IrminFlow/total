@@ -95,41 +95,41 @@ export function AiSection(): React.JSX.Element {
       <SectionTitle>AI assistant</SectionTitle>
 
       {!features.ai && (
-        <div className="mb-4 rounded-md border border-line bg-panel2 px-3.5 py-2.5 text-[12.5px] text-muted">
+        <div className="mb-4 rounded-md border border-line bg-panel2 px-3.5 py-2.5 text-body-sm text-muted">
           The assistant is <b className="text-ink">off</b> for this company. Turn it on in Settings → Features. Total
           works entirely offline until you do — nothing here contacts anything.
         </div>
       )}
 
       {!canEdit && (
-        <div className="mb-4 rounded-md border border-blue/40 bg-blue/10 px-3.5 py-2.5 text-[12.5px] text-blue">
+        <div className="mb-4 rounded-md border border-blue/40 bg-blue/10 px-3.5 py-2.5 text-body-sm text-blue">
           Read-only — only owners can change AI settings.
         </div>
       )}
 
       {/* The disclosure comes before the key box on purpose. */}
       <Panel className="mb-4 p-5">
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">What leaves this machine</p>
+        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">What leaves this machine</p>
         {local ? (
-          <p className="mt-2 text-[12.5px]">
+          <p className="mt-2 text-body-sm">
             <span className="num">{host}</span> runs on this computer. Nothing leaves it.
           </p>
         ) : (
           <>
-            <p className="mt-2 text-[12.5px]">
+            <p className="mt-2 text-body-sm">
               Endpoint <span className="num text-ink">{host}</span> · model{' '}
               <span className="num text-ink">{value.model}</span>
             </p>
-            <p className="mt-2 text-[12.5px] text-muted">
+            <p className="mt-2 text-body-sm text-muted">
               <b className="text-ink">Sent:</b> your question, the screen you are on, this company&rsquo;s name and
               state, and the rows the assistant&rsquo;s tools return — ledger and party names, dates, narrations,
               voucher numbers and amounts.
             </p>
-            <p className="mt-1.5 text-[12.5px] text-muted">
+            <p className="mt-1.5 text-body-sm text-muted">
               <b className="text-ink">Never sent:</b> any GSTIN or PAN, bank account numbers, employee or payroll data,
               your NIC filing credentials, or your data files.
             </p>
-            <p className="mt-1.5 text-[12.5px] text-muted">
+            <p className="mt-1.5 text-body-sm text-muted">
               Nothing is sent unless you ask a question.
             </p>
           </>
@@ -207,7 +207,7 @@ export function AiSection(): React.JSX.Element {
         </div>
 
         {keyStorage === 'session' && (
-          <div className="mt-4 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-[12.5px] text-amber">
+          <div className="mt-4 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm text-amber">
             Your OS keychain isn&rsquo;t available on this machine, so the key is held for this session only and will be
             gone when you quit. Total will not write it to disk in plain text.
           </div>
@@ -225,12 +225,12 @@ export function AiSection(): React.JSX.Element {
 
       {consentFor && (
         <Modal title={`Sending your books to ${endpointHost(consentFor.baseUrl)}`} onClose={() => setConsentFor(null)}>
-          <p className="text-[13px]">
+          <p className="text-detail">
             The assistant will send ledger names, party names, dates, amounts and narrations from this company&rsquo;s
             books to <b className="num">{endpointHost(consentFor.baseUrl)}</b> — a service run by someone other than
             Total.
           </p>
-          <p className="mt-3 text-[13px] text-muted">
+          <p className="mt-3 text-detail text-muted">
             GSTINs, PAN, bank account numbers and payroll data are never sent. Total itself stays fully offline; only
             the assistant talks to the internet, and only when you ask it something.
           </p>

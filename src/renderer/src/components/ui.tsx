@@ -9,7 +9,7 @@ import { splitAccel } from '../lib/accel'
 
 export function Kbd({ children }: { children: ReactNode }): React.JSX.Element {
   return (
-    <kbd className="rounded border border-line bg-panel2 px-1.5 py-0.5 font-mono text-label text-muted">
+    <kbd className="rounded-md border border-line bg-panel2 px-1.5 py-0.5 font-mono text-label text-muted">
       {children}
     </kbd>
   )
@@ -111,7 +111,7 @@ export function Button({
 }): React.JSX.Element {
   const styles = {
     default: 'border border-line bg-panel hover:border-amber/60 text-ink panel-shadow',
-    primary: 'border border-amberbar bg-amberbar/90 text-[#2b2000] hover:bg-amberbar font-semibold',
+    primary: 'border border-amberbar bg-amberbar/90 text-onamber hover:bg-amberbar font-semibold',
     danger: 'border border-cr/50 bg-cr/10 text-cr hover:bg-cr/20',
     ghost: 'border border-transparent text-muted hover:text-ink hover:border-line'
   }[variant]
@@ -435,7 +435,7 @@ export function Modal({
         aria-labelledby={titleId}
         data-modal={title}
         tabIndex={-1}
-        className={`max-h-[75vh] w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-xl border border-line bg-panel shadow-2xl outline-none`}
+        className={`max-h-[75vh] w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-lg border border-line bg-panel shadow-2xl outline-none`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <h3 id={titleId} className="font-serif text-title font-semibold">
@@ -448,7 +448,7 @@ export function Modal({
               aria-label="Close"
               data-testid="modal-close"
               onClick={requestClose}
-              className="rounded-md border border-transparent px-1.5 py-0.5 text-[15px] leading-none text-muted transition-colors hover:border-line hover:text-ink"
+              className="rounded-md border border-transparent px-1.5 py-0.5 text-lead leading-none text-muted transition-colors hover:border-line hover:text-ink"
             >
               ✕
             </button>
@@ -518,7 +518,7 @@ export function Spinner({ className = '' }: { className?: string }): React.JSX.E
 }
 
 export function Skeleton({ className = '' }: { className?: string }): React.JSX.Element {
-  return <span aria-hidden="true" className={`block animate-pulse rounded bg-panel2 ${className}`} />
+  return <span aria-hidden="true" className={`block animate-pulse rounded-md bg-panel2 ${className}`} />
 }
 
 /** Placeholder rows while a list/report query is in flight — drop inside a Panel. */
@@ -688,7 +688,7 @@ export function EmptyState({
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       {icon && <div className="mb-3 text-muted/50">{icon}</div>}
-      <p className="text-[14px] text-muted">{title}</p>
+      <p className="text-lead text-muted">{title}</p>
       {hint && <p className="mt-1 text-body-sm text-muted/70">{hint}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>

@@ -189,7 +189,7 @@ export function BudgetsScreen(): React.JSX.Element {
               ))}
             </Select>
             {selected && (
-              <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(selected)}>
+              <button className="text-small text-cr hover:underline" onClick={() => void remove(selected)}>
                 Delete budget
               </button>
             )}
@@ -256,7 +256,7 @@ export function BudgetsScreen(): React.JSX.Element {
                       <AmountInput paise={r.amount} onPaise={(paise) => updateRow(r.key, { amount: paise })} />
                     </td>
                     <td className="r">
-                      <button className="text-[12px] text-muted hover:text-cr" onClick={() => removeRow(r.key)}>
+                      <button className="text-small text-muted hover:text-cr" onClick={() => removeRow(r.key)}>
                         ✕
                       </button>
                     </td>
@@ -266,7 +266,7 @@ export function BudgetsScreen(): React.JSX.Element {
             </table>
             </ScrollList>
             {lineErrors.length > 0 && (
-              <div data-testid="budgets-line-errors" className="border-t border-line bg-cr/10 px-3 py-2 text-[12.5px] text-cr">
+              <div data-testid="budgets-line-errors" className="border-t border-line bg-cr/10 px-3 py-2 text-body-sm text-cr">
                 <p className="font-medium">Fix these lines before saving:</p>
                 {lineErrors.map((e, i) => (
                   <p key={i}>{e}</p>
@@ -276,7 +276,7 @@ export function BudgetsScreen(): React.JSX.Element {
             <div className="flex items-center justify-between border-t border-line p-3">
               <button
                 data-testid="btn-budgets-add-line"
-                className="text-[12.5px] text-blue hover:underline"
+                className="text-body-sm text-blue hover:underline"
                 onClick={() => {
                   setEditorDirty(true)
                   setRows((prev) => [...prev, newRow()])

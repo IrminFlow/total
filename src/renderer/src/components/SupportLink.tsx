@@ -17,7 +17,7 @@ export function SupportLink({ className = '' }: { className?: string }): React.J
         data-testid="link-support"
         title={`Email support (${SUPPORT_EMAIL})`}
         onClick={() => setOpen(true)}
-        className={`text-left text-[12px] text-muted hover:text-ink ${className}`}
+        className={`text-left text-small text-muted hover:text-ink ${className}`}
       >
         Support · {SUPPORT_EMAIL}
       </button>
@@ -69,21 +69,21 @@ function SupportModal({ onClose }: { onClose: () => void }): React.JSX.Element {
 
   return (
     <Modal title="Get support" onClose={onClose} wide>
-      <p className="text-[13px] text-muted">
+      <p className="text-detail text-muted">
         For support regarding Total, email us at{' '}
         <span className="num font-medium text-ink">{SUPPORT_EMAIL}</span>.
       </p>
       <div className="mt-3 flex items-center gap-2">
         <code
           data-testid="support-email-copy"
-          className="num flex-1 cursor-pointer rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[12.5px] text-ink"
+          className="num flex-1 cursor-pointer rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body-sm text-ink"
           title="Click to copy"
           onClick={() => void copy(SUPPORT_EMAIL, 'address')}
         >
           {SUPPORT_EMAIL}
         </code>
       </div>
-      <p className="mt-1.5 text-[11px] text-muted/70">
+      <p className="mt-1.5 text-caption text-muted/70">
         {copied === 'address' ? 'Copied.' : 'Click the address to copy it.'}
       </p>
 
@@ -92,7 +92,7 @@ function SupportModal({ onClose }: { onClose: () => void }): React.JSX.Element {
       <div className="mt-5 border-t border-line pt-4">
         {!showDiagnostics ? (
           <div className="flex items-center justify-between gap-4">
-            <p className="text-[12.5px] text-muted">
+            <p className="text-body-sm text-muted">
               Reporting a problem? You can attach a diagnostics report — the app version and a log
               of recent activity. It never contains your ledgers, parties or amounts.
             </p>
@@ -101,17 +101,17 @@ function SupportModal({ onClose }: { onClose: () => void }): React.JSX.Element {
             </Button>
           </div>
         ) : isLoading || !diagnostics ? (
-          <div className="flex items-center gap-2 text-[12.5px] text-muted">
+          <div className="flex items-center gap-2 text-body-sm text-muted">
             <Spinner /> Gathering diagnostics…
           </div>
         ) : (
           <>
-            <p className="mb-2 text-[12.5px] text-muted">
+            <p className="mb-2 text-body-sm text-muted">
               This is exactly what would be sent — nothing else. Read it before you share it.
             </p>
             <pre
               data-testid="diagnostics-report"
-              className="num max-h-56 overflow-auto rounded-md border border-line bg-panel2 p-3 text-[11px] leading-relaxed whitespace-pre-wrap text-ink"
+              className="num max-h-56 overflow-auto rounded-md border border-line bg-panel2 p-3 text-caption leading-relaxed whitespace-pre-wrap text-ink"
             >
               {reportText(diagnostics)}
             </pre>

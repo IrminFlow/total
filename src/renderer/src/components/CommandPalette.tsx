@@ -165,7 +165,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 pt-[14vh]" onMouseDown={onClose}>
-      <div className="w-full max-w-xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-xl overflow-hidden rounded-lg border border-line bg-panel shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
         <input
           autoFocus
           data-testid="input-palette"
@@ -181,23 +181,23 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             else if (e.key === 'Enter') runItem(navItems[active])
           }}
           placeholder="Type a command — voucher, report, GST…"
-          className="w-full border-b border-line bg-transparent px-5 py-3.5 text-[14px] outline-none placeholder:text-muted/60"
+          className="w-full border-b border-line bg-transparent px-5 py-3.5 text-lead outline-none placeholder:text-muted/60"
         />
         <div className="max-h-80 overflow-auto py-1">
           {filtered.map((cmd, i) => (
             <div
               key={cmd.label}
               data-active={i === active}
-              className="kbar-row flex cursor-pointer items-center justify-between px-5 py-2 text-[13.5px]"
+              className="kbar-row flex cursor-pointer items-center justify-between px-5 py-2 text-body"
               onMouseEnter={() => setActive(i)}
               onClick={() => runItem(navItems[i])}
             >
               <span>{cmd.label}</span>
-              {cmd.hint && <span className="text-[11px] text-muted">{cmd.hint}</span>}
+              {cmd.hint && <span className="text-caption text-muted">{cmd.hint}</span>}
             </div>
           ))}
           {hits.length > 0 && (
-            <p className="px-5 pb-1 pt-3 text-[10.5px] font-medium uppercase tracking-wide text-muted">In your books</p>
+            <p className="px-5 pb-1 pt-3 text-label font-medium uppercase tracking-wide text-muted">In your books</p>
           )}
           {hits.map((hit, j) => {
             const i = filtered.length + j
@@ -205,19 +205,19 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
               <div
                 key={`${hit.kind}-${hit.id}`}
                 data-active={i === active}
-                className="kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-[13.5px]"
+                className="kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-body"
                 onMouseEnter={() => setActive(i)}
                 onClick={() => runItem(navItems[i])}
               >
                 <div className="flex min-w-0 flex-col">
                   <span className="truncate">{hit.label}</span>
-                  <span className="truncate text-[11px] text-muted">{hit.sub}</span>
+                  <span className="truncate text-caption text-muted">{hit.sub}</span>
                 </div>
-                <span className="shrink-0 text-[11px] text-muted">{HIT_KIND_LABEL[hit.kind]}</span>
+                <span className="shrink-0 text-caption text-muted">{HIT_KIND_LABEL[hit.kind]}</span>
               </div>
             )
           })}
-          {navItems.length === 0 && <p className="px-5 py-6 text-center text-[13px] text-muted">No commands or matches</p>}
+          {navItems.length === 0 && <p className="px-5 py-6 text-center text-detail text-muted">No commands or matches</p>}
         </div>
       </div>
     </div>

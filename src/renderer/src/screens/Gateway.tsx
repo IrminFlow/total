@@ -55,12 +55,12 @@ export function Gateway(): React.JSX.Element {
       <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
         {tiles.map((t) => (
           <Panel key={t.label} className="px-4 py-3">
-            <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">{t.label}</p>
+            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">{t.label}</p>
             {data === undefined && t.text === undefined ? (
               // Loading — a skeleton, not a misleading ₹0.00.
               <Skeleton className="mt-2.5 h-4 w-20" />
             ) : (
-              <p className={`mt-1.5 text-[16px] font-medium ${t.text ? '' : 'num'}`}>
+              <p className={`mt-1.5 text-title font-medium ${t.text ? '' : 'num'}`}>
                 {t.text ?? <Money paise={t.value ?? 0} />}
               </p>
             )}
@@ -80,14 +80,14 @@ export function Gateway(): React.JSX.Element {
             className="group rounded-lg border border-line bg-panel px-5 py-4 text-left transition-colors hover:border-amber/50"
           >
             <div className="flex items-center justify-between">
-              <span className="text-[14.5px] font-medium">
+              <span className="text-lead font-medium">
                 <Accel label={c.label} accel={c.accel} />
               </span>
-              <span className="rounded border border-line px-1.5 text-[10.5px] text-muted group-hover:border-amber/50 group-hover:text-amber">
+              <span className="rounded-md border border-line px-1.5 text-label text-muted group-hover:border-amber/50 group-hover:text-amber">
                 {c.accel}
               </span>
             </div>
-            <p className="mt-1 text-[12px] text-muted">{c.sub}</p>
+            <p className="mt-1 text-small text-muted">{c.sub}</p>
           </button>
         ))}
       </div>
@@ -109,7 +109,7 @@ export function Gateway(): React.JSX.Element {
         data &&
         data.recentVouchers.length > 0 && (
           <Panel className="mt-6">
-            <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+            <p className="border-b border-line px-5 py-2.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">
               Recent entries
             </p>
             <ScrollList maxH="20rem">
@@ -119,19 +119,19 @@ export function Gateway(): React.JSX.Element {
                   className="flex w-full items-center gap-4 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2"
                   onClick={() => nav.go({ name: 'voucher-entry', voucherId: v.voucherId })}
                 >
-                  <span className="num w-20 text-[12px] text-muted">{toDisplayDate(v.date)}</span>
-                  <span className="w-24 text-[12.5px] text-muted">{v.voucherType}</span>
-                  <span className="num w-14 text-[12px] text-muted">{v.number}</span>
-                  <span className="flex-1 truncate text-[13px]">
+                  <span className="num w-20 text-small text-muted">{toDisplayDate(v.date)}</span>
+                  <span className="w-24 text-body-sm text-muted">{v.voucherType}</span>
+                  <span className="num w-14 text-small text-muted">{v.number}</span>
+                  <span className="flex-1 truncate text-detail">
                     {v.account}
                     {v.isOptional && (
-                      <span data-testid="recent-badge-optional" className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>
+                      <span data-testid="recent-badge-optional" className="ml-2 rounded-md bg-amber/15 px-1.5 py-0.5 text-label font-medium text-amber">Optional</span>
                     )}
                     {v.postDated && (
-                      <span data-testid="recent-badge-pdc" className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>
+                      <span data-testid="recent-badge-pdc" className="ml-2 rounded-md bg-blue/10 px-1.5 py-0.5 text-label font-medium text-blue">PDC</span>
                     )}
                   </span>
-                  <Money paise={v.debit} className="text-[13px]" />
+                  <Money paise={v.debit} className="text-detail" />
                 </button>
               ))}
             </ScrollList>
@@ -187,16 +187,16 @@ function DueTodayPanel(): React.JSX.Element | null {
   return (
     <Panel className="mt-6">
       <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Due today</p>
-        <button className="text-[11.5px] text-blue hover:underline" onClick={() => nav.go({ name: 'recurring' })}>
+        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Due today</p>
+        <button className="text-hint text-blue hover:underline" onClick={() => nav.go({ name: 'recurring' })}>
           All recurring vouchers
         </button>
       </div>
       <div>
         {dueList.map((t) => (
           <div key={t.id} className="flex items-center gap-4 border-b border-line/40 px-5 py-2 last:border-b-0">
-            <span className="num w-20 text-[12px] text-muted">{toDisplayDate(t.nextDue)}</span>
-            <span className="flex-1 truncate text-[13px]">{t.name}</span>
+            <span className="num w-20 text-small text-muted">{toDisplayDate(t.nextDue)}</span>
+            <span className="flex-1 truncate text-detail">{t.name}</span>
             <Button disabled={busyId === t.id} onClick={() => void post(t)}>
               Post
             </Button>
@@ -269,23 +269,23 @@ function CompliancePanel({
   return (
     <Panel className="mt-6">
       <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Compliance calendar</p>
-        <button className="text-[11.5px] text-blue hover:underline" onClick={() => nav.go({ name: 'gstr3b' })}>
+        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Compliance calendar</p>
+        <button className="text-hint text-blue hover:underline" onClick={() => nav.go({ name: 'gstr3b' })}>
           GSTR-3B
         </button>
       </div>
       <div>
         {(showAll ? deadlines : deadlines.slice(0, 6)).map((d) => (
           <div key={d.id} className="flex items-center gap-4 border-b border-line/40 px-5 py-2 last:border-b-0">
-            <span className="num w-20 text-[12px] text-muted">{toDisplayDate(d.date)}</span>
-            <span className="w-28 text-[12.5px] text-muted">{d.form}</span>
-            <span className="flex-1 truncate text-[13px]">{d.title}</span>
+            <span className="num w-20 text-small text-muted">{toDisplayDate(d.date)}</span>
+            <span className="w-28 text-body-sm text-muted">{d.form}</span>
+            <span className="flex-1 truncate text-detail">{d.title}</span>
           </div>
         ))}
         {deadlines.length > 6 && (
           <button
             data-testid="btn-gateway-compliance-all"
-            className="w-full px-5 py-2 text-left text-[11.5px] text-blue hover:underline"
+            className="w-full px-5 py-2 text-left text-hint text-blue hover:underline"
             onClick={() => setShowAll((v) => !v)}
           >
             {showAll ? 'Show fewer' : `Show all ${deadlines.length}`}
@@ -324,7 +324,7 @@ function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; it
 
   return (
     <Panel className="mt-6">
-      <p className="border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+      <p className="border-b border-line px-5 py-2.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">
         Set up your books
       </p>
       <div>
@@ -334,10 +334,10 @@ function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; it
             onClick={s.onClick}
             className="flex w-full items-center gap-3 border-b border-line/40 px-5 py-3 text-left last:border-b-0 hover:bg-panel2"
           >
-            <span className={`text-[15px] ${s.done ? 'text-amber' : 'text-muted/60'}`}>{s.done ? '✓' : '○'}</span>
+            <span className={`text-lead ${s.done ? 'text-amber' : 'text-muted/60'}`}>{s.done ? '✓' : '○'}</span>
             <span className="flex-1">
-              <span className={`block text-[13.5px] ${s.done ? 'text-muted line-through' : 'text-ink'}`}>{s.label}</span>
-              <span className="block text-[11.5px] text-muted/70">{s.hint}</span>
+              <span className={`block text-body ${s.done ? 'text-muted line-through' : 'text-ink'}`}>{s.label}</span>
+              <span className="block text-hint text-muted/70">{s.hint}</span>
             </span>
           </button>
         ))}
@@ -351,11 +351,11 @@ function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] 
   const nav = useNav()
   return (
     <Panel className="flex min-h-0 flex-1 flex-col">
-      <p className="shrink-0 border-b border-line px-5 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+      <p className="shrink-0 border-b border-line px-5 py-2.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">
         {title}
       </p>
       {rows.length === 0 ? (
-        <p className="px-5 py-6 text-center text-[12.5px] text-muted">Nothing outstanding</p>
+        <p className="px-5 py-6 text-center text-body-sm text-muted">Nothing outstanding</p>
       ) : (
         <ScrollList maxH="340px" className="min-h-0 flex-1">
           {rows.map((r) => (
@@ -364,8 +364,8 @@ function TopLedgersPanel({ title, rows }: { title: string; rows: TopLedgerRow[] 
               onClick={() => nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })}
               className="flex w-full items-center gap-3 border-b border-line/40 px-5 py-2 text-left last:border-b-0 hover:bg-panel2"
             >
-              <span className="flex-1 truncate text-[13px]">{r.name}</span>
-              <Money paise={r.amount} className="text-[13px]" />
+              <span className="flex-1 truncate text-detail">{r.name}</span>
+              <Money paise={r.amount} className="text-detail" />
             </button>
           ))}
         </ScrollList>
@@ -394,9 +394,9 @@ function CashSparklinePanel({ points }: { points: CashSparkPoint[] }): React.JSX
   return (
     <Panel className="flex min-h-0 flex-col p-5">
       <div className="flex shrink-0 items-center justify-between">
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Cash + bank · 30 days</p>
+        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Cash + bank · 30 days</p>
         {readout && (
-          <p className="num text-[13px]">
+          <p className="num text-detail">
             {hoverIdx != null && <span className="mr-2 text-muted">{toDisplayDate(readout.date)}</span>}
             <Money paise={readout.balance} />
           </p>

@@ -349,7 +349,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
               testId="picker-party"
             />
             {party && (
-              <Button variant="ghost" className="shrink-0 px-2 py-1 text-[11px]" onClick={() => setEditingParty(true)}>
+              <Button variant="ghost" className="shrink-0 px-2 py-1 text-caption" onClick={() => setEditingParty(true)}>
                 Edit
               </Button>
             )}
@@ -376,7 +376,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
 
       <div className="mt-2 flex items-center justify-between">
         {party ? (
-          <p className="text-[11.5px] text-muted">
+          <p className="text-hint text-muted">
             {party.gstin ? <>GSTIN <span className="num">{party.gstin}</span> · </> : 'Unregistered · '}
             {supply === 'intra' ? 'Intra-state — CGST + SGST' : 'Inter-state — IGST'}
           </p>
@@ -401,7 +401,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                   placeholder={`₹ per ${currencyCode}`}
                   className="num w-28 text-right"
                 />
-                {fxActive && <span className="text-[11px] text-muted">rates in {currencyCode} · books in ₹</span>}
+                {fxActive && <span className="text-caption text-muted">rates in {currencyCode} · books in ₹</span>}
               </>
             )}
           </div>
@@ -465,7 +465,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                       placeholder="0"
                       onChange={(e) => setRow(i, { qtyText: e.target.value })}
                     />
-                    <span className="w-8 text-[11px] text-muted">{unitOf(r.itemId)}</span>
+                    <span className="w-8 text-caption text-muted">{unitOf(r.itemId)}</span>
                   </div>
                 </td>
                 <td className="r">
@@ -480,10 +480,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                   />
                 </td>
                 <td className="r">
-                  <span className="num text-[12.5px] text-muted">{item ? `${item.gstRate ?? account?.gstRate ?? 0}%` : ''}</span>
+                  <span className="num text-body-sm text-muted">{item ? `${item.gstRate ?? account?.gstRate ?? 0}%` : ''}</span>
                 </td>
                 <td className="r">
-                  <Money paise={amount} className="text-[13.5px]" />
+                  <Money paise={amount} className="text-body" />
                 </td>
               </tr>
             )
@@ -511,17 +511,17 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
             </div>
           )}
           {computed.rounded > 0 && (
-            <p className="mt-2 text-[11.5px] text-muted italic">{amountInWords(computed.rounded)}</p>
+            <p className="mt-2 text-hint text-muted italic">{amountInWords(computed.rounded)}</p>
           )}
         </div>
-        <div className="num w-72 text-[13px]">
+        <div className="num w-72 text-detail">
           <SummaryRow label="Taxable value" paise={computed.gst.taxable} />
           {computed.gst.cgst > 0 && <SummaryRow label="CGST" paise={computed.gst.cgst} />}
           {computed.gst.sgst > 0 && <SummaryRow label="SGST" paise={computed.gst.sgst} />}
           {computed.gst.igst > 0 && <SummaryRow label="IGST" paise={computed.gst.igst} />}
           {computed.gst.cess > 0 && <SummaryRow label="Cess" paise={computed.gst.cess} />}
           {computed.roundDiff !== 0 && <SummaryRow label="Round off" paise={computed.roundDiff} />}
-          <div className="mt-1 flex justify-between border-t border-ink pt-1.5 pb-0.5 text-[15px] font-semibold" style={{ borderBottom: '3px double var(--color-ink)' }}>
+          <div className="mt-1 flex justify-between border-t border-ink pt-1.5 pb-0.5 text-lead font-semibold" style={{ borderBottom: '3px double var(--color-ink)' }}>
             <span>Total</span>
             <Money paise={computed.rounded} />
           </div>
@@ -531,10 +531,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       <div className="mt-4 border-t border-line pt-3">
         <button
           data-testid="btn-invoice-gst-details"
-          className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase"
+          className="flex items-center gap-1.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase"
           onClick={() => setGstOpen((v) => !v)}
         >
-          <span className="inline-block w-3 text-[10px]">{gstOpen ? '▾' : '▸'}</span>
+          <span className="inline-block w-3 text-label">{gstOpen ? '▾' : '▸'}</span>
           GST details
           {(posOverride || optionalVoucher) && (
             <span className="normal-case text-muted/80">
@@ -563,7 +563,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                 ))}
               </Select>
             </Field>
-            <label className="col-span-2 flex items-center gap-2 pb-2 text-[12.5px]">
+            <label className="col-span-2 flex items-center gap-2 pb-2 text-body-sm">
               <input
                 type="checkbox"
                 data-testid="input-optional-voucher"
@@ -579,10 +579,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       {features.billWise && partyId && (
         <div className="mt-4 border-t border-line pt-3">
           <button
-            className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase"
+            className="flex items-center gap-1.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase"
             onClick={() => setBillsOpen((v) => !v)}
           >
-            <span className="inline-block w-3 text-[10px]">{billsOpen ? '▾' : '▸'}</span>
+            <span className="inline-block w-3 text-label">{billsOpen ? '▾' : '▸'}</span>
             Bill allocation
             {isNoteKind && !manualNewBillMode && (
               <span className="normal-case text-muted/80">
@@ -596,13 +596,13 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
               {isNoteKind && !manualNewBillMode ? (
                 <>
                   {(openBillsForNote ?? []).length === 0 ? (
-                    <p className="text-[12px] text-muted">No open bills for this party.</p>
+                    <p className="text-small text-muted">No open bills for this party.</p>
                   ) : (
                     <div className="flex flex-col gap-1">
                       {(openBillsForNote ?? []).map((b) => {
                         const ref = noteBillRefs.find((r) => r.kind === 'against' && r.name === b.number)
                         return (
-                          <div key={b.number} className="flex items-center gap-3 rounded-md px-1 py-1 text-[12.5px] hover:bg-panel2">
+                          <div key={b.number} className="flex items-center gap-3 rounded-md px-1 py-1 text-body-sm hover:bg-panel2">
                             <input type="checkbox" checked={!!ref} onChange={(e) => toggleNoteBill(b, e.target.checked)} />
                             <span className="flex-1">{b.number}</span>
                             <span className="num w-24 text-muted">{toDisplayDate(b.date)}</span>
@@ -618,7 +618,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                       })}
                     </div>
                   )}
-                  <button className="mt-2 text-[11.5px] text-blue hover:underline" onClick={() => setManualNewBillMode(true)}>
+                  <button className="mt-2 text-hint text-blue hover:underline" onClick={() => setManualNewBillMode(true)}>
                     Create new bill instead
                   </button>
                 </>
@@ -650,7 +650,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                   </Field>
                   {isNoteKind && (
                     <button
-                      className="col-span-3 self-start text-[11.5px] text-blue hover:underline"
+                      className="col-span-3 self-start text-hint text-blue hover:underline"
                       onClick={() => setManualNewBillMode(false)}
                     >
                       Allocate against open bills instead

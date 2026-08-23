@@ -97,8 +97,8 @@ export function YearEndScreen(): React.JSX.Element {
       <div className="mx-auto max-w-2xl">
         <SectionTitle>Year-end close</SectionTitle>
         <Panel className="p-6 text-center">
-          <p className="text-[15px] font-medium">FY {fy.label} closed</p>
-          <p className="mt-1 text-[13px] text-muted">
+          <p className="text-lead font-medium">FY {fy.label} closed</p>
+          <p className="mt-1 text-detail text-muted">
             {result.netProfit >= 0 ? 'Net profit' : 'Net loss'} of <Money paise={Math.abs(result.netProfit)} /> carried to Retained
             Earnings. Books are locked up to {toDisplayDate(result.lockedUpTo)}.
           </p>
@@ -136,7 +136,7 @@ export function YearEndScreen(): React.JSX.Element {
         Year-end close
       </SectionTitle>
 
-      <div className="mb-4 flex items-center gap-2 text-[12px] font-medium text-muted">
+      <div className="mb-4 flex items-center gap-2 text-small font-medium text-muted">
         <StepDot n={1} step={step} label="Review P&L" />
         <span className="text-line">—</span>
         <StepDot n={2} step={step} label="Closing journal" />
@@ -146,8 +146,8 @@ export function YearEndScreen(): React.JSX.Element {
 
       {preview?.alreadyClosed && (
         <Panel className="mb-4 border-cr/40 bg-cr/5 p-4">
-          <p className="text-[13px] font-medium text-cr">Books for FY {fy.label} are already closed.</p>
-          <p className="mt-1 text-[12.5px] text-muted">Pick a different financial year to continue, or open the closing voucher from the day book.</p>
+          <p className="text-detail font-medium text-cr">Books for FY {fy.label} are already closed.</p>
+          <p className="mt-1 text-body-sm text-muted">Pick a different financial year to continue, or open the closing voucher from the day book.</p>
         </Panel>
       )}
 
@@ -188,10 +188,10 @@ export function YearEndScreen(): React.JSX.Element {
           </Panel>
           {preview && (
             <Panel className="mb-4 flex items-center justify-between px-5 py-3">
-              <span className="text-[13.5px] font-medium">{preview.netProfit >= 0 ? 'Net profit for FY' : 'Net loss for FY'} {fy.label}</span>
+              <span className="text-body font-medium">{preview.netProfit >= 0 ? 'Net profit for FY' : 'Net loss for FY'} {fy.label}</span>
               <Money
                 paise={Math.abs(preview.netProfit)}
-                className={`text-[16px] font-semibold ${preview.netProfit >= 0 ? 'text-dr' : 'text-cr'}`}
+                className={`text-title font-semibold ${preview.netProfit >= 0 ? 'text-dr' : 'text-cr'}`}
               />
             </Panel>
           )}
@@ -210,7 +210,7 @@ export function YearEndScreen(): React.JSX.Element {
       {step === 2 && preview && (
         <>
           <Panel className="mb-4">
-            <div className="border-b border-line px-4 py-2.5 text-[12.5px] text-muted">
+            <div className="border-b border-line px-4 py-2.5 text-body-sm text-muted">
               Journal · dated {toDisplayDate(fy.to)} · narration “Year-end closing entry [year-end close FY{fyStartYear}]”
             </div>
             <ScrollList maxH="50vh">
@@ -242,10 +242,10 @@ export function YearEndScreen(): React.JSX.Element {
             </ScrollList>
           </Panel>
           <Panel className="mb-4 border-amber/40 bg-amber/5 p-4">
-            <p className="text-[13px] font-medium">
+            <p className="text-detail font-medium">
               Posting will lock all entries up to {toDisplayDate(fy.to)}.
             </p>
-            <p className="mt-1 text-[12.5px] text-muted">
+            <p className="mt-1 text-body-sm text-muted">
               This cannot be undone from this wizard — an owner can adjust the lock date later from Settings → About.
             </p>
           </Panel>
@@ -261,7 +261,7 @@ export function YearEndScreen(): React.JSX.Element {
       {step === 3 && preview && (
         <>
           <Panel className="mb-4 p-5">
-            <p className="text-[13.5px]">
+            <p className="text-body">
               Closing FY {fy.label} will post the journal above and lock the books up to {toDisplayDate(fy.to)}. Type{' '}
               <span className="font-mono font-semibold">CLOSE</span> to confirm.
             </p>
@@ -274,7 +274,7 @@ export function YearEndScreen(): React.JSX.Element {
                 autoFocus
               />
               {confirmText !== '' && confirmText !== 'CLOSE' && (
-                <p data-testid="year-end-confirm-error" className="mt-1.5 text-[12px] text-cr">
+                <p data-testid="year-end-confirm-error" className="mt-1.5 text-small text-cr">
                   Type CLOSE exactly (all caps) to enable the button.
                 </p>
               )}
@@ -298,8 +298,8 @@ function StepDot({ n, step, label }: { n: Step; step: Step; label: string }): Re
   return (
     <span className={`flex items-center gap-1.5 ${active ? 'text-ink' : done ? 'text-dr' : ''}`}>
       <span
-        className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] ${
-          active ? 'bg-amberbar text-[#2b2000]' : done ? 'bg-dr/20 text-dr' : 'bg-panel2 text-muted'
+        className={`flex h-4 w-4 items-center justify-center rounded-full text-label ${
+          active ? 'bg-amberbar text-onamber' : done ? 'bg-dr/20 text-dr' : 'bg-panel2 text-muted'
         }`}
       >
         {n}

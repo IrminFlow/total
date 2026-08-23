@@ -191,11 +191,11 @@ function IntegrityWarningModal({
 }): React.JSX.Element {
   return (
     <Modal title="Integrity warning" onClose={onClose}>
-      <p className="text-[13px] text-cr">
+      <p className="text-detail text-cr">
         Integrity check found an issue: {warning.quickCheck}
         {warning.unbalancedVoucherIds.length ? ` — ${warning.unbalancedVoucherIds.length} unbalanced voucher(s)` : ''}
       </p>
-      <p className="mt-2 text-[12.5px] text-muted">
+      <p className="mt-2 text-body-sm text-muted">
         The books were {warning.context}. Review the Day Book and Trial Balance carefully before continuing.
       </p>
       <div className="mt-4 flex justify-end">

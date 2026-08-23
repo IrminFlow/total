@@ -56,12 +56,12 @@ export function LockScreen(): React.JSX.Element {
       className="drag-region fixed inset-0 z-50 flex h-full flex-col items-center justify-center bg-canvas"
     >
       <div className="w-full max-w-sm">
-        <h1 className="text-center font-serif text-[28px] font-semibold tracking-tight">Locked</h1>
-        <p className="mt-1 mb-8 text-center text-[13px] text-muted">Choose a user and enter your PIN</p>
+        <h1 className="text-center font-serif text-display-sm font-semibold tracking-tight">Locked</h1>
+        <p className="mt-1 mb-8 text-center text-detail text-muted">Choose a user and enter your PIN</p>
 
-        <div className="overflow-hidden rounded-xl border border-line bg-panel">
+        <div className="overflow-hidden rounded-lg border border-line bg-panel">
           {list.length === 0 && (
-            <p className="px-6 py-10 text-center text-[13.5px] text-muted">No users found for this company.</p>
+            <p className="px-6 py-10 text-center text-body text-muted">No users found for this company.</p>
           )}
           {list.map((u, i) => (
             <button
@@ -75,10 +75,10 @@ export function LockScreen(): React.JSX.Element {
               onClick={() => pick(u)}
             >
               <div>
-                <p className="text-[14.5px] font-medium">{u.name}</p>
-                <p className="mt-0.5 text-[11px] text-muted capitalize">{u.role}</p>
+                <p className="text-lead font-medium">{u.name}</p>
+                <p className="mt-0.5 text-caption text-muted capitalize">{u.role}</p>
               </div>
-              {u.id === selectedId && <span className="text-[11.5px] text-muted">Selected</span>}
+              {u.id === selectedId && <span className="text-hint text-muted">Selected</span>}
             </button>
           ))}
         </div>
@@ -102,7 +102,7 @@ export function LockScreen(): React.JSX.Element {
               placeholder="PIN"
               className="num text-center tracking-[0.4em]"
             />
-            {error && <p className="text-center text-[12px] text-cr">{error}</p>}
+            {error && <p className="text-center text-small text-cr">{error}</p>}
             <Button variant="primary" data-testid="btn-unlock" disabled={busy || !pin} onClick={() => void submit()}>
               {busy ? 'Checking…' : `Unlock as ${selected.name}`}
             </Button>
@@ -112,7 +112,7 @@ export function LockScreen(): React.JSX.Element {
         <div className="mt-6 flex justify-center">
           <button
             data-testid="btn-lock-switch-company"
-            className="rounded-md px-3 py-1.5 text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
+            className="rounded-md px-3 py-1.5 text-body-sm text-muted hover:bg-panel2 hover:text-ink"
             onClick={async () => {
               try {
                 await api.company.close()
@@ -127,7 +127,7 @@ export function LockScreen(): React.JSX.Element {
           </button>
         </div>
 
-        <p className="mt-4 text-center text-[11px] text-muted/70">
+        <p className="mt-4 text-center text-caption text-muted/70">
           PINs are a convenience lock — for at-rest protection use Settings → Encrypted export.
         </p>
 

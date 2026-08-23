@@ -34,7 +34,7 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
   return (
     <div className="mx-auto flex max-w-5xl gap-6">
       <aside className="w-44 shrink-0">
-        <h2 className="mb-3 font-serif text-[19px] font-semibold tracking-tight">Settings</h2>
+        <h2 className="mb-3 font-serif text-heading font-semibold tracking-tight">Settings</h2>
         {/* The active tab lives in the nav stack (not local state) so Esc/back retraces tabs
             and other screens can deep-link straight to a tab. */}
         <TabBar

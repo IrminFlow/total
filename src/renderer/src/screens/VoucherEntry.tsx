@@ -110,21 +110,21 @@ export function VoucherEntry({
     <div className="mx-auto max-w-4xl">
       {showFirstVoucherHint && (
         <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5">
-          <p className="text-[12.5px] text-ink">
+          <p className="text-body-sm text-ink">
             First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then{' '}
             <Kbd>⌘↵</Kbd> to save.
           </p>
           <button
             onClick={() => setHintDismissed(true)}
             aria-label="Dismiss"
-            className="shrink-0 text-[12px] text-muted hover:text-ink"
+            className="shrink-0 text-small text-muted hover:text-ink"
           >
             Dismiss
           </button>
         </div>
       )}
       <div className="mb-4 flex items-center gap-2">
-        <h2 className="mr-3 font-serif text-[19px] font-semibold tracking-tight">
+        <h2 className="mr-3 font-serif text-heading font-semibold tracking-tight">
           {voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
         </h2>
         {!voucherId &&
@@ -135,7 +135,7 @@ export function VoucherEntry({
               key={t.id}
               data-testid={`tab-voucher-entry-${t.kind}`}
               onClick={() => setTypeId(t.id)}
-              className={`rounded-md px-2.5 py-1 text-[12px] transition-colors ${
+              className={`rounded-md px-2.5 py-1 text-small transition-colors ${
                 t.id === currentType.id ? 'bg-amber/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
               }`}
             >
@@ -158,7 +158,7 @@ export function VoucherEntry({
           draft={draft}
         />
       )}
-      <p className="mt-3 text-[11.5px] text-muted">
+      <p className="mt-3 text-hint text-muted">
         <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>,{' '}
         <span className="num">7/4</span>, <span className="num">y</span> · the type keys are in the
         bar below and under <Kbd>?</Kbd>

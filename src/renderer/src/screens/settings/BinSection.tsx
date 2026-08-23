@@ -64,12 +64,12 @@ export function BinSection(): React.JSX.Element {
                   {showActions && (
                     <td className="r whitespace-nowrap">
                       {canRestore && (
-                        <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => void restore(r)}>
+                        <button className="mr-2 text-small text-blue hover:underline" onClick={() => void restore(r)}>
                           Restore
                         </button>
                       )}
                       {canPurge && (
-                        <button className="text-[12px] text-cr hover:underline" onClick={() => setPurging(r)}>
+                        <button className="text-small text-cr hover:underline" onClick={() => setPurging(r)}>
                           Delete forever
                         </button>
                       )}
@@ -81,7 +81,7 @@ export function BinSection(): React.JSX.Element {
           </table>
         )}
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">Items are removed permanently after 30 days.</p>
+      <p className="mt-2 text-hint text-muted">Items are removed permanently after 30 days.</p>
       {purging && <PurgeModal row={purging} onClose={() => setPurging(null)} />}
     </div>
   )
@@ -109,11 +109,11 @@ function PurgeModal({ row, onClose }: { row: BinRow; onClose: () => void }): Rea
 
   return (
     <Modal title="Delete forever" onClose={onClose}>
-      <p className="text-[13px] text-ink">
+      <p className="text-detail text-ink">
         Permanently delete voucher {row.number} ({toDisplayDate(row.date)})? This cannot be undone.
       </p>
       <div className="mt-4">
-        <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+        <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
           Type DELETE to confirm
         </span>
         <TextInput value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoFocus />

@@ -81,7 +81,7 @@ export function TdsScreen(): React.JSX.Element {
             key={q}
             data-testid={`tab-tds-q${q}`}
             onClick={() => setQuarter(q)}
-            className={`rounded-md px-3 py-1 text-[12.5px] ${
+            className={`rounded-md px-3 py-1 text-body-sm ${
               quarter === q ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
             }`}
           >
@@ -92,7 +92,7 @@ export function TdsScreen(): React.JSX.Element {
 
       {flaggedNoPan.length > 0 && (
         <Panel className="mb-3">
-          <div className="border-b border-line bg-amber/10 px-3 py-2 text-[12.5px] text-amber">
+          <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
             {flaggedNoPan.length} part{flaggedNoPan.length > 1 ? 'ies' : 'y'} flagged for TDS with no PAN on file — the
             higher 20% rate applies
           </div>
@@ -149,7 +149,7 @@ export function TdsScreen(): React.JSX.Element {
           </table>
         )}
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
+      <p className="mt-2 text-hint text-muted">
         {qLabel} · The 26Q CSV lists deductee, PAN, section, voucher and amounts for manual import into NSDL's Return
         Preparation Utility — it is not a ready-to-file FVU.
       </p>
@@ -248,7 +248,7 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
                     <td className="r">
                       <button
                         data-testid={`btn-tds-section-edit-${s.id}`}
-                        className="text-[12px] text-blue hover:underline"
+                        className="text-small text-blue hover:underline"
                         onClick={() => edit(s)}
                       >
                         Edit
@@ -262,7 +262,7 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
         </ScrollList>
 
         <div>
-          <p className="mb-2 text-[12.5px] font-medium text-ink">{form.id != null ? `Edit ${form.code}` : 'New section'}</p>
+          <p className="mb-2 text-body-sm font-medium text-ink">{form.id != null ? `Edit ${form.code}` : 'New section'}</p>
           <div className="grid grid-cols-3 gap-3">
             <Field label="Code" hint="e.g. 194C">
               <TextInput
@@ -293,7 +293,7 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
               <AmountInput paise={form.thresholdAnnual} onPaise={(p) => setForm({ ...form, thresholdAnnual: p })} />
             </Field>
           </div>
-          {error && <p className="mt-2 text-[12.5px] text-cr">{error}</p>}
+          {error && <p className="mt-2 text-body-sm text-cr">{error}</p>}
           <div className="mt-3 flex justify-end gap-2">
             {form.id != null && (
               <Button

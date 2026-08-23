@@ -168,14 +168,14 @@ function TypeAhead({
                 pick(o)
               }}
             >
-              <span className="text-[13px]">{o.label}</span>
-              {o.sub && <span className="ml-2 text-[11px] text-muted">{o.sub}</span>}
+              <span className="text-detail">{o.label}</span>
+              {o.sub && <span className="ml-2 text-caption text-muted">{o.sub}</span>}
             </div>
           ))}
           {showCreate && (
             <div
               data-active={active === filtered.length}
-              className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-[13px] text-amber"
+              className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-detail text-amber"
               onMouseEnter={() => setActive(filtered.length)}
               onMouseDown={(e) => {
                 e.preventDefault()

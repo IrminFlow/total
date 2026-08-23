@@ -31,7 +31,7 @@ function PasteModal({ onClose, onApply }: { onClose: () => void; onApply: (jsonT
         autoFocus
         data-testid="input-2b-paste"
         placeholder="Paste the contents of the downloaded GSTR-2B JSON here…"
-        className="num w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[11px]"
+        className="num w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-caption"
       />
       <div className="mt-3 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
@@ -82,7 +82,7 @@ function PairRow({
           book.supplierRef ?? book.number
         ) : pair.bucket === 'missingInBooks' && portal ? (
           <button
-            className="text-[12px] text-blue hover:underline"
+            className="text-small text-blue hover:underline"
             data-testid="btn-2b-create-purchase"
             onClick={(e) => {
               e.stopPropagation()
@@ -216,7 +216,7 @@ export function Gstr2bScreen(): React.JSX.Element {
                   key={b.key}
                   data-testid={`btn-2b-bucket-${b.key}`}
                   onClick={() => setBucket(b.key)}
-                  className={`rounded-md border px-3 py-1.5 text-[12.5px] ${
+                  className={`rounded-md border px-3 py-1.5 text-body-sm ${
                     bucket === b.key ? 'border-amber/60 bg-amber/15 text-amber' : 'border-line text-muted hover:bg-panel2 hover:text-ink'
                   }`}
                 >
@@ -227,7 +227,7 @@ export function Gstr2bScreen(): React.JSX.Element {
           </div>
 
           {imported.fileName && (
-            <p className="mb-2 text-[12px] text-muted">
+            <p className="mb-2 text-small text-muted">
               {imported.fileName}
               {result.pairs.length > 0 && ` · ${result.pairs.length} document${result.pairs.length > 1 ? 's' : ''} compared`}
             </p>

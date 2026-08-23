@@ -21,18 +21,18 @@ function StatementRow({ node, depth }: { node: StatementNode; depth: number }): 
   return (
     <>
       <button
-        className="flex w-full items-center justify-between rounded px-2 py-1 text-left hover:bg-panel2"
+        className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left hover:bg-panel2"
         style={{ paddingLeft: `${8 + depth * 18}px` }}
         onClick={() => {
           if (isLeafLedger) nav.go({ name: 'ledger-statement', ledgerId: node.id })
           else if (node.children.length) setOpen((v) => !v)
         }}
       >
-        <span className={`text-[13px] ${depth === 0 ? 'font-medium' : isLeafLedger ? 'text-muted' : ''}`}>
-          {node.children.length > 0 && <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">{open ? '▾' : '▸'}</span>}
+        <span className={`text-detail ${depth === 0 ? 'font-medium' : isLeafLedger ? 'text-muted' : ''}`}>
+          {node.children.length > 0 && <span className="mr-1.5 inline-block w-3 text-label text-muted">{open ? '▾' : '▸'}</span>}
           {node.name}
         </span>
-        <Money paise={node.amount} className="text-[13px]" />
+        <Money paise={node.amount} className="text-detail" />
       </button>
       {open && node.children.length > 0 && <StatementTree nodes={node.children} depth={depth + 1} />}
     </>

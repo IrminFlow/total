@@ -97,13 +97,13 @@ export function InvoiceConfigSection(): React.JSX.Element {
                   accept="image/png,image/jpeg"
                   disabled={!canEdit}
                   onChange={(e) => onLogoFile(e.target.files?.[0] ?? null)}
-                  className="text-[12px]"
+                  className="text-small"
                 />
                 {value.logoDataUrl && (
                   <>
                     <img src={value.logoDataUrl} alt="Logo preview" className="h-8 max-w-24 object-contain" />
                     {canEdit && (
-                      <button className="text-[11.5px] text-cr hover:underline" onClick={() => set({ logoDataUrl: null })}>
+                      <button className="text-hint text-cr hover:underline" onClick={() => set({ logoDataUrl: null })}>
                         Remove
                       </button>
                     )}
@@ -117,7 +117,7 @@ export function InvoiceConfigSection(): React.JSX.Element {
                 onChange={(e) => set({ declaration: e.target.value })}
                 disabled={!canEdit}
                 rows={3}
-                className="w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[12.5px] disabled:opacity-60"
+                className="w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body-sm disabled:opacity-60"
               />
             </Field>
             <Field label="Signatory line">
@@ -129,12 +129,12 @@ export function InvoiceConfigSection(): React.JSX.Element {
                 onChange={(e) => set({ terms: e.target.value })}
                 disabled={!canEdit}
                 rows={2}
-                className="w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[12.5px] disabled:opacity-60"
+                className="w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body-sm disabled:opacity-60"
               />
             </Field>
 
             <fieldset className="rounded-md border border-line p-3">
-              <label className="flex items-center gap-2 text-[12.5px] font-medium">
+              <label className="flex items-center gap-2 text-body-sm font-medium">
                 <input
                   type="checkbox"
                   checked={!!value.bankDetails}
@@ -182,11 +182,11 @@ export function InvoiceConfigSection(): React.JSX.Element {
             </fieldset>
 
             <div className="flex gap-5">
-              <label className="flex items-center gap-2 text-[12.5px]">
+              <label className="flex items-center gap-2 text-body-sm">
                 <input type="checkbox" checked={value.showHsn} disabled={!canEdit} onChange={(e) => set({ showHsn: e.target.checked })} />
                 Show HSN column
               </label>
-              <label className="flex items-center gap-2 text-[12.5px]">
+              <label className="flex items-center gap-2 text-body-sm">
                 <input
                   type="checkbox"
                   checked={value.showDiscount}
@@ -195,7 +195,7 @@ export function InvoiceConfigSection(): React.JSX.Element {
                 />
                 Show discount column
               </label>
-              <label className="flex items-center gap-2 text-[12.5px]">
+              <label className="flex items-center gap-2 text-body-sm">
                 <input
                   type="checkbox"
                   checked={value.showQr}
@@ -204,7 +204,7 @@ export function InvoiceConfigSection(): React.JSX.Element {
                 />
                 Show verification QR
               </label>
-              <label className="flex items-center gap-2 text-[12.5px]">
+              <label className="flex items-center gap-2 text-body-sm">
                 <input
                   type="checkbox"
                   checked={value.showItemBarcode}
@@ -216,7 +216,7 @@ export function InvoiceConfigSection(): React.JSX.Element {
             </div>
 
             <div>
-              <span className="mb-1 block text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+              <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
                 Copies to print (1–3)
               </span>
               <div className="flex flex-col gap-1.5">
@@ -224,7 +224,7 @@ export function InvoiceConfigSection(): React.JSX.Element {
                   <div key={i} className="flex gap-2">
                     <TextInput value={label} onChange={(e) => setCopyLabel(i, e.target.value)} disabled={!canEdit} className="flex-1" />
                     {canEdit && value.copyLabels.length > 1 && (
-                      <button className="text-[12px] text-cr" onClick={() => removeCopyLabel(i)}>
+                      <button className="text-small text-cr" onClick={() => removeCopyLabel(i)}>
                         ×
                       </button>
                     )}
@@ -239,7 +239,7 @@ export function InvoiceConfigSection(): React.JSX.Element {
             </div>
 
             <div className="mt-2 flex items-center justify-end gap-3">
-              {!canEdit && <span className="text-[11.5px] text-muted">Only owners can edit invoice print settings</span>}
+              {!canEdit && <span className="text-hint text-muted">Only owners can edit invoice print settings</span>}
               {canEdit && (
                 <Button variant="primary" disabled={busy || !draft} onClick={() => void save()}>
                   {busy ? 'Saving…' : 'Save'}
@@ -250,11 +250,11 @@ export function InvoiceConfigSection(): React.JSX.Element {
         </Panel>
 
         <div>
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Preview</p>
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Preview</p>
           <div className="overflow-hidden rounded-lg border border-line bg-white">
             <iframe title="Invoice preview" sandbox="" srcDoc={preview?.html ?? ''} style={{ width: '100%', height: 500, border: 0 }} />
           </div>
-          <p className="mt-2 text-[11.5px] text-muted">
+          <p className="mt-2 text-hint text-muted">
             Preview updates as you edit — Save to apply.
           </p>
         </div>

@@ -72,10 +72,10 @@ const DayBookRowView = memo(function DayBookRowView({
         <td>
           {row.account}
           {row.isOptional && (
-            <span className="ml-2 rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium text-amber">Optional</span>
+            <span className="ml-2 rounded-md bg-amber/15 px-1.5 py-0.5 text-label font-medium text-amber">Optional</span>
           )}
           {row.postDated && (
-            <span className="ml-2 rounded bg-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-blue">PDC</span>
+            <span className="ml-2 rounded-md bg-blue/10 px-1.5 py-0.5 text-label font-medium text-blue">PDC</span>
           )}
         </td>
       )}
@@ -85,7 +85,7 @@ const DayBookRowView = memo(function DayBookRowView({
           <Money paise={row.debit} />
           {row.kind === 'sales' && (
             <button
-              className="ml-2 text-[11.5px] text-blue hover:underline"
+              className="ml-2 text-hint text-blue hover:underline"
               onClick={(e) => onPdf(row.voucherId, e)}
               title="Invoice PDF"
             >
@@ -257,7 +257,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
       </SectionTitle>
       {(drill.span || drill.kind) && (
         <div className="mb-3 flex items-center gap-2">
-          <span className="flex items-center gap-1.5 rounded-full border border-amberbar/50 bg-amberbar/10 px-3 py-1 text-[12px]">
+          <span className="flex items-center gap-1.5 rounded-full border border-amberbar/50 bg-amberbar/10 px-3 py-1 text-small">
             {drill.span ? drill.span.label : null}
             {drill.span && drill.kind ? ' · ' : ''}
             {drill.kind ? <span className="capitalize">{drill.kind.replace('_', ' ')}</span> : null}
@@ -271,7 +271,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
               ✕
             </button>
           </span>
-          <span className="text-[11.5px] text-muted">Filtered from Registers</span>
+          <span className="text-hint text-muted">Filtered from Registers</span>
         </div>
       )}
       <Panel>

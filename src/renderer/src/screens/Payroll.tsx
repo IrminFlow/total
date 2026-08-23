@@ -27,7 +27,7 @@ export function PayrollScreen(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-[19px] font-semibold tracking-tight">Payroll</h2>
+        <h2 className="mr-4 font-serif text-heading font-semibold tracking-tight">Payroll</h2>
         <TabBar
           screen="payroll"
           tabs={[
@@ -39,7 +39,7 @@ export function PayrollScreen(): React.JSX.Element {
         />
       </div>
       {tab === 'employees' ? <EmployeesTab /> : <RunsTab />}
-      <p className="mt-3 text-[11.5px] text-muted">
+      <p className="mt-3 text-hint text-muted">
         Statutory defaults: EPF 12% + 12% on basic (₹15,000 ceiling) · ESI 0.75% / 3.25% when gross ≤ ₹21,000 · simplified professional-tax slab. Posting books one Journal voucher: salaries and employer contributions against PF/ESI/PT/Salaries payable.
       </p>
     </div>
@@ -110,7 +110,7 @@ function EmployeesTab(): React.JSX.Element {
                 >
                   <td>
                     {e.name}
-                    {!e.active && <span className="ml-2 text-[11px] text-muted">inactive</span>}
+                    {!e.active && <span className="ml-2 text-caption text-muted">inactive</span>}
                   </td>
                   <td className="text-muted">{e.designation}</td>
                   <td className="r"><Money paise={e.basic} /></td>
@@ -119,21 +119,21 @@ function EmployeesTab(): React.JSX.Element {
                   <td className="r font-medium"><Money paise={e.basic + e.hra + e.special} /></td>
                   <td className="r">
                     <button
-                      className="mr-3 text-[12px] text-muted hover:text-ink"
+                      className="mr-3 text-small text-muted hover:text-ink"
                       data-testid="btn-payroll-overrides"
                       onClick={() => setOverridesFor(e)}
                     >
                       Heads
                     </button>
                     <button
-                      className="mr-3 text-[12px] text-blue hover:underline"
+                      className="mr-3 text-small text-blue hover:underline"
                       data-testid="btn-payroll-edit-employee"
                       onClick={() => setEditing(e)}
                     >
                       Edit
                     </button>
                     <button
-                      className="text-[12px] text-cr hover:underline"
+                      className="text-small text-cr hover:underline"
                       data-testid="btn-payroll-delete-employee"
                       onClick={() => void remove(e)}
                     >
@@ -203,7 +203,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
   }
 
   const check = (label: string, value: boolean, set: (v: boolean) => void): React.JSX.Element => (
-    <label className="flex items-center gap-2 text-[13px]">
+    <label className="flex items-center gap-2 text-detail">
       <input type="checkbox" checked={value} onChange={(e) => set(e.target.checked)} />
       {label}
     </label>
@@ -377,10 +377,10 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
                     <td className="num r">{h.calc === 'flat' ? <Money paise={h.value} /> : percentLabel(h.value)}</td>
                     <td className="text-muted">{h.active ? 'Yes' : 'No'}</td>
                     <td className="r">
-                      <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => edit(h)}>
+                      <button className="mr-3 text-small text-blue hover:underline" onClick={() => edit(h)}>
                         Edit
                       </button>
-                      <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(h)}>
+                      <button className="text-small text-cr hover:underline" onClick={() => void remove(h)}>
                         Delete
                       </button>
                     </td>
@@ -392,7 +392,7 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
         )}
 
         <div className="border-t border-line pt-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{editingId ? 'Edit pay head' : 'Add pay head'}</p>
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">{editingId ? 'Edit pay head' : 'Add pay head'}</p>
           <div className="grid grid-cols-4 gap-3">
             <Field label="Name">
               <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Conveyance" />
@@ -426,7 +426,7 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
             )}
           </div>
           <div className="mt-3 flex items-center justify-between">
-            <label className="flex items-center gap-2 text-[13px] text-ink">
+            <label className="flex items-center gap-2 text-detail text-ink">
               <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
               Active
             </label>
@@ -437,7 +437,7 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
               </Button>
             </span>
           </div>
-          <p className="mt-2 text-[11.5px] text-muted">
+          <p className="mt-2 text-hint text-muted">
             Basic, HRA and Special Allowance are the built-in salary heads — their per-employee values live on the employee form and mirror here automatically.
           </p>
         </div>
@@ -508,7 +508,7 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
   return (
     <Modal title={`Pay heads — ${employee.name}`} onClose={onClose} wide dirty={dirty}>
       {!loaded ? (
-        <div className="flex items-center gap-2 py-4 text-[13px] text-muted">
+        <div className="flex items-center gap-2 py-4 text-detail text-muted">
           <Spinner /> Loading…
         </div>
       ) : !heads.length ? (
@@ -540,7 +540,7 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
                       </td>
                       <td>
                         {h.name}
-                        {!h.active && <span className="ml-2 text-[11px] text-muted">paused</span>}
+                        {!h.active && <span className="ml-2 text-caption text-muted">paused</span>}
                       </td>
                       <td className="capitalize text-muted">{h.kind}</td>
                       <td className="num r">{h.calc === 'flat' ? <Money paise={h.value} /> : percentLabel(h.value)}</td>
@@ -559,7 +559,7 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
               </tbody>
             </table>
           </ScrollList>
-          <p className="text-[11.5px] text-muted">
+          <p className="text-hint text-muted">
             Empty override = the head's default value. Basic, HRA and Special Allowance overrides write back to the salary fields on the employee form.
           </p>
           <div className="flex justify-end gap-2 border-t border-line pt-4">
@@ -749,7 +749,7 @@ function RunsTab(): React.JSX.Element {
                           step={0.5}
                           data-testid="input-payroll-days"
                           aria-invalid={err ? true : undefined}
-                          className={`num w-16 rounded border px-1.5 py-0.5 text-right text-[12.5px] bg-panel2 ${err ? 'border-cr/70' : 'border-line'}`}
+                          className={`num w-16 rounded-md border px-1.5 py-0.5 text-right text-body-sm bg-panel2 ${err ? 'border-cr/70' : 'border-line'}`}
                           value={daysOverride[e.id] ?? String(monthDays)}
                           onChange={(ev) => setDaysOverride((d) => ({ ...d, [e.id]: ev.target.value }))}
                         />
@@ -777,7 +777,7 @@ function RunsTab(): React.JSX.Element {
       </Panel>
 
       <Panel scroll={{ maxH: '52vh' }}>
-        <p className="border-b border-line px-4 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+        <p className="border-b border-line px-4 py-2.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase">
           Posted runs
         </p>
         {runsLoading ? (
@@ -847,7 +847,7 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
     <div className="border-b border-line/50 px-4 py-2.5 last:border-b-0" data-row-id={run.id}>
       <div className="flex items-center justify-between">
         <span className="font-medium">{monthLabel(run.month)}</span>
-        <span className="flex items-center gap-3 text-[12px]">
+        <span className="flex items-center gap-3 text-small">
           <Money paise={run.lines.reduce((s, l) => s + l.net, 0)} />
           {run.voucherId && (
             <button
@@ -872,7 +872,7 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
                   {run.lines.map((l) => (
                     <button
                       key={l.id}
-                      className="block w-full truncate px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-panel2"
+                      className="block w-full truncate px-3 py-1.5 text-left text-body-sm text-ink hover:bg-panel2"
                       title="Open payslip PDF"
                       onClick={() => {
                         setPayslipsOpen(false)
@@ -924,7 +924,7 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
   return (
     <Modal title={`Professional tax — ${monthLabel(run.month)}`} onClose={onClose}>
       {isLoading || !rows ? (
-        <div className="flex items-center gap-2 py-4 text-[13px] text-muted">
+        <div className="flex items-center gap-2 py-4 text-detail text-muted">
           <Spinner /> Loading…
         </div>
       ) : rows.length === 0 ? (

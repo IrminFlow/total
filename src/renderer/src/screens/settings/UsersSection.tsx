@@ -28,7 +28,7 @@ export function UsersSection(): React.JSX.Element {
     return (
       <div>
         <SectionTitle>Users</SectionTitle>
-        <div className="rounded-md border border-blue/40 bg-blue/10 px-3.5 py-2.5 text-[12.5px] text-blue">
+        <div className="rounded-md border border-blue/40 bg-blue/10 px-3.5 py-2.5 text-body-sm text-blue">
           Only the owner can manage users. Ask an owner to sign in to add, edit or deactivate accounts.
         </div>
       </div>
@@ -60,7 +60,7 @@ export function UsersSection(): React.JSX.Element {
                   <td className="capitalize">{u.role}</td>
                   <td>
                     <span
-                      className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                      className={`rounded-full border px-2 py-0.5 text-caption ${
                         u.active ? 'border-dr/40 text-dr' : 'border-line text-muted'
                       }`}
                     >
@@ -68,11 +68,11 @@ export function UsersSection(): React.JSX.Element {
                     </span>
                   </td>
                   <td className="r whitespace-nowrap">
-                    <button className="mr-2 text-[12px] text-blue hover:underline" onClick={() => setEditing(u)}>
+                    <button className="mr-2 text-small text-blue hover:underline" onClick={() => setEditing(u)}>
                       Edit
                     </button>
                     {u.active && (
-                      <button className="text-[12px] text-cr hover:underline" onClick={() => setDeactivating(u)}>
+                      <button className="text-small text-cr hover:underline" onClick={() => setDeactivating(u)}>
                         Deactivate
                       </button>
                     )}
@@ -234,7 +234,7 @@ function DeactivateModal({ user, onClose }: { user: UserRow; onClose: () => void
 
   return (
     <Modal title="Deactivate user" onClose={onClose}>
-      <p className="text-[13px] text-ink">Deactivate {user.name}? They will no longer be able to sign in.</p>
+      <p className="text-detail text-ink">Deactivate {user.name}? They will no longer be able to sign in.</p>
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="danger" disabled={busy} onClick={() => void submit()}>

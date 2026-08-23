@@ -73,21 +73,21 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }): React.JSX.El
   const groups = useShortcutGroups()
   return (
     <Modal title="Keyboard shortcuts" onClose={onClose} wide>
-      <p className="mb-4 text-[12.5px] text-muted">
+      <p className="mb-4 text-body-sm text-muted">
         Every menu item has one letter highlighted in red — press it to go there, from any screen.
         A letter the current screen has taken over shows grey in the sidebar.
       </p>
       <div className="grid grid-cols-2 gap-x-8 gap-y-6">
         {groups.map((group) => (
           <div key={group.title}>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{group.title}</p>
+            <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">{group.title}</p>
             <div className="flex flex-col gap-1.5">
               {group.rows.map((row) => (
                 <div
                   key={`${group.title}-${row.label}`}
                   className={`flex items-center justify-between gap-4 ${row.dimmed ? 'opacity-45' : ''}`}
                 >
-                  <span className="text-[13px] text-ink">{row.label}</span>
+                  <span className="text-detail text-ink">{row.label}</span>
                   <span className="flex shrink-0 items-center gap-1">
                     {row.keys.map((k, i) => (
                       <Kbd key={i}>{k}</Kbd>

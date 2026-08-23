@@ -39,7 +39,7 @@ export function TabBar<T extends string>({
           data-testid={tid('tab', screen, t.id)}
           aria-current={active === t.id ? 'page' : undefined}
           onClick={() => onSelect(t.id)}
-          className={`rounded-md px-3 py-1.5 text-[13px] transition-colors ${vertical ? 'px-2.5 text-left' : ''} ${
+          className={`rounded-md px-3 py-1.5 text-detail transition-colors ${vertical ? 'px-2.5 text-left' : ''} ${
             active === t.id ? 'bg-amber/15 font-medium text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
           }`}
         >

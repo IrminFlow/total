@@ -70,10 +70,10 @@ export function CostCentresScreen(): React.JSX.Element {
                   <td className="text-muted">{c.parentId ? (centreMap.get(c.parentId)?.name ?? '') : ''}</td>
                   <td className="text-muted">{c.active ? 'Yes' : 'No'}</td>
                   <td className="r">
-                    <button className="mr-3 text-[12px] text-blue hover:underline" onClick={() => setEditing(c)}>
+                    <button className="mr-3 text-small text-blue hover:underline" onClick={() => setEditing(c)}>
                       Edit
                     </button>
-                    <button className="text-[12px] text-cr hover:underline" onClick={() => void remove(c)}>
+                    <button className="text-small text-cr hover:underline" onClick={() => void remove(c)}>
                       Delete
                     </button>
                   </td>
@@ -107,7 +107,7 @@ export function CostCentresScreen(): React.JSX.Element {
                 <Fragment key={r.costCentreId}>
                   <tr className="cursor-pointer" onClick={() => setDrillId(drillId === r.costCentreId ? null : r.costCentreId)}>
                     <td>
-                      <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">{drillId === r.costCentreId ? '▾' : '▸'}</span>
+                      <span className="mr-1.5 inline-block w-3 text-label text-muted">{drillId === r.costCentreId ? '▾' : '▸'}</span>
                       {r.name}
                     </td>
                     <td className="r"><Money paise={r.income} /></td>
@@ -180,7 +180,7 @@ function DrillRows({
             <button className="hover:text-blue hover:underline" onClick={() => onOpenVoucher(r.voucherId)}>
               {r.number}
             </button>
-            <span className="ml-3 text-[11.5px]">
+            <span className="ml-3 text-hint">
               <span className="num">{toDisplayDate(r.date)}</span> · {r.ledgerName}
             </span>
           </td>
@@ -238,7 +238,7 @@ function CostCentreFormModal({
               ))}
           </Select>
         </Field>
-        <label className="flex items-center gap-2 text-[13px] text-ink">
+        <label className="flex items-center gap-2 text-detail text-ink">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
           Active
         </label>

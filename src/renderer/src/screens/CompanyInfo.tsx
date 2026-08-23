@@ -88,10 +88,10 @@ export function CompanyInfoScreen(): React.JSX.Element {
         className="mb-4 flex w-full items-center justify-between rounded-lg border-2 border-amber/50 bg-amber/10 px-4 py-3.5 text-left transition-colors hover:border-amber hover:bg-amber/15"
       >
         <span>
-          <span className="block text-[14px] font-semibold">Invoice layout &amp; contents…</span>
-          <span className="block text-[11.5px] text-muted">Logo, declaration, bank details, QR, barcode column, copies to print</span>
+          <span className="block text-lead font-semibold">Invoice layout &amp; contents…</span>
+          <span className="block text-hint text-muted">Logo, declaration, bank details, QR, barcode column, copies to print</span>
         </span>
-        <span className="text-[15px] text-amber">→</span>
+        <span className="text-lead text-amber">→</span>
       </button>
       <Panel className="flex flex-col gap-4 p-5">
         <Field label="Name">
@@ -144,7 +144,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
           </Button>
         </div>
       </Panel>
-      <p className="mt-3 text-[12px] text-muted">
+      <p className="mt-3 text-small text-muted">
         Books from FY {info?.booksFrom}-{((info?.booksFrom ?? 0) + 1) % 100}. Data lives in ~/Documents/total/companies/{slug} — back it up like any folder.
       </p>
       <CsvImportCard />
@@ -244,7 +244,7 @@ function CsvImportCard(): React.JSX.Element {
       >
         Import from CSV
       </SectionTitle>
-      <p className="text-[12px] text-muted">
+      <p className="text-small text-muted">
         Bring ledgers, stock items, or opening balances in from a spreadsheet — save your Excel sheet as CSV first, then pick it below.
       </p>
       <div className="flex items-end gap-3">
@@ -266,12 +266,12 @@ function CsvImportCard(): React.JSX.Element {
         <Button onClick={() => void pickAndPreview()} disabled={busy}>
           Pick file…
         </Button>
-        {fileName && <span className="text-[12px] text-muted">{fileName}</span>}
+        {fileName && <span className="text-small text-muted">{fileName}</span>}
       </div>
 
       {preview && (
         <>
-          <div className="flex items-center gap-4 text-[12px]">
+          <div className="flex items-center gap-4 text-small">
             <span className="text-muted">{preview.total} row{preview.total === 1 ? '' : 's'} parsed</span>
             <span className="text-dr">{preview.willCreate} to create</span>
             <span className="text-muted">{preview.willUpdate} to update</span>
@@ -302,9 +302,9 @@ function CsvImportCard(): React.JSX.Element {
                       ))}
                       <td>
                         {error ? (
-                          <span className="rounded-full bg-cr/15 px-2 py-0.5 text-[11px] text-cr">{error}</span>
+                          <span className="rounded-full bg-cr/15 px-2 py-0.5 text-caption text-cr">{error}</span>
                         ) : (
-                          <span className="rounded-full bg-dr/15 px-2 py-0.5 text-[11px] text-dr">OK</span>
+                          <span className="rounded-full bg-dr/15 px-2 py-0.5 text-caption text-dr">OK</span>
                         )}
                       </td>
                     </tr>
@@ -317,7 +317,7 @@ function CsvImportCard(): React.JSX.Element {
             const shownLines = new Set(previewRows.map((r) => r.line as number))
             const hiddenErrorCount = preview.errors.filter((e) => !shownLines.has(e.line)).length
             return hiddenErrorCount > 0 ? (
-              <p className="text-[12px] text-muted">
+              <p className="text-small text-muted">
                 {hiddenErrorCount} more error(s) beyond the rows shown above will still be skipped on apply.
               </p>
             ) : null

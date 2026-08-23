@@ -133,7 +133,7 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
       </div>
 
       {producedId && !bom?.length && (
-        <p className="mt-3 text-[12.5px] text-amber">
+        <p className="mt-3 text-body-sm text-amber">
           No bill of materials on this item yet — add components in Masters → Stock items → Edit.
         </p>
       )}
@@ -153,7 +153,7 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
               <tr key={c.componentId} className={c.rate === 0 ? 'text-cr' : ''}>
                 <td>
                   {c.componentName}
-                  {c.rate === 0 && <span className="ml-2 text-[11px]">no stock cost — purchase it first</span>}
+                  {c.rate === 0 && <span className="ml-2 text-caption">no stock cost — purchase it first</span>}
                 </td>
                 <td className="r num">{c.useMilli / 1000} {c.unitSymbol}</td>
                 <td className="r"><Money paise={c.rate} /></td>

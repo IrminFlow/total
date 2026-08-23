@@ -80,7 +80,7 @@ export function StockSummaryScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
-            <span className="num text-[12px] text-muted">as on {toDisplayDate(to)}</span>
+            <span className="num text-small text-muted">as on {toDisplayDate(to)}</span>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
             <Button
               variant="ghost"
@@ -128,11 +128,11 @@ export function StockSummaryScreen(): React.JSX.Element {
                   className={`${nav.rowProps(i, r).className} ${r.closingQtyMilli < 0 ? 'text-cr' : ''}`}
                 >
                   <td>
-                    <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">
+                    <span className="mr-1.5 inline-block w-3 text-label text-muted">
                       {expandedId === r.stockItemId ? '▾' : '▸'}
                     </span>
                     {r.name}
-                    {r.closingQtyMilli < 0 && <span className="ml-2 text-[11px]">— negative stock, check entries</span>}
+                    {r.closingQtyMilli < 0 && <span className="ml-2 text-caption">— negative stock, check entries</span>}
                   </td>
                   {visible.opening && (
                     <td className="r num">
@@ -215,17 +215,17 @@ function ItemDetail({
     (g) => g.stockItemId === stockItemId && g.closingQtyMilli !== 0 && g.godownId !== null
   )
   const batchRows = (batches ?? []).filter((b) => b.closingQtyMilli !== 0)
-  if (loadingGodowns || loadingBatches) return <p className="px-6 py-2 text-[12px] text-muted">Loading breakdown…</p>
+  if (loadingGodowns || loadingBatches) return <p className="px-6 py-2 text-small text-muted">Loading breakdown…</p>
   if (godownRows.length === 0 && batchRows.length === 0) {
-    return <p className="px-6 py-2 text-[12px] text-muted">No godown or batch breakdown for this item.</p>
+    return <p className="px-6 py-2 text-small text-muted">No godown or batch breakdown for this item.</p>
   }
   return (
     <div className="flex flex-wrap gap-8 px-6 py-2" data-testid="stock-item-detail">
       {godownRows.length > 0 && (
         <div>
-          <p className="mb-1 text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">By godown</p>
+          <p className="mb-1 text-label font-semibold tracking-[0.08em] text-muted uppercase">By godown</p>
           {godownRows.map((g) => (
-            <p key={`${g.godownId}`} className="num text-[12.5px]">
+            <p key={`${g.godownId}`} className="num text-body-sm">
               {g.godownName}: {fmtQty(g.closingQtyMilli, decimals)} {unitSymbol} · <Money paise={g.closingValue} />
             </p>
           ))}
@@ -233,9 +233,9 @@ function ItemDetail({
       )}
       {batchRows.length > 0 && (
         <div>
-          <p className="mb-1 text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">By batch</p>
+          <p className="mb-1 text-label font-semibold tracking-[0.08em] text-muted uppercase">By batch</p>
           {batchRows.map((b) => (
-            <p key={b.batchId} className="num text-[12.5px]">
+            <p key={b.batchId} className="num text-body-sm">
               {b.batchName}: {fmtQty(b.closingQtyMilli, decimals)} {unitSymbol}
               {b.expiryDate ? ` · expires ${toDisplayDate(b.expiryDate)}` : ''}
             </p>
@@ -253,7 +253,7 @@ function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
   if (rows.length === 0) return null
   return (
     <Panel className="mt-4">
-      <p className="mb-2 px-1 text-[13.5px] font-medium">Stock analysis — ageing &amp; reorder</p>
+      <p className="mb-2 px-1 text-body font-medium">Stock analysis — ageing &amp; reorder</p>
       <table className="ledger-table" data-testid="stock-ageing-table">
         <thead>
           <tr>
@@ -275,8 +275,8 @@ function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
                 </td>
               ))}
               <td>
-                {r.belowReorder && <span className="mr-2 text-[11.5px] text-cr">reorder</span>}
-                {r.slowMoving && <span className="text-[11.5px] text-muted">slow-moving</span>}
+                {r.belowReorder && <span className="mr-2 text-hint text-cr">reorder</span>}
+                {r.slowMoving && <span className="text-hint text-muted">slow-moving</span>}
               </td>
             </tr>
           ))}

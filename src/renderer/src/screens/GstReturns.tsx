@@ -123,10 +123,10 @@ function IssueRow({
   return (
     <div className="flex flex-col gap-1 border-b border-line px-3 py-2 last:border-b-0" data-row-id={voucherIds[0]}>
       <div className="flex items-start gap-2">
-        <span className={`mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10.5px] font-medium uppercase ${SEVERITY_CLASS[severity]}`}>
+        <span className={`mt-0.5 shrink-0 rounded-md border px-1.5 py-0.5 text-label font-medium uppercase ${SEVERITY_CLASS[severity]}`}>
           {severity}
         </span>
-        <span className="text-[12.5px] text-ink">{message}</span>
+        <span className="text-body-sm text-ink">{message}</span>
       </div>
       {voucherIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 pl-1">
@@ -135,14 +135,14 @@ function IssueRow({
               key={id}
               data-testid="btn-gstr1-drill"
               data-row-id={id}
-              className="rounded border border-line px-1.5 py-0.5 text-[11px] text-blue hover:bg-panel2"
+              className="rounded-md border border-line px-1.5 py-0.5 text-caption text-blue hover:bg-panel2"
               onClick={() => onOpen(id)}
             >
               Open #{id}
             </button>
           ))}
           {voucherIds.length > 8 && !expanded && (
-            <button className="text-[11px] text-muted hover:text-ink" onClick={() => setExpanded(true)}>
+            <button className="text-caption text-muted hover:text-ink" onClick={() => setExpanded(true)}>
               +{voucherIds.length - 8} more
             </button>
           )}
@@ -221,12 +221,12 @@ export function Gstr1Screen(): React.JSX.Element {
       </SectionTitle>
 
       {exportBlockedReason && (
-        <p className={`mb-3 text-[12.5px] ${blocking.length ? 'text-cr' : 'text-amber'}`}>{exportBlockedReason}</p>
+        <p className={`mb-3 text-body-sm ${blocking.length ? 'text-cr' : 'text-amber'}`}>{exportBlockedReason}</p>
       )}
 
       {validating ? (
         <Panel className="mb-4">
-          <div className="flex items-center gap-2 px-3 py-3 text-[12.5px] text-muted">
+          <div className="flex items-center gap-2 px-3 py-3 text-body-sm text-muted">
             <Spinner /> Validating period documents…
           </div>
         </Panel>
@@ -248,7 +248,7 @@ export function Gstr1Screen(): React.JSX.Element {
           </div>
         </Panel>
       ) : (
-        <p className="mb-3 text-[12px] text-muted">Validation clean — no issues found in this period. ✓</p>
+        <p className="mb-3 text-small text-muted">Validation clean — no issues found in this period. ✓</p>
       )}
 
       <Panel>
@@ -302,7 +302,7 @@ export function Gstr1Screen(): React.JSX.Element {
         </table>
         )}
       </Panel>
-      <p className="mt-3 text-[12px] text-muted">
+      <p className="mt-3 text-small text-muted">
         The exported JSON matches the GST offline-tool schema — upload it on the portal under Returns → GSTR-1 → Prepare offline. A CSV summary lands beside it in exports/. HSN rows (Table 12) restate the invoice tables and Documents issued (Table 13) counts net series — neither adds to the total.
       </p>
     </div>
@@ -409,7 +409,7 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
         </tbody>
       </table>
       <div className="mt-2 flex items-center justify-end gap-2">
-        {dirty && <span className="text-[11.5px] text-amber">Unsaved changes</span>}
+        {dirty && <span className="text-hint text-amber">Unsaved changes</span>}
         <Button variant="primary" data-testid="btn-gstr3b-save-manual" disabled={!dirty || saving} onClick={() => void doSave()}>
           {saving ? 'Saving…' : 'Save adjustments'}
         </Button>
@@ -483,7 +483,7 @@ export function Gstr3bScreen(): React.JSX.Element {
       </SectionTitle>
 
       {!info?.gstin && (
-        <p className="mb-3 text-[12.5px] text-amber">Add the company GSTIN under Company details to enable export.</p>
+        <p className="mb-3 text-body-sm text-amber">Add the company GSTIN under Company details to enable export.</p>
       )}
 
       <Panel>
@@ -597,7 +597,7 @@ export function Gstr3bScreen(): React.JSX.Element {
         <ManualAdjustments period={month.period} />
       </Panel>
 
-      <p className="mt-3 text-[12px] text-muted">
+      <p className="mt-3 text-small text-muted">
         4(B) reversals and 5.1 interest/late fee are the manual adjustments above, persisted per period and folded into the exported JSON. RCM tax (3.1(d)) is payable in cash and simultaneously claimable as ITC under 4(A)(3).
       </p>
     </div>

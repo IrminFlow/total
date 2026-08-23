@@ -156,7 +156,7 @@ export function RecurringScreen(): React.JSX.Element {
                   <td className="num">{toDisplayDate(t.nextDue)}</td>
                   <td className="num text-muted">{t.lastPosted ? toDisplayDate(t.lastPosted) : '—'}</td>
                   <td>
-                    <span className={`rounded px-1.5 py-0.5 text-[10.5px] ${t.active ? 'bg-dr/10 text-dr' : 'bg-panel2 text-muted'}`}>
+                    <span className={`rounded-md px-1.5 py-0.5 text-label ${t.active ? 'bg-dr/10 text-dr' : 'bg-panel2 text-muted'}`}>
                       {t.active ? 'Active' : 'Paused'}
                     </span>
                   </td>
@@ -164,7 +164,7 @@ export function RecurringScreen(): React.JSX.Element {
                     <button
                       data-testid={`btn-recurring-post-${t.id}`}
                       disabled={busyId === t.id}
-                      className="mr-2 text-[12px] text-blue hover:underline disabled:opacity-40"
+                      className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
                       onClick={() => void postNow(t)}
                     >
                       Post now
@@ -243,7 +243,7 @@ function RowMenu({
         aria-expanded={pos != null}
         disabled={disabled}
         title="More actions"
-        className="rounded px-1.5 py-0.5 text-[13px] leading-none text-muted hover:bg-panel2 hover:text-ink disabled:opacity-40"
+        className="rounded-md px-1.5 py-0.5 text-detail leading-none text-muted hover:bg-panel2 hover:text-ink disabled:opacity-40"
         onClick={toggle}
       >
         ⋯
@@ -259,7 +259,7 @@ function RowMenu({
             <button
               key={a.label}
               role="menuitem"
-              className={`block w-full px-3 py-1.5 text-left text-[12.5px] hover:bg-panel2 ${a.danger ? 'text-cr' : 'text-ink'}`}
+              className={`block w-full px-3 py-1.5 text-left text-body-sm hover:bg-panel2 ${a.danger ? 'text-cr' : 'text-ink'}`}
               onClick={() => {
                 setPos(null)
                 a.onClick()
@@ -365,7 +365,7 @@ function RecurringFormModal({ template, onClose }: { template: RecurringTemplate
         <Field label="Next due">
           <DateInput value={nextDue} context={nextDue} onChange={setNextDue} />
         </Field>
-        <label className="flex items-center gap-2 text-[13px] text-ink">
+        <label className="flex items-center gap-2 text-detail text-ink">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
           Active
         </label>

@@ -101,17 +101,17 @@ export function BackupsSection(): React.JSX.Element {
             <tbody>
               {rows.map((b) => (
                 <tr key={b.file}>
-                  <td className="num text-[11.5px] text-muted">{b.file}</td>
+                  <td className="num text-hint text-muted">{b.file}</td>
                   <td className="num text-muted">{formatMtime(b.mtime)}</td>
                   <td className="num text-muted">{formatSize(b.sizeBytes)}</td>
                   <td>
-                    <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-[11px] text-muted capitalize">
+                    <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-caption text-muted capitalize">
                       {b.tag.replace(/-/g, ' ')}
                     </span>
                   </td>
                   {isOwner && (
                     <td className="r">
-                      <button className="text-[12px] text-blue hover:underline" onClick={() => setRestoring(b)}>
+                      <button className="text-small text-blue hover:underline" onClick={() => setRestoring(b)}>
                         Restore…
                       </button>
                     </td>
@@ -122,7 +122,7 @@ export function BackupsSection(): React.JSX.Element {
           </table>
         )}
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
+      <p className="mt-2 text-hint text-muted">
         Backups live in this company's data folder. A snapshot is also taken automatically on open and before risky
         operations (Tally imports, restores).
       </p>
@@ -170,7 +170,7 @@ function RestoreModal({
 
   return (
     <Modal title="Restore from backup" onClose={onClose}>
-      <p className="text-[13px] text-ink">
+      <p className="text-detail text-ink">
         This replaces the current books with the backup from {dateLabel}. A pre-restore copy is kept.
       </p>
       <div className="mt-4">

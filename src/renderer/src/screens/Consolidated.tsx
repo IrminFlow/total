@@ -68,7 +68,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
             <div className="flex overflow-hidden rounded-md border border-line">
               <button
                 data-testid="tab-consolidated-tb"
-                className={`px-3 py-1 text-[12px] transition-colors ${
+                className={`px-3 py-1 text-small transition-colors ${
                   kind === 'tb' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
                 }`}
                 onClick={() => setKind('tb')}
@@ -77,7 +77,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
               </button>
               <button
                 data-testid="tab-consolidated-pnl"
-                className={`border-l border-line px-3 py-1 text-[12px] transition-colors ${
+                className={`border-l border-line px-3 py-1 text-small transition-colors ${
                   kind === 'pnl' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
                 }`}
                 onClick={() => setKind('pnl')}
@@ -85,7 +85,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
                 Profit &amp; loss
               </button>
             </div>
-            <span className="num text-[12px] text-muted">
+            <span className="num text-small text-muted">
               {toDisplayDate(from)} → {toDisplayDate(to)}
             </span>
           </div>
@@ -100,7 +100,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
         ) : (
           <ScrollList maxH="40vh" className="flex flex-col gap-1.5">
             {companies.map((c) => (
-              <label key={c.slug} className="flex items-center gap-2 text-[13px]">
+              <label key={c.slug} className="flex items-center gap-2 text-detail">
                 <input
                   type="checkbox"
                   data-testid={`check-consolidated-${c.slug}`}
@@ -108,7 +108,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
                   onChange={() => toggle(c.slug)}
                 />
                 {c.name}
-                <span className="num text-[11px] text-muted">{c.slug}</span>
+                <span className="num text-caption text-muted">{c.slug}</span>
               </label>
             ))}
           </ScrollList>
@@ -126,13 +126,13 @@ export function ConsolidatedScreen(): React.JSX.Element {
       </Panel>
 
       {ranOnce && error && (
-        <div className="mb-4 rounded-md border border-cr/50 bg-cr/10 px-3 py-2 text-[12.5px] text-cr">
+        <div className="mb-4 rounded-md border border-cr/50 bg-cr/10 px-3 py-2 text-body-sm text-cr">
           Couldn&apos;t run the consolidation: {error.message}
         </div>
       )}
 
       {data && data.warnings.length > 0 && (
-        <div className="mb-4 rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2 text-[12.5px] text-ink">
+        <div className="mb-4 rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2 text-body-sm text-ink">
           {data.warnings.map((w, i) => (
             <p key={i}>{w}</p>
           ))}

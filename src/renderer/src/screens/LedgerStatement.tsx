@@ -70,7 +70,7 @@ const LedgerStatementRowView = memo(function LedgerStatementRowView({
     >
       <td className="num text-muted">{toDisplayDate(row.date)}</td>
       <td className="max-w-64 truncate">{row.particulars}</td>
-      <td className="num text-[12px] text-muted">
+      <td className="num text-small text-muted">
         {row.voucherType} {row.number}
       </td>
       <td className="r">
@@ -196,7 +196,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
                   key={m.mode}
                   data-testid={`tab-ledger-statement-${m.testid}`}
                   onClick={() => setMode(m.mode)}
-                  className={`rounded-md px-3 py-1 text-[12.5px] ${mode === m.mode ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                  className={`rounded-md px-3 py-1 text-body-sm ${mode === m.mode ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
                 >
                   {m.tab}
                 </button>
@@ -223,14 +223,14 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
             >
               CSV
             </Button>
-            <Money paise={data.closing} signed className="text-[15px]" />
+            <Money paise={data.closing} signed className="text-lead" />
           </div>
         }
       >
         {data.ledgerName}
       </SectionTitle>
       <Panel>
-        <div className="flex justify-between border-b border-line px-4 py-2 text-[12px] text-muted">
+        <div className="flex justify-between border-b border-line px-4 py-2 text-small text-muted">
           <span>
             Opening balance · <Money paise={data.opening} signed />
           </span>

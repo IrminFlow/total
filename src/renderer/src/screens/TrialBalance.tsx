@@ -81,7 +81,7 @@ export function TrialBalanceScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
-            <span className="num text-[12px] text-muted">as on {toDisplayDate(to)}</span>
+            <span className="num text-small text-muted">as on {toDisplayDate(to)}</span>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
             <Button
               variant="ghost"

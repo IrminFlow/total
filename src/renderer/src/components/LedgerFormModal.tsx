@@ -152,7 +152,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
             <div className="flex gap-2">
               <AmountInput paise={opening} onPaise={setOpening} className="flex-1" />
               <button
-                className={`num w-12 rounded-md border border-line text-[12.5px] font-medium ${openingSide === 'dr' ? 'text-dr' : 'text-cr'}`}
+                className={`num w-12 rounded-md border border-line text-body-sm font-medium ${openingSide === 'dr' ? 'text-dr' : 'text-cr'}`}
                 onClick={() => setOpeningSide((s) => (s === 'dr' ? 'cr' : 'dr'))}
               >
                 {openingSide === 'dr' ? 'Dr' : 'Cr'}

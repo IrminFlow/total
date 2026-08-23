@@ -25,6 +25,12 @@
   /* Accelerator letters. Deliberately NOT --t-cr: that red means "credit" throughout the
      app, and a menu label sharing it would read as an amount. */
   --t-accel: #c02f1d;
+  /* Ink for text sitting ON the amber bar — the one place the ink colour must not follow the
+     theme, because the bar itself is the same amber in both. */
+  --t-on-amber: #2b2000;
+  /* The margin rule down the left of a ledger page. Muted well below --t-cr so it reads as
+     ruling, not as a credit figure. */
+  --t-margin: color-mix(in oklab, #bb4433 34%, transparent);
   --t-shadow: 0 1px 2px rgba(30, 35, 60, 0.06), 0 4px 16px rgba(30, 35, 60, 0.05);
   --t-rule: #3a4053;
 }
@@ -43,6 +49,10 @@
   --t-cr: #e4796b;
   --t-blue: #6e8ef5;
   --t-accel: #ff8a75;
+  --t-on-amber: #2b2000;
+  /* The margin rule down the left of a ledger page. Muted well below --t-cr so it reads as
+     ruling, not as a credit figure. */
+  --t-margin: color-mix(in oklab, #e4796b 26%, transparent);
   --t-shadow: none;
   --t-rule: #e9e9e2;
 }
@@ -64,6 +74,7 @@
   --color-blue: var(--t-blue);
   --color-rule: var(--t-rule);
   --color-accel: var(--t-accel);
+  --color-onamber: var(--t-on-amber);
 
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-serif: 'IBM Plex Serif', Georgia, serif;
@@ -79,8 +90,12 @@
   --text-detail: 13px; /* buttons, dense rows */
   --text-body: 13.5px; /* inputs + default body */
   --text-lead: 14.5px; /* emphasized row titles */
-  --text-title: 16px; /* modal titles */
+  --text-title: 16px; /* modal titles, headline figures */
   --text-heading: 19px; /* section titles */
+  /* Two display steps, for the three places the app speaks above a whisper: the wordmark on
+     company select, the lock screen, and import result counts. */
+  --text-display-sm: 28px;
+  --text-display: 34px;
 }
 
 html,
@@ -114,6 +129,9 @@ body {
 .num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  /* A date or an amount is one atomic value. Letting "24-May-26" break across two lines makes
+     a dense table unreadable and misaligns every row it happens on. */
+  white-space: nowrap;
 }
 
 .panel-shadow {
@@ -161,6 +179,15 @@ tr.kbar-row[data-active='true'] td:first-child {
 .ledger-table {
   width: 100%;
   border-collapse: collapse;
+}
+/* The margin rule: the red vertical line down the left of every page of a bahi khata. It runs
+   the full height because it is drawn on each row's first cell against a collapsed border, so it
+   never needs a wrapper element and never shifts the layout. */
+.ledger-table th:first-child,
+.ledger-table td:first-child {
+  border-left: 1.5px solid var(--t-margin);
+  /* No extra padding: the cell's existing 12px is already the gutter a ruled page has, and
+     widening it here was enough to wrap the date column onto two lines. */
 }
 .ledger-table th {
   font-size: 10.5px;

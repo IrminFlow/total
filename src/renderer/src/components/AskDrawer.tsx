@@ -56,14 +56,14 @@ export function AskDrawer({ onClose }: { onClose: () => void }): React.JSX.Eleme
       aria-label="Ask your books"
     >
       <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-        <p className="text-[13px] font-medium">Ask your books</p>
+        <p className="text-detail font-medium">Ask your books</p>
         <div className="flex items-center gap-2">
           {state.turns.length > 0 && (
-            <button className="text-[11.5px] text-muted hover:text-ink" onClick={reset}>
+            <button className="text-hint text-muted hover:text-ink" onClick={reset}>
               Clear
             </button>
           )}
-          <button className="text-[11.5px] text-muted hover:text-ink" onClick={onClose} aria-label="Close">
+          <button className="text-hint text-muted hover:text-ink" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
@@ -71,7 +71,7 @@ export function AskDrawer({ onClose }: { onClose: () => void }): React.JSX.Eleme
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
         {state.turns.length === 0 ? (
-          <div className="text-[12.5px] text-muted">
+          <div className="text-body-sm text-muted">
             <p>Questions about this company&rsquo;s books, answered from the books themselves.</p>
             <ul className="mt-3 flex flex-col gap-1.5">
               {[
@@ -93,7 +93,7 @@ export function AskDrawer({ onClose }: { onClose: () => void }): React.JSX.Eleme
                 </li>
               ))}
             </ul>
-            <p className="mt-4 text-[11.5px] text-muted/80">
+            <p className="mt-4 text-hint text-muted/80">
               Every figure is quoted from a report, with the rows shown underneath. The assistant
               cannot change anything.
             </p>
@@ -103,17 +103,17 @@ export function AskDrawer({ onClose }: { onClose: () => void }): React.JSX.Eleme
             {state.turns.map((turn, i) => (
               <div key={i}>
                 {turn.role === 'user' ? (
-                  <p className="rounded-md bg-panel2 px-3 py-2 text-[13px]">{turn.content}</p>
+                  <p className="rounded-md bg-panel2 px-3 py-2 text-detail">{turn.content}</p>
                 ) : (
                   <div>
-                    {turn.content && <p className="text-[13px] whitespace-pre-wrap">{turn.content}</p>}
+                    {turn.content && <p className="text-detail whitespace-pre-wrap">{turn.content}</p>}
                     {!turn.content && !turn.error && state.running && (
-                      <p className="flex items-center gap-2 text-[12.5px] text-muted">
+                      <p className="flex items-center gap-2 text-body-sm text-muted">
                         <Spinner /> Reading the books…
                       </p>
                     )}
                     {turn.error && (
-                      <p className="rounded-md border border-cr/40 bg-cr/10 px-3 py-2 text-[12.5px] text-cr">
+                      <p className="rounded-md border border-cr/40 bg-cr/10 px-3 py-2 text-body-sm text-cr">
                         {turn.error}
                       </p>
                     )}
@@ -151,7 +151,7 @@ export function AskDrawer({ onClose }: { onClose: () => void }): React.JSX.Eleme
             </Button>
           )}
         </div>
-        <p className="mt-2 flex items-center gap-2 text-[11px] text-muted">
+        <p className="mt-2 flex items-center gap-2 text-caption text-muted">
           {state.endpoint ? (
             <>
               <span className="num">{state.endpoint.model}</span>
@@ -188,7 +188,7 @@ function Sources({ tools }: { tools: ToolTrace[] }): React.JSX.Element {
   return (
     <div className="mt-2">
       <button
-        className="text-[11.5px] text-muted hover:text-ink"
+        className="text-hint text-muted hover:text-ink"
         data-testid="btn-toggle-sources"
         onClick={() => setOpen((v) => !v)}
       >
@@ -198,8 +198,8 @@ function Sources({ tools }: { tools: ToolTrace[] }): React.JSX.Element {
         <div className="mt-1.5 flex flex-col gap-2">
           {withResults.map((t, i) => (
             <div key={i} className="rounded-md border border-line bg-panel2 p-2">
-              <p className="num text-[11px] text-muted">{t.name}</p>
-              <pre className="num mt-1 max-h-40 overflow-auto text-[10.5px] leading-relaxed whitespace-pre-wrap">
+              <p className="num text-caption text-muted">{t.name}</p>
+              <pre className="num mt-1 max-h-40 overflow-auto text-label leading-relaxed whitespace-pre-wrap">
                 {JSON.stringify(t.result, null, 1)}
               </pre>
             </div>

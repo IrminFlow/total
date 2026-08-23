@@ -51,7 +51,7 @@ export function FeaturesSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>Features</SectionTitle>
-      <p className="mb-4 text-[12.5px] text-muted">
+      <p className="mb-4 text-body-sm text-muted">
         Turning a feature off only hides it — existing entries stay in your books and reports.
       </p>
       <Panel className="divide-y divide-line">
@@ -69,14 +69,14 @@ export function FeaturesSection(): React.JSX.Element {
               className="mt-0.5"
             />
             <div>
-              <p className="text-[13.5px] font-medium">{t.label}</p>
-              <p className="text-[12px] text-muted">{t.hint}</p>
+              <p className="text-body font-medium">{t.label}</p>
+              <p className="text-small text-muted">{t.hint}</p>
             </div>
           </label>
         ))}
       </Panel>
       <div className="mt-4 flex items-center justify-end gap-3">
-        {!canEdit && <span className="text-[11.5px] text-muted">Only owners can change features</span>}
+        {!canEdit && <span className="text-hint text-muted">Only owners can change features</span>}
         {canEdit && (
           <Button variant="primary" data-testid="btn-features-save" disabled={busy || !draft} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save features'}

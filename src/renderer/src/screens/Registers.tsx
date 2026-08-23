@@ -130,7 +130,7 @@ export function RegistersScreen(): React.JSX.Element {
                     data-testid={`tab-registers-period-${g.period}`}
                     aria-pressed={granularity === g.period}
                     onClick={() => setGranularity(g.period)}
-                    className={`rounded-md px-2.5 py-1 text-[12px] ${granularity === g.period ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                    className={`rounded-md px-2.5 py-1 text-small ${granularity === g.period ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
                   >
                     {g.label}
                   </button>
@@ -203,7 +203,7 @@ export function RegistersScreen(): React.JSX.Element {
               </table>
             )}
           </Panel>
-          <p className="mt-2 text-[11.5px] text-muted">Click a month to open its vouchers in the Day Book.</p>
+          <p className="mt-2 text-hint text-muted">Click a month to open its vouchers in the Day Book.</p>
         </>
       )}
     </div>
@@ -329,7 +329,7 @@ function ItemProfitPanel({ from, to, periodLabel }: { from: string; to: string; 
           </table>
         )}
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
+      <p className="mt-2 text-hint text-muted">
         COGS is valued by each item&apos;s valuation method (FIFO / weighted average) over the period&apos;s movements.
       </p>
     </>

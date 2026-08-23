@@ -142,7 +142,7 @@ export function OutstandingsScreen(): React.JSX.Element {
                 <Fragment key={p.ledgerId}>
                   <tr {...table.rowProps(i, p)}>
                     <td>
-                      <span className="mr-1.5 inline-block w-3 text-[10px] text-muted">{openParty === p.ledgerId ? '▾' : '▸'}</span>
+                      <span className="mr-1.5 inline-block w-3 text-label text-muted">{openParty === p.ledgerId ? '▾' : '▸'}</span>
                       {p.name}
                     </td>
                     <td></td>
@@ -154,7 +154,7 @@ export function OutstandingsScreen(): React.JSX.Element {
                     <td className="r">
                       <button
                         data-testid="btn-outstandings-remind"
-                        className="text-[11.5px] text-blue hover:underline"
+                        className="text-hint text-blue hover:underline"
                         onClick={(e) => {
                           e.stopPropagation()
                           void remind(info?.name ?? '', p.name, p.bills, toast)
@@ -177,9 +177,9 @@ export function OutstandingsScreen(): React.JSX.Element {
                           >
                             {b.number}
                           </button>
-                          <span className="num ml-3 text-[11.5px]">{toDisplayDate(b.date)} · {b.ageDays} days</span>
+                          <span className="num ml-3 text-hint">{toDisplayDate(b.date)} · {b.ageDays} days</span>
                         </td>
-                        <td className="num text-[11.5px]">
+                        <td className="num text-hint">
                           {b.dueDate ? toDisplayDate(b.dueDate) : ''}
                           {b.overdueDays > 0 && <span className="ml-1.5">· {b.overdueDays}d overdue</span>}
                         </td>
@@ -205,7 +205,7 @@ export function OutstandingsScreen(): React.JSX.Element {
           </div>
         )}
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
+      <p className="mt-2 text-hint text-muted">
         Ageing buckets count days overdue past each bill&apos;s due date (or the bill date when none is set). Receipts settle
         the oldest bills first. Click a party to see its open bills; click a bill number to open the voucher.
       </p>

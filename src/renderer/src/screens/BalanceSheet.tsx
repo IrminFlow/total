@@ -48,11 +48,11 @@ export function BalanceSheetScreen(): React.JSX.Element {
         right={
           <div className="flex items-center gap-2">
             {isPlaceholderData && (
-              <span data-testid="bs-refreshing" className="text-[11px] text-muted" aria-live="polite">
+              <span data-testid="bs-refreshing" className="text-caption text-muted" aria-live="polite">
                 Updating…
               </span>
             )}
-            <span className="text-[12px] text-muted">as on</span>
+            <span className="text-small text-muted">as on</span>
             <DateInput value={asOn} context={asOn} onChange={setAsOn} className="w-28" testId="input-bs-ason" />
             <Button
               variant="ghost"
@@ -75,7 +75,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
       </SectionTitle>
       <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
         <Panel className="p-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Liabilities</p>
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Liabilities</p>
           <StatementTree nodes={data.liabilities} />
           <div className="total-row mt-2 flex justify-between px-2 pt-1.5 pb-0.5">
             <span>Total</span>
@@ -83,7 +83,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
           </div>
         </Panel>
         <Panel className="p-4">
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Assets</p>
+          <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Assets</p>
           <StatementTree nodes={data.assets} />
           <div className="total-row mt-2 flex justify-between px-2 pt-1.5 pb-0.5">
             <span>Total</span>
@@ -92,7 +92,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
         </Panel>
       </div>
       {!balanced && (
-        <p className="mt-3 text-[12.5px] text-amber">
+        <p className="mt-3 text-body-sm text-amber">
           The two sides differ by {<Money paise={Math.abs(data.totalAssets - data.totalLiabilities)} />} — usually an opening balance entered on one side only.
         </p>
       )}

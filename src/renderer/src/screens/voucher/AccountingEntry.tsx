@@ -534,7 +534,7 @@ export function AccountingEntry({
           <DateInput value={date} context={workingDate} onChange={setDate} />
         </Field>
         <div className="col-span-2 flex items-end justify-end">
-          <p className={`num text-[12.5px] ${balanced ? 'text-dr' : 'text-muted'}`}>
+          <p className={`num text-body-sm ${balanced ? 'text-dr' : 'text-muted'}`}>
             Dr {formatPaise(totalDr)} · Cr {formatPaise(totalCr)}
             {!balanced && totalDr + totalCr > 0 && (
               <span className="text-cr"> · off by {formatPaise(Math.abs(totalDr - totalCr))}</span>
@@ -561,7 +561,7 @@ export function AccountingEntry({
               <td>
                 <button
                   data-chain="drcr"
-                  className={`num w-12 rounded-md border border-line px-2 py-1 text-[12.5px] font-medium ${
+                  className={`num w-12 rounded-md border border-line px-2 py-1 text-body-sm font-medium ${
                     r.drCr === 'dr' ? 'text-dr' : 'text-cr'
                   }`}
                   onClick={() => setRow(i, { drCr: r.drCr === 'dr' ? 'cr' : 'dr' })}
@@ -605,7 +605,7 @@ export function AccountingEntry({
                   {(() => {
                     const rowLedger = r.ledgerId != null ? ledgers.find((l) => l.id === r.ledgerId) : null
                     return rowLedger && isPartyLedger(rowLedger, groupMap) ? (
-                      <Button variant="ghost" className="shrink-0 px-2 py-1 text-[11px]" onClick={() => setEditingParty(rowLedger)}>
+                      <Button variant="ghost" className="shrink-0 px-2 py-1 text-caption" onClick={() => setEditingParty(rowLedger)}>
                         Edit
                       </Button>
                     ) : null
@@ -621,7 +621,7 @@ export function AccountingEntry({
               {hasCc && (
                 <td className="r">
                   {r.ledgerId != null && (
-                    <button className="text-[11px] text-blue hover:underline" onClick={() => setCcModalRow(i)}>
+                    <button className="text-caption text-blue hover:underline" onClick={() => setCcModalRow(i)}>
                       CC{r.costAllocations.length ? ` (${r.costAllocations.length})` : ''}
                     </button>
                   )}
@@ -642,13 +642,13 @@ export function AccountingEntry({
       </LineTableScroller>
 
       {existing && existing.inventory.length > 0 && (
-        <p className="mt-3 text-[12px] text-muted">
+        <p className="mt-3 text-small text-muted">
           This voucher carries {existing.inventory.length} stock line{existing.inventory.length > 1 ? 's' : ''}; they are kept as-is when you save.
         </p>
       )}
 
       {features.tds && tdsSuggestion && !tdsDismissed && (
-        <div className="mt-3 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-[12.5px] text-amber">
+        <div className="mt-3 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-body-sm text-amber">
           <div className="flex items-center justify-between gap-3">
             <span>
               TDS u/s {tdsSuggestion.code}: deduct <Money paise={tdsSuggestion.tdsPaise} className="text-amber" />
@@ -674,10 +674,10 @@ export function AccountingEntry({
       {showBillsSection && (
         <div className="mt-4 border-t border-line pt-3">
           <button
-            className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase"
+            className="flex items-center gap-1.5 text-caption font-semibold tracking-[0.08em] text-muted uppercase"
             onClick={() => setBillsOpen((v) => !v)}
           >
-            <span className="inline-block w-3 text-[10px]">{billsOpen ? '▾' : '▸'}</span>
+            <span className="inline-block w-3 text-label">{billsOpen ? '▾' : '▸'}</span>
             Bill allocation
             <span className="normal-case text-muted/80">
               {' '}
@@ -688,13 +688,13 @@ export function AccountingEntry({
             <div className="mt-2">
               {isCheckboxBills ? (
                 (openBills ?? []).length === 0 ? (
-                  <p className="text-[12px] text-muted">No open bills for this party.</p>
+                  <p className="text-small text-muted">No open bills for this party.</p>
                 ) : (
                   <div className="flex flex-col gap-1">
                     {(openBills ?? []).map((b) => {
                       const ref = billRefs.find((r) => r.kind === 'against' && r.name === b.number)
                       return (
-                        <div key={b.number} className="flex items-center gap-3 rounded-md px-1 py-1 text-[12.5px] hover:bg-panel2">
+                        <div key={b.number} className="flex items-center gap-3 rounded-md px-1 py-1 text-body-sm hover:bg-panel2">
                           <input type="checkbox" checked={!!ref} onChange={(e) => toggleBill(b, e.target.checked)} />
                           <span className="flex-1">{b.number}</span>
                           <span className="num w-24 text-muted">{toDisplayDate(b.date)}</span>
@@ -730,7 +730,7 @@ export function AccountingEntry({
                         onChange={(d) => setManualBillRef(i, { dueDate: d })}
                         className="w-32"
                       />
-                      <button className="text-[12px] text-cr" onClick={() => removeManualBillRef(i)}>
+                      <button className="text-small text-cr" onClick={() => removeManualBillRef(i)}>
                         ×
                       </button>
                     </div>
@@ -758,7 +758,7 @@ export function AccountingEntry({
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-6 text-[12.5px]">
+      <div className="mt-3 flex flex-wrap items-center gap-6 text-body-sm">
         {kind === 'receipt' && (
           <label className={`flex items-center gap-2 ${derivedPartyId == null ? 'text-muted' : ''}`}>
             <input
@@ -769,7 +769,7 @@ export function AccountingEntry({
               onChange={(e) => setAdvanceReceipt(e.target.checked)}
             />
             Advance receipt — unallocated amount is reported under GSTR-1 11A
-            {derivedPartyId == null && <span className="text-[11px]">(needs a party line)</span>}
+            {derivedPartyId == null && <span className="text-caption">(needs a party line)</span>}
           </label>
         )}
         <label className="flex items-center gap-2">
@@ -813,7 +813,7 @@ export function AccountingEntry({
           data-testid="voucher-accept-bar"
           className="mt-3 flex items-center justify-between gap-4 rounded-md border border-amberbar/60 bg-amberbar/15 px-4 py-2.5"
         >
-          <span className="text-[13px]">
+          <span className="text-detail">
             {totalDr + totalCr === 0
               ? 'Nothing entered yet — fill in the lines above.'
               : balanced

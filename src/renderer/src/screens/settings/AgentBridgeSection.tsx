@@ -64,8 +64,8 @@ export function AgentBridgeSection(): React.JSX.Element {
           <>
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-[13px] font-medium">Inbox watcher</p>
-                <p className="mt-0.5 text-[12px] text-muted">
+                <p className="text-detail font-medium">Inbox watcher</p>
+                <p className="mt-0.5 text-small text-muted">
                   Watches <span className="num">{companyPath}/inbox</span> and posts valid voucher JSON / masters CSV
                   drops through the same validation as the voucher screen. Files land in{' '}
                   <span className="num">processed/</span> or <span className="num">failed/</span>.
@@ -73,7 +73,7 @@ export function AgentBridgeSection(): React.JSX.Element {
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 <span
-                  className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                  className={`rounded-full border px-2 py-0.5 text-caption ${
                     config.enabled ? 'border-dr/40 text-dr' : 'border-line text-muted'
                   }`}
                 >
@@ -93,8 +93,8 @@ export function AgentBridgeSection(): React.JSX.Element {
 
             <div className="mt-5 flex items-center justify-between gap-4 border-t border-line pt-4">
               <div>
-                <p className="text-[13px] font-medium">CSV/JSON mirror</p>
-                <p className="mt-0.5 text-[12px] text-muted">
+                <p className="text-detail font-medium">CSV/JSON mirror</p>
+                <p className="mt-0.5 text-small text-muted">
                   Writes read-only copies of ledgers, items, vouchers and reports to{' '}
                   <span className="num">{companyPath}/agent</span> — integer paise, lossless.
                 </p>
@@ -104,14 +104,14 @@ export function AgentBridgeSection(): React.JSX.Element {
               </Button>
             </div>
             {lastExport && (
-              <p className="mt-2 text-[11.5px] text-muted">
+              <p className="mt-2 text-hint text-muted">
                 Wrote {lastExport.files.length} files to <span className="num">{lastExport.dir}</span>
               </p>
             )}
           </>
         )}
       </Panel>
-      <p className="mt-2 text-[11.5px] text-muted">
+      <p className="mt-2 text-hint text-muted">
         How agents connect: <span className="num">AGENTS.md</span> in <span className="num">~/Documents/total</span>{' '}
         documents the folder layout, the drop-file formats and the <span className="num">total-cli</span> commands —
         point Claude Code or any other agent at it.
@@ -142,8 +142,8 @@ function McpPanel({ isOwner }: { isOwner: boolean }): React.JSX.Element {
     <Panel className="mb-4 p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[13px] font-medium">Connect an AI agent (MCP)</p>
-          <p className="mt-0.5 text-[12px] text-muted">
+          <p className="text-detail font-medium">Connect an AI agent (MCP)</p>
+          <p className="mt-0.5 text-small text-muted">
             Live, read-only access to these books for Claude Desktop, Claude Code or Codex — no export step, and every
             figure comes from the same reports the app draws.
           </p>
@@ -153,7 +153,7 @@ function McpPanel({ isOwner }: { isOwner: boolean }): React.JSX.Element {
             <button
               key={c}
               onClick={() => setClient(c)}
-              className={`rounded-md px-2.5 py-1 text-[12px] ${client === c ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+              className={`rounded-md px-2.5 py-1 text-small ${client === c ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
             >
               {c === 'claude-desktop' ? 'Claude Desktop' : c === 'claude-code' ? 'Claude Code' : 'Codex'}
             </button>
@@ -161,7 +161,7 @@ function McpPanel({ isOwner }: { isOwner: boolean }): React.JSX.Element {
         </div>
       </div>
 
-      <label className="mt-3 flex items-start gap-2 text-[12px]">
+      <label className="mt-3 flex items-start gap-2 text-small">
         <input
           type="checkbox"
           checked={allowWrites}
@@ -178,7 +178,7 @@ function McpPanel({ isOwner }: { isOwner: boolean }): React.JSX.Element {
 
       {snippet && (
         <>
-          <pre className="num mt-3 max-h-48 overflow-auto rounded-md border border-line bg-panel2 p-3 text-[11px] leading-relaxed whitespace-pre-wrap">
+          <pre className="num mt-3 max-h-48 overflow-auto rounded-md border border-line bg-panel2 p-3 text-caption leading-relaxed whitespace-pre-wrap">
             {snippet.text}
           </pre>
           <div className="mt-2 flex items-center gap-2">
@@ -194,7 +194,7 @@ function McpPanel({ isOwner }: { isOwner: boolean }): React.JSX.Element {
             >
               Copy
             </Button>
-            <span className="text-[11.5px] text-muted">
+            <span className="text-hint text-muted">
               {client === 'claude-desktop'
                 ? 'Paste into claude_desktop_config.json, then restart Claude.'
                 : client === 'claude-code'
