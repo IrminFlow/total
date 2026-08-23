@@ -18,6 +18,12 @@ export interface CompanyFeatures {
   batches: boolean
   /** Turn credit-limit save warnings into hard blocks. */
   enforceCreditLimit: boolean
+  /**
+   * The in-app AI assistant. OFF by default and gated in main as well as the renderer: Total's
+   * promise is that it works entirely offline with no account, and that stays literally true
+   * for anyone who never turns this on. Nothing under services/ai is even imported until it is.
+   */
+  ai: boolean
 }
 
 export const DEFAULT_FEATURES: CompanyFeatures = {
@@ -29,7 +35,8 @@ export const DEFAULT_FEATURES: CompanyFeatures = {
   payroll: true,
   preventNegativeStock: false,
   batches: false,
-  enforceCreditLimit: false
+  enforceCreditLimit: false,
+  ai: false
 }
 
 export const featuresSchema = z.object({
@@ -41,7 +48,8 @@ export const featuresSchema = z.object({
   payroll: z.boolean(),
   preventNegativeStock: z.boolean(),
   batches: z.boolean(),
-  enforceCreditLimit: z.boolean()
+  enforceCreditLimit: z.boolean(),
+  ai: z.boolean()
 })
 
 /**

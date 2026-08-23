@@ -5,6 +5,8 @@ import { api } from '../lib/client'
 import { Accel, Button, DateInput, Kbd, Modal } from './ui'
 import { SupportLink } from './SupportLink'
 import { HintBar } from './HintBar'
+import { AskDrawer } from './AskDrawer'
+import { useKeyLayer } from '../lib/keyboard'
 import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
 import { NAV_SECTIONS, SCREENS } from '../lib/screens'
@@ -30,6 +32,15 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   // Letters the active screen has taken over render grey rather than red, so a shadowed
   // shortcut is visible instead of being discovered by pressing it and going nowhere.
   const shadowed = useShadowedAccels()
+  const [askOpen, setAskOpen] = useState(false)
+  // ⌘J from anywhere. Registered on the nav layer, so a dialog or a screen action still wins.
+  useKeyLayer('nav', (e) => {
+    if (!features.ai) return false
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'j') return false
+    e.preventDefault()
+    setAskOpen((v) => !v)
+    return true
+  })
   const { theme, toggle } = useTheme()
   const [periodOpen, setPeriodOpen] = useState(false)
   const fetching = useIsFetching()
@@ -165,6 +176,9 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         >
           {children}
         </main>
+        {/* Only rendered when the company has the assistant switched on — the drawer, its hook
+            and its IPC surface are all invisible otherwise. */}
+        {features.ai && askOpen && <AskDrawer onClose={() => setAskOpen(false)} />}
       </div>
       <HintBar />
 

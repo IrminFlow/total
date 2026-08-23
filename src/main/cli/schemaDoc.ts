@@ -1,32 +1,16 @@
 /**
  * Generate a JSON-Schema-style document for the voucher input contract by walking the live zod
- * schema (`voucherInputSchema`) — no zod-to-json-schema dependency. The walk covers exactly the
- * zod constructs that schema uses (object/number/string/enum/array/nullable/optional/default/
- * effects); anything unrecognized renders as {} rather than throwing, and the unit test asserts
+ * schema (`voucherInputSchema`) — no zod-to-json-schema dependency. The walk itself now lives in
+ * @shared/ai/jsonSchema, shared with the AI tool definitions so a coding agent posting through
+ * the inbox and the assistant drafting a voucher work from the same shape. The unit test asserts
  * every top-level field of the real schema appears here, so the doc can't silently drift.
  *
  * Pure module: imports only zod schemas from src/shared — safe under plain-Node vitest.
  */
 import { z } from 'zod'
 import { voucherInputSchema } from '@shared/schemas'
+import { walkSchema, type JsonSchema } from '@shared/ai/jsonSchema'
 
-type JsonSchema = {
-  type?: string | string[]
-  description?: string
-  properties?: Record<string, JsonSchema>
-  required?: string[]
-  items?: JsonSchema
-  enum?: (string | number)[]
-  pattern?: string
-  minimum?: number
-  maximum?: number
-  exclusiveMinimum?: number
-  maxItems?: number
-  maxLength?: number
-  minLength?: number
-  default?: unknown
-  additionalProperties?: boolean
-}
 
 /** Field-by-field descriptions, merged into the generated schema. Kept here (not .describe() on
  *  the shared schema) so the shared schema stays exactly as the app uses it. */
@@ -54,116 +38,31 @@ const FIELD_DOCS: Record<string, string> = {
   tds: 'TDS deduction on this voucher (section + base + deducted amount, paise), or null.'
 }
 
-interface ZodDefLike {
-  typeName?: string
-  innerType?: z.ZodTypeAny
-  schema?: z.ZodTypeAny
-  type?: z.ZodTypeAny
-  values?: string[]
-  checks?: { kind: string; value?: unknown; regex?: RegExp; inclusive?: boolean }[]
-  defaultValue?: () => unknown
-  exactLength?: { value: number } | null
-  minLength?: { value: number } | null
-  maxLength?: { value: number } | null
-}
 
-function defOf(schema: z.ZodTypeAny): ZodDefLike {
-  return (schema as unknown as { _def: ZodDefLike })._def
-}
-
-/** Walk one zod node into a JSON-Schema-ish node. Returns [schema, isOptional]. */
-function walk(schema: z.ZodTypeAny): { node: JsonSchema; optional: boolean; hasDefault: boolean } {
-  const def = defOf(schema)
-  switch (def.typeName) {
-    case 'ZodDefault': {
-      const inner = walk(def.innerType!)
-      let dflt: unknown
-      try {
-        dflt = def.defaultValue!()
-      } catch {
-        dflt = undefined
-      }
-      return { node: { ...inner.node, default: dflt }, optional: true, hasDefault: true }
-    }
-    case 'ZodOptional': {
-      const inner = walk(def.innerType!)
-      return { node: inner.node, optional: true, hasDefault: inner.hasDefault }
-    }
-    case 'ZodNullable': {
-      const inner = walk(def.innerType!)
-      const t = inner.node.type
-      return {
-        node: { ...inner.node, type: t === undefined ? undefined : ([] as string[]).concat(t as string, 'null') },
-        optional: inner.optional,
-        hasDefault: inner.hasDefault
-      }
-    }
-    case 'ZodEffects': // .transform()/.refine() — document the input shape
-      return walk(def.schema!)
-    case 'ZodObject': {
-      const shape = (schema as z.ZodObject<z.ZodRawShape>).shape
-      const properties: Record<string, JsonSchema> = {}
-      const requiredKeys: string[] = []
-      for (const [key, child] of Object.entries(shape)) {
-        const walked = walk(child as z.ZodTypeAny)
-        properties[key] = walked.node
-        if (FIELD_DOCS[key]) properties[key] = { description: FIELD_DOCS[key], ...properties[key] }
-        if (!walked.optional) requiredKeys.push(key)
-      }
-      return {
-        node: { type: 'object', properties, required: requiredKeys, additionalProperties: false },
-        optional: false,
-        hasDefault: false
-      }
-    }
-    case 'ZodArray': {
-      const item = walk(def.type!)
-      const node: JsonSchema = { type: 'array', items: item.node }
-      if (def.maxLength) node.maxItems = def.maxLength.value
-      return { node, optional: false, hasDefault: false }
-    }
-    case 'ZodEnum':
-      return { node: { type: 'string', enum: def.values ?? [] }, optional: false, hasDefault: false }
-    case 'ZodString': {
-      const node: JsonSchema = { type: 'string' }
-      for (const check of def.checks ?? []) {
-        if (check.kind === 'regex' && check.regex) node.pattern = check.regex.source
-        if (check.kind === 'max' && typeof check.value === 'number') node.maxLength = check.value
-        if (check.kind === 'min' && typeof check.value === 'number') node.minLength = check.value
-        if (check.kind === 'length' && typeof check.value === 'number') {
-          node.minLength = check.value
-          node.maxLength = check.value
-        }
-      }
-      return { node, optional: false, hasDefault: false }
-    }
-    case 'ZodNumber': {
-      const node: JsonSchema = { type: 'number' }
-      for (const check of def.checks ?? []) {
-        if (check.kind === 'int') node.type = 'integer'
-        if (check.kind === 'min' && typeof check.value === 'number') {
-          if (check.inclusive === false) node.exclusiveMinimum = Math.max(node.exclusiveMinimum ?? -Infinity, check.value)
-          else node.minimum = Math.max(node.minimum ?? -Infinity, check.value)
-        }
-        if (check.kind === 'max' && typeof check.value === 'number' && check.inclusive !== false) {
-          node.maximum = Math.min(node.maximum ?? Infinity, check.value)
-        }
-      }
-      if (node.minimum !== undefined && node.exclusiveMinimum !== undefined && node.exclusiveMinimum >= node.minimum) {
-        delete node.minimum // redundant next to the tighter exclusive bound
-      }
-      return { node, optional: false, hasDefault: false }
-    }
-    case 'ZodBoolean':
-      return { node: { type: 'boolean' }, optional: false, hasDefault: false }
-    default:
-      return { node: {}, optional: false, hasDefault: false }
+/**
+ * Merge FIELD_DOCS into every matching property, at any depth.
+ *
+ * Kept out of the shared walker because these descriptions are voucher-specific, and kept off
+ * the shared zod schema (via .describe()) so that schema stays exactly as the app uses it.
+ * Description first, then the node, so key order matches the committed
+ * agent-skill/voucher.schema.json byte for byte.
+ */
+function withFieldDocs(node: JsonSchema): JsonSchema {
+  if (!node.properties) return node
+  const properties: Record<string, JsonSchema> = {}
+  for (const [key, value] of Object.entries(node.properties)) {
+    const described = withFieldDocs(value)
+    properties[key] = FIELD_DOCS[key] ? { description: FIELD_DOCS[key], ...described } : described
   }
+  const out: JsonSchema = { ...node, properties }
+  if (node.items) out.items = withFieldDocs(node.items)
+  return out
 }
 
 /** The generated voucher JSON schema document (object form). */
 export function voucherJsonSchema(): Record<string, unknown> {
-  const { node } = walk(voucherInputSchema)
+  const walked = walkSchema(voucherInputSchema)
+  const node = withFieldDocs(walked.node)
   return {
     $schema: 'https://json-schema.org/draft-07/schema#',
     title: 'Total voucher input',

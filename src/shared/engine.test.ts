@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRupees, formatPaise, percentOf, roundToRupee, amountInWords, plainRupees, plainMilli } from './money'
+import { amountInWords, formatPaise, parseMilli, parseRupees, percentOf, plainMilli, plainRupees, roundToRupee } from './money'
 import { fyOf, parseSmartDate, gstPeriodOf, toPortalDate, isValidISODate, toDisplayDateTime } from './dates'
 import { validateGstin, gstinCheckChar, validateHsn } from './gst/validate'
 import { computeGst, supplyTypeFor } from './gst/calc'
@@ -530,5 +530,39 @@ describe('GSTR-3B builder', () => {
     const json = r.json as any
     expect(json.sup_details.osup_det.txval).toBe(900)
     expect(json.itc_elg.itc_net.camt).toBe(50)
+  })
+})
+
+describe('parseMilli', () => {
+  it('parses whole and fractional quantities into integer thousandths', () => {
+    expect(parseMilli('12')).toBe(12000)
+    expect(parseMilli('12.5')).toBe(12500)
+    expect(parseMilli('12.500')).toBe(12500)
+    expect(parseMilli('0.001')).toBe(1)
+    expect(parseMilli('0')).toBe(0)
+  })
+
+  it('accepts grouping and whitespace the way parseRupees does', () => {
+    expect(parseMilli('1,200')).toBe(1200000)
+    expect(parseMilli(' 3.25 ')).toBe(3250)
+  })
+
+  it('handles negatives (returns, reversing entries)', () => {
+    expect(parseMilli('-4.5')).toBe(-4500)
+  })
+
+  it('rejects anything that is not a quantity', () => {
+    expect(parseMilli('')).toBeNull()
+    expect(parseMilli('.')).toBeNull()
+    expect(parseMilli('-')).toBeNull()
+    expect(parseMilli('abc')).toBeNull()
+    // More precision than the engine stores would silently round — reject instead.
+    expect(parseMilli('1.2345')).toBeNull()
+  })
+
+  it('round-trips against plainMilli', () => {
+    for (const milli of [0, 1, 999, 1000, 12500, -4500, 1200000]) {
+      expect(parseMilli(plainMilli(milli))).toBe(milli)
+    }
   })
 })

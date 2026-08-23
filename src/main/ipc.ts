@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, Notification, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
@@ -22,6 +22,8 @@ import {
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
+import { aiSettingsSchema } from '@shared/ai/config'
+import * as aiConfig from './services/ai/config'
 import { formatPaise } from '@shared/money'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
@@ -1312,6 +1314,76 @@ export function registerIpc(): void {
     writeAudit(c.db, 'user', id, 'update', before, { ...before, active: false })
     return null
   }, 'owner')
+
+  // ---------- AI assistant ----------
+  //
+  // Everything here is gated on the company's `ai` feature flag IN MAIN, not just in the
+  // renderer: a renderer-only gate is a UI affordance, not a boundary. The assistant is off by
+  // default, and nothing under services/ai is even imported until a run starts, so a user who
+  // never turns it on never loads the SDK into their process.
+  const requireAiOn = (): ReturnType<typeof requireCompany> => {
+    const c = requireCompany()
+    if (!configSvc.getFeatures(c.db).ai) throw new Error('The assistant is off for this company')
+    return c
+  }
+
+  handle('ai:getConfig', () => {
+    const c = getCurrentCompany()
+    const featureOn = c ? configSvc.getFeatures(c.db).ai : false
+    return aiConfig.readConfigView(featureOn)
+  }, 'viewer')
+
+  handle('ai:setConfig', (p) => aiConfig.writeConfigFromSettings(aiSettingsSchema.parse(p)), 'owner')
+
+  handle('ai:testConnection', async () => {
+    const { makeClient } = await import('./services/ai/provider')
+    const started = Date.now()
+    const models = await makeClient().listModels()
+    const config = aiConfig.readConfig()
+    const warnings: string[] = []
+    if (models.length > 0 && !models.includes(config.model)) {
+      warnings.push(`${config.model} isn't in this endpoint's model list — check the spelling.`)
+    }
+    if (!config.visionModel) {
+      warnings.push('No vision model set, so reading a bill from a photo stays unavailable.')
+    }
+    return { ok: true, latencyMs: Date.now() - started, models, warnings }
+  }, 'owner')
+
+  handle('ai:chat', async (p) => {
+    const { question, screen, history } = z
+      .object({
+        question: z.string().trim().min(1).max(2000),
+        screen: z.string().max(60).optional(),
+        history: z
+          .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(8000) }))
+          .max(16)
+          .optional()
+      })
+      .parse(p)
+    const c = requireAiOn()
+    const { startRun } = await import('./services/ai/runner')
+    const wc = BrowserWindow.getAllWindows()[0]?.webContents
+    if (!wc) throw new Error('No window to stream to')
+    return {
+      runId: startRun({
+        db: c.db,
+        slug: c.slug,
+        info: c.info,
+        today: todayISO(),
+        question,
+        screen,
+        history,
+        wc
+      })
+    }
+  }, 'viewer')
+
+  handle('ai:cancel', async (p) => {
+    const { runId } = z.object({ runId: z.string().min(1).max(80) }).parse(p)
+    const { abortRun } = await import('./services/ai/runner')
+    return { cancelled: abortRun(runId) }
+  }, 'viewer')
 
   // ---------- logging ----------
   handle('log:renderer', (p) => {

@@ -13,7 +13,7 @@ export interface IpcResult<T = unknown> {
  * pipe is a bigger surface than request/response, so it opens one channel at a time rather than
  * anything matching a regex.
  */
-const EVENT_CHANNELS = new Set(['menu:command'])
+const EVENT_CHANNELS = new Set(['menu:command', 'ai:stream'])
 
 const api = {
   platform: process.platform,

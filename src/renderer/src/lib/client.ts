@@ -30,6 +30,7 @@ import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Period } from '@shared/period'
+import type { AiConfigView, AiSettings } from '@shared/ai/config'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -665,6 +666,15 @@ export const api = {
       call<{ ledgerId: number; name: string; groupName: string; uses: number }[]>('intel:suggestLedgers', { kind, query }),
     anomaly: (ledgerId: number, amount: number) =>
       call<{ unusual: boolean; typicalAmount: number | null }>('intel:anomaly', { ledgerId, amount })
+  },
+  ai: {
+    getConfig: () => call<AiConfigView>('ai:getConfig'),
+    setConfig: (settings: AiSettings) => call<AiConfigView>('ai:setConfig', settings),
+    testConnection: () =>
+      call<{ ok: true; latencyMs: number; models: string[]; warnings: string[] }>('ai:testConnection'),
+    chat: (input: { question: string; screen?: string; history?: { role: 'user' | 'assistant'; content: string }[] }) =>
+      call<{ runId: string }>('ai:chat', input),
+    cancel: (runId: string) => call<{ cancelled: boolean }>('ai:cancel', { runId })
   },
   log: {
     renderer: (input: RendererLogInput) => call<null>('log:renderer', input),

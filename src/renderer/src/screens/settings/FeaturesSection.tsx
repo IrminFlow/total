@@ -11,7 +11,12 @@ const TOGGLES: { key: keyof CompanyFeatures; label: string; hint: string }[] = [
   { key: 'costCentres', label: 'Cost centres', hint: 'Split voucher lines across cost centres for the cost-centre report' },
   { key: 'tds', label: 'TDS', hint: 'Tax Deducted at Source suggestions, deduction entries, and the TDS report' },
   { key: 'multiCurrency', label: 'Multi-currency', hint: 'Foreign-currency invoices with an exchange rate; books stay in ₹' },
-  { key: 'payroll', label: 'Payroll', hint: 'Employees, pay runs, and payslips' }
+  { key: 'payroll', label: 'Payroll', hint: 'Employees, pay runs, and payslips' },
+  {
+    key: 'ai',
+    label: 'AI assistant',
+    hint: 'Off by default. Ask questions about these books using your own API key — the only part of Total that uses the internet. Set it up in Settings → AI assistant.'
+  }
 ]
 
 export function FeaturesSection(): React.JSX.Element {
