@@ -10,12 +10,26 @@ const FEATURES: { f: string; p: string }[] = [
   { f: 'GST returns', p: "GSTR-1 and GSTR-3B on screen, exported as JSON the portal's offline tool accepts" },
   { f: 'e-Invoice & e-Way', p: 'Offline JSON the government tools accept, with HSN and CRN/DBN references. Live NIC filing ships as an experiment' },
   { f: 'Invoice PDF', p: 'GST tax invoice with HSN, tax breakup, amount in words and the double rule' },
-  { f: 'Stock & manufacturing', p: 'Weighted-average valuation, bills of materials, one-screen manufacture vouchers' },
+  { f: 'Stock & manufacturing', p: 'FIFO valuation, batches, bills of materials, one-screen manufacture vouchers' },
   { f: 'Banking', p: 'Reconciliation with statement CSV import that matches entries by amount and date' },
   { f: 'Payroll', p: 'EPF, ESI and professional tax computed to the rupee; payslip PDFs; one balanced posting' },
-  { f: 'Registers & ageing', p: 'Sales and purchase registers, receivable and payable ageing with FIFO bill settlement' },
+  { f: 'Registers & ageing', p: 'Sales and purchase registers by month or quarter, receivable and payable ageing' },
   { f: 'Multi-currency', p: 'Invoice in USD or EUR at your rate; the books stay in rupees' },
   { f: 'Tally import', p: "Bring your masters and vouchers across from Tally's XML export" }
+]
+
+/**
+ * The hero object: one real sales invoice that foots.
+ *
+ * Dr 1,06,200.00 against Cr 90,000.00 + 8,100.00 + 8,100.00. The GST is 18% on 90,000 split
+ * into CGST and SGST, which is what an intra-state sale actually produces. It balances because
+ * every entry in the product balances, and that is the pitch.
+ */
+const VOUCHER = [
+  { side: 'Dr', cls: 'dr', account: 'Umbrella Retail', note: 'Sundry Debtors', amount: '1,06,200.00', active: true },
+  { side: 'Cr', cls: 'cr', account: 'Sales A/c', note: '2 × Laptop 14"', amount: '90,000.00' },
+  { side: 'Cr', cls: 'cr', account: 'CGST Output', note: '9%', amount: '8,100.00' },
+  { side: 'Cr', cls: 'cr', account: 'SGST Output', note: '9%', amount: '8,100.00' }
 ]
 
 export default async function Home(): Promise<React.JSX.Element> {
@@ -27,7 +41,7 @@ export default async function Home(): Promise<React.JSX.Element> {
       <div className="wrap">
         <div className="top">
           <span className="wordmark serif">Total</span>
-          <span className="tag">for macOS · fully offline</span>
+          <span className="tag">for macOS and Windows · fully offline</span>
           <span className="top-links">
             <Link href="/docs">Docs</Link>
             <Link href="/compare">Compare</Link>
@@ -43,12 +57,10 @@ export default async function Home(): Promise<React.JSX.Element> {
         <div className="hero">
           <p className="eyebrow">Accounting for Indian businesses</p>
           <h1 className="serif">
-            Your books. On this Mac. <span className="quiet">Nowhere else.</span>
+            Your books. On your desk. <span className="quiet">Nowhere else.</span>
           </h1>
           <p className="lede">
-            Total is Tally-grade double-entry accounting rebuilt for macOS — GST returns, invoices, stock, banking and
-            payroll, all computed on your machine and saved in a folder you can copy. No cloud. No account. No internet
-            required.
+            Tally-grade double-entry accounting, rebuilt for a machine you own. No cloud, no account.
           </p>
           <div className="hero-ctas">
             <a className="btn" href="/api/download?platform=mac">
@@ -57,53 +69,41 @@ export default async function Home(): Promise<React.JSX.Element> {
             <a className="btn ghost" href="/api/download?platform=win">
               Windows
             </a>
-            <a className="btn ghost" href="#ledger">
-              See what&rsquo;s inside
-            </a>
             <span className="hero-note">{versionNote}</span>
           </div>
 
-          <div className="ledger-strip" role="img" aria-label="Three ledger rows with the amber selection bar on the middle entry">
-            <div className="strip-row">
-              <span className="d num">14-Aug-26</span>
-              <span className="t">Purchase</span>
-              <span className="p">Bulk Suppliers</span>
-              <span className="a num">2,36,000.00</span>
+          <div className="voucher" role="img" aria-label="A sales invoice in Total: one debit of 1,06,200.00 against three credits totalling the same, with CGST and SGST computed at 9 percent each.">
+            <div className="voucher-head">
+              <span className="kind serif">Sales</span>
+              <span className="no">No. 4</span>
+              <span className="date">15-Aug-26</span>
             </div>
-            <div className="strip-row active">
-              <span className="d num">15-Aug-26</span>
-              <span className="t">Sales</span>
-              <span className="p">Umbrella Retail — 2 × Laptop 14&Prime;, CGST + SGST computed live</span>
-              <span className="a num">1,06,200.00</span>
-            </div>
-            <div className="strip-row">
-              <span className="d num">15-Aug-26</span>
-              <span className="t">Receipt</span>
-              <span className="p">Cash</span>
-              <span className="a num">50,000.00</span>
+            {VOUCHER.map((line) => (
+              <div className={`vrow${line.active ? ' active' : ''}`} key={line.account}>
+                <span className={`side ${line.cls}`}>{line.side}</span>
+                <span>
+                  {line.account} <span className="note">{line.note}</span>
+                </span>
+                <span className="amt">{line.amount}</span>
+              </div>
+            ))}
+            <div className="vtotal">
+              <span />
+              <span>Total</span>
+              <span className="amt">1,06,200.00</span>
             </div>
           </div>
-          <p className="strip-hint">
-            The amber bar is the cursor. <kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>↵</kbd> drills in, <kbd>Esc</kbd> backs out
-            — everywhere.
+          <p className="vfoot">
+            It balances, and the GST is worked out as you type. The amber bar is the cursor:{' '}
+            <kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>↵</kbd> takes you to the next field, <kbd>Esc</kbd> backs out.
           </p>
         </div>
 
-        <div className="shot">
-          <Image
-            src={gatewayLight}
-            alt="The Total Gateway: cash, receivables, payables and GST tiles above the day's entries"
-            priority
-            sizes="(max-width: 1020px) 100vw, 972px"
-          />
-          <p className="caption">The Gateway — your whole position the moment the books open.</p>
-        </div>
-
-        <section id="ledger">
+        <section className="folio" id="ledger">
           <h2 className="serif">The ledger of features</h2>
           <p className="sub">
-            Everything posts to real double-entry books — every report below is computed from vouchers, so nothing can
-            drift.
+            Everything posts to real double-entry books. Every report below is computed from vouchers at the
+            moment you open it, so nothing can drift.
           </p>
           <div className="ledger">
             <table>
@@ -130,69 +130,26 @@ export default async function Home(): Promise<React.JSX.Element> {
               </tbody>
             </table>
           </div>
+          <div className="folio-close" aria-hidden="true" />
         </section>
 
-        <section id="proof">
-          <h2 className="serif">Proof, not promises</h2>
-          <p className="sub">Two screens from the app itself, running on the same demo books as the ledger above.</p>
-          <div className="shots-grid">
-            <figure>
-              <Image
-                src={gstr1Light}
-                alt="GSTR-1 return screen showing B2B, B2C and total sections computed from voucher entries"
-                sizes="(max-width: 800px) 100vw, 486px"
-              />
-              <figcaption className="caption">GSTR-1 computed from your books — no separate filing sheet, nothing re-keyed.</figcaption>
-            </figure>
-            <figure>
-              <Image
-                src={voucherDark}
-                alt="Sales voucher entry in dark theme with the party ledger picker open"
-                sizes="(max-width: 800px) 100vw, 486px"
-              />
-              <figcaption className="caption">Dark theme, mid-entry — the ledger picker suggests as you type.</figcaption>
-            </figure>
-          </div>
-        </section>
-      </div>
-
-      <div className="band">
-        <div className="wrap">
-          <div className="band-grid">
-            <div>
-              <h2 className="serif">No cloud. No account. No &ldquo;sync&rdquo;.</h2>
-              <p className="sub">
-                Your ledgers are yours the way a bahi khata was yours — a thing on your desk, not a row in someone
-                else&rsquo;s database.
-              </p>
-              <span className="path">~/Documents/total</span>
-              <ul>
-                <li>
-                  <b>One SQLite file per company.</b> Copy the folder and you&rsquo;ve backed up the business.
-                </li>
-                <li>
-                  <b>Automatic snapshots</b> every time books open — the last twenty are kept.
-                </li>
-                <li>
-                  <b>Works on a train, in a power cut, forever.</b> Filing happens through exported files, the way
-                  offline Tally users have always filed.
-                </li>
-              </ul>
-            </div>
-            <div>
-              <Image
-                src={voucherDark}
-                alt="Voucher entry in dark theme with the ledger picker open"
-                sizes="(max-width: 800px) 100vw, 550px"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="wrap">
-        <section>
+        <section className="folio">
           <h2 className="serif">Your fingers already know it</h2>
+          <p className="sub">
+            One letter of every menu item is red. Press it and you are there, from any screen.
+          </p>
+          <div className="shot">
+            <Image
+              src={gatewayLight}
+              alt="The Total Gateway: cash, receivables, payables and GST tiles above the day's entries, with one letter of every sidebar item picked out in red"
+              priority
+              sizes="(max-width: 1020px) 100vw, 972px"
+            />
+            <p className="caption">
+              <span className="hot-letter">V</span>oucher entry. <span className="hot-letter">D</span>ay book.{' '}
+              <span className="hot-letter">B</span>alance sheet. The whole app, without the mouse.
+            </p>
+          </div>
           <div className="two">
             <div>
               <h3>Tally muscle memory, kept</h3>
@@ -205,13 +162,13 @@ export default async function Home(): Promise<React.JSX.Element> {
                 <kbd>F9</kbd>
               </div>
               <p>
-                Contra, Payment, Receipt, Journal, Sales, Purchase — the function keys sit exactly where twenty years of
-                habit left them. Dates take shorthand: type <span className="mono-inline">7</span> for the 7th,{' '}
-                <span className="mono-inline">7/4</span> for April, <span className="mono-inline">y</span> for yesterday.
+                Contra, Payment, Receipt, Journal, Sales, Purchase. The function keys sit exactly where twenty
+                years of habit left them. Dates take shorthand: type <span className="mono-inline">7</span> for the
+                7th, <span className="mono-inline">7/4</span> for April, <span className="mono-inline">y</span> for
+                yesterday.
               </p>
               <p>
-                Moving from Tally? Export your masters and day book as XML and import them in one step — opening
-                balances, GSTINs and vouchers included.
+                Enter walks the voucher field by field and asks to accept at the end, the way it always has.
               </p>
             </div>
             <div>
@@ -219,26 +176,94 @@ export default async function Home(): Promise<React.JSX.Element> {
               <div className="keys">
                 <kbd className="hot">⌘K</kbd>
                 <kbd>⌘↵</kbd>
-                <kbd>Esc</kbd>
+                <kbd>?</kbd>
               </div>
               <p>
-                <span className="mono-inline">⌘K</span> reaches any screen or action by name. The app suggests ledgers
-                by how you actually use them, warns when an entry looks like a duplicate, checks GSTIN check-digits as
-                you type, and asks twice before an amount ten times a ledger&rsquo;s usual size.
+                <span className="mono-inline">⌘K</span> reaches any screen or action by name.{' '}
+                <span className="mono-inline">?</span> lists every shortcut, generated from the app itself, so it
+                can never describe a key that no longer works.
               </p>
               <p>
-                Updates arrive on their own: the app checks GitHub releases and installs new versions with one restart —
-                your books never move.
+                The app suggests ledgers by how you actually use them, warns when an entry looks like a duplicate,
+                checks GSTIN check-digits as you type, and asks twice before an amount ten times a ledger&rsquo;s
+                usual size.
               </p>
             </div>
           </div>
+          <div className="folio-close" aria-hidden="true" />
         </section>
 
+        <section className="folio" id="proof">
+          <h2 className="serif">Proof, not promises</h2>
+          <p className="sub">Two screens from the app itself, running on the same demo books as the ledger above.</p>
+          <div className="shots-grid">
+            <figure>
+              <Image
+                src={gstr1Light}
+                alt="GSTR-1 return screen showing B2B, B2C and total sections computed from voucher entries"
+                sizes="(max-width: 800px) 100vw, 486px"
+              />
+              <figcaption className="caption">
+                GSTR-1 computed from your books. No separate filing sheet, nothing re-keyed.
+              </figcaption>
+            </figure>
+            <figure>
+              <Image
+                src={voucherDark}
+                alt="Sales voucher entry in dark theme with the party ledger picker open"
+                sizes="(max-width: 800px) 100vw, 486px"
+              />
+              <figcaption className="caption">Dark theme, mid-entry. The ledger picker suggests as you type.</figcaption>
+            </figure>
+          </div>
+          <div className="folio-close" aria-hidden="true" />
+        </section>
+      </div>
+
+      <div className="band">
+        <div className="wrap">
+          <div className="band-grid">
+            <div>
+              <h2 className="serif">No cloud. No account. No &ldquo;sync&rdquo;.</h2>
+              <p className="sub">
+                Your ledgers are yours the way a bahi khata was yours: a thing on your desk, not a row in someone
+                else&rsquo;s database.
+              </p>
+              <span className="path">~/Documents/total</span>
+              <ul>
+                <li>
+                  <b>One SQLite file per company.</b> Copy the folder and you have backed up the business.
+                </li>
+                <li>
+                  <b>Automatic snapshots</b> every time books open. The last twenty are kept.
+                </li>
+                <li>
+                  <b>Works on a train, in a power cut, forever.</b> Filing happens through exported files, the way
+                  offline Tally users have always filed.
+                </li>
+                <li>
+                  <b>An assistant only if you want one.</b> Bring your own API key, or point it at a model running
+                  on your own machine. It is off until you turn it on.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <p className="band-quote serif">
+                Every figure the assistant gives you is quoted from a report, with the rows shown underneath.
+              </p>
+              <p className="band-quote-note">
+                It reads your books through the same code that draws the screens, and it cannot change anything.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="wrap">
         <div className="get" id="get">
           <h2 className="serif">Open your books tonight</h2>
           <p className="sub">
-            macOS (Apple Silicon) and Windows, free while in beta. Create a company and post your first voucher in under
-            a minute.
+            macOS and Windows, free while in beta. Create a company and post your first voucher in under a minute.
           </p>
           <div className="hero-ctas" style={{ justifyContent: 'center' }}>
             <a className="btn" href="/api/download?platform=mac">
@@ -254,7 +279,10 @@ export default async function Home(): Promise<React.JSX.Element> {
         </div>
 
         <footer>
-          <span>Total — offline accounting for macOS.</span>
+          <span>Total. Offline accounting for Indian businesses.</span>
+          <span>
+            Questions? <a href="mailto:total@irminflow.com">total@irminflow.com</a>
+          </span>
           <span>Made for the desk that used to hold the bahi khata.</span>
         </footer>
       </div>

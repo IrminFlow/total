@@ -23,7 +23,9 @@ async function launchApp() {
     executablePath: electronPath,
     args: [process.cwd()],
     timeout: 60000,
-    env: { ...process.env, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
+    // Same guard as the E2E harness: ELECTRON_RUN_AS_NODE leaking in from the shell makes
+    // launch fail with a bare "Process failed to launch!".
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
   })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')

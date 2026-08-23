@@ -15,6 +15,9 @@
   --band-line: #273049;
   --shadow: 0 1px 2px rgba(30, 35, 60, 0.07), 0 14px 40px rgba(30, 35, 60, 0.1);
   --rule: #3a4053;
+  /* The red vertical line down the left of every page of a bahi khata. Muted well below --cr
+     so it reads as ruling, not as a credit figure. Same device as the app's ledger tables. */
+  --margin: color-mix(in oklab, #bb4433 30%, transparent);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -30,6 +33,7 @@
     --band-bg: #090c16;
     --shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
     --rule: #e9e9e2;
+    --margin: color-mix(in oklab, #e4796b 24%, transparent);
   }
 }
 
@@ -55,6 +59,18 @@ body {
 .top-links { display: flex; gap: 18px; margin-left: 22px; }
 .top-links a { color: var(--muted); text-decoration: none; font-size: 13.5px; font-weight: 500; }
 .top-links a:hover { color: var(--ink); }
+
+/* The top bar is one flex row that never wrapped, so on a phone the Download button ran past
+   the viewport and took the whole page's scroll width with it. Wrap it, and drop the tagline:
+   the hero says the same thing two lines later. */
+@media (max-width: 640px) {
+  .top { flex-wrap: wrap; row-gap: 10px; }
+  .top .tag { display: none; }
+  .top-links { margin-left: auto; gap: 16px; }
+  /* The hero's own Download button is immediately below; a second one in the nav only costs a
+     row of height on the screen with the least of it. */
+  .top .cta-mini { display: none; }
+}
 
 /* ---------- site nav (non-home pages) ---------- */
 .sitenav { border-bottom: 1px solid var(--line); background: var(--card); }
@@ -140,36 +156,137 @@ article.release a { color: var(--amber-deep); }
 .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); font-weight: 500; }
 .btn.small { padding: 7px 14px; font-size: 13.5px; }
 
+/* ---------- folio: the page structure ----------
+   Every section is a page of the book. The margin rule runs down its left and a double rule
+   closes it, the way a ruled folio does. The device is not decoration: it says the thing this
+   product is, which is a book of account. */
+.folio {
+  position: relative;
+  padding-left: 34px;
+  margin-top: 96px;
+}
+.folio::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 4px;
+  bottom: 4px;
+  width: 1.5px;
+  background: var(--margin);
+}
+.folio > h2 { scroll-margin-top: 24px; }
+/* Closing double rule, exactly as a total is ruled off in a ledger. */
+.folio-close {
+  margin-top: 44px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 3px double var(--rule);
+  height: 3px;
+  opacity: 0.32;
+}
+@media (max-width: 700px) {
+  .folio { padding-left: 20px; margin-top: 68px; }
+  .folio::before { left: 4px; }
+}
+
 /* ---------- hero ---------- */
-.hero { padding: 84px 0 30px; }
+.hero { padding: 58px 0 8px; }
 .eyebrow {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber-deep);
 }
 h1 {
-  font-size: clamp(42px, 7vw, 74px); line-height: 1.03; letter-spacing: -0.015em;
-  font-weight: 700; margin: 18px 0 22px; text-wrap: balance; max-width: 15ch;
+  font-size: clamp(38px, 5.6vw, 60px); line-height: 1.05; letter-spacing: -0.015em;
+  font-weight: 700; margin: 14px 0 16px; text-wrap: balance; max-width: 17ch;
 }
 h1 .quiet { color: var(--muted); }
-.lede { font-size: 19px; color: var(--muted); max-width: 34em; text-wrap: pretty; }
-.hero-ctas { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; align-items: center; }
+.lede { font-size: 18.5px; color: var(--muted); max-width: 30em; text-wrap: pretty; }
+.hero-ctas { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; align-items: center; }
 .hero-note { font-size: 12.5px; color: var(--muted); }
 
-/* the amber keyboard bar, quoted from the app */
-.ledger-strip { margin: 56px 0 0; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; box-shadow: var(--shadow); }
-.strip-row { display: flex; align-items: center; gap: 18px; padding: 11px 18px; border-bottom: 1px solid var(--line); font-size: 14px; }
-.strip-row:last-child { border-bottom: 0; }
-.strip-row .d { color: var(--muted); width: 84px; }
-.strip-row .t { width: 84px; color: var(--muted); }
-.strip-row .p { flex: 1; }
-.strip-row .a { margin-left: auto; }
-.strip-row.active { background: var(--amber-wash); box-shadow: inset 3px 0 0 0 var(--amber); }
-.strip-hint { text-align: center; font-size: 12px; color: var(--muted); padding: 10px 0 26px; }
+/* ---------- the balancing voucher ----------
+   The signature. Not a decorative strip: a real sales invoice whose debits equal its credits,
+   with the GST worked out. It is the whole pitch in one object. */
+.voucher {
+  margin: 38px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.voucher-head {
+  display: flex; align-items: baseline; gap: 14px;
+  padding: 13px 20px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--paper) 55%, var(--card));
+}
+.voucher-head .kind { font-weight: 600; font-size: 14.5px; }
+.voucher-head .no,
+.voucher-head .date { font-family: var(--font-mono), ui-monospace, monospace; font-size: 12.5px; color: var(--muted); }
+.voucher-head .date { margin-left: auto; }
+
+.vrow {
+  display: grid;
+  grid-template-columns: 56px 1fr 150px;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 20px;
+  border-bottom: 1px solid color-mix(in oklab, var(--line) 60%, transparent);
+  font-size: 14.5px;
+}
+.vrow .side {
+  font-family: var(--font-mono), ui-monospace, monospace; font-size: 12.5px; font-weight: 600;
+}
+.vrow .side.dr { color: var(--dr); }
+.vrow .side.cr { color: var(--cr); }
+.vrow .amt { text-align: right; font-family: var(--font-mono), ui-monospace, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vrow .note { color: var(--muted); font-size: 13px; }
+.vrow.active { background: var(--amber-wash); box-shadow: inset 3px 0 0 0 var(--amber); }
+
+/* It foots. That is the point, so the totals get the double rule a real total gets. */
+.vtotal {
+  display: grid;
+  grid-template-columns: 56px 1fr 150px;
+  gap: 14px;
+  padding: 12px 20px 14px;
+  border-top: 1px solid var(--rule);
+  font-weight: 600;
+  font-size: 14.5px;
+  background: color-mix(in oklab, var(--paper) 55%, var(--card));
+}
+.vtotal .amt {
+  text-align: right; font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  border-bottom: 3px double var(--rule); padding-bottom: 3px;
+}
+/* On a phone the account name and its note cannot share a line without breaking mid-word, so
+   the note drops beneath it and the columns tighten. */
+@media (max-width: 560px) {
+  .vrow,
+  .vtotal {
+    grid-template-columns: 34px 1fr auto;
+    gap: 10px;
+    padding-left: 14px;
+    padding-right: 14px;
+    font-size: 13.5px;
+  }
+  .voucher-head { padding-left: 14px; padding-right: 14px; }
+  .vrow .note { display: block; }
+}
+
+.vfoot {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 12px 0 0; font-size: 12.5px; color: var(--muted);
+}
+.vfoot kbd,
 .strip-hint kbd, .keys kbd {
   font-family: var(--font-mono), ui-monospace, monospace; font-size: 11.5px;
   border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px;
   padding: 2px 7px; background: var(--card); color: var(--muted);
 }
+
+/* The accelerator letter, quoted from the app so the page and the product agree. */
+.hot-letter { color: #c02f1d; font-weight: 600; }
 
 /* ---------- screenshot ---------- */
 .shot { margin: 26px 0 0; }
@@ -220,6 +337,13 @@ h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.01em; line-height: 1.
 .band li::before { content: ''; position: absolute; left: 0; top: 8px; width: 8px; height: 8px; border-radius: 2px; background: #f0b429; }
 .band li b { color: var(--band-ink); font-weight: 600; }
 .band img { display: block; width: 100%; height: auto; border: 1px solid var(--band-line); border-radius: 12px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); }
+/* The band's right column is a claim, set large. It replaced a second copy of the same
+   screenshot already used further up the page. */
+.band-quote {
+  font-size: clamp(21px, 2.4vw, 28px); line-height: 1.32; letter-spacing: -0.01em;
+  color: var(--band-ink); border-left: 2px solid #f0b429; padding-left: 22px;
+}
+.band-quote-note { margin-top: 16px; padding-left: 24px; color: var(--band-muted); font-size: 15px; max-width: 34em; }
 
 /* ---------- tally familiar ---------- */
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; margin-top: 30px; }
