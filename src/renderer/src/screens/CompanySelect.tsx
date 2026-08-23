@@ -3,6 +3,7 @@ import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type IntegrityResult } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Modal, ScrollList, Select, TextInput, useKeyNav } from '../components/ui'
+import { SupportLink } from '../components/SupportLink'
 import { GST_STATES } from '@shared/gst/states'
 import { gstinErrorMessage } from '../lib/gstinError'
 import { fyOf, todayISO } from '@shared/dates'
@@ -124,6 +125,10 @@ export function CompanySelect(): React.JSX.Element {
           >
             {demoLoading ? 'Setting up sample data…' : 'Explore with sample data'}
           </Button>
+        </div>
+
+        <div className="mt-8 text-center">
+          <SupportLink />
         </div>
       </div>
 

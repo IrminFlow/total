@@ -3,6 +3,7 @@ import { useIsFetching, useQuery } from '@tanstack/react-query'
 import { api, type LoginName } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, TextInput, useKeyNav } from './ui'
+import { SupportLink } from './SupportLink'
 
 /** Full-viewport PIN lock, shown whenever a company has users but no one has signed in yet
  *  (see App.tsx: `slug && locked`). Pick a user, type their PIN, Enter (or the button) submits. */
@@ -129,6 +130,10 @@ export function LockScreen(): React.JSX.Element {
         <p className="mt-4 text-center text-[11px] text-muted/70">
           PINs are a convenience lock — for at-rest protection use Settings → Encrypted export.
         </p>
+
+        <div className="mt-6 text-center">
+          <SupportLink />
+        </div>
       </div>
     </div>
   )

@@ -3,6 +3,7 @@ import { useIsFetching } from '@tanstack/react-query'
 import { useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
 import { Button, DateInput, Kbd, Modal } from './ui'
+import { SupportLink } from './SupportLink'
 import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { useFeatures } from '../lib/useFeatures'
 import { NAV_SECTIONS, SCREENS } from '../lib/screens'
@@ -143,6 +144,9 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           >
             Switch company
           </button>
+          <div className="mt-2 border-t border-line pt-2">
+            <SupportLink />
+          </div>
         </aside>
 
         {/* data-screen + data-loading: the E2E harness's navigation/idle markers (lib/testids.ts). */}
