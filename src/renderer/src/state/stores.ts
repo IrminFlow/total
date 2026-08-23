@@ -192,11 +192,19 @@ export interface Toast {
   id: number
   kind: 'info' | 'success' | 'error' | 'warning'
   text: string
+  /**
+   * An action offered alongside the message, used for undo.
+   *
+   * Undo lives on the toast rather than as a separate control because the moment a destructive
+   * action completes is the only moment the user is looking for it. Running it dismisses the
+   * toast, so the offer cannot be taken twice.
+   */
+  action?: { label: string; run: () => void | Promise<void> }
 }
 
 export interface ToastState {
   toasts: Toast[]
-  push: (kind: Toast['kind'], text: string) => void
+  push: (kind: Toast['kind'], text: string, action?: Toast['action']) => void
   dismiss: (id: number) => void
   /** Pause auto-dismissal (hovering the toast stack); resume() restarts the remaining time. */
   pause: () => void
@@ -218,11 +226,14 @@ export const useToasts = create<ToastState>((set, get) => {
   }
   return {
     toasts: [],
-    push: (kind, text) => {
-      // Dedupe consecutive identical toasts: just restart the existing one's clock.
+    push: (kind, text, action) => {
+      // Dedupe consecutive identical toasts: just restart the existing one's clock. A toast
+      // carrying an action is never deduped -- two deletions need two separate undos, and
+      // collapsing them would silently drop one.
       const last = get().toasts[get().toasts.length - 1]
-      const ttl = kind === 'error' ? 6000 : 3500
-      if (last && last.kind === kind && last.text === text) {
+      // An undo is worth reading; give it longer than a routine confirmation.
+      const ttl = action ? 9000 : kind === 'error' ? 6000 : 3500
+      if (!action && last && last.kind === kind && last.text === text) {
         const entry = toastTimers.get(last.id)
         if (entry) clearTimeout(entry.timer)
         if (toastRemaining) toastRemaining.set(last.id, ttl)
@@ -230,7 +241,7 @@ export const useToasts = create<ToastState>((set, get) => {
         return
       }
       const id = ++toastId
-      set((s) => ({ toasts: [...s.toasts, { id, kind, text }] }))
+      set((s) => ({ toasts: [...s.toasts, { id, kind, text, action }] }))
       if (toastRemaining) toastRemaining.set(id, ttl)
       else arm(id, ttl)
     },

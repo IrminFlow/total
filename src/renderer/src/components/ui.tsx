@@ -505,13 +505,28 @@ export function Toasts(): React.JSX.Element {
       className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-96 flex-col gap-2"
     >
       {toasts.map((t) => (
-        <button
+        <div
           key={t.id}
-          onClick={() => dismiss(t.id)}
-          className={`pointer-events-auto rounded-lg border bg-panel px-4 py-2.5 text-left text-detail shadow-xl ${tones[t.kind]}`}
+          className={`pointer-events-auto flex items-center gap-3 rounded-lg border bg-panel px-4 py-2.5 text-left text-detail shadow-xl ${tones[t.kind]}`}
         >
-          {t.text}
-        </button>
+          {/* The message dismisses on click, as it always has. The action is a separate target
+              so reaching for Undo can never dismiss the toast by missing it. */}
+          <button className="flex-1 text-left" onClick={() => dismiss(t.id)}>
+            {t.text}
+          </button>
+          {t.action && (
+            <button
+              data-testid="toast-action"
+              className="shrink-0 rounded-md border border-current px-2 py-0.5 text-caption font-medium"
+              onClick={() => {
+                dismiss(t.id)
+                void t.action!.run()
+              }}
+            >
+              {t.action.label}
+            </button>
+          )}
+        </div>
       ))}
     </div>
   )

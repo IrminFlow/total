@@ -476,7 +476,21 @@ export function AccountingEntry({
     if (!proceed) return
     try {
       await api.vouchers.remove(voucherId)
-      toast.push('success', 'Moved to Bin')
+      // The bin has always been able to restore this; it just was not offered at the one moment
+      // the user is looking for it. Restoring goes through the same voucher:restore the Bin
+      // screen calls, so an undone delete is indistinguishable from one undone there.
+      toast.push('success', 'Moved to Bin', {
+        label: 'Undo',
+        run: async () => {
+          try {
+            await api.vouchers.restore(voucherId)
+            await queryClient.invalidateQueries()
+            toast.push('success', 'Voucher restored')
+          } catch (err) {
+            toast.push('error', `Could not restore: ${(err as Error).message}`)
+          }
+        }
+      })
       await queryClient.invalidateQueries()
       nav.back()
     } catch (err) {
