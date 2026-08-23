@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNav, useScreen, useSession } from './state/stores'
 import { isPlainKey, isTypingTarget, useKeyLayer } from './lib/keyboard'
 import { NAV_ACCEL } from './lib/accel'
+import { useMenuCommands } from './lib/menuCommands'
 import { useFeatures } from './lib/useFeatures'
 import { Button, Modal, Toasts } from './components/ui'
 import { CompanySelect } from './screens/CompanySelect'
@@ -49,6 +50,15 @@ export default function App(): React.JSX.Element {
   const [helpOpen, setHelpOpen] = useState(false)
   const features = useFeatures()
   const queryClient = useQueryClient()
+
+  // The application menu sends command ids rather than binding accelerators of its own, so the
+  // menu and the keyboard run the same actions. Navigation ids are handled inside the hook.
+  useMenuCommands({
+    palette: () => {
+      if (!integrityWarning) setPaletteOpen(true)
+    },
+    shortcuts: () => setHelpOpen(true)
+  })
 
   /**
    * The bottom `nav` layer: the registry accelerators plus the three app-wide keys. Everything

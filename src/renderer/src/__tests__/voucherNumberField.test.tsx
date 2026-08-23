@@ -22,7 +22,7 @@ beforeEach(() => {
     }
     return { ok: false, error: `unmocked channel ${channel}` }
   })
-  window.total = { platform: 'test', invoke }
+  window.total = { platform: 'test', invoke, on: () => () => {} }
 })
 
 afterEach(() => {

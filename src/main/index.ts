@@ -2,10 +2,11 @@ import { app, BrowserWindow, dialog, shell } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
-import { electronApp, is, optimizer } from '@electron-toolkit/utils'
+import { electronApp, is } from '@electron-toolkit/utils'
 import { registerIpc, closeCurrentCompany, getCurrentCompany } from './ipc'
 import { ensureDataTree, dataRoot } from './paths'
 import { initUpdater } from './updater'
+import { installMenu } from './menu'
 import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
 import { syncFolderWarning } from '@shared/syncpath'
@@ -103,7 +104,11 @@ if (gotSingleInstanceLock) {
     initLogging()
     log('info', 'app-start', { version: app.getVersion(), platform: process.platform })
     electronApp.setAppUserModelId('com.irminlabs.total')
-    app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+    installMenu()
+    // `optimizer.watchWindowShortcuts` is deliberately NOT used: in development it intercepts
+    // F12 via before-input-event to toggle devtools, which would silently eat the renderer's
+    // F12 (configure columns) for every developer while working fine in the packaged build.
+    // Devtools live in the View menu under `is.dev` instead.
     ensureDataTree()
     registerIpc()
     startBackupScheduler(getCurrentCompany)
