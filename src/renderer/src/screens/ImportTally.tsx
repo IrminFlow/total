@@ -194,6 +194,7 @@ function PreviewStep({
 
 function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGateway: () => void }): React.JSX.Element {
   const toast = useToasts()
+  const [certificateBusy, setCertificateBusy] = useState(false)
   const today = todayISO()
   const { data: tb } = useQuery({ queryKey: ['trialBalance', today], queryFn: ({ signal }) => api.reports.trialBalance(today, signal) })
   const rows = tb?.rows ?? []
@@ -225,6 +226,24 @@ function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGatew
     )
   }
 
+  const exportCertificate = async (): Promise<void> => {
+    if (!summary.batchId) return
+    setCertificateBusy(true)
+    try {
+      const result = await api.importer.certificate(summary.batchId)
+      toast.push(
+        result.status === 'checks_passed' ? 'success' : 'info',
+        result.status === 'checks_passed'
+          ? `Batch #${summary.batchId} certificate saved as JSON and PDF`
+          : `Batch #${summary.batchId} certificate saved; review the checks needing attention`
+      )
+    } catch (error) {
+      toast.push('error', (error as Error).message)
+    } finally {
+      setCertificateBusy(false)
+    }
+  }
+
   return (
     <>
       <Panel className="p-6">
@@ -249,8 +268,13 @@ function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGatew
           Compare with Tally&rsquo;s Trial Balance — should match to the paise.
         </p>
         <div className="flex gap-2">
+          {summary.batchId && (
+            <Button onClick={() => void exportCertificate()} disabled={certificateBusy}>
+              {certificateBusy ? 'Preparing…' : 'Reconciliation certificate'}
+            </Button>
+          )}
           <Button variant="ghost" onClick={printTb}>
-            PDF
+            Trial balance PDF
           </Button>
           <Button variant="primary" onClick={onGateway}>
             Go to Gateway
