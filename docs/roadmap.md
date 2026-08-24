@@ -153,16 +153,16 @@ Ordering within a section is roughly by value.
 ## E. Inventory
 
 111. Barcode label printing to a thermal printer (M)
-112. Multi-godown stock transfer voucher (M)
+112. ✓ Multi-godown stock transfer voucher (M)
 113. ✓ Reorder level with a purchase suggestion report (M)
 114. ✓ Batch expiry tracking with a near-expiry report (M)
 115. Serial-number tracking for high-value items (L)
 116. ✓ Stock ageing by batch rather than by item (M)
-117. Landed cost allocation across a purchase (M)
+117. ✓ Landed cost allocation across a purchase (M)
 118. Standard costing with variance against actual (L)
 119. Item images on the invoice and in the picker (M)
 120. ✓ Alternate units of measure with conversion (M)
-121. Item-wise reorder email or WhatsApp alert (S)
+121. ✓ Item-wise reorder email or WhatsApp alert (S)
 122. ✓ Negative-stock prevention per item, overriding the company setting in both directions (S)
 123. ✓ Physical stock count sheets, printable with blank quantity columns (S)
 124. ✓ Stock valuation method per item, not per company (M) — already shipped: stock_items
@@ -177,10 +177,10 @@ Ordering within a section is roughly by value.
 
 ## F. Banking and reconciliation
 
-131. Per-bank statement import profiles: HDFC, ICICI, SBI, Axis, Kotak (M)
+131. ✓ Per-bank statement import profiles: HDFC, ICICI, SBI, Axis, Kotak (M)
 132. PDF bank statement table extraction for the top banks (L)
-133. Auto-match on narration keywords, learned from past matches (M)
-134. Bulk-accept all high-confidence matches (S)
+133. ✓ Auto-match on narration keywords, learned from past matches (M)
+134. ✓ Bulk-accept all high-confidence matches (S)
 135. Bank charges and interest auto-posted from matched lines (M)
 136. Cheque printing with configurable layouts per bank (M)
 137. Post-dated cheque calendar view (S)
@@ -197,7 +197,7 @@ Ordering within a section is roughly by value.
      already carries a bank date is reported as alreadyReconciled, never re-matched.
 146. ✓ Statement import preview showing what will change, before it changes (S) — already
      shipped as the dry-run preview modal.
-147. Bank rules editable inline from the unmatched row (S)
+147. ✓ Bank rules editable inline from the unmatched row (S)
 148. ✓ Reconciliation progress bar per account (S)
 
 ## G. Receivables, payables and khata
