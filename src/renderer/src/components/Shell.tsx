@@ -125,6 +125,19 @@ export function Shell({
     readWorkspacePrefs(slug, identity),
   );
   const mainRef = useRef<HTMLElement>(null);
+  const restoreKey = `${slug}:${screen.name}`;
+  const scrollRestoreRef = useRef({ key: "", target: 0, complete: true });
+  if (scrollRestoreRef.current.key !== restoreKey) {
+    const target =
+      slug && screen.name !== "voucher-entry"
+        ? (readContinuation(slug)?.scrollByScreen[screen.name] ?? 0)
+        : 0;
+    scrollRestoreRef.current = {
+      key: restoreKey,
+      target,
+      complete: target <= 0,
+    };
+  }
   const fetching = useIsFetching();
   const features = useFeatures();
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature])
@@ -174,7 +187,10 @@ export function Shell({
 
   useEffect(() => {
     if (!slug || screen.name === "voucher-entry") return;
-    const scrollTop = readContinuation(slug)?.scrollByScreen[screen.name] ?? 0;
+    const restoration = scrollRestoreRef.current;
+    if (restoration.key !== restoreKey) return;
+    const scrollTop = restoration.target;
+    restoration.complete = scrollTop <= 0;
     let frame = 0;
     let attempts = 0;
     const restore = (): void => {
@@ -183,13 +199,16 @@ export function Shell({
       main.scrollTo({ top: scrollTop });
       // Dashboard rows arrive asynchronously. Keep the saved reading position until the
       // scroller is tall enough instead of letting the browser clamp the one-shot restore to 0.
-      if (Math.abs(main.scrollTop - scrollTop) <= 1 || attempts >= 120) return;
+      if (Math.abs(main.scrollTop - scrollTop) <= 1 || attempts >= 120) {
+        restoration.complete = true;
+        return;
+      }
       attempts += 1;
       frame = requestAnimationFrame(restore);
     };
     frame = requestAnimationFrame(restore);
     return () => cancelAnimationFrame(frame);
-  }, [slug, screen.name, fetching]);
+  }, [slug, screen.name, restoreKey, fetching]);
 
   useEffect(() => {
     if (!canFocus) setFocusMode(false);
@@ -580,6 +599,16 @@ export function Shell({
           className={`min-h-0 flex-1 overflow-auto transition-[padding] duration-200 ${focusActive ? "bg-canvas p-7" : "p-5"}`}
           onScroll={(event) => {
             if (!slug || screen.name === "voucher-entry") return;
+            const restoration = scrollRestoreRef.current;
+            if (restoration.key === restoreKey && !restoration.complete) {
+              if (
+                Math.abs(event.currentTarget.scrollTop - restoration.target) <= 1
+              ) {
+                restoration.complete = true;
+              } else {
+                return;
+              }
+            }
             const canonical = screenDef(screen.name)?.screen;
             if (canonical)
               rememberContinuation(slug, {
