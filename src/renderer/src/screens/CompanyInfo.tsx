@@ -278,6 +278,7 @@ function CsvImportCard(): React.JSX.Element {
   const queryClient = useQueryClient();
   const [kind, setKind] = useState<ImportKind>("ledgers");
   const [fileName, setFileName] = useState<string | null>(null);
+  const [sourceDetail, setSourceDetail] = useState<string | null>(null);
   const [csvText, setCsvText] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [dryRun, setDryRun] = useState<MigrationDryRun | null>(null);
@@ -293,6 +294,7 @@ function CsvImportCard(): React.JSX.Element {
 
   const reset = (): void => {
     setFileName(null);
+    setSourceDetail(null);
     setCsvText(null);
     setPreview(null);
     setDryRun(null);
@@ -310,6 +312,7 @@ function CsvImportCard(): React.JSX.Element {
       const p =
         profiled?.preview ?? (await api.importer.preview(kind, picked.csvText));
       setFileName(picked.fileName);
+      setSourceDetail(`${picked.sourceFormat.toUpperCase()}${picked.sheetName ? ` · ${picked.sheetName}` : ""}`);
       setCsvText(picked.csvText);
       setPreview(p);
       setDryRun(profiled?.dryRun ?? null);
@@ -408,12 +411,13 @@ function CsvImportCard(): React.JSX.Element {
               </Button>
             }
           >
-            Import from CSV
+            Import from spreadsheet
           </SectionTitle>
           <p className="mt-1 text-[12px] text-muted">
             Bring masters, opening balances or balanced transactions from Busy,
-            Zoho Books, Marg or any spreadsheet. Preview and reconcile every
-            row before applying.
+            Zoho Books, Marg, CSV, TSV or Excel workbooks. The first non-empty
+            worksheet is normalized locally; preview and reconcile every row
+            before applying.
           </p>
         </div>
       </div>
@@ -459,7 +463,7 @@ function CsvImportCard(): React.JSX.Element {
             Pick file…
           </Button>
           {fileName && (
-            <span className="text-[12px] text-muted">{fileName}</span>
+            <span className="text-[12px] text-muted">{fileName}{sourceDetail ? ` · ${sourceDetail}` : ""}</span>
           )}
         </div>
 

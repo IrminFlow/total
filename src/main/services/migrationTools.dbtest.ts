@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { execFileSync } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
+import ExcelJS from "exceljs";
 import { freshDb, seededDb } from "../db/testdb";
 import { ensureCompanyTree } from "../paths";
 import { applyImport, previewImport } from "./importers";
@@ -13,6 +14,7 @@ import {
   migrationDryRun,
   previewWithProfile,
   restorePortablePackage,
+  spreadsheetFileToCsv,
   validatePortablePackage,
   writeErrorWorkbook,
   writePortablePackage,
@@ -114,6 +116,28 @@ describe("migration workbench", () => {
     );
     expect(path).toMatch(/busy-ledgers-errors\.xlsx$/);
     expect(readFileSync(path).subarray(0, 2).toString()).toBe("PK");
+  });
+  it("normalizes XLSX and tab-separated workbooks at the reviewed CSV boundary", async () => {
+    tree();
+    const xlsxPath = join(root!, "busy-vouchers.xlsx");
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Vouchers");
+    sheet.addRow(["Vch No", "Date", "Vch Type", "Account", "Dr", "Cr", "Narration"]);
+    sheet.addRow(["B-9", new Date(2026, 7, 24), "Journal", "Cash", 1000, "", "Workbook migration"]);
+    sheet.addRow(["B-9", new Date(2026, 7, 24), "Journal", "Sales Account", "", 1000, "Workbook migration"]);
+    await workbook.xlsx.writeFile(xlsxPath);
+    const xlsx = await spreadsheetFileToCsv(xlsxPath);
+    expect(xlsx).toMatchObject({ sourceFormat: "xlsx", sheetName: "Vouchers", fileName: "busy-vouchers.xlsx" });
+    expect(xlsx.csvText).toContain("2026-08-24");
+    const db = booksDb();
+    const busy = listMappingProfiles(db).find((row) => row.name === "Busy voucher export")!;
+    expect(previewWithProfile(db, xlsx.csvText, busy).preview).toMatchObject({ willCreate: 1, errors: [] });
+
+    const tsvPath = join(root!, "openings.tsv");
+    writeFileSync(tsvPath, "Name\tOpening\nCash\t\"1,250.50\"\n");
+    const tsv = await spreadsheetFileToCsv(tsvPath);
+    expect(tsv).toMatchObject({ sourceFormat: "tsv", sheetName: null });
+    expect(tsv.csvText).toContain('"1,250.50"');
   });
   it("exports a versioned exit package with accounting data and no authentication secrets", () => {
     tree();

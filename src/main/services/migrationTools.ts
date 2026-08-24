@@ -1,5 +1,5 @@
-import { basename, join } from "path";
-import { createReadStream, mkdirSync, writeFileSync } from "fs";
+import { basename, extname, join } from "path";
+import { createReadStream, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { createHash } from "crypto";
 import ExcelJS from "exceljs";
 import type { DB } from "../db/connection";
@@ -39,6 +39,81 @@ const jsonObject = (raw: unknown): Record<string, any> => {
     return {};
   }
 };
+
+function spreadsheetCellText(value: ExcelJS.CellValue): string {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  if (typeof value !== "object") return String(value);
+  if ("result" in value && value.result !== undefined)
+    return spreadsheetCellText(value.result as ExcelJS.CellValue);
+  if ("richText" in value)
+    return value.richText.map((part) => part.text).join("");
+  if ("text" in value) return String(value.text);
+  if ("error" in value) return String(value.error);
+  return String(value);
+}
+
+function parseTabSeparated(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  const pushCell = (): void => { row.push(cell); cell = ""; };
+  const pushRow = (): void => {
+    pushCell();
+    if (row.some((value) => value.trim() !== "")) rows.push(row);
+    row = [];
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === "\t") pushCell();
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      pushRow();
+    } else cell += ch;
+  }
+  if (cell !== "" || row.length) pushRow();
+  return rows;
+}
+
+/** Normalize a user-selected CSV, TSV or XLSX worksheet to the importer's reviewed CSV boundary. */
+export async function spreadsheetFileToCsv(filePath: string): Promise<{ csvText: string; fileName: string; sheetName: string | null; sourceFormat: "csv" | "tsv" | "xlsx" }> {
+  const extension = extname(filePath).toLowerCase();
+  const fileName = basename(filePath);
+  if (extension === ".csv")
+    return { csvText: readFileSync(filePath, "utf8"), fileName, sheetName: null, sourceFormat: "csv" };
+  if (extension === ".tsv" || extension === ".txt") {
+    const raw = readFileSync(filePath, "utf8");
+    if (extension === ".txt" && !raw.split(/\r?\n/, 1)[0]?.includes("\t"))
+      return { csvText: raw, fileName, sheetName: null, sourceFormat: "csv" };
+    const rows = parseTabSeparated(raw);
+    if (!rows.length) throw new Error("The spreadsheet is empty");
+    return { csvText: rowsToCsv(rows[0]!, rows.slice(1)), fileName, sheetName: null, sourceFormat: "tsv" };
+  }
+  if (extension !== ".xlsx")
+    throw new Error("Choose CSV, tab-separated text or an .xlsx workbook. Save legacy .xls files as .xlsx first.");
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const sheet = workbook.worksheets.find((candidate) => candidate.actualRowCount > 0);
+  if (!sheet) throw new Error("The workbook has no non-empty worksheet");
+  const rows: string[][] = [];
+  sheet.eachRow({ includeEmpty: false }, (row) => {
+    const values = Array.from({ length: Math.max(sheet.actualColumnCount, row.cellCount) }, (_, index) => spreadsheetCellText(row.getCell(index + 1).value));
+    if (values.some((value) => value.trim() !== "")) rows.push(values);
+  });
+  if (!rows.length) throw new Error("The workbook has no importable rows");
+  return { csvText: rowsToCsv(rows[0]!, rows.slice(1)), fileName, sheetName: sheet.name, sourceFormat: "xlsx" };
+}
 function mapProfile(row: Row): MappingProfile {
   return {
     id: Number(row.id),

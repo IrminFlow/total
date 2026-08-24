@@ -2861,7 +2861,7 @@ export const api = {
   },
   importer: {
     pickCsv: () =>
-      call<{ csvText: string; fileName: string } | null>("import:pickCsv"),
+      call<{ csvText: string; fileName: string; sheetName: string | null; sourceFormat: "csv" | "tsv" | "xlsx" } | null>("import:pickCsv"),
     preview: (kind: ImportKind, csvText: string) =>
       call<ImportPreview>("import:preview", { kind, csvText }),
     apply: (kind: ImportKind, csvText: string) =>

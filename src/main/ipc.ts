@@ -6062,15 +6062,12 @@ export function registerIpc(): void {
   ]);
   handle("import:pickCsv", async () => {
     const picked = await dialog.showOpenDialog({
-      title: "Choose a CSV file",
-      filters: [{ name: "CSV", extensions: ["csv", "txt"] }],
+      title: "Choose a spreadsheet",
+      filters: [{ name: "Spreadsheet", extensions: ["csv", "tsv", "txt", "xlsx"] }],
       properties: ["openFile"],
     });
     if (picked.canceled || !picked.filePaths[0]) return null;
-    return {
-      csvText: readFileSync(picked.filePaths[0], "utf8"),
-      fileName: picked.filePaths[0].split(/[\\/]/).pop()!,
-    };
+    return migrationTools.spreadsheetFileToCsv(picked.filePaths[0]);
   });
   handle("import:preview", (p) => {
     const { kind, csvText } = z
