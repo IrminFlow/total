@@ -22,7 +22,7 @@ import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
-  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, reportScheduleInputSchema, reportViewSaveSchema, exportXlsSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
+  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, reportScheduleInputSchema, reportViewSaveSchema, exportXlsSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema, supportSendSchema,
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
@@ -107,6 +107,7 @@ import { PORTABLE_FORMAT } from '@shared/portable'
 import * as attachments from './services/attachments'
 import * as approvals from './services/approvals'
 import * as bankChanges from './services/bankChanges'
+import * as support from './services/support'
 import {
   AUDITOR_DURATIONS_HOURS, AUDITOR_SESSION_NAME, auditorExpiry, auditorSessionExpired,
   auditorTimeLeftLabel, type AuditorSession
@@ -234,6 +235,7 @@ const UNGATED_CHANNELS = new Set([
   'log:renderer',
   'log:reveal',
   'log:diagnostics',
+  'support:send',
   'backup:importEncrypted',
   'app:info'
 ])
@@ -259,6 +261,7 @@ const ARCHIVE_EXEMPT_CHANNELS = new Set([
   'log:renderer',
   'log:reveal',
   'log:diagnostics',
+  'support:send',
   'auth:login',
   'auth:logout'
 ])
@@ -289,6 +292,7 @@ const LICENSE_EXEMPT_CHANNELS = new Set([
   'log:renderer',
   'log:reveal',
   'log:diagnostics',
+  'support:send',
   'app:info',
   'auth:login',
   'auth:logout',
@@ -3633,6 +3637,18 @@ export function registerIpc(): void {
       lines: recentLogLines()
     }
   }, 'viewer')
+
+  /**
+   * Send the support message the user just read (roadmap #345).
+   *
+   * Deliberately takes the report text rather than rebuilding it: what the dialog showed and what
+   * leaves the machine have to be the same string, and the only way to guarantee that is to send
+   * the one that was on screen.
+   */
+  handle('support:send', async (p) => {
+    const { message, email, log: logText } = supportSendSchema.parse(p)
+    return support.sendFeedback({ message, email: email || null, log: logText || null })
+  })
 
   // ---------- where the books live (roadmap #244) ----------
   handle('app:dataRoot:get', () => {

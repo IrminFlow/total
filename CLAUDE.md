@@ -64,7 +64,16 @@ cd site && npm run dev / npm run build   # marketing site
 ## Release steps (auto-update pipeline)
 
 ```bash
-npm version patch      # bumps version, commits, tags vX.Y.Z
+npm run release -- patch   # pre-flight, full verify, version, tag, push, then CHECK it published
+```
+
+`scripts/release.mjs` does what the two commands below used to do from memory, and then goes and
+looks: it polls the release until the assets exist and fails loudly if it published as a draft or
+a pre-release, because `releases/latest` returns neither and both reach nobody while looking
+perfect on the releases page. `--dry-run` stops before the version commit and the push.
+
+```bash
+npm version patch      # what it runs underneath: bumps version, commits, tags vX.Y.Z
 git push --follow-tags # → GitHub Actions: tests, DMG+ZIP build, publishes the release
 ```
 

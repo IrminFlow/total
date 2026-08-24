@@ -22,6 +22,7 @@
     "build:mac": "electron-vite build && electron-builder --mac",
     "icon": "node scripts/run-icon.mjs",
     "verify": "node scripts/verify.mjs",
+    "release": "node scripts/release.mjs",
     "bundle:budget": "node scripts/bundle-budget.mjs"
   },
   "dependencies": {
