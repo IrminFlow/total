@@ -40,6 +40,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowsLeftRight,
+  CaretDown,
   ClockCounterClockwise,
   CornersIn,
   CornersOut,
@@ -116,6 +117,9 @@ export function Shell({
   const [companySwitcherOpen, setCompanySwitcherOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [workspace, setWorkspace] = useState<WorkspacePrefs>(() =>
     readWorkspacePrefs(slug, identity),
   );
@@ -142,6 +146,17 @@ export function Shell({
   );
   const canFocus = FOCUS_SCREENS.has(screen.name);
   const focusActive = focusMode && canFocus;
+
+  useEffect(() => {
+    const activeSection = visibleNav.find((section) =>
+      section.items.some((item) => item.screen.name === screen.name),
+    );
+    if (!activeSection?.title) return;
+    setExpandedSections((current) => {
+      if (current.has(activeSection.id)) return current;
+      return new Set([...current, activeSection.id]);
+    });
+  }, [screen.name, visibleNav]);
 
   useEffect(() => {
     setWorkspace(rememberWorkspaceScreen(slug, screen.name, identity));
@@ -342,7 +357,7 @@ export function Shell({
               className="flex items-center gap-2 rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
               onClick={onOpenPalette}
             >
-              <MagnifyingGlass size={15} /> Anywhere <Kbd>⌘K</Kbd>
+              <MagnifyingGlass size={15} /> Search books <Kbd>⌘K</Kbd>
             </button>
             <button
               data-testid="btn-copilot"
@@ -353,6 +368,7 @@ export function Shell({
               <Sparkle size={15} className="inline-block -translate-y-px" />{" "}
               Copilot
             </button>
+            <SupportLink className="px-1 text-[11px]" />
             {user && (
               <>
                 <span className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted capitalize">
@@ -382,7 +398,7 @@ export function Shell({
 
       <div className="flex min-h-0 flex-1">
         {!focusActive && (
-          <aside data-testid="primary-navigation" className="flex w-[216px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-panel px-2 py-2.5">
+          <aside data-testid="primary-navigation" className="flex w-[216px] shrink-0 flex-col overflow-hidden border-r border-line bg-panel px-2 py-2.5">
             <div className="mb-2 flex items-start gap-1 border-b border-line px-1 pb-3">
               <button
                 className="min-w-0 flex-1 px-1.5 text-left"
@@ -433,92 +449,111 @@ export function Shell({
                 ))}
               </select>
             </label>
-            {pinned.length > 0 && (
-              <div className="mb-1 border-b border-line pb-2">
-                <p className="mb-1 px-2.5 text-[10.5px] font-medium text-muted">
-                  Pinned
-                </p>
-                {pinned.map((def) => (
-                  <button
-                    key={`pin-${def.name}`}
-                    onClick={() => nav.go(def.screen!)}
-                    data-active={screen.name === def.name}
-                    className="app-nav-item block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] text-muted hover:bg-panel2 hover:text-ink"
-                  >
-                    {localizedLabel(def.navLabel ?? def.title, language)}
-                  </button>
-                ))}
-              </div>
-            )}
-            {visibleNav.map((section) => (
-              <div key={section.title ?? "top"}>
-                {section.title && (
-                  <p className="mt-3 mb-1 px-2.5 text-[10.5px] font-medium text-muted/85">
-                    {localizedLabel(section.title, language)}
+            <nav aria-label="Application" className="min-h-0 flex-1 overflow-y-auto pb-2">
+              {pinned.length > 0 && (
+                <div className="mb-1 border-b border-line pb-2">
+                  <p className="mb-1 px-2.5 text-[10.5px] font-medium text-muted">
+                    Pinned
                   </p>
-                )}
-                {section.items.map((item) => {
-                  const active = screen.name === item.screen.name;
-                  const shortcut = SCREEN_SHORTCUTS[item.screen.name];
-                  return (
+                  {pinned.map((def) => (
                     <button
-                      key={item.label}
-                      data-testid={`nav-${item.screen.name}`}
-                      data-active={active}
-                      onClick={() => nav.go(item.screen)}
+                      key={`pin-${def.name}`}
+                      onClick={() => nav.go(def.screen!)}
+                      data-active={screen.name === def.name}
                       className="app-nav-item block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] text-muted hover:bg-panel2 hover:text-ink"
-                      title={
-                        shortcut
-                          ? `${shortcut.shift ? "Alt+Shift" : "Alt"}+${shortcut.key.toUpperCase()}`
-                          : undefined
-                      }
-                      aria-label={localizedLabel(item.label, language)}
-                      data-voice-command={item.label}
                     >
-                      {shortcut ? (
-                        <MnemonicText
-                          label={localizedLabel(item.label, language)}
-                          mnemonic={shortcut.key}
-                        />
-                      ) : (
-                        localizedLabel(item.label, language)
-                      )}
+                      {localizedLabel(def.navLabel ?? def.title, language)}
                     </button>
-                  );
-                })}
-              </div>
-            ))}
-            <div className="flex-1" />
-            <button
-              className="rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
-              onClick={async () => {
-                try {
-                  await api.company.backup();
-                  toast.push("success", "Backup saved");
-                } catch (err) {
-                  toast.push("error", (err as Error).message);
-                }
-              }}
-            >
-              Back up now
-            </button>
-            <button
-              data-testid="btn-switch-company"
-              className="rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
-              onClick={async () => {
-                try {
-                  await api.company.close();
-                  clearCompany();
-                  nav.home();
-                } catch (err) {
-                  toast.push("error", (err as Error).message);
-                }
-              }}
-            >
-              Switch company
-            </button>
-            <div className="mt-2 border-t border-line pt-2">
-              <SupportLink />
+                  ))}
+                </div>
+              )}
+              {visibleNav.map((section) => {
+                const expanded = !section.title || expandedSections.has(section.id);
+                return (
+                  <div key={section.id} className={section.title ? "mt-1" : undefined}>
+                    {section.title && (
+                      <button
+                        type="button"
+                        aria-expanded={expanded}
+                        onClick={() =>
+                          setExpandedSections((current) => {
+                            const next = new Set(current);
+                            if (next.has(section.id)) next.delete(section.id);
+                            else next.add(section.id);
+                            return next;
+                          })
+                        }
+                        className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[10.5px] font-medium text-muted/90 hover:bg-panel2 hover:text-ink"
+                      >
+                        {localizedLabel(section.title, language)}
+                        <CaretDown
+                          size={12}
+                          className={`transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`}
+                        />
+                      </button>
+                    )}
+                    {expanded && section.items.map((item) => {
+                      const active = screen.name === item.screen.name;
+                      const shortcut = SCREEN_SHORTCUTS[item.screen.name];
+                      return (
+                        <button
+                          key={item.label}
+                          data-testid={`nav-${item.screen.name}`}
+                          data-active={active}
+                          onClick={() => nav.go(item.screen)}
+                          className="app-nav-item block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] text-muted hover:bg-panel2 hover:text-ink"
+                          title={
+                            shortcut
+                              ? `${shortcut.shift ? "Alt+Shift" : "Alt"}+${shortcut.key.toUpperCase()}`
+                              : undefined
+                          }
+                          aria-label={localizedLabel(item.label, language)}
+                          data-voice-command={item.label}
+                        >
+                          {shortcut ? (
+                            <MnemonicText
+                              label={localizedLabel(item.label, language)}
+                              mnemonic={shortcut.key}
+                            />
+                          ) : (
+                            localizedLabel(item.label, language)
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </nav>
+            <div className="shrink-0 border-t border-line pt-2">
+              <button
+                className="block w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
+                onClick={async () => {
+                  try {
+                    await api.company.backup();
+                    toast.push("success", "Backup saved");
+                  } catch (err) {
+                    toast.push("error", (err as Error).message);
+                  }
+                }}
+              >
+                Back up now
+              </button>
+              <button
+                data-testid="btn-switch-company"
+                className="block w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-muted hover:bg-panel2 hover:text-ink"
+                onClick={async () => {
+                  try {
+                    await api.company.close();
+                    clearCompany();
+                    nav.home();
+                  } catch (err) {
+                    toast.push("error", (err as Error).message);
+                  }
+                }}
+              >
+                Switch company
+              </button>
             </div>
           </aside>
         )}

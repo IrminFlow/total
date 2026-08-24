@@ -143,7 +143,7 @@ export function ManagementInsightsScreen(): React.JSX.Element {
     }
   };
   const tabs: { key: Tab; label: string }[] = [
-    { key: "overview", label: "Decision desk" },
+    { key: "overview", label: "Overview" },
     { key: "drivers", label: "Variance drivers" },
     { key: "scenarios", label: "Scenarios" },
     { key: "schedule", label: "Schedule III" },

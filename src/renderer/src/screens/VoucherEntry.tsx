@@ -23,6 +23,8 @@ const LETTER_KEYS: Partial<Record<VoucherKind, string>> = {
   credit_note: 'n', debit_note: 'd', stock_journal: 'k', physical_stock: 'h'
 }
 
+const PRIMARY_VOUCHER_KINDS = new Set<VoucherKind>(['contra', 'payment', 'receipt', 'journal', 'sales', 'purchase'])
+
 export function VoucherEntry({
   voucherId,
   kindHint,
@@ -118,13 +120,16 @@ export function VoucherEntry({
   const invoiceMode = !voucherId && TRADING_KINDS.includes(currentType.kind)
   const manufactureMode = !voucherId && currentType.kind === 'stock_journal'
   const physicalMode = !voucherId && currentType.kind === 'physical_stock'
+  const availableTypes = types.filter((type) => features.inventory || (type.kind !== 'stock_journal' && type.kind !== 'physical_stock'))
+  const primaryTypes = availableTypes.filter((type) => PRIMARY_VOUCHER_KINDS.has(type.kind))
+  const additionalTypes = availableTypes.filter((type) => !PRIMARY_VOUCHER_KINDS.has(type.kind))
 
   return (
     <div className="mx-auto max-w-4xl">
       {showFirstVoucherHint && (
         <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5">
           <p className="text-[12.5px] text-ink">
-            First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then{' '}
+            First voucher? Choose a type or press <Kbd>F8</Kbd> for Sales, fill in the lines, then press{' '}
             <Kbd>⌘↵</Kbd> to save.
           </p>
           <button
@@ -136,26 +141,10 @@ export function VoucherEntry({
           </button>
         </div>
       )}
-      <div className="mb-4 flex items-center gap-2">
-        <h2 className="mr-3 text-[20px] font-semibold tracking-[-0.015em] whitespace-nowrap">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h2 className="mr-auto text-[20px] font-semibold tracking-[-0.015em] whitespace-nowrap">
           {voucherId ? `Alter voucher ${existing?.number}` : workDraft ? `Resume ${workDraft.title}` : 'Voucher entry'}
         </h2>
-        {!voucherId &&
-          types
-            .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
-            .map((t) => (
-            <button
-              key={t.id}
-              data-testid={`tab-voucher-entry-${t.kind}`}
-              aria-current={t.id === currentType.id ? 'page' : undefined}
-              onClick={() => setTypeId(t.id)}
-              className={`rounded-md px-2.5 py-1 text-[12px] transition-colors ${
-                t.id === currentType.id ? 'bg-amber/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
-              }`}
-            >
-              <MnemonicText label={t.name} mnemonic={LETTER_KEYS[t.kind] ?? ''} />
-            </button>
-          ))}
         {voucherId && existing && <Button data-testid="btn-duplicate-voucher" className="ml-auto" disabled={!!existing.reversalOfId || !!existing.reversedById} onClick={() => {
           const partyLine = existing.lines.find((line) => line.ledgerId === existing.partyLedgerId)
           const accountLedgerId = existing.lines
@@ -188,6 +177,52 @@ export function VoucherEntry({
         {voucherId && existing && <Button data-testid="btn-voucher-attachments" variant="ghost" onClick={() => setAttachmentsOpen(true)}>Evidence</Button>}
         {!voucherId && !workDraftId && <Button data-testid="btn-compound-entry" variant="ghost" onClick={() => setCompoundOpen(true)}>Guided entry…</Button>}
       </div>
+      {!voucherId && (
+        <div className="mb-4 flex min-w-0 items-center gap-1 overflow-visible border-y border-line bg-panel px-1 py-1" role="toolbar" aria-label="Voucher type">
+          {primaryTypes.map((type) => (
+            <button
+              key={type.id}
+              type="button"
+              data-testid={`tab-voucher-entry-${type.kind}`}
+              aria-current={type.id === currentType.id ? 'page' : undefined}
+              aria-pressed={type.id === currentType.id}
+              onClick={() => setTypeId(type.id)}
+              className={`min-h-8 shrink-0 rounded-md px-2.5 py-1 text-[12px] transition-colors ${
+                type.id === currentType.id ? 'bg-amber/20 font-medium text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
+              }`}
+            >
+              <MnemonicText label={type.name} mnemonic={LETTER_KEYS[type.kind] ?? ''} />
+            </button>
+          ))}
+          {additionalTypes.length > 0 && (
+            <details className="relative ml-auto shrink-0">
+              <summary className="flex min-h-8 cursor-pointer list-none items-center rounded-md px-2.5 py-1 text-[12px] text-muted hover:bg-panel2 hover:text-ink">
+                {additionalTypes.some((type) => type.id === currentType.id) ? currentType.name : 'More types'}
+              </summary>
+              <div className="absolute right-0 z-20 mt-1 min-w-44 overflow-hidden rounded-lg border border-line bg-panel py-1 panel-shadow">
+                {additionalTypes.map((type) => (
+                  <button
+                    key={type.id}
+                    type="button"
+                    data-testid={`tab-voucher-entry-${type.kind}`}
+                    aria-current={type.id === currentType.id ? 'page' : undefined}
+                    aria-pressed={type.id === currentType.id}
+                    onClick={(event) => {
+                      setTypeId(type.id)
+                      event.currentTarget.closest('details')?.removeAttribute('open')
+                    }}
+                    className={`block min-h-8 w-full px-3 py-1.5 text-left text-[12px] ${
+                      type.id === currentType.id ? 'bg-amber/20 font-medium text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
+                    }`}
+                  >
+                    <MnemonicText label={type.name} mnemonic={LETTER_KEYS[type.kind] ?? ''} />
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
       {existing?.reversalOfId && (
         <div className="mb-4 flex items-center justify-between rounded-md border border-cr/25 bg-cr/5 px-3 py-2 text-[11.5px]">
           <span>This is a linked reversal by {existing.reversalAuthor ?? 'Local user'} · {existing.reversalReason}</span>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import { Button, EmptyState, InteractiveReportRow, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -91,7 +91,7 @@ export function RegistersScreen(): React.JSX.Element {
     <div className="mx-auto max-w-4xl">
       <SectionTitle
         right={
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
             <TabBar
               screen="registers"
               tabs={(['sales', 'purchase', 'items'] as const).map((k) => ({ id: k, label: TAB_LABELS[k] }))}
@@ -173,7 +173,7 @@ export function RegistersScreen(): React.JSX.Element {
               </table>
             )}
           </Panel>
-          <p className="mt-2 text-[11.5px] text-muted">Click a {granularity} to open its vouchers in the Day Book.</p>
+          <p className="mt-2 text-[11.5px] text-muted">Select a {granularity} to open its vouchers in the Day Book.</p>
         </>
       )}
     </div>
@@ -183,18 +183,19 @@ export function RegistersScreen(): React.JSX.Element {
 function PeriodRow({ period, kind }: { period: import('@shared/reports').RegisterPeriodRow; kind: 'sales' | 'purchase' }): React.JSX.Element {
   const nav = useNav()
   return (
-    <tr
+    <InteractiveReportRow
       data-row-id={period.key}
-      className="cursor-pointer hover:bg-panel2"
+      className="hover:bg-panel2"
       title="Open this period in the Day Book"
-      onClick={() => nav.go({ name: 'daybook', from: period.from, to: period.to, periodLabel: period.label, kind })}
+      aria-label={`Open ${period.label} in the Day Book`}
+      onActivate={() => nav.go({ name: 'daybook', from: period.from, to: period.to, periodLabel: period.label, kind })}
     >
       <td className="text-blue">{period.label}</td>
       <td className="r num">{period.vouchers}</td>
       <td className="r"><Money paise={period.taxable} /></td>
       <td className="r"><Money paise={period.tax} /></td>
       <td className="r"><Money paise={period.total} /></td>
-    </tr>
+    </InteractiveReportRow>
   )
 }
 

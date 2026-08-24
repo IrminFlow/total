@@ -10,7 +10,6 @@
 /* ---------- theme tokens: light (default) and dark ---------- */
 
 :root {
-  --ui-scale: 1;
   --t-bg: #f3f5f7;
   --t-panel: #fbfcfd;
   --t-panel2: #edf1f4;
@@ -29,18 +28,14 @@
   --t-rule: #3a4053;
 }
 
-[data-font-scale="large"] {
-  --ui-scale: 1.12;
-}
-[data-font-scale="xlarge"] {
-  --ui-scale: 1.22;
-}
+html[data-font-scale="large"] { font-size: 112%; }
+html[data-font-scale="xlarge"] { font-size: 122%; }
 
-#root {
-  zoom: var(--ui-scale);
-  width: calc(100% / var(--ui-scale));
-  height: calc(100% / var(--ui-scale));
-}
+/* Keep Support in the top bar at the minimum window size. The address remains in
+   the button title and dialog when extra-large text needs the horizontal room. */
+html[data-font-scale="xlarge"] .support-email { display: none; }
+html[data-font-scale="large"] .gateway-kpis,
+html[data-font-scale="xlarge"] .gateway-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 [data-reading-mode="dyslexia"] {
   --font-sans: Verdana, Arial, system-ui, sans-serif;
@@ -94,17 +89,53 @@
 
   /* Type scale — use these (text-label, text-hint, …) in kit components instead of raw
      bracket sizes; screens converge opportunistically. */
-  --text-label: 10.5px; /* uppercase micro-labels, Kbd */
-  --text-caption: 11px; /* field labels */
-  --text-hint: 11.5px; /* hints + inline errors */
-  --text-small: 12px; /* small links/actions */
-  --text-body-sm: 12.5px; /* secondary body */
-  --text-detail: 13px; /* buttons, dense rows */
-  --text-body: 13.5px; /* inputs + default body */
-  --text-lead: 14.5px; /* emphasized row titles */
-  --text-title: 16px; /* modal titles */
-  --text-heading: 19px; /* section titles */
+  --text-label: 0.65625rem; /* uppercase micro-labels, Kbd */
+  --text-caption: 0.6875rem; /* field labels */
+  --text-hint: 0.71875rem; /* hints + inline errors */
+  --text-small: 0.75rem; /* small links/actions */
+  --text-body-sm: 0.78125rem; /* secondary body */
+  --text-detail: 0.8125rem; /* buttons, dense rows */
+  --text-body: 0.84375rem; /* inputs + default body */
+  --text-lead: 0.90625rem; /* emphasized row titles */
+  --text-title: 1rem; /* modal titles */
+  --text-heading: 1.1875rem; /* section titles */
 }
+
+/* Tailwind's bracketed pixel utilities are legacy screen typography. Express their
+   generated values in rem so the accessibility text-size setting changes text and
+   reflows layout without scaling the viewport. */
+.text-\[7px\] { font-size: 0.4375rem; }
+.text-\[8px\] { font-size: 0.5rem; }
+.text-\[8\.5px\] { font-size: 0.53125rem; }
+.text-\[9px\] { font-size: 0.5625rem; }
+.text-\[9\.5px\] { font-size: 0.59375rem; }
+.text-\[10px\] { font-size: 0.625rem; }
+.text-\[10\.5px\] { font-size: 0.65625rem; }
+.text-\[11px\] { font-size: 0.6875rem; }
+.text-\[11\.5px\] { font-size: 0.71875rem; }
+.text-\[12px\] { font-size: 0.75rem; }
+.text-\[12\.5px\] { font-size: 0.78125rem; }
+.text-\[13px\] { font-size: 0.8125rem; }
+.text-\[13\.5px\] { font-size: 0.84375rem; }
+.text-\[14px\] { font-size: 0.875rem; }
+.text-\[14\.5px\] { font-size: 0.90625rem; }
+.text-\[15px\] { font-size: 0.9375rem; }
+.text-\[16px\] { font-size: 1rem; }
+.text-\[17px\] { font-size: 1.0625rem; }
+.text-\[18px\] { font-size: 1.125rem; }
+.text-\[19px\] { font-size: 1.1875rem; }
+.text-\[20px\] { font-size: 1.25rem; }
+.text-\[21px\] { font-size: 1.3125rem; }
+.text-\[22px\] { font-size: 1.375rem; }
+.text-\[23px\] { font-size: 1.4375rem; }
+.text-\[24px\] { font-size: 1.5rem; }
+.text-\[25px\] { font-size: 1.5625rem; }
+.text-\[26px\] { font-size: 1.625rem; }
+.text-\[28px\] { font-size: 1.75rem; }
+.text-\[29px\] { font-size: 1.8125rem; }
+.text-\[30px\] { font-size: 1.875rem; }
+.text-\[31px\] { font-size: 1.9375rem; }
+.text-\[38px\] { font-size: 2.375rem; }
 
 /* Treasury's fixed 13-week horizon intentionally exceeds Tailwind's default 12-column scale. */
 .grid-cols-13 {
@@ -121,7 +152,7 @@ body {
   background: var(--t-bg);
   color: var(--t-ink);
   font-family: var(--font-sans);
-  font-size: 13.5px;
+  font-size: 0.84375rem;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
@@ -220,10 +251,11 @@ tr.kbar-row[data-active="true"] td:first-child {
 
 .ledger-table {
   width: 100%;
+  min-width: max-content;
   border-collapse: collapse;
 }
 .ledger-table th {
-  font-size: 10.5px;
+  font-size: 0.65625rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -255,6 +287,17 @@ tr.kbar-row[data-active="true"] td:first-child {
 }
 .ledger-table tbody tr:hover td {
   background: color-mix(in oklab, var(--t-panel2) 70%, transparent);
+}
+
+/* Only report/table panels gain horizontal scrolling as text grows. Other panels keep
+   their existing clipping behavior for menus and form overlays. */
+.app-panel:has(> .ledger-table),
+.app-panel-scroll:has(> .ledger-table) {
+  overflow-x: auto;
+}
+
+.interactive-report-row:focus-visible td {
+  background: var(--t-amber-soft);
 }
 
 input,

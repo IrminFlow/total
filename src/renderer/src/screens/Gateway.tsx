@@ -104,19 +104,6 @@ export function Gateway(): React.JSX.Element {
     return () => window.removeEventListener("keydown", onKey);
   }, [nav, cards]);
 
-  const gstRegistrationType = info?.gstRegistrationType ?? "unregistered";
-
-  // hasPayroll doesn't matter for a 'gst'-kind deadline, so `false` is fine here.
-  const nearestGst = useMemo(
-    () =>
-      gstRegistrationType === "unregistered"
-        ? null
-        : (upcomingDeadlines(today, gstRegistrationType, false, 30).find(
-            (d) => d.kind === "gst",
-          ) ?? null),
-    [today, gstRegistrationType],
-  );
-
   const tiles: { label: string; value?: number; text?: string }[] = [
     { label: "Cash in hand", value: data?.cashBalance ?? 0 },
     { label: "Bank balance", value: data?.bankBalance ?? 0 },
@@ -125,11 +112,6 @@ export function Gateway(): React.JSX.Element {
     { label: "Sales this month", value: data?.monthSales ?? 0 },
     { label: "GST payable", value: data?.gstPayable ?? 0 },
   ];
-  if (nearestGst)
-    tiles.push({
-      label: "Next GST due",
-      text: deadlineCountdown(nearestGst, today),
-    });
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -142,7 +124,7 @@ export function Gateway(): React.JSX.Element {
             {info?.name ?? "Your books"}
           </h1>
           <p className="mt-1 text-[12px] text-muted">
-            Today’s position, tasks and exceptions in one operating desk.
+            Balances, deadlines and recent activity for this period.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -176,7 +158,7 @@ export function Gateway(): React.JSX.Element {
           </button>
         </div>
       </header>
-      <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
+      <div className="gateway-kpis grid grid-cols-3 gap-3 lg:grid-cols-6">
         {tiles.map((t) => (
           <Panel key={t.label} className="px-4 py-3">
             <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">
@@ -246,7 +228,7 @@ export function Gateway(): React.JSX.Element {
 
       <div className="mt-7 mb-2 flex items-baseline justify-between">
         <p className="text-[10.5px] font-semibold tracking-[0.12em] text-muted uppercase">
-          Workspaces
+          Common tasks
         </p>
         <div className="flex items-center gap-3">
           <p className="text-[10.5px] text-muted">

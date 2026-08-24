@@ -7,6 +7,7 @@ import {
   useState,
   type HTMLAttributes,
   type ReactNode,
+  type TableHTMLAttributes,
 } from "react";
 import { formatPaise, parseRupees } from "@shared/money";
 import { parseSmartDate, toDisplayDate } from "@shared/dates";
@@ -30,7 +31,7 @@ export function SectionTitle({
   right?: ReactNode;
 }): React.JSX.Element {
   return (
-    <div className="mb-3 flex items-baseline justify-between">
+    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
       <h2 className="text-[20px] font-semibold tracking-[-0.015em] whitespace-nowrap">
         {children}
       </h2>
@@ -316,17 +317,53 @@ export function Panel({
 >): React.JSX.Element {
   return (
     <div
-      className={`rounded-lg border border-line bg-panel panel-shadow overflow-hidden ${className}`}
+      className={`app-panel rounded-lg border border-line bg-panel panel-shadow overflow-hidden ${className}`}
       {...rest}
     >
       {scroll ? (
-        <div className="overflow-y-auto" style={{ maxHeight: scroll.maxH }}>
+        <div className="app-panel-scroll overflow-y-auto" style={{ maxHeight: scroll.maxH }}>
           {children}
         </div>
       ) : (
         children
       )}
     </div>
+  );
+}
+
+/** A focusable report row with the same activation semantics as a button.
+ * Enter and Space activate it; events from controls inside the row keep their own behavior. */
+export function InteractiveReportRow({
+  onActivate,
+  className = "",
+  children,
+  ...props
+}: Omit<TableHTMLAttributes<HTMLTableRowElement>, "onClick" | "onKeyDown"> & {
+  onActivate: () => void;
+}): React.JSX.Element {
+  const isNestedControl = (target: EventTarget | null): boolean =>
+    target instanceof HTMLElement &&
+    target.closest("button, a, input, select, textarea, [contenteditable='true']") !== null;
+
+  return (
+    <tr
+      role="button"
+      tabIndex={0}
+      {...props}
+      className={`interactive-report-row cursor-pointer ${className}`}
+      onClick={(event) => {
+        if (!isNestedControl(event.target)) onActivate();
+      }}
+      onKeyDown={(event) => {
+        if (isNestedControl(event.target)) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onActivate();
+        }
+      }}
+    >
+      {children}
+    </tr>
   );
 }
 

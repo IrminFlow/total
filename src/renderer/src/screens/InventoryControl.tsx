@@ -187,7 +187,7 @@ function Planner({
     <div className="space-y-3">
       <Panel className="flex items-center justify-between">
         <div>
-          <p className="text-[12px] font-semibold">Supply decision desk</p>
+          <p className="text-[12px] font-semibold">Reorder plan</p>
           <p className="mt-1 text-[10.5px] text-muted">
             Available = on hand − reservations. Suggested orders net open POs
             and cover lead-time demand plus safety stock.

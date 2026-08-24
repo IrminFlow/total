@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type AuditRow } from '../../lib/client'
 import { useSession } from '../../state/stores'
-import { Button, DateInput, EmptyState, Panel, Select, SectionTitle } from '../../components/ui'
+import { Button, DateInput, EmptyState, InteractiveReportRow, Panel, Select, SectionTitle } from '../../components/ui'
 import { diffJson } from '@shared/diff'
 import { toDisplayDateTime } from '@shared/dates'
 import { AUDIT_ENTITIES } from '@shared/auditEntities'
@@ -118,14 +118,18 @@ export function AuditSection(): React.JSX.Element {
             <tbody data-testid="rows-settings-audit">
               {rows.map((r) => (
                 <Fragment key={r.id}>
-                  <tr className="cursor-pointer" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
+                  <InteractiveReportRow
+                    aria-label={`${expanded === r.id ? 'Collapse' : 'Expand'} audit entry ${r.id}`}
+                    aria-expanded={expanded === r.id}
+                    onActivate={() => setExpanded(expanded === r.id ? null : r.id)}
+                  >
                     <td className="num text-muted">{toDisplayDateTime(new Date(r.at))}</td>
                     <td>{r.userName ?? '—'}</td>
                     <td className="num">
                       {r.entity} #{r.entityId}
                     </td>
                     <td className="capitalize">{r.action}</td>
-                  </tr>
+                  </InteractiveReportRow>
                   {expanded === r.id && (
                     <tr>
                       <td colSpan={4} className="bg-panel2 px-3 py-2.5 text-[12px]">

@@ -59,7 +59,7 @@ export function AssistScreen(): React.JSX.Element {
           <div className="absolute -right-12 -top-24 size-64 rounded-full border border-panel/10" />
           <div className="absolute right-11 top-10 size-20 rounded-full border border-amberbar/25" />
           <p className="text-[9.5px] font-semibold uppercase tracking-[0.2em] text-panel/45">
-            Human-controlled intelligence
+            AI assistance
           </p>
           <h3 className="mt-3 max-w-xl font-serif text-[30px] font-semibold leading-[1.05] tracking-[-0.025em]">
             Faster work. Every claim traceable to your books.
@@ -72,7 +72,7 @@ export function AssistScreen(): React.JSX.Element {
         <Panel className="flex flex-col justify-between px-5 py-4">
           <div>
             <p className="text-[9.5px] font-semibold uppercase tracking-[0.16em] text-muted">
-              Safety contract
+              AI limits
             </p>
             <p className="mt-2 text-[12px] leading-5 text-ink">
               No generated SQL. No silent postings. No uncited financial

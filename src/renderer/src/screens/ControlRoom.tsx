@@ -73,7 +73,7 @@ export function ControlRoomScreen(): React.JSX.Element {
         <Panel className="relative overflow-hidden !bg-ink px-6 py-5 text-[var(--t-panel)]">
           <div className="absolute -right-14 -top-24 size-56 rounded-full border border-panel/10" />
           <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-panel/50">
-            Governance pulse
+            Review status
           </p>
           <div className="mt-3 flex items-end justify-between gap-8">
             <div>
@@ -88,7 +88,7 @@ export function ControlRoomScreen(): React.JSX.Element {
             </div>
             <div className="text-right">
               <p className="text-[10px] uppercase tracking-[0.12em] text-panel/45">
-                Period assurance
+                Period review
               </p>
               <p className="mt-1 text-[13px] font-semibold capitalize text-amberbar">
                 {report.data?.periodSignoffStatus.replace("_", " ") ??
@@ -99,7 +99,7 @@ export function ControlRoomScreen(): React.JSX.Element {
         </Panel>
         <Panel className="px-5 py-4">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-            Control posture
+            Audit controls
           </p>
           <p className="mt-2 text-[12px] leading-5 text-muted">
             Questions, decisions, access and evidence stay outside the books
