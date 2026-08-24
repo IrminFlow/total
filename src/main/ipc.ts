@@ -721,6 +721,10 @@ export function registerIpc(): void {
       limit == null ? undefined : { limit, offset }
     )
   }, 'viewer')
+  handle('report:purchaseSuggestions', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return reports.purchaseSuggestions(requireCompany().db, asOn)
+  }, 'viewer')
   handle('report:dayBookByType', (p) => {
     const { from, to, includeOutOfBooks } = periodSchema
       .extend({ includeOutOfBooks: z.boolean().optional() })

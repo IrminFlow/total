@@ -145,7 +145,7 @@ Ordering within a section is roughly by value.
 
 111. Barcode label printing to a thermal printer (M)
 112. Multi-godown stock transfer voucher (M)
-113. Reorder level with a purchase suggestion report (M)
+113. ✓ Reorder level with a purchase suggestion report (M)
 114. Batch expiry tracking with a near-expiry report (M)
 115. Serial-number tracking for high-value items (L)
 116. Stock ageing by batch rather than by item (M)

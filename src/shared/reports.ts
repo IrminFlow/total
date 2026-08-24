@@ -181,6 +181,32 @@ export interface StockAgeingRow {
   belowReorder: boolean
 }
 
+/**
+ * An item that has fallen to or below its reorder level, with what it would take to restock it.
+ *
+ * The stock summary already flags "reorder"; a flag is not an action. What turns it into one is
+ * how much to buy, who was bought from last, and at what price — the three things someone would
+ * otherwise open three screens to find before picking up the phone.
+ */
+export interface PurchaseSuggestionRow {
+  stockItemId: number
+  name: string
+  unitSymbol: string
+  decimals: number
+  closingQtyMilli: number
+  reorderLevelMilli: number
+  /** Quantity needed to reach the reorder level. Always positive — rows at or above it are not here. */
+  shortfallQtyMilli: number
+  /** The supplier of the most recent purchase of this item, if any. */
+  lastSupplier: string | null
+  lastSupplierLedgerId: number | null
+  lastPurchaseDate: string | null
+  /** Paise per whole unit on that last purchase. */
+  lastRatePaise: number | null
+  /** shortfall × last rate, in paise. Null when nothing was ever bought. */
+  estimatedCost: number | null
+}
+
 export interface ItemProfitRow {
   stockItemId: number
   name: string

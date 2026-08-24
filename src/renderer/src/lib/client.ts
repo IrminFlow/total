@@ -6,7 +6,8 @@ import type {
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, ExceptionsReport, GroupTreeNode,
-  DayBookTypeRow, ItemProfitRow, KhataParty, LedgerBalanceRow, PartyShareRow, ReconciliationStatus,
+  DayBookTypeRow, ItemProfitRow, KhataParty, LedgerBalanceRow, PartyShareRow, PurchaseSuggestionRow,
+  ReconciliationStatus,
   LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterPeriodRow, StockAgeingRow,
   StockSummaryRow, TrialBalance,
   VoucherListRow
@@ -492,6 +493,8 @@ export const api = {
       }),
     ledger: (ledgerId: number, from: string, to: string, groupBy?: Period, page?: { limit: number; offset?: number }) =>
       call<LedgerStatement>('report:ledger', { ledgerId, from, to, groupBy, ...page }),
+    purchaseSuggestions: (asOn: string) =>
+      call<PurchaseSuggestionRow[]>('report:purchaseSuggestions', { asOn }),
     dayBookByType: (from: string, to: string, includeOutOfBooks = false) =>
       call<DayBookTypeRow[]>('report:dayBookByType', { from, to, includeOutOfBooks }),
     trialBalance: (asOn: string, includeZeroBalances = false) =>

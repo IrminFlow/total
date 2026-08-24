@@ -183,6 +183,7 @@ export function StockSummaryScreen(): React.JSX.Element {
           </table>
         )}
       </Panel>
+      <PurchaseSuggestions asOn={to} />
       <StockAnalysis asOn={to} />
     </div>
   )
@@ -282,6 +283,123 @@ function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
           ))}
         </tbody>
       </table>
+    </Panel>
+  )
+}
+
+/**
+ * What to buy, from whom, and roughly for how much.
+ *
+ * The analysis panel below already flags an item below its reorder level, and a flag is not an
+ * action. This is the action: the shortfall, the last supplier and the last price, so the next
+ * step is a phone call rather than three more screens.
+ *
+ * Renders nothing when nothing is below its level — a permanently visible empty panel teaches
+ * people to stop looking at it.
+ */
+function PurchaseSuggestions({ asOn }: { asOn: string }): React.JSX.Element | null {
+  const toast = useToasts()
+  const { data } = useQuery({
+    queryKey: ['purchaseSuggestions', asOn],
+    queryFn: () => api.reports.purchaseSuggestions(asOn)
+  })
+  const rows = data ?? []
+  if (rows.length === 0) return null
+
+  const known = rows.filter((r) => r.estimatedCost != null)
+  const total = known.reduce((s, r) => s + (r.estimatedCost ?? 0), 0)
+
+  const columns: PdfColumn[] = [
+    { label: 'Item', align: 'l' },
+    { label: 'In stock', align: 'r' },
+    { label: 'Reorder at', align: 'r' },
+    { label: 'Buy', align: 'r' },
+    { label: 'Last supplier', align: 'l' },
+    { label: 'Last rate', align: 'r' },
+    { label: 'Estimated', align: 'r' }
+  ]
+  const exportRows: PdfRow[] = rows.map((r) => ({
+    cells: [
+      r.name,
+      `${fmtQty(r.closingQtyMilli, r.decimals)} ${r.unitSymbol}`,
+      `${fmtQty(r.reorderLevelMilli, r.decimals)} ${r.unitSymbol}`,
+      `${fmtQty(r.shortfallQtyMilli, r.decimals)} ${r.unitSymbol}`,
+      r.lastSupplier ?? 'never bought',
+      r.lastRatePaise == null ? '–' : formatPaise(r.lastRatePaise),
+      r.estimatedCost == null ? '–' : formatPaise(r.estimatedCost)
+    ]
+  }))
+
+  return (
+    <Panel className="mt-4">
+      <div className="mb-2 flex items-baseline justify-between px-1">
+        <p className="text-body font-medium">
+          To buy — {rows.length} item{rows.length === 1 ? '' : 's'} below reorder level
+        </p>
+        <span className="flex items-center gap-2">
+          {total > 0 && (
+            <span className="text-hint text-muted">
+              about <Money paise={total} /> at last prices
+            </span>
+          )}
+          <Button
+            variant="ghost"
+            onClick={() =>
+              void printReport(
+                {
+                  title: 'Purchase suggestions',
+                  periodLabel: `as on ${toDisplayDate(asOn)}`,
+                  columns,
+                  rows: exportRows,
+                  filename: 'purchase-suggestions'
+                },
+                toast
+              )
+            }
+          >
+            PDF
+          </Button>
+        </span>
+      </div>
+      <table className="ledger-table" data-testid="rows-purchase-suggestions">
+        <thead>
+          <tr>
+            <th scope="col">Item</th>
+            <th scope="col" className="r w-28">In stock</th>
+            <th scope="col" className="r w-28">Reorder at</th>
+            <th scope="col" className="r w-28">Buy</th>
+            <th scope="col">Last supplier</th>
+            <th scope="col" className="r w-28">Last rate</th>
+            <th scope="col" className="r w-32">Estimated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.stockItemId}>
+              <td>{r.name}</td>
+              <td className="r num">{fmtQty(r.closingQtyMilli, r.decimals)} {r.unitSymbol}</td>
+              <td className="r num text-muted">{fmtQty(r.reorderLevelMilli, r.decimals)} {r.unitSymbol}</td>
+              <td className="r num font-semibold">{fmtQty(r.shortfallQtyMilli, r.decimals)} {r.unitSymbol}</td>
+              <td className={r.lastSupplier ? '' : 'text-muted'}>
+                {r.lastSupplier ?? 'never bought'}
+                {r.lastPurchaseDate && (
+                  <span className="ml-2 num text-hint text-muted">{toDisplayDate(r.lastPurchaseDate)}</span>
+                )}
+              </td>
+              <td className="r">
+                {r.lastRatePaise == null ? <span className="text-muted">–</span> : <Money paise={r.lastRatePaise} />}
+              </td>
+              <td className="r">
+                {r.estimatedCost == null ? <span className="text-muted">–</span> : <Money paise={r.estimatedCost} />}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-2 px-1 text-hint text-muted">
+        Estimated at the last price paid, which is a starting point rather than a quote. Items
+        never bought before show no estimate rather than a guessed one.
+      </p>
     </Panel>
   )
 }

@@ -1,6 +1,7 @@
 import type { DB } from '../db/connection'
 import type {
   BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, DayBookTypeRow, ExceptionRow, ExceptionSection, ExceptionsReport,
+  PurchaseSuggestionRow,
   ItemProfitRow, LedgerStatement, LedgerStatementRow,
   ProfitAndLoss, StatementNode, StockAgeingRow, StockSummaryRow, TopLedgerRow, TrialBalance
 } from '@shared/reports'
@@ -118,6 +119,70 @@ export function stockValue(db: DB, asOn: string): number {
 
 /** Stock ageing + reorder report (v0.3 #58): where the held quantity came from (by inward
  *  date, newest first), whether the item has gone stale, and reorder-level breaches. */
+/**
+ * What to buy, from whom, and roughly for how much.
+ *
+ * The stock summary already flags an item below its reorder level, and a flag is not an action:
+ * turning it into one takes the shortfall, the last supplier and the last price, which otherwise
+ * means opening three screens before picking up the phone.
+ *
+ * Built on `stockAgeing` rather than a parallel query, so "below reorder" means exactly what the
+ * stock summary means by it. An item with no reorder level set is not a suggestion — it is an
+ * item nobody has expressed an opinion about, and inventing a level would be inventing the
+ * opinion too.
+ */
+export function purchaseSuggestions(db: DB, asOn: string): PurchaseSuggestionRow[] {
+  const below = stockAgeing(db, asOn).filter((r) => r.belowReorder && r.reorderLevelMilli != null)
+  if (below.length === 0) return []
+
+  const ids = below.map((r) => r.stockItemId)
+  const placeholders = ids.map(() => '?').join(',')
+
+  // The most recent purchase line per item, with the party it came from. Rate is stored per
+  // whole unit, so it carries across to a different quantity without conversion.
+  const lastPurchases = new Map(
+    (
+      db
+        .prepare(
+          `SELECT il.stock_item_id AS stockItemId, v.date, il.rate_paise AS ratePaise,
+                  l.id AS ledgerId, l.name AS supplier
+           FROM inventory_lines il
+           JOIN vouchers v ON v.id = il.voucher_id
+           JOIN voucher_types vt ON vt.id = v.voucher_type_id
+           LEFT JOIN ledgers l ON l.id = v.party_ledger_id
+           WHERE vt.kind = 'purchase' AND il.direction = 'in' AND v.date <= ?
+             AND il.stock_item_id IN (${placeholders}) AND ${IN_BOOKS}
+           GROUP BY il.stock_item_id
+           HAVING v.date = MAX(v.date)`
+        )
+        .all(asOn, ...ids) as {
+          stockItemId: number; date: string; ratePaise: number; ledgerId: number | null; supplier: string | null
+        }[]
+    ).map((r) => [r.stockItemId, r])
+  )
+
+  return below.map((r) => {
+    const shortfallQtyMilli = (r.reorderLevelMilli ?? 0) - r.closingQtyMilli
+    const last = lastPurchases.get(r.stockItemId)
+    return {
+      stockItemId: r.stockItemId,
+      name: r.name,
+      unitSymbol: r.unitSymbol,
+      decimals: r.decimals,
+      closingQtyMilli: r.closingQtyMilli,
+      reorderLevelMilli: r.reorderLevelMilli ?? 0,
+      shortfallQtyMilli,
+      lastSupplier: last?.supplier ?? null,
+      lastSupplierLedgerId: last?.ledgerId ?? null,
+      lastPurchaseDate: last?.date ?? null,
+      lastRatePaise: last?.ratePaise ?? null,
+      // Rate is per whole unit and the shortfall is in thousandths, so the division is part of
+      // the unit conversion rather than a rounding choice.
+      estimatedCost: last ? Math.round((shortfallQtyMilli * last.ratePaise) / 1000) : null
+    }
+  })
+}
+
 export function stockAgeing(db: DB, asOn: string): StockAgeingRow[] {
   const items = db
     .prepare(
