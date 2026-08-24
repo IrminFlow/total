@@ -175,7 +175,16 @@ export interface ExceptionRow {
 }
 
 export interface ExceptionSection {
-  key: 'negativeStock' | 'negativeCash' | 'missingNarration' | 'singleLedger' | 'outsidePeriod' | 'unbalanced' | 'missingGst'
+  key:
+    | 'negativeStock'
+    | 'negativeCash'
+    | 'missingNarration'
+    | 'singleLedger'
+    | 'outsidePeriod'
+    | 'unbalanced'
+    | 'missingGst'
+    /** Purchases whose section 16(4) credit window has shut or is about to. */
+    | 'itcAtRisk'
   label: string
   count: number
   /** Detail rows, capped at 200 per section (count is the true total). */

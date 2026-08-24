@@ -301,6 +301,81 @@ describe('exception reports (#60)', () => {
     expect(by.get('negativeCash')!.count).toBe(0)
     expect(by.get('singleLedger')!.count).toBe(0)
   })
+
+  it('flags a purchase whose section 16(4) credit window has shut, and leaves a fresh one alone', () => {
+    // Input credit lapses 30 November of the following FY, and is then gone rather than deferred.
+    // An old purchase otherwise sits in the books looking exactly like one from last month.
+    const db = seededDb()
+    const purchases = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId(db, 'Purchase Accounts'), openingBalance: 0
+    }).id
+    const cgst = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'CGST Input', groupId: groupId(db, 'Duties & Taxes'), openingBalance: 0,
+      taxType: 'cgst'
+    }).id
+    const vendor = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Old Vendor', groupId: groupId(db, 'Sundry Creditors'), openingBalance: 0,
+      gstin: '27AAPFU0939F1ZV', stateCode: '27'
+    }).id
+
+    const buy = (date: string): void =>
+      postLines(db, 'purchase', date, [
+        { ledgerId: purchases, drCr: 'dr', amount: 100000 },
+        { ledgerId: cgst, drCr: 'dr', amount: 9000 },
+        { ledgerId: vendor, drCr: 'cr', amount: 109000 }
+      ], vendor)
+
+    // FY 2020-21: the window shut 30 Nov 2021, long past whenever this test runs.
+    buy('2020-06-15')
+    // And one dated today, which cannot be at risk.
+    buy(new Date().toISOString().slice(0, 10))
+
+    const section = exceptions(db, '2020-04-01', '2021-03-31').sections.find((x) => x.key === 'itcAtRisk')!
+    expect(section.count).toBe(1)
+    expect(section.rows[0]!.detail).toMatch(/credit window shut/)
+    // The row is drillable — the point is to open the voucher and deal with it.
+    expect(section.rows[0]!.voucherId).toBeDefined()
+  })
+
+  it('ignores a purchase with no input tax on it, which has no credit to lose', () => {
+    const db = seededDb()
+    const purchases = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId(db, 'Purchase Accounts'), openingBalance: 0
+    }).id
+    const vendor = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Unregistered Vendor', groupId: groupId(db, 'Sundry Creditors'), openingBalance: 0
+    }).id
+    postLines(db, 'purchase', '2020-06-15', [
+      { ledgerId: purchases, drCr: 'dr', amount: 100000 },
+      { ledgerId: vendor, drCr: 'cr', amount: 100000 }
+    ], vendor)
+
+    const section = exceptions(db, '2020-04-01', '2021-03-31').sections.find((x) => x.key === 'itcAtRisk')!
+    expect(section.count).toBe(0)
+  })
+
+  it('ignores a soft-deleted purchase', () => {
+    const db = seededDb()
+    const purchases = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId(db, 'Purchase Accounts'), openingBalance: 0
+    }).id
+    const cgst = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'CGST Input', groupId: groupId(db, 'Duties & Taxes'), openingBalance: 0,
+      taxType: 'cgst'
+    }).id
+    const vendor = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Vendor', groupId: groupId(db, 'Sundry Creditors'), openingBalance: 0
+    }).id
+    postLines(db, 'purchase', '2020-06-15', [
+      { ledgerId: purchases, drCr: 'dr', amount: 100000 },
+      { ledgerId: cgst, drCr: 'dr', amount: 9000 },
+      { ledgerId: vendor, drCr: 'cr', amount: 109000 }
+    ], vendor)
+    db.prepare("UPDATE vouchers SET deleted_at = '2021-01-01T00:00:00Z'").run()
+
+    const section = exceptions(db, '2020-04-01', '2021-03-31').sections.find((x) => x.key === 'itcAtRisk')!
+    expect(section.count).toBe(0)
+  })
 })
 
 describe('dashboard ratios (#54)', () => {

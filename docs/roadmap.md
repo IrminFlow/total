@@ -102,7 +102,7 @@ Ordering within a section is roughly by value.
 82. ✓ Composition scheme: CMP-08 and GSTR-4 rather than blocking export (M)
 83. GSTR-9 annual return working papers (L)
 84. ✓ GSTR-2B reconciliation improvements: fuzzy match on party name (M)
-85. ITC ageing: input credit not claimed within the statutory window (M)
+85. ✓ ITC ageing: input credit not claimed within the statutory window (M)
 86. ✓ E-invoice threshold awareness by declared turnover band (S)
 87. ✓ Reverse-charge ledger auto-selection on notified supplies (M)
 88. ✓ Bill of supply for exempt and composition sales (M)

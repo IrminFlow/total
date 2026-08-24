@@ -9,6 +9,8 @@ import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
 import { periodKey, periodLabel, periodRange, type Period } from '@shared/period'
+import { todayISO } from '@shared/dates'
+import { itcRisk } from '@shared/gst/itcAgeing'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
 
@@ -325,6 +327,38 @@ export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
     )
     .all(from, to) as VRow[]).map((v) => voucherRow(v, 'B2B party but no GST tax line'))
   section('missingGst', 'Missing GST fields', missingGst)
+
+  // Input credit under section 16(4) cannot be taken after 30 November of the following FY. Miss
+  // it and the credit is gone — not deferred, gone — and it is one of the few GST mistakes with
+  // no remedy. A purchase from two years ago otherwise sits in the books looking exactly like one
+  // from last month.
+  //
+  // Scanned over ALL purchases in books, not just the working period: the whole risk is that an
+  // old invoice is out of sight. Anything already comfortably inside its window is dropped, so a
+  // clean set of books reports clean.
+  const today = todayISO()
+  const itcRows = (db
+    .prepare(
+      `${baseVoucherSql}
+       WHERE ${IN_BOOKS} AND vt.kind IN ('purchase', 'debit_note')
+       AND EXISTS (
+         SELECT 1 FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+         WHERE vl.voucher_id = v.id AND l.tax_type IS NOT NULL AND vl.dr_cr = 'dr'
+       )
+       ORDER BY v.date, v.id`
+    )
+    .all() as VRow[])
+    .map((v) => ({ v, risk: itcRisk({ invoiceDate: v.date, today }) }))
+    .filter((x) => x.risk.level !== 'ok')
+    .map(({ v, risk }) =>
+      voucherRow(
+        v,
+        risk.level === 'lapsed'
+          ? `credit window shut ${risk.deadline} — ${-risk.daysRemaining} days ago`
+          : `credit window shuts ${risk.deadline} — ${risk.daysRemaining} days left`
+      )
+    )
+  section('itcAtRisk', 'Input credit about to lapse', itcRows)
 
   return { sections }
 }
