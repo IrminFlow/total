@@ -4,17 +4,23 @@ import type { ChequeConfig } from '@shared/schemas'
 import { api, type BankImportResult, type BankRuleRecord, type BankSuggestionRow, type BrsItem } from '../lib/client'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
 import {
-  Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, Spinner, TextInput, useTableNav
+  Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, SkeletonRows, Spinner, TextInput, useTableNav
 } from '../components/ui'
 import { LedgerPicker } from '../components/pickers'
 import { toDisplayDate, todayISO } from '@shared/dates'
+import { useStickyTab } from '../lib/useStickyTab'
 import { suggestPattern } from '@shared/bankRules'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
-type BankTab = 'recon' | 'brs' | 'pdc'
+type BankTab = 'status' | 'recon' | 'brs' | 'pdc'
 
-const TAB_LABELS: Record<BankTab, string> = { recon: 'Reconcile', brs: 'BRS', pdc: 'Post-dated' }
+const TAB_LABELS: Record<BankTab, string> = {
+  status: 'All accounts',
+  recon: 'Reconcile',
+  brs: 'BRS',
+  pdc: 'Post-dated'
+}
 
 export function BankingScreen(): React.JSX.Element {
   const nav = useNav()
@@ -22,7 +28,7 @@ export function BankingScreen(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: ledgers } = useQuery({ queryKey: ['bankLedgers'], queryFn: api.bank.ledgers })
-  const [tab, setTab] = useState<BankTab>('recon')
+  const [tab, setTab] = useStickyTab<BankTab>('banking', ['status', 'recon', 'brs', 'pdc'], 'status')
   const [ledgerId, setLedgerId] = useState<number | null>(null)
   const [suggestions, setSuggestions] = useState<BankSuggestionRow[] | null>(null)
   const [rulesOpen, setRulesOpen] = useState(false)
@@ -166,7 +172,7 @@ export function BankingScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
-            {tab !== 'pdc' && (
+            {tab !== 'pdc' && tab !== 'status' && (
               <Select
                 value={ledgerId ?? ''}
                 onChange={(e) => setLedgerId(Number(e.target.value))}
@@ -202,7 +208,7 @@ export function BankingScreen(): React.JSX.Element {
       </SectionTitle>
 
       <div className="mb-3 flex items-center gap-1">
-        {(['recon', 'brs', 'pdc'] as const).map((t) => (
+        {(['status', 'recon', 'brs', 'pdc'] as const).map((t) => (
           <button
             key={t}
             data-testid={`tab-banking-${t}`}
@@ -213,6 +219,8 @@ export function BankingScreen(): React.JSX.Element {
           </button>
         ))}
       </div>
+
+      {tab === 'status' && <ReconciliationStatusPanel asOn={to} />}
 
       {tab === 'recon' && recon && (
         <>
@@ -1050,5 +1058,100 @@ function ChequeSetupModal({
         </div>
       )}
     </Modal>
+  )
+}
+
+/**
+ * Where every bank account stands, on one page.
+ *
+ * The Reconcile tab answers this one account at a time and only once you have picked one, so a
+ * business with four accounts has no way to see that three are current and one has not been
+ * touched since June — which is exactly the account with the problem in it.
+ */
+function ReconciliationStatusPanel({ asOn }: { asOn: string }): React.JSX.Element {
+  const { data, isLoading } = useQuery({
+    queryKey: ['reconStatus', asOn],
+    queryFn: () => api.bank.reconciliationStatus(asOn)
+  })
+  const rows = data ?? []
+
+  return (
+    <>
+      <Panel>
+        {isLoading ? (
+          <SkeletonRows rows={4} />
+        ) : rows.length === 0 ? (
+          <EmptyState
+            title="No bank accounts yet"
+            hint="Create a ledger under Bank Accounts to reconcile it here."
+          />
+        ) : (
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th className="w-48">Reconciled</th>
+                <th className="r w-36">As per books</th>
+                <th className="r w-36">As per bank</th>
+                <th className="r w-28">Open items</th>
+                <th className="r w-28">Oldest</th>
+                <th className="w-28">Last cleared</th>
+              </tr>
+            </thead>
+            <tbody data-testid="rows-recon-status">
+              {rows.map((r) => {
+                const pct = r.totalLines === 0 ? 1 : r.reconciledLines / r.totalLines
+                const open = r.totalLines - r.reconciledLines
+                return (
+                  <tr key={r.ledgerId}>
+                    <td>{r.name}</td>
+                    <td>
+                      {/* A bar rather than a percentage alone: four accounts side by side are
+                          compared at a glance, and the one that is behind is the point. */}
+                      <span className="flex items-center gap-2">
+                        <span className="h-1.5 w-24 overflow-hidden rounded-full bg-line">
+                          <span
+                            className={`block h-full ${pct === 1 ? 'bg-dr' : pct >= 0.8 ? 'bg-amberbar' : 'bg-cr'}`}
+                            style={{ width: `${Math.round(pct * 100)}%` }}
+                          />
+                        </span>
+                        <span className="num text-hint text-muted" data-testid="recon-progress">
+                          {r.reconciledLines}/{r.totalLines}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="r"><Money paise={r.bookBalance} /></td>
+                    <td className="r"><Money paise={r.bankBalance} /></td>
+                    <td className="r num">{open || '–'}</td>
+                    <td className={`r num ${r.oldestUnreconciledDays > 90 ? 'text-cr font-semibold' : 'text-muted'}`}>
+                      {r.oldestUnreconciledDays ? `${r.oldestUnreconciledDays}d` : '–'}
+                    </td>
+                    <td className="num text-muted">
+                      {r.lastReconciledDate ? toDisplayDate(r.lastReconciledDate) : 'never'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+      {rows.some((r) => r.ageing[3] > 0) && (
+        <div
+          className="mt-3 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm text-amber"
+          data-testid="recon-stale"
+        >
+          {rows
+            .filter((r) => r.ageing[3] > 0)
+            .map((r) => `${r.name}: ${r.ageing[3]} entr${r.ageing[3] === 1 ? 'y' : 'ies'} over 90 days old`)
+            .join(' · ')}
+          . An entry that has not cleared in three months usually never will.
+        </div>
+      )}
+      <p className="mt-2 text-hint text-muted">
+        As on {toDisplayDate(asOn)}. An entry cleared after that date was still outstanding on it,
+        so it counts as open here — the same rule the BRS uses.
+      </p>
+    </>
   )
 }

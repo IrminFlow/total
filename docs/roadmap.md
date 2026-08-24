@@ -174,16 +174,20 @@ Ordering within a section is roughly by value.
 136. Cheque printing with configurable layouts per bank (M)
 137. Post-dated cheque calendar view (S)
 138. Bounced-cheque handling with the reversal entry (M)
-139. Bank balance as-per-books versus as-per-statement on the Gateway (S)
+139. ✓ Bank balance as-per-books versus as-per-statement, per account (S) — on Banking's All
+     accounts tab rather than the Gateway, where it sits beside the reconciliation state that
+     explains the difference.
 140. Multi-currency bank accounts with revaluation (L)
 141. UPI transaction import from a CSV (M)
 142. Reconciliation freeze: lock reconciled periods (M)
-143. Unreconciled-items ageing report (S)
+143. ✓ Unreconciled-items ageing report (S)
 144. Split a single bank line across several vouchers (M)
-145. Import the same statement twice without duplicating (S)
-146. Statement import preview showing what will change, before it changes (S)
+145. ✓ Import the same statement twice without duplicating (S) — already shipped: a line that
+     already carries a bank date is reported as alreadyReconciled, never re-matched.
+146. ✓ Statement import preview showing what will change, before it changes (S) — already
+     shipped as the dry-run preview modal.
 147. Bank rules editable inline from the unmatched row (S)
-148. Reconciliation progress bar per account (S)
+148. ✓ Reconciliation progress bar per account (S)
 
 ## G. Receivables, payables and khata
 

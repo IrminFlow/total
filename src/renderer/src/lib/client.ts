@@ -6,7 +6,7 @@ import type {
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, ExceptionsReport, GroupTreeNode,
-  DayBookTypeRow, ItemProfitRow, KhataParty, LedgerBalanceRow, PartyShareRow,
+  DayBookTypeRow, ItemProfitRow, KhataParty, LedgerBalanceRow, PartyShareRow, ReconciliationStatus,
   LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterPeriodRow, StockAgeingRow,
   StockSummaryRow, TrialBalance,
   VoucherListRow
@@ -564,6 +564,8 @@ export const api = {
   },
   bank: {
     ledgers: () => call<{ id: number; name: string }[]>('bank:ledgers'),
+    reconciliationStatus: (asOn: string) =>
+      call<ReconciliationStatus[]>('bank:reconciliationStatus', { asOn }),
     recon: (ledgerId: number, from: string, to: string) => call<BankRecon>('bank:recon', { ledgerId, from, to }),
     setBankDate: (lineId: number, bankDate: string | null) => call<null>('bank:setBankDate', { lineId, bankDate }),
     importCsv: (ledgerId: number, opts?: { csvText?: string; dryRun?: boolean }) =>

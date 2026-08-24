@@ -390,6 +390,34 @@ export interface KhataParty {
   email: string | null
 }
 
+/**
+ * Where each bank account stands on reconciliation, on one line.
+ *
+ * The reconciliation screen answers this one account at a time and only after you pick one. A
+ * business with four accounts has no way to see that three are current and one has not been
+ * touched since June — which is exactly the account with the problem in it.
+ */
+export interface ReconciliationStatus {
+  ledgerId: number
+  name: string
+  /** Balance in the books as on the date asked for. */
+  bookBalance: number
+  /** What the bank statement should read, if every unreconciled entry is genuinely outstanding. */
+  bankBalance: number
+  /** Lines in the account up to the date, and how many carry a bank date. */
+  totalLines: number
+  reconciledLines: number
+  /** Value still unreconciled, split by direction. */
+  unreconciledDeposits: number
+  unreconciledWithdrawals: number
+  /** Unreconciled line COUNTS by age of the entry: 0-30, 31-60, 61-90, 90+ days. */
+  ageing: [number, number, number, number]
+  /** The most recent bank date recorded against this account, or null if none ever was. */
+  lastReconciledDate: string | null
+  /** Age in days of the oldest unreconciled entry; 0 when everything is clear. */
+  oldestUnreconciledDays: number
+}
+
 export interface BankLineRow {
   lineId: number
   voucherId: number

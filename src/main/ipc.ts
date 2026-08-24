@@ -895,6 +895,11 @@ export function registerIpc(): void {
   }, 'viewer')
 
   // ---------- analysis ----------
+  handle('bank:reconciliationStatus', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return banking.reconciliationStatus(requireCompany().db, asOn)
+  }, 'viewer')
+
   handle('analysis:khata', (p) => {
     const { side, asOn } = z
       .object({ side: z.enum(['receivable', 'payable']), asOn: isoDate })

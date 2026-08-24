@@ -1,5 +1,5 @@
 import type { DB } from '../db/connection'
-import type { BankLineRow, BankRecon } from '@shared/reports'
+import type { BankLineRow, BankRecon, ReconciliationStatus } from '@shared/reports'
 import { descendantIdsByName } from './masters'
 import { isValidISODate } from '@shared/dates'
 import { parseCsv } from '@shared/csv'
@@ -710,4 +710,78 @@ export function brs(db: DB, ledgerId: number, asOn: string): BrsReport {
     unpresentedTotal,
     bankBalance: bookBalance - uncreditedTotal + unpresentedTotal
   }
+}
+
+/**
+ * Where every bank account stands on reconciliation, as on one date.
+ *
+ * The reconciliation screen answers this one account at a time and only after you pick one, so a
+ * business with four accounts has no way to see that three are current and one has not been
+ * touched since June — which is exactly the account with the problem in it.
+ *
+ * "Unreconciled" is as-on-date, matching `bankRecon`: an entry cleared AFTER the date asked for
+ * was still outstanding on that date, so a bank date beyond it counts as unreconciled here too.
+ * Getting that wrong would make a back-dated report disagree with the BRS printed from the same
+ * date, which is the one comparison anyone makes.
+ */
+export function reconciliationStatus(db: DB, asOn: string): ReconciliationStatus[] {
+  const accounts = bankLedgers(db)
+
+  return accounts.map((account) => {
+    const rows = db
+      .prepare(
+        `SELECT v.date, vl.dr_cr AS drCr, vl.amount, vl.bank_date AS bankDate
+         FROM voucher_lines vl
+         JOIN vouchers v ON v.id = vl.voucher_id
+         WHERE vl.ledger_id = ? AND v.date <= ? AND ${IN_BOOKS}`
+      )
+      .all(account.id, asOn) as { date: string; drCr: 'dr' | 'cr'; amount: number; bankDate: string | null }[]
+
+    const opening = (
+      db.prepare('SELECT opening_balance AS o FROM ledgers WHERE id = ?').get(account.id) as { o: number }
+    ).o
+    const bookBalance =
+      opening + rows.reduce((sum, r) => sum + (r.drCr === 'dr' ? r.amount : -r.amount), 0)
+
+    const isUnreconciled = (r: { bankDate: string | null }): boolean => !r.bankDate || r.bankDate > asOn
+    const unreconciled = rows.filter(isUnreconciled)
+
+    const ageing: [number, number, number, number] = [0, 0, 0, 0]
+    let oldestUnreconciledDays = 0
+    for (const r of unreconciled) {
+      const age = Math.max(
+        0,
+        Math.round((Date.parse(asOn + 'T00:00:00Z') - Date.parse(r.date + 'T00:00:00Z')) / 86_400_000)
+      )
+      oldestUnreconciledDays = Math.max(oldestUnreconciledDays, age)
+      const bucket = age <= 30 ? 0 : age <= 60 ? 1 : age <= 90 ? 2 : 3
+      ageing[bucket] += 1
+    }
+
+    const lastReconciled = rows
+      .map((r) => r.bankDate)
+      .filter((d): d is string => !!d && d <= asOn)
+      .sort()
+      .pop()
+
+    const unreconciledDeposits = unreconciled.reduce((s, r) => s + (r.drCr === 'dr' ? r.amount : 0), 0)
+    const unreconciledWithdrawals = unreconciled.reduce((s, r) => s + (r.drCr === 'cr' ? r.amount : 0), 0)
+
+    return {
+      ledgerId: account.id,
+      name: account.name,
+      bookBalance,
+      // Same derivation as bankRecon's: a deposit we have booked but the bank has not credited
+      // is money the statement does not show yet, and a cheque issued but not presented is money
+      // the statement still shows.
+      bankBalance: bookBalance - unreconciledDeposits + unreconciledWithdrawals,
+      totalLines: rows.length,
+      reconciledLines: rows.length - unreconciled.length,
+      unreconciledDeposits,
+      unreconciledWithdrawals,
+      ageing,
+      lastReconciledDate: lastReconciled ?? null,
+      oldestUnreconciledDays
+    }
+  })
 }
