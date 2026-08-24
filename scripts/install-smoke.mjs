@@ -2,7 +2,7 @@
 // launches with a clean profile, creates/posts/backs up/restores, then uninstalls.
 import { _electron as electron } from 'playwright-core'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
@@ -22,14 +22,19 @@ function filesBelow(dir) {
 }
 
 async function runBookWorkflow(path) {
-  const dataDir = join(scratch, 'data')
+  // Exercise the same default ~/Documents/total location used by customers while keeping the
+  // runner hermetic. A TOTAL_DATA_DIR override would not catch an unsafe production uninstaller.
+  const isolatedHome = join(scratch, 'home')
+  const dataDir = join(isolatedHome, 'Documents', 'total')
   const profileDir = join(scratch, 'profile')
+  mkdirSync(join(isolatedHome, 'Documents'), { recursive: true })
   const { ELECTRON_RUN_AS_NODE: _ignored, ...env } = process.env
+  delete env.TOTAL_DATA_DIR
   const app = await electron.launch({
     executablePath: path,
     args: [`--user-data-dir=${profileDir}`],
     timeout: 60_000,
-    env: { ...env, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
+    env: { ...env, HOME: isolatedHome, USERPROFILE: isolatedHome, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
   })
   const page = await app.firstWindow()
   await page.waitForFunction(() => Boolean(window.total), null, { timeout: 30_000 })
@@ -69,10 +74,26 @@ async function runBookWorkflow(path) {
     if (!manual?.file) throw new Error('Manual backup was not listed')
     const preview = await invoke('backup:preview', { file: manual.file })
     if (!preview.valid || preview.integrity !== 'ok' || preview.voucherCount < 1) throw new Error(`Backup preview failed: ${JSON.stringify(preview)}`)
+    const mutation = await invoke('voucher:save', {
+      data: {
+        voucherTypeId: journal.id, date: '2026-08-25', partyLedgerId: null, narration: 'Must disappear after restore',
+        reference: null, instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
+        transportDistanceKm: null, posOverride: null, currencyCode: null, exchangeRate: null,
+        lines: [
+          { ledgerId: cash.id, drCr: 'dr', amount: 6789, costAllocations: [] },
+          { ledgerId: cash.id, drCr: 'cr', amount: 6789, costAllocations: [] }
+        ], inventory: [], billRefs: [], tds: null
+      }
+    })
+    if (mutation.approvalRequired || !mutation.id) throw new Error('Restore mutation voucher was not posted')
+    const beforeRestore = await invoke('voucher:list', { from: '2026-08-01', to: '2026-08-31' })
+    if (beforeRestore.length !== 2) throw new Error(`Restore setup returned ${beforeRestore.length} vouchers instead of 2`)
     await invoke('backup:restore', { file: manual.file })
     const vouchers = await invoke('voucher:list', { from: '2026-08-01', to: '2026-08-31' })
-    if (vouchers.length !== 1) throw new Error(`Restore returned ${vouchers.length} vouchers instead of 1`)
-    return { ...identity, slug: created.slug, voucherId: posted.id, backup: manual.file }
+    if (vouchers.length !== 1 || vouchers.some((row) => row.id === mutation.id)) {
+      throw new Error(`Restore did not roll back the post-backup mutation: ${JSON.stringify(vouchers.map((row) => row.id))}`)
+    }
+    return { ...identity, slug: created.slug, voucherId: posted.id, backup: manual.file, restoredMutation: mutation.id, dataDir }
   } finally {
     await app.close()
   }
@@ -109,7 +130,7 @@ try {
     uninstaller = null
   }
   if (existsSync(executable)) throw new Error(`Uninstall left the application executable behind: ${executable}`)
-  const preservedDb = join(scratch, 'data', 'companies', result.slug, 'company.db')
+  const preservedDb = join(result.dataDir, 'companies', result.slug, 'company.db')
   if (!existsSync(preservedDb)) throw new Error('Uninstall deleted the company database')
   console.log(JSON.stringify({ ok: true, platform, executable: executableName, ...result, dataPreservedAfterUninstall: true }))
 } finally {

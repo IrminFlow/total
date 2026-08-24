@@ -210,7 +210,14 @@ async function verifyCandidate(old, pass) {
     const fixtureDigest = digestFixture(values);
     assert(fixtureDigest === old.fixtureDigest, `Candidate pass ${pass} changed representative v0.4 data (${fixtureDigest} != ${old.fixtureDigest})`);
     let backup = null;
+    let automaticRecovery = null;
     if (pass === 1) {
+      const migrationBackups = await invoke("backup:list");
+      const recovery = migrationBackups.find((item) => String(item.file).includes("pre-upgrade-v"));
+      assert(recovery?.file, "Candidate did not create an automatic pre-upgrade recovery point");
+      const recoveryPreview = await invoke("backup:preview", { file: recovery.file });
+      assert(recoveryPreview.valid && recoveryPreview.integrity === "ok" && recoveryPreview.voucherCount === old.values.vouchers.count, `Automatic pre-upgrade recovery point is invalid: ${JSON.stringify(recoveryPreview)}`);
+      automaticRecovery = { file: recovery.file, integrity: recoveryPreview.integrity, voucherCount: recoveryPreview.voucherCount };
       await invoke("backup:run");
       const backups = await invoke("backup:list");
       const row = backups.find((item) => item.tag === "manual") ?? backups[0];
@@ -219,7 +226,7 @@ async function verifyCandidate(old, pass) {
       assert(preview.valid && preview.integrity === "ok" && preview.voucherCount === values.vouchers.count, `Post-migration backup is invalid: ${JSON.stringify(preview)}`);
       backup = { file: row.file, integrity: preview.integrity, voucherCount: preview.voucherCount };
     }
-    return { pass, identity, values, fixtureDigest, backup };
+    return { pass, identity, values, fixtureDigest, automaticRecovery, backup };
   });
 }
 
@@ -236,7 +243,7 @@ try {
     publicArtifact: { ...artifact(publicArtifactPath), version: old.identity.version },
     candidateExecution, candidateArtifacts: candidateArtifacts(),
     publicRelease: old, candidateFirstOpen: firstOpen, candidateSecondOpen: secondOpen, domains,
-    assertions: ["packaged-builds", "artifact-digests-linked", "shared-data-root", "registry-preserved", "migration-idempotent", "voucher-and-trial-balance-preserved", "inventory-and-batches-preserved", "banking-preserved", "payroll-preserved", "gst-and-tds-preserved", "users-and-lock-preserved", "attachment-capability-recorded", "verified-backup-after-migration"],
+    assertions: ["packaged-builds", "artifact-digests-linked", "shared-data-root", "registry-preserved", "migration-idempotent", "voucher-and-trial-balance-preserved", "inventory-and-batches-preserved", "banking-preserved", "payroll-preserved", "gst-and-tds-preserved", "users-and-lock-preserved", "attachment-capability-recorded", "verified-automatic-pre-upgrade-recovery", "verified-backup-after-migration"],
   };
   mkdirSync(dirname(evidencePath), { recursive: true });
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);

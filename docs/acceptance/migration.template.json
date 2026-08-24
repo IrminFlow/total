@@ -3,13 +3,16 @@
   "kind": "migration",
   "status": "pending",
   "productVersion": "0.5.0",
+  "testedRevision": "",
+  "testedAt": "",
+  "testedArtifact": { "name": "", "bytes": 0, "sha256": "" },
   "approvedAt": "",
   "approvers": [],
   "sources": [
-    { "id": "tally", "consented": false, "sourceSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
-    { "id": "busy", "consented": false, "sourceSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
-    { "id": "marg", "consented": false, "sourceSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
-    { "id": "zoho_books", "consented": false, "sourceSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
-    { "id": "spreadsheet", "consented": false, "sourceSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} }
+    { "id": "tally", "consented": false, "sourceSha256": "", "sourceApplicationVersion": "", "exportFormat": "", "importerProfile": "", "importedAt": "", "importExecutionId": "", "importLogSha256": "", "backupSha256": "", "reconciliationManifestSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
+    { "id": "busy", "consented": false, "sourceSha256": "", "sourceApplicationVersion": "", "exportFormat": "", "importerProfile": "", "importedAt": "", "importExecutionId": "", "importLogSha256": "", "backupSha256": "", "reconciliationManifestSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
+    { "id": "marg", "consented": false, "sourceSha256": "", "sourceApplicationVersion": "", "exportFormat": "", "importerProfile": "", "importedAt": "", "importExecutionId": "", "importLogSha256": "", "backupSha256": "", "reconciliationManifestSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
+    { "id": "zoho_books", "consented": false, "sourceSha256": "", "sourceApplicationVersion": "", "exportFormat": "", "importerProfile": "", "importedAt": "", "importExecutionId": "", "importLogSha256": "", "backupSha256": "", "reconciliationManifestSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
+    { "id": "spreadsheet", "consented": false, "sourceSha256": "", "sourceApplicationVersion": "", "exportFormat": "", "importerProfile": "", "importedAt": "", "importExecutionId": "", "importLogSha256": "", "backupSha256": "", "reconciliationManifestSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} }
   ]
 }

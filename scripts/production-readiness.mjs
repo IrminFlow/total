@@ -30,7 +30,9 @@ const approvedEvidence = (envName, fallback, kind) => {
   try {
     const evidence = JSON.parse(readFileSync(resolve(root, value), "utf8"));
     if (!(evidence?.schema === 1 && evidence?.kind === kind && evidence?.status === "approved" && evidence?.productVersion === productVersion && Boolean(evidence?.approvedAt))) return false;
-    execFileSync(process.execPath, [resolve(root, "scripts/acceptance-gate.mjs"), resolve(root, value), "--quiet"], { stdio: "ignore" });
+    const args = [resolve(root, "scripts/acceptance-gate.mjs"), resolve(root, value), "--quiet", "--revision", sourceRevision];
+    if (candidateEvidenceDir && ["migration", "clean-machine"].includes(kind)) args.push("--candidate-evidence-dir", resolve(root, candidateEvidenceDir));
+    execFileSync(process.execPath, args, { stdio: "ignore" });
     return true;
   } catch { return false; }
 };

@@ -12,6 +12,10 @@ jobs:
   live:
     if: github.event_name == 'workflow_dispatch' || vars.PRODUCTION_MONITOR_ENABLED == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: production-synthetic-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
 
@@ -26,6 +30,8 @@ jobs:
           TOTAL_SYNTHETIC_EMAIL: synthetic-production-monitor@irminflow.invalid
           TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
           TOTAL_REQUIRE_SYNTHETIC: "1"
+          TOTAL_DEPLOYMENT_WAIT_MS: 600000
+          TOTAL_RELEASE_WAIT_MS: 600000
 
       - name: Upload monitoring evidence
         if: always()

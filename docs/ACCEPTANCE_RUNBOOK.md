@@ -15,13 +15,26 @@ Only a file with `status: "approved"`, named approvers and every required zero-d
 assertion can unlock its readiness gate. The templates under `docs/acceptance/` deliberately remain
 pending and never count as approval.
 
+Migration, clean-machine, human and mobile evidence is release-execution evidence. Record the full
+40-character `testedRevision`, UTC `testedAt` and the current product version. The gate accepts
+migration and clean-machine evidence for 30 days and human/mobile evidence for 90 days, rejects
+future timestamps, and requires approval within 14 days of testing. Release readiness compares the
+revision to the exact release commit. Commercial policy and legal document approvals are durable
+governance records: they remain versioned but do not need to be re-approved for every code commit.
+
 ## Migration reconciliation
 
 Use one representative, consented export each from Tally, Busy, Marg, Zoho Books and a common
 spreadsheet workflow. Work on copies. Hash each source file, preserve the import batch ID and verify
-the automatic pre-import backup. Reconcile integer source-versus-Total values for opening debits,
+the automatic pre-import backup. Record the source application version, export format, importer
+profile, import timestamp, a unique non-customer `importExecutionId`, and SHA-256 digests for the
+import log, backup and privacy-safe reconciliation manifest. Source, execution, import-log and
+manifest identities must be unique across the five runs. Record the exact tested candidate artifact
+name, byte size and SHA-256. Reconcile integer source-versus-Total values for opening debits,
 opening credits, voucher count, receivables, payables, stock value, tax liability and attachments.
-Resolve or explicitly correct every rejected row. A source passes only when every difference is zero.
+Resolve or explicitly correct every rejected row. A source passes only when every difference is zero,
+at least one voucher exists, and at least one accounting-value domain is non-zero. Do not commit the
+source, log, backup or detailed manifest; the evidence file contains their digests only.
 
 ## Clean-machine matrix
 
@@ -29,13 +42,17 @@ Use clean Apple Silicon macOS, supported Intel macOS and Windows 11 devices or f
 build, architecture and installer SHA-256. Test fresh install, first launch, a posted voucher, verified
 backup/restore, uninstall and preservation of `Documents/total`. Test public v0.4 upgrade on Apple
 Silicon and Windows. Intel marks that one check `not_applicable` because v0.4 had no public Intel build;
-the v0.5 clean install still must pass.
+the v0.5 clean install still must pass. Record the exact installer filename, byte size and SHA-256 for
+each platform. When candidate artifacts are available, publication readiness recalculates and compares
+those identities; a copied digest or differently signed build does not count.
 
 ## Human sessions
 
 Run at least one 60-minute structured session each with a bookkeeper, business owner, chartered
 accountant, payroll operator and inventory/manufacturing operator. Give each participant realistic
-tasks without coaching. Record at least three scenarios, completion, time, errors and blockers. Any
+tasks without coaching. Record at least three scenarios with a non-placeholder name, positive elapsed
+minutes, result and SHA-256 of a privacy-safe evidence note or recording manifest. Keep the underlying
+notes and recordings outside the repository. Record completion, errors and blockers. Any
 unresolved P0 data-loss/correctness issue or P1 blocked core workflow is a no-go.
 
 ## Mobile devices

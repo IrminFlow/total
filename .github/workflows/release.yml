@@ -18,6 +18,9 @@ jobs:
   release-gate:
     runs-on: ubuntu-latest
     environment: production-release
+    concurrency:
+      group: production-synthetic-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
         with:
@@ -289,6 +292,9 @@ jobs:
     needs: [release-mac, release-win]
     runs-on: ubuntu-latest
     environment: production-release
+    concurrency:
+      group: production-synthetic-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:

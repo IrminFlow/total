@@ -3,13 +3,15 @@
   "kind": "human",
   "status": "pending",
   "productVersion": "0.5.0",
+  "testedRevision": "",
+  "testedAt": "",
   "approvedAt": "",
   "approvers": [],
   "cohorts": [
-    { "id": "bookkeeper", "participants": 0, "durationMinutes": 0, "scenarios": [], "blockers": [] },
-    { "id": "business-owner", "participants": 0, "durationMinutes": 0, "scenarios": [], "blockers": [] },
-    { "id": "chartered-accountant", "participants": 0, "durationMinutes": 0, "scenarios": [], "blockers": [] },
-    { "id": "payroll-operator", "participants": 0, "durationMinutes": 0, "scenarios": [], "blockers": [] },
-    { "id": "inventory-manufacturing", "participants": 0, "durationMinutes": 0, "scenarios": [], "blockers": [] }
+    { "id": "bookkeeper", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "result": "pending" }], "blockers": [] },
+    { "id": "business-owner", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "result": "pending" }], "blockers": [] },
+    { "id": "chartered-accountant", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "result": "pending" }], "blockers": [] },
+    { "id": "payroll-operator", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "result": "pending" }], "blockers": [] },
+    { "id": "inventory-manufacturing", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "result": "pending" }], "blockers": [] }
   ]
 }
