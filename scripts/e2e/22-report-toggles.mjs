@@ -81,4 +81,34 @@ await scenario('22-report-toggles', async (h) => {
     `the income the base is drawn from reads as 100% (got ${JSON.stringify(pcts)})`
   )
   await h.shot('03-pnl-percent')
+
+  // ---- Profit & Loss: against the same period last year ----
+  await h.click('btn-pnl-compare')
+  await h.page.waitForSelector('[data-testid="statement-change"]', { timeout: 15000 })
+  const changes = await h.page.$$eval('[data-testid="statement-change"]', (els) =>
+    els.map((e) => e.textContent.trim())
+  )
+  assert(changes.length > 0, 'a change column appears against last year')
+  assert(
+    changes.every((t) => t === '—' || /^[+-]?\d+%$/.test(t)),
+    `every change is a percentage or an em dash (got ${JSON.stringify(changes.slice(0, 5))})`
+  )
+  // The demo books start this financial year, so last year is empty and every line is new —
+  // which must read as "no prior figure to compare", not as a fabricated -100%.
+  assert(changes.includes('—'), 'a line with no prior figure shows a dash rather than a percentage')
+  await h.shot('04-pnl-compare')
+
+  // ---- Balance Sheet: the same comparison, and it must still balance ----
+  await h.goto('balance-sheet')
+  await h.page.waitForSelector('[data-testid="btn-bs-compare"]', { timeout: 15000 })
+  const totalsBefore = await h.page.$$eval('.total-row', (els) => els.map((e) => e.textContent.trim()))
+  await h.click('btn-bs-compare')
+  await h.page.waitForSelector('[data-testid="statement-change"]', { timeout: 15000 })
+  const totalsAfter = await h.page.$$eval('.total-row', (els) => els.map((e) => e.textContent.trim()))
+  // A comparison column is a view, not a recomputation: the sheet's own totals cannot move.
+  assert(
+    JSON.stringify(totalsAfter) === JSON.stringify(totalsBefore),
+    'showing last year does not change this year’s totals'
+  )
+  await h.shot('05-bs-compare')
 })

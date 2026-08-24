@@ -3,7 +3,10 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, DateInput, Money, Panel, SectionTitle } from '../components/ui'
-import { StatementTree } from '../components/StatementTree'
+import { ComparedStatementTree, StatementTree } from '../components/StatementTree'
+import { compareStatements } from '@shared/statementCompare'
+import { useStickyFlag } from '../lib/useStickyTab'
+import type { StatementNode } from '@shared/reports'
 import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -24,15 +27,24 @@ export function BalanceSheetScreen(): React.JSX.Element {
   // keepPreviousData: editing the on-screen as-on date changes the query key — keep the previous
   // figures rendered (with a subtle hint) instead of unmounting the screen into "Loading…",
   // which would drop focus from the very DateInput being edited.
+  // Above the early return: every hook has to run on every render, and the first happens before
+  // `data` arrives.
+  const [comparePrior, setComparePrior] = useStickyFlag('bs-compare-prior', false)
   const { data, isPlaceholderData } = useQuery({
-    queryKey: ['balanceSheet', asOn],
-    queryFn: () => api.reports.balanceSheet(asOn),
+    queryKey: ['balanceSheet', asOn, comparePrior],
+    queryFn: () => api.reports.balanceSheet(asOn, comparePrior),
     placeholderData: keepPreviousData
   })
   if (!data) return <p className="text-muted">Loading…</p>
 
   const balanced = data.totalAssets === data.totalLiabilities
   const periodLabel = `as on ${toDisplayDate(data.asOn)}`
+  // Only when the service returned one: asking for a comparison against a date the books do not
+  // reach has to read as "no prior period", not as a column of zeroes.
+  const prior = comparePrior ? data.prior : undefined
+  const priorHeaders = prior
+    ? { current: periodLabel, prior: `as on ${toDisplayDate(prior.asOn)}` }
+    : undefined
   const exportRows: PdfRow[] = [
     { cells: ['Liabilities', ''], bold: true },
     ...flattenNodes(data.liabilities, 1),
@@ -54,6 +66,9 @@ export function BalanceSheetScreen(): React.JSX.Element {
             )}
             <span className="text-small text-muted">as on</span>
             <DateInput value={asOn} context={asOn} onChange={setAsOn} className="w-28" testId="input-bs-ason" />
+            <Button variant="ghost" data-testid="btn-bs-compare" onClick={() => setComparePrior(!comparePrior)}>
+              {comparePrior ? 'Hide last year' : 'vs last year'}
+            </Button>
             <Button
               variant="ghost"
               onClick={() => void printReport({ title: 'Balance sheet', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
@@ -73,10 +88,16 @@ export function BalanceSheetScreen(): React.JSX.Element {
       >
         Balance sheet
       </SectionTitle>
-      <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
+      {/* Stacked full width when comparing: the two-column layout has no room for three numeric
+          columns a side. */}
+      <div
+        className={`grid gap-3 transition-opacity ${prior ? 'grid-cols-1' : 'grid-cols-2'} ${
+          isPlaceholderData ? 'opacity-60' : ''
+        }`}
+      >
         <Panel className="p-4">
           <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Liabilities</p>
-          <StatementTree nodes={data.liabilities} />
+          <Section nodes={data.liabilities} prior={prior?.liabilities} headers={priorHeaders} />
           <div className="total-row mt-2 flex justify-between px-2 pt-1.5 pb-0.5">
             <span>Total</span>
             <Money paise={data.totalLiabilities} />
@@ -84,7 +105,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
         </Panel>
         <Panel className="p-4">
           <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Assets</p>
-          <StatementTree nodes={data.assets} />
+          <Section nodes={data.assets} prior={prior?.assets} headers={priorHeaders} />
           <div className="total-row mt-2 flex justify-between px-2 pt-1.5 pb-0.5">
             <span>Total</span>
             <Money paise={data.totalAssets} />
@@ -97,5 +118,30 @@ export function BalanceSheetScreen(): React.JSX.Element {
         </p>
       )}
     </div>
+  )
+}
+
+/** One side of the sheet, in whichever of the two shapes is in play. Mirrors ProfitLoss's. */
+function Section({
+  nodes,
+  prior,
+  headers
+}: {
+  nodes: StatementNode[]
+  prior: StatementNode[] | undefined
+  headers?: { current: string; prior: string }
+}): React.JSX.Element {
+  if (!prior) return <StatementTree nodes={nodes} />
+  return (
+    <>
+      {headers && (
+        <div className="mb-1 flex items-baseline justify-end gap-4 px-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">
+          <span className="w-32 text-right">{headers.current}</span>
+          <span className="w-32 text-right">{headers.prior}</span>
+          <span className="w-24 text-right">Change</span>
+        </div>
+      )}
+      <ComparedStatementTree nodes={compareStatements(nodes, prior)} />
+    </>
   )
 }

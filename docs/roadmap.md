@@ -75,8 +75,9 @@ Ordering within a section is roughly by value.
 52. ✓ Day Book paged at the IPC boundary (M)
 53. ✓ Ledger Statement paged; Outstandings sends a summary and fetches bills on expand (M)
 54. Row virtualization so a 30,000-row report scrolls without 30,000 DOM nodes (M)
-55. Comparative columns: this period against the same period last year (M)
-56. Drill-down from any figure in P&L or Balance Sheet to its ledger (M)
+55. ✓ Comparative columns: this period against the same period last year (M)
+56. ✓ Drill-down from any figure in P&L or Balance Sheet to its ledger (M) — already shipped:
+    StatementTree opens the ledger statement on a leaf click, and the comparison view does too.
 57. A time-travel Balance Sheet: a date scrubber that recomputes as-on any date (M)
 58. Saved report views: filters, columns and period stored by name (M)
 59. Schedule a report to be written to a folder on a timer (M)

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { StatementNode } from '@shared/reports'
+import type { ComparedNode } from '@shared/statementCompare'
 import { useNav } from '../state/stores'
 import { Money } from './ui'
 
@@ -76,6 +77,71 @@ function StatementRow({
       {open && node.children.length > 0 && (
         <StatementTree nodes={node.children} depth={depth + 1} percentOf={percentOf} />
       )}
+    </>
+  )
+}
+
+/**
+ * The same tree, with a prior-period column and the change beside it.
+ *
+ * A separate component rather than more props on StatementTree: the row is genuinely a different
+ * shape (three numeric columns, not one), and threading an optional prior through every row would
+ * make the common case harder to read for the sake of the rarer one.
+ */
+export function ComparedStatementTree({
+  nodes,
+  depth = 0
+}: {
+  nodes: ComparedNode[]
+  depth?: number
+}): React.JSX.Element {
+  return (
+    <div>
+      {nodes.map((n) => (
+        <ComparedRow key={`${n.kind}-${n.id}-${n.name}`} node={n} depth={depth} />
+      ))}
+    </div>
+  )
+}
+
+function ComparedRow({ node, depth }: { node: ComparedNode; depth: number }): React.JSX.Element {
+  const [open, setOpen] = useState(depth === 0)
+  const nav = useNav()
+  const isLeafLedger = node.kind === 'ledger'
+  return (
+    <>
+      <button
+        className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left hover:bg-panel2"
+        style={{ paddingLeft: `${8 + depth * 18}px` }}
+        onClick={() => {
+          if (isLeafLedger) nav.go({ name: 'ledger-statement', ledgerId: node.id })
+          else if (node.children.length) setOpen((v) => !v)
+        }}
+      >
+        <span className={`text-detail ${depth === 0 ? 'font-medium' : isLeafLedger ? 'text-muted' : ''}`}>
+          {node.children.length > 0 && (
+            <span className="mr-1.5 inline-block w-3 text-label text-muted">{open ? '▾' : '▸'}</span>
+          )}
+          {node.name}
+          {/* A line that exists in only one period is the interesting kind, so it says so rather
+              than leaving the reader to notice a zero. */}
+          {node.onlyIn === 'current' && <span className="ml-2 text-hint text-dr">new</span>}
+          {node.onlyIn === 'prior' && <span className="ml-2 text-hint text-muted">ended</span>}
+        </span>
+        <span className="flex items-baseline gap-4">
+          <Money paise={node.amount} className="w-32 text-right text-detail" />
+          <Money paise={node.priorAmount} className="w-32 text-right text-detail text-muted" />
+          <span
+            className={`num w-24 text-right text-detail ${node.change > 0 ? 'text-dr' : node.change < 0 ? 'text-cr' : 'text-muted'}`}
+            data-testid="statement-change"
+          >
+            {node.changeRatio == null
+              ? '—'
+              : `${node.changeRatio > 0 ? '+' : ''}${(node.changeRatio * 100).toFixed(0)}%`}
+          </span>
+        </span>
+      </button>
+      {open && node.children.length > 0 && <ComparedStatementTree nodes={node.children} depth={depth + 1} />}
     </>
   )
 }
