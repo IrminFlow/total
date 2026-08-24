@@ -7,6 +7,23 @@ const WINDOW_MS = 10 * 60_000;
 const MAX_REQUESTS = 8;
 const attempts = new Map<string, { count: number; resetAt: number }>();
 
+function fallback(caseId: string, category: string, email: string, message: string): NextResponse {
+  const fallbackEmail = process.env.SUPPORT_FALLBACK_EMAIL || "total@irminflow.com";
+  const subject = `[${caseId}] Total support: ${category}`;
+  const reply = email ? `\n\nReply to: ${email}` : "";
+  const body = `${message.slice(0, 1_600)}${reply}\n\nCase: ${caseId}`;
+  return NextResponse.json(
+    {
+      ok: false,
+      caseId,
+      status: "fallback",
+      fallbackEmail,
+      mailto: `mailto:${fallbackEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
+    },
+    { status: 202 },
+  );
+}
+
 function allowed(ip: string): boolean {
   const now = Date.now();
   const current = attempts.get(ip);
@@ -167,45 +184,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
   const webhook =
     process.env.CONVEX_SUPPORT_URL || process.env.SUPPORT_WEBHOOK_URL;
-  if (!webhook)
-    return NextResponse.json(
-      { error: "Support intake is not configured" },
-      { status: 503 },
-    );
-  const target = new URL(webhook);
-  if (target.protocol !== "https:")
-    return NextResponse.json(
-      { error: "Support intake is misconfigured" },
-      { status: 503 },
-    );
-  const response = await fetch(target, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(process.env.SUPPORT_WEBHOOK_SECRET
-        ? { authorization: `Bearer ${process.env.SUPPORT_WEBHOOK_SECRET}` }
-        : {}),
-    },
-    body: JSON.stringify({
-      caseId,
-      category,
-      email,
-      message,
-      source: body.source === "app" ? "app" : "website",
-      diagnostics,
-      logs,
-      companyMetadata,
-      crashEnvelope,
-      focusContext,
-      screenshotDataUrl,
-      receivedAt: new Date().toISOString(),
-    }),
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok)
-    return NextResponse.json(
-      { error: "Support service unavailable" },
-      { status: 502 },
-    );
-  return NextResponse.json({ ok: true, caseId, status: "submitted" });
+  if (!webhook) return fallback(caseId, category, email, message);
+  let target: URL;
+  try {
+    target = new URL(webhook);
+  } catch {
+    return fallback(caseId, category, email, message);
+  }
+  if (target.protocol !== "https:") return fallback(caseId, category, email, message);
+  try {
+    const response = await fetch(target, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(process.env.SUPPORT_WEBHOOK_SECRET
+          ? { authorization: `Bearer ${process.env.SUPPORT_WEBHOOK_SECRET}` }
+          : {}),
+      },
+      body: JSON.stringify({
+        caseId,
+        category,
+        email,
+        message,
+        source: body.source === "app" ? "app" : "website",
+        diagnostics,
+        logs,
+        companyMetadata,
+        crashEnvelope,
+        focusContext,
+        screenshotDataUrl,
+        receivedAt: new Date().toISOString(),
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return fallback(caseId, category, email, message);
+    return NextResponse.json({ ok: true, caseId, status: "submitted" });
+  } catch {
+    return fallback(caseId, category, email, message);
+  }
 }

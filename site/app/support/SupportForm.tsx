@@ -3,24 +3,29 @@
 import { FormEvent, useState } from 'react'
 
 export default function SupportForm(): React.JSX.Element {
-  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'fallback' | 'error'>('idle')
   const [caseId, setCaseId] = useState('')
+  const [mailto, setMailto] = useState('mailto:total@irminflow.com')
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
     setState('sending')
     const form = new FormData(event.currentTarget)
     try {
       const response = await fetch('/api/support', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.fromEntries(form)) })
-      const result = await response.json() as { caseId?: string }
+      const result = await response.json() as { caseId?: string; status?: string; mailto?: string }
       if (response.ok) {
         setCaseId(result.caseId ?? '')
-        setState('sent')
+        if (result.status === 'fallback') {
+          setMailto(result.mailto ?? 'mailto:total@irminflow.com')
+          setState('fallback')
+        } else setState('sent')
       } else setState('error')
     } catch {
       setState('error')
     }
   }
   if (state === 'sent') return <div className="support-success"><h2 className="serif">We have it.</h2><p>Thanks—your note is in the support queue.</p>{caseId && <p className="support-case-id">Case {caseId}</p>}</div>
+  if (state === 'fallback') return <div className="support-success"><h2 className="serif">Keep this case number.</h2><p>The support queue could not confirm delivery. Send the prepared email so the case is not lost.</p>{caseId && <p className="support-case-id">Case {caseId}</p>}<a className="btn" href={mailto}>Open prepared email</a></div>
   return <form className="support-form" onSubmit={(event) => void submit(event)}>
     <input name="website" tabIndex={-1} autoComplete="off" className="honeypot" aria-hidden="true" />
     <div className="support-fields">

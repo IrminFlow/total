@@ -27,6 +27,9 @@ jobs:
       - name: Install site dependencies
         run: npm ci
 
+      - name: Website route and security contracts
+        run: npm test
+
       - name: Build marketing and support site
         run: npm run build
 
