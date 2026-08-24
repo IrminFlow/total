@@ -4,6 +4,7 @@ import {
   valueStock, expiryBucketOf, allocateAdditionalCost, daysToExpiry, summariseExpiry, AT_RISK_BUCKETS,
   type ExpiryBucket, type ExpirySummaryRow, type StockMovement, type ValuationMethod
 } from '@shared/valuation'
+import { allocateLandedCosts, type LandedCostBasis } from '@shared/landedCost'
 import { IN_BOOKS, checkStock } from './vouchers'
 import type { NegativeStockWarning } from '@shared/domain'
 
@@ -71,6 +72,50 @@ function additionalCostByLine(db: DB, asOn: string): Map<number, number> {
   return extraByLine
 }
 
+/**
+ * Landed costs (roadmap #117): freight, insurance, duty and clearing charges recorded against a
+ * purchase in `landed_costs`, carried into the value of that purchase's item lines on their own
+ * basis (by value or by quantity). Returns extra paise per inventory_lines.id, exactly conserving
+ * each charge.
+ *
+ * Read here rather than written into `inventory_lines.amount` at save time for the same reason
+ * the manufacture costs above are: the item lines are what the supplier billed, and that is what
+ * the purchase register, GST return and party ledger have to keep showing. Only the valuation
+ * sees the loaded cost.
+ */
+function landedCostByLine(db: DB, asOn: string): Map<number, number> {
+  const extraByLine = new Map<number, number>()
+  const costs = db
+    .prepare(
+      `SELECT lc.voucher_id AS voucherId, lc.amount, lc.basis
+       FROM landed_costs lc JOIN vouchers v ON v.id = lc.voucher_id
+       WHERE v.date <= ? AND ${IN_BOOKS}
+       ORDER BY lc.voucher_id, lc.line_order, lc.id`
+    )
+    .all(asOn) as { voucherId: number; amount: number; basis: LandedCostBasis }[]
+  if (costs.length === 0) return extraByLine
+
+  const byVoucher = new Map<number, { label: string; amount: number; basis: LandedCostBasis }[]>()
+  for (const c of costs) {
+    const list = byVoucher.get(c.voucherId) ?? []
+    list.push({ label: '', amount: c.amount, basis: c.basis })
+    byVoucher.set(c.voucherId, list)
+  }
+
+  const inLinesStmt = db.prepare(
+    `SELECT id, qty_milli AS qtyMilli, amount FROM inventory_lines
+     WHERE voucher_id = ? AND direction = 'in' AND is_absolute = 0 ORDER BY line_order, id`
+  )
+  for (const [voucherId, list] of byVoucher) {
+    const inLines = inLinesStmt.all(voucherId) as { id: number; qtyMilli: number; amount: number }[]
+    if (inLines.length === 0) continue
+    for (const line of allocateLandedCosts(inLines, list).lines) {
+      extraByLine.set(line.id, (extraByLine.get(line.id) ?? 0) + line.extra)
+    }
+  }
+  return extraByLine
+}
+
 function listItems(db: DB): ItemRow[] {
   return db
     .prepare(
@@ -95,6 +140,9 @@ function movementsByItem(db: DB, asOn: string, godownId?: number): Map<number, M
     )
     .all(...(godownId ? [asOn, godownId] : [asOn])) as MovementRow[]
   const extraByLine = additionalCostByLine(db, asOn)
+  for (const [lineId, extra] of landedCostByLine(db, asOn)) {
+    extraByLine.set(lineId, (extraByLine.get(lineId) ?? 0) + extra)
+  }
   if (extraByLine.size > 0) {
     for (const r of rows) {
       const extra = extraByLine.get(r.lineId)
@@ -386,4 +434,38 @@ export function nearExpiry(db: DB, asOn: string): NearExpiryReport {
     undatedBatches: undated.length,
     undatedQtyMilli: undated.reduce((s, r) => s + r.closingQtyMilli, 0)
   }
+}
+
+// ---------- what it costs to take stock out (roadmap #112) ----------
+
+/**
+ * The book cost of moving `qtyMilli` of an item out on `asOn` — what the valuation engine would
+ * charge for that outward line if it were the next one entered.
+ *
+ * Asked as a difference of two walks rather than read off a rate, because under FIFO the cost of
+ * the next unit out is the oldest layer's cost, which is not the average and can be a long way
+ * from it. A godown transfer values both of its lines at this number so the pair cancels exactly
+ * and company-wide stock value does not move.
+ *
+ * A transfer dated before later movements is priced as if it were the last one on its date, which
+ * is what a person entering it today means; re-pricing history around a back-dated move would
+ * silently rewrite the cost of sales already reported.
+ */
+export function outwardCostOf(db: DB, asOn: string, stockItemId: number, qtyMilli: number): number {
+  if (qtyMilli <= 0) return 0
+  const item = db
+    .prepare(
+      `SELECT opening_qty_milli AS openingQtyMilli, opening_value AS openingValue,
+              valuation_method AS valuationMethod
+       FROM stock_items WHERE id = ?`
+    )
+    .get(stockItemId) as
+    | { openingQtyMilli: number; openingValue: number; valuationMethod: ValuationMethod }
+    | undefined
+  if (!item) return 0
+
+  const moves = (movementsByItem(db, asOn).get(stockItemId) ?? []).map(toMovement)
+  const walk = (ms: StockMovement[]): number =>
+    valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, ms).consumedValue
+  return walk([...moves, { direction: 'out', qtyMilli, amount: 0 }]) - walk(moves)
 }

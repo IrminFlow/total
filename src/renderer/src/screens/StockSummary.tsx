@@ -1,14 +1,20 @@
-import { Fragment, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { Fragment, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import type { LandedCostInputRow, TransferInput } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useTableNav } from '../components/ui'
+import {
+  AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select,
+  SkeletonRows, TextInput, useTableNav
+} from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
+import { parseQtyWithUnit } from '@shared/units'
+import { LANDED_COST_BASES, type LandedCostBasis } from '@shared/landedCost'
 
 /**
  * A sheet to walk the shelves with.
@@ -46,6 +52,9 @@ export function StockSummaryScreen(): React.JSX.Element {
   // Expandable item rows (user ask): one item at a time unfolds into its godown- and
   // batch-wise closing position, fetched on demand.
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  // Two things that act on stock rather than report it. They live behind buttons here because
+  // this is the screen somebody is already on when they notice the reason to do either.
+  const [modal, setModal] = useState<'transfer' | 'landed' | null>(null)
   // Enter (and click) expands the item's godown/batch breakdown, so the keyboard reaches the
   // same detail the mouse does.
   const nav = useTableNav(rows, {
@@ -97,6 +106,22 @@ export function StockSummaryScreen(): React.JSX.Element {
           <div className="flex items-center gap-2">
             <span className="num text-small text-muted">as on {toDisplayDate(to)}</span>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
+            <Button
+              variant="ghost"
+              data-testid="btn-stock-transfer"
+              title="Move stock from one godown to another — no purchase, no sale, no money"
+              onClick={() => setModal('transfer')}
+            >
+              Transfer
+            </Button>
+            <Button
+              variant="ghost"
+              data-testid="btn-landed-cost"
+              title="Carry freight, insurance and duty on a purchase into the cost of the goods"
+              onClick={() => setModal('landed')}
+            >
+              Landed cost
+            </Button>
             <Button
               variant="ghost"
               data-testid="btn-count-sheet"
@@ -230,7 +255,10 @@ export function StockSummaryScreen(): React.JSX.Element {
       </Panel>
       <NearExpiry asOn={to} />
       <PurchaseSuggestions asOn={to} />
+      <ReorderAlerts asOn={to} />
       <StockAnalysis asOn={to} />
+      {modal === 'transfer' && <TransferModal asOn={to} onClose={() => setModal(null)} />}
+      {modal === 'landed' && <LandedCostModal asOn={to} onClose={() => setModal(null)} />}
     </div>
   )
 }
@@ -582,5 +610,549 @@ function NearExpiry({ asOn }: { asOn: string }): React.JSX.Element | null {
         </p>
       )}
     </Panel>
+  )
+}
+
+
+/**
+ * Reorder alerts, addressed to somebody (roadmap #121).
+ *
+ * The panel above says what to buy; this says who to ask, and hands over the message already
+ * written. Nothing is ever sent from here — WhatsApp or the mail client opens with the text in
+ * it and a person presses send, which is the only version of this a small business trusts.
+ *
+ * Grouped by supplier because the message is the unit of work: five items from one supplier is
+ * one enquiry, not five.
+ */
+function ReorderAlerts({ asOn }: { asOn: string }): React.JSX.Element | null {
+  const toast = useToasts()
+  const [open, setOpen] = useState<number | null>(null)
+  const { data } = useQuery({ queryKey: ['reorderAlerts', asOn], queryFn: () => api.stock.reorderAlerts(asOn) })
+  if (!data || (data.messages.length === 0 && data.unsourced.length === 0)) return null
+
+  const send = async (channel: 'whatsapp' | 'email', supplierId: number): Promise<void> => {
+    const message = data.messages.find((m) => m.supplierLedgerId === supplierId)
+    if (!message) return
+    try {
+      await navigator.clipboard.writeText(message.body)
+    } catch {
+      // Clipboard access can fail in a sandbox; the draft still carries the whole text.
+    }
+    if (channel === 'whatsapp' && message.whatsapp) {
+      window.open(message.whatsapp)
+      toast.push('success', `WhatsApp opened for ${message.supplierName}`)
+      return
+    }
+    window.open(message.mailto)
+    toast.push('success', `Email draft opened for ${message.supplierName}`)
+  }
+
+  return (
+    <Panel className="mt-4">
+      <p className="mb-2 px-1 text-body font-medium">
+        Reorder alerts — {data.messages.length} supplier{data.messages.length === 1 ? '' : 's'} to ask
+      </p>
+      <table className="ledger-table" data-testid="rows-reorder-alerts">
+        <thead>
+          <tr>
+            <th scope="col">Supplier</th>
+            <th scope="col" className="r w-24">Items</th>
+            <th scope="col" className="r w-36">About</th>
+            <th scope="col" className="w-64">Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.messages.map((m) => (
+            <Fragment key={m.supplierLedgerId}>
+              <tr>
+                <td>{m.supplierName}</td>
+                <td className="r num">{m.items.length}</td>
+                <td className="r">
+                  {m.estimatedTotal > 0 ? <Money paise={m.estimatedTotal} /> : <span className="text-muted">–</span>}
+                </td>
+                <td>
+                  <span className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      disabled={!m.whatsapp}
+                      disabledTitle="No number WhatsApp can use — add one on the ledger in Masters"
+                      onClick={() => void send('whatsapp', m.supplierLedgerId)}
+                    >
+                      WhatsApp
+                    </Button>
+                    <Button variant="ghost" onClick={() => void send('email', m.supplierLedgerId)}>
+                      Email
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setOpen((cur) => (cur === m.supplierLedgerId ? null : m.supplierLedgerId))}
+                    >
+                      {open === m.supplierLedgerId ? 'Hide' : 'Preview'}
+                    </Button>
+                  </span>
+                </td>
+              </tr>
+              {open === m.supplierLedgerId && (
+                <tr>
+                  <td colSpan={4} className="bg-panel2/50">
+                    <pre className="px-6 py-2 text-body-sm whitespace-pre-wrap" data-testid="reorder-preview">
+                      {m.body}
+                    </pre>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
+      {data.unsourced.length > 0 && (
+        <p className="mt-2 px-1 text-hint text-muted" data-testid="reorder-unsourced">
+          {data.unsourced.map((r) => r.name).join(', ')} — below the reorder level with no supplier on
+          record. Nobody to ask is a different answer from nothing to order.
+        </p>
+      )}
+    </Panel>
+  )
+}
+
+interface TransferRow {
+  stockItemId: number | null
+  qty: string
+}
+
+/**
+ * Move stock between godowns (roadmap #112).
+ *
+ * The item list is the source godown's own stock rather than every item in the company, so the
+ * form cannot offer a move it will then refuse. The preview underneath is the real plan from the
+ * service, which means the refusal a user sees while typing is exactly the one save would give.
+ */
+function TransferModal({ asOn, onClose }: { asOn: string; onClose: () => void }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { from } = useSession()
+  const [date, setDate] = useState(asOn)
+  const [fromGodownId, setFromGodownId] = useState<number | null>(null)
+  const [toGodownId, setToGodownId] = useState<number | null>(null)
+  const [rows, setRows] = useState<TransferRow[]>([{ stockItemId: null, qty: '' }])
+  const [narration, setNarration] = useState('')
+
+  const { data: godowns } = useQuery({ queryKey: ['godowns'], queryFn: api.godowns.list })
+  const { data: available } = useQuery({
+    queryKey: ['godownStock', date, fromGodownId],
+    queryFn: () => api.stock.godownStock(date, fromGodownId as number),
+    enabled: fromGodownId != null
+  })
+  const stock = available ?? []
+
+  const items = useMemo(
+    () =>
+      rows.flatMap((r) => {
+        const item = stock.find((s) => s.stockItemId === r.stockItemId)
+        if (!item) return []
+        const parsed = parseQtyWithUnit(r.qty, item.unitSymbol, null)
+        return parsed ? [{ stockItemId: item.stockItemId, qtyMilli: parsed.baseQtyMilli }] : []
+      }),
+    [rows, stock]
+  )
+
+  const input: TransferInput = {
+    date,
+    fromGodownId: fromGodownId ?? 0,
+    toGodownId: toGodownId ?? 0,
+    items,
+    narration: narration.trim() || null
+  }
+  const ready = fromGodownId != null && toGodownId != null && items.length > 0
+  const { data: plan } = useQuery({
+    queryKey: ['stockTransferPreview', input],
+    queryFn: () => api.stock.previewTransfer(input),
+    enabled: ready
+  })
+
+  const save = useMutation({
+    mutationFn: () => api.stock.saveTransfer(input),
+    onSuccess: async (result) => {
+      toast.push('success', `Transfer ${result.number} recorded — ${result.lineCount} item(s) moved`)
+      await queryClient.invalidateQueries()
+      onClose()
+    },
+    onError: (e: Error) => toast.push('error', e.message)
+  })
+
+  const godownOptions = (exclude: number | null): React.JSX.Element[] =>
+    (godowns ?? [])
+      .filter((g) => g.id !== exclude)
+      .map((g) => (
+        <option key={g.id} value={g.id}>
+          {g.name}
+        </option>
+      ))
+
+  return (
+    <Modal title="Transfer stock between godowns" onClose={onClose} wide dirty={items.length > 0}>
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Date">
+          <DateInput value={date} context="transfer" onChange={setDate} />
+        </Field>
+        <Field label="From godown">
+          <Select
+            data-testid="select-transfer-from"
+            value={fromGodownId ?? ''}
+            onChange={(e) => {
+              setFromGodownId(e.target.value ? Number(e.target.value) : null)
+              // The item list belongs to the source godown; keeping old rows would offer stock
+              // the new source does not have.
+              setRows([{ stockItemId: null, qty: '' }])
+            }}
+          >
+            <option value="">Pick a godown</option>
+            {godownOptions(toGodownId)}
+          </Select>
+        </Field>
+        <Field label="To godown">
+          <Select
+            data-testid="select-transfer-to"
+            value={toGodownId ?? ''}
+            onChange={(e) => setToGodownId(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">Pick a godown</option>
+            {godownOptions(fromGodownId)}
+          </Select>
+        </Field>
+      </div>
+
+      <table className="ledger-table mt-3">
+        <thead>
+          <tr>
+            <th scope="col">Item</th>
+            <th scope="col" className="r w-40">In this godown</th>
+            <th scope="col" className="r w-40">Move</th>
+            <th scope="col" className="w-16" />
+          </tr>
+        </thead>
+        <tbody data-testid="rows-transfer">
+          {rows.map((r, i) => {
+            const item = stock.find((s) => s.stockItemId === r.stockItemId)
+            return (
+              <tr key={i}>
+                <td>
+                  <Select
+                    data-testid={`select-transfer-item-${i}`}
+                    value={r.stockItemId ?? ''}
+                    disabled={fromGodownId == null}
+                    onChange={(e) =>
+                      setRows((cur) =>
+                        cur.map((row, j) =>
+                          j === i ? { ...row, stockItemId: e.target.value ? Number(e.target.value) : null } : row
+                        )
+                      )
+                    }
+                  >
+                    <option value="">{fromGodownId == null ? 'Pick the source godown first' : 'Pick an item'}</option>
+                    {stock.map((s) => (
+                      <option key={s.stockItemId} value={s.stockItemId}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                </td>
+                <td className="r num text-muted">
+                  {item ? `${fmtQty(item.availableQtyMilli, item.decimals)} ${item.unitSymbol}` : '–'}
+                </td>
+                <td className="r">
+                  <TextInput
+                    data-testid={`input-transfer-qty-${i}`}
+                    className="num text-right"
+                    value={r.qty}
+                    placeholder={item?.unitSymbol ?? ''}
+                    onChange={(e) =>
+                      setRows((cur) => cur.map((row, j) => (j === i ? { ...row, qty: e.target.value } : row)))
+                    }
+                  />
+                </td>
+                <td>
+                  <Button
+                    variant="ghost"
+                    disabled={rows.length === 1}
+                    onClick={() => setRows((cur) => cur.filter((_, j) => j !== i))}
+                  >
+                    ✕
+                  </Button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      <Button variant="ghost" onClick={() => setRows((cur) => [...cur, { stockItemId: null, qty: '' }])}>
+        + Add item
+      </Button>
+
+      <div className="mt-3">
+        <Field label="Narration" hint="Left blank, the voucher says where the stock went">
+          <TextInput value={narration} onChange={(e) => setNarration(e.target.value)} />
+        </Field>
+      </div>
+
+      {plan && plan.errors.length > 0 && (
+        <ul className="mt-3 text-body-sm text-cr" data-testid="transfer-errors">
+          {plan.errors.map((e) => (
+            <li key={e}>{e}</li>
+          ))}
+        </ul>
+      )}
+      {plan && plan.errors.length === 0 && (
+        <p className="mt-3 text-body-sm text-muted" data-testid="transfer-preview">
+          Moves <Money paise={plan.totalValue} /> of stock between godowns. Company-wide stock is
+          unchanged — nothing is bought or sold, so nothing is posted to the books.
+        </p>
+      )}
+
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          data-testid="btn-transfer-save"
+          disabled={!ready || !plan || plan.errors.length > 0 || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          Record transfer
+        </Button>
+      </div>
+      <p className="mt-2 text-hint text-muted">
+        Recent transfers: <RecentTransfers from={from} to={asOn} />
+      </p>
+    </Modal>
+  )
+}
+
+/** A one-line memory of what was moved lately, so a double entry is obvious before it is made. */
+function RecentTransfers({ from, to }: { from: string; to: string }): React.JSX.Element {
+  const { data } = useQuery({ queryKey: ['stockTransfers', from, to], queryFn: () => api.stock.transfers(from, to) })
+  const rows = (data ?? []).slice(0, 3)
+  if (rows.length === 0) return <span>none in this period.</span>
+  return (
+    <span data-testid="recent-transfers">
+      {rows.map((r) => `${toDisplayDate(r.date)} ${r.fromGodown} → ${r.toGodown} (${r.items})`).join(' · ')}
+    </span>
+  )
+}
+
+interface CostDraft {
+  ledgerId: number | null
+  label: string
+  amount: number | null
+  basis: LandedCostBasis
+}
+
+/**
+ * Landed cost on a purchase (roadmap #117).
+ *
+ * A charge may only be picked from the debits already on that purchase, so the screen cannot be
+ * used to invent cost: what is being decided here is where money that was definitely spent
+ * belongs, not how much of it there was. The table underneath shows the rate the goods really
+ * cost once the charge is carried in, which is the number a price is set from.
+ */
+function LandedCostModal({ asOn, onClose }: { asOn: string; onClose: () => void }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { from } = useSession()
+  const [voucherId, setVoucherId] = useState<number | null>(null)
+  const [drafts, setDrafts] = useState<CostDraft[]>([])
+
+  const { data: purchases } = useQuery({
+    queryKey: ['costablePurchases', from, asOn],
+    queryFn: () => api.stock.costablePurchases(from, asOn)
+  })
+  const { data: view } = useQuery({
+    queryKey: ['landedCosts', voucherId],
+    queryFn: () => api.stock.landedCosts(voucherId as number),
+    enabled: voucherId != null
+  })
+
+  const pick = (id: number | null): void => {
+    setVoucherId(id)
+    setDrafts([])
+  }
+
+  // Once a purchase is loaded its saved costs become the editable draft, so "save" always means
+  // "this is the whole list" rather than "add these as well".
+  const rows: CostDraft[] =
+    drafts.length > 0 || view == null
+      ? drafts
+      : view.costs.map((c) => ({ ledgerId: c.ledgerId, label: c.label, amount: c.amount, basis: c.basis }))
+
+  const save = useMutation({
+    mutationFn: () => {
+      const costs: LandedCostInputRow[] = rows
+        .filter((r): r is CostDraft & { ledgerId: number; amount: number } => r.ledgerId != null && !!r.amount)
+        .map((r) => ({ ledgerId: r.ledgerId, label: r.label.trim() || 'Landed cost', amount: r.amount, basis: r.basis }))
+      return api.stock.saveLandedCosts(voucherId as number, costs)
+    },
+    onSuccess: async () => {
+      toast.push('success', 'Landed cost carried into the value of the goods')
+      setDrafts([])
+      await queryClient.invalidateQueries()
+    },
+    onError: (e: Error) => toast.push('error', e.message)
+  })
+
+  const setRow = (i: number, patch: Partial<CostDraft>): void =>
+    setDrafts(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+
+  return (
+    <Modal title="Landed cost on a purchase" onClose={onClose} wide>
+      <Field label="Purchase" hint="Freight, insurance, duty and clearing already debited on this voucher">
+        <Select
+          data-testid="select-landed-voucher"
+          value={voucherId ?? ''}
+          onChange={(e) => pick(e.target.value ? Number(e.target.value) : null)}
+        >
+          <option value="">Pick a purchase</option>
+          {(purchases ?? []).map((p) => (
+            <option key={p.voucherId} value={p.voucherId}>
+              {toDisplayDate(p.date)} · {p.number} · {p.partyName ?? 'no party'} ·{' '}
+              {formatPaise(p.goodsValue)}
+              {p.landed > 0 ? ` (+${formatPaise(p.landed)} loaded)` : ''}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      {view && (
+        <>
+          <table className="ledger-table mt-3">
+            <thead>
+              <tr>
+                <th scope="col">Charge</th>
+                <th scope="col">Ledger on this voucher</th>
+                <th scope="col" className="w-40">Spread</th>
+                <th scope="col" className="r w-36">Amount</th>
+                <th scope="col" className="w-16" />
+              </tr>
+            </thead>
+            <tbody data-testid="rows-landed-cost">
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td>
+                    <TextInput
+                      value={r.label}
+                      placeholder="Freight inward"
+                      onChange={(e) => setRow(i, { label: e.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <Select
+                      data-testid={`select-landed-ledger-${i}`}
+                      value={r.ledgerId ?? ''}
+                      onChange={(e) => setRow(i, { ledgerId: e.target.value ? Number(e.target.value) : null })}
+                    >
+                      <option value="">Pick a debit on this voucher</option>
+                      {view.candidates.map((c) => (
+                        <option key={c.ledgerId} value={c.ledgerId}>
+                          {c.ledgerName} · {formatPaise(c.amount)}
+                        </option>
+                      ))}
+                    </Select>
+                  </td>
+                  <td>
+                    <Select
+                      value={r.basis}
+                      onChange={(e) => setRow(i, { basis: e.target.value as LandedCostBasis })}
+                    >
+                      {LANDED_COST_BASES.map((b) => (
+                        <option key={b.basis} value={b.basis} title={b.hint}>
+                          {b.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </td>
+                  <td className="r">
+                    <AmountInput
+                      testId={`input-landed-amount-${i}`}
+                      paise={r.amount}
+                      onPaise={(paise) => setRow(i, { amount: paise })}
+                    />
+                  </td>
+                  <td>
+                    <Button variant="ghost" onClick={() => setDrafts(rows.filter((_, j) => j !== i))}>
+                      ✕
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Button
+            variant="ghost"
+            data-testid="btn-landed-add"
+            onClick={() => setDrafts([...rows, { ledgerId: null, label: '', amount: null, basis: 'value' }])}
+          >
+            + Add charge
+          </Button>
+
+          <p className="mt-4 mb-1 px-1 text-label font-semibold tracking-[0.08em] text-muted uppercase">
+            What the goods cost once it is carried in
+          </p>
+          <table className="ledger-table" data-testid="rows-landed-effect">
+            <thead>
+              <tr>
+                <th scope="col">Item</th>
+                <th scope="col" className="r w-32">Quantity</th>
+                <th scope="col" className="r w-36">Billed</th>
+                <th scope="col" className="r w-32">Loaded</th>
+                <th scope="col" className="r w-36">Effective rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {view.lines.map((l) => (
+                <tr key={l.inventoryLineId}>
+                  <td>{l.name}</td>
+                  <td className="r num">
+                    {fmtQty(l.qtyMilli, l.decimals)} {l.unitSymbol}
+                  </td>
+                  <td className="r"><Money paise={l.amount} /></td>
+                  <td className="r"><Money paise={l.extra} /></td>
+                  <td className="r">
+                    <Money paise={l.effectiveRatePaise} />
+                    {l.extra > 0 && (
+                      <span className="ml-2 text-hint text-muted">was {formatPaise(l.ratePaise)}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {view.unallocated > 0 && (
+            <p className="mt-2 px-1 text-hint text-cr">
+              {formatPaise(view.unallocated)} could not be carried anywhere — this purchase has no
+              item lines to put it on.
+            </p>
+          )}
+        </>
+      )}
+
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose}>
+          Close
+        </Button>
+        <Button
+          variant="primary"
+          data-testid="btn-landed-save"
+          disabled={voucherId == null || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          Save allocation
+        </Button>
+      </div>
+      <p className="mt-2 text-hint text-muted">
+        The charge stays on the voucher exactly as the supplier billed it. Only the valuation sees
+        the loaded cost, so the purchase register, the GST return and the party ledger still agree
+        with the bill.
+      </p>
+    </Modal>
   )
 }
