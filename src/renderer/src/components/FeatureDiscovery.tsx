@@ -22,7 +22,7 @@ export function FeatureDiscovery({ screen }: { screen: string }): React.JSX.Elem
     <aside
       data-testid="feature-discovery"
       aria-label="Feature tip"
-      className="fixed right-5 top-[76px] z-30 w-[330px] rounded-lg border border-amber/35 bg-panel p-4 shadow-xl"
+      className="relative z-10 mb-4 ml-auto w-[330px] rounded-lg border border-amber/35 bg-panel p-4 shadow-lg"
     >
       <div className="flex items-start gap-3">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-amber/30 bg-amber/10 text-amber-deep">

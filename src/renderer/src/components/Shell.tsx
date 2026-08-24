@@ -577,6 +577,7 @@ export function Shell({
               });
           }}
         >
+          <FeatureDiscovery screen={screen.name} />
           {children}
         </main>
       </div>
@@ -609,7 +610,6 @@ export function Shell({
           }}
         />
       )}
-      <FeatureDiscovery screen={screen.name} />
     </div>
   );
 }
