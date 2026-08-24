@@ -169,12 +169,41 @@ describe("feedback board", () => {
     const { POST } = await import("./feedback/route");
     const response = await POST(post("/api/feedback", { action: "vote", ideaId: "mobile-companion" }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, status: "recorded" });
+    expect(await response.json()).toMatchObject({ ok: true, status: "recorded", receivedAt: expect.any(String) });
     expect(blobMocks.put).toHaveBeenCalledWith(
       expect.stringMatching(/^feedback\/events\//),
       expect.any(String),
       expect.objectContaining({ access: "private", addRandomSuffix: false }),
     );
+  });
+
+  it("deletes only exact authenticated feedback event references", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.SUPPORT_WEBHOOK_SECRET = "feedback-secret";
+    const { DELETE } = await import("./feedback/route");
+    const id = "09a74630-4f8b-46dd-81fe-be117cb06484";
+    const receivedAt = "2026-08-24T10:15:30.000Z";
+    const response = await DELETE(new NextRequest("https://total.example/api/feedback", {
+      method: "DELETE",
+      headers: { authorization: "Bearer feedback-secret", "content-type": "application/json" },
+      body: JSON.stringify({ events: [{ id, receivedAt }] }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, deleted: 1 });
+    expect(blobMocks.del).toHaveBeenCalledWith(`feedback/events/2026-08/${id}.json`);
+  });
+
+  it("rejects unauthenticated feedback deletion", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.SUPPORT_WEBHOOK_SECRET = "feedback-secret";
+    const { DELETE } = await import("./feedback/route");
+    const response = await DELETE(new NextRequest("https://total.example/api/feedback", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ events: [{ id: "09a74630-4f8b-46dd-81fe-be117cb06484", receivedAt: "2026-08-24T10:15:30.000Z" }] }),
+    }));
+    expect(response.status).toBe(401);
+    expect(blobMocks.del).not.toHaveBeenCalled();
   });
 });
 

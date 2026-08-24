@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
-import { intakeStoreConfigured, listJson, storeJson } from "@/lib/intakeStore";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+import { deleteJson, intakeStoreConfigured, listJson, storeJson } from "@/lib/intakeStore";
 
 export const runtime = "nodejs";
 
@@ -19,6 +19,13 @@ function endpoint(): URL | null {
   } catch {
     return null;
   }
+}
+
+function authorized(request: NextRequest): boolean {
+  const expected = process.env.SUPPORT_WEBHOOK_SECRET;
+  const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  if (!expected || expected.length !== supplied.length) return false;
+  return timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -66,7 +73,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const event = { id: randomUUID(), action, ideaId, title, detail, email, source: body.source === "app" ? "app" : "website", receivedAt: new Date().toISOString() };
   if (!target && intakeStoreConfigured()) {
     await storeJson(`feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`, event);
-    return NextResponse.json({ ok: true, id: event.id, status: action === "submit" ? "awaiting_review" : "recorded" });
+    return NextResponse.json({ ok: true, id: event.id, receivedAt: event.receivedAt, status: action === "submit" ? "awaiting_review" : "recorded" });
   }
   if (!target)
     return NextResponse.json({ error: "Feedback voting is not configured" }, { status: 503 });
@@ -81,4 +88,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   if (!response.ok) return NextResponse.json({ error: "Feedback service unavailable" }, { status: 502 });
   return NextResponse.json(await response.json());
+}
+
+export async function DELETE(request: NextRequest): Promise<NextResponse> {
+  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (endpoint()) return NextResponse.json({ error: "Feedback deletion is managed by the configured provider" }, { status: 503 });
+  if (!intakeStoreConfigured()) return NextResponse.json({ error: "Feedback storage is unavailable" }, { status: 503 });
+  const body = await request.json().catch(() => null) as { events?: Array<{ id?: string; receivedAt?: string }> } | null;
+  if (!Array.isArray(body?.events) || body.events.length < 1 || body.events.length > 20)
+    return NextResponse.json({ error: "Provide 1 to 20 feedback events" }, { status: 400 });
+  const events = body.events.flatMap((event) => {
+    const id = typeof event.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(event.id) ? event.id : null;
+    const receivedAt = typeof event.receivedAt === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(event.receivedAt) ? event.receivedAt : null;
+    return id && receivedAt ? [{ id, receivedAt }] : [];
+  });
+  if (events.length !== body.events.length)
+    return NextResponse.json({ error: "Invalid feedback event reference" }, { status: 400 });
+  await Promise.all(events.map((event) => deleteJson(`feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`)));
+  return NextResponse.json({ ok: true, deleted: events.length });
 }

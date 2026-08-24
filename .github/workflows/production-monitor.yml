@@ -1,0 +1,34 @@
+name: Production monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    if: github.event_name == 'workflow_dispatch' || vars.PRODUCTION_MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check routes, downloads, updater, support and feedback
+        run: npm run release:live
+        env:
+          SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
+          TOTAL_SYNTHETIC_EMAIL: synthetic-production-monitor@irminflow.invalid
+
+      - name: Upload monitoring evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-live-readiness
+          path: dist/production-live-readiness.json
+          if-no-files-found: error
