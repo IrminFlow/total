@@ -1,8 +1,7 @@
 import Link from 'next/link'
 
 /**
- * Slim top bar shared by every page except the homepage (which keeps its own
- * hero-adjacent .top bar with the same links inlined).
+ * Shared top bar for marketing, support and documentation pages.
  */
 export default function SiteNav(): React.JSX.Element {
   return (
@@ -16,8 +15,8 @@ export default function SiteNav(): React.JSX.Element {
           <Link href="/compare">Compare</Link>
           <Link href="/pricing">Pricing</Link>
           <Link href="/changelog">Changelog</Link>
-          <Link href="/feedback">Ideas</Link>
-          <Link href="/capture">Capture</Link>
+          <Link className="sitenav-secondary" href="/feedback">Ideas</Link>
+          <Link className="sitenav-secondary" href="/capture">Capture</Link>
           <Link href="/support">Support</Link>
         </span>
         <details className="sitenav-menu">

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Backups & data — Total Docs'
+  title: 'Backups & data | Total Docs'
 }
 
 export default function BackupsPage(): React.JSX.Element {
@@ -16,21 +16,21 @@ export default function BackupsPage(): React.JSX.Element {
       </p>
       <ul>
         <li>
-          <code>companies/&lt;slug&gt;/company.db</code> — one SQLite file per company; this is the single source of
+          <code>companies/&lt;slug&gt;/company.db</code>: one SQLite file per company; this is the single source of
           truth for every ledger, voucher, and report
         </li>
         <li>
-          <code>companies/&lt;slug&gt;/backups/</code> — automatic snapshots (see below)
+          <code>companies/&lt;slug&gt;/backups/</code>: automatic snapshots (see below)
         </li>
         <li>
-          <code>companies/&lt;slug&gt;/exports/</code> — PDFs, CSVs, and JSON you&rsquo;ve exported (invoices, GST
+          <code>companies/&lt;slug&gt;/exports/</code>: PDFs, CSVs, and JSON you&rsquo;ve exported (invoices, GST
           returns, CA packs, registers)
         </li>
       </ul>
 
       <h2>Automatic snapshots</h2>
       <p>
-        Total takes a WAL-safe snapshot of the active company automatically — every 30 minutes while it&rsquo;s open,
+        Total takes a WAL-safe snapshot of the active company automatically: every 30 minutes while it&rsquo;s open,
         once when you open a company, and once when you quit. It keeps the most recent 20 automatic snapshots and
         prunes older ones; any backup you take manually is never pruned.
       </p>
@@ -38,7 +38,7 @@ export default function BackupsPage(): React.JSX.Element {
       <h2>Restoring a backup</h2>
       <p>
         Go to Settings → Backups, pick a snapshot, and restore it. Before it overwrites anything, Total takes a
-        pre-restore safety copy of your current database — so a restore can never silently destroy the state you
+        pre-restore safety copy of your current database, so a restore can never silently destroy the state you
         restored away from.
       </p>
 
@@ -59,7 +59,7 @@ export default function BackupsPage(): React.JSX.Element {
 
       <h2>Privacy</h2>
       <p>
-        Nothing about your business — no ledger names, no amounts, no company data of any kind — ever leaves the
+        Nothing about your business, including ledger names, amounts or company data, ever leaves the
         machine. The only network call Total makes on its own is a periodic check against the update endpoint to see
         whether a newer version is available; that request carries a version number and nothing else.
       </p>

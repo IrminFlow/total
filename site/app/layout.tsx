@@ -9,11 +9,11 @@ const mono = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500'], variabl
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://devjindal.tech'),
-  title: 'Total — private accounting for macOS and Windows',
+  title: 'Total | Private accounting for macOS and Windows',
   description:
-    'Tally-grade double-entry accounting for macOS and Windows. GST, invoices, stock, banking, payroll and optional AI — offline-first, in a folder you own.',
+    'Tally-grade double-entry accounting for macOS and Windows. GST, invoices, stock, banking, payroll and optional AI, offline-first in a folder you own.',
   openGraph: {
-    title: 'Total — private accounting for macOS and Windows',
+    title: 'Total | Private accounting for macOS and Windows',
     description: 'Your books. On this Mac. Nowhere else.',
     images: ['/gateway-light.jpg']
   }

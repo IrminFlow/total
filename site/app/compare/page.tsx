@@ -32,7 +32,7 @@ export default function ComparePage(): React.JSX.Element {
       <div className="wrap">
         <section>
           <h1 className="serif">Total vs TallyPrime</h1>
-          <p className="sub">An honest, row-by-row comparison — including where Tally is still ahead.</p>
+          <p className="sub">A row-by-row comparison, including where Tally is still ahead.</p>
 
           <div className="ledger" style={{ marginTop: 34 }}>
             <table>
@@ -56,7 +56,7 @@ export default function ComparePage(): React.JSX.Element {
           </div>
 
           <p className="sub" style={{ marginTop: 34, marginBottom: 88 }}>
-            Total is a young, single-developer offline app built for macOS — it does the everyday books, GST returns and
+            Total is a young, single-developer offline app built for macOS. It does the everyday books, GST returns and
             payroll well, but it is still a beta with one person behind it and no multi-user support. If your business
             needs multiple simultaneous users, deeper inventory, or the statutory breadth of a 30-year-old product
             today, buy Tally.

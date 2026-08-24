@@ -24,7 +24,7 @@ export default function SupportForm(): React.JSX.Element {
       setState('error')
     }
   }
-  if (state === 'sent') return <div className="support-success"><h2 className="serif">We have it.</h2><p>Thanks—your note is in the support queue.</p>{caseId && <p className="support-case-id">Case {caseId}</p>}</div>
+  if (state === 'sent') return <div className="support-success"><h2 className="serif">Your case is in the queue.</h2><p>Keep the case number below so you can check its status.</p>{caseId && <p className="support-case-id">Case {caseId}</p>}</div>
   if (state === 'fallback') return <div className="support-success"><h2 className="serif">Keep this case number.</h2><p>The support queue could not confirm delivery. Send the prepared email so the case is not lost.</p>{caseId && <p className="support-case-id">Case {caseId}</p>}<a className="btn" href={mailto}>Open prepared email</a></div>
   return <form className="support-form" onSubmit={(event) => void submit(event)}>
     <input name="website" tabIndex={-1} autoComplete="off" className="honeypot" aria-hidden="true" />

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'FAQ — Total Docs'
+  title: 'FAQ | Total Docs'
 }
 
 export default function FaqPage(): React.JSX.Element {
@@ -26,7 +26,7 @@ export default function FaqPage(): React.JSX.Element {
 
       <h2>Is my data safe and private?</h2>
       <p>
-        Nothing you enter ever leaves the machine. There is no account, no login, and no background sync — your books
+        Nothing you enter ever leaves the machine. There is no account, no login, and no background sync. Your books
         are a folder of SQLite files that only your copy of Total touches. The only network call the app makes on its
         own is a periodic check against the update endpoint to see whether a newer version exists; it sends nothing
         about your company, ledgers, or transactions.
@@ -41,7 +41,7 @@ export default function FaqPage(): React.JSX.Element {
 
       <h2>Does it support multiple users?</h2>
       <p>
-        No — Total is built for a single machine. It does have local user profiles with PIN login and
+        No. Total is built for a single machine. It does have local user profiles with PIN login and
         owner/accountant/viewer roles, plus a full audit trail of who changed what, but that&rsquo;s access control on
         one installation, not simultaneous multi-user editing over a network. If several people need to post
         vouchers into the same books at the same time, Total isn&rsquo;t the right fit yet.
@@ -56,12 +56,12 @@ export default function FaqPage(): React.JSX.Element {
 
       <h2>What happens when I&rsquo;m offline?</h2>
       <p>
-        Everything works. Vouchers, reports, GST computation, invoicing, payroll, banking reconciliation, backups —
-        all of it runs locally with no network required. The only feature that wants a connection is the periodic
+        Everything works: vouchers, reports, GST computation, invoicing, payroll, banking reconciliation and backups.
+        All of it runs locally with no network required. The only feature that wants a connection is the periodic
         update check, and if that fails the app just keeps running on the version you have.
       </p>
 
-      <h2>macOS says the app is damaged and can&rsquo;t be opened — now what?</h2>
+      <h2>macOS says the app is damaged and can&rsquo;t be opened. What now?</h2>
       <p>
         Total&rsquo;s builds aren&rsquo;t code-signed yet, so Gatekeeper quarantines the download and shows that
         message. Right-click → Open does <b>not</b> get past it for this build. The fix:
@@ -73,7 +73,7 @@ mv ~/Downloads/Total.app /Applications/
 # 2. Clear the quarantine flag
 xattr -cr /Applications/Total.app
 
-# 3. Open normally — double-click, or:
+# 3. Open normally by double-clicking, or:
 open /Applications/Total.app`}</code>
       </pre>
       <p className="muted">

@@ -6,7 +6,7 @@ import SiteNav from '@/components/SiteNav'
 export const revalidate = 300
 
 export const metadata: Metadata = {
-  title: 'Changelog — Total'
+  title: 'Changelog | Total'
 }
 
 function formatDate(iso: string): string {
@@ -23,7 +23,7 @@ export default async function ChangelogPage(): Promise<React.JSX.Element> {
       <div className="wrap">
         <section>
           <h1 className="serif">Changelog</h1>
-          <p className="sub">Every published release, straight from GitHub — nothing rewritten after the fact.</p>
+          <p className="sub">Published release notes are shown directly from GitHub.</p>
 
           {releases.length === 0 ? (
             <p className="notes">Release notes will appear here once published.</p>
