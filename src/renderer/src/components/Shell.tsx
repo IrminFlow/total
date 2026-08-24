@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useIsFetching } from '@tanstack/react-query'
 import { THEME_LABEL, THEME_ORDER, useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
@@ -109,6 +110,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         >
           Anywhere <Kbd>⌘K</Kbd>
         </button>
+        <AuditorPill />
         {user && (
           <>
             <span className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted capitalize">
@@ -265,5 +267,35 @@ function PeriodModal({ onClose }: { onClose: () => void }): React.JSX.Element {
         </Button>
       </div>
     </Modal>
+  )
+}
+
+
+/**
+ * "You are an auditor, and this ends at 4:20."
+ *
+ * A read-only session with nothing on screen to say so is a session somebody forgets they are in
+ * — and then reports the app as broken when a save is refused. The countdown is the other half:
+ * an auditor who can see the clock asks for more time rather than being cut off mid-sentence.
+ *
+ * Absent entirely when no session is open, which is almost always, so it costs nothing to look at.
+ */
+function AuditorPill(): React.JSX.Element | null {
+  const { slug, locked } = useSession()
+  const { data } = useQuery({
+    queryKey: ['auditorStatus'],
+    queryFn: () => api.auditor.status(),
+    enabled: !!slug && !locked,
+    refetchInterval: 60_000
+  })
+  if (!data?.active) return null
+  return (
+    <span
+      data-testid="pill-auditor-session"
+      className="rounded-md border border-amber/60 bg-amber/15 px-2.5 py-1 text-small text-amber"
+      title={data.grantedBy ? `Let in by ${data.grantedBy}` : undefined}
+    >
+      Auditor · read only · {data.timeLeft}
+    </span>
   )
 }

@@ -11,6 +11,8 @@ import { expandSeriesPattern, seriesHasFyToken } from '@shared/numberSeries'
 import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { writeAudit } from './audit'
+import { applyApprovalGate } from './approvals'
+import type { Role } from './roles'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
@@ -22,6 +24,9 @@ interface VoucherRow {
   irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null
   ewb_no: string | null; ewb_valid_upto: string | null
   post_dated: number; is_optional: number
+  approval_state: 'pending' | 'approved' | 'rejected' | null
+  approval_by: string | null; approval_at: string | null; approval_note: string | null
+  import_key: string | null
   deleted_at: string | null
   created_at: string; updated_at: string
 }
@@ -35,9 +40,21 @@ export const NOT_POSTDATED = 'v.post_dated = 0'
 /** Optional (memorandum) vouchers never count toward the books. */
 export const NOT_OPTIONAL = 'v.is_optional = 0'
 
+/**
+ * The approval threshold (roadmap V #386) has nothing to say about this voucher, or has said yes.
+ *
+ * Spelled as "NULL or approved" rather than "not pending": approval_state is NULL on every
+ * voucher that was never gated — the overwhelming majority — and `NULL <> 'pending'` is NULL in
+ * SQL, which is not true, which would quietly empty every report in the app. Writing the
+ * permitted values out also settles the third state: a REJECTED voucher stays out of the books.
+ * The owner said no; it is not a memorandum, and it is not silently in the totals.
+ */
+export const APPROVAL_CLEARED = "(v.approval_state IS NULL OR v.approval_state = 'approved')"
+
 /** Composite filter: the voucher counts toward the books — not binned, not post-dated, not
- *  optional. New report queries should use this instead of NOT_DELETED alone. */
-export const IN_BOOKS = `${NOT_DELETED} AND ${NOT_POSTDATED} AND ${NOT_OPTIONAL}`
+ *  optional, and either never gated for approval or approved. New report queries should use this
+ *  instead of NOT_DELETED alone. */
+export const IN_BOOKS = `${NOT_DELETED} AND ${NOT_POSTDATED} AND ${NOT_OPTIONAL} AND ${APPROVAL_CLEARED}`
 
 /** Books-locked-up-to date (inclusive): vouchers dated on or before this date can't be
  *  saved/deleted/restored. Stored in `meta` under key 'lock_before'; null/absent = no lock. */
@@ -131,6 +148,10 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     postDated: !!v.post_dated,
     isOptional: !!v.is_optional,
     deletedAt: v.deleted_at,
+    approvalState: v.approval_state,
+    approvalBy: v.approval_by,
+    approvalAt: v.approval_at,
+    approvalNote: v.approval_note,
     createdAt: v.created_at,
     updatedAt: v.updated_at,
     lines: lines.map(
@@ -313,7 +334,24 @@ export function checkStock(db: DB, stockItemIds: number[], date: string): Negati
  *  duplicate-number guard (SavedVoucher). */
 export type SaveVoucherResult = SavedVoucher & { warnings: SaveVoucherWarnings }
 
-export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): SaveVoucherResult {
+/**
+ * Who is saving, for the approval threshold (roadmap V #386).
+ *
+ * Passed in rather than read from a session, because services know nothing about sessions — and
+ * because the callers that must NEVER be gated (the Tally import, recurring templates, the agent
+ * inbox, every test) get that behaviour by simply not passing it.
+ */
+export interface SaveVoucherActor {
+  role: Role | null
+  hasUsers: boolean
+}
+
+export function saveVoucher(
+  db: DB,
+  raw: VoucherInput,
+  existingId?: number,
+  actor?: SaveVoucherActor
+): SaveVoucherResult {
   // Parse here as well as at the IPC boundary so direct callers (tests, recurring, importers)
   // get defaults for later-added fields (posOverride) applied consistently.
   const input: VoucherInputParsed = voucherInputSchema.parse(raw)
@@ -484,7 +522,19 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
     // dr-positive balance IS "outstanding + this invoice". Warn past the ledger's limit;
     // block (roll back) under F11 enforceCreditLimit. Post-dated/optional vouchers are out
     // of the books, so they never trip the limit.
-    if (input.partyLedgerId !== null && !postDated && !isOptional) {
+    // The approval threshold, before the credit-limit check below: a held voucher is out of the
+    // books, so — exactly like a post-dated or optional one — it must not consume credit.
+    const heldForApproval =
+      actor
+        ? applyApprovalGate(
+            db,
+            voucherId,
+            input.lines.filter((l) => l.drCr === 'dr').reduce((sum, l) => sum + l.amount, 0),
+            actor
+          ) === 'pending'
+        : false
+
+    if (input.partyLedgerId !== null && !postDated && !isOptional && !heldForApproval) {
       const party = db
         .prepare('SELECT id, name, opening_balance, credit_limit FROM ledgers WHERE id = ?')
         .get(input.partyLedgerId) as

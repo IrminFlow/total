@@ -8,6 +8,7 @@ import {
   type ChainLink,
   type ChainVerification
 } from './auditChain'
+import { buildDigest, type DailyDigest, type DigestAuditRow } from '@shared/digest'
 
 // The write side owns the entity vocabulary; the list itself lives in src/shared so the
 // Settings → Audit filter can import it too (renderer can't reach main-process modules).
@@ -71,6 +72,14 @@ export function runAsAuditUser<T>(userName: string, fn: () => T): T {
  * it could; an exception here would abort the business transaction it was recording, which is a
  * far worse trade.
  */
+/** The signed-in user's display name, or null. Exposed so a service that stamps its own
+ *  `..._by` column (attachments, approvals, bank-detail requests) attributes it to exactly the
+ *  same person the audit row will name, rather than reaching into ipc.ts for the session. */
+export function currentAuditUser(): string | null {
+  return context.getUserName()
+}
+
+/** Append one row to audit_log. before/after are JSON.stringify'd; null stays null (not '"null"'). */
 export function writeAudit(
   db: DB,
   entity: string,
@@ -173,6 +182,33 @@ export interface AuditRow {
   afterJson: string | null
   userName: string | null
   appVersion: string | null
+}
+
+/**
+ * One day's audit rows, oldest first, for the daily digest (roadmap V #390).
+ *
+ * `date(at, 'localtime')`, not `date(at)`: audit rows are stamped by SQLite's `datetime('now')`,
+ * which is UTC, while the day an owner means by "yesterday" is the one they lived through. In
+ * India that is UTC+5:30, so a plain UTC comparison files everything entered before 5:30 am under
+ * the previous day — the digest would be quietly wrong every single morning.
+ *
+ * Unpaged and unlimited on purpose: a day of a small business's book is tens of rows, hundreds at
+ * the very worst, and the digest has to count ALL of them — a page of 100 would report "100
+ * changes" on the one day that mattered. The shaping into sections is pure (src/shared/digest.ts).
+ */
+export function auditRowsForDay(db: DB, date: string): DigestAuditRow[] {
+  return db
+    .prepare(
+      `SELECT entity, entity_id AS entityId, action, at, user_name AS userName,
+              before_json AS beforeJson, after_json AS afterJson
+       FROM audit_log WHERE date(at, 'localtime') = ? ORDER BY id`
+    )
+    .all(date) as DigestAuditRow[]
+}
+
+/** The digest itself: the day's rows, shaped by the pure builder. */
+export function dailyDigest(db: DB, date: string): DailyDigest {
+  return buildDigest(date, auditRowsForDay(db, date))
 }
 
 export interface AuditListQuery {

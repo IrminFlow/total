@@ -18,7 +18,17 @@ export interface ImportPreview {
   rows: Record<string, unknown>[]
   total: number
   willCreate: number
+  /** Rows that exist AND differ — the ones the import would actually change. */
   willUpdate: number
+  /**
+   * Rows that exist and are identical (roadmap O #296).
+   *
+   * Separated from willUpdate because they answer a different question. Re-importing a corrected
+   * master file is the normal way this is used, and "480 unchanged, 3 changed" is the sentence
+   * that lets somebody press the button; "483 will be updated" is the one that makes them stop
+   * and re-read their own file.
+   */
+  unchanged: number
   errors: CsvError[]
 }
 
@@ -57,11 +67,27 @@ function resolveLedgerRows(
 export function previewLedgers(db: DB, csvText: string): ImportPreview {
   const { rows, errors: parseErrors } = parseLedgersCsv(csvText)
   const { ok, errors: resolveErrors } = resolveLedgerRows(db, rows)
+  let unchanged = 0
+  let willUpdate = 0
+  for (const o of ok) {
+    if (o.existingId === null) continue
+    const existing = masters.getLedger(db, o.existingId)!
+    const same =
+      existing.groupId === o.groupId &&
+      existing.openingBalance === o.row.openingBalance &&
+      (existing.gstin ?? null) === (o.row.gstin ?? null) &&
+      (existing.stateCode ?? null) === (o.row.stateCode ?? null) &&
+      (o.row.pan === undefined || (existing.pan ?? null) === (o.row.pan ?? null)) &&
+      (o.row.creditDays === undefined || (existing.creditDays ?? null) === (o.row.creditDays ?? null))
+    if (same) unchanged++
+    else willUpdate++
+  }
   return {
     rows: rows.slice(0, PREVIEW_CAP).map((r) => ({ ...r }) as Record<string, unknown>),
     total: rows.length,
     willCreate: ok.filter((o) => o.existingId === null).length,
-    willUpdate: ok.filter((o) => o.existingId !== null).length,
+    willUpdate,
+    unchanged,
     errors: [...parseErrors, ...resolveErrors]
   }
 }
@@ -145,11 +171,36 @@ function resolveItemRows(
 export function previewItems(db: DB, csvText: string): ImportPreview {
   const { rows, errors: parseErrors } = parseItemsCsv(csvText)
   const { ok, errors: resolveErrors } = resolveItemRows(db, rows)
+  let unchanged = 0
+  let willUpdate = 0
+  for (const o of ok) {
+    if (o.existingId === null) continue
+    const existing = db
+      .prepare(
+        `SELECT unit_id AS unitId, group_id AS groupId, hsn, gst_rate AS gstRate,
+                opening_qty_milli AS openingQtyMilli, opening_value AS openingValue
+         FROM stock_items WHERE id = ?`
+      )
+      .get(o.existingId) as {
+        unitId: number; groupId: number | null; hsn: string | null; gstRate: number | null
+        openingQtyMilli: number; openingValue: number
+      }
+    const same =
+      existing.unitId === o.unitId &&
+      (existing.groupId ?? null) === (o.groupId ?? null) &&
+      (existing.hsn ?? null) === (o.row.hsn ?? null) &&
+      (existing.gstRate ?? null) === (o.row.gstRate ?? null) &&
+      existing.openingQtyMilli === o.row.openingQtyMilli &&
+      existing.openingValue === o.row.openingValue
+    if (same) unchanged++
+    else willUpdate++
+  }
   return {
     rows: rows.slice(0, PREVIEW_CAP).map((r) => ({ ...r }) as Record<string, unknown>),
     total: rows.length,
     willCreate: ok.filter((o) => o.existingId === null).length,
-    willUpdate: ok.filter((o) => o.existingId !== null).length,
+    willUpdate,
+    unchanged,
     errors: [...parseErrors, ...resolveErrors]
   }
 }
@@ -218,11 +269,18 @@ function resolveOpeningRows(
 export function previewOpenings(db: DB, csvText: string): ImportPreview {
   const { rows, errors: parseErrors } = parseOpeningBalancesCsv(csvText)
   const { ok, errors: resolveErrors } = resolveOpeningRows(db, rows)
+  let unchanged = 0
+  let willUpdate = 0
+  for (const o of ok) {
+    if (masters.getLedger(db, o.ledgerId)!.openingBalance === o.row.opening) unchanged++
+    else willUpdate++
+  }
   return {
     rows: rows.slice(0, PREVIEW_CAP).map((r) => ({ ...r }) as Record<string, unknown>),
     total: rows.length,
     willCreate: 0,
-    willUpdate: ok.length,
+    willUpdate,
+    unchanged,
     errors: [...parseErrors, ...resolveErrors]
   }
 }

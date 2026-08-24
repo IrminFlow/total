@@ -13,6 +13,8 @@ import { InvoiceEntry } from './voucher/InvoiceEntry'
 import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureEntry } from './voucher/ManufactureEntry'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
+import { Attachments } from './voucher/Attachments'
+import { ApprovalBanner } from './voucher/ApprovalBanner'
 import { useScreenAccels } from '../lib/screenAccels'
 import { useStickyTab } from '../lib/useStickyTab'
 
@@ -179,6 +181,10 @@ export function VoucherEntry({
           draft={draft}
         />
       )}
+      {voucherId && existing && <ApprovalBanner voucher={existing} />}
+      {/* Both only make sense once the voucher exists: an attachment needs something to hang on,
+          and an approval is a fact about a saved entry. */}
+      {voucherId && <Attachments voucherId={voucherId} />}
       {voucherId && <VoucherHistory voucherId={voucherId} />}
       {/* The grid chords live here rather than in the footer strip: the bar is one line wide and
           already carries the ten type keys, and pushing one of those off the edge to make room

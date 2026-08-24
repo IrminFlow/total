@@ -46,6 +46,13 @@ export function companyExportsDir(slug: string): string {
   return join(companyDir(slug), 'exports')
 }
 
+/** Where a voucher's attached bills live. Inside the company folder on purpose: the folder is
+ *  the unit a user copies, syncs and backs up, so an attachment kept anywhere else would be
+ *  missing from the copy at exactly the moment it was wanted. */
+export function companyAttachmentsDir(slug: string): string {
+  return join(companyDir(slug), 'attachments')
+}
+
 export function ensureDataTree(): void {
   mkdirSync(companiesDir(), { recursive: true })
 }
@@ -54,6 +61,7 @@ export function ensureCompanyTree(slug: string): void {
   mkdirSync(companyDir(slug), { recursive: true })
   mkdirSync(companyBackupsDir(slug), { recursive: true })
   mkdirSync(companyExportsDir(slug), { recursive: true })
+  mkdirSync(companyAttachmentsDir(slug), { recursive: true })
 }
 
 export function slugify(name: string): string {

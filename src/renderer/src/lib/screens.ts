@@ -79,6 +79,9 @@ export const SCREENS: ScreenDef[] = [
       'voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes',
       // The entry somebody was halfway through when the app died (roadmap #250).
       
+      // The bill attached to the voucher being altered, and whether it is still waiting for the
+      // owner — both can have changed on another screen since this one was last looked at.
+      'attachments', 'approvalThreshold'
     ]
   },
   {
@@ -114,11 +117,14 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'import-tally',
+    keywords: ['csv', 'spreadsheet', 'opening balances', 'migrate'],
     title: 'Import from Tally',
     screen: { name: 'import-tally' },
     navSection: 'top',
     accel: 'I',
-    invalidates: []
+    // The spreadsheet and opening-balance tabs read the masters they are about to change; a
+    // stale list would offer to create a ledger that already exists.
+    invalidates: ['ledgers', 'groups']
   },
 
   {
@@ -444,12 +450,11 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'system',
     accel: 'E',
     invalidates: [
-      'backups', 'bin', 'users', 'audit', 'auditChain', 'nicCreds', 'nicStatus',
-      'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig', 'collectionsPolicy',
-      // Data safety (roadmap L): the schedule that copies the books elsewhere, the archived
-      // flag, the data folder itself, the recovery guidance, and the restore preview.
-      'externalBackup', 'companyArchive', 'dataFolder', 'recovery', 'restorePreview',
-      'reportSchedules'
+      'agentConfig', 'appInfo', 'approvalThreshold', 'approvals', 'audit', 'auditChain',
+      'auditorStatus', 'authCurrent', 'backups', 'bankChanges', 'bin', 'collectionsPolicy',
+      'companyArchive', 'companyLock', 'dataFolder', 'digest', 'externalBackup', 'features',
+      'invoiceConfig', 'invoicePreview', 'nicCreds', 'nicStatus', 'recovery', 'reportSchedules',
+      'restorePreview', 'users'
     ]
   },
 

@@ -362,3 +362,26 @@ export function stampExternalBackup(db: DB, at: string | null, error: string | n
   writeMeta(db, 'backup.external', next)
   return next
 }
+
+// ---------- approval threshold (roadmap V #386) ----------
+
+/**
+ * The amount above which a voucher entered by an accountant waits for the owner.
+ *
+ * Paise, or null for "off". The difference between null and 0 is load-bearing and is preserved
+ * through every layer: null means the owner never asked for approvals, 0 means they asked for all
+ * of them — a real thing to do for a week after finding something wrong. Folding one into the
+ * other would be the app overruling a deliberate decision (see src/shared/approvals.ts).
+ */
+export function getApprovalThreshold(db: DB): number | null {
+  const raw = readMeta(db, 'approval.threshold')
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 ? raw : null
+}
+
+export function setApprovalThreshold(db: DB, threshold: number | null): number | null {
+  const before = getApprovalThreshold(db)
+  const value = threshold === null ? null : Math.max(0, Math.round(threshold))
+  writeMeta(db, 'approval.threshold', value)
+  writeAudit(db, 'company', 0, 'update', { approvalThreshold: before }, { approvalThreshold: value })
+  return value
+}

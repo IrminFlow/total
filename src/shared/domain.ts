@@ -73,6 +73,15 @@ export interface Ledger {
   /** Party contact. `phone` drives the WhatsApp reminder; both are optional everywhere. */
   phone: string | null
   email: string | null
+  /** Where this party is paid. Changing it is the single highest-value fraud available in this
+   *  market, so a company with two users parks the change for a second person to confirm
+   *  (roadmap V #388) rather than applying it. */
+  bankAccount: string | null
+  bankIfsc: string | null
+  bankHolder: string | null
+  /** This account is knowingly shared with another party — a proprietor and their firm. Silences
+   *  the shared-account exception for this party (roadmap V #389). */
+  bankSharedOk: boolean
   isSystem: boolean
 }
 
@@ -252,6 +261,13 @@ export interface Voucher {
   isOptional: boolean
   /** Set once the voucher is moved to the bin (soft delete); null while active. */
   deletedAt: string | null
+  /** Approval threshold (roadmap V #386). NULL on almost every voucher: it means the entry was
+   *  never gated, which is different from having been approved. 'pending' keeps it out of the
+   *  books until the owner decides. */
+  approvalState: 'pending' | 'approved' | 'rejected' | null
+  approvalBy: string | null
+  approvalAt: string | null
+  approvalNote: string | null
   lines: VoucherLine[]
   inventory: InventoryLine[]
   /** Bill-by-bill references against the party ledger line. */

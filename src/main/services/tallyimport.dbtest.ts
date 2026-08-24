@@ -56,6 +56,7 @@ describe('dryRunTallyXml', () => {
       items: 0,
       vouchers: 1,
       skipped: 0,
+      duplicates: 0,
       warnings: []
     })
 

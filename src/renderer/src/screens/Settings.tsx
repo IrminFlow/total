@@ -6,6 +6,8 @@ import { BackupsSection } from './settings/BackupsSection'
 import { BinSection } from './settings/BinSection'
 import { UsersSection } from './settings/UsersSection'
 import { AuditSection } from './settings/AuditSection'
+import { ApprovalsSection } from './settings/ApprovalsSection'
+import { AuditorSection } from './settings/AuditorSection'
 import { NicSection } from './settings/NicSection'
 import { FeaturesSection } from './settings/FeaturesSection'
 import { InvoiceConfigSection } from './settings/InvoiceConfigSection'
@@ -24,6 +26,8 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'bin', label: 'Bin' },
   { id: 'users', label: 'Users' },
   { id: 'audit', label: 'Audit trail' },
+  { id: 'approvals', label: 'Approvals' },
+  { id: 'auditor', label: 'Auditor & digest' },
   { id: 'nic', label: 'NIC live filing' },
   { id: 'features', label: 'Features' },
   { id: 'invoice', label: 'Invoice print' },
@@ -61,6 +65,8 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
         {active === 'bin' && <BinSection />}
         {active === 'users' && <UsersSection />}
         {active === 'audit' && <AuditSection />}
+        {active === 'approvals' && <ApprovalsSection />}
+        {active === 'auditor' && <AuditorSection />}
         {active === 'nic' && <NicSection />}
         {active === 'features' && <FeaturesSection />}
         {active === 'invoice' && <InvoiceConfigSection />}

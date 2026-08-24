@@ -276,6 +276,9 @@ export interface ExceptionSection {
     | 'tcsThreshold'
     /** Vouchers above the amount the user asked to be told about. */
     | 'largeVouchers'
+    /** Two or more parties paid into one bank account — a data error, or the fraud the
+     *  two-person rule on bank details guards against. */
+    | 'sharedBankAccount'
   label: string
   count: number
   /** Detail rows, capped at 200 per section (count is the true total). */

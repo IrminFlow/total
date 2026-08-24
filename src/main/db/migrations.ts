@@ -1366,5 +1366,89 @@ export const MIGRATIONS: string[] = [
   // the correct residue — "this party no longer has a default", which is exactly true.
   `
   ALTER TABLE ledgers ADD COLUMN default_cost_centre_id INTEGER REFERENCES cost_centres(id) ON DELETE SET NULL;
+  `,
+
+  // 39 — the bill in the drawer, the entry that is a decision, and the account number nobody
+  // should be able to change alone.
+  //
+  // (The number is 37, not 33: migrations apply by ARRAY POSITION, and 33–36 are reserved for
+  // branches being written in parallel with this one. The label is only a label — what matters
+  // is that nothing is ever inserted BEFORE an existing entry, because an existing database has
+  // already recorded how many it applied and would silently skip the newcomer.)
+  //
+  // ATTACHMENTS. "Where is the physical bill" is asked every day and the app has had no answer.
+  // The file is COPIED into the company folder rather than referenced: a reference is a path,
+  // and a path breaks the first time somebody empties Downloads, renames a folder, or restores
+  // the books onto another machine — at which point the app confidently shows an attachment that
+  // is not there. Copying doubles the disk a scan occupies, and that is the price of the company
+  // folder being the whole of the user's data, which is the promise the rest of the app makes.
+  // `sha256` is stored so the same scan attached twice is recognised rather than duplicated.
+  //
+  // APPROVALS. A voucher above a stated amount, entered by an accountant, is a decision rather
+  // than a keystroke. `approval_state` is NULL for the overwhelming majority of entries — the
+  // threshold is off by default, and an owner's own entry never waits for the owner. A 'pending'
+  // voucher is deliberately kept OUT of the books (see IN_BOOKS in services/vouchers.ts) but
+  // still visible in the day book to the person who typed it: it exists, it just does not count
+  // yet. Rejected is a third state rather than a deletion, because the accountant needs to see
+  // why and fix it.
+  //
+  // IMPORT IDENTITY. `import_key` is the fingerprint of the source voucher in a Tally export
+  // (its GUID when the export carries one, otherwise its content). Indexed, NOT unique: a
+  // voucher that was imported and then deliberately binned must be importable again, so the
+  // duplicate check filters on deleted_at IS NULL rather than the database refusing the insert.
+  //
+  // BANK DETAILS ON A PARTY. Changing a supplier's account number is the highest-value fraud
+  // available in this market and was, until now, not even recordable here. Two things follow:
+  // a pending-change table so the change needs a second person (bank_detail_requests), and a
+  // shared-account exception (`bank_shared_ok` marks the legitimate case — a proprietor and
+  // their firm banking into one account — so the exception report can stay silent about it
+  // without going blind to the next one).
+  `
+  CREATE TABLE voucher_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    -- What the user called it, shown in the UI.
+    file_name TEXT NOT NULL,
+    -- The name it has inside <company>/attachments/. Unique because it is a filename.
+    stored_name TEXT NOT NULL UNIQUE,
+    byte_size INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    note TEXT,
+    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    added_by TEXT
+  );
+  CREATE INDEX idx_voucher_attachments_voucher ON voucher_attachments(voucher_id);
+
+  ALTER TABLE vouchers ADD COLUMN approval_state TEXT
+    CHECK (approval_state IS NULL OR approval_state IN ('pending','approved','rejected'));
+  ALTER TABLE vouchers ADD COLUMN approval_by TEXT;
+  ALTER TABLE vouchers ADD COLUMN approval_at TEXT;
+  ALTER TABLE vouchers ADD COLUMN approval_note TEXT;
+  -- Partial: the column is NULL on almost every row, and the only query is "what is waiting".
+  CREATE INDEX idx_vouchers_approval ON vouchers(approval_state) WHERE approval_state IS NOT NULL;
+
+  ALTER TABLE vouchers ADD COLUMN import_key TEXT;
+  CREATE INDEX idx_vouchers_import_key ON vouchers(import_key) WHERE import_key IS NOT NULL;
+
+  ALTER TABLE ledgers ADD COLUMN bank_account TEXT;
+  ALTER TABLE ledgers ADD COLUMN bank_ifsc TEXT;
+  -- The name the account is held in. Not the ledger name: "S. Kumar" paying "Kumar Traders" is
+  -- the ordinary case, and the mismatch is only worth flagging when a human looks at it.
+  ALTER TABLE ledgers ADD COLUMN bank_holder TEXT;
+  ALTER TABLE ledgers ADD COLUMN bank_shared_ok INTEGER NOT NULL DEFAULT 0;
+
+  CREATE TABLE bank_detail_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    old_account TEXT, old_ifsc TEXT, old_holder TEXT,
+    new_account TEXT, new_ifsc TEXT, new_holder TEXT,
+    state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','approved','rejected')),
+    requested_by TEXT,
+    requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_by TEXT,
+    decided_at TEXT,
+    decision_note TEXT
+  );
+  CREATE INDEX idx_bank_detail_requests_state ON bank_detail_requests(state);
   `
 ]

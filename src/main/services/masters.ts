@@ -29,6 +29,7 @@ interface LedgerRow {
   related_party: number; relationship: string | null
   salesperson: string | null; territory: string | null
   phone: string | null; email: string | null
+  bank_account: string | null; bank_ifsc: string | null; bank_holder: string | null; bank_shared_ok: number
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
@@ -42,7 +43,9 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   msmeStatus: r.msme_status, udyamNumber: r.udyam_number,
   relatedParty: !!r.related_party, relationship: r.relationship,
   salesperson: r.salesperson, territory: r.territory,
-  phone: r.phone, email: r.email
+  phone: r.phone, email: r.email,
+  bankAccount: r.bank_account, bankIfsc: r.bank_ifsc, bankHolder: r.bank_holder,
+  bankSharedOk: !!r.bank_shared_ok
 })
 
 // ---------- groups ----------
@@ -167,8 +170,9 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
       `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, tax_type, gst_rate, hsn,
         tds_section_id, pan, credit_days, export_type, rcm, itc_eligibility, price_level_id, credit_limit,
         interest_rate_bp, interest_grace_days, msme_status, udyam_number, related_party, relationship,
-        salesperson, territory, phone, email, default_cost_centre_id, is_system)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+        salesperson, territory, phone, email, default_cost_centre_id,
+        bank_account, bank_ifsc, bank_holder, bank_shared_ok, is_system)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
       input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
@@ -178,7 +182,9 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
       input.msmeStatus ?? null, input.udyamNumber ?? null,
       input.relatedParty ? 1 : 0, input.relationship ?? null,
       input.salesperson ?? null, input.territory ?? null,
-      input.phone ?? null, input.email ?? null, input.defaultCostCentreId ?? null)
+      input.phone ?? null, input.email ?? null, input.defaultCostCentreId ?? null,
+      input.bankAccount ?? null, input.bankIfsc ?? null, input.bankHolder ?? null,
+      input.bankSharedOk ? 1 : 0)
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
@@ -194,7 +200,7 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
      rcm = ?, itc_eligibility = ?, price_level_id = ?, credit_limit = ?,
      interest_rate_bp = ?, interest_grace_days = ?, msme_status = ?, udyam_number = ?,
      related_party = ?, relationship = ?, salesperson = ?, territory = ?, phone = ?, email = ?,
-     default_cost_centre_id = ?
+     default_cost_centre_id = ?, bank_account = ?, bank_ifsc = ?, bank_holder = ?, bank_shared_ok = ?
      WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
     input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
@@ -212,6 +218,14 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
     input.phone === undefined ? existing.phone : (input.phone ?? null),
     input.email === undefined ? existing.email : (input.email ?? null),
     input.defaultCostCentreId === undefined ? existing.defaultCostCentreId : (input.defaultCostCentreId ?? null),
+    // Bank details absent from the input leave the master alone. Every caller that does not deal
+    // in bank details (the CSV importer, the Tally import, a party edited from the invoice
+    // screen) therefore cannot clear them by omission, and the two-person rule above this
+    // function is never bypassed by a form that simply did not carry the fields.
+    input.bankAccount === undefined ? existing.bankAccount : (input.bankAccount ?? null),
+    input.bankIfsc === undefined ? existing.bankIfsc : (input.bankIfsc ?? null),
+    input.bankHolder === undefined ? existing.bankHolder : (input.bankHolder ?? null),
+    (input.bankSharedOk === undefined ? existing.bankSharedOk : input.bankSharedOk) ? 1 : 0,
     id)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)

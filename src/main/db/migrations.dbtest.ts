@@ -73,6 +73,8 @@ const EXPECTED_TABLES = [
   'stock_statements',
   'commission_schemes',
   'voucher_drafts',
+  'voucher_attachments',
+  'bank_detail_requests',
   'migrations'
 ]
 

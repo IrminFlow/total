@@ -147,6 +147,11 @@ export interface TallyItem {
 export interface TallyVoucherLine { ledger: string; drCr: 'dr' | 'cr'; amount: number }
 export interface TallyInventoryLine { item: string; qtyMilli: number; amount: number }
 export interface TallyVoucher {
+  /** Tally's own identity for the voucher — REMOTEID attribute or <GUID> child, when the export
+   *  carries one. Stable across re-exports of the same voucher, which is what makes re-import
+   *  safety (roadmap O #297) exact rather than heuristic. Optional: the export builder
+   *  (tallyExport.ts) produces the same shape and has no GUID to give. */
+  guid?: string | null
   vchType: string
   date: string
   number: string
@@ -248,7 +253,11 @@ export function parseTallyExport(xml: string): TallyImport {
       warnings.push(`Voucher ${childText(v, 'VOUCHERNUMBER') || date} skipped: no ledger entries`)
       continue
     }
+    // Only present when the export carried one, so an exported-then-reparsed voucher still
+    // equals the voucher it came from (tallyExport.test.ts round-trips exactly that).
+    const guid = v.attrs.REMOTEID || childText(v, 'GUID') || v.attrs.GUID || ''
     result.vouchers.push({
+      ...(guid ? { guid } : {}),
       vchType: v.attrs.VCHTYPE ?? childText(v, 'VOUCHERTYPENAME'),
       date,
       number: childText(v, 'VOUCHERNUMBER'),
