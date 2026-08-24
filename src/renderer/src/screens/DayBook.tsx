@@ -507,15 +507,15 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
           <table className="ledger-table">
             <thead>
               <tr>
-                <th className="w-8" aria-label="Select" />
-                <th className="w-24">Date</th>
-                {visible.type && <th className="w-28">Type</th>}
-                {visible.number && <th className="w-20">No.</th>}
-                {visible.account && <th>Account</th>}
-                <th>Narration</th>
-                {visible.debit && <th className="r w-36">Debit</th>}
-                {visible.credit && <th className="r w-36">Credit</th>}
-                {visible.reconciled && <th className="w-28">Reconciled</th>}
+                <th scope="col" className="w-8" aria-label="Select" />
+                <th scope="col" className="w-24">Date</th>
+                {visible.type && <th scope="col" className="w-28">Type</th>}
+                {visible.number && <th scope="col" className="w-20">No.</th>}
+                {visible.account && <th scope="col">Account</th>}
+                <th scope="col">Narration</th>
+                {visible.debit && <th scope="col" className="r w-36">Debit</th>}
+                {visible.credit && <th scope="col" className="r w-36">Credit</th>}
+                {visible.reconciled && <th scope="col" className="w-28">Reconciled</th>}
               </tr>
             </thead>
             <tbody data-testid="rows-daybook">
@@ -616,10 +616,10 @@ function ByTypePanel({
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Voucher type</th>
-                <th className="r w-24">Count</th>
-                <th className="r w-40">Debit</th>
-                <th className="r w-40">Credit</th>
+                <th scope="col">Voucher type</th>
+                <th scope="col" className="r w-24">Count</th>
+                <th scope="col" className="r w-40">Debit</th>
+                <th scope="col" className="r w-40">Credit</th>
               </tr>
             </thead>
             <tbody data-testid="rows-daybook-by-type">

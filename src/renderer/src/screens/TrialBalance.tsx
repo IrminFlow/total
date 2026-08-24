@@ -135,13 +135,13 @@ export function TrialBalanceScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Ledger</th>
-                <th>Group</th>
-                {visible.opening && <th className="r w-36">Opening</th>}
-                {visible.movement && <th className="r w-36">Movement Dr</th>}
-                {visible.movement && <th className="r w-36">Movement Cr</th>}
-                {visible.debit && <th className="r w-40">Debit</th>}
-                {visible.credit && <th className="r w-40">Credit</th>}
+                <th scope="col">Ledger</th>
+                <th scope="col">Group</th>
+                {visible.opening && <th scope="col" className="r w-36">Opening</th>}
+                {visible.movement && <th scope="col" className="r w-36">Movement Dr</th>}
+                {visible.movement && <th scope="col" className="r w-36">Movement Cr</th>}
+                {visible.debit && <th scope="col" className="r w-40">Debit</th>}
+                {visible.credit && <th scope="col" className="r w-40">Credit</th>}
               </tr>
             </thead>
             <tbody data-testid="rows-trial-balance">

@@ -204,11 +204,11 @@ export function BudgetsScreen(): React.JSX.Element {
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th className="w-20">Target</th>
-                  <th>Ledger / group</th>
-                  <th className="w-36">Month</th>
-                  <th className="r w-32">Amount</th>
-                  <th className="w-10"></th>
+                  <th scope="col" className="w-20">Target</th>
+                  <th scope="col">Ledger / group</th>
+                  <th scope="col" className="w-36">Month</th>
+                  <th scope="col" className="r w-32">Amount</th>
+                  <th scope="col" className="w-10"></th>
                 </tr>
               </thead>
               <tbody>
@@ -312,12 +312,12 @@ export function BudgetsScreen(): React.JSX.Element {
               <table className="ledger-table">
                 <thead>
                   <tr>
-                    <th>Target</th>
-                    <th className="w-24">Month</th>
-                    <th className="r w-32">Budget</th>
-                    <th className="r w-32">Actual</th>
-                    <th className="r w-32">Variance</th>
-                    <th className="r w-20">%</th>
+                    <th scope="col">Target</th>
+                    <th scope="col" className="w-24">Month</th>
+                    <th scope="col" className="r w-32">Budget</th>
+                    <th scope="col" className="r w-32">Actual</th>
+                    <th scope="col" className="r w-32">Variance</th>
+                    <th scope="col" className="r w-20">%</th>
                   </tr>
                 </thead>
                 <tbody>

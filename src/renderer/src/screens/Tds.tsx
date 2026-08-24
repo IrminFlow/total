@@ -99,9 +99,9 @@ export function TdsScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Party</th>
-                <th className="w-28">Section</th>
-                <th className="w-28">PAN</th>
+                <th scope="col">Party</th>
+                <th scope="col" className="w-28">Section</th>
+                <th scope="col" className="w-28">PAN</th>
               </tr>
             </thead>
             <tbody data-testid="rows-tds-nopan">
@@ -124,10 +124,10 @@ export function TdsScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Section</th>
-                <th className="r w-32">Deductees</th>
-                <th className="r w-36">Base</th>
-                <th className="r w-36">TDS</th>
+                <th scope="col">Section</th>
+                <th scope="col" className="r w-32">Deductees</th>
+                <th scope="col" className="r w-36">Base</th>
+                <th scope="col" className="r w-36">TDS</th>
               </tr>
             </thead>
             <tbody>
@@ -231,12 +231,12 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th className="w-20">Code</th>
-                  <th>Description</th>
-                  <th className="r w-20">Rate</th>
-                  <th className="r w-32">Single limit</th>
-                  <th className="r w-32">Annual limit</th>
-                  <th className="w-14"></th>
+                  <th scope="col" className="w-20">Code</th>
+                  <th scope="col">Description</th>
+                  <th scope="col" className="r w-20">Rate</th>
+                  <th scope="col" className="r w-32">Single limit</th>
+                  <th scope="col" className="r w-32">Annual limit</th>
+                  <th scope="col" className="w-14"></th>
                 </tr>
               </thead>
               <tbody data-testid="rows-tds-sections">

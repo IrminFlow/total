@@ -278,20 +278,20 @@ export function Gstr2bScreen(): React.JSX.Element {
                 <table className="ledger-table min-w-[56rem]">
                   <thead>
                     <tr>
-                      <th colSpan={4}>Portal (GSTR-2B)</th>
-                      <th colSpan={4}>Books</th>
-                      <th className="w-24">Diff</th>
+                      <th scope="col" colSpan={4}>Portal (GSTR-2B)</th>
+                      <th scope="col" colSpan={4}>Books</th>
+                      <th scope="col" className="w-24">Diff</th>
                     </tr>
                     <tr>
-                      <th>No.</th>
-                      <th className="w-24">Date</th>
-                      <th className="r w-28">Value</th>
-                      <th className="r w-28">Tax</th>
-                      <th>No. (supplier ref)</th>
-                      <th className="w-24">Date</th>
-                      <th className="r w-28">Value</th>
-                      <th className="r w-28">Tax</th>
-                      <th className="r">Value</th>
+                      <th scope="col">No.</th>
+                      <th scope="col" className="w-24">Date</th>
+                      <th scope="col" className="r w-28">Value</th>
+                      <th scope="col" className="r w-28">Tax</th>
+                      <th scope="col">No. (supplier ref)</th>
+                      <th scope="col" className="w-24">Date</th>
+                      <th scope="col" className="r w-28">Value</th>
+                      <th scope="col" className="r w-28">Tax</th>
+                      <th scope="col" className="r">Value</th>
                     </tr>
                   </thead>
                   <tbody data-testid="rows-2b-pairs">

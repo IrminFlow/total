@@ -162,9 +162,9 @@ export function YearEndScreen(): React.JSX.Element {
               <table className="ledger-table">
                 <thead>
                   <tr>
-                    <th>Ledger</th>
-                    <th className="w-24">Nature</th>
-                    <th className="r w-40">Balance</th>
+                    <th scope="col">Ledger</th>
+                    <th scope="col" className="w-24">Nature</th>
+                    <th scope="col" className="r w-40">Balance</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -217,9 +217,9 @@ export function YearEndScreen(): React.JSX.Element {
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th>Ledger</th>
-                  <th className="r w-28">Debit</th>
-                  <th className="r w-28">Credit</th>
+                  <th scope="col">Ledger</th>
+                  <th scope="col" className="r w-28">Debit</th>
+                  <th scope="col" className="r w-28">Credit</th>
                 </tr>
               </thead>
               <tbody>

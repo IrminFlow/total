@@ -154,14 +154,14 @@ export function ConsolidatedScreen(): React.JSX.Element {
               <table className="ledger-table">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Group</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Group</th>
                     {data.columns.map((col) => (
-                      <th key={col} className="r w-32">
+                      <th scope="col" key={col} className="r w-32">
                         {col}
                       </th>
                     ))}
-                    <th className="r w-32">Total</th>
+                    <th scope="col" className="r w-32">Total</th>
                   </tr>
                 </thead>
                 <tbody>

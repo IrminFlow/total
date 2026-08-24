@@ -277,10 +277,10 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th>{summaryHeading}</th>
-                  <th className="r w-36">Debit</th>
-                  <th className="r w-36">Credit</th>
-                  <th className="r w-40">Closing</th>
+                  <th scope="col">{summaryHeading}</th>
+                  <th scope="col" className="r w-36">Debit</th>
+                  <th scope="col" className="r w-36">Credit</th>
+                  <th scope="col" className="r w-40">Closing</th>
                 </tr>
               </thead>
               <tbody data-testid="rows-ledger-statement-summary">
@@ -319,12 +319,12 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
           <table className="ledger-table">
             <thead>
               <tr>
-                <th className="w-24">Date</th>
-                <th>Particulars</th>
-                <th className="w-24">Type · No.</th>
-                <th className="r w-32">Debit</th>
-                <th className="r w-32">Credit</th>
-                <th className="r w-36">Balance</th>
+                <th scope="col" className="w-24">Date</th>
+                <th scope="col">Particulars</th>
+                <th scope="col" className="w-24">Type · No.</th>
+                <th scope="col" className="r w-32">Debit</th>
+                <th scope="col" className="r w-32">Credit</th>
+                <th scope="col" className="r w-36">Balance</th>
               </tr>
             </thead>
             <tbody data-testid="rows-ledger-statement">

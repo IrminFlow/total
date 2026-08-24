@@ -57,10 +57,10 @@ export function CostCentresScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Parent</th>
-                <th className="w-20">Active</th>
-                <th className="w-32"></th>
+                <th scope="col">Name</th>
+                <th scope="col">Parent</th>
+                <th scope="col" className="w-20">Active</th>
+                <th scope="col" className="w-32"></th>
               </tr>
             </thead>
             <tbody>
@@ -96,10 +96,10 @@ export function CostCentresScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Cost centre</th>
-                <th className="r w-36">Income</th>
-                <th className="r w-36">Expense</th>
-                <th className="r w-36">Net</th>
+                <th scope="col">Cost centre</th>
+                <th scope="col" className="r w-36">Income</th>
+                <th scope="col" className="r w-36">Expense</th>
+                <th scope="col" className="r w-36">Net</th>
               </tr>
             </thead>
             <tbody>

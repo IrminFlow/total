@@ -197,11 +197,11 @@ export function RegistersScreen(): React.JSX.Element {
               <table className="ledger-table">
                 <thead>
                   <tr>
-                    <th>{heading}</th>
-                    <th className="r w-24">Vouchers</th>
-                    <th className="r w-40">Taxable value</th>
-                    <th className="r w-36">GST</th>
-                    <th className="r w-40">Invoice total</th>
+                    <th scope="col">{heading}</th>
+                    <th scope="col" className="r w-24">Vouchers</th>
+                    <th scope="col" className="r w-40">Taxable value</th>
+                    <th scope="col" className="r w-36">GST</th>
+                    <th scope="col" className="r w-40">Invoice total</th>
                   </tr>
                 </thead>
                 <tbody data-testid="rows-registers">
@@ -309,12 +309,12 @@ function ItemProfitPanel({ from, to, periodLabel }: { from: string; to: string; 
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Item</th>
-                <th className="r w-28">Qty sold</th>
-                <th className="r w-36">Sales</th>
-                <th className="r w-36">COGS</th>
-                <th className="r w-36">Profit</th>
-                <th className="r w-20">Margin</th>
+                <th scope="col">Item</th>
+                <th scope="col" className="r w-28">Qty sold</th>
+                <th scope="col" className="r w-36">Sales</th>
+                <th scope="col" className="r w-36">COGS</th>
+                <th scope="col" className="r w-36">Profit</th>
+                <th scope="col" className="r w-20">Margin</th>
               </tr>
             </thead>
             <tbody data-testid="rows-registers-items">
@@ -478,11 +478,11 @@ function PartySharePanel({
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Party</th>
-                <th className="r w-24">Documents</th>
-                <th className="r w-40">Value</th>
-                <th className="r w-24">Share</th>
-                <th className="r w-28">Cumulative</th>
+                <th scope="col">Party</th>
+                <th scope="col" className="r w-24">Documents</th>
+                <th scope="col" className="r w-40">Value</th>
+                <th scope="col" className="r w-24">Share</th>
+                <th scope="col" className="r w-28">Cumulative</th>
               </tr>
             </thead>
             <tbody data-testid="rows-parties">

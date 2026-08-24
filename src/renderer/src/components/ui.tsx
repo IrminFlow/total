@@ -100,7 +100,11 @@ export function Field({ label, children, hint, error }: { label: string; childre
       <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">{label}</span>
       {children}
       {error ? (
-        <span className="mt-1 block text-hint text-cr">{error}</span>
+        // role="alert" so the message is announced when it appears. A validation error the user
+        // has to act on is exactly the case a polite region is allowed to sit on indefinitely.
+        <span role="alert" className="mt-1 block text-hint text-cr">
+          {error}
+        </span>
       ) : hint ? (
         <span className="mt-1 block text-hint text-muted/80">{hint}</span>
       ) : null}
@@ -520,7 +524,11 @@ export function Toasts(): React.JSX.Element {
     // mouseEnter/Leave when the pointer moves over a child, and a hovered toast that gets
     // removed (click-dismiss, dedupe) can no longer strand the stack in the paused state.
     <div
-      aria-live="polite"
+      // Two live-region politeness levels would need two containers, and two containers would
+      // stack toasts in two places on screen. One container, assertive only while it holds a
+      // message the user has to act on: a polite region may be deferred indefinitely, which is
+      // fine for "saved" and wrong for "could not save".
+      aria-live={toasts.some((t) => t.kind === 'error' || t.kind === 'warning') ? 'assertive' : 'polite'}
       role="status"
       onMouseEnter={pause}
       onMouseLeave={resume}

@@ -167,15 +167,15 @@ export function EdocsScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th className="w-20">Date</th>
-                <th className="w-20">No.</th>
-                <th className="w-16">Type</th>
-                <th>Buyer</th>
-                <th className="w-36">GSTIN</th>
-                <th className="r w-28">Value</th>
-                <th className="w-32">IRN / EWB</th>
-                <th className="w-44">EWB eligibility</th>
-                <th className="r w-52"></th>
+                <th scope="col" className="w-20">Date</th>
+                <th scope="col" className="w-20">No.</th>
+                <th scope="col" className="w-16">Type</th>
+                <th scope="col">Buyer</th>
+                <th scope="col" className="w-36">GSTIN</th>
+                <th scope="col" className="r w-28">Value</th>
+                <th scope="col" className="w-32">IRN / EWB</th>
+                <th scope="col" className="w-44">EWB eligibility</th>
+                <th scope="col" className="r w-52"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-edocs">

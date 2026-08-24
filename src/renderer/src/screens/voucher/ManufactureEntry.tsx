@@ -142,10 +142,10 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
         <table className="ledger-table mt-4">
           <thead>
             <tr>
-              <th>Consumes</th>
-              <th className="r w-32">Qty</th>
-              <th className="r w-32">Avg cost</th>
-              <th className="r w-36">Amount</th>
+              <th scope="col">Consumes</th>
+              <th scope="col" className="r w-32">Qty</th>
+              <th scope="col" className="r w-32">Avg cost</th>
+              <th scope="col" className="r w-36">Amount</th>
             </tr>
           </thead>
           <tbody>

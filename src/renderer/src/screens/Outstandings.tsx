@@ -166,14 +166,14 @@ export function OutstandingsScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Party</th>
-                <th className="w-32">Due date</th>
-                <th className="r w-32">0–30 d</th>
-                <th className="r w-32">31–60 d</th>
-                <th className="r w-32">61–90 d</th>
-                <th className="r w-32">90+ d</th>
-                <th className="r w-36">Pending</th>
-                <th className="w-24"></th>
+                <th scope="col">Party</th>
+                <th scope="col" className="w-32">Due date</th>
+                <th scope="col" className="r w-32">0–30 d</th>
+                <th scope="col" className="r w-32">31–60 d</th>
+                <th scope="col" className="r w-32">61–90 d</th>
+                <th scope="col" className="r w-32">90+ d</th>
+                <th scope="col" className="r w-36">Pending</th>
+                <th scope="col" className="w-24"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-outstandings">

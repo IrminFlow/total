@@ -341,20 +341,21 @@ Ordering within a section is roughly by value.
 
 ## N. Accessibility
 
-274. Accessible names on every one of the 114 buttons; only 11 have aria-labels today (M)
+274. ✓ Accessible names on every control, enforced by an E2E that walks every sidebar screen (M)
 275. Screen-reader announcements for row selection changes (M)
-276. Live regions for toast messages (S)
+276. ✓ Live regions for toast messages, assertive while an error is showing (S)
 277. Reduced-motion honoured everywhere (partly done) (S)
 278. High-contrast theme beyond light and dark (M)
 279. Font-size preference that scales the whole type scale (M)
 280. Focus trap audit on every modal (partly done) (S)
-281. Table headers associated with cells via scope (S)
-282. Colour is never the only signal: Dr/Cr also carry text (S)
+281. ✓ Table headers associated with cells via scope (S) — 321 headers across 31 files
+282. ✓ Colour is never the only signal: Dr/Cr also carry text (S) — already shipped
 283. Keyboard access to every context action currently on hover (M)
-284. Skip-to-content link (S)
-285. Form errors announced, not only shown (S)
+284. ✓ Skip-to-content link (S)
+285. ✓ Form errors announced, not only shown (S)
 286. Minimum tap-target sizes on the LAN companion, when it exists (S)
-287. Language attribute set correctly for bilingual content (S)
+287. ✓ Language attribute set on the document (S) — already shipped; revisit when bilingual
+     invoice printing (#184) lands and a second language is actually on screen.
 
 ## O. Onboarding and migration
 

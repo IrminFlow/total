@@ -47,10 +47,10 @@ export function UsersSection(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th className="w-28">Role</th>
-                <th className="w-24">Status</th>
-                <th className="r w-32"></th>
+                <th scope="col">Name</th>
+                <th scope="col" className="w-28">Role</th>
+                <th scope="col" className="w-24">Status</th>
+                <th scope="col" className="r w-32"></th>
               </tr>
             </thead>
             <tbody>

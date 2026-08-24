@@ -221,8 +221,8 @@ export function CompositionScreen(): React.JSX.Element {
               <table className="ledger-table">
                 <thead>
                   <tr>
-                    <th>Particulars</th>
-                    <th className="r w-48">Amount</th>
+                    <th scope="col">Particulars</th>
+                    <th scope="col" className="r w-48">Amount</th>
                   </tr>
                 </thead>
                 <tbody data-testid="rows-cmp08">
@@ -315,12 +315,12 @@ export function CompositionScreen(): React.JSX.Element {
               <table className="ledger-table">
                 <thead>
                   <tr>
-                    <th>Quarter</th>
-                    <th className="r w-32">Turnover</th>
-                    <th className="r w-28">CGST</th>
-                    <th className="r w-28">SGST</th>
-                    <th className="r w-32">Reverse charge</th>
-                    <th className="r w-32">Payable</th>
+                    <th scope="col">Quarter</th>
+                    <th scope="col" className="r w-32">Turnover</th>
+                    <th scope="col" className="r w-28">CGST</th>
+                    <th scope="col" className="r w-28">SGST</th>
+                    <th scope="col" className="r w-32">Reverse charge</th>
+                    <th scope="col" className="r w-32">Payable</th>
                   </tr>
                 </thead>
                 <tbody data-testid="rows-gstr4">

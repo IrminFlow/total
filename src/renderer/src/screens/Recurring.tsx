@@ -145,12 +145,12 @@ export function RecurringScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Cadence</th>
-                <th>Next due</th>
-                <th>Last posted</th>
-                <th className="w-16">Active</th>
-                <th className="w-32"></th>
+                <th scope="col">Name</th>
+                <th scope="col">Cadence</th>
+                <th scope="col">Next due</th>
+                <th scope="col">Last posted</th>
+                <th scope="col" className="w-16">Active</th>
+                <th scope="col" className="w-32"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-recurring">

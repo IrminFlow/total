@@ -52,6 +52,22 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
 
   return (
     <div className="flex h-full flex-col">
+      {/* Visible only when focused. The sidebar is twenty-odd links, and tabbing past all of
+          them to reach the report you just opened is the difference between a keyboard-first app
+          and one that merely has shortcuts. */}
+      <a
+        href="#main-content"
+        data-testid="skip-to-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:border focus:border-amber focus:bg-panel focus:px-3 focus:py-1.5 focus:text-detail"
+        onClick={(e) => {
+          // Anchor navigation in a hash-less renderer does nothing on its own, so move focus
+          // explicitly — the point of the link is where the caret lands, not the URL.
+          e.preventDefault()
+          document.getElementById('main-content')?.focus()
+        }}
+      >
+        Skip to content
+      </a>
       <header
         className={`drag-region flex h-12 shrink-0 items-center gap-3 border-b border-line bg-panel pr-4 panel-shadow ${
           window.total.platform === 'darwin' ? 'pl-24' : 'pl-4'
@@ -170,6 +186,8 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
 
         {/* data-screen + data-loading: the E2E harness's navigation/idle markers (lib/testids.ts). */}
         <main
+          id="main-content"
+          tabIndex={-1}
           data-screen={screen.name}
           data-loading={fetching > 0 ? 'true' : 'false'}
           className="min-h-0 flex-1 overflow-auto p-5"

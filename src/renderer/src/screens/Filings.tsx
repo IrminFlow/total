@@ -211,15 +211,15 @@ export function FilingsScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Form</th>
-                <th>Period</th>
-                <th className="w-28">Due</th>
-                <th className="w-24">Status</th>
-                <th className="w-28">Filed on</th>
-                <th>ARN</th>
-                <th className="r w-28">Late fee</th>
-                <th className="r w-28">Interest</th>
-                <th className="w-28" />
+                <th scope="col">Form</th>
+                <th scope="col">Period</th>
+                <th scope="col" className="w-28">Due</th>
+                <th scope="col" className="w-24">Status</th>
+                <th scope="col" className="w-28">Filed on</th>
+                <th scope="col">ARN</th>
+                <th scope="col" className="r w-28">Late fee</th>
+                <th scope="col" className="r w-28">Interest</th>
+                <th scope="col" className="w-28" />
               </tr>
             </thead>
             <tbody data-testid="rows-filings">

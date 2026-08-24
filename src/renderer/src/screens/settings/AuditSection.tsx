@@ -95,10 +95,10 @@ export function AuditSection(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th className="w-40">At</th>
-                <th className="w-28">User</th>
-                <th>Entity</th>
-                <th className="w-20">Action</th>
+                <th scope="col" className="w-40">At</th>
+                <th scope="col" className="w-28">User</th>
+                <th scope="col">Entity</th>
+                <th scope="col" className="w-20">Action</th>
               </tr>
             </thead>
             <tbody data-testid="rows-settings-audit">

@@ -89,4 +89,57 @@ await scenario('12-theme-a11y', async (h) => {
   console.log('[12-theme-a11y] unlabeled inputs on masters:', JSON.stringify(nakedInputs))
 
   await setTheme('light') // leave the shared profile in the default theme for later scenarios
+
+  // ---- every button on every screen has an accessible name ----
+  // A button read out as "button" is a button a screen-reader user cannot use. This walks the
+  // sidebar rather than checking one screen, because the screens differ enormously and the ones
+  // with icon-only controls are exactly the ones a single-screen check would miss.
+  const screens = await h.page.$$eval('[data-testid^="nav-"]', (els) =>
+    els.map((el) => (el.dataset.testid || '').replace(/^nav-/, ''))
+  )
+  const nameless = []
+  for (const name of screens) {
+    await h.goto(name, 20000)
+    const found = await h.page.evaluate(
+      (screenName) =>
+        [...document.querySelectorAll('button, a[href], [role="button"]')]
+          .filter((el) => {
+            // Hidden controls cannot be reached, so they cannot be unreadable.
+            if (!(el instanceof HTMLElement) || el.offsetParent === null) return false
+            const text = (el.textContent ?? '').replace(/\s+/g, ' ').trim()
+            return !text && !el.getAttribute('aria-label') && !el.getAttribute('title')
+          })
+          .map((el) => `${screenName}:${el.getAttribute('data-testid') ?? el.className.slice(0, 40)}`),
+      name
+    )
+    nameless.push(...found)
+  }
+  assert(
+    nameless.length === 0,
+    `controls with no accessible name (no text, no aria-label, no title): ${nameless.join(' | ')}`
+  )
+
+  // ---- skip-to-content ----
+  // The sidebar is twenty-odd links; tabbing past all of them to reach the report you just
+  // opened is the difference between keyboard-first and merely having shortcuts.
+  await h.goto('gateway')
+  // Start from the top of the document: navigating leaves focus on the sidebar link that was
+  // clicked, and tabbing from there would just move to the next link.
+  // Blurring is not enough: Chromium keeps a sequential-focus starting point where the last
+  // focused element was, so Tab would continue from the sidebar. Focusing the body resets it.
+  await h.page.evaluate(() => {
+    document.body.setAttribute('tabindex', '-1')
+    document.body.focus()
+  })
+  await h.page.keyboard.press('Tab')
+  const firstStop = await h.page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
+  assert(firstStop === 'skip-to-content', `the first tab stop is the skip link (got ${firstStop})`)
+  await h.page.keyboard.press('Enter')
+  const focused = await h.page.evaluate(() => document.activeElement?.id)
+  assert(focused === 'main-content', `and it moves focus into the content (got ${focused})`)
+
+  // ---- table headers are associated with their cells ----
+  await h.goto('trial-balance')
+  const unscoped = await h.page.$$eval('th', (els) => els.filter((e) => !e.getAttribute('scope')).length)
+  assert(unscoped === 0, `${unscoped} table headers without a scope`)
 })

@@ -112,12 +112,12 @@ export function StockSummaryScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Item</th>
-                {visible.opening && <th className="r w-32">Opening</th>}
-                {visible.inwards && <th className="r w-32">Inwards</th>}
-                {visible.outwards && <th className="r w-32">Outwards</th>}
-                {visible.closingQty && <th className="r w-32">Closing qty</th>}
-                {visible.closingValue && <th className="r w-40">Closing value</th>}
+                <th scope="col">Item</th>
+                {visible.opening && <th scope="col" className="r w-32">Opening</th>}
+                {visible.inwards && <th scope="col" className="r w-32">Inwards</th>}
+                {visible.outwards && <th scope="col" className="r w-32">Outwards</th>}
+                {visible.closingQty && <th scope="col" className="r w-32">Closing qty</th>}
+                {visible.closingValue && <th scope="col" className="r w-40">Closing value</th>}
               </tr>
             </thead>
             <tbody data-testid="rows-stock-summary">
@@ -257,12 +257,12 @@ function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
       <table className="ledger-table" data-testid="stock-ageing-table">
         <thead>
           <tr>
-            <th>Item</th>
-            <th className="r w-24">0–30 d</th>
-            <th className="r w-24">31–60 d</th>
-            <th className="r w-24">61–90 d</th>
-            <th className="r w-24">90+ d</th>
-            <th className="w-44">Flags</th>
+            <th scope="col">Item</th>
+            <th scope="col" className="r w-24">0–30 d</th>
+            <th scope="col" className="r w-24">31–60 d</th>
+            <th scope="col" className="r w-24">61–90 d</th>
+            <th scope="col" className="r w-24">90+ d</th>
+            <th scope="col" className="w-44">Flags</th>
           </tr>
         </thead>
         <tbody>

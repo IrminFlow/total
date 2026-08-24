@@ -311,10 +311,10 @@ function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGatew
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Ledger</th>
-                <th>Group</th>
-                <th className="r w-40">Debit</th>
-                <th className="r w-40">Credit</th>
+                <th scope="col">Ledger</th>
+                <th scope="col">Group</th>
+                <th scope="col" className="r w-40">Debit</th>
+                <th scope="col" className="r w-40">Credit</th>
               </tr>
             </thead>
             <tbody>

@@ -41,13 +41,13 @@ export function BinSection(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th className="w-20">Date</th>
-                <th className="w-20">No.</th>
-                <th className="w-28">Type</th>
-                <th>Account</th>
-                <th className="r w-28">Amount</th>
-                <th className="w-24">Deleted</th>
-                {showActions && <th className="r w-36"></th>}
+                <th scope="col" className="w-20">Date</th>
+                <th scope="col" className="w-20">No.</th>
+                <th scope="col" className="w-28">Type</th>
+                <th scope="col">Account</th>
+                <th scope="col" className="r w-28">Amount</th>
+                <th scope="col" className="w-24">Deleted</th>
+                {showActions && <th scope="col" className="r w-36"></th>}
               </tr>
             </thead>
             <tbody>

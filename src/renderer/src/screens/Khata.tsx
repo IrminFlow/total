@@ -179,14 +179,14 @@ export function KhataScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Party</th>
-                <th className="r w-36">Balance</th>
-                <th className="r w-24">Bills</th>
-                <th className="r w-24">Oldest</th>
-                <th className="r w-28">Overdue by</th>
-                <th className="r w-40">Credit limit</th>
-                <th className="w-28">Last paid</th>
-                <th className="w-24" />
+                <th scope="col">Party</th>
+                <th scope="col" className="r w-36">Balance</th>
+                <th scope="col" className="r w-24">Bills</th>
+                <th scope="col" className="r w-24">Oldest</th>
+                <th scope="col" className="r w-28">Overdue by</th>
+                <th scope="col" className="r w-40">Credit limit</th>
+                <th scope="col" className="w-28">Last paid</th>
+                <th scope="col" className="w-24" />
               </tr>
             </thead>
             <tbody data-testid="rows-khata">

@@ -269,13 +269,13 @@ export function Gstr1Screen(): React.JSX.Element {
         <table className="ledger-table">
           <thead>
             <tr>
-              <th>Section</th>
-              <th className="r w-16">Docs</th>
-              <th className="r w-32">Taxable</th>
-              <th className="r w-28">IGST</th>
-              <th className="r w-28">CGST</th>
-              <th className="r w-28">SGST</th>
-              <th className="r w-24">Cess</th>
+              <th scope="col">Section</th>
+              <th scope="col" className="r w-16">Docs</th>
+              <th scope="col" className="r w-32">Taxable</th>
+              <th scope="col" className="r w-28">IGST</th>
+              <th scope="col" className="r w-28">CGST</th>
+              <th scope="col" className="r w-28">SGST</th>
+              <th scope="col" className="r w-24">Cess</th>
             </tr>
           </thead>
           <tbody data-testid="rows-gstr1">
@@ -380,11 +380,11 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
       <table className="ledger-table">
         <thead>
           <tr>
-            <th>Adjustment (entered by you, applied to this period)</th>
-            <th className="r w-32">IGST</th>
-            <th className="r w-32">CGST</th>
-            <th className="r w-32">SGST</th>
-            <th className="r w-32">Cess</th>
+            <th scope="col">Adjustment (entered by you, applied to this period)</th>
+            <th scope="col" className="r w-32">IGST</th>
+            <th scope="col" className="r w-32">CGST</th>
+            <th scope="col" className="r w-32">SGST</th>
+            <th scope="col" className="r w-32">Cess</th>
           </tr>
         </thead>
         <tbody data-testid="rows-gstr3b-manual">
@@ -514,12 +514,12 @@ export function Gstr3bScreen(): React.JSX.Element {
         <table className="ledger-table">
           <thead>
             <tr>
-              <th>Table</th>
-              <th className="r w-32">Taxable</th>
-              <th className="r w-28">IGST</th>
-              <th className="r w-28">CGST</th>
-              <th className="r w-28">SGST</th>
-              <th className="r w-24">Cess</th>
+              <th scope="col">Table</th>
+              <th scope="col" className="r w-32">Taxable</th>
+              <th scope="col" className="r w-28">IGST</th>
+              <th scope="col" className="r w-28">CGST</th>
+              <th scope="col" className="r w-28">SGST</th>
+              <th scope="col" className="r w-24">Cess</th>
             </tr>
           </thead>
           <tbody data-testid="rows-gstr3b">
@@ -550,9 +550,9 @@ export function Gstr3bScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>3.2 Inter-state supplies to unregistered persons — place of supply</th>
-                <th className="r w-32">Taxable</th>
-                <th className="r w-28">IGST</th>
+                <th scope="col">3.2 Inter-state supplies to unregistered persons — place of supply</th>
+                <th scope="col" className="r w-32">Taxable</th>
+                <th scope="col" className="r w-28">IGST</th>
               </tr>
             </thead>
             <tbody data-testid="rows-gstr3b-interstate">
@@ -573,11 +573,11 @@ export function Gstr3bScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Set-off (sec 49/49A order: IGST credit first, cess only against cess)</th>
-                <th className="r w-28">IGST</th>
-                <th className="r w-28">CGST</th>
-                <th className="r w-28">SGST</th>
-                <th className="r w-24">Cess</th>
+                <th scope="col">Set-off (sec 49/49A order: IGST credit first, cess only against cess)</th>
+                <th scope="col" className="r w-28">IGST</th>
+                <th scope="col" className="r w-28">CGST</th>
+                <th scope="col" className="r w-28">SGST</th>
+                <th scope="col" className="r w-24">Cess</th>
               </tr>
             </thead>
             <tbody data-testid="rows-gstr3b-setoff">

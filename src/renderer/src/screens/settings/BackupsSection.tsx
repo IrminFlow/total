@@ -91,11 +91,11 @@ export function BackupsSection(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>File</th>
-                <th className="w-40">Date</th>
-                <th className="w-24">Size</th>
-                <th className="w-28">Tag</th>
-                {isOwner && <th className="r w-24"></th>}
+                <th scope="col">File</th>
+                <th scope="col" className="w-40">Date</th>
+                <th scope="col" className="w-24">Size</th>
+                <th scope="col" className="w-28">Tag</th>
+                {isOwner && <th scope="col" className="r w-24"></th>}
               </tr>
             </thead>
             <tbody>

@@ -334,11 +334,11 @@ function CsvImportCard(): React.JSX.Element {
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th className="w-14">Line</th>
+                  <th scope="col" className="w-14">Line</th>
                   {columns.map((c) => (
-                    <th key={c}>{c}</th>
+                    <th scope="col" key={c}>{c}</th>
                   ))}
-                  <th>Status</th>
+                  <th scope="col">Status</th>
                 </tr>
               </thead>
               <tbody>

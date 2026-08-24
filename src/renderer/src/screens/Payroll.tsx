@@ -93,13 +93,13 @@ function EmployeesTab(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Designation</th>
-                <th className="r w-28">Basic</th>
-                <th className="r w-28">HRA</th>
-                <th className="r w-28">Special</th>
-                <th className="r w-28">Gross / mo</th>
-                <th className="w-44"></th>
+                <th scope="col">Name</th>
+                <th scope="col">Designation</th>
+                <th scope="col" className="r w-28">Basic</th>
+                <th scope="col" className="r w-28">HRA</th>
+                <th scope="col" className="r w-28">Special</th>
+                <th scope="col" className="r w-28">Gross / mo</th>
+                <th scope="col" className="w-44"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-payroll-employees">
@@ -361,12 +361,12 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th className="w-24">Kind</th>
-                  <th className="w-36">Calculation</th>
-                  <th className="r w-32">Value</th>
-                  <th className="w-16">Active</th>
-                  <th className="w-28"></th>
+                  <th scope="col">Name</th>
+                  <th scope="col" className="w-24">Kind</th>
+                  <th scope="col" className="w-36">Calculation</th>
+                  <th scope="col" className="r w-32">Value</th>
+                  <th scope="col" className="w-16">Active</th>
+                  <th scope="col" className="w-28"></th>
                 </tr>
               </thead>
               <tbody data-testid="rows-payroll-heads">
@@ -520,11 +520,11 @@ function EmployeeHeadsModal({ employee, onClose }: { employee: Employee; onClose
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th className="w-10"></th>
-                  <th>Head</th>
-                  <th className="w-24">Kind</th>
-                  <th className="r w-32">Default</th>
-                  <th className="r w-44">Override for {employee.name.split(' ')[0]}</th>
+                  <th scope="col" className="w-10"></th>
+                  <th scope="col">Head</th>
+                  <th scope="col" className="w-24">Kind</th>
+                  <th scope="col" className="r w-32">Default</th>
+                  <th scope="col" className="r w-44">Override for {employee.name.split(' ')[0]}</th>
                 </tr>
               </thead>
               <tbody data-testid="rows-payroll-employee-heads">
@@ -726,13 +726,13 @@ function RunsTab(): React.JSX.Element {
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th>Employee</th>
-                  <th className="r w-24">Days</th>
-                  <th className="r w-32">Gross</th>
-                  <th className="r w-24">PF</th>
-                  <th className="r w-24">ESI</th>
-                  <th className="r w-20">PT</th>
-                  <th className="r w-32">Net pay</th>
+                  <th scope="col">Employee</th>
+                  <th scope="col" className="r w-24">Days</th>
+                  <th scope="col" className="r w-32">Gross</th>
+                  <th scope="col" className="r w-24">PF</th>
+                  <th scope="col" className="r w-24">ESI</th>
+                  <th scope="col" className="r w-20">PT</th>
+                  <th scope="col" className="r w-32">Net pay</th>
                 </tr>
               </thead>
               <tbody data-testid="rows-payroll-preview">
@@ -934,10 +934,10 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
         <table className="ledger-table">
           <thead>
             <tr>
-              <th>State</th>
-              <th className="r w-28">Employees</th>
-              <th className="r w-32">Gross</th>
-              <th className="r w-32">PT payable</th>
+              <th scope="col">State</th>
+              <th scope="col" className="r w-28">Employees</th>
+              <th scope="col" className="r w-32">Gross</th>
+              <th scope="col" className="r w-32">PT payable</th>
             </tr>
           </thead>
           <tbody data-testid="rows-payroll-pt">

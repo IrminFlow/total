@@ -146,10 +146,10 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
       <table className="ledger-table mt-4">
         <thead>
           <tr>
-            <th>Item</th>
-            <th className="r w-32">Book qty</th>
-            <th className="r w-32">Counted</th>
-            <th className="r w-36">Difference</th>
+            <th scope="col">Item</th>
+            <th scope="col" className="r w-32">Book qty</th>
+            <th scope="col" className="r w-32">Counted</th>
+            <th scope="col" className="r w-36">Difference</th>
           </tr>
         </thead>
         <tbody data-testid="rows-physical-lines">

@@ -531,12 +531,12 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       <table className="ledger-table">
         <thead>
           <tr>
-            <th>Item</th>
-            <th className="r w-28">Qty</th>
-            <th className="r w-32">Rate</th>
-            <th className="r w-28">Disc.</th>
-            <th className="r w-24">GST %</th>
-            <th className="r w-36">Amount</th>
+            <th scope="col">Item</th>
+            <th scope="col" className="r w-28">Qty</th>
+            <th scope="col" className="r w-32">Rate</th>
+            <th scope="col" className="r w-28">Disc.</th>
+            <th scope="col" className="r w-24">GST %</th>
+            <th scope="col" className="r w-36">Amount</th>
           </tr>
         </thead>
         <tbody data-testid="rows-invoice-lines">

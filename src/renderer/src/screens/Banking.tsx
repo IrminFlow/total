@@ -250,13 +250,13 @@ export function BankingScreen(): React.JSX.Element {
               <table className="ledger-table">
                 <thead>
                   <tr>
-                    <th className="w-24">Date</th>
-                    <th>Particulars</th>
-                    <th className="w-28">Instrument</th>
-                    <th className="r w-32">Deposit</th>
-                    <th className="r w-32">Withdrawal</th>
-                    <th className="w-32">Bank date</th>
-                    <th className="w-24"></th>
+                    <th scope="col" className="w-24">Date</th>
+                    <th scope="col">Particulars</th>
+                    <th scope="col" className="w-28">Instrument</th>
+                    <th scope="col" className="r w-32">Deposit</th>
+                    <th scope="col" className="r w-32">Withdrawal</th>
+                    <th scope="col" className="w-32">Bank date</th>
+                    <th scope="col" className="w-24"></th>
                   </tr>
                 </thead>
                 <tbody data-testid="rows-banking">
@@ -310,11 +310,11 @@ export function BankingScreen(): React.JSX.Element {
                 <table className="ledger-table">
                   <thead>
                     <tr>
-                      <th className="w-24">Date</th>
-                      <th>Description</th>
-                      <th className="r w-32">Amount</th>
-                      <th className="w-48">Suggested ledger</th>
-                      <th className="w-56"></th>
+                      <th scope="col" className="w-24">Date</th>
+                      <th scope="col">Description</th>
+                      <th scope="col" className="r w-32">Amount</th>
+                      <th scope="col" className="w-48">Suggested ledger</th>
+                      <th scope="col" className="w-56"></th>
                     </tr>
                   </thead>
                   <tbody data-testid="rows-banking-unmatched">
@@ -569,11 +569,11 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
         <table className="ledger-table">
           <thead>
             <tr>
-              <th className="w-24">Date</th>
-              <th className="w-24">Number</th>
-              <th>Particulars</th>
-              <th className="w-28">Instrument</th>
-              <th className="r w-32">Amount</th>
+              <th scope="col" className="w-24">Date</th>
+              <th scope="col" className="w-24">Number</th>
+              <th scope="col">Particulars</th>
+              <th scope="col" className="w-28">Instrument</th>
+              <th scope="col" className="r w-32">Amount</th>
             </tr>
           </thead>
           <tbody data-testid={testId}>
@@ -692,13 +692,13 @@ function PdcSection(): React.JSX.Element {
         <table className="ledger-table">
           <thead>
             <tr>
-              <th className="w-24">Matures</th>
-              <th className="w-24">Number</th>
-              <th className="w-28">Type</th>
-              <th>Party</th>
-              <th className="w-28">Instrument</th>
-              <th className="r w-32">Amount</th>
-              <th className="w-36"></th>
+              <th scope="col" className="w-24">Matures</th>
+              <th scope="col" className="w-24">Number</th>
+              <th scope="col" className="w-28">Type</th>
+              <th scope="col">Party</th>
+              <th scope="col" className="w-28">Instrument</th>
+              <th scope="col" className="r w-32">Amount</th>
+              <th scope="col" className="w-36"></th>
             </tr>
           </thead>
           <tbody data-testid="rows-banking-pdc">
@@ -823,12 +823,12 @@ function BankRulesModal({
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th>Pattern</th>
-                  <th>Ledger</th>
-                  <th className="w-24">Kind</th>
-                  <th className="r w-16">Hits</th>
-                  <th className="w-16">Active</th>
-                  <th className="w-32"></th>
+                  <th scope="col">Pattern</th>
+                  <th scope="col">Ledger</th>
+                  <th scope="col" className="w-24">Kind</th>
+                  <th scope="col" className="r w-16">Hits</th>
+                  <th scope="col" className="w-16">Active</th>
+                  <th scope="col" className="w-32"></th>
                 </tr>
               </thead>
               <tbody data-testid="rows-banking-rules">
@@ -1089,13 +1089,13 @@ function ReconciliationStatusPanel({ asOn }: { asOn: string }): React.JSX.Elemen
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Account</th>
-                <th className="w-48">Reconciled</th>
-                <th className="r w-36">As per books</th>
-                <th className="r w-36">As per bank</th>
-                <th className="r w-28">Open items</th>
-                <th className="r w-28">Oldest</th>
-                <th className="w-28">Last cleared</th>
+                <th scope="col">Account</th>
+                <th scope="col" className="w-48">Reconciled</th>
+                <th scope="col" className="r w-36">As per books</th>
+                <th scope="col" className="r w-36">As per bank</th>
+                <th scope="col" className="r w-28">Open items</th>
+                <th scope="col" className="r w-28">Oldest</th>
+                <th scope="col" className="w-28">Last cleared</th>
               </tr>
             </thead>
             <tbody data-testid="rows-recon-status">

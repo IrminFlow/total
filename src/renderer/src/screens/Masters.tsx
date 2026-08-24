@@ -91,10 +91,10 @@ function CurrenciesTab(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th className="w-24">Code</th>
-                <th className="w-24">Symbol</th>
-                <th>Name</th>
-                <th className="w-20"></th>
+                <th scope="col" className="w-24">Code</th>
+                <th scope="col" className="w-24">Symbol</th>
+                <th scope="col">Name</th>
+                <th scope="col" className="w-20"></th>
               </tr>
             </thead>
             <tbody>
@@ -168,7 +168,7 @@ function SortTh({
 }): React.JSX.Element {
   const active = sort.key === k
   return (
-    <th className={className} aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
+    <th scope="col" className={className} aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
       <button
         type="button"
         data-testid={`sort-masters-ledgers-${k}`}
@@ -233,7 +233,7 @@ function LedgersTab(): React.JSX.Element {
                 <SortTh label="Group" k="group" sort={sort} onSort={onSort} />
                 <SortTh label="GSTIN" k="gstin" sort={sort} onSort={onSort} />
                 <SortTh label="Opening" k="opening" sort={sort} onSort={onSort} className="r w-40" />
-                <th className="w-24"></th>
+                <th scope="col" className="w-24"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-masters-ledgers">
@@ -512,12 +512,12 @@ function ItemsTab(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th className="w-16">Unit</th>
-                <th className="w-24">HSN</th>
-                <th className="r w-20">GST %</th>
-                <th className="r w-28">Opening qty</th>
-                <th className="w-20"></th>
+                <th scope="col">Name</th>
+                <th scope="col" className="w-16">Unit</th>
+                <th scope="col" className="w-24">HSN</th>
+                <th scope="col" className="r w-20">GST %</th>
+                <th scope="col" className="r w-28">Opening qty</th>
+                <th scope="col" className="w-20"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-masters-items">
@@ -754,10 +754,10 @@ function UnitsTab(): React.JSX.Element {
         <table className="ledger-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th className="w-20">Symbol</th>
-              <th className="r w-24">Decimals</th>
-              <th className="w-24">UQC</th>
+              <th scope="col">Name</th>
+              <th scope="col" className="w-20">Symbol</th>
+              <th scope="col" className="r w-24">Decimals</th>
+              <th scope="col" className="w-24">UQC</th>
             </tr>
           </thead>
           <tbody>
@@ -823,11 +823,11 @@ function TypesTab(): React.JSX.Element {
         <table className="ledger-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Kind</th>
-              <th>Numbering</th>
-              <th className="w-32">Format</th>
-              <th className="w-20"></th>
+              <th scope="col">Name</th>
+              <th scope="col">Kind</th>
+              <th scope="col">Numbering</th>
+              <th scope="col" className="w-32">Format</th>
+              <th scope="col" className="w-20"></th>
             </tr>
           </thead>
           <tbody>
@@ -964,9 +964,9 @@ function GodownsTab(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Address</th>
-                <th className="w-20"></th>
+                <th scope="col">Name</th>
+                <th scope="col">Address</th>
+                <th scope="col" className="w-20"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-masters-godowns">

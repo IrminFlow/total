@@ -591,10 +591,10 @@ export function AccountingEntry({
       <table className="ledger-table">
         <thead>
           <tr>
-            <th className="w-20">Dr / Cr</th>
-            <th>Particulars</th>
-            <th className="r w-44">Amount</th>
-            {hasCc && <th className="w-16"></th>}
+            <th scope="col" className="w-20">Dr / Cr</th>
+            <th scope="col">Particulars</th>
+            <th scope="col" className="r w-44">Amount</th>
+            {hasCc && <th scope="col" className="w-16"></th>}
           </tr>
         </thead>
         <tbody data-testid="rows-voucher-lines">
