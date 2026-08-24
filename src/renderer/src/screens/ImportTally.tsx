@@ -6,13 +6,15 @@ import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui
 import { printReport } from '../lib/reportExport'
 import { todayISO, toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
+import { CheckCircle, FileCode, Fingerprint, ShieldCheck, Warning } from '@phosphor-icons/react'
 
 type Step =
   | { kind: 'pick' }
   | { kind: 'preview'; filePath: string | null; summary: TallyImportSummary }
   | { kind: 'done'; filePath: string | null; summary: TallyImportSummary }
 
-const COUNT_LABELS: { key: keyof Omit<TallyImportSummary, 'warnings'>; label: string }[] = [
+type CountKey = 'groups' | 'ledgers' | 'units' | 'items' | 'vouchers' | 'skipped'
+const COUNT_LABELS: { key: CountKey; label: string }[] = [
   { key: 'groups', label: 'Groups' },
   { key: 'ledgers', label: 'Ledgers' },
   { key: 'units', label: 'Units' },
@@ -104,7 +106,10 @@ export function ImportTallyScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <SectionTitle>Import from Tally</SectionTitle>
+      <div className="mb-4 flex items-center gap-3">
+        <span className="rounded-md border border-line bg-panel2 p-2 text-blue"><FileCode size={22} weight="duotone" /></span>
+        <div><SectionTitle>Import from Tally</SectionTitle><p className="mt-0.5 text-[12px] text-muted">Review first, apply once, and retain an audit-ready source fingerprint.</p></div>
+      </div>
       {step.kind === 'pick' && <PickStep busy={busy} onPick={() => void pickFile()} />}
       {step.kind === 'preview' && (
         <PreviewStep
@@ -163,13 +168,24 @@ function PreviewStep({
     <Panel className="p-6">
       <p className="mb-3 text-[13px] text-muted">Here&rsquo;s what this file contains — nothing has been imported yet.</p>
       <CountsGrid summary={summary} />
+      {summary.alreadyImported && (
+        <div className="mt-4 flex items-start gap-2.5 rounded-md border border-cr/35 bg-cr/8 px-3.5 py-3 text-[12.5px]">
+          <Warning size={19} weight="fill" className="mt-0.5 shrink-0 text-cr" />
+          <div><b>Already imported as batch #{summary.alreadyImported.id}.</b> This exact XML was applied on {new Date(summary.alreadyImported.appliedAt).toLocaleString()}. Reapplying is disabled to protect your books.</div>
+        </div>
+      )}
       <WarningsBox warnings={summary.warnings} />
+      {summary.sourceHash && (
+        <div className="mt-4 flex items-center gap-1.5 border-t border-line pt-3 text-[10.5px] text-muted">
+          <Fingerprint size={14} /> <span>File fingerprint</span> <code className="num truncate">{summary.sourceHash}</code>
+        </div>
+      )}
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="ghost" disabled={busy} onClick={onDifferentFile}>
           Choose different file
         </Button>
-        <Button variant="primary" data-testid="btn-import-tally-import" disabled={busy} onClick={onImport}>
-          {busy ? 'Importing…' : 'Import now'}
+        <Button variant="primary" data-testid="btn-import-tally-import" disabled={busy || Boolean(summary.alreadyImported)} onClick={onImport}>
+          {summary.alreadyImported ? 'Already imported' : busy ? 'Importing…' : 'Import now'}
         </Button>
       </div>
     </Panel>
@@ -179,7 +195,7 @@ function PreviewStep({
 function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGateway: () => void }): React.JSX.Element {
   const toast = useToasts()
   const today = todayISO()
-  const { data: tb } = useQuery({ queryKey: ['trialBalance', today], queryFn: () => api.reports.trialBalance(today) })
+  const { data: tb } = useQuery({ queryKey: ['trialBalance', today], queryFn: ({ signal }) => api.reports.trialBalance(today, signal) })
   const rows = tb?.rows ?? []
 
   const printTb = (): void => {
@@ -212,9 +228,20 @@ function DoneStep({ summary, onGateway }: { summary: TallyImportSummary; onGatew
   return (
     <>
       <Panel className="p-6">
-        <p className="mb-3 text-[13px] text-dr font-medium">Import complete.</p>
+        <div className="mb-4 flex items-start gap-3 border-b border-line pb-4">
+          <span className="rounded-md bg-dr/12 p-2 text-dr"><ShieldCheck size={22} weight="duotone" /></span>
+          <div>
+            <p className="text-[13.5px] font-semibold text-ink">Import complete and recorded</p>
+            <p className="mt-0.5 text-[11.5px] text-muted">{summary.batchId ? `Batch #${summary.batchId} · ` : ''}All accepted records committed in one transaction.</p>
+          </div>
+        </div>
         <CountsGrid summary={summary} />
         <WarningsBox warnings={summary.warnings} />
+        {summary.sourceHash && (
+          <div className="mt-4 flex items-center gap-1.5 text-[10.5px] text-muted">
+            <CheckCircle size={14} weight="fill" className="text-dr" /> <span>Verified fingerprint</span> <code className="num truncate">{summary.sourceHash}</code>
+          </div>
+        )}
       </Panel>
 
       <div className="mt-4 flex items-center justify-between">

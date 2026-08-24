@@ -48,7 +48,7 @@ function Section({ title, rows, total, leadRow }: {
 export function CashFlowScreen(): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
-  const { data } = useQuery({ queryKey: ['cashFlow', from, to], queryFn: () => api.reports.cashFlow(from, to) })
+  const { data } = useQuery({ queryKey: ['cashFlow', from, to], queryFn: ({ signal }) => api.reports.cashFlow(from, to, signal) })
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
   const hasAnything =

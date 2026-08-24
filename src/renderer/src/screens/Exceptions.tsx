@@ -56,7 +56,7 @@ function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Ele
 
 export function ExceptionsScreen(): React.JSX.Element {
   const { from, to } = useSession()
-  const { data } = useQuery({ queryKey: ['exceptions', from, to], queryFn: () => api.reports.exceptions(from, to) })
+  const { data } = useQuery({ queryKey: ['exceptions', from, to], queryFn: ({ signal }) => api.reports.exceptions(from, to, signal) })
   const total = data?.sections.reduce((s, x) => s + x.count, 0) ?? 0
 
   return (

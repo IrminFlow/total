@@ -98,6 +98,7 @@ function TypeAhead({
     <div ref={wrapRef} className={`relative ${className ?? ''}`}>
       <input
         className={inputCls}
+        aria-label={placeholder}
         data-testid={testId}
         value={text}
         placeholder={placeholder}

@@ -59,6 +59,8 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [gstin, setGstin] = useState(ledger?.gstin ?? '')
   const [stateCode, setStateCode] = useState(ledger?.stateCode ?? '')
   const [address, setAddress] = useState(ledger?.address ?? '')
+  const [email, setEmail] = useState(ledger?.email ?? '')
+  const [phone, setPhone] = useState(ledger?.phone ?? '')
   const [taxType, setTaxType] = useState(ledger?.taxType ?? '')
   const [gstRate, setGstRate] = useState(ledger?.gstRate?.toString() ?? '')
   const [hsn, setHsn] = useState(ledger?.hsn ?? '')
@@ -93,6 +95,8 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
         stateCode: effectiveState || null,
         address: address.trim() || null,
+        email: email.trim().toLowerCase() || null,
+        phone: phone.replace(/[^0-9+]/g, '') || null,
         taxType: (taxType || null) as 'cgst' | 'sgst' | 'igst' | 'cess' | null,
         gstRate: gstRate.trim() ? Number(gstRate) : null,
         hsn: hsn.trim() || null,
@@ -219,6 +223,14 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
             <Field label="Address">
               <TextInput value={address} onChange={(e) => setAddress(e.target.value)} />
             </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Email" hint="Used only when you open a reviewed email draft">
+                <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="accounts@example.com" />
+              </Field>
+              <Field label="WhatsApp / phone" hint="Country code recommended, for example +91">
+                <TextInput value={phone} onChange={(e) => setPhone(e.target.value)} className="num" placeholder="+919876543210" />
+              </Field>
+            </div>
           </>
         )}
 

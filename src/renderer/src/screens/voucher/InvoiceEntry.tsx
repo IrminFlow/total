@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
@@ -9,14 +9,17 @@ import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput, ValidationSummary, inputCls } from '../../components/ui'
 import { ItemPicker, LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
-import { confirmDialog } from '../../lib/dialogs'
-import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
+import { confirmDialog, promptDialog } from '../../lib/dialogs'
+import { useDraftAwareUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { addDaysLocal, nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
+import type { VoucherWorkDraft } from '@shared/voucherDrafts'
+import { saveEntryTemplate } from '../../lib/saveEntryTemplate'
+import { recordCohortEvent } from '../../lib/commercialOps'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -33,7 +36,21 @@ interface ItemRow {
 
 const blankItemRow = (): ItemRow => ({ key: nextLineKey(), itemId: null, qtyText: '', rate: null, discount: null })
 
-export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKind; draft?: VoucherDraft }): React.JSX.Element {
+interface SavedInvoicePayload {
+  date?: string; number?: string; partyId?: number | null; accountId?: number | null; narration?: string
+  rows?: { itemId?: number | null; qtyText?: string; rate?: number | null; discount?: number | null }[]
+  vehicleNo?: string; transporterId?: string; distanceKm?: string; currencyCode?: string; fxRateText?: string
+  posOverride?: string | null; optionalVoucher?: boolean; billName?: string; billDueDate?: string
+  billNameTouched?: boolean; billDueDateTouched?: boolean; manualNewBillMode?: boolean; noteBillRefs?: VoucherBillRef[]
+  goodsReceiptId?: number | null
+  procurementClaimKey?: string | null
+}
+
+function invoicePayload(draft?: VoucherWorkDraft): SavedInvoicePayload {
+  return draft?.mode === 'invoice' && draft.payloadVersion === 1 ? draft.payload as SavedInvoicePayload : {}
+}
+
+export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: number; kind: VoucherKind; draft?: VoucherDraft; workDraft?: VoucherWorkDraft }): React.JSX.Element {
   const { info, workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
   const nav = useNav()
@@ -43,17 +60,22 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const items = useStockItems()
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const { ensure: ensureTax, ensureRoundOff } = useTaxLedgers()
+  const savedDraft = invoicePayload(workDraft)
 
-  const [date, setDate] = useState(draft?.date ?? workingDate)
-  const [partyId, setPartyId] = useState<number | null>(draft?.partyLedgerId ?? null)
-  const [accountId, setAccountId] = useState<number | null>(null)
-  const [rows, setRows] = useState<ItemRow[]>(() => [blankItemRow()])
-  const [narration, setNarration] = useState(draft?.narration ?? '')
-  const [vehicleNo, setVehicleNo] = useState('')
-  const [transporterId, setTransporterId] = useState('')
-  const [distanceKm, setDistanceKm] = useState('')
-  const [currencyCode, setCurrencyCode] = useState('')
-  const [fxRateText, setFxRateText] = useState('')
+  const [date, setDate] = useState(savedDraft.date ?? draft?.date ?? workingDate)
+  const [partyId, setPartyId] = useState<number | null>(savedDraft.partyId ?? draft?.partyLedgerId ?? null)
+  const [accountId, setAccountId] = useState<number | null>(savedDraft.accountId ?? draft?.accountLedgerId ?? null)
+  const [rows, setRows] = useState<ItemRow[]>(() => savedDraft.rows?.length
+    ? savedDraft.rows.map((line) => ({ key: nextLineKey(), itemId: typeof line.itemId === 'number' ? line.itemId : null, qtyText: typeof line.qtyText === 'string' ? line.qtyText : '', rate: typeof line.rate === 'number' ? line.rate : null, discount: typeof line.discount === 'number' ? line.discount : null }))
+    : draft?.inventory?.length
+    ? [...draft.inventory.map((line) => ({ key: nextLineKey(), itemId: line.stockItemId, qtyText: String(line.qtyMilli / 1000), rate: line.ratePaise, discount: line.discountPaise || null })), blankItemRow()]
+    : [blankItemRow()])
+  const [narration, setNarration] = useState(savedDraft.narration ?? draft?.narration ?? '')
+  const [vehicleNo, setVehicleNo] = useState(savedDraft.vehicleNo ?? '')
+  const [transporterId, setTransporterId] = useState(savedDraft.transporterId ?? '')
+  const [distanceKm, setDistanceKm] = useState(savedDraft.distanceKm ?? '')
+  const [currencyCode, setCurrencyCode] = useState(savedDraft.currencyCode ?? draft?.currencyCode ?? '')
+  const [fxRateText, setFxRateText] = useState(savedDraft.fxRateText ?? (draft?.exchangeRate ? String(draft.exchangeRate) : ''))
   const { data: currencies } = useQuery({ queryKey: ['currencies'], queryFn: api.currencies.list })
   const [quickLedger, setQuickLedger] = useState<{ name: string; forParty: boolean } | null>(null)
   const [quickItem, setQuickItem] = useState<{ name: string; row: number } | null>(null)
@@ -62,15 +84,29 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const [editingParty, setEditingParty] = useState(false)
   // ---------- GST details (place-of-supply override + memorandum flag) ----------
   const [gstOpen, setGstOpen] = useState(false)
-  const [posOverride, setPosOverride] = useState<string | null>(null)
-  const [optionalVoucher, setOptionalVoucher] = useState(false)
+  const [posOverride, setPosOverride] = useState<string | null>(savedDraft.posOverride ?? draft?.posOverride ?? null)
+  const [optionalVoucher, setOptionalVoucher] = useState(savedDraft.optionalVoucher ?? draft?.isOptional ?? false)
+  const [goodsReceiptId, setGoodsReceiptId] = useState<number | null>(savedDraft.goodsReceiptId ?? null)
+  const procurementClaimKey = savedDraft.procurementClaimKey ?? null
+  const { data: matchCandidates = [] } = useQuery({
+    queryKey: ['procurement-invoice-candidates', kind === 'purchase' ? partyId : null],
+    queryFn: () => api.procurement.invoiceCandidates(partyId ?? undefined),
+    enabled: kind === 'purchase'
+  })
+  const selectedItemIds = useMemo(() => [...new Set(rows.flatMap((row) => row.itemId ? [row.itemId] : []))], [rows])
+  const { data: supplierRateHistory = [] } = useQuery({
+    queryKey: ['procurement-price-history', selectedItemIds, kind === 'purchase' ? partyId : null],
+    queryFn: () => api.procurement.priceHistory(selectedItemIds, partyId ?? undefined),
+    enabled: kind === 'purchase' && selectedItemIds.length > 0
+  })
 
   const numberField = useVoucherNumberField(typeId, date)
   const isSalesSide = kind === 'sales' || kind === 'credit_note'
 
   // Unsaved-entry guard: anything meaningful typed into a fresh invoice blocks accidental
   // navigation until it's saved (save resets all of these).
-  useUnsavedGuard(partyId != null || rows.some((r) => r.itemId != null) || narration.trim() !== '')
+  const draftFingerprint = JSON.stringify({ date, partyId, accountId, rows: rows.map(({ key: _key, ...row }) => row), narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, goodsReceiptId, procurementClaimKey })
+  useDraftAwareUnsavedGuard(workDraft?.id, partyId != null || rows.some((r) => r.itemId != null) || narration.trim() !== '', draftFingerprint)
 
   const party = ledgers.find((l) => l.id === partyId) ?? null
   const account = ledgers.find((l) => l.id === accountId) ?? null
@@ -82,12 +118,19 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   // existing invoice) — "create new bill instead" restores the sales/purchase-style single ref.
   const isNoteKind = kind === 'credit_note' || kind === 'debit_note'
   const [billsOpen, setBillsOpen] = useState(true)
-  const [billName, setBillName] = useState('')
-  const [billNameTouched, setBillNameTouched] = useState(false)
-  const [billDueDate, setBillDueDate] = useState(date)
-  const [billDueDateTouched, setBillDueDateTouched] = useState(false)
-  const [manualNewBillMode, setManualNewBillMode] = useState(false)
-  const [noteBillRefs, setNoteBillRefs] = useState<VoucherBillRef[]>([])
+  const [billName, setBillName] = useState(savedDraft.billName ?? '')
+  const [billNameTouched, setBillNameTouched] = useState(savedDraft.billNameTouched ?? !!savedDraft.billName)
+  const [billDueDate, setBillDueDate] = useState(savedDraft.billDueDate ?? date)
+  const [billDueDateTouched, setBillDueDateTouched] = useState(savedDraft.billDueDateTouched ?? !!savedDraft.billDueDate)
+  const [manualNewBillMode, setManualNewBillMode] = useState(savedDraft.manualNewBillMode ?? false)
+  const [noteBillRefs, setNoteBillRefs] = useState<VoucherBillRef[]>(savedDraft.noteBillRefs ?? [])
+  const skipFirstPartyReset = useRef(!!workDraft)
+
+  useEffect(() => {
+    if (savedDraft.number !== undefined) numberField.onChange(savedDraft.number)
+    // Restore the saved numbering override only on first mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!billNameTouched && numberField.value !== NUMBER_LOADING) setBillName(numberField.value)
@@ -103,6 +146,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   // whatever same-named (or FIFO-fallback) bill the NEW party happens to have. Also resets the
   // note's manual-entry state so a party-specific typed name/due-date doesn't linger either.
   useEffect(() => {
+    if (skipFirstPartyReset.current) { skipFirstPartyReset.current = false; return }
     setNoteBillRefs([])
     if (isNoteKind) {
       setManualNewBillMode(false)
@@ -157,6 +201,17 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   }, [rows, items, account, supply, fxActive, fxRate])
 
   const noteAllocatedTotal = noteBillRefs.reduce((s, r) => s + r.amount, 0)
+
+  const invoiceMatchInput = goodsReceiptId && computed.detail.length > 0 ? {
+    goodsReceiptId,
+    lines: computed.detail.map((line) => ({ stockItemId: line.item.id, qtyMilli: line.qtyMilli, ratePaise: line.ratePaise, amount: line.amount, gstRate: line.rate }))
+  } : null
+  const matchPreview = useQuery({
+    queryKey: ['procurement-invoice-match-preview', invoiceMatchInput],
+    queryFn: () => api.procurement.invoiceMatchPreview(invoiceMatchInput!),
+    enabled: invoiceMatchInput != null,
+    retry: false
+  })
 
   const toggleNoteBill = (bill: OutstandingBill, checked: boolean): void => {
     setNoteBillRefs((refs) => {
@@ -219,7 +274,9 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       exchangeRate: fxActive ? fxRate : null,
       isOptional: optionalVoucher,
       lines,
-      inventory: computed.detail.map((d) => ({
+      // A matched GRN has already received the physical stock. Keep this purchase voucher
+      // financial-only; immutable item evidence is written to purchase_invoice_match_lines.
+      inventory: goodsReceiptId || procurementClaimKey ? [] : computed.detail.map((d) => ({
         stockItemId: d.item.id,
         godownId: null,
         qtyMilli: d.qtyMilli,
@@ -236,9 +293,30 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
             : [],
       tds: null
     }
-  }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
+  }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff, goodsReceiptId, procurementClaimKey])
 
   const formValid = !!partyId && !!accountId && computed.detail.length > 0
+  const validationIssues = useMemo(() => {
+    const issues: string[] = []
+    if (!partyId) issues.push(`Choose the ${isSalesSide ? 'buyer' : 'supplier'} ledger`)
+    if (!accountId) issues.push(`Choose the ${isSalesSide ? 'sales' : 'purchase'} ledger`)
+    const entered = rows.filter((row) => row.itemId != null || row.qtyText.trim() !== '' || row.rate != null || row.discount != null)
+    entered.forEach((row, index) => {
+      if (row.itemId == null) issues.push(`Item line ${index + 1}: choose an item`)
+      const quantity = Number(row.qtyText)
+      if (!Number.isFinite(quantity) || quantity <= 0) issues.push(`Item line ${index + 1}: enter a positive quantity`)
+      if (row.rate == null || row.rate < 0) issues.push(`Item line ${index + 1}: enter a valid rate`)
+      if ((row.discount ?? 0) < 0) issues.push(`Item line ${index + 1}: discount cannot be negative`)
+    })
+    if (entered.length === 0) issues.push('Add at least one item line')
+    if (entered.length > 0 && computed.rounded <= 0) issues.push('Invoice total must be greater than zero')
+    if (isNoteKind && !manualNewBillMode && noteBillRefs.length > 0 && noteBillRefs.reduce((sum, ref) => sum + ref.amount, 0) !== computed.rounded) {
+      issues.push('Bill allocations must equal the credit or debit note total')
+    }
+    if (goodsReceiptId && matchPreview.isError) issues.push(matchPreview.error instanceof Error ? matchPreview.error.message : 'The GRN does not match these invoice lines')
+    if (goodsReceiptId && !matchPreview.isError && !matchPreview.data) issues.push('Checking the PO and goods receipt…')
+    return [...new Set(issues)]
+  }, [partyId, accountId, isSalesSide, rows, computed.rounded, isNoteKind, manualNewBillMode, noteBillRefs, goodsReceiptId, matchPreview.isError, matchPreview.error, matchPreview.data])
 
   const save = useCallback(async (andPdf = false): Promise<void> => {
     if (saving) return
@@ -259,19 +337,46 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         })
         if (!proceed) return
       }
+      const suspicious = await api.vouchers.suspicious(input)
+      if (suspicious.length > 0) {
+        const proceed = await confirmDialog({
+          title: 'Review unusual details',
+          message: suspicious.map((warning) => `• ${warning.message}`).join('\n'),
+          confirmLabel: 'Reviewed, save'
+        })
+        if (!proceed) return
+      }
       const dupes = await api.vouchers.duplicates(input)
       if (dupes.length > 0) {
         const first = dupes[0]!
+        const evidence = first.reasons.includes('same_bill_reference')
+          ? 'the same supplier invoice or bill reference'
+          : first.reasons.includes('same_reference')
+            ? 'the same external reference'
+            : 'the same party and amount'
         const proceed = await confirmDialog({
           title: 'Possible duplicate',
-          message: `Voucher ${first.number} on ${first.date} has the same party and amount. Save anyway?`,
+          message: `Voucher ${first.number} on ${first.date} has ${evidence}. Save anyway?`,
           confirmLabel: 'Save anyway'
         })
         if (!proceed) return
       }
-      const saved = await api.vouchers.save(input)
-      toast.push('success', `${saved.number} saved — ${formatPaise(computed.rounded, { symbol: true })}`)
-      if (andPdf && kind === 'sales') {
+      let creditOverrideReason: string | undefined
+      if (kind === 'sales' && partyId) {
+        const exposure = await api.vouchers.creditExposure(partyId, computed.rounded)
+        if (exposure.exceeded) {
+          const reason = await promptDialog({ title: 'Customer credit policy exceeded', message: `${exposure.ledgerName} would reach ${formatPaise(exposure.proposedOutstanding, { symbol: true })} against a ${formatPaise(exposure.creditLimit ?? 0, { symbol: true })} limit. Enter an override reason, or cancel and review collections.`, placeholder: 'Reason for extending additional credit', confirmLabel: 'Continue with override' })
+          if (!reason?.trim()) return
+          creditOverrideReason = reason.trim()
+        }
+      }
+      const saved = await api.vouchers.save(input, undefined, workDraft?.id, invoiceMatchInput ?? undefined, procurementClaimKey ?? undefined, creditOverrideReason)
+      if (!saved.approvalRequired)
+        recordCohortEvent(localStorage, 'first_voucher_posted')
+      toast.push('success', saved.approvalRequired
+        ? `Sent for approval — request #${saved.request.id}; no invoice was posted`
+        : `${saved.number} saved — ${formatPaise(computed.rounded, { symbol: true })}`)
+      if (!saved.approvalRequired && andPdf && kind === 'sales') {
         await api.invoice.pdf(saved.id)
       }
       setWorkingDate(date)
@@ -285,6 +390,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       setBillNameTouched(false)
       setBillDueDateTouched(false)
       setNoteBillRefs([])
+      setGoodsReceiptId(null)
       numberField.reset()
       await queryClient.invalidateQueries()
     } catch (err) {
@@ -292,7 +398,32 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, toast, setWorkingDate, queryClient, numberField.reset])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, toast, setWorkingDate, queryClient, numberField.reset, workDraft?.id, invoiceMatchInput, procurementClaimKey])
+
+  const saveDraft = async (): Promise<void> => {
+    if (saving) return
+    setSaving(true)
+    try {
+      await api.voucherDrafts.save({
+        voucherTypeId: typeId,
+        mode: 'invoice',
+        title: narration.trim().slice(0, 120) || `${kind.replace('_', ' ')} on ${date}`,
+        payloadVersion: 1,
+        payload: { date, number: numberField.forPayload, partyId, accountId, rows: rows.map(({ key: _key, ...row }) => row), narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, billNameTouched, billDueDateTouched, manualNewBillMode, noteBillRefs, goodsReceiptId, procurementClaimKey }
+      }, workDraft?.id)
+      await queryClient.invalidateQueries({ queryKey: ['voucher-drafts'] })
+      toast.push('success', workDraft ? 'Draft updated' : 'Voucher draft saved')
+      nav.replace({ name: 'voucher-drafts' })
+    } catch (error) { toast.push('error', (error as Error).message) }
+    finally { setSaving(false) }
+  }
+
+  const saveTemplate = async (): Promise<void> => {
+    try {
+      const name = await saveEntryTemplate({ voucherTypeId: typeId, mode: 'invoice', title: 'Template', payloadVersion: 1, payload: { date, number: '', partyId, accountId, rows: rows.map(({ key: _key, ...row }) => row), narration, vehicleNo: '', transporterId: '', distanceKm: '', currencyCode, fxRateText, posOverride, optionalVoucher, billName: '', billDueDate: date, billNameTouched: false, billDueDateTouched: false, manualNewBillMode: false, noteBillRefs: [] } }, narration.trim().slice(0, 80) || `${kind.replace('_', ' ')} pattern`)
+      if (name) { await queryClient.invalidateQueries({ queryKey: ['entry-templates'] }); toast.push('success', `${name} template saved`) }
+    } catch (error) { toast.push('error', (error as Error).message) }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -408,6 +539,46 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         )}
       </div>
 
+      {procurementClaimKey && <div className="mt-4 rounded-md border border-amber/30 bg-amber/8 px-3 py-2 text-[10.5px]"><b>Linked procurement debit note:</b> this financial adjustment came from recorded shortage, rejection or rate evidence. It will not move stock, and posting closes that claim exactly once.</div>}
+
+      {kind === 'purchase' && (matchCandidates.length > 0 || goodsReceiptId) && (
+        <div className="mt-4 rounded-lg border border-line bg-panel2 p-3" data-testid="invoice-three-way-match">
+          <div className="flex items-start justify-between gap-5">
+            <div>
+              <p className="text-[11.5px] font-semibold">Match received goods</p>
+              <p className="mt-0.5 text-[10.5px] text-muted">Link this supplier invoice to a posted GRN. Total records the payable only—stock is not received twice.</p>
+            </div>
+            <Select
+              data-testid="select-invoice-grn"
+              className="w-[330px]"
+              value={goodsReceiptId ?? ''}
+              onChange={(event) => {
+                const id = event.target.value ? Number(event.target.value) : null
+                setGoodsReceiptId(id)
+                if (!id) return
+                const candidate = matchCandidates.find((row) => row.goodsReceiptId === id)
+                if (!candidate) return
+                setPartyId(candidate.supplierLedgerId)
+                setRows(candidate.lines.map((line) => ({ key: nextLineKey(), itemId: line.stockItemId, qtyText: String(line.acceptedQtyMilli / 1000), rate: line.poRatePaise, discount: null })))
+                setNarration((current) => current || `Supplier invoice against ${candidate.purchaseOrderNumber} / ${candidate.goodsReceiptNumber}`)
+              }}
+            >
+              <option value="">Do not match a GRN</option>
+              {matchCandidates.map((candidate) => <option key={candidate.goodsReceiptId} value={candidate.goodsReceiptId}>{candidate.goodsReceiptNumber} · {candidate.purchaseOrderNumber} · {candidate.supplierName} · {toDisplayDate(candidate.goodsReceiptDate)}</option>)}
+            </Select>
+          </div>
+          {goodsReceiptId && matchPreview.isFetching && <p className="mt-3 text-[10.5px] text-muted">Comparing order, accepted receipt and invoice…</p>}
+          {matchPreview.data && <div className="mt-3 overflow-hidden rounded-md border border-line bg-panel">
+            <div className="flex items-center justify-between border-b border-line px-3 py-2">
+              <span className="text-[10.5px] text-muted">{matchPreview.data.purchaseOrderNumber} → {matchPreview.data.goodsReceiptNumber} → this invoice</span>
+              <span className={`rounded border px-1.5 py-0.5 text-[9.5px] font-semibold uppercase ${matchPreview.data.status === 'exact' ? 'border-dr/25 bg-dr/5 text-dr' : 'border-amber/30 bg-amber/10 text-amber'}`}>{matchPreview.data.status === 'exact' ? 'Exact match' : `${matchPreview.data.quantityVarianceCount + matchPreview.data.rateVarianceCount} variance${matchPreview.data.quantityVarianceCount + matchPreview.data.rateVarianceCount === 1 ? '' : 's'}`}</span>
+            </div>
+            <div className="grid grid-cols-[1fr_120px_120px_120px_120px] bg-panel2 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.07em] text-muted"><span>Item</span><span className="text-right">Ordered</span><span className="text-right">Accepted</span><span className="text-right">Invoiced</span><span className="text-right">Rate vs PO</span></div>
+            {matchPreview.data.lines.map((line) => <div key={line.stockItemId} className="grid grid-cols-[1fr_120px_120px_120px_120px] border-t border-line px-3 py-1.5 text-[10.5px]"><span>{line.itemName}</span><span className="num text-right text-muted">{line.orderedQtyMilli / 1000} {line.unitSymbol}</span><span className="num text-right text-muted">{line.acceptedQtyMilli / 1000}</span><span className={`num text-right ${line.quantityVarianceMilli ? 'text-amber' : 'text-dr'}`}>{line.qtyMilli / 1000}</span><span className={`num text-right ${line.rateVariancePaise ? 'text-amber' : 'text-dr'}`}>₹{formatPaise(line.ratePaise)}{line.rateVariancePaise ? ` (${line.rateVariancePaise > 0 ? '+' : '−'}₹${formatPaise(Math.abs(line.rateVariancePaise))})` : ''}</span></div>)}
+          </div>}
+        </div>
+      )}
+
       {/* Long invoices scroll inside a capped container instead of pushing the totals
           off-screen. Short ones stay unwrapped: any overflow container would clip the
           absolutely-positioned TypeAhead dropdowns. */}
@@ -470,6 +641,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                 </td>
                 <td className="r">
                   <AmountInput paise={r.rate} onPaise={(p) => setRow(i, { rate: p })} />
+                  {kind === 'purchase' && r.itemId && supplierRateHistory.find((history) => history.stockItemId === r.itemId) && (() => {
+                    const history = supplierRateHistory.find((entry) => entry.stockItemId === r.itemId)!
+                    return <p className="mt-0.5 whitespace-nowrap text-right text-[9px] text-muted" title={`${history.supplierName} · ${toDisplayDate(history.date)} · ${history.voucherNumber}`}>Last ₹{formatPaise(history.ratePaise)} · {toDisplayDate(history.date)}</p>
+                  })()}
                 </td>
                 <td className="r">
                   <AmountInput
@@ -663,17 +838,22 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         </div>
       )}
 
-      <div className="mt-5 flex justify-end gap-2">
-        {formValid && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
+      <div className="mt-5 grid gap-3">
+        <ValidationSummary issues={validationIssues} />
+      <div className="flex justify-end gap-2">
+        {formValid && !goodsReceiptId && !procurementClaimKey && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
+        {formValid && !procurementClaimKey && <Button data-testid="btn-save-entry-template" onClick={() => void saveTemplate()}>Record safe macro…</Button>}
+        <Button data-testid="btn-save-voucher-draft" disabled={saving} onClick={() => void saveDraft()}>Save draft</Button>
         <Button onClick={() => nav.back()}>Cancel</Button>
         {kind === 'sales' && (
           <Button disabled={saving} onClick={() => void save(true)}>
             Save + invoice PDF
           </Button>
         )}
-        <Button variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
+        <Button variant="primary" data-testid="btn-save-voucher" disabled={saving || validationIssues.length > 0} onClick={() => void save()}>
           Save voucher ⌘↵
         </Button>
+      </div>
       </div>
 
       {quickLedger && (

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/client'
+import { api, type GstRegistration } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner } from '../components/ui'
+import { AmountInput, Button, EmptyState, Field, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner, TextInput, inputCls } from '../components/ui'
 import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { posLabel } from '@shared/gst/states'
@@ -73,6 +73,15 @@ export function useDefaultMonth(months: MonthChoice[]): [string, (k: string) => 
   const fallback = months.find((m) => m.key === current)?.key ?? months[months.length - 1]?.key ?? current
   const [key, setKey] = useState(fallback)
   return [months.some((m) => m.key === key) ? key : fallback, setKey]
+}
+
+function RegistrationSelect({ registrations, value, onChange }: { registrations: GstRegistration[]; value: number | null; onChange: (id: number | null) => void }): React.JSX.Element | null {
+  const active = registrations.filter((row) => row.active)
+  if (!active.length) return null
+  return <Select data-testid="input-gst-registration" value={value ?? ''} onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)} className="max-w-64">
+    <option value="">Company / legacy GSTIN</option>
+    {active.map((row) => <option key={row.id} value={row.id}>{row.gstin} · {row.stateCode}</option>)}
+  </Select>
 }
 
 /** Selected month resolved against the list — null when the period yields no months at all
@@ -152,19 +161,92 @@ function IssueRow({
   )
 }
 
+function ReturnStatusPanel({ type, month, canFreeze, registrationId }: { type: 'gstr1' | 'gstr3b'; month: MonthChoice; canFreeze: boolean; registrationId: number | null }): React.JSX.Element {
+  const queryClient = useQueryClient()
+  const toast = useToasts()
+  const [arn, setArn] = useState('')
+  const [filedAt, setFiledAt] = useState(todayISO())
+  const [submittedJson, setSubmittedJson] = useState('')
+  const [busy, setBusy] = useState(false)
+  const { data: status, isLoading } = useQuery({
+    queryKey: ['gstReturnStatus', type, month.period, month.from, month.to, registrationId],
+    queryFn: () => api.gst.returnStatus(type, month.from, month.to, month.period, registrationId)
+  })
+  const refresh = async (): Promise<void> => {
+    await queryClient.invalidateQueries({ queryKey: ['gstReturnStatus', type, month.period] })
+  }
+  const freeze = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await api.gst.freezeReturn(type, month.from, month.to, month.period, registrationId)
+      await refresh()
+      toast.push('success', 'Return snapshot prepared')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const acknowledge = async (): Promise<void> => {
+    if (arn.trim().length < 8) return void toast.push('error', 'Enter the portal acknowledgement reference')
+    setBusy(true)
+    try {
+      await api.gst.acknowledgeReturn(type, month.from, month.to, month.period, {
+        arn: arn.trim(), filedAt, submittedJson: submittedJson.trim() || null
+      }, registrationId)
+      await refresh()
+      toast.push('success', 'Filing acknowledgement saved')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <Panel className="mb-4 p-4">
+    <div className="flex items-start justify-between gap-5">
+      <div>
+        <p className="text-[13px] font-semibold">Return lifecycle</p>
+        {isLoading || !status ? <p className="mt-1 text-[11.5px] text-muted">Checking prepared return…</p> : status.status === 'not_prepared' ?
+          <p className="mt-1 text-[11.5px] text-muted">Not prepared yet. Freeze the current figures before review or export.</p> : status.status === 'filed' ?
+            <p className="mt-1 text-[11.5px] text-dr">Filed on {status.filedAt} with ARN <span className="num">{status.arn}</span>{status.hasSubmittedJson ? ' · submitted JSON retained' : ''}</p> :
+            <p className="mt-1 text-[11.5px] text-muted">Prepared at <span className="num">{status.frozenAt}</span>. The frozen JSON is retained for comparison.</p>}
+        {status?.changedSinceFreeze && <p className="mt-1 text-[11.5px] font-medium text-cr">Books changed after this snapshot. Review the differences and prepare it again.</p>}
+      </div>
+      {status?.status !== 'filed' && <Button data-testid={`btn-${type}-return-freeze`} disabled={!canFreeze || busy} onClick={() => void freeze()}>{status?.status === 'prepared' ? 'Prepare again' : 'Prepare snapshot'}</Button>}
+    </div>
+    {status?.status === 'prepared' && !status.changedSinceFreeze && <div className="mt-4 grid grid-cols-[1fr_10rem] gap-3 border-t border-line pt-3">
+      <Field label="Portal acknowledgement reference">
+        <TextInput data-testid={`input-${type}-return-arn`} value={arn} onChange={(event) => setArn(event.target.value.toUpperCase())} placeholder="ARN or filing reference" className="num" />
+      </Field>
+      <Field label="Filed on">
+        <TextInput data-testid={`input-${type}-return-filed-at`} type="date" value={filedAt} onChange={(event) => setFiledAt(event.target.value)} className="num" />
+      </Field>
+      <Field label="Submitted JSON (optional)">
+        <textarea data-testid={`input-${type}-return-json`} className={`${inputCls} min-h-20 resize-y font-mono text-[11px]`} value={submittedJson} onChange={(event) => setSubmittedJson(event.target.value)} placeholder="Paste the exact JSON submitted to the portal" />
+      </Field>
+      <div className="flex items-end justify-end"><Button data-testid={`btn-${type}-return-filed`} variant="primary" disabled={busy || arn.trim().length < 8} onClick={() => void acknowledge()}>Mark filed</Button></div>
+    </div>}
+  </Panel>
+}
+
 export function Gstr1Screen(): React.JSX.Element {
   const { months, month, monthKey, setMonthKey } = useMonth()
   const { info } = useSession()
   const nav = useNav()
   const toast = useToasts()
+  const queryClient = useQueryClient()
+  const [registrationId, setRegistrationId] = useState<number | null>(null)
+  const registrations = useQuery({ queryKey: ['gstRegistrations'], queryFn: api.gst.registrations })
+  const selectedRegistration = registrations.data?.find((row) => row.id === registrationId)
   const { data, isLoading } = useQuery({
-    queryKey: ['gstr1', month?.key],
-    queryFn: () => api.gst.gstr1(month!.from, month!.to, month!.period),
+    queryKey: ['gstr1', month?.key, registrationId],
+    queryFn: () => api.gst.gstr1(month!.from, month!.to, month!.period, registrationId),
     enabled: !!month
   })
   const { data: validation, isLoading: validating } = useQuery({
-    queryKey: ['gstValidate', month?.key],
-    queryFn: () => api.gst.validate(month!.from, month!.to),
+    queryKey: ['gstValidate', month?.key, registrationId],
+    queryFn: () => api.gst.validate(month!.from, month!.to, registrationId),
     enabled: !!month
   })
 
@@ -172,7 +254,8 @@ export function Gstr1Screen(): React.JSX.Element {
   const blocking = issues.filter((i) => i.severity === 'blocking')
   const warnings = issues.filter((i) => i.severity === 'warning')
   const roundOff = validation?.roundOff ?? []
-  const exportBlockedReason = !info?.gstin
+  const effectiveGstin = selectedRegistration?.gstin ?? info?.gstin
+  const exportBlockedReason = !effectiveGstin
     ? 'Add the company GSTIN under Company details to enable portal export.'
     : blocking.length
       ? `Export blocked — ${blocking.length} blocking issue${blocking.length === 1 ? '' : 's'} below must be fixed first.`
@@ -181,7 +264,8 @@ export function Gstr1Screen(): React.JSX.Element {
   const doExport = async (): Promise<void> => {
     if (!month) return
     try {
-      const r = await api.gst.exportGstr1(month.from, month.to, month.period)
+      const r = await api.gst.exportGstr1(month.from, month.to, month.period, registrationId)
+      await queryClient.invalidateQueries({ queryKey: ['gstReturnStatus', 'gstr1', month.period] })
       toast.push('success', `GSTR-1 JSON ready to upload — ${r.jsonPath.split('/').pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -204,6 +288,7 @@ export function Gstr1Screen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
+            <RegistrationSelect registrations={registrations.data ?? []} value={registrationId} onChange={setRegistrationId} />
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr1-month" />
             <Button
               variant="primary"
@@ -223,6 +308,8 @@ export function Gstr1Screen(): React.JSX.Element {
       {exportBlockedReason && (
         <p className={`mb-3 text-[12.5px] ${blocking.length ? 'text-cr' : 'text-amber'}`}>{exportBlockedReason}</p>
       )}
+
+      <ReturnStatusPanel type="gstr1" month={month} registrationId={registrationId} canFreeze={!exportBlockedReason && !validating} />
 
       {validating ? (
         <Panel className="mb-4">
@@ -269,7 +356,13 @@ export function Gstr1Screen(): React.JSX.Element {
           </thead>
           <tbody data-testid="rows-gstr1">
             {(data?.summary ?? []).map((s) => (
-              <tr key={s.section} className={s.docs === 0 && s.taxable === 0 ? 'opacity-40' : ''}>
+              <tr
+                key={s.section}
+                data-row-id={s.section}
+                className={`${s.docs === 0 && s.taxable === 0 ? 'opacity-40' : ''} ${s.voucherIds.length ? 'kbar-row cursor-pointer' : ''}`}
+                title={s.voucherIds.length ? `Open ${s.voucherIds.length} contributing voucher${s.voucherIds.length === 1 ? '' : 's'}` : undefined}
+                onClick={() => s.voucherIds.length && nav.go({ name: 'daybook', from: month.from, to: month.to, periodLabel: `GSTR-1 ${s.label}`, voucherIds: s.voucherIds })}
+              >
                 <td>{s.label}</td>
                 <td className="r num">{s.docs}</td>
                 <td className="r"><Money paise={s.taxable} /></td>
@@ -325,16 +418,16 @@ const MANUAL_HEADS: { key: ManualHead; label: string }[] = [
   { key: 'interest', label: '5.1 Interest payable' }
 ]
 
-function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
+function ManualAdjustments({ period, registrationId }: { period: string; registrationId: number | null }): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: saved, isLoading } = useQuery({
-    queryKey: ['gst3bManual', period],
-    queryFn: () => api.gst.get3bManual(period)
+    queryKey: ['gst3bManual', period, registrationId],
+    queryFn: () => api.gst.get3bManual(period, registrationId)
   })
   const [draft, setDraft] = useState<Gst3bManualInput | null>(null)
   const [saving, setSaving] = useState(false)
-  useEffect(() => setDraft(null), [period])
+  useEffect(() => setDraft(null), [period, registrationId])
   const value = draft ?? saved ?? EMPTY_MANUAL
   const dirty = draft != null && JSON.stringify(draft) !== JSON.stringify(saved ?? EMPTY_MANUAL)
 
@@ -346,7 +439,7 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
     if (!draft) return
     setSaving(true)
     try {
-      await api.gst.set3bManual(period, draft)
+      await api.gst.set3bManual(period, draft, registrationId)
       setDraft(null)
       await queryClient.invalidateQueries({ queryKey: ['gst3bManual'] })
       await queryClient.invalidateQueries({ queryKey: ['gstr3b'] })
@@ -422,16 +515,29 @@ export function Gstr3bScreen(): React.JSX.Element {
   const { months, month, monthKey, setMonthKey } = useMonth()
   const { info } = useSession()
   const toast = useToasts()
+  const queryClient = useQueryClient()
+  const nav = useNav()
+  const [registrationId, setRegistrationId] = useState<number | null>(null)
+  const registrations = useQuery({ queryKey: ['gstRegistrations'], queryFn: api.gst.registrations })
+  const selectedRegistration = registrations.data?.find((row) => row.id === registrationId)
+  const effectiveGstin = selectedRegistration?.gstin ?? info?.gstin
   const { data, isLoading } = useQuery({
-    queryKey: ['gstr3b', month?.key],
-    queryFn: () => api.gst.gstr3b(month!.from, month!.to, month!.period),
+    queryKey: ['gstr3b', month?.key, registrationId],
+    queryFn: () => api.gst.gstr3b(month!.from, month!.to, month!.period, registrationId),
     enabled: !!month
   })
+  const { data: validation, isLoading: validating } = useQuery({
+    queryKey: ['gstValidate', month?.key, registrationId],
+    queryFn: () => api.gst.validate(month!.from, month!.to, registrationId),
+    enabled: !!month
+  })
+  const blocking = validation?.issues.filter((issue) => issue.severity === 'blocking') ?? []
 
   const doExport = async (): Promise<void> => {
     if (!month) return
     try {
-      const r = await api.gst.exportGstr3b(month.from, month.to, month.period)
+      const r = await api.gst.exportGstr3b(month.from, month.to, month.period, registrationId)
+      await queryClient.invalidateQueries({ queryKey: ['gstReturnStatus', 'gstr3b', month.period] })
       toast.push('success', `GSTR-3B JSON saved — ${r.jsonPath.split('/').pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -441,13 +547,21 @@ export function Gstr3bScreen(): React.JSX.Element {
   const row = (
     label: string,
     v: { taxable?: number; igst: number; cgst?: number; sgst?: number; cess: number } | undefined,
-    opts: { negative?: boolean; className?: string } = {}
+    opts: { negative?: boolean; className?: string; source?: keyof NonNullable<typeof data>['voucherIds'] } = {}
   ): React.JSX.Element => {
     const sign = opts.negative ? -1 : 1
     const cell = (n: number | undefined): React.JSX.Element =>
       n == null ? <span className="text-muted">–</span> : <Money paise={sign * n} signed={opts.negative} />
     return (
-      <tr className={opts.className}>
+      <tr
+        data-source={opts.source}
+        className={`${opts.className ?? ''} ${opts.source && data?.voucherIds[opts.source].length ? 'kbar-row cursor-pointer' : ''}`}
+        onClick={() => {
+          const ids = opts.source ? data?.voucherIds[opts.source] : undefined
+          if (ids?.length) nav.go({ name: 'daybook', from: month?.from, to: month?.to, periodLabel: `GSTR-3B · ${label}`, voucherIds: ids })
+        }}
+        title={opts.source && data?.voucherIds[opts.source].length ? 'Open exact contributing vouchers' : undefined}
+      >
         <td>{label}</td>
         <td className="r">{v?.taxable != null ? <Money paise={v.taxable} /> : <span className="text-muted">–</span>}</td>
         <td className="r">{cell(v?.igst ?? 0)}</td>
@@ -472,8 +586,9 @@ export function Gstr3bScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
+            <RegistrationSelect registrations={registrations.data ?? []} value={registrationId} onChange={setRegistrationId} />
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr3b-month" />
-            <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!info?.gstin}>
+            <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!effectiveGstin || blocking.length > 0 || validating}>
               Export JSON
             </Button>
           </div>
@@ -482,9 +597,12 @@ export function Gstr3bScreen(): React.JSX.Element {
         GSTR-3B · Summary return
       </SectionTitle>
 
-      {!info?.gstin && (
+      {!effectiveGstin && (
         <p className="mb-3 text-[12.5px] text-amber">Add the company GSTIN under Company details to enable export.</p>
       )}
+      {blocking.length > 0 && <p className="mb-3 text-[12.5px] text-cr">Export blocked. Fix {blocking.length} GST readiness issue{blocking.length === 1 ? '' : 's'} in GSTR-1 validation.</p>}
+
+      <ReturnStatusPanel type="gstr3b" month={month} registrationId={registrationId} canFreeze={!!effectiveGstin && blocking.length === 0 && !validating} />
 
       <Panel>
         {isLoading || !data ? (
@@ -502,21 +620,21 @@ export function Gstr3bScreen(): React.JSX.Element {
             </tr>
           </thead>
           <tbody data-testid="rows-gstr3b">
-            {row('3.1(a) Outward taxable supplies', data.outward)}
-            {row('3.1(b) Zero-rated (exports + SEZ)', { taxable: data.zeroRated.taxable, igst: data.zeroRated.igst, cess: data.zeroRated.cess })}
-            {row('3.1(c) Nil-rated / exempt', { taxable: data.nilExempt.taxable, igst: 0, cgst: 0, sgst: 0, cess: 0 })}
-            {row('3.1(d) Inward supplies under RCM', data.rcm)}
-            {row('4(A)(1) ITC — import of goods', data.itcParts.impg)}
-            {row('4(A)(3) ITC — inward RCM supplies', data.itcParts.isrc)}
-            {row('4(A)(5) ITC — all other', data.itcParts.oth)}
+            {row('3.1(a) Outward taxable supplies', data.outward, { source: 'outward' })}
+            {row('3.1(b) Zero-rated (exports + SEZ)', { taxable: data.zeroRated.taxable, igst: data.zeroRated.igst, cess: data.zeroRated.cess }, { source: 'zeroRated' })}
+            {row('3.1(c) Nil-rated / exempt', { taxable: data.nilExempt.taxable, igst: 0, cgst: 0, sgst: 0, cess: 0 }, { source: 'nilExempt' })}
+            {row('3.1(d) Inward supplies under RCM', data.rcm, { source: 'rcm' })}
+            {row('4(A)(1) ITC — import of goods', data.itcParts.impg, { source: 'impg' })}
+            {row('4(A)(3) ITC — inward RCM supplies', data.itcParts.isrc, { source: 'isrc' })}
+            {row('4(A)(5) ITC — all other', data.itcParts.oth, { source: 'oth' })}
             {row('4(B) ITC reversed (manual, below)', {
               igst: data.manual.itcRevRul.igst + data.manual.itcRevOth.igst,
               cgst: data.manual.itcRevRul.cgst + data.manual.itcRevOth.cgst,
               sgst: data.manual.itcRevRul.sgst + data.manual.itcRevOth.sgst,
               cess: data.manual.itcRevRul.cess + data.manual.itcRevOth.cess
             }, { negative: true })}
-            {row('4(C) Net eligible ITC', data.itc, { className: 'total-row' })}
-            {row('4(D)(1) Ineligible / blocked ITC (reported only)', data.itcParts.blocked)}
+            {row('4(C) Net eligible ITC', data.itc, { className: 'total-row', source: 'netItc' })}
+            {row('4(D)(1) Ineligible / blocked ITC (reported only)', data.itcParts.blocked, { source: 'blocked' })}
             {row('5.1 Interest payable (manual, below)', data.manual.interest)}
             {row('5.1 Late fee (manual, below)', { igst: 0, cgst: data.manual.lateFee.camt, sgst: data.manual.lateFee.samt, cess: 0 })}
           </tbody>
@@ -594,7 +712,7 @@ export function Gstr3bScreen(): React.JSX.Element {
       )}
 
       <Panel className="mt-4">
-        <ManualAdjustments period={month.period} />
+        <ManualAdjustments period={month.period} registrationId={registrationId} />
       </Panel>
 
       <p className="mt-3 text-[12px] text-muted">

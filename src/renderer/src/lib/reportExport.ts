@@ -3,6 +3,19 @@ import { formatPaise } from '@shared/money'
 import type { StatementNode } from '@shared/reports'
 import { api, type ReportColumn, type ReportPdfInput, type ReportRow } from './client'
 import type { ToastState } from '../state/stores'
+import { useSession } from '../state/stores'
+import { toDisplayDate } from '@shared/dates'
+import type { ReportProvenance } from './client'
+
+function provenance(period?: string): ReportProvenance {
+  const session = useSession.getState()
+  return {
+    period: period ?? `${toDisplayDate(session.from)} to ${toDisplayDate(session.to)}`,
+    accountingBasis: 'Accrual basis · posted vouchers',
+    dataFreshness: 'Live local books at export time',
+    generatedAt: new Date().toISOString()
+  }
+}
 
 /** Slugifies a screen title into the `[a-z0-9-_]+` filename the report:pdf/export:csv IPC
  *  channels require (see exportFilename in @shared/schemas). */
@@ -31,6 +44,7 @@ export async function printReport(
     columns: opts.columns,
     rows: opts.rows,
     footNote: opts.footNote,
+    provenance: provenance(opts.periodLabel),
     filename: opts.filename ?? slugFilename(opts.title)
   }
   try {
@@ -43,11 +57,11 @@ export async function printReport(
 
 /** Builds a CSV client-side (rowsToCsv) and hands it to export:csv to write into the company's
  *  exports folder — no per-report main-process code needed for the CSV side. */
-export async function csvReport(header: string[], rows: string[][], filename: string, toast: ToastState): Promise<void> {
+export async function csvReport(header: string[], rows: string[][], filename: string, toast: ToastState, periodLabel?: string): Promise<void> {
   const csv = rowsToCsv(header, rows)
   try {
-    const r = await api.exportReport.csv(slugFilename(filename), csv)
-    toast.push('success', `Saved to exports — ${r.path}`)
+    const r = await api.exportReport.csv(slugFilename(filename), csv, provenance(periodLabel))
+    toast.push('success', `Saved report and provenance to exports — ${r.path}`)
   } catch (err) {
     toast.push('error', (err as Error).message)
   }

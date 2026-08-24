@@ -20,7 +20,7 @@ export function TrialBalanceScreen(): React.JSX.Element {
   const { to } = useSession()
   const nav = useNav()
   const toast = useToasts()
-  const { data, isLoading } = useQuery({ queryKey: ['trialBalance', to], queryFn: () => api.reports.trialBalance(to) })
+  const { data, isLoading } = useQuery({ queryKey: ['trialBalance', to], queryFn: ({ signal }) => api.reports.trialBalance(to, signal) })
   const rows = data?.rows ?? []
   const { active, setActive } = useKeyNav(rows.length, (i) => {
     const r = rows[i]

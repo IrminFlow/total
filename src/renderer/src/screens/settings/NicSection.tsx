@@ -13,7 +13,7 @@ export function NicSection(): React.JSX.Element {
   const [creds, setCreds] = useState<NicCredentials | null>(null)
   const [busy, setBusy] = useState(false)
   const value = creds ?? existing ?? null
-  const canEdit = user?.role === 'owner'
+  const canEdit = user == null || user.role === 'owner'
 
   const set = (patch: Partial<NicCredentials>): void => {
     if (value) setCreds({ ...value, ...patch })
@@ -55,8 +55,8 @@ export function NicSection(): React.JSX.Element {
         <Panel className="p-5">
           <p className="mb-4 text-[12.5px] text-muted">
             Credentials from your e-invoice API registration (direct access) or your GSP. Sandbox first is a good idea:
-            base URL <span className="num">https://einv-apisandbox.nic.in</span>. Everything stays in this company's local
-            database.
+            base URL <span className="num">https://einv-apisandbox.nic.in</span>. Passwords and client secrets are encrypted
+            with this Mac&rsquo;s protected credential storage before they enter the company file.
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Field label="e-Invoice base URL">

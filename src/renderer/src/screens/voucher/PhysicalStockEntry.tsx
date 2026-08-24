@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts } from '../../state/stores'
 import { Button, DateInput, Field, Panel, TextInput, inputCls } from '../../components/ui'
 import { ItemPicker, useStockItems } from '../../components/pickers'
-import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
+import { useDraftAwareUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
+import type { VoucherWorkDraft } from '@shared/voucherDrafts'
+import { recordCohortEvent } from '../../lib/commercialOps'
 
 // ---------- physical stock mode (counted closing quantities, is_absolute lines) ----------
 
@@ -24,27 +26,35 @@ const blankCountRow = (): CountRow => ({ key: nextLineKey(), itemId: null, qtyTe
  * difference from book stock into an adjustment valued at the running average cost
  * (src/shared/valuation.ts). No ledger lines; a count of 0 is a legitimate entry.
  */
-export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.Element {
+export function PhysicalStockEntry({ typeId, workDraft }: { typeId: number; workDraft?: VoucherWorkDraft }): React.JSX.Element {
   const { workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
   const items = useStockItems()
-  const [date, setDate] = useState(workingDate)
-  const [rows, setRows] = useState<CountRow[]>(() => [blankCountRow()])
-  const [narration, setNarration] = useState('')
+  const payload = workDraft?.mode === 'physical_stock' ? workDraft.payload : {}
+  const [date, setDate] = useState(typeof payload.date === 'string' ? payload.date : workingDate)
+  const [rows, setRows] = useState<CountRow[]>(() => Array.isArray(payload.rows) && payload.rows.length
+    ? payload.rows.map((raw) => { const row = raw as { itemId?: unknown; qtyText?: unknown }; return { key: nextLineKey(), itemId: typeof row.itemId === 'number' ? row.itemId : null, qtyText: typeof row.qtyText === 'string' ? row.qtyText : '' } })
+    : [blankCountRow()])
+  const [narration, setNarration] = useState(typeof payload.narration === 'string' ? payload.narration : '')
   const [saving, setSaving] = useState(false)
   const numberField = useVoucherNumberField(typeId, date)
+
+  useEffect(() => {
+    if (typeof payload.number === 'string') numberField.onChange(payload.number)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Book stock as on the count date, for the counted-vs-book readout per line.
   const { data: stock } = useQuery({
     queryKey: ['stockSummary', date],
-    queryFn: () => api.reports.stockSummary(date)
+    queryFn: ({ signal }) => api.reports.stockSummary(date, signal)
   })
   const bookOf = useMemo(() => new Map((stock ?? []).map((s) => [s.stockItemId, s])), [stock])
   const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
 
-  useUnsavedGuard(rows.some((r) => r.itemId != null) || narration.trim() !== '')
+  useDraftAwareUnsavedGuard(workDraft?.id, rows.some((r) => r.itemId != null) || narration.trim() !== '', JSON.stringify({ date, rows: rows.map(({ key: _key, ...row }) => row), narration }))
 
   const setRow = (i: number, patch: Partial<CountRow>): void => {
     setRows((rs) => {
@@ -107,8 +117,12 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
         })),
         billRefs: [],
         tds: null
-      })
-      toast.push('success', `Physical stock ${saved.number} saved — ${completeRows.length} item${completeRows.length > 1 ? 's' : ''} counted`)
+      }, undefined, workDraft?.id)
+      if (!saved.approvalRequired)
+        recordCohortEvent(localStorage, 'first_voucher_posted')
+      toast.push('success', saved.approvalRequired
+        ? `Stock count sent for approval — request #${saved.request.id}`
+        : `Physical stock ${saved.number} saved — ${completeRows.length} item${completeRows.length > 1 ? 's' : ''} counted`)
       setWorkingDate(date)
       setRows([blankCountRow()])
       setNarration('')
@@ -119,6 +133,18 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
     } finally {
       setSaving(false)
     }
+  }
+
+  const saveDraft = async (): Promise<void> => {
+    if (saving) return
+    setSaving(true)
+    try {
+      await api.voucherDrafts.save({ voucherTypeId: typeId, mode: 'physical_stock', title: narration.trim().slice(0, 120) || `Physical stock on ${date}`, payloadVersion: 1, payload: { date, number: numberField.forPayload, rows: rows.map(({ key: _key, ...row }) => row), narration } }, workDraft?.id)
+      await queryClient.invalidateQueries({ queryKey: ['voucher-drafts'] })
+      toast.push('success', workDraft ? 'Draft updated' : 'Stock-count draft saved')
+      nav.replace({ name: 'voucher-drafts' })
+    } catch (error) { toast.push('error', (error as Error).message) }
+    finally { setSaving(false) }
   }
 
   return (
@@ -196,6 +222,7 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
       </div>
 
       <div className="mt-5 flex justify-end gap-2">
+        <Button data-testid="btn-save-voucher-draft" disabled={saving} onClick={() => void saveDraft()}>Save draft</Button>
         <Button onClick={() => nav.back()}>Cancel</Button>
         <Button variant="primary" data-testid="btn-save-physical" disabled={saving} onClick={() => void save()}>
           Save count

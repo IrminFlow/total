@@ -7,6 +7,48 @@ export interface ReportColumn {
   defaultOn: boolean
 }
 
+export interface SavedReportView<T> {
+  name: string
+  value: T
+  createdAt: string
+}
+
+/** Named, per-company report states. Callers decide which deterministic filters belong in T. */
+export function useSavedReportViews<T>(reportKey: string): {
+  views: SavedReportView<T>[]
+  save: (name: string, value: T) => void
+  remove: (name: string) => void
+} {
+  const slug = useSession((s) => s.slug)
+  const storageKey = `total-reportviews-${slug ?? 'nocompany'}-${reportKey}`
+  const load = (): SavedReportView<T>[] => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(storageKey) ?? '[]') as unknown
+      if (!Array.isArray(parsed)) return []
+      return parsed.filter((item): item is SavedReportView<T> =>
+        !!item && typeof item === 'object' && typeof (item as SavedReportView<T>).name === 'string' && 'value' in item
+      ).slice(0, 20)
+    } catch {
+      return []
+    }
+  }
+  const [views, setViews] = useState<SavedReportView<T>[]>(load)
+  useEffect(() => setViews(load()), [storageKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const persist = (next: SavedReportView<T>[]): void => {
+    localStorage.setItem(storageKey, JSON.stringify(next))
+    setViews(next)
+  }
+  const save = (rawName: string, value: T): void => {
+    const name = rawName.trim().slice(0, 48)
+    if (!name) return
+    const withoutSameName = views.filter((view) => view.name.toLocaleLowerCase() !== name.toLocaleLowerCase())
+    persist([{ name, value, createdAt: new Date().toISOString() }, ...withoutSameName].slice(0, 20))
+  }
+  const remove = (name: string): void => persist(views.filter((view) => view.name !== name))
+  return { views, save, remove }
+}
+
 /**
  * F12-style per-report column visibility. Purely a display preference — persisted to
  * localStorage under `total-reportcfg-<company-slug>-<reportKey>`, never to the company database,

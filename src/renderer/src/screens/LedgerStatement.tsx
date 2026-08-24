@@ -1,51 +1,76 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../lib/client'
-import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useKeyNav } from '../components/ui'
-import { csvReport, printReport, slugFilename } from '../lib/reportExport'
-import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
-import { toDisplayDate } from '@shared/dates'
-import { formatPaise } from '@shared/money'
-import type { LedgerStatementRow } from '@shared/reports'
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../lib/client";
+import { useNav, useSession, useToasts } from "../state/stores";
+import {
+  Button,
+  EmptyState,
+  Money,
+  Panel,
+  SectionTitle,
+  SkeletonRows,
+  useKeyNav,
+} from "../components/ui";
+import { csvReport, printReport, slugFilename } from "../lib/reportExport";
+import type {
+  ReportColumn as PdfColumn,
+  ReportRow as PdfRow,
+} from "../lib/client";
+import { toDisplayDate } from "@shared/dates";
+import { formatPaise } from "@shared/money";
+import type { LedgerStatementRow } from "@shared/reports";
+import { useBoundedRows } from "../lib/useBoundedRows";
 
 const EXPORT_COLUMNS: PdfColumn[] = [
-  { label: 'Date', align: 'l' },
-  { label: 'Particulars', align: 'l' },
-  { label: 'Type · No.', align: 'l' },
-  { label: 'Debit', align: 'r' },
-  { label: 'Credit', align: 'r' },
-  { label: 'Balance', align: 'r' }
-]
+  { label: "Date", align: "l" },
+  { label: "Particulars", align: "l" },
+  { label: "Type · No.", align: "l" },
+  { label: "Debit", align: "r" },
+  { label: "Credit", align: "r" },
+  { label: "Balance", align: "r" },
+];
 
 const MONTHLY_COLUMNS: PdfColumn[] = [
-  { label: 'Month', align: 'l' },
-  { label: 'Debit', align: 'r' },
-  { label: 'Credit', align: 'r' },
-  { label: 'Closing', align: 'r' }
-]
+  { label: "Month", align: "l" },
+  { label: "Debit", align: "r" },
+  { label: "Credit", align: "r" },
+  { label: "Closing", align: "r" },
+];
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 function monthLabel(ym: string): string {
-  const [y, m] = ym.split('-').map(Number) as [number, number]
-  return `${MONTH_NAMES[(m ?? 1) - 1]} ${y}`
+  const [y, m] = ym.split("-").map(Number) as [number, number];
+  return `${MONTH_NAMES[(m ?? 1) - 1]} ${y}`;
 }
 
-const PAGE = 500
+const PAGE = 200;
 
 const LedgerStatementRowView = memo(function LedgerStatementRowView({
   row,
   index,
   isActive,
   onHover,
-  onOpen
+  onOpen,
 }: {
-  row: LedgerStatementRow
-  index: number
-  isActive: boolean
-  onHover: (i: number) => void
-  onOpen: (voucherId: number) => void
+  row: LedgerStatementRow;
+  index: number;
+  isActive: boolean;
+  onHover: (i: number) => void;
+  onOpen: (voucherId: number) => void;
 }): React.JSX.Element {
   return (
     <tr
@@ -70,46 +95,56 @@ const LedgerStatementRowView = memo(function LedgerStatementRowView({
         <Money paise={row.running} signed />
       </td>
     </tr>
-  )
-})
+  );
+});
 
-export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React.JSX.Element {
-  const { from, to } = useSession()
-  const nav = useNav()
-  const toast = useToasts()
-  const [limit, setLimit] = useState(PAGE)
+export function LedgerStatementScreen({
+  ledgerId,
+}: {
+  ledgerId: number;
+}): React.JSX.Element {
+  const { from, to } = useSession();
+  const nav = useNav();
+  const toast = useToasts();
   // Columnar month mode (v0.3 #55): one row per month with period totals + closing balance.
-  const [mode, setMode] = useState<'detail' | 'monthly'>('detail')
+  const [mode, setMode] = useState<"detail" | "monthly">("detail");
   const { data, isLoading } = useQuery({
-    queryKey: ['ledgerStatement', ledgerId, from, to, mode],
-    queryFn: () => api.reports.ledger(ledgerId, from, to, mode === 'monthly' ? 'month' : undefined)
-  })
+    queryKey: ["ledgerStatement", ledgerId, from, to, mode],
+    queryFn: ({ signal }) =>
+      api.reports.ledger(
+        ledgerId,
+        from,
+        to,
+        mode === "monthly" ? "month" : undefined,
+        signal,
+      ),
+  });
 
-  const rows = data?.rows ?? []
-  const months = data?.months ?? []
+  const rows = data?.rows ?? [];
+  const months = data?.months ?? [];
 
-  useEffect(() => {
-    setLimit(PAGE)
-  }, [ledgerId, from, to, mode])
-
-  const displayRows = useMemo(() => rows.slice(0, limit), [rows, limit])
-  const remaining = rows.length - displayRows.length
+  const {
+    visibleRows: displayRows,
+    visibleCount,
+    remaining,
+    showMore,
+  } = useBoundedRows(rows, `${ledgerId}|${from}|${to}|${mode}`, PAGE);
 
   const { active, setActive } = useKeyNav(
     displayRows.length,
     (i) => {
-      const r = displayRows[i]
-      if (r) nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
+      const r = displayRows[i];
+      if (r) nav.go({ name: "voucher-entry", voucherId: r.voucherId });
     },
-    mode === 'detail'
-  )
+    mode === "detail",
+  );
 
   const openRow = useCallback(
     (voucherId: number) => {
-      nav.go({ name: 'voucher-entry', voucherId })
+      nav.go({ name: "voucher-entry", voucherId });
     },
-    [nav]
-  )
+    [nav],
+  );
 
   if (!data) {
     return (
@@ -118,32 +153,32 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
           <SkeletonRows />
         </Panel>
       </div>
-    )
+    );
   }
 
-  const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
-  const exportColumns = mode === 'monthly' ? MONTHLY_COLUMNS : EXPORT_COLUMNS
+  const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`;
+  const exportColumns = mode === "monthly" ? MONTHLY_COLUMNS : EXPORT_COLUMNS;
   const exportRows: PdfRow[] =
-    mode === 'monthly'
+    mode === "monthly"
       ? [
           ...months.map((m) => ({
             cells: [
               monthLabel(m.month),
               formatPaise(m.debit, { zeroDash: true }),
               formatPaise(m.credit, { zeroDash: true }),
-              formatPaise(m.closing, { zeroDash: true })
-            ]
+              formatPaise(m.closing, { zeroDash: true }),
+            ],
           })),
           {
             cells: [
-              'Closing balance',
+              "Closing balance",
               formatPaise(data.totalDebit, { zeroDash: true }),
               formatPaise(data.totalCredit, { zeroDash: true }),
-              formatPaise(data.closing, { zeroDash: true })
+              formatPaise(data.closing, { zeroDash: true }),
             ],
             bold: true,
-            rule: true
-          }
+            rule: true,
+          },
         ]
       : [
           ...rows.map((r) => ({
@@ -153,22 +188,22 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
               `${r.voucherType} ${r.number}`,
               formatPaise(r.debit, { zeroDash: true }),
               formatPaise(r.credit, { zeroDash: true }),
-              formatPaise(r.running, { zeroDash: true })
-            ]
+              formatPaise(r.running, { zeroDash: true }),
+            ],
           })),
           {
             cells: [
-              '',
-              'Closing balance',
-              '',
+              "",
+              "Closing balance",
+              "",
               formatPaise(data.totalDebit, { zeroDash: true }),
               formatPaise(data.totalCredit, { zeroDash: true }),
-              formatPaise(data.closing, { zeroDash: true })
+              formatPaise(data.closing, { zeroDash: true }),
             ],
             bold: true,
-            rule: true
-          }
-        ]
+            rule: true,
+          },
+        ];
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -176,21 +211,29 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
         right={
           <div className="flex items-center gap-2">
             <div className="flex gap-1">
-              {(['detail', 'monthly'] as const).map((m) => (
+              {(["detail", "monthly"] as const).map((m) => (
                 <button
                   key={m}
                   data-testid={`tab-ledger-statement-${m}`}
                   onClick={() => setMode(m)}
-                  className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${mode === m ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                  className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${mode === m ? "bg-amberbar/25 font-medium text-ink" : "text-muted hover:bg-panel2"}`}
                 >
-                  {m === 'detail' ? 'Vouchers' : 'Monthly'}
+                  {m === "detail" ? "Vouchers" : "Monthly"}
                 </button>
               ))}
             </div>
             <Button
               variant="ghost"
               onClick={() =>
-                void printReport({ title: data.ledgerName, periodLabel, columns: exportColumns, rows: exportRows }, toast)
+                void printReport(
+                  {
+                    title: data.ledgerName,
+                    periodLabel,
+                    columns: exportColumns,
+                    rows: exportRows,
+                  },
+                  toast,
+                )
               }
             >
               PDF
@@ -201,8 +244,8 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
                 void csvReport(
                   exportColumns.map((c) => c.label),
                   exportRows.map((r) => r.cells),
-                  `ledger-${slugFilename(data.ledgerName)}${mode === 'monthly' ? '-monthly' : ''}`,
-                  toast
+                  `ledger-${slugFilename(data.ledgerName)}${mode === "monthly" ? "-monthly" : ""}`,
+                  toast,
                 )
               }
             >
@@ -225,7 +268,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
         </div>
         {isLoading ? (
           <SkeletonRows />
-        ) : mode === 'monthly' ? (
+        ) : mode === "monthly" ? (
           months.length === 0 ? (
             <EmptyState title="No entries for this ledger in the period" />
           ) : (
@@ -296,9 +339,14 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
               {remaining > 0 && (
                 <tr>
                   <td colSpan={6} className="py-2 text-center">
-                    <Button variant="ghost" onClick={() => setLimit((l) => l + PAGE)}>
-                      Show 500 more ({remaining} remaining)
+                    <Button variant="ghost" onClick={showMore}>
+                      Show next {Math.min(PAGE, remaining)} · {remaining}{" "}
+                      remaining
                     </Button>
+                    <span className="ml-2 text-[10px] text-muted">
+                      Showing {visibleCount} of {rows.length}; closing balance
+                      is complete.
+                    </span>
                   </td>
                 </tr>
               )}
@@ -319,5 +367,5 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
         )}
       </Panel>
     </div>
-  )
+  );
 }

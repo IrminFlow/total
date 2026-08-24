@@ -1,84 +1,106 @@
-import { useEffect, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../../lib/client'
-import { useSession, useToasts } from '../../state/stores'
-import { Button, Field, Panel, SectionTitle, TextInput } from '../../components/ui'
-import { DEFAULT_INVOICE_CONFIG, type InvoiceConfig } from '@shared/invoiceConfig'
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "../../lib/client";
+import { useSession, useToasts } from "../../state/stores";
+import {
+  Button,
+  Field,
+  Panel,
+  SectionTitle,
+  TextInput,
+} from "../../components/ui";
+import {
+  DEFAULT_INVOICE_CONFIG,
+  type InvoiceConfig,
+} from "@shared/invoiceConfig";
+import { INVOICE_LABEL_LANGUAGE_OPTIONS } from "@shared/invoiceLabels";
 
-const MAX_LOGO_BYTES = 200 * 1024
-const PREVIEW_DEBOUNCE_MS = 400
+const MAX_LOGO_BYTES = 200 * 1024;
+const PREVIEW_DEBOUNCE_MS = 400;
 
 export function InvoiceConfigSection(): React.JSX.Element {
-  const toast = useToasts()
-  const queryClient = useQueryClient()
-  const { user } = useSession()
-  const { data: existing } = useQuery({ queryKey: ['invoiceConfig'], queryFn: api.config.invoice.get })
-  const [draft, setDraft] = useState<InvoiceConfig | null>(null)
-  const [busy, setBusy] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
-  const value = draft ?? existing ?? DEFAULT_INVOICE_CONFIG
-  const canEdit = user?.role === 'owner'
+  const toast = useToasts();
+  const queryClient = useQueryClient();
+  const { user } = useSession();
+  const { data: existing } = useQuery({
+    queryKey: ["invoiceConfig"],
+    queryFn: api.config.invoice.get,
+  });
+  const [draft, setDraft] = useState<InvoiceConfig | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const value = draft ?? existing ?? DEFAULT_INVOICE_CONFIG;
+  const canEdit = user?.role === "owner";
 
   // Debounce the current (possibly unsaved) draft into the preview query key so the iframe
   // updates as you type, without needing a Save round-trip. The server merges this partial
   // override over the saved config (see invoicePreviewHtml), so it always reflects a full,
   // valid invoice even mid-edit.
-  const [debouncedValue, setDebouncedValue] = useState(value)
+  const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedValue(value), PREVIEW_DEBOUNCE_MS)
-    return () => clearTimeout(t)
-  }, [value])
+    const t = setTimeout(() => setDebouncedValue(value), PREVIEW_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [value]);
   const { data: preview } = useQuery({
-    queryKey: ['invoicePreview', debouncedValue],
-    queryFn: () => api.invoice.previewHtml(undefined, debouncedValue)
-  })
+    queryKey: ["invoicePreview", debouncedValue],
+    queryFn: () => api.invoice.previewHtml(undefined, debouncedValue),
+  });
 
   const set = (patch: Partial<InvoiceConfig>): void => {
-    if (!canEdit) return
-    setDraft({ ...value, ...patch })
-  }
+    if (!canEdit) return;
+    setDraft({ ...value, ...patch });
+  };
 
   const onLogoFile = (file: File | null): void => {
-    if (!file) return
+    if (!file) return;
     if (file.size > MAX_LOGO_BYTES) {
-      toast.push('error', `Logo is ${(file.size / 1024).toFixed(0)}KB — must be under 200KB`)
-      if (fileRef.current) fileRef.current.value = ''
-      return
+      toast.push(
+        "error",
+        `Logo is ${(file.size / 1024).toFixed(0)}KB — must be under 200KB`,
+      );
+      if (fileRef.current) fileRef.current.value = "";
+      return;
     }
-    const reader = new FileReader()
-    reader.onload = () => set({ logoDataUrl: typeof reader.result === 'string' ? reader.result : null })
-    reader.readAsDataURL(file)
-  }
+    const reader = new FileReader();
+    reader.onload = () =>
+      set({
+        logoDataUrl: typeof reader.result === "string" ? reader.result : null,
+      });
+    reader.readAsDataURL(file);
+  };
 
   const setCopyLabel = (i: number, label: string): void => {
-    const next = [...value.copyLabels]
-    next[i] = label
-    set({ copyLabels: next })
-  }
+    const next = [...value.copyLabels];
+    next[i] = label;
+    set({ copyLabels: next });
+  };
   const addCopyLabel = (): void => {
-    if (value.copyLabels.length >= 3) return
-    set({ copyLabels: [...value.copyLabels, `Copy ${value.copyLabels.length + 1}`] })
-  }
+    if (value.copyLabels.length >= 3) return;
+    set({
+      copyLabels: [...value.copyLabels, `Copy ${value.copyLabels.length + 1}`],
+    });
+  };
   const removeCopyLabel = (i: number): void => {
-    if (value.copyLabels.length <= 1) return
-    set({ copyLabels: value.copyLabels.filter((_, idx) => idx !== i) })
-  }
+    if (value.copyLabels.length <= 1) return;
+    set({ copyLabels: value.copyLabels.filter((_, idx) => idx !== i) });
+  };
 
   const save = async (): Promise<void> => {
-    if (!value.copyLabels.some((l) => l.trim())) return void toast.push('error', 'At least one copy label is required')
-    setBusy(true)
+    if (!value.copyLabels.some((l) => l.trim()))
+      return void toast.push("error", "At least one copy label is required");
+    setBusy(true);
     try {
-      await api.config.invoice.set(value)
-      await queryClient.invalidateQueries({ queryKey: ['invoiceConfig'] })
-      await queryClient.invalidateQueries({ queryKey: ['invoicePreview'] })
-      setDraft(null)
-      toast.push('success', 'Invoice print settings saved')
+      await api.config.invoice.set(value);
+      await queryClient.invalidateQueries({ queryKey: ["invoiceConfig"] });
+      await queryClient.invalidateQueries({ queryKey: ["invoicePreview"] });
+      setDraft(null);
+      toast.push("success", "Invoice print settings saved");
     } catch (err) {
-      toast.push('error', (err as Error).message)
+      toast.push("error", (err as Error).message);
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <div>
@@ -87,9 +109,39 @@ export function InvoiceConfigSection(): React.JSX.Element {
         <Panel className="p-5">
           <div className="flex flex-col gap-3">
             <Field label="Title" hint="Printed at the top-right of the invoice">
-              <TextInput value={value.title} onChange={(e) => set({ title: e.target.value })} disabled={!canEdit} />
+              <TextInput
+                value={value.title}
+                onChange={(e) => set({ title: e.target.value })}
+                disabled={!canEdit}
+              />
             </Field>
-            <Field label="Logo" hint="PNG or JPEG, under 200KB — shown top-left">
+            <Field
+              label="Customer-facing labels"
+              hint="Translates labels only. Names, item descriptions, GST terms and values stay unchanged."
+            >
+              <select
+                aria-label="Invoice label language"
+                value={value.labelLanguage}
+                disabled={!canEdit}
+                onChange={(event) =>
+                  set({
+                    labelLanguage: event.target
+                      .value as InvoiceConfig["labelLanguage"],
+                  })
+                }
+                className="w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[12.5px] disabled:opacity-60"
+              >
+                {INVOICE_LABEL_LANGUAGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field
+              label="Logo"
+              hint="PNG or JPEG, under 200KB — shown top-left"
+            >
               <div className="flex items-center gap-3">
                 <input
                   ref={fileRef}
@@ -101,9 +153,16 @@ export function InvoiceConfigSection(): React.JSX.Element {
                 />
                 {value.logoDataUrl && (
                   <>
-                    <img src={value.logoDataUrl} alt="Logo preview" className="h-8 max-w-24 object-contain" />
+                    <img
+                      src={value.logoDataUrl}
+                      alt="Logo preview"
+                      className="h-8 max-w-24 object-contain"
+                    />
                     {canEdit && (
-                      <button className="text-[11.5px] text-cr hover:underline" onClick={() => set({ logoDataUrl: null })}>
+                      <button
+                        className="text-[11.5px] text-cr hover:underline"
+                        onClick={() => set({ logoDataUrl: null })}
+                      >
                         Remove
                       </button>
                     )}
@@ -121,9 +180,16 @@ export function InvoiceConfigSection(): React.JSX.Element {
               />
             </Field>
             <Field label="Signatory line">
-              <TextInput value={value.signatory} onChange={(e) => set({ signatory: e.target.value })} disabled={!canEdit} />
+              <TextInput
+                value={value.signatory}
+                onChange={(e) => set({ signatory: e.target.value })}
+                disabled={!canEdit}
+              />
             </Field>
-            <Field label="Terms" hint="Optional — printed under the declaration when non-empty">
+            <Field
+              label="Terms"
+              hint="Optional — printed under the declaration when non-empty"
+            >
               <textarea
                 value={value.terms}
                 onChange={(e) => set({ terms: e.target.value })}
@@ -140,7 +206,11 @@ export function InvoiceConfigSection(): React.JSX.Element {
                   checked={!!value.bankDetails}
                   disabled={!canEdit}
                   onChange={(e) =>
-                    set({ bankDetails: e.target.checked ? { name: '', account: '', ifsc: '', branch: '' } : null })
+                    set({
+                      bankDetails: e.target.checked
+                        ? { name: "", account: "", ifsc: "", branch: "" }
+                        : null,
+                    })
                   }
                 />
                 Show bank details on invoice
@@ -150,14 +220,28 @@ export function InvoiceConfigSection(): React.JSX.Element {
                   <Field label="Bank name">
                     <TextInput
                       value={value.bankDetails.name}
-                      onChange={(e) => set({ bankDetails: { ...value.bankDetails!, name: e.target.value } })}
+                      onChange={(e) =>
+                        set({
+                          bankDetails: {
+                            ...value.bankDetails!,
+                            name: e.target.value,
+                          },
+                        })
+                      }
                       disabled={!canEdit}
                     />
                   </Field>
                   <Field label="Account no.">
                     <TextInput
                       value={value.bankDetails.account}
-                      onChange={(e) => set({ bankDetails: { ...value.bankDetails!, account: e.target.value } })}
+                      onChange={(e) =>
+                        set({
+                          bankDetails: {
+                            ...value.bankDetails!,
+                            account: e.target.value,
+                          },
+                        })
+                      }
                       className="num"
                       disabled={!canEdit}
                     />
@@ -165,7 +249,14 @@ export function InvoiceConfigSection(): React.JSX.Element {
                   <Field label="IFSC">
                     <TextInput
                       value={value.bankDetails.ifsc}
-                      onChange={(e) => set({ bankDetails: { ...value.bankDetails!, ifsc: e.target.value.toUpperCase() } })}
+                      onChange={(e) =>
+                        set({
+                          bankDetails: {
+                            ...value.bankDetails!,
+                            ifsc: e.target.value.toUpperCase(),
+                          },
+                        })
+                      }
                       className="num"
                       disabled={!canEdit}
                     />
@@ -173,7 +264,14 @@ export function InvoiceConfigSection(): React.JSX.Element {
                   <Field label="Branch">
                     <TextInput
                       value={value.bankDetails.branch}
-                      onChange={(e) => set({ bankDetails: { ...value.bankDetails!, branch: e.target.value } })}
+                      onChange={(e) =>
+                        set({
+                          bankDetails: {
+                            ...value.bankDetails!,
+                            branch: e.target.value,
+                          },
+                        })
+                      }
                       disabled={!canEdit}
                     />
                   </Field>
@@ -183,7 +281,12 @@ export function InvoiceConfigSection(): React.JSX.Element {
 
             <div className="flex gap-5">
               <label className="flex items-center gap-2 text-[12.5px]">
-                <input type="checkbox" checked={value.showHsn} disabled={!canEdit} onChange={(e) => set({ showHsn: e.target.checked })} />
+                <input
+                  type="checkbox"
+                  checked={value.showHsn}
+                  disabled={!canEdit}
+                  onChange={(e) => set({ showHsn: e.target.checked })}
+                />
                 Show HSN column
               </label>
               <label className="flex items-center gap-2 text-[12.5px]">
@@ -222,9 +325,17 @@ export function InvoiceConfigSection(): React.JSX.Element {
               <div className="flex flex-col gap-1.5">
                 {value.copyLabels.map((label, i) => (
                   <div key={i} className="flex gap-2">
-                    <TextInput value={label} onChange={(e) => setCopyLabel(i, e.target.value)} disabled={!canEdit} className="flex-1" />
+                    <TextInput
+                      value={label}
+                      onChange={(e) => setCopyLabel(i, e.target.value)}
+                      disabled={!canEdit}
+                      className="flex-1"
+                    />
                     {canEdit && value.copyLabels.length > 1 && (
-                      <button className="text-[12px] text-cr" onClick={() => removeCopyLabel(i)}>
+                      <button
+                        className="text-[12px] text-cr"
+                        onClick={() => removeCopyLabel(i)}
+                      >
                         ×
                       </button>
                     )}
@@ -239,10 +350,18 @@ export function InvoiceConfigSection(): React.JSX.Element {
             </div>
 
             <div className="mt-2 flex items-center justify-end gap-3">
-              {!canEdit && <span className="text-[11.5px] text-muted">Only owners can edit invoice print settings</span>}
+              {!canEdit && (
+                <span className="text-[11.5px] text-muted">
+                  Only owners can edit invoice print settings
+                </span>
+              )}
               {canEdit && (
-                <Button variant="primary" disabled={busy || !draft} onClick={() => void save()}>
-                  {busy ? 'Saving…' : 'Save'}
+                <Button
+                  variant="primary"
+                  disabled={busy || !draft}
+                  onClick={() => void save()}
+                >
+                  {busy ? "Saving…" : "Save"}
                 </Button>
               )}
             </div>
@@ -250,9 +369,16 @@ export function InvoiceConfigSection(): React.JSX.Element {
         </Panel>
 
         <div>
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Preview</p>
+          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+            Preview
+          </p>
           <div className="overflow-hidden rounded-lg border border-line bg-white">
-            <iframe title="Invoice preview" sandbox="" srcDoc={preview?.html ?? ''} style={{ width: '100%', height: 500, border: 0 }} />
+            <iframe
+              title="Invoice preview"
+              sandbox="allow-same-origin"
+              srcDoc={preview?.html ?? ""}
+              style={{ width: "100%", height: 500, border: 0 }}
+            />
           </div>
           <p className="mt-2 text-[11.5px] text-muted">
             Preview updates as you edit — Save to apply.
@@ -260,5 +386,5 @@ export function InvoiceConfigSection(): React.JSX.Element {
         </div>
       </div>
     </div>
-  )
+  );
 }

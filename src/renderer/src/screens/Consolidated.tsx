@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, ScrollList, SectionTitle, SkeletonRows } from '../components/ui'
+import { Button, EmptyState, Field, Money, Panel, ScrollList, SectionTitle, SkeletonRows, TextInput } from '../components/ui'
 import { csvReport } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
 import { plainRupees } from '@shared/money'
@@ -18,12 +18,15 @@ export function ConsolidatedScreen(): React.JSX.Element {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [kind, setKind] = useState<Kind>('tb')
   const [ranOnce, setRanOnce] = useState(false)
+  const [translationRates,setTranslationRates]=useState<Record<string,number>>({})
+  const [eliminations,setEliminations]=useState<{name:string;group:string;amount:number;reason:string}[]>([])
+  const [elimName,setElimName]=useState('');const [elimGroup,setElimGroup]=useState('Inter-company');const [elimAmount,setElimAmount]=useState('');const [elimReason,setElimReason]=useState('')
 
   const slugs = useMemo(() => companies.map((c) => c.slug).filter((s) => selected.has(s)), [companies, selected])
 
   const { data, error, refetch, isFetching } = useQuery({
-    queryKey: ['consolidated', slugs, kind, from, to],
-    queryFn: () => api.consolidated.run(slugs, kind, from, to),
+    queryKey: ['consolidated', slugs, kind, from, to,translationRates,eliminations],
+    queryFn: () => api.consolidated.run(slugs, kind, from, to,translationRates,eliminations),
     enabled: false
   })
 
@@ -100,7 +103,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
         ) : (
           <ScrollList maxH="40vh" className="flex flex-col gap-1.5">
             {companies.map((c) => (
-              <label key={c.slug} className="flex items-center gap-2 text-[13px]">
+              <div key={c.slug} className="grid grid-cols-[1fr_150px] items-center gap-3 text-[13px]"><label className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   data-testid={`check-consolidated-${c.slug}`}
@@ -109,10 +112,11 @@ export function ConsolidatedScreen(): React.JSX.Element {
                 />
                 {c.name}
                 <span className="num text-[11px] text-muted">{c.slug}</span>
-              </label>
+              </label>{selected.has(c.slug)&&<Field label="Translation rate"><TextInput data-testid={`input-consolidated-rate-${c.slug}`} type="number" min="0.000001" step="0.0001" value={translationRates[c.slug]??1} onChange={(e)=>setTranslationRates((prev)=>({...prev,[c.slug]:Number(e.target.value)||1}))}/></Field>}</div>
             ))}
           </ScrollList>
         )}
+        <div className="mt-4 border-t border-line pt-3"><p className="mb-2 text-[11px] font-semibold">Reviewed eliminations</p><div className="grid grid-cols-[1fr_150px_150px_1fr_auto] items-end gap-2"><Field label="Line name"><TextInput value={elimName} onChange={(e)=>setElimName(e.target.value)}/></Field><Field label="Group"><TextInput value={elimGroup} onChange={(e)=>setElimGroup(e.target.value)}/></Field><Field label="Signed ₹ adjustment"><TextInput type="number" value={elimAmount} onChange={(e)=>setElimAmount(e.target.value)}/></Field><Field label="Reason"><TextInput value={elimReason} onChange={(e)=>setElimReason(e.target.value)}/></Field><Button disabled={!elimName.trim()||!elimReason.trim()||!elimAmount} onClick={()=>{setEliminations((prev)=>[...prev,{name:elimName.trim(),group:elimGroup.trim()||'Inter-company',amount:Math.round(Number(elimAmount)*100),reason:elimReason.trim()}]);setElimName('');setElimAmount('');setElimReason('')}}>Add</Button></div>{eliminations.map((row,index)=><div key={`${row.name}-${index}`} className="mt-2 flex items-center justify-between rounded border border-line px-3 py-2 text-[10.5px]"><span><b>{row.name}</b> · {row.reason}</span><span className="flex items-center gap-3"><Money paise={row.amount} signed/><button className="text-cr" onClick={()=>setEliminations((prev)=>prev.filter((_,i)=>i!==index))}>Remove</button></span></div>)}</div>
         <div className="mt-4 flex items-center gap-2">
           <Button data-testid="btn-consolidated-run" variant="primary" onClick={() => void run()} disabled={isFetching}>
             {isFetching ? 'Running…' : 'Run'}
@@ -147,6 +151,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
 
       {!isFetching && ranOnce && data && (
         <Panel>
+          {(data.eliminationCount??0)>0&&<p className="mb-3 text-[10.5px] text-muted">Includes {data.eliminationCount} reviewed elimination entr{data.eliminationCount===1?'y':'ies'} in a separate column. Translation rates are retained in the export context.</p>}
           {data.rows.length === 0 ? (
             <EmptyState title="No balances" hint="Nothing to show for the selected companies and period" />
           ) : (

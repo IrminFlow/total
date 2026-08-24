@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type IntegrityResult } from '../lib/client'
+import { api, type IntegrityResult, type BusinessType, type PriorSoftware } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Modal, ScrollList, Select, TextInput, useKeyNav } from '../components/ui'
 import { SupportLink } from '../components/SupportLink'
@@ -9,16 +9,19 @@ import { gstinErrorMessage } from '../lib/gstinError'
 import { fyOf, todayISO } from '@shared/dates'
 import type { CompanyCreateInput } from '@shared/schemas'
 import type { CompanyInfo, CompanySummary } from '@shared/domain'
+import { readContinuation } from '../lib/continuation'
+import { recordCohortEvent } from '../lib/commercialOps'
 
 export function CompanySelect(): React.JSX.Element {
   const queryClient = useQueryClient()
   const { data: registry } = useQuery({ queryKey: ['registry'], queryFn: api.company.list })
-  const { setCompany } = useSession()
+  const { setCompany, setPeriod } = useSession()
   const nav = useNav()
   const toast = useToasts()
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [demoLoading, setDemoLoading] = useState(false)
+  const [demoType, setDemoType] = useState<BusinessType>('retailer')
   const [deleting, setDeleting] = useState<CompanySummary | null>(null)
   const [integrityIssue, setIntegrityIssue] = useState<{
     pending: { slug: string; info: CompanyInfo; locked: boolean }
@@ -35,6 +38,13 @@ export function CompanySelect(): React.JSX.Element {
         return
       }
       setCompany(r.slug, r.info, r.locked)
+      const continuation = readContinuation(r.slug)
+      if (continuation) {
+        setPeriod(continuation.from, continuation.to)
+        nav.replace(continuation.screen)
+      } else {
+        nav.home()
+      }
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -100,31 +110,50 @@ export function CompanySelect(): React.JSX.Element {
           </ScrollList>
         </div>
 
-        <div className="mt-4 flex justify-center gap-2">
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           <Button variant="primary" data-testid="btn-company-create" onClick={() => setCreating(true)}>
             Create company
           </Button>
           <Button variant="ghost" onClick={() => setImporting(true)}>
             Import encrypted backup…
           </Button>
-          <Button
-            variant="ghost"
-            disabled={demoLoading}
-            onClick={async () => {
-              setDemoLoading(true)
-              try {
-                const r = await api.company.createDemo()
-                await queryClient.invalidateQueries({ queryKey: ['registry'] })
-                await open(r.slug)
-              } catch (err) {
-                toast.push('error', (err as Error).message)
-              } finally {
-                setDemoLoading(false)
-              }
-            }}
-          >
-            {demoLoading ? 'Setting up sample data…' : 'Explore with sample data'}
-          </Button>
+          <div className="flex overflow-hidden rounded-md border border-line bg-panel">
+            <Select
+              aria-label="Sample business type"
+              data-testid="demo-business-type"
+              className="h-8 min-w-28 rounded-none border-0 bg-transparent text-[11.5px]"
+              value={demoType}
+              onChange={(event) => setDemoType(event.target.value as BusinessType)}
+            >
+              <option value="retailer">Retail</option>
+              <option value="wholesaler">Wholesale</option>
+              <option value="service">Services</option>
+              <option value="manufacturer">Manufacturing</option>
+              <option value="freelancer">Freelancer</option>
+              <option value="professional">Professional</option>
+            </Select>
+            <Button
+              variant="ghost"
+              data-testid="btn-company-demo"
+              className="rounded-none border-0 border-l border-line"
+              disabled={demoLoading}
+              onClick={async () => {
+                setDemoLoading(true)
+                try {
+                  const r = await api.company.createDemo(demoType)
+                  recordCohortEvent(localStorage, 'company_created')
+                  await queryClient.invalidateQueries({ queryKey: ['registry'] })
+                  await open(r.slug)
+                } catch (err) {
+                  toast.push('error', (err as Error).message)
+                } finally {
+                  setDemoLoading(false)
+                }
+              }}
+            >
+              {demoLoading ? 'Setting up…' : 'Explore with sample data'}
+            </Button>
+          </div>
         </div>
 
         <div className="mt-8 text-center">
@@ -148,6 +177,7 @@ export function CompanySelect(): React.JSX.Element {
         <CreateCompanyModal
           onClose={() => setCreating(false)}
           onCreated={async (slug) => {
+            recordCohortEvent(localStorage, 'company_created')
             setCreating(false)
             await queryClient.invalidateQueries({ queryKey: ['registry'] })
             await open(slug)
@@ -392,12 +422,17 @@ function DeleteCompanyModal({
 
 function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (slug: string) => void }): React.JSX.Element {
   const toast = useToasts()
+  const preflight = useQuery({ queryKey: ['onboarding-preflight'], queryFn: api.onboarding.preflight })
   const [name, setName] = useState('')
   const [stateCode, setStateCode] = useState('27')
   const [gstin, setGstin] = useState('')
   const [regType, setRegType] = useState<CompanyCreateInput['gstRegistrationType']>('regular')
   const [address, setAddress] = useState('')
   const [booksFrom, setBooksFrom] = useState(fyOf(todayISO()).startYear)
+  const [businessType, setBusinessType] = useState<BusinessType>('service')
+  const [priorSoftware, setPriorSoftware] = useState<PriorSoftware>('first-time')
+  const [needsInventory, setNeedsInventory] = useState(false)
+  const [needsPayroll, setNeedsPayroll] = useState(false)
 
   const gstinError = gstinErrorMessage(gstin, stateCode)
 
@@ -423,7 +458,7 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
         toast.push('error', gstinError)
         return
       }
-      const r = await api.company.create(input)
+      const r = await api.company.create({ ...input, onboarding: { businessType, priorSoftware, needsInventory, needsPayroll } })
       toast.push('success', `${input.name} created`)
       onCreated(r.slug)
     } catch (err) {
@@ -434,6 +469,18 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
   return (
     <Modal title="Create company" onClose={onClose}>
       <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-4 gap-px overflow-hidden rounded-md border border-line bg-line text-[9px]">
+          {[
+            ['Folder', preflight.data?.writable],
+            ['Disk', preflight.data?.diskReady],
+            ['Clock', preflight.data?.clockReady],
+            ['Credentials', preflight.data?.secureCredentials],
+          ].map(([label, ready]) => (
+            <div key={String(label)} className="bg-panel2 px-2 py-2 text-center">
+              <span className={ready ? 'text-dr' : ready === false ? 'text-cr' : 'text-muted'}>{ready ? '✓' : ready === false ? '!' : '…'}</span>{' '}{label}
+            </div>
+          ))}
+        </div>
         <Field label="Company name">
           <TextInput autoFocus data-testid="input-company-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Sharma Traders" />
         </Field>
@@ -456,6 +503,23 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
               ))}
             </Select>
           </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Business type">
+            <Select value={businessType} onChange={(e) => { const value = e.target.value as BusinessType; setBusinessType(value); setNeedsInventory(['retailer', 'wholesaler', 'manufacturer'].includes(value)) }}>
+              <option value="retailer">Retailer</option><option value="wholesaler">Wholesaler</option><option value="service">Service firm</option><option value="manufacturer">Manufacturer</option><option value="freelancer">Freelancer</option><option value="professional">Professional services</option>
+            </Select>
+          </Field>
+          <Field label="Coming from">
+            <Select value={priorSoftware} onChange={(e) => setPriorSoftware(e.target.value as PriorSoftware)}>
+              <option value="first-time">First accounting app</option><option value="tally">Tally</option><option value="busy">Busy</option><option value="marg">Marg</option><option value="zoho">Zoho Books</option><option value="excel">Excel</option>
+            </Select>
+          </Field>
+        </div>
+        <div className="flex gap-5 rounded-md border border-line bg-panel2 px-3 py-2.5 text-[11.5px]">
+          <label className="flex items-center gap-2"><input type="checkbox" checked={needsInventory} onChange={(e) => setNeedsInventory(e.target.checked)} /> Inventory</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={needsPayroll} onChange={(e) => setNeedsPayroll(e.target.checked)} /> Payroll</label>
+          <span className="ml-auto text-muted">Defaults stay editable</span>
         </div>
         <Field label="GSTIN" hint="Leave empty if not GST-registered" error={gstinError}>
           <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="27AAPFU0939F1ZV" className="num" />

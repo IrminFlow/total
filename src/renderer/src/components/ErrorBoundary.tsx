@@ -38,6 +38,15 @@ export class ErrorBoundary extends Component<Props, State> {
       .catch(() => {
         // Logging must never compound the crash.
       })
+    api.crashes
+      .record({
+        message: error.message,
+        stack: error.stack,
+        screen: this.props.screen
+      })
+      .catch(() => {
+        // Local envelope capture must never compound the crash.
+      })
   }
 
   private handleGoBack = (): void => {

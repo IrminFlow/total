@@ -8,11 +8,10 @@ import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+import type { RegisterGranularity } from '@shared/reports'
 
 const EXPORT_COLUMNS: PdfColumn[] = [
-  { label: 'Month', align: 'l' },
+  { label: 'Period', align: 'l' },
   { label: 'Vouchers', align: 'r' },
   { label: 'Taxable value', align: 'r' },
   { label: 'GST', align: 'r' },
@@ -28,11 +27,6 @@ const ITEM_COLUMNS: PdfColumn[] = [
   { label: 'Margin', align: 'r' }
 ]
 
-function monthLabel(ym: string): string {
-  const [y, m] = ym.split('-').map(Number) as [number, number]
-  return `${MONTH_NAMES[m - 1]} ${y}`
-}
-
 function fmtQty(qtyMilli: number, decimals: number): string {
   return (qtyMilli / 1000).toFixed(decimals)
 }
@@ -45,11 +39,12 @@ export function RegistersScreen(): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
   const [tab, setTab] = useState<Tab>('sales')
+  const [granularity, setGranularity] = useState<RegisterGranularity>('month')
   const [busy, setBusy] = useState<'caPack' | 'tallyXml' | null>(null)
   const kind = tab === 'items' ? 'sales' : tab
   const { data, isLoading } = useQuery({
-    queryKey: ['register', kind, from, to],
-    queryFn: () => api.analysis.register(kind, from, to),
+    queryKey: ['register', kind, from, to, granularity],
+    queryFn: () => api.analysis.register(kind, from, to, granularity),
     enabled: tab !== 'items'
   })
   const rows = data ?? []
@@ -58,7 +53,7 @@ export function RegistersScreen(): React.JSX.Element {
   const exportRows: PdfRow[] = [
     ...rows.map((r) => ({
       cells: [
-        monthLabel(r.month),
+        r.label,
         String(r.vouchers),
         formatPaise(r.taxable, { zeroDash: true }),
         formatPaise(r.tax, { zeroDash: true }),
@@ -105,6 +100,15 @@ export function RegistersScreen(): React.JSX.Element {
             />
             {tab !== 'items' && (
               <>
+                <TabBar
+                  screen="register-granularity"
+                  tabs={[
+                    { id: 'month', label: 'Monthly' },
+                    { id: 'quarter', label: 'Quarterly' }
+                  ]}
+                  active={granularity}
+                  onSelect={(id) => setGranularity(id as RegisterGranularity)}
+                />
                 <Button
                   variant="ghost"
                   onClick={() =>
@@ -116,7 +120,7 @@ export function RegistersScreen(): React.JSX.Element {
                 <Button
                   variant="ghost"
                   onClick={() =>
-                    void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `${kind}-register`, toast)
+                    void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `${kind}-register-${granularity}`, toast)
                   }
                 >
                   CSV
@@ -147,7 +151,7 @@ export function RegistersScreen(): React.JSX.Element {
               <table className="ledger-table">
                 <thead>
                   <tr>
-                    <th>Month</th>
+                    <th>{granularity === 'month' ? 'Month' : 'Quarter'}</th>
                     <th className="r w-24">Vouchers</th>
                     <th className="r w-40">Taxable value</th>
                     <th className="r w-36">GST</th>
@@ -156,7 +160,7 @@ export function RegistersScreen(): React.JSX.Element {
                 </thead>
                 <tbody data-testid="rows-registers">
                   {rows.map((r) => (
-                    <MonthRow key={r.month} month={r.month} kind={kind} vouchers={r.vouchers} taxable={r.taxable} tax={r.tax} total={r.total} />
+                    <PeriodRow key={r.key} period={r} kind={kind} />
                   ))}
                   <tr className="total-row">
                     <td>Total</td>
@@ -169,41 +173,27 @@ export function RegistersScreen(): React.JSX.Element {
               </table>
             )}
           </Panel>
-          <p className="mt-2 text-[11.5px] text-muted">Click a month to open its vouchers in the Day Book.</p>
+          <p className="mt-2 text-[11.5px] text-muted">Click a {granularity} to open its vouchers in the Day Book.</p>
         </>
       )}
     </div>
   )
 }
 
-function MonthRow({
-  month,
-  kind,
-  vouchers,
-  taxable,
-  tax,
-  total
-}: {
-  month: string
-  kind: 'sales' | 'purchase'
-  vouchers: number
-  taxable: number
-  tax: number
-  total: number
-}): React.JSX.Element {
+function PeriodRow({ period, kind }: { period: import('@shared/reports').RegisterPeriodRow; kind: 'sales' | 'purchase' }): React.JSX.Element {
   const nav = useNav()
   return (
     <tr
-      data-row-id={month}
+      data-row-id={period.key}
       className="cursor-pointer hover:bg-panel2"
-      title="Open this month in the Day Book"
-      onClick={() => nav.go({ name: 'daybook', month, kind })}
+      title="Open this period in the Day Book"
+      onClick={() => nav.go({ name: 'daybook', from: period.from, to: period.to, periodLabel: period.label, kind })}
     >
-      <td className="text-blue">{monthLabel(month)}</td>
-      <td className="r num">{vouchers}</td>
-      <td className="r"><Money paise={taxable} /></td>
-      <td className="r"><Money paise={tax} /></td>
-      <td className="r"><Money paise={total} /></td>
+      <td className="text-blue">{period.label}</td>
+      <td className="r num">{period.vouchers}</td>
+      <td className="r"><Money paise={period.taxable} /></td>
+      <td className="r"><Money paise={period.tax} /></td>
+      <td className="r"><Money paise={period.total} /></td>
     </tr>
   )
 }
@@ -213,7 +203,7 @@ function ItemProfitPanel({ from, to, periodLabel }: { from: string; to: string; 
   const toast = useToasts()
   const { data, isLoading } = useQuery({
     queryKey: ['register', 'item-profit', from, to],
-    queryFn: () => api.reports.itemProfitability(from, to)
+    queryFn: ({ signal }) => api.reports.itemProfitability(from, to, signal)
   })
   const rows = data ?? []
   const totals = rows.reduce(

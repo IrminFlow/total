@@ -1,44 +1,71 @@
-@import '@fontsource/ibm-plex-sans/400.css';
-@import '@fontsource/ibm-plex-sans/500.css';
-@import '@fontsource/ibm-plex-sans/600.css';
-@import '@fontsource/ibm-plex-serif/500.css';
-@import '@fontsource/ibm-plex-serif/600.css';
-@import '@fontsource/ibm-plex-mono/400.css';
-@import '@fontsource/ibm-plex-mono/500.css';
-@import 'tailwindcss';
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-serif/500.css";
+@import "@fontsource/ibm-plex-serif/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "tailwindcss";
 
 /* ---------- theme tokens: light (default) and dark ---------- */
 
 :root {
-  --t-bg: #f4f4ef;
-  --t-panel: #ffffff;
-  --t-panel2: #f6f7fa;
-  --t-line: #dcdfe6;
-  --t-ink: #21263a;
-  --t-muted: #6a7186;
-  --t-amber: #b97f0a;
-  --t-amber-bar: #f5b82e;
-  --t-amber-soft: rgba(245, 184, 46, 0.18);
+  --ui-scale: 1;
+  --t-bg: #f3f5f7;
+  --t-panel: #fbfcfd;
+  --t-panel2: #edf1f4;
+  --t-line: #d7dee5;
+  --t-ink: #1c2633;
+  --t-muted: #566477;
+  --t-amber: #875900;
+  --t-amber-bar: #dda21c;
+  --t-amber-soft: rgba(221, 162, 28, 0.16);
   --t-dr: #157a53;
   --t-cr: #bb4433;
   --t-blue: #1f5fc2;
-  --t-shadow: 0 1px 2px rgba(30, 35, 60, 0.06), 0 4px 16px rgba(30, 35, 60, 0.05);
+  --t-shortcut: #9f241f;
+  --t-shadow:
+    0 1px 2px rgba(31, 45, 61, 0.05), 0 10px 28px rgba(31, 45, 61, 0.045);
   --t-rule: #3a4053;
 }
 
-[data-theme='dark'] {
-  --t-bg: #0e1220;
-  --t-panel: #151b2c;
-  --t-panel2: #1b2338;
-  --t-line: #273049;
-  --t-ink: #e9e9e2;
-  --t-muted: #8c94ab;
+[data-font-scale="large"] {
+  --ui-scale: 1.12;
+}
+[data-font-scale="xlarge"] {
+  --ui-scale: 1.22;
+}
+
+#root {
+  zoom: var(--ui-scale);
+  width: calc(100% / var(--ui-scale));
+  height: calc(100% / var(--ui-scale));
+}
+
+[data-reading-mode="dyslexia"] {
+  --font-sans: Verdana, Arial, system-ui, sans-serif;
+}
+
+[data-reading-mode="dyslexia"] body {
+  letter-spacing: 0.025em;
+  word-spacing: 0.08em;
+  line-height: 1.58;
+}
+
+[data-theme="dark"] {
+  --t-bg: #0c1118;
+  --t-panel: #121925;
+  --t-panel2: #192231;
+  --t-line: #293548;
+  --t-ink: #e9edf2;
+  --t-muted: #929daf;
   --t-amber: #f0b429;
   --t-amber-bar: #f0b429;
   --t-amber-soft: rgba(240, 180, 41, 0.14);
   --t-dr: #6ec6a0;
   --t-cr: #e4796b;
   --t-blue: #6e8ef5;
+  --t-shortcut: #ff7066;
   --t-shadow: none;
   --t-rule: #e9e9e2;
 }
@@ -58,11 +85,12 @@
   --color-dr: var(--t-dr);
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);
+  --color-shortcut: var(--t-shortcut);
   --color-rule: var(--t-rule);
 
-  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
-  --font-serif: 'IBM Plex Serif', Georgia, serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-serif: "IBM Plex Serif", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
   /* Type scale — use these (text-label, text-hint, …) in kit components instead of raw
      bracket sizes; screens converge opportunistically. */
@@ -76,6 +104,11 @@
   --text-lead: 14.5px; /* emphasized row titles */
   --text-title: 16px; /* modal titles */
   --text-heading: 19px; /* section titles */
+}
+
+/* Treasury's fixed 13-week horizon intentionally exceeds Tailwind's default 12-column scale. */
+.grid-cols-13 {
+  grid-template-columns: repeat(13, minmax(0, 1fr));
 }
 
 html,
@@ -94,6 +127,41 @@ body {
   user-select: none;
 }
 
+button,
+a,
+input,
+select,
+textarea {
+  transition-property:
+    color, background-color, border-color, opacity, transform, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.app-nav-item {
+  position: relative;
+}
+
+.app-nav-item[data-active="true"] {
+  background: var(--t-amber-soft);
+  color: var(--t-ink);
+  font-weight: 500;
+}
+
+.app-nav-item[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 5px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--t-amber-bar);
+}
+
 .num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -101,6 +169,15 @@ body {
 
 .panel-shadow {
   box-shadow: var(--t-shadow);
+}
+
+/* The global shortcut red is dark enough for paper-like panels. On the one inverse-ink CTA,
+   use a light red so the mnemonic remains red and clears the same contrast threshold. */
+.shortcut-on-dark .text-shortcut {
+  color: #ff938c;
+}
+[data-theme="dark"] .shortcut-on-dark .text-shortcut {
+  color: #9f241f;
 }
 
 .drag-region {
@@ -117,11 +194,11 @@ body {
 .kbar-row {
   position: relative;
 }
-.kbar-row[data-active='true'] {
+.kbar-row[data-active="true"] {
   background: var(--t-amber-soft);
 }
-.kbar-row[data-active='true']::before {
-  content: '';
+.kbar-row[data-active="true"]::before {
+  content: "";
   position: absolute;
   left: 0;
   top: 2px;
@@ -132,10 +209,10 @@ body {
 }
 /* On table rows a ::before would become a phantom first cell — use an inset bar instead. */
 tr.kbar-row::before,
-tr.kbar-row[data-active='true']::before {
+tr.kbar-row[data-active="true"]::before {
   content: none;
 }
-tr.kbar-row[data-active='true'] td:first-child {
+tr.kbar-row[data-active="true"] td:first-child {
   box-shadow: inset 3px 0 0 0 var(--t-amber-bar);
 }
 
@@ -210,4 +287,13 @@ textarea {
     animation: none !important;
     transition: none !important;
   }
+}
+
+[data-motion="reduce"] *,
+[data-motion="reduce"] *::before,
+[data-motion="reduce"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.001ms !important;
 }
