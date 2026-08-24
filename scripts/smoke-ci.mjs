@@ -13,6 +13,7 @@ const electronPath = require('electron')
 const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...desktopEnv } = process.env
 
 const dataDir = process.env.TOTAL_DATA_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'total-smoke-'))
+const profileDir = path.join(dataDir, '.electron-profile')
 const outDir = process.env.SMOKE_OUT || path.join(process.cwd(), 'smoke-out')
 fs.mkdirSync(dataDir, { recursive: true })
 fs.mkdirSync(outDir, { recursive: true })
@@ -20,7 +21,8 @@ fs.mkdirSync(outDir, { recursive: true })
 async function launchApp() {
   const app = await electron.launch({
     executablePath: electronPath,
-    args: [process.cwd()],
+    // Keep requestSingleInstanceLock and Chromium state isolated from local/dev instances.
+    args: [`--user-data-dir=${profileDir}`, process.cwd()],
     timeout: 60000,
     env: { ...desktopEnv, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
   })

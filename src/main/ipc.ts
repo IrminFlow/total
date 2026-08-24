@@ -75,7 +75,6 @@ import {
   chequeConfigSchema,
   companyCreateSchema,
   companySlugSchema,
-  consolidatedRunSchema,
   costCentreInputSchema,
   exportCsvSchema,
   godownInputSchema,
@@ -125,7 +124,6 @@ import { createBoundedTemporaryDirectory } from "./services/tempArtifacts";
 import * as masters from "./services/masters";
 import * as vouchers from "./services/vouchers";
 import * as voucherWorkflow from "./services/voucherWorkflow";
-import * as reports from "./services/reports";
 import * as gst from "./services/gst";
 import * as intel from "./services/intel";
 import * as analysis from "./services/analysis";
@@ -148,7 +146,6 @@ import { exportBarcodeLabels } from "./services/barcodeLabels";
 import * as priceLevels from "./services/priceLevels";
 import * as budgets from "./services/budgets";
 import * as recurring from "./services/recurring";
-import * as yearEnd from "./services/yearEnd";
 import * as agentBridge from "./services/agentBridge";
 import * as mcpAccess from "./services/mcpAccess";
 import * as ai from "./services/ai";
@@ -204,7 +201,10 @@ import { registerAiHandlers } from "./ipc/aiHandlers";
 import { registerMigrationHandlers } from "./ipc/migrationHandlers";
 import { registerCommunityHandlers } from "./ipc/communityHandlers";
 import { registerSupportHandlers } from "./ipc/supportHandlers";
-import * as consolidated from "./services/consolidated";
+import { registerReportHandlers } from "./ipc/reportHandlers";
+import { registerConsolidatedHandlers } from "./ipc/consolidatedHandlers";
+import { registerYearEndHandlers } from "./ipc/yearEndHandlers";
+import type { IpcHandler, OpenCompany } from "./ipc/types";
 import * as caPack from "./services/caPack";
 import { htmlToPdf, writeExportPdf } from "./services/pdf";
 import { reportHtml } from "./services/reportHtml";
@@ -246,15 +246,6 @@ import {
   invoiceConfigSchema,
 } from "@shared/invoiceConfig";
 
-export interface OpenCompany {
-  slug: string;
-  db: DB;
-  info: CompanyInfo;
-  /** Cached usersExist(db) — recomputed only on open and after users:save/deactivate, so ordinary
-   *  IPC calls (the vast majority) never pay for a COUNT query just to check the role gate. */
-  usersExist: boolean;
-}
-
 let current: OpenCompany | null = null;
 
 /** The signed-in user for the currently-open company, or null before login / after logout.
@@ -293,8 +284,6 @@ export function closeCurrentCompany(): void {
   sessionUser = null;
   sessionToken = null;
 }
-
-type Handler = (payload: unknown) => unknown | Promise<unknown>;
 
 /** Channels reachable before a company is open, or otherwise never role-gated: the company
  *  picker, the auth flow itself (you have to be able to call auth:login before you're "in"),
@@ -395,7 +384,7 @@ function enforceDepartmentBoundaries(
 
 function handle(
   channel: string,
-  fn: Handler,
+  fn: IpcHandler,
   minRole: Role = "accountant",
 ): void {
   ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
@@ -825,26 +814,7 @@ export function registerIpc(): void {
   );
 
   // ---------- year-end close ----------
-  const fyStartYearSchema = z.object({
-    fyStartYear: z.number().int().min(1990).max(2100),
-  });
-  handle(
-    "yearend:preview",
-    (p) => {
-      const { fyStartYear } = fyStartYearSchema.parse(p);
-      return yearEnd.closePreview(requireCompany().db, fyStartYear);
-    },
-    "viewer",
-  );
-  handle(
-    "yearend:close",
-    (p) => {
-      const { fyStartYear } = fyStartYearSchema.parse(p);
-      const c = requireCompany();
-      return yearEnd.postClose(c.db, c.info, fyStartYear);
-    },
-    "owner",
-  );
+  registerYearEndHandlers({ handle, requireCompany });
 
   // ---------- backups: list/run/restore + encrypted export/import ----------
   handle(
@@ -3400,164 +3370,10 @@ export function registerIpc(): void {
   });
 
   // ---------- reports ----------
-  const reportRequest = <T>(
-    payload: unknown,
-    task: () => T | Promise<T>,
-  ): Promise<T> => {
-    const requestId =
-      z
-        .object({ __totalRequestId: z.string().uuid().optional() })
-        .passthrough()
-        .parse(payload ?? {}).__totalRequestId ?? randomUUID();
-    return backgroundWork.run("report", requestId, task);
-  };
-  handle(
-    "report:dayBook",
-    (p) =>
-      reportRequest(p, () => {
-        const { from, to, includeOutOfBooks } = periodSchema
-          .extend({ includeOutOfBooks: z.boolean().optional() })
-          .parse(p);
-        return reports.dayBook(requireCompany().db, from, to, {
-          includeOutOfBooks,
-        });
-      }),
-    "viewer",
-  );
-  handle(
-    "report:ledger",
-    (p) =>
-      reportRequest(p, () => {
-        const { ledgerId, from, to, groupBy } = periodSchema
-          .extend({
-            ledgerId: z.number().int().positive(),
-            groupBy: z.enum(["month"]).optional(),
-          })
-          .parse(p);
-        return reports.ledgerStatement(
-          requireCompany().db,
-          ledgerId,
-          from,
-          to,
-          groupBy,
-        );
-      }),
-    "viewer",
-  );
-  handle(
-    "report:trialBalance",
-    (p) =>
-      reportRequest(p, () => {
-        const { asOn } = z.object({ asOn: z.string() }).parse(p);
-        return reports.trialBalance(requireCompany().db, asOn);
-      }),
-    "viewer",
-  );
-  handle(
-    "report:profitLoss",
-    (p) =>
-      reportRequest(p, () => {
-        const { from, to, comparePrior } = periodSchema
-          .extend({ comparePrior: z.boolean().optional() })
-          .parse(p);
-        return reports.profitAndLoss(
-          requireCompany().db,
-          from,
-          to,
-          comparePrior ? { comparePrior } : undefined,
-        );
-      }),
-    "viewer",
-  );
-  handle(
-    "report:balanceSheet",
-    (p) =>
-      reportRequest(p, () => {
-        const { asOn, comparePrior } = z
-          .object({ asOn: z.string(), comparePrior: z.boolean().optional() })
-          .parse(p);
-        const c = requireCompany();
-        return reports.balanceSheet(
-          c.db,
-          `${c.info.booksFrom}-04-01`,
-          asOn,
-          comparePrior,
-        );
-      }),
-    "viewer",
-  );
-  handle(
-    "report:stockSummary",
-    (p) =>
-      reportRequest(p, () => {
-        const { asOn } = z.object({ asOn: z.string() }).parse(p);
-        return reports.stockSummary(requireCompany().db, asOn);
-      }),
-    "viewer",
-  );
-  handle(
-    "report:dashboard",
-    (p) =>
-      reportRequest(p, () => {
-        const { today, fyFrom } = z
-          .object({ today: z.string(), fyFrom: z.string() })
-          .parse(p);
-        return reports.dashboard(requireCompany().db, today, fyFrom);
-      }),
-    "viewer",
-  );
-  handle(
-    "report:cashFlow",
-    (p) =>
-      reportRequest(p, () => {
-        const { from, to } = periodSchema.parse(p);
-        return reports.cashFlow(requireCompany().db, from, to);
-      }),
-    "viewer",
-  );
-  handle(
-    "report:stockAgeing",
-    (p) =>
-      reportRequest(p, () => {
-        const { asOn } = z.object({ asOn: z.string() }).parse(p);
-        return reports.stockAgeing(requireCompany().db, asOn);
-      }),
-    "viewer",
-  );
-  handle("report:itemProfitability", (p) =>
-    reportRequest(p, () => {
-      const { from, to } = periodSchema.parse(p);
-      return reports.itemProfitability(requireCompany().db, from, to);
-    }),
-  );
-  handle(
-    "report:exceptions",
-    (p) =>
-      reportRequest(p, () => {
-        const { from, to } = periodSchema.parse(p);
-        return reports.exceptions(requireCompany().db, from, to);
-      }),
-    "viewer",
-  );
+  registerReportHandlers({ handle, requireCompany });
 
   // ---------- consolidated (multi-company, read-only) ----------
-  handle(
-    "consol:run",
-    (p) => {
-      const activeCompany = requireCompany();
-      const { slugs, kind, from, to, translationRates, eliminations } =
-        consolidatedRunSchema.parse(p);
-      return consolidated.consolidated(
-        slugs,
-        kind,
-        from,
-        to,
-        { translationRates, eliminations },
-        new Set([activeCompany.slug]),
-      );
-    },
-    "viewer",
-  );
+  registerConsolidatedHandlers({ handle, requireCompany });
 
   // ---------- gst ----------
   const gstPeriodInput = periodSchema.extend({

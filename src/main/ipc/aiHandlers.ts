@@ -3,24 +3,13 @@ import { mkdirSync } from "fs";
 import { randomUUID } from "crypto";
 import { extname, join } from "path";
 import { z } from "zod";
-import type { DB } from "../db/connection";
-import type { CompanyInfo } from "@shared/domain";
-import type { Role } from "../services/roles";
+import type { CompanyContext, IpcHandle } from "./types";
 import { isoDate, periodSchema } from "@shared/schemas";
 import { aiAskSchema, aiDraftVoucherSchema, aiProviderInputSchema } from "@shared/ai";
 import { companyDir } from "../paths";
 import * as ai from "../services/ai";
 import * as assistiveAutomation from "../services/assistiveAutomation";
 import * as attachmentVault from "../services/attachmentVault";
-
-type Handler = (payload: unknown) => unknown | Promise<unknown>;
-export type IpcHandle = (channel: string, handler: Handler, minRole?: Role) => void;
-
-interface CompanyContext {
-  slug: string;
-  db: DB;
-  info: CompanyInfo;
-}
 
 export interface AiHandlerContext {
   handle: IpcHandle;

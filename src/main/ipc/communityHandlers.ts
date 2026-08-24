@@ -1,6 +1,6 @@
 import { app } from "electron";
 import { z } from "zod";
-import type { IpcHandle } from "./aiHandlers";
+import type { IpcHandle } from "./types";
 import { feedbackReceiptIdeaId } from "@shared/community";
 
 const feedbackActionSchema = z.discriminatedUnion("action", [

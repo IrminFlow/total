@@ -16,8 +16,7 @@ import { log, logsDir } from "../log";
 import * as configSvc from "../services/config";
 import * as crashReports from "../services/crashReports";
 import * as supportCases from "../services/supportCases";
-import type { OpenCompany } from "../ipc";
-import type { IpcHandle } from "./aiHandlers";
+import type { IpcHandle, OpenCompany } from "./types";
 
 interface SupportHandlerDependencies {
   getCurrentCompany: () => OpenCompany | null;

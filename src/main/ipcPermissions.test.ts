@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import * as ts from "typescript";
 import {
   EXPLICIT_PERMISSION_ACTIONS,
@@ -12,16 +12,25 @@ import {
 
 const IPC_SOURCE_URLS = [
   new URL("./ipc.ts", import.meta.url),
-  new URL("./ipc/migrationHandlers.ts", import.meta.url),
-  new URL("./ipc/supportHandlers.ts", import.meta.url),
+  ...readdirSync(new URL("./ipc/", import.meta.url), { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        entry.name.endsWith(".ts") &&
+        !entry.name.endsWith(".test.ts") &&
+        entry.name !== "types.ts",
+    )
+    .map((entry) => new URL(`./ipc/${entry.name}`, import.meta.url)),
 ];
 
+function registeredChannelList(): string[] {
+  return IPC_SOURCE_URLS.flatMap((url) => [
+    ...readFileSync(url, "utf8").matchAll(/handle\(\s*["']([^"']+)["']/g),
+  ]).map((match) => match[1]!);
+}
+
 function registeredChannels(): Set<string> {
-  return new Set(
-    IPC_SOURCE_URLS.flatMap((url) => [
-      ...readFileSync(url, "utf8").matchAll(/handle\(\s*["']([^"']+)["']/g),
-    ]).map((match) => match[1]!),
-  );
+  return new Set(registeredChannelList());
 }
 
 function directFileChannels(): Set<string> {
@@ -55,6 +64,11 @@ function directFileChannels(): Set<string> {
 }
 
 describe("IPC permission contracts", () => {
+  it("registers every statically declared IPC channel exactly once", () => {
+    const channels = registeredChannelList();
+    expect(channels).toHaveLength(new Set(channels).size);
+  });
+
   it.each([
     ["voucher:batchTag", { ids: [1, 2], tag: "review" }],
     ["voucher:batchReview", { ids: [1, 2] }],

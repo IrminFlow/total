@@ -1,9 +1,7 @@
 import { dialog, shell } from "electron";
 import { readFileSync } from "fs";
 import { z } from "zod";
-import type { DB } from "../db/connection";
-import type { CompanyInfo } from "@shared/domain";
-import type { Role } from "../services/roles";
+import type { CompanyContext, IpcHandle } from "./types";
 import { tallyImportSchema } from "@shared/schemas";
 import { backupCompany } from "../db/connection";
 import { importTallyXml, dryRunTallyXml } from "../services/tallyImport";
@@ -12,9 +10,6 @@ import { findImportBatch, importSourceHash } from "../services/importBatches";
 import * as migrationTools from "../services/migrationTools";
 import * as systemHealthService from "../services/systemHealth";
 
-type Handler = (payload: unknown) => unknown | Promise<unknown>;
-type IpcHandle = (channel: string, handler: Handler, minRole?: Role) => void;
-interface CompanyContext { slug: string; db: DB; info: CompanyInfo }
 interface MigrationHandlerContext {
   handle: IpcHandle;
   requireCompany: () => CompanyContext;
