@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { deleteJson, intakeStoreConfigured, listJson, readJson, storeJson } from "./intakeStore";
+import { serverSecretConfigurationError } from "./serverSecrets";
 
 interface ProtectionReceipt {
   id: string;
@@ -46,7 +47,12 @@ const processKey = randomUUID();
 const RESERVATION_TTL_MS = 30_000;
 
 function securityKey(): string {
-  return process.env.INTAKE_SECURITY_SECRET || process.env.SUPPORT_WEBHOOK_SECRET || process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL_OIDC_TOKEN || processKey;
+  const configurationError = serverSecretConfigurationError();
+  if (configurationError) throw new Error(configurationError);
+  const configured = process.env.INTAKE_SECURITY_SECRET;
+  if (configured) return configured;
+  if (intakeStoreConfigured()) throw new Error("INTAKE_SECURITY_SECRET is required with shared intake storage");
+  return processKey;
 }
 
 function digest(value: string): string {
@@ -93,8 +99,14 @@ async function reserveStoredRate(scope: string, subject: string, now: number, wi
 /** Bounds public metadata lookups without persisting an address, email or case reference. */
 export async function allowProtectedLookup(options: { request: Request; keyMaterial: string; maxActorRequests: number; maxKeyRequests: number; windowMs: number; now?: Date }): Promise<boolean> {
   const now = options.now?.getTime() ?? Date.now();
-  const actor = actorFor(options.request);
-  const key = digest(options.keyMaterial.slice(0, 1_000));
+  let actor: string;
+  let key: string;
+  try {
+    actor = actorFor(options.request);
+    key = digest(options.keyMaterial.slice(0, 1_000));
+  } catch {
+    return false;
+  }
   const memory = () => reserveMemoryRate(`support-lookup:${actor}`, now, options.windowMs, options.maxActorRequests) && reserveMemoryRate(`support-key:${key}`, now, options.windowMs, options.maxKeyRequests);
   if (!intakeStoreConfigured()) return memory();
   try {
@@ -195,8 +207,14 @@ export async function releaseIntake(result: IntakeProtectionResult): Promise<voi
  */
 export async function protectIntake(options: { request: Request; scope: "support" | "feedback"; dedupeMaterial: string; receipt: ProtectionReceipt; maxRequests: number; windowMs: number; now?: Date }): Promise<IntakeProtectionResult> {
   const now = options.now?.getTime() ?? Date.now();
-  const actor = actorFor(options.request);
-  const payload = digest(options.dedupeMaterial.slice(0, 8_000));
+  let actor: string;
+  let payload: string;
+  try {
+    actor = actorFor(options.request);
+    payload = digest(options.dedupeMaterial.slice(0, 8_000));
+  } catch {
+    return { allowed: false, duplicate: false, unavailable: true };
+  }
   const windowStart = Math.floor(now / options.windowMs) * options.windowMs;
   const windowKey = new Date(windowStart).toISOString().replace(/[-:.TZ]/g, "");
   const duplicateKey = `${options.scope}:${actor}:${payload}:${windowKey}`;

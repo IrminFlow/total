@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { intakeStoreConfigured } from "@/lib/intakeStore";
 import { completeIntake, protectIntake, releaseIntake } from "@/lib/intakeProtection";
 import { feedbackDeleteAfter, retentionHoldFor } from "@/lib/intakeRetention";
 import { deleteFeedbackEvent, feedbackVoteSummary, recordFeedbackEvent, TRACKED_FEEDBACK_IDEA_IDS, type StoredFeedbackEvent } from "@/lib/feedbackSummary";
 import { latestRelease } from "@/lib/release";
+import { bearerFrom, privilegedSecretMatches, providerAuthorization } from "@/lib/serverSecrets";
 
 export const runtime = "nodejs";
 
@@ -73,10 +74,7 @@ function endpoint(): URL | null {
 }
 
 function authorized(request: NextRequest): boolean {
-  const expected = process.env.SUPPORT_WEBHOOK_SECRET;
-  const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-  if (!expected || expected.length !== supplied.length) return false;
-  return timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
+  return privilegedSecretMatches("INTAKE_ADMIN_SECRET", bearerFrom(request));
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -95,7 +93,7 @@ export async function GET(): Promise<NextResponse> {
   if (!target) return NextResponse.json({ ideas });
   try {
     const response = await fetch(target, {
-      headers: process.env.SUPPORT_WEBHOOK_SECRET ? { authorization: `Bearer ${process.env.SUPPORT_WEBHOOK_SECRET}` } : {},
+      headers: providerAuthorization(process.env.FEEDBACK_PROVIDER_SECRET),
       signal: AbortSignal.timeout(8_000),
       cache: "no-store",
     });
@@ -186,7 +184,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       headers: {
         "content-type": "application/json",
         ...(protection.idempotencyKey ? { "idempotency-key": protection.idempotencyKey } : {}),
-        ...(process.env.SUPPORT_WEBHOOK_SECRET ? { authorization: `Bearer ${process.env.SUPPORT_WEBHOOK_SECRET}` } : {}),
+        ...providerAuthorization(process.env.FEEDBACK_PROVIDER_SECRET),
       },
       body: JSON.stringify(acceptedEvent),
       signal: AbortSignal.timeout(8_000),

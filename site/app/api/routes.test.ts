@@ -76,8 +76,11 @@ beforeEach(() => {
   delete process.env.CONVEX_SUPPORT_URL;
   delete process.env.SUPPORT_WEBHOOK_URL;
   delete process.env.CONVEX_FEEDBACK_URL;
-  delete process.env.SUPPORT_WEBHOOK_SECRET;
-  delete process.env.INTAKE_SECURITY_SECRET;
+  delete process.env.SUPPORT_PROVIDER_SECRET;
+  delete process.env.FEEDBACK_PROVIDER_SECRET;
+  delete process.env.COHORT_PROVIDER_SECRET;
+  delete process.env.INTAKE_ADMIN_SECRET;
+  process.env.INTAKE_SECURITY_SECRET = "test-intake-hmac-secret-with-at-least-32-bytes";
   delete process.env.CRON_SECRET;
   delete process.env.SUPPORT_FALLBACK_EMAIL;
   delete process.env.BLOB_READ_WRITE_TOKEN;
@@ -125,7 +128,8 @@ afterEach(() => {
 describe("support intake", () => {
   it("forwards a bounded case to the configured HTTPS service", async () => {
     process.env.SUPPORT_WEBHOOK_URL = "https://support.example/intake";
-    process.env.SUPPORT_WEBHOOK_SECRET = "test-secret";
+    process.env.SUPPORT_PROVIDER_SECRET = "test-secret";
+    process.env.INTAKE_ADMIN_SECRET = "different-admin-secret-for-test-only-0001";
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
     const { POST } = await import("./support/route");
@@ -155,6 +159,40 @@ describe("support intake", () => {
         }),
       }),
     );
+  });
+
+  it("never accepts the outbound support-provider secret for administration", async () => {
+    process.env.SUPPORT_PROVIDER_SECRET = "provider-only-secret";
+    const { PATCH } = await import("./support/route");
+    const response = await PATCH(
+      new NextRequest("https://total.example/api/support", {
+        method: "PATCH",
+        headers: {
+          authorization: "Bearer provider-only-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ caseId: "TOT-20260824-ABCDEF", status: "resolved" }),
+      }),
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it("fails closed when provider and administrator credentials collide", async () => {
+    const collided = "collided-secret-for-test-only-00000001";
+    process.env.SUPPORT_PROVIDER_SECRET = collided;
+    process.env.INTAKE_ADMIN_SECRET = collided;
+    const { PATCH } = await import("./support/route");
+    const response = await PATCH(
+      new NextRequest("https://total.example/api/support", {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${collided}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ caseId: "TOT-20260824-ABCDEF", status: "resolved" }),
+      }),
+    );
+    expect(response.status).toBe(401);
   });
 
   it("preserves the case id and prepared email when delivery fails", async () => {
@@ -405,7 +443,7 @@ describe("support intake", () => {
 
   it("indexes resolved cases for 90-day deletion and returns the exact deadline", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
-    process.env.SUPPORT_WEBHOOK_SECRET = "support-admin-secret";
+    process.env.INTAKE_ADMIN_SECRET = "support-admin-secret-for-test-only-0001";
     const caseId = "TOT-20260824-ABCDEF";
     const casePath = `support/2026/08/${caseId}.json`;
     const objects = installBlobStore({
@@ -426,7 +464,7 @@ describe("support intake", () => {
       new NextRequest("https://total.example/api/support", {
         method: "PATCH",
         headers: {
-          authorization: "Bearer support-admin-secret",
+          authorization: "Bearer support-admin-secret-for-test-only-0001",
           "content-type": "application/json",
         },
         body: JSON.stringify({ caseId, status: "resolved" }),
@@ -514,9 +552,10 @@ describe("feedback board", () => {
     });
   });
 
-  it("forwards votes and follows with the shared secret", async () => {
+  it("forwards votes and follows with a provider-only secret", async () => {
     process.env.CONVEX_FEEDBACK_URL = "https://feedback.example/actions";
-    process.env.SUPPORT_WEBHOOK_SECRET = "feedback-secret";
+    process.env.FEEDBACK_PROVIDER_SECRET = "feedback-secret";
+    process.env.INTAKE_ADMIN_SECRET = "different-admin-secret-for-test-only-0002";
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true, votes: 8 }));
     vi.stubGlobal("fetch", fetchMock);
     const { POST } = await import("./feedback/route");
@@ -536,6 +575,32 @@ describe("feedback board", () => {
         }),
       }),
     );
+  });
+
+  it("fails closed when shared intake storage has no independent HMAC secret", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    delete process.env.INTAKE_SECURITY_SECRET;
+    const { POST } = await import("./feedback/route");
+    const response = await POST(post("/api/feedback", { action: "vote", ideaId: "mobile-companion" }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Feedback storage is unavailable" });
+    expect(blobMocks.put).not.toHaveBeenCalled();
+  });
+
+  it("never accepts the outbound feedback-provider secret for deletion", async () => {
+    process.env.FEEDBACK_PROVIDER_SECRET = "provider-only-secret";
+    const { DELETE } = await import("./feedback/route");
+    const response = await DELETE(
+      new NextRequest("https://total.example/api/feedback", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer provider-only-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ events: [] }),
+      }),
+    );
+    expect(response.status).toBe(401);
   });
 
   it("records private append-only feedback events when Blob is connected", async () => {
@@ -637,7 +702,7 @@ describe("feedback board", () => {
 
   it("materializes vote totals and updates them when an event is deleted", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
-    process.env.SUPPORT_WEBHOOK_SECRET = "feedback-secret";
+    process.env.INTAKE_ADMIN_SECRET = "feedback-admin-secret-for-test-only-0001";
     const objects = installBlobStore();
     const { GET, POST, DELETE } = await import("./feedback/route");
     const created = await POST(post("/api/feedback", { action: "vote", ideaId: "mobile-companion" }));
@@ -659,7 +724,7 @@ describe("feedback board", () => {
       new NextRequest("https://total.example/api/feedback", {
         method: "DELETE",
         headers: {
-          authorization: "Bearer feedback-secret",
+          authorization: "Bearer feedback-admin-secret-for-test-only-0001",
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -683,7 +748,7 @@ describe("feedback board", () => {
 
   it("deletes only exact authenticated feedback event references", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
-    process.env.SUPPORT_WEBHOOK_SECRET = "feedback-secret";
+    process.env.INTAKE_ADMIN_SECRET = "feedback-admin-secret-for-test-only-0002";
     const { DELETE } = await import("./feedback/route");
     const id = "09a74630-4f8b-46dd-81fe-be117cb06484";
     const receivedAt = "2026-08-24T10:15:30.000Z";
@@ -691,7 +756,7 @@ describe("feedback board", () => {
       new NextRequest("https://total.example/api/feedback", {
         method: "DELETE",
         headers: {
-          authorization: "Bearer feedback-secret",
+          authorization: "Bearer feedback-admin-secret-for-test-only-0002",
           "content-type": "application/json",
         },
         body: JSON.stringify({ events: [{ id, receivedAt }] }),
@@ -704,7 +769,7 @@ describe("feedback board", () => {
 
   it("rejects unauthenticated feedback deletion", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
-    process.env.SUPPORT_WEBHOOK_SECRET = "feedback-secret";
+    process.env.INTAKE_ADMIN_SECRET = "feedback-admin-secret-for-test-only-0003";
     const { DELETE } = await import("./feedback/route");
     const response = await DELETE(
       new NextRequest("https://total.example/api/feedback", {
@@ -745,7 +810,7 @@ describe("download redirect", () => {
 describe("intake retention maintenance", () => {
   it("requires cron authentication and deletes expired case and feedback payloads", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
-    process.env.CRON_SECRET = "cron-test-secret";
+    process.env.CRON_SECRET = "cron-secret-for-test-only-0000000001";
     const caseId = "TOT-20200101-ABCDEF";
     const feedbackId = "09a74630-4f8b-46dd-81fe-be117cb06484";
     const casePath = `support/2020/01/${caseId}.json`;
@@ -784,7 +849,7 @@ describe("intake retention maintenance", () => {
     expect(denied.status).toBe(401);
     const response = await GET(
       new NextRequest("https://total.example/api/maintenance/intake?limit=10", {
-        headers: { authorization: "Bearer cron-test-secret" },
+        headers: { authorization: "Bearer cron-secret-for-test-only-0000000001" },
       }),
     );
 
@@ -800,7 +865,7 @@ describe("intake retention maintenance", () => {
 
   it("migrates future legacy indexes into the deadline-sorted retention index", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
-    process.env.CRON_SECRET = "cron-test-secret";
+    process.env.CRON_SECRET = "cron-secret-for-test-only-0000000002";
     const caseId = "TOT-20990101-ABCDEF";
     const objectPath = `support/2099/01/${caseId}.json`;
     const legacyPath = `retention-index/support/2099-04/${caseId}.json`;
@@ -818,7 +883,7 @@ describe("intake retention maintenance", () => {
     const { GET } = await import("./maintenance/intake/route");
     const response = await GET(
       new NextRequest("https://total.example/api/maintenance/intake?limit=10", {
-        headers: { authorization: "Bearer cron-test-secret" },
+        headers: { authorization: "Bearer cron-secret-for-test-only-0000000002" },
       }),
     );
     const result = (await response.json()) as {
@@ -832,14 +897,14 @@ describe("intake retention maintenance", () => {
 
   it("drains cursor-paginated security records and reports remaining backlog", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
-    process.env.CRON_SECRET = "cron-test-secret";
+    process.env.CRON_SECRET = "cron-secret-for-test-only-0000000003";
     const expired = Object.fromEntries(Array.from({ length: 205 }, (_, index) => [`intake-security/rate/test/${String(index).padStart(3, "0")}.json`, { expiresAt: "2020-01-01T00:00:00.000Z" }]));
     const objects = installBlobStore(expired);
     const { GET } = await import("./maintenance/intake/route");
     const run = () =>
       GET(
         new NextRequest("https://total.example/api/maintenance/intake?limit=201", {
-          headers: { authorization: "Bearer cron-test-secret" },
+          headers: { authorization: "Bearer cron-secret-for-test-only-0000000003" },
         }),
       );
 

@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { deleteJson, intakeStoreConfigured, listJsonEntriesPage, readJson, storeJson } from "@/lib/intakeStore";
 import {
@@ -11,19 +10,17 @@ import {
   type RetentionIndex,
 } from "@/lib/intakeRetention";
 import { deleteFeedbackEvent } from "@/lib/feedbackSummary";
+import { bearerFrom, privilegedSecretMatches } from "@/lib/serverSecrets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function secretMatches(expected: string | undefined, supplied: string): boolean {
-  if (!expected || expected.length !== supplied.length) return false;
-  return timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
+function cronAuthorized(request: NextRequest): boolean {
+  return privilegedSecretMatches("CRON_SECRET", bearerFrom(request));
 }
 
-function authorized(request: NextRequest): boolean {
-  const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-  return secretMatches(process.env.CRON_SECRET, supplied)
-    || secretMatches(process.env.SUPPORT_WEBHOOK_SECRET, supplied);
+function adminAuthorized(request: NextRequest): boolean {
+  return privilegedSecretMatches("INTAKE_ADMIN_SECRET", bearerFrom(request));
 }
 
 function requestLimit(request: NextRequest): number {
@@ -129,7 +126,7 @@ async function cleanupSecurity(limit: number, now: Date): Promise<{ scanned: num
 }
 
 async function cleanup(request: NextRequest): Promise<NextResponse> {
-  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!cronAuthorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!intakeStoreConfigured()) return NextResponse.json({ error: "Private intake storage is unavailable" }, { status: 503 });
   const limit = requestLimit(request);
   const now = new Date();
@@ -150,7 +147,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
-  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!adminAuthorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!intakeStoreConfigured()) return NextResponse.json({ error: "Private intake storage is unavailable" }, { status: 503 });
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;
   const entity = body?.entity === "support" || body?.entity === "feedback" ? body.entity : null;
@@ -182,7 +179,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
-  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!adminAuthorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const entity = request.nextUrl.searchParams.get("entity");
   const id = request.nextUrl.searchParams.get("id") ?? "";
   if ((entity !== "support" && entity !== "feedback") || !id)

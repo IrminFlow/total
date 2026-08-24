@@ -27,15 +27,22 @@ Vercel (`site` as root directory):
 - `BLOB_READ_WRITE_TOKEN`: required private Vercel Blob system of record for support cases,
   tracking, status history, feedback events, retention indexes and exact deletion.
 - `INTAKE_SECURITY_SECRET`: independent random secret used to pseudonymize rate-limit and dedupe
-  records. Configure it separately from storage and webhook credentials.
-- `CRON_SECRET`: authenticates the scheduled retention-maintenance route.
+  records. It is required whenever shared Blob storage is enabled and must be configured separately
+  from storage, administration and provider credentials.
+- `INTAKE_ADMIN_SECRET`: at least 32 random characters; authenticates case status changes, exact
+  deletion, and legal/security hold administration. It is never sent to an external provider.
+- `CRON_SECRET`: at least 32 random characters; authenticates the scheduled retention-maintenance route.
 - `CONVEX_SUPPORT_URL` / `SUPPORT_WEBHOOK_URL`: optional support-notification destination. It does
   not replace Blob storage or the case-tracking system of record.
 - `CONVEX_FEEDBACK_URL`: do not configure for v0.5 unless the provider implements authenticated
   exact-event deletion and its cleanup contract is added to the release gate. Blob is the supported
   v0.5 feedback backend.
-- `SUPPORT_WEBHOOK_SECRET`: shared bearer secret for case administration, deletion operations and
-  optional outbound notifications.
+- `SUPPORT_PROVIDER_SECRET`: optional bearer credential sent only to the support-notification provider.
+- `FEEDBACK_PROVIDER_SECRET`: optional bearer credential sent only to the feedback provider.
+- `COHORT_PROVIDER_SECRET`: optional bearer credential sent only to the aggregate cohort provider.
+
+Every configured administration, cron, intake-HMAC and provider credential must have a unique value.
+The API fails closed when privileged credentials are too short or any of these boundaries collide.
 
 Submit a synthetic support case and feedback idea after deployment. Verify private-store receipt, case ID,
 rate limiting, fallback behavior and that no book data appears unless explicitly selected.

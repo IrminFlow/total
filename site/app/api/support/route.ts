@@ -3,6 +3,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { intakeStoreConfigured, jsonExists, listJson, readJson, storeJson } from "@/lib/intakeStore";
 import { allowProtectedLookup, completeIntake, protectIntake, releaseIntake } from "@/lib/intakeProtection";
 import { deleteSupportCase, indexForRetention, removeRetentionIndex, retentionHoldFor, supportDeleteAfter } from "@/lib/intakeRetention";
+import { bearerFrom, privilegedSecretMatches, providerAuthorization } from "@/lib/serverSecrets";
 
 export const runtime = "nodejs";
 
@@ -49,10 +50,7 @@ function caseStatusPrefix(caseId: string): string {
 }
 
 function authorized(request: NextRequest): boolean {
-  const expected = process.env.SUPPORT_WEBHOOK_SECRET;
-  const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-  if (!expected || expected.length !== supplied.length) return false;
-  return timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
+  return privilegedSecretMatches("INTAKE_ADMIN_SECRET", bearerFrom(request));
 }
 
 function emailMatches(expected: string, supplied: string): boolean {
@@ -250,7 +248,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       headers: {
         "content-type": "application/json",
         ...(protection.idempotencyKey ? { "idempotency-key": protection.idempotencyKey } : {}),
-        ...(process.env.SUPPORT_WEBHOOK_SECRET ? { authorization: `Bearer ${process.env.SUPPORT_WEBHOOK_SECRET}` } : {}),
+        ...providerAuthorization(process.env.SUPPORT_PROVIDER_SECRET),
       },
       body: JSON.stringify(storedCase),
       signal: AbortSignal.timeout(10_000),

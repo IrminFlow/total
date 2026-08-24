@@ -72,7 +72,8 @@ jobs:
           TOTAL_EXPECTED_SITE_REVISION: ${{ inputs.source_revision }}
           TOTAL_DEPLOYMENT_WAIT_MS: 600000
           TOTAL_SYNTHETIC_EMAIL: synthetic-release-gate@irminflow.invalid
-          SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
+          INTAKE_ADMIN_SECRET: ${{ secrets.INTAKE_ADMIN_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
       - name: Require implementation and production-service readiness
         run: npm run release:readiness -- --pre-artifact

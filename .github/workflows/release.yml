@@ -122,7 +122,8 @@ jobs:
           TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
           TOTAL_DEPLOYMENT_WAIT_MS: 600000
           TOTAL_SYNTHETIC_EMAIL: synthetic-promotion-gate@irminflow.invalid
-          SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
+          INTAKE_ADMIN_SECRET: ${{ secrets.INTAKE_ADMIN_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/candidate/production-services.json
 
       - name: Require exact-artifact acceptance and final readiness
@@ -254,7 +255,8 @@ jobs:
           TOTAL_RELEASE_WAIT_MS: 600000
           TOTAL_REQUIRE_SYNTHETIC: "1"
           TOTAL_SYNTHETIC_EMAIL: synthetic-post-publication@irminflow.invalid
-          SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
+          INTAKE_ADMIN_SECRET: ${{ secrets.INTAKE_ADMIN_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/candidate/post-publication-live.json
 
       - name: Withdraw only the publication created by this run after any failure

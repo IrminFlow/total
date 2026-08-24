@@ -5,7 +5,8 @@ import { boundedWaitMs, releaseAssetProbeOk } from "./lib/production-live-probes
 const root = resolve(new URL("..", import.meta.url).pathname);
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 const origin = process.env.TOTAL_PRODUCTION_URL ?? "https://devjindal.tech";
-const secret = process.env.SUPPORT_WEBHOOK_SECRET ?? "";
+const adminSecret = process.env.INTAKE_ADMIN_SECRET ?? "";
+const cronSecret = process.env.CRON_SECRET ?? "";
 const syntheticEmail = process.env.TOTAL_SYNTHETIC_EMAIL ?? "";
 const intakeEvidence = process.argv.includes("--intake-evidence");
 const expectedSiteRevision = process.env.TOTAL_EXPECTED_SITE_REVISION?.trim() || process.env.GITHUB_SHA?.trim() || "";
@@ -128,9 +129,9 @@ while ((!release.ok || !Object.values(downloads).every((download) => download.ok
   ({ release, downloads } = await inspectPublishedRelease());
 }
 
-const synthetic = { enabled: Boolean(secret && syntheticEmail), ok: null, checks: {}, cleanup: {} };
+const synthetic = { enabled: Boolean(adminSecret && cronSecret && syntheticEmail), ok: null, checks: {}, cleanup: {} };
 if (synthetic.enabled) {
-  const authHeaders = { authorization: `Bearer ${secret}`, "content-type": "application/json" };
+  const authHeaders = { authorization: `Bearer ${adminSecret}`, "content-type": "application/json" };
   const feedbackEvents = [];
   let caseId = null;
   let baselineVotes = null;
@@ -179,7 +180,7 @@ if (synthetic.enabled) {
       retentionDeleteAfter: Number.isFinite(deleteAfter) ? resolved.body.deleteAfter : null,
     };
     if (!synthetic.checks.support.ok) throw new Error("Support tracking or status transition failed");
-    const retention = await requestJson("/api/maintenance/intake?limit=1", { headers: { authorization: `Bearer ${secret}` } });
+    const retention = await requestJson("/api/maintenance/intake?limit=1", { headers: { authorization: `Bearer ${cronSecret}` } });
     synthetic.checks.retention = {
       ok: retention.response.ok
         && retention.body?.ok === true
@@ -197,7 +198,7 @@ if (synthetic.enabled) {
   } finally {
     try {
       if (caseId) {
-        const removed = await requestJson(`/api/support?caseId=${encodeURIComponent(caseId)}`, { method: "DELETE", headers: { authorization: `Bearer ${secret}` } });
+        const removed = await requestJson(`/api/support?caseId=${encodeURIComponent(caseId)}`, { method: "DELETE", headers: { authorization: `Bearer ${adminSecret}` } });
         const missing = await requestJson(`/api/support?caseId=${encodeURIComponent(caseId)}&email=${encodeURIComponent(syntheticEmail)}`);
         synthetic.cleanup.support = { ok: removed.response.ok && missing.response.status === 404, statusEventsDeleted: removed.body?.statusEventsDeleted ?? null };
       }

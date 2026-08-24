@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { providerAuthorization } from "@/lib/serverSecrets";
 
 export const runtime = "nodejs";
 
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid aggregate payload" }, { status: 400 });
   const response = await fetch(target, {
     method: "POST",
-    headers: { "content-type": "application/json", ...(process.env.SUPPORT_WEBHOOK_SECRET ? { authorization: `Bearer ${process.env.SUPPORT_WEBHOOK_SECRET}` } : {}) },
+    headers: { "content-type": "application/json", ...providerAuthorization(process.env.COHORT_PROVIDER_SECRET) },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(8_000),
   });
