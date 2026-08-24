@@ -260,7 +260,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
-            <TextInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Type to filter…" className="w-56" />
+            <TextInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Type to filter…" data-filter-box className="w-56" />
             <Select
               data-testid="input-daybook-scope"
               value={scope}

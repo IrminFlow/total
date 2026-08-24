@@ -217,7 +217,7 @@ function LedgersTab(): React.JSX.Element {
   return (
     <>
       <div className="mb-3 flex justify-between">
-        <TextInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Type to filter…" className="w-64" />
+        <TextInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Type to filter…" data-filter-box className="w-64" />
         <Button variant="primary" data-testid="btn-masters-new-ledger" onClick={() => setEditing('new')}>
           New ledger
         </Button>

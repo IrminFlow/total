@@ -130,6 +130,44 @@ await scenario('11-keyboard', async (h) => {
   const stillEntry = await h.page.getAttribute('[data-screen]', 'data-screen')
   assert(stillEntry === 'voucher-entry', 'declining the Accept bar stays on the voucher')
 
+  // ---- Ctrl+[ / Ctrl+] walk the nav stack, and Ctrl+1..9 jump positionally ----
+  await home()
+  await h.page.keyboard.press('t') // Trial balance
+  await h.waitScreen('trial-balance', 20000)
+  await h.page.keyboard.press('Control+[')
+  await h.waitScreen('gateway', 20000)
+  // Forward must return to exactly where back came from.
+  await h.page.keyboard.press('Control+]')
+  await h.waitScreen('trial-balance', 20000)
+  // Navigating somewhere new drops the forward path, so a second ] must do nothing.
+  await h.page.keyboard.press('Control+[')
+  await h.waitScreen('gateway', 20000)
+  await h.page.keyboard.press('d')
+  await h.waitScreen('daybook', 20000)
+  await h.page.keyboard.press('Control+]')
+  const afterForward = await h.page.getAttribute('[data-screen]', 'data-screen')
+  assert(afterForward === 'daybook', `a stale forward path is discarded (on ${afterForward})`)
+
+  // Ctrl+1 is the first sidebar entry, which is the Gateway.
+  const firstNav = await h.page.$eval('[data-testid^="nav-"]', (el) => (el.dataset.testid || '').replace(/^nav-/, ''))
+  await h.page.keyboard.press('Control+1')
+  await h.waitScreen(firstNav, 20000)
+
+  // ---- Ctrl+F focuses the filter box on a screen that has one ----
+  await home()
+  await h.page.keyboard.press('d')
+  await h.waitScreen('daybook', 20000)
+  await h.page.keyboard.press('Control+f')
+  const focusedFilter = await h.page.evaluate(() =>
+    document.activeElement?.hasAttribute('data-filter-box') ?? false
+  )
+  assert(focusedFilter, 'Ctrl+F focuses the Day Book filter')
+  // And typing there filters rather than navigating: the nav layer must not see the letters.
+  await h.page.keyboard.type('zzzz')
+  const stillDaybook = await h.page.getAttribute('[data-screen]', 'data-screen')
+  assert(stillDaybook === 'daybook', 'typing in the filter does not trigger nav accelerators')
+  await h.page.keyboard.press('Escape')
+
   // Ctrl+K opens the command palette; typing filters; ↵ runs the navigation command.
   await h.page.keyboard.press('Control+k')
   await h.page.waitForSelector('[data-testid="input-palette"]', { timeout: 10000 })

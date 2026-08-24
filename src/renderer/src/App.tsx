@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNav, useScreen, useSession } from './state/stores'
 import { isPlainKey, isTypingTarget, useKeyLayer } from './lib/keyboard'
-import { NAV_ACCEL } from './lib/accel'
+import { NAV_ACCEL, NAV_ORDER } from './lib/accel'
 import { useMenuCommands } from './lib/menuCommands'
 import { useFeatures } from './lib/useFeatures'
 import { Button, Modal, Toasts } from './components/ui'
@@ -74,6 +74,35 @@ export default function App(): React.JSX.Element {
       // reachable — opening the palette over it would let the user navigate around it.
       if (integrityWarning) return true
       setPaletteOpen((v) => !v)
+      return true
+    }
+    // ⌘F focuses this screen's filter box, wherever it happens to be. Screens opt in with
+    // `data-filter-box` rather than the nav layer knowing their layout; a screen with no filter
+    // declines the key and it falls through.
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && !e.shiftKey) {
+      const box = document.querySelector<HTMLInputElement>('[data-filter-box]')
+      if (!box) return false
+      e.preventDefault()
+      box.focus()
+      box.select()
+      return true
+    }
+    // ⌘[ and ⌘] walk the nav stack, the way a browser's back and forward do. Escape already
+    // goes back; this pairs it with a forward, which nothing offered before.
+    if ((e.metaKey || e.ctrlKey) && (e.key === '[' || e.key === ']')) {
+      e.preventDefault()
+      if (e.key === '[') nav.back()
+      else nav.forwardTo()
+      return true
+    }
+    // ⌘1–⌘9 jump to the first nine sidebar entries, positionally.
+    if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) {
+      const target = NAV_ORDER[Number(e.key) - 1]
+      if (!target?.screen) return false
+      if (target.feature && !features[target.feature]) return false
+      e.preventDefault()
+      if (target.name === 'gateway') nav.home()
+      else nav.go(target.screen)
       return true
     }
     if (e.key === 'Escape') {

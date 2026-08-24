@@ -10,6 +10,7 @@ import type { RegisterPeriodRow } from '@shared/reports'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { periodBounds, type Period } from '@shared/period'
+import { useStickyTab } from '../lib/useStickyTab'
 
 
 const EXPORT_COLUMNS: PdfColumn[] = [
@@ -52,7 +53,7 @@ const TAB_LABELS: Record<Tab, string> = { sales: 'Sales', purchase: 'Purchase', 
 export function RegistersScreen(): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
-  const [tab, setTab] = useState<Tab>('sales')
+  const [tab, setTab] = useStickyTab<Tab>('registers', ['sales', 'purchase', 'items'], 'sales')
   const [granularity, setGranularity] = useState<Period>('month')
   const [busy, setBusy] = useState<'caPack' | 'tallyXml' | null>(null)
   const kind = tab === 'items' ? 'sales' : tab

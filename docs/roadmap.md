@@ -15,11 +15,14 @@ Ordering within a section is roughly by value.
 4. ✓ Application menu; free ⌘R / F12 / ⌥⌘I from Electron's default (S)
 5. ✓ `useTableNav` list navigation with Home/End/PageUp/PageDown (M)
 6. ✓ List navigation on the last four screens (S)
-7. `⌘F` focuses the filter box on every report rather than needing a click (S)
-8. Type-to-filter: any letter typed on a list screen starts filtering, as Tally does (S)
-9. `⌘[` / `⌘]` for back and forward through the nav stack (S)
-10. Remember the last active tab per screen across sessions (S)
-11. `⌘1`–`⌘9` jump to the first nine sidebar entries (S)
+7. ✓ `⌘F` focuses the filter box on every report rather than needing a click (S)
+8. ✗ Type-to-filter: any letter typed on a list screen starts filtering (S) — conflicts with #1.
+   Bare letters are nav accelerators, and the promise that `V` opens voucher entry *from any
+   screen* is the whole navigation model. A list layer claiming letters would break it. `⌘F`
+   (#7) is one keystroke away and does not.
+9. ✓ `⌘[` / `⌘]` for back and forward through the nav stack (S)
+10. ✓ Remember the last active tab per screen across sessions (S)
+11. ✓ `⌘1`–`⌘9` jump to the first nine sidebar entries (S)
 12. A "recent screens" ring on `⌘\`` for alt-tab style switching (S)
 13. Keyboard-driven date-range picker on the period pill (S)
 14. `Alt+↑/↓` moves a voucher line up or down in the grid (S)
@@ -32,7 +35,9 @@ Ordering within a section is roughly by value.
 21. Shortcut conflicts surfaced in Settings when a screen shadows a nav letter (S)
 22. Per-user shortcut remapping stored in the company meta (M)
 23. `?` overlay gains a search box once it exceeds one screen (S)
-24. Numeric keypad Enter behaves as Enter everywhere (S)
+24. ✓ Numeric keypad Enter behaves as Enter everywhere (S) — already true: every handler
+    switches on `e.key`, which Chromium reports as `Enter` for NumpadEnter. Verified no site
+    switches on `e.code`.
 25. A "keyboard only" mode that hides all hover affordances (S)
 
 ## B. Data entry speed

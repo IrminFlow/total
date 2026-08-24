@@ -11,6 +11,7 @@ import {
 } from '../components/ui'
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
+import { useStickyTab } from '../lib/useStickyTab'
 
 type Tab = 'employees' | 'runs'
 
@@ -23,7 +24,7 @@ function monthLabel(month: string): string {
 }
 
 export function PayrollScreen(): React.JSX.Element {
-  const [tab, setTab] = useState<Tab>('employees')
+  const [tab, setTab] = useStickyTab<Tab>('payroll', ['employees', 'runs'], 'employees')
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-4 flex items-center gap-1">

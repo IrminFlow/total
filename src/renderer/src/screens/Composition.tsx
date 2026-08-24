@@ -10,6 +10,7 @@ import { COMPOSITION_CATEGORIES, type CompositionCategory } from '@shared/gst/co
 import { fyOf, fyFromStartYear, toDisplayDate, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { periodBounds, periodKey } from '@shared/period'
+import { useStickyTab } from '../lib/useStickyTab'
 
 /**
  * The composition scheme: CMP-08 and GSTR-4.
@@ -39,7 +40,7 @@ const GSTR4_COLUMNS: PdfColumn[] = [
 export function CompositionScreen(): React.JSX.Element {
   const { info, from, to } = useSession()
   const toast = useToasts()
-  const [tab, setTab] = useState<Tab>('cmp08')
+  const [tab, setTab] = useStickyTab<Tab>('composition', ['cmp08', 'gstr4'], 'cmp08')
   const [category, setCategory] = useState<CompositionCategory>('trader')
 
   const today = todayISO()

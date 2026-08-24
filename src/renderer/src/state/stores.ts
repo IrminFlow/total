@@ -69,9 +69,17 @@ export type Screen =
 
 interface NavState {
   stack: Screen[]
+  /**
+   * Screens popped off `stack` by `back`, newest last — the forward history.
+   *
+   * Cleared by `go` and `home`, because navigating somewhere new makes the old forward path
+   * unreachable; keeping it would let ⌘] jump to a screen the user never came from.
+   */
+  forward: Screen[]
   go: (screen: Screen) => void
   replace: (screen: Screen) => void
   back: () => void
+  forwardTo: () => void
   home: () => void
 }
 
@@ -90,20 +98,38 @@ async function confirmLeave(): Promise<boolean> {
 
 export const useNav = create<NavState>((set) => ({
   stack: [{ name: 'gateway' }],
+  forward: [],
   go: (screen) => {
     void confirmLeave().then((ok) => {
-      if (ok) set((s) => ({ stack: [...s.stack, screen] }))
+      if (ok) set((s) => ({ stack: [...s.stack, screen], forward: [] }))
     })
   },
+  // No forward bookkeeping: `replace` swaps the current screen for an equivalent one right after
+  // a save, so there is nothing to go back or forward to.
   replace: (screen) => set((s) => ({ stack: [...s.stack.slice(0, -1), screen] })),
   back: () => {
     void confirmLeave().then((ok) => {
-      if (ok) set((s) => (s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s))
+      if (!ok) return
+      set((s) =>
+        s.stack.length > 1
+          ? { stack: s.stack.slice(0, -1), forward: [...s.forward, s.stack[s.stack.length - 1]!] }
+          : s
+      )
+    })
+  },
+  forwardTo: () => {
+    void confirmLeave().then((ok) => {
+      if (!ok) return
+      set((s) =>
+        s.forward.length > 0
+          ? { stack: [...s.stack, s.forward[s.forward.length - 1]!], forward: s.forward.slice(0, -1) }
+          : s
+      )
     })
   },
   home: () => {
     void confirmLeave().then((ok) => {
-      if (ok) set({ stack: [{ name: 'gateway' }] })
+      if (ok) set({ stack: [{ name: 'gateway' }], forward: [] })
     })
   }
 }))

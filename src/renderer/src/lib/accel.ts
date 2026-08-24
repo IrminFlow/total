@@ -7,7 +7,7 @@
  * left carry an accelerator that is not in the label at all; those render as a trailing badge.
  */
 
-import { SCREENS, type ScreenDef } from './screens'
+import { NAV_SECTIONS, SCREENS, type ScreenDef } from './screens'
 
 export interface AccelSplit {
   before: string
@@ -37,4 +37,16 @@ export function splitAccel(label: string, accel?: string, at?: number): AccelSpl
  */
 export const NAV_ACCEL: ReadonlyMap<string, ScreenDef> = new Map(
   SCREENS.filter((s) => s.accel && s.screen).map((s) => [s.accel!.toUpperCase(), s])
+)
+
+/**
+ * The sidebar in the order it is drawn, for ⌘1–⌘9.
+ *
+ * Derived from the same registry and section order the sidebar renders from, so the ninth entry
+ * here is the ninth entry on screen. Feature-gated sections are NOT filtered out: the gate
+ * depends on the open company, and a positional shortcut that silently means a different screen
+ * per company is worse than one that occasionally does nothing. The nav layer checks the gate.
+ */
+export const NAV_ORDER: readonly ScreenDef[] = NAV_SECTIONS.flatMap((section) =>
+  SCREENS.filter((s) => s.navSection === section.id && s.screen)
 )

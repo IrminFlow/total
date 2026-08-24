@@ -10,6 +10,7 @@ import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { buildReminder } from '@shared/outstanding'
 import type { OutstandingBill } from '@shared/reports'
+import { useStickyTab } from '../lib/useStickyTab'
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Party', align: 'l' },
@@ -62,7 +63,11 @@ export function OutstandingsScreen(): React.JSX.Element {
   const { to, info } = useSession()
   const nav = useNav()
   const toast = useToasts()
-  const [side, setSide] = useState<'receivable' | 'payable'>('receivable')
+  const [side, setSide] = useStickyTab<'receivable' | 'payable'>(
+    'outstandings',
+    ['receivable', 'payable'],
+    'receivable'
+  )
   const [openParty, setOpenParty] = useState<number | null>(null)
   // Summary only. Every party's bills came down on load even though the screen hides them
   // behind the expand toggle -- ~4 MB of JSON at 30,000 vouchers to render a list of names.

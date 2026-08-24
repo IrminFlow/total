@@ -318,12 +318,13 @@ describe('exception reports (#60)', () => {
       gstin: '27AAPFU0939F1ZV', stateCode: '27'
     }).id
 
-    const buy = (date: string): void =>
+    const buy = (date: string): void => {
       postLines(db, 'purchase', date, [
         { ledgerId: purchases, drCr: 'dr', amount: 100000 },
         { ledgerId: cgst, drCr: 'dr', amount: 9000 },
         { ledgerId: vendor, drCr: 'cr', amount: 109000 }
       ], vendor)
+    }
 
     // FY 2020-21: the window shut 30 Nov 2021, long past whenever this test runs.
     buy('2020-06-15')

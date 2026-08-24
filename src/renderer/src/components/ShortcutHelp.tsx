@@ -16,12 +16,17 @@ interface ShortcutGroup {
 }
 
 /**
- * Only these three are hand-written, because they are the only shortcuts bound directly in
- * App.tsx's `nav` layer rather than declared as data.
+ * Only these are hand-written, because they are the only shortcuts bound directly in App.tsx's
+ * `nav` layer rather than declared as data. Every row here has a binding a few lines away from
+ * the one that renders it — that adjacency is what keeps this list honest.
  */
 const GLOBAL_ROWS: ShortcutRow[] = [
   { keys: ['⌘K'], label: 'Open the command palette' },
   { keys: ['Esc'], label: 'Leave a field, close a dialog, or go back a screen' },
+  { keys: ['⌘['], label: 'Back a screen' },
+  { keys: ['⌘]'], label: 'Forward again, after going back' },
+  { keys: ['⌘1', '…', '⌘9'], label: 'Jump to the first nine sidebar entries' },
+  { keys: ['⌘F'], label: 'Focus the filter box, on screens that have one' },
   { keys: ['?'], label: 'Show this shortcut reference' }
 ]
 
