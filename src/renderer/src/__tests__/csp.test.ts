@@ -4,9 +4,9 @@ import { resolve } from 'path'
 
 /**
  * The Content-Security-Policy is one line in one file, and every regression in it looks like a
- * harmless edit. This is the audit (roadmap #269) written down as a test: the three directives
- * that do NOT fall back to default-src are the ones a reviewer forgets, and the day script-src
- * gains 'unsafe-inline' should be the day a test fails rather than the day nobody notices.
+ * harmless edit. This is the audit (roadmap #269) written down as a test: the directives that do
+ * NOT fall back to default-src are the ones a reviewer forgets, and the day script-src gains
+ * 'unsafe-inline' should be the day a test fails rather than the day nobody notices.
  */
 const html = readFileSync(resolve(__dirname, '../../index.html'), 'utf8')
 const policy = /http-equiv="Content-Security-Policy"\s*\n?\s*content="([^"]+)"/.exec(html)?.[1] ?? ''
@@ -30,7 +30,13 @@ describe('the renderer content-security policy', () => {
   it('locks down the directives that do not inherit from default-src', () => {
     expect(directives.get('base-uri')).toEqual(["'none'"])
     expect(directives.get('form-action')).toEqual(["'none'"])
-    expect(directives.get('frame-ancestors')).toEqual(["'none'"])
+  })
+
+  it('leaves out the directive a <meta> element cannot deliver', () => {
+    // frame-ancestors is ignored in a meta CSP and Chromium logs an error about it — which the
+    // E2E clean-console assertion turns into a failed scenario. Nothing can embed a file:// window
+    // opened by the main process anyway.
+    expect(directives.has('frame-ancestors')).toBe(false)
   })
 
   it('never allows inline or remote script', () => {

@@ -7,9 +7,14 @@
     <!--
       Content-Security-Policy, audited (roadmap #269).
 
-      Three of these do NOT fall back to default-src and so were previously unset: base-uri
-      (a single injected <base> tag re-points every relative URL in the app), form-action (where
-      a form may post to, which no CSP default covers), and frame-ancestors.
+      Two of these do NOT fall back to default-src and so were previously unset: base-uri (a
+      single injected <base> tag re-points every relative URL in the app) and form-action (where
+      a form may post to, which no CSP default covers).
+
+      frame-ancestors is deliberately NOT here. It is ignored when delivered in a <meta> element
+      and Chromium logs an error saying so, which the E2E suite's clean-console assertion catches
+      — and it would guard nothing anyway: this window is loaded from file:// by the main process
+      and nothing can embed it.
 
       style-src keeps 'unsafe-inline' because Tailwind's runtime writes inline styles and React
       sets style props; that is a real weakening and is the reason script-src has no such
@@ -25,7 +30,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; media-src 'none'; object-src 'none'; frame-src 'self'; worker-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; media-src 'none'; object-src 'none'; frame-src 'self'; worker-src 'none'; base-uri 'none'; form-action 'none'"
     />
   </head>
   <body>
