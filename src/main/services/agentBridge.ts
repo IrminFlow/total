@@ -79,6 +79,17 @@ function proposalsDir(slug: string): string {
   return join(companyDir(slug), 'proposals')
 }
 
+const INBOX_BATCH_ID = /^inbox-[a-f0-9]{64}$/
+const INBOX_PROPOSAL_ID = /^(inbox-[a-f0-9]{64})--(\d{4})\.json$/
+
+function proposalPath(slug: string, file: string): string {
+  const name = safeProposalName(file)
+  const batch = INBOX_PROPOSAL_ID.exec(name)
+  return batch
+    ? join(proposalsDir(slug), 'queued', batch[1]!, `${batch[2]}.json`)
+    : join(proposalsDir(slug), name)
+}
+
 export function createProposal(slug: string, source: AgentProposal['source'], summary: string, voucher: unknown): AgentProposal {
   const dir = proposalsDir(slug)
   mkdirSync(dir, { recursive: true })
@@ -97,7 +108,7 @@ function safeProposalName(file: string): string {
 
 function readProposal(slug: string, file: string): { proposal: AgentProposal; sha256: string } {
   const name = safeProposalName(file)
-  const path = join(proposalsDir(slug), name)
+  const path = proposalPath(slug, name)
   if (!existsSync(path)) throw new Error('Proposal no longer exists')
   if (statSync(path).size > 512 * 1024) throw new Error('Proposal is too large')
   const text = readFileSync(path, 'utf8')
@@ -117,21 +128,36 @@ export function getProposal(slug: string, file: string): AgentProposal {
 export function listProposals(slug: string): AgentProposal[] {
   const dir = proposalsDir(slug)
   if (!existsSync(dir)) return []
-  return readdirSync(dir)
+  const candidates = readdirSync(dir)
     .filter((name) => name.endsWith('.json'))
-    .sort()
-    .reverse()
-    .slice(0, 200)
-    .flatMap((name) => {
+    .map((name) => ({ path: join(dir, name), id: name }))
+  const queued = join(dir, 'queued')
+  if (existsSync(queued)) {
+    for (const batchId of readdirSync(queued).filter((name) => INBOX_BATCH_ID.test(name))) {
+      const batchDir = join(queued, batchId)
       try {
-        if (statSync(join(dir, name)).size > 512 * 1024) return []
-        const parsed = JSON.parse(readFileSync(join(dir, name), 'utf8')) as AgentProposal
+        if (!statSync(batchDir).isDirectory()) continue
+        for (const file of readdirSync(batchDir).filter((name) => /^\d{4}\.json$/.test(name))) {
+          candidates.push({ path: join(batchDir, file), id: `${batchId}--${file}` })
+        }
+      } catch {
+        // A concurrently archived batch entry is simply absent from this listing.
+      }
+    }
+  }
+  return candidates
+    .flatMap(({ path, id }) => {
+      try {
+        if (statSync(path).size > 512 * 1024) return []
+        const parsed = JSON.parse(readFileSync(path, 'utf8')) as AgentProposal
         if (parsed.version !== 1 || parsed.status !== 'pending' || !parsed.id || !parsed.voucher) return []
-        return [{ ...parsed, id: name }]
+        return [{ ...parsed, id }]
       } catch {
         return []
       }
     })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+    .slice(0, 200)
 }
 
 /**
@@ -148,7 +174,7 @@ export function approveProposal(
 ): ControlledVoucherPostResult {
   const name = safeProposalName(file)
   const dir = proposalsDir(slug)
-  const path = join(dir, name)
+  const path = proposalPath(slug, name)
   const resultRow = db.prepare(
     `SELECT proposal_sha256 AS proposalSha256,proposal_json AS proposalJson,result_kind AS resultKind,
             result_id AS resultId,result_json AS resultJson
@@ -239,7 +265,7 @@ export function discardProposal(
   const proposal = getProposal(slug, file)
   authorize?.(proposal)
   const name = proposal.id
-  const path = join(proposalsDir(slug), name)
+  const path = proposalPath(slug, name)
   rmSync(path)
 }
 
@@ -461,6 +487,91 @@ function validateInertVoucher(db: DB, input: VoucherInputParsed): void {
   if (errors.length > 0) throw new Error(errors.map((error) => error.message).join('; '))
 }
 
+interface InboxProposalBatchHooks {
+  /** @internal Deterministic filesystem-failure injection used by DB tests. */
+  beforeStageWrite?: (index: number) => void
+}
+
+/**
+ * Materialise one JSON drop as a content-and-file-identity-addressed proposal batch. Files are invisible under a
+ * hidden staging directory until one atomic directory rename exposes the complete batch. The
+ * deterministic destination doubles as a durable completion marker: a retry after promotion
+ * reuses the batch even if the source drop could not yet be moved to processed/.
+ */
+function createInboxProposalBatch(
+  slug: string,
+  sourcePath: string,
+  sourceText: string,
+  inputs: VoucherInputParsed[],
+  hooks: InboxProposalBatchHooks
+): number {
+  if (inputs.length > 9999) throw new Error('A voucher proposal batch cannot exceed 9,999 entries')
+  const sourceSha256 = createHash('sha256').update(sourceText).digest('hex')
+  const sourceStat = statSync(sourcePath)
+  // Bind idempotency to this physical drop as well as its bytes. Retrying the same file reuses
+  // the batch, while a genuinely new file with intentionally identical vouchers remains valid.
+  const dropFingerprint = createHash('sha256')
+    .update(sourceSha256)
+    .update(`:${sourceStat.dev}:${sourceStat.ino}:${sourceStat.birthtimeMs}:${sourceStat.size}`)
+    .digest('hex')
+  const batchId = `inbox-${dropFingerprint}`
+  const root = proposalsDir(slug)
+  const queuedRoot = join(root, 'queued')
+  const destination = join(queuedRoot, batchId)
+  const manifestName = '.manifest.json'
+  const expectedManifest = { version: 1, sourceSha256, count: inputs.length }
+  const verifyExisting = (): number => {
+    const parsed = JSON.parse(readFileSync(join(destination, manifestName), 'utf8')) as typeof expectedManifest
+    if (parsed.version !== 1 || parsed.sourceSha256 !== sourceSha256 || parsed.count !== inputs.length) {
+      throw new Error('Existing inbox proposal batch is inconsistent')
+    }
+    return parsed.count
+  }
+
+  if (existsSync(destination)) return verifyExisting()
+
+  const stagingRoot = join(root, '.staging')
+  const staging = join(stagingRoot, `${batchId}-${randomUUID()}`)
+  mkdirSync(staging, { recursive: true, mode: 0o700 })
+  try {
+    const createdAt = new Date().toISOString()
+    for (let index = 0; index < inputs.length; index++) {
+      hooks.beforeStageWrite?.(index)
+      const file = `${String(index + 1).padStart(4, '0')}.json`
+      const id = `${batchId}--${file}`
+      const proposal: AgentProposal = {
+        version: 1,
+        id,
+        createdAt,
+        source: 'external',
+        status: 'pending',
+        summary: `Inbox voucher proposal${inputs.length > 1 ? ` ${index + 1}/${inputs.length}` : ''} · ${inputs[index]!.date}`,
+        voucher: inputs[index]
+      }
+      writeFileSync(join(staging, file), JSON.stringify(proposal, null, 2), { flag: 'wx', mode: 0o600 })
+    }
+    writeFileSync(join(staging, manifestName), JSON.stringify(expectedManifest), { flag: 'wx', mode: 0o600 })
+    mkdirSync(queuedRoot, { recursive: true, mode: 0o700 })
+    try {
+      renameSync(staging, destination)
+    } catch (error) {
+      // Another process may have promoted the same drop batch first. Its manifest
+      // is authoritative; otherwise preserve the original promotion failure.
+      if (existsSync(destination)) {
+        rmSync(staging, { recursive: true, force: true })
+        return verifyExisting()
+      }
+      throw error
+    }
+    return inputs.length
+  } catch (error) {
+    // Only this invocation's UUID-scoped staging tree is removed. No earlier or unrelated
+    // proposal can be touched, and a partially written batch was never visible to reviewers.
+    rmSync(staging, { recursive: true, force: true })
+    throw error
+  }
+}
+
 /**
  * Validate one dropped file, then move it to `inbox/processed/<ts>-<file>` on success or
  * `inbox/failed/<file>` (+ `<file>.error.txt`) on failure. `*.json` = inert voucher proposal
@@ -471,7 +582,12 @@ function validateInertVoucher(db: DB, input: VoucherInputParsed): void {
  * mid-write. When the content doesn't parse, the file is re-read after a short pause for as long
  * as it keeps changing (bounded) — a static malformed file costs exactly one extra read.
  */
-export function processInboxFile(db: DB, slug: string, filePath: string): InboxOutcome {
+export function processInboxFile(
+  db: DB,
+  slug: string,
+  filePath: string,
+  proposalBatchHooks: InboxProposalBatchHooks = {}
+): InboxOutcome {
   const inbox = inboxDir(slug)
   const name = basename(filePath)
   const processedDir = join(inbox, 'processed')
@@ -541,15 +657,8 @@ export function processInboxFile(db: DB, slug: string, filePath: string): InboxO
       // the review queue unchanged. Approval is a separate authenticated action.
       const inputs = items.map((item) => voucherInputSchema.parse(item))
       for (const input of inputs) validateInertVoucher(db, input)
-      const proposals = inputs.map((input, index) =>
-        createProposal(
-          slug,
-          'external',
-          `Inbox voucher proposal${inputs.length > 1 ? ` ${index + 1}/${inputs.length}` : ''} · ${input.date}`,
-          input
-        )
-      )
-      return succeed(`queued ${proposals.length} voucher proposal(s) for review`)
+      const proposalCount = createInboxProposalBatch(slug, filePath, text, inputs, proposalBatchHooks)
+      return succeed(`queued ${proposalCount} voucher proposal(s) for review`)
     }
     if (ext === '.csv') {
       for (let attempt = 0; ; attempt++) {

@@ -3,7 +3,7 @@
 // The fs.watch wiring itself isn't timing-tested here — scanInbox/processInboxFile ARE the watcher
 // callback body, so this covers the whole pipeline deterministically.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync, mkdtempSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync, rmSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { setAuditContext } from './audit'
@@ -152,6 +152,39 @@ describe('inbox drop processing', () => {
     expect(outcome.ok).toBe(false)
     expect(voucherCount()).toBe(before)
     expect(listProposals(slug)).toHaveLength(proposalsBefore)
+  })
+
+  it('hides and removes a partially staged batch when the second proposal write fails', () => {
+    const existingIds = new Set(listProposals(slug).map((proposal) => proposal.id))
+    const voucher = (amount: number) => ({
+      voucherTypeId: receiptTypeId(),
+      date: '2025-08-04',
+      lines: [
+        { ledgerId: ledgerId('Cash'), drCr: 'dr', amount },
+        { ledgerId: ledgerId('Inbox Sales'), drCr: 'cr', amount }
+      ]
+    })
+    const file = join(inbox, 'atomic-batch.json')
+    writeFileSync(file, JSON.stringify([voucher(6100), voucher(6200)]))
+
+    const failed = processInboxFile(db, slug, file, {
+      beforeStageWrite: (index) => {
+        if (index === 1) throw new Error('injected second proposal write failure')
+      }
+    })
+    expect(failed).toMatchObject({ ok: false, file: 'atomic-batch.json' })
+    expect(failed.detail).toContain('injected second proposal write failure')
+    expect(listProposals(slug).map((proposal) => proposal.id)).toEqual([...existingIds])
+    const failedDrop = join(inbox, 'failed', 'atomic-batch.json')
+    expect(existsSync(failedDrop)).toBe(true)
+
+    renameSync(failedDrop, file)
+    const retried = processInboxFile(db, slug, file)
+    expect(retried.ok).toBe(true)
+    const created = listProposals(slug).filter((proposal) => !existingIds.has(proposal.id))
+    expect(created).toHaveLength(2)
+    expect(new Set(created.map((proposal) => proposal.id)).size).toBe(2)
+    for (const proposal of created) discardProposal(slug, proposal.id)
   })
 
   it('rejects malformed JSON and unknown extensions with readable errors', () => {
