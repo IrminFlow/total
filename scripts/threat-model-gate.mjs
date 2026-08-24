@@ -17,7 +17,14 @@ const checks = [
   ["external navigation denied", /will-navigate/.test(index) && /preventDefault/.test(index)],
   ["permissions denied", /setPermissionRequestHandler/.test(index) && /callback\(false\)/.test(index)],
   ["narrow preload", /ipcRenderer\.invoke\(`total:\$\{channel\}`/.test(preload)],
-  ["central IPC gate", /function handle\(/.test(ipc) && /permissionAllows/.test(ipc) && /ZodError/.test(ipc)],
+  [
+    "central IPC gate",
+    /function handle\(/.test(ipc) &&
+      /assertIpcPermissionAllowed\(/.test(ipc) &&
+      /enforceDepartmentBoundaries\(/.test(ipc) &&
+      /assertCompanyWideSurfaceAllowed\(/.test(ipc) &&
+      /ZodError/.test(ipc),
+  ],
   ["IPC payloads excluded from logs", /Never log payloads/.test(ipc)],
   ["MCP scopes", /SCOPE_DENIED/.test(mcp) && /TOTAL_MCP_TOKEN/.test(mcp)],
   ["MCP proposal-only", /mutatesBooks:\s*false/.test(mcp) && /requiresHumanApproval:\s*true/.test(mcp)],
