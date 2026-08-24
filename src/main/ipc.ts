@@ -817,6 +817,30 @@ export function registerIpc(): void {
     return { jsonText, fileName: picked.filePaths[0].split('/').pop() ?? 'gstr2b.json' }
   }, 'viewer')
 
+  // ---------- composition scheme ----------
+  handle('gst:cmp08', (p) => {
+    const { from, to, category, interest, lateFee } = periodSchema
+      .extend({
+        category: z.enum(['trader', 'restaurant', 'service']),
+        interest: z.number().int().min(0).optional(),
+        lateFee: z.number().int().min(0).optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return gst.cmp08(c.db, c.info, from, to, category, { interest, lateFee })
+  }, 'viewer')
+
+  handle('gst:gstr4', (p) => {
+    const { fyStartYear, category } = z
+      .object({
+        fyStartYear: z.number().int().min(1990).max(2100),
+        category: z.enum(['trader', 'restaurant', 'service'])
+      })
+      .parse(p)
+    const c = requireCompany()
+    return gst.gstr4(c.db, c.info, fyStartYear, category)
+  }, 'viewer')
+
   // ---------- analysis ----------
   handle('analysis:register', (p) => {
     const { kind, from, to, groupBy } = periodSchema

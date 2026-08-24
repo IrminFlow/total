@@ -31,9 +31,13 @@ describe('upcomingDeadlines', () => {
     expect(advTax[0]!.date).toBe('2027-03-15')
   })
 
-  it('omits GSTR-1/3B for composition dealers', () => {
+  it('omits GSTR-1/3B for composition dealers, who file CMP-08 instead', () => {
     const d = upcomingDeadlines('2026-01-01', 'composition', false, 30)
-    expect(d.some((x) => x.kind === 'gst')).toBe(false)
+    const forms = d.filter((x) => x.kind === 'gst').map((x) => x.form)
+    expect(forms).not.toContain('GSTR-1')
+    expect(forms).not.toContain('GSTR-3B')
+    // January follows Q3, so the quarterly statement is due.
+    expect(forms).toContain('CMP-08')
     // TDS and advance tax rules are unaffected by registration type.
     expect(d.some((x) => x.kind === 'tds')).toBe(true)
   })
@@ -151,7 +155,54 @@ describe('QRMP (quarterly returns, monthly payment)', () => {
     )
   })
 
-  it('still files nothing for a composition dealer, whatever the frequency', () => {
-    expect(forms(upcomingDeadlines('2026-07-01', 'composition', false, 40, 'quarterly', '27'))).toEqual([])
+  it('ignores the frequency for a composition dealer, who is on their own schedule', () => {
+    // CMP-08 either way; the QRMP branch must not leak into a scheme it does not apply to.
+    const asQuarterly = forms(upcomingDeadlines('2026-07-01', 'composition', false, 40, 'quarterly', '27'))
+    const asMonthly = forms(upcomingDeadlines('2026-07-01', 'composition', false, 40, 'monthly', '27'))
+    expect(asQuarterly).toEqual(['CMP-08'])
+    expect(asMonthly).toEqual(asQuarterly)
+  })
+})
+
+describe('composition scheme', () => {
+  // Composition dealers previously had no GST deadlines at all, which reads as "nothing to file"
+  // rather than "your scheme is unsupported".
+  const comp = (today: string, horizon = 40): Deadline[] =>
+    upcomingDeadlines(today, 'composition', false, horizon)
+
+  it('asks for CMP-08 in the month after each quarter', () => {
+    const cmp = comp('2026-07-01').find((d) => d.form === 'CMP-08')
+    expect(cmp?.date).toBe('2026-07-18')
+    expect(cmp?.title).toContain('Q1')
+  })
+
+  it('asks for it in exactly the four months that follow a quarter', () => {
+    const months: string[] = []
+    for (let m = 1; m <= 12; m++) {
+      if (comp(`2026-${String(m).padStart(2, '0')}-01`, 20).some((d) => d.form === 'CMP-08')) {
+        months.push(String(m))
+      }
+    }
+    expect(months).toEqual(['1', '4', '7', '10'])
+  })
+
+  it('asks for the annual GSTR-4 after the financial year closes', () => {
+    const gstr4 = comp('2027-06-10', 40).find((d) => d.form === 'GSTR-4')
+    expect(gstr4?.date).toBe('2027-06-30')
+    expect(gstr4?.title).toMatch(/annual return/)
+  })
+
+  it('never asks a composition dealer for GSTR-1 or GSTR-3B', () => {
+    for (let m = 1; m <= 12; m++) {
+      const forms = comp(`2026-${String(m).padStart(2, '0')}-01`, 40).map((d) => d.form)
+      expect(forms).not.toContain('GSTR-1')
+      expect(forms).not.toContain('GSTR-3B')
+      expect(forms).not.toContain('PMT-06')
+    }
+  })
+
+  it('still tracks the non-GST deadlines every business has', () => {
+    // TDS and advance tax are not scheme-dependent.
+    expect(comp('2026-07-01').map((d) => d.form)).toContain('TDS Challan')
   })
 })

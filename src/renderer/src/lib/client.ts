@@ -32,6 +32,7 @@ import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Period } from '@shared/period'
 import type { AiConfigView, AiSettings } from '@shared/ai/config'
 import type { LicenseState } from '@shared/license'
+import type { Cmp08, CompositionCategory, Gstr4 } from '@shared/gst/composition'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -681,6 +682,12 @@ export const api = {
     chat: (input: { question: string; screen?: string; history?: { role: 'user' | 'assistant'; content: string }[] }) =>
       call<{ runId: string }>('ai:chat', input),
     cancel: (runId: string) => call<{ cancelled: boolean }>('ai:cancel', { runId })
+  },
+  composition: {
+    cmp08: (from: string, to: string, category: CompositionCategory, extras: { interest?: number; lateFee?: number } = {}) =>
+      call<Cmp08>('gst:cmp08', { from, to, category, ...extras }),
+    gstr4: (fyStartYear: number, category: CompositionCategory) =>
+      call<Gstr4>('gst:gstr4', { fyStartYear, category })
   },
   mcp: {
     snippet: (client: 'claude-desktop' | 'claude-code' | 'codex', allowWrites: boolean) =>

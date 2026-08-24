@@ -96,13 +96,13 @@ export function validateGstr1(docs: GstDoc[], company: Gstr1ValidationCompany): 
   const issues: GstIssue[] = []
 
   // Composition dealers file CMP-08/GSTR-4, never GSTR-1 — exporting one would just be
-  // rejected by the portal, so this blocks with an explanation instead of failing there.
+  // rejected by the portal, so this blocks and sends them to the screen that does file it.
   if (company.gstRegistrationType === 'composition') {
     issues.push({
       code: 'composition',
       severity: 'blocking',
       message:
-        'This company is registered under the composition scheme — composition dealers file CMP-08/GSTR-4, not GSTR-1.',
+        'This company is registered under the composition scheme — composition dealers file CMP-08 and GSTR-4, not GSTR-1. Open CMP-08 & GSTR-4 from the sidebar (or press 4).',
       voucherIds: []
     })
   }

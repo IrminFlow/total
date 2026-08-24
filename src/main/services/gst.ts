@@ -11,7 +11,15 @@ import {
 import { backOutAdvance, computeGst, supplyTypeFor } from '@shared/gst/calc'
 import { toUqc } from '@shared/gst/uqc'
 import { validateGstr1, type GstIssue } from '@shared/gst/validate'
-import { fyOf } from '@shared/dates'
+import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
+import { periodBounds } from '@shared/period'
+import {
+  buildGstr4,
+  computeCmp08,
+  type Cmp08,
+  type CompositionCategory,
+  type Gstr4
+} from '@shared/gst/composition'
 import { plainRupees } from '@shared/money'
 import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bResult } from '@shared/gst/recon2b'
 import { descendantIdsByName } from './masters'
@@ -631,6 +639,72 @@ export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, p
     company.gstin ?? '',
     period
   )
+}
+
+/**
+ * CMP-08 for a quarter, for a composition dealer.
+ *
+ * Turnover is read from the outward documents the same extraction the other returns use, so a
+ * composition dealer's figures come from the same source of truth as everyone else's. Their
+ * invoices carry no tax -- that is the scheme -- so what matters here is the taxable value.
+ */
+export function cmp08(
+  db: DB,
+  company: CompanyInfo,
+  from: string,
+  to: string,
+  category: CompositionCategory,
+  extras: { interest?: number; lateFee?: number } = {}
+): Cmp08 {
+  const docs = extractOutwardDocs(db, company, from, to)
+  // Turnover is the sum of the line values, taking both buckets: the extraction files rate-0
+  // lines under `nilLines` rather than `items`, and a composition dealer's sales ledgers carry
+  // no rate at all, so almost every rupee of their turnover lands there. Reading only `items`
+  // reports nil for the typical dealer.
+  //
+  // Genuinely exempt supplies are excluded from a composition dealer's taxable turnover, but
+  // the books cannot tell an exempt supply from an untaxed one -- neither carries a rate -- so
+  // this includes both and the dealer adjusts. Over-reporting here is recoverable; silently
+  // dropping the whole turnover is not.
+  const lineValue = (d: (typeof docs)[number]): number =>
+    d.items.reduce((sum, item) => sum + item.taxable, 0) +
+    (d.nilLines ?? []).reduce((sum, line) => sum + line.taxable, 0)
+  const outwardTurnover = docs.reduce((sum, d) => sum + lineValue(d), 0)
+  const rcm = rcmInwardSummary(db, company, from, to)
+  return computeCmp08({
+    category,
+    outwardTurnover,
+    inwardReverseCharge: rcm.taxable,
+    // Reverse-charge tax is at the normal rate, not the composition rate: the dealer owes it as
+    // the recipient of the supply, which the scheme does not change.
+    reverseChargeTax: rcm.igst + rcm.cgst + rcm.sgst + rcm.cess,
+    interest: extras.interest,
+    lateFee: extras.lateFee
+  })
+}
+
+/**
+ * GSTR-4 for a financial year: the four quarterly CMP-08 statements rolled up.
+ *
+ * Each quarter is computed from the books rather than from a stored CMP-08, so the annual return
+ * cannot disagree with the quarters it is made of.
+ *
+ * A quarter that has not started yet is left out rather than computed as zero, so a dealer
+ * opening the current year's return in August sees "covers Q1 of 4" instead of an apparently
+ * complete return with three nil quarters in it.
+ */
+export function gstr4(
+  db: DB,
+  company: CompanyInfo,
+  fyStartYear: number,
+  category: CompositionCategory,
+  today: string = todayISO()
+): Gstr4 {
+  const quarters = ([1, 2, 3, 4] as const)
+    .map((q) => ({ q, ...periodBounds(`${fyStartYear}-Q${q}`, 'quarter') }))
+    .filter((x) => x.from <= today)
+    .map((x) => ({ quarter: `Q${x.q}`, cmp08: cmp08(db, company, x.from, x.to, category) }))
+  return buildGstr4(fyFromStartYear(fyStartYear).label, quarters)
 }
 
 /** Pre-export validation over the period's extracted documents (G7 panel + export gate). */

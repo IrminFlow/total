@@ -76,6 +76,24 @@ export function Money({ paise, signed = false, className = '' }: { paise: number
 export const inputCls =
   'w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body text-ink placeholder:text-muted/60 focus:border-amber/60'
 
+/**
+ * A caller-supplied width beats `inputCls`'s own `w-full`.
+ *
+ * Tailwind emits `.w-full` *after* the numeric widths in the stylesheet, and both have the same
+ * specificity — so the order of the class attribute is irrelevant and `<Select className="w-36">`
+ * rendered full-width anyway. Every width override on a Select or TextInput in the app was
+ * silently doing nothing. Dropping the base width when the call site names one is the only merge
+ * that honours what it asked for.
+ *
+ * Only a plain `w-*` counts: `max-w-*` and `min-w-*` are meant to be combined with `w-full`.
+ */
+const OWN_WIDTH = /(?:^|\s)!?w-\S+/
+export function mergeInputCls(className?: string): string {
+  if (!className) return inputCls
+  const base = OWN_WIDTH.test(className) ? inputCls.replace('w-full ', '') : inputCls
+  return `${base} ${className}`
+}
+
 export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string | null }): React.JSX.Element {
   return (
     <label className="block">
@@ -92,12 +110,12 @@ export function Field({ label, children, hint, error }: { label: string; childre
 
 export const TextInput = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   function TextInput(props, ref) {
-    return <input ref={ref} {...props} className={`${inputCls} ${props.className ?? ''}`} />
+    return <input ref={ref} {...props} className={mergeInputCls(props.className)} />
   }
 )
 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>): React.JSX.Element {
-  return <select {...props} className={`${inputCls} ${props.className ?? ''}`} />
+  return <select {...props} className={mergeInputCls(props.className)} />
 }
 
 export function Button({

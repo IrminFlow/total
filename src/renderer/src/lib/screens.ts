@@ -284,6 +284,16 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['edocList', 'nicStatus', 'nicCreds']
   },
   {
+    name: 'composition',
+    title: 'Composition — CMP-08 & GSTR-4',
+    screen: { name: 'composition' },
+    navSection: 'gst',
+    navLabel: 'CMP-08 & GSTR-4',
+    accel: '4',
+    keywords: ['composition', 'cmp08', 'cmp-08', 'gstr4', 'gstr-4', 'quarterly', 'scheme'],
+    invalidates: ['cmp08', 'gstr4']
+  },
+  {
     name: 'tds',
     title: 'TDS',
     screen: { name: 'tds' },

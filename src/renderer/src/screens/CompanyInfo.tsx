@@ -112,7 +112,12 @@ export function CompanyInfoScreen(): React.JSX.Element {
             </Select>
           </Field>
           <Field label="Registration">
-            <Select value={regType} onChange={(e) => setRegType(e.target.value as typeof regType)} disabled={!gstin.trim()}>
+            <Select
+              data-testid="select-registration-type"
+              value={regType}
+              onChange={(e) => setRegType(e.target.value as typeof regType)}
+              disabled={!gstin.trim()}
+            >
               <option value="regular">Regular</option>
               <option value="composition">Composition</option>
               <option value="unregistered">Unregistered</option>
@@ -154,7 +159,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
         </div>
         <div className="flex justify-between">
           <Button onClick={() => nav.go({ name: 'import-tally' })}>Import from Tally (XML)</Button>
-          <Button variant="primary" onClick={() => void save()}>
+          <Button data-testid="btn-company-info-save" variant="primary" onClick={() => void save()}>
             Save details
           </Button>
         </div>

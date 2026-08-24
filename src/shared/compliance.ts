@@ -133,6 +133,24 @@ export function upcomingDeadlines(
       }
     }
 
+    if (gstRegistrationType === 'composition') {
+      // Composition dealers had no GST deadlines at all, which read as "nothing to file" rather
+      // than "we do not support your scheme". CMP-08 is quarterly; GSTR-4 is annual and handled
+      // outside this month loop because it is a fixed calendar date.
+      if (monthInQuarter(period.m) === 3) {
+        const cmp08Date = ymd(filingY, filingM, 18)
+        if (inRange(cmp08Date)) {
+          out.push({
+            id: `cmp08-${period.y}-${fyQuarterOfMonth(period.m)}`,
+            form: 'CMP-08',
+            title: `CMP-08 — self-assessed tax (Q${fyQuarterOfMonth(period.m)}, quarter ending ${periodLabel})`,
+            date: cmp08Date,
+            kind: 'gst'
+          })
+        }
+      }
+    }
+
     if (gstRegistrationType === 'regular' && gstFilingFrequency === 'quarterly') {
       // QRMP. The returns are quarterly but the money is still monthly, which is the part
       // filers most often miss -- a PMT-06 challan is due in each of the first two months.
@@ -201,6 +219,24 @@ export function upcomingDeadlines(
       const esiDate = ymd(filingY, filingM, 15)
       if (inRange(esiDate)) {
         out.push({ id: `esi-${period.y}-${pad2(period.m)}`, form: 'ESI', title: `ESI contribution — ${periodLabel}`, date: esiDate, kind: 'esi' })
+      }
+    }
+  }
+
+  // GSTR-4 is annual, due on a fixed date after the financial year closes, so it is scanned over
+  // calendar years rather than derived from a filing month.
+  if (gstRegistrationType === 'composition') {
+    for (let year = ty - 1; year <= hy + 1; year++) {
+      const date = ymd(year, 6, 30)
+      if (inRange(date)) {
+        const fyLabel = `${year - 1}-${pad2((year % 100))}`
+        out.push({
+          id: `gstr4-${year}`,
+          form: 'GSTR-4',
+          title: `GSTR-4 — annual return (FY ${fyLabel})`,
+          date,
+          kind: 'gst'
+        })
       }
     }
   }
