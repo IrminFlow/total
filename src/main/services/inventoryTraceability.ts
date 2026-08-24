@@ -8,7 +8,12 @@ import type {
 } from "@shared/inventoryControl";
 import { writeAudit } from "./audit";
 import { stockSummary } from "./stockAnalysis";
-import { saveVoucher } from "./vouchers";
+import {
+  IN_BOOKS,
+  inBooksPredicate,
+  requireInBooksVoucher,
+  saveVoucher,
+} from "./vouchers";
 
 function stockJournalType(db: DB): number {
   const row = db
@@ -33,7 +38,7 @@ function nextNumber(
 export function listSerials(db: DB, stockItemId?: number): InventorySerial[] {
   return db
     .prepare(
-      `SELECT s.id,s.stock_item_id AS stockItemId,si.name AS itemName,s.serial_no AS serialNo,s.batch_id AS batchId,b.name AS batchName,s.warranty_until AS warrantyUntil,s.note,CASE last.direction WHEN 'in' THEN 'in_stock' WHEN 'out' THEN 'issued' ELSE 'unmoved' END AS state,last.godownName,last.movementDate AS lastMovementDate,last.voucherId AS lastVoucherId FROM inventory_serials s JOIN stock_items si ON si.id=s.stock_item_id LEFT JOIN batches b ON b.id=s.batch_id LEFT JOIN (SELECT sm.serial_id,sm.direction,v.date AS movementDate,v.id AS voucherId,g.name AS godownName FROM inventory_serial_movements sm JOIN inventory_lines il ON il.id=sm.inventory_line_id JOIN vouchers v ON v.id=il.voucher_id LEFT JOIN godowns g ON g.id=il.godown_id WHERE sm.id=(SELECT sm2.id FROM inventory_serial_movements sm2 WHERE sm2.serial_id=sm.serial_id ORDER BY sm2.id DESC LIMIT 1)) last ON last.serial_id=s.id WHERE (? IS NULL OR s.stock_item_id=?) ORDER BY si.name,s.serial_no`,
+      `SELECT s.id,s.stock_item_id AS stockItemId,si.name AS itemName,s.serial_no AS serialNo,s.batch_id AS batchId,b.name AS batchName,s.warranty_until AS warrantyUntil,s.note,CASE last.direction WHEN 'in' THEN 'in_stock' WHEN 'out' THEN 'issued' ELSE 'unmoved' END AS state,last.godownName,last.movementDate AS lastMovementDate,last.voucherId AS lastVoucherId FROM inventory_serials s JOIN stock_items si ON si.id=s.stock_item_id LEFT JOIN batches b ON b.id=s.batch_id LEFT JOIN (SELECT sm.serial_id,sm.direction,v.date AS movementDate,v.id AS voucherId,g.name AS godownName FROM inventory_serial_movements sm JOIN inventory_lines il ON il.id=sm.inventory_line_id JOIN vouchers v ON v.id=il.voucher_id LEFT JOIN godowns g ON g.id=il.godown_id WHERE ${IN_BOOKS} AND sm.id=(SELECT sm2.id FROM inventory_serial_movements sm2 JOIN inventory_lines il2 ON il2.id=sm2.inventory_line_id JOIN vouchers v2 ON v2.id=il2.voucher_id WHERE sm2.serial_id=sm.serial_id AND ${inBooksPredicate("v2")} ORDER BY sm2.id DESC LIMIT 1)) last ON last.serial_id=s.id WHERE (? IS NULL OR s.stock_item_id=?) ORDER BY si.name,s.serial_no`,
     )
     .all(stockItemId ?? null, stockItemId ?? null) as InventorySerial[];
 }
@@ -53,7 +58,7 @@ export function assignSerials(
   return db.transaction(() => {
     const line = db
       .prepare(
-        `SELECT il.id,il.stock_item_id AS stockItemId,il.batch_id AS batchId,il.qty_milli AS qtyMilli,il.direction FROM inventory_lines il JOIN vouchers v ON v.id=il.voucher_id WHERE il.id=? AND v.deleted_at IS NULL`,
+        `SELECT il.id,il.stock_item_id AS stockItemId,il.batch_id AS batchId,il.qty_milli AS qtyMilli,il.direction FROM inventory_lines il JOIN vouchers v ON v.id=il.voucher_id WHERE il.id=? AND ${IN_BOOKS}`,
       )
       .get(input.inventoryLineId) as
       | {
@@ -90,7 +95,7 @@ export function assignSerials(
         if (!serial) throw new Error(`${serialNo} has never been received`);
         const last = db
           .prepare(
-            "SELECT direction FROM inventory_serial_movements WHERE serial_id=? ORDER BY id DESC LIMIT 1",
+            `SELECT sm.direction FROM inventory_serial_movements sm JOIN inventory_lines il ON il.id=sm.inventory_line_id JOIN vouchers v ON v.id=il.voucher_id WHERE sm.serial_id=? AND ${IN_BOOKS} ORDER BY sm.id DESC LIMIT 1`,
           )
           .get(serial.id) as { direction: "in" | "out" } | undefined;
         if (last?.direction !== "in")
@@ -99,7 +104,7 @@ export function assignSerials(
         if (serial) {
           const last = db
             .prepare(
-              "SELECT direction FROM inventory_serial_movements WHERE serial_id=? ORDER BY id DESC LIMIT 1",
+              `SELECT sm.direction FROM inventory_serial_movements sm JOIN inventory_lines il ON il.id=sm.inventory_line_id JOIN vouchers v ON v.id=il.voucher_id WHERE sm.serial_id=? AND ${IN_BOOKS} ORDER BY sm.id DESC LIMIT 1`,
             )
             .get(serial.id) as { direction: "in" | "out" } | undefined;
           if (last?.direction === "in")
@@ -573,7 +578,7 @@ export function setManufacturingStatus(
 export function listLandedCosts(db: DB): LandedCostAllocation[] {
   return db
     .prepare(
-      `SELECT a.id,a.source_voucher_id AS sourceVoucherId,sv.number AS sourceNumber,a.inventory_line_id AS inventoryLineId,il.stock_item_id AS stockItemId,si.name AS itemName,a.cost_ledger_id AS costLedgerId,l.name AS costLedgerName,a.amount,a.method,a.note,a.created_by AS createdBy,a.created_at AS createdAt FROM landed_cost_allocations a JOIN vouchers sv ON sv.id=a.source_voucher_id JOIN inventory_lines il ON il.id=a.inventory_line_id JOIN stock_items si ON si.id=il.stock_item_id LEFT JOIN ledgers l ON l.id=a.cost_ledger_id ORDER BY a.id DESC`,
+      `SELECT a.id,a.source_voucher_id AS sourceVoucherId,sv.number AS sourceNumber,a.inventory_line_id AS inventoryLineId,il.stock_item_id AS stockItemId,si.name AS itemName,a.cost_ledger_id AS costLedgerId,l.name AS costLedgerName,a.amount,a.method,a.note,a.created_by AS createdBy,a.created_at AS createdAt FROM landed_cost_allocations a JOIN vouchers sv ON sv.id=a.source_voucher_id JOIN inventory_lines il ON il.id=a.inventory_line_id JOIN vouchers iv ON iv.id=il.voucher_id JOIN stock_items si ON si.id=il.stock_item_id LEFT JOIN ledgers l ON l.id=a.cost_ledger_id WHERE ${inBooksPredicate("sv")} AND ${inBooksPredicate("iv")} ORDER BY a.id DESC`,
     )
     .all() as LandedCostAllocation[];
 }
@@ -589,8 +594,11 @@ export function addLandedCost(
   },
   author: string,
 ): LandedCostAllocation {
+  requireInBooksVoucher(db, input.sourceVoucherId);
   const line = db
-    .prepare("SELECT direction FROM inventory_lines WHERE id=?")
+    .prepare(
+      `SELECT il.direction FROM inventory_lines il JOIN vouchers v ON v.id=il.voucher_id WHERE il.id=? AND ${IN_BOOKS}`,
+    )
     .get(input.inventoryLineId) as { direction: string } | undefined;
   if (!line || line.direction !== "in")
     throw new Error(
@@ -604,7 +612,7 @@ export function addLandedCost(
   const used = (
     db
       .prepare(
-        "SELECT COALESCE(SUM(amount),0) AS total FROM landed_cost_allocations WHERE source_voucher_id=?",
+        `SELECT COALESCE(SUM(a.amount),0) AS total FROM landed_cost_allocations a JOIN inventory_lines il ON il.id=a.inventory_line_id JOIN vouchers iv ON iv.id=il.voucher_id WHERE a.source_voucher_id=? AND ${inBooksPredicate("iv")}`,
       )
       .get(input.sourceVoucherId) as { total: number }
   ).total;

@@ -706,7 +706,7 @@ export function registerIpc(): void {
       log("warn", "integrity-weekly-failed", { slug, detail: weekly.detail });
     }
     try {
-      const purged = vouchers.purgeOldDeleted(db, 30);
+      const purged = vouchers.purgeOldDeleted(db, 30, slug);
       if (purged > 0) log("info", "bin-purge", { purged });
     } catch (err) {
       // e.g. an over-age binned voucher still referenced by payroll_runs — housekeeping must
@@ -2821,7 +2821,10 @@ export function registerIpc(): void {
   );
   handle(
     "voucher:purge",
-    (p) => vouchers.purgeVoucher(requireCompany().db, idSchema.parse(p).id),
+    (p) => {
+      const c = requireCompany();
+      return vouchers.purgeVoucher(c.db, idSchema.parse(p).id, c.slug);
+    },
     "owner",
   );
   handle("voucher:nextNumber", (p) => {

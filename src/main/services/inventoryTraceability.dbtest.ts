@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { seededDb } from "../db/testdb";
 import type { DB } from "../db/connection";
 import { createGodown, createStockItem } from "./masters";
-import { saveVoucher } from "./vouchers";
+import { deleteVoucher, saveVoucher } from "./vouchers";
 import { stockSummary } from "./stockAnalysis";
 import * as trace from "./inventoryTraceability";
 
@@ -155,6 +155,10 @@ describe("inventory traceability and production", () => {
     expect(
       trace.listSerials(db, id).find((s) => s.serialNo === "SN-001")?.state,
     ).toBe("issued");
+    deleteVoucher(db, outgoing.voucherId);
+    expect(
+      trace.listSerials(db, id).find((s) => s.serialNo === "SN-001")?.state,
+    ).toBe("in_stock");
     expect(() =>
       trace.assignSerials(
         db,
@@ -239,5 +243,56 @@ describe("inventory traceability and production", () => {
       stockSummary(db, "2025-07-31").find((r) => r.stockItemId === id)
         ?.closingValue,
     ).toBe(125000);
+  });
+
+  it("refuses serial assignment after the inventory voucher is moved to the bin", () => {
+    const db = seededDb();
+    const id = item(db, "Binned serialized item");
+    const godown = createGodown(db, {
+      name: "Quarantine store",
+      address: null,
+      gstRegistrationId: null,
+    }).id;
+    const incoming = move(db, "2025-07-01", id, godown, 1000, "in", 10000);
+    deleteVoucher(db, incoming.voucherId);
+    expect(() =>
+      trace.assignSerials(
+        db,
+        {
+          inventoryLineId: incoming.lineId,
+          serials: [{ serialNo: "BIN-001", warrantyUntil: null, note: null }],
+        },
+        "owner",
+      ),
+    ).toThrow("Inventory line was not found");
+  });
+
+  it("hides and refuses landed-cost evidence after either backing voucher is binned", () => {
+    const db = seededDb();
+    const id = item(db, "Binned landed-cost item");
+    const godown = createGodown(db, {
+      name: "Import quarantine",
+      address: null,
+      gstRegistrationId: null,
+    }).id;
+    const inward = move(db, "2025-07-01", id, godown, 1000, "in", 10000);
+    trace.addLandedCost(db, {
+      sourceVoucherId: inward.voucherId,
+      inventoryLineId: inward.lineId,
+      costLedgerId: null,
+      amount: 1000,
+      method: "value",
+      note: null,
+    }, "owner");
+    deleteVoucher(db, inward.voucherId);
+    expect(trace.listLandedCosts(db)).toHaveLength(0);
+    expect(() => trace.addLandedCost(db, {
+      sourceVoucherId: inward.voucherId,
+      inventoryLineId: inward.lineId,
+      costLedgerId: null,
+      amount: 500,
+      method: "value",
+      note: null,
+    }, "owner")).toThrow("Voucher is not active in the books");
   });
 });

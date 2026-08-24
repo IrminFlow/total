@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seededDb } from "../db/testdb";
-import { saveVoucher } from "./vouchers";
+import { deleteVoucher, saveVoucher } from "./vouchers";
 import { assignSerials } from "./inventoryTraceability";
 import {
   assignCustomer,
@@ -206,6 +206,44 @@ describe("customer operations", () => {
       ),
     ).toMatchObject({ status: "resolved", serviceCost: 25_000 });
     expect(warrantyRegister(db)).toHaveLength(1);
+  });
+  it("refuses sales-return workflows when either posted voucher is in the bin", () => {
+    const { db, post } = fixtures();
+    const invoice = post("sales", 2000, "out");
+    const source = salesReturnCandidates(db)[0]!;
+    const input = {
+      invoiceVoucherId: invoice.id,
+      date: "2026-08-25",
+      reason: "Damaged",
+      lines: [{ invoiceInventoryLineId: source.lines[0]!.inventoryLineId, qtyMilli: 1000 }],
+    };
+    const draft = createSalesReturnDraft(db, input, "Meera");
+    const returned = post("credit_note", 1000, "in");
+    deleteVoucher(db, returned.id);
+    expect(() => recordSalesReturn(db, returned.id, draft.payload.salesReturnLinks as any, "Meera"))
+      .toThrow("Voucher is not active in the books");
+
+    deleteVoucher(db, invoice.id);
+    expect(salesReturnCandidates(db)).toHaveLength(0);
+    expect(() => createSalesReturnDraft(db, input, "Meera")).toThrow("no returnable quantity");
+  });
+  it("does not open warranty claims from a binned sales movement", () => {
+    const { db, post } = fixtures();
+    const receipt = post("credit_note", 1000, "in");
+    const inLine = (db.prepare("SELECT id FROM inventory_lines WHERE voucher_id=?").get(receipt.id) as { id: number }).id;
+    const serial = assignSerials(db, {
+      inventoryLineId: inLine,
+      serials: [{ serialNo: "CU-BIN", warrantyUntil: "2027-08-24", note: null }],
+    }, "Stores")[0]!;
+    const sale = post("sales", 1000, "out");
+    const outLine = (db.prepare("SELECT id FROM inventory_lines WHERE voucher_id=?").get(sale.id) as { id: number }).id;
+    assignSerials(db, {
+      inventoryLineId: outLine,
+      serials: [{ serialNo: "CU-BIN", warrantyUntil: "2027-08-24", note: null }],
+    }, "Stores");
+    deleteVoucher(db, sale.id);
+    expect(() => openWarrantyClaim(db, serial.id, "2026-09-01", "Failure", "Support"))
+      .toThrow("Serial has no linked sales invoice");
   });
   it("validates typed custom document fields without changing accounting semantics", () => {
     const { db } = fixtures();

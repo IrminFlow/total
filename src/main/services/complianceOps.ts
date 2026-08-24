@@ -9,6 +9,7 @@ import { companyExportsDir } from '../paths'
 import { recon2b } from './gst'
 import { tdsSummary } from './tds'
 import { writeAudit } from './audit'
+import { IN_BOOKS, requireInBooksVoucher } from './vouchers'
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
 
@@ -112,16 +113,22 @@ export interface EdocEvent { id: number; voucherId: number; kind: EdocKind; stat
 
 export function edocEvents(db: DB, voucherId?: number): EdocEvent[] {
   const rows = db.prepare(
-    `SELECT id, voucher_id AS voucherId, kind, status, request_key AS requestKey, document_no AS documentNo,
-      valid_until AS validUntil, vehicle_no AS vehicleNo, reason, actor, occurred_at AS occurredAt
-     FROM edoc_lifecycle_events WHERE (? IS NULL OR voucher_id = ?) ORDER BY occurred_at DESC, id DESC`
+    `SELECT e.id, e.voucher_id AS voucherId, e.kind, e.status, e.request_key AS requestKey, e.document_no AS documentNo,
+      e.valid_until AS validUntil, e.vehicle_no AS vehicleNo, e.reason, e.actor, e.occurred_at AS occurredAt
+     FROM edoc_lifecycle_events e JOIN vouchers v ON v.id=e.voucher_id
+     WHERE ${IN_BOOKS} AND (? IS NULL OR e.voucher_id = ?) ORDER BY e.occurred_at DESC, e.id DESC`
   ).all(voucherId ?? null, voucherId ?? null) as EdocEvent[]
   return rows
 }
 
 export function addEdocEvent(db: DB, input: Omit<EdocEvent, 'id' | 'actor' | 'occurredAt'> & { response?: unknown }, actor: string): EdocEvent {
-  const voucher = db.prepare('SELECT id FROM vouchers WHERE id = ?').get(input.voucherId)
-  if (!voucher) throw new Error('Voucher not found')
+  requireInBooksVoucher(
+    db,
+    input.voucherId,
+    input.kind === 'einvoice'
+      ? ['sales', 'credit_note', 'debit_note']
+      : ['sales', 'purchase', 'credit_note', 'debit_note', 'stock_journal']
+  )
   const result = db.prepare(
     `INSERT INTO edoc_lifecycle_events (voucher_id, kind, status, request_key, document_no, valid_until, vehicle_no, reason, response_json, actor)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -337,7 +344,7 @@ export function installTaxContentPack(db: DB, input: { packKey:string;version:st
 
 export function exportNoticeEvidencePack(db: DB, company: CompanyInfo, slug: string, from: string, to: string, actor: string): { dir: string; manifestPath: string } {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-'); const dir=join(companyExportsDir(slug),`notice-evidence-${from}-${to}-${stamp}`);mkdirSync(dir,{recursive:true})
-  const vouchers=db.prepare(`SELECT v.id,v.date,v.number,vt.name AS type,v.narration,v.reference FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id WHERE v.date BETWEEN ? AND ? ORDER BY v.date,v.id`).all(from,to)
+  const vouchers=db.prepare(`SELECT v.id,v.date,v.number,vt.name AS type,v.narration,v.reference FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} ORDER BY v.date,v.id`).all(from,to)
   const returns=db.prepare(`SELECT return_type AS returnType,period,status,frozen_at AS frozenAt,filed_at AS filedAt,arn,snapshot_hash AS snapshotHash FROM gst_return_periods WHERE from_date<=? AND to_date>=? ORDER BY period,return_type`).all(to,from)
   const imports=listGst2bImports(db).filter((row)=>row.period>=from.slice(5,7)+from.slice(0,4)&&row.period<=to.slice(5,7)+to.slice(0,4))
   const audit=db.prepare(`SELECT id,entity,entity_id AS entityId,action,at,user_name AS userName,row_hash AS rowHash FROM audit_log WHERE at>=? AND at<? ORDER BY id`).all(`${from} 00:00:00`,`${to} 23:59:59`)

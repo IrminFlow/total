@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type {
-  Voucher, VoucherLine, InventoryLine, VoucherType, NegativeStockWarning, SaveVoucherWarnings
+  Voucher, VoucherKind, VoucherLine, InventoryLine, VoucherType, NegativeStockWarning, SaveVoucherWarnings
 } from '@shared/domain'
 import { voucherInputSchema } from '@shared/schemas'
 import type { VoucherInput, VoucherInputParsed } from '@shared/schemas'
@@ -11,6 +11,7 @@ import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { writeAudit } from './audit'
 import { formatPaise } from '@shared/money'
+import { assertManagedAttachmentPath, removeManagedAttachment } from './attachmentVault'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
@@ -40,6 +41,37 @@ export const NOT_OPTIONAL = 'v.is_optional = 0'
 /** Composite filter: the voucher counts toward the books — not binned, not post-dated, not
  *  optional. New report queries should use this instead of NOT_DELETED alone. */
 export const IN_BOOKS = `${NOT_DELETED} AND ${NOT_POSTDATED} AND ${NOT_OPTIONAL}`
+
+/** The same in-books predicate for a caller-controlled SQL alias. Only static identifiers are
+ * accepted so this helper can never become an interpolation path for user input. */
+export function inBooksPredicate(alias = 'v'): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) throw new Error('Invalid SQL alias')
+  return `${alias}.deleted_at IS NULL AND ${alias}.post_dated = 0 AND ${alias}.is_optional = 0`
+}
+
+export interface InBooksVoucherRef {
+  id: number
+  kind: VoucherKind
+  partyLedgerId: number | null
+}
+
+/** Fail-closed mutation guard for workflows that attach operational state to a posted voucher. */
+export function requireInBooksVoucher(
+  db: DB,
+  id: number,
+  allowedKinds?: readonly VoucherKind[]
+): InBooksVoucherRef {
+  const row = db.prepare(
+    `SELECT v.id,vt.kind,v.party_ledger_id AS partyLedgerId
+     FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id
+     WHERE v.id=? AND ${IN_BOOKS}`
+  ).get(id) as InBooksVoucherRef | undefined
+  if (!row) throw new Error('Voucher is not active in the books')
+  if (allowedKinds && !allowedKinds.includes(row.kind)) {
+    throw new Error(`Voucher type ${row.kind} is not valid for this workflow`)
+  }
+  return row
+}
 
 /** Books-locked-up-to date (inclusive): vouchers dated on or before this date can't be
  *  saved/deleted/restored. Stored in `meta` under key 'lock_before'; null/absent = no lock. */
@@ -707,11 +739,65 @@ export function pdcRegister(db: DB): PdcRow[] {
 }
 
 /** Permanently remove a voucher that is already in the bin. Irreversible. */
-export function purgeVoucher(db: DB, id: number): void {
+const ATTACHMENT_CLEANUP_KEY = 'voucher_attachments.cleanup.pending.v1'
+
+function pendingAttachmentCleanup(db: DB): string[] {
+  const row = db.prepare('SELECT value FROM meta WHERE key=?').get(ATTACHMENT_CLEANUP_KEY) as { value: string } | undefined
+  if (!row) return []
+  try {
+    const parsed = JSON.parse(row.value) as unknown
+    if (!Array.isArray(parsed) || parsed.some((path) => typeof path !== 'string')) throw new Error('invalid')
+    return parsed as string[]
+  } catch {
+    throw new Error('Attachment cleanup journal is unreadable; no voucher was purged')
+  }
+}
+
+function writePendingAttachmentCleanup(db: DB, paths: string[]): void {
+  if (paths.length === 0) {
+    db.prepare('DELETE FROM meta WHERE key=?').run(ATTACHMENT_CLEANUP_KEY)
+    return
+  }
+  db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run(ATTACHMENT_CLEANUP_KEY, JSON.stringify([...new Set(paths)]))
+}
+
+/** Retry the durable filesystem half of a voucher purge. Missing files count as success, making
+ * recovery safe if the process stopped after unlink but before the journal update. */
+export function sweepVoucherAttachmentCleanup(db: DB, slug: string): { removed: number; pending: number } {
+  let paths = pendingAttachmentCleanup(db)
+  let removed = 0
+  for (const path of [...paths]) {
+    try {
+      removeManagedAttachment(slug, path)
+      const remaining = paths.filter((candidate) => candidate !== path)
+      writePendingAttachmentCleanup(db, remaining)
+      paths = remaining
+      removed += 1
+    } catch {
+      // Leave the path in the journal. Company-open and the next purge retry it.
+    }
+  }
+  return { removed, pending: paths.length }
+}
+
+function purgeVoucherRow(db: DB, id: number, slug?: string): void {
+  const paths = (db.prepare('SELECT stored_path AS path FROM voucher_attachments WHERE voucher_id=?').all(id) as { path: string }[])
+    .map((row) => row.path)
+  if (paths.length > 0 && !slug) throw new Error('Company identifier is required to clean up voucher attachments')
+  if (slug) for (const path of paths) assertManagedAttachmentPath(slug, path)
+  db.transaction(() => {
+    if (paths.length > 0) writePendingAttachmentCleanup(db, [...pendingAttachmentCleanup(db), ...paths])
+    db.prepare('DELETE FROM vouchers WHERE id = ?').run(id)
+  })()
+}
+
+export function purgeVoucher(db: DB, id: number, slug?: string): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
   if (!before.deletedAt) throw new Error('Voucher must be in the bin before it can be purged')
-  db.prepare('DELETE FROM vouchers WHERE id = ?').run(id)
+  purgeVoucherRow(db, id, slug)
+  if (slug) sweepVoucherAttachmentCleanup(db, slug)
   writeAudit(db, 'voucher', id, 'delete', { ...before, purged: true }, null)
 }
 
@@ -727,7 +813,8 @@ export function purgeVoucher(db: DB, id: number): void {
  *  - Per-voucher DELETE with continue-past-failures: one purge-blocked voucher (e.g. still
  *    referenced by payroll_runs, which has no ON DELETE CASCADE) must not stop the whole
  *    purge forever. */
-export function purgeOldDeleted(db: DB, days = 30): number {
+export function purgeOldDeleted(db: DB, days = 30, slug?: string): number {
+  if (slug) sweepVoucherAttachmentCleanup(db, slug)
   const lock = getLockDate(db)
   if (!lock) return 0
   const rows = db
@@ -736,11 +823,10 @@ export function purgeOldDeleted(db: DB, days = 30): number {
        WHERE v.deleted_at IS NOT NULL AND v.deleted_at <= datetime('now', ?) AND v.date <= ?`
     )
     .all(`-${days} days`, lock) as { id: number }[]
-  const del = db.prepare('DELETE FROM vouchers WHERE id = ?')
   let purged = 0
   for (const { id } of rows) {
     try {
-      del.run(id)
+      purgeVoucherRow(db, id, slug)
       purged++
     } catch {
       // e.g. an FK from payroll_runs — leave this voucher in the bin, keep purging the rest.
@@ -749,6 +835,7 @@ export function purgeOldDeleted(db: DB, days = 30): number {
   if (purged > 0) {
     writeAudit(db, 'voucher', 0, 'delete', { autoPurgedFromBin: purged, olderThanDays: days }, null)
   }
+  if (slug) sweepVoucherAttachmentCleanup(db, slug)
   return purged
 }
 

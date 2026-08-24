@@ -26,6 +26,11 @@ import { saveVoucherDraft } from "./voucherDrafts";
 import { invoicePdf } from "./invoice";
 import { companyExportsDir } from "../paths";
 import { writeAudit } from "./audit";
+import {
+  IN_BOOKS,
+  inBooksPredicate,
+  requireInBooksVoucher,
+} from "./vouchers";
 
 export function salesReturnCandidates(
   db: DB,
@@ -33,7 +38,7 @@ export function salesReturnCandidates(
 ): SalesReturnCandidate[] {
   const docs = db
     .prepare(
-      `SELECT v.id AS voucherId,v.number,v.date,v.party_ledger_id AS partyLedgerId,l.name AS partyName FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id JOIN ledgers l ON l.id=v.party_ledger_id WHERE vt.kind='sales' AND v.deleted_at IS NULL AND (? IS NULL OR v.party_ledger_id=?) ORDER BY v.date DESC,v.id DESC`,
+      `SELECT v.id AS voucherId,v.number,v.date,v.party_ledger_id AS partyLedgerId,l.name AS partyName FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id JOIN ledgers l ON l.id=v.party_ledger_id WHERE vt.kind='sales' AND ${IN_BOOKS} AND (? IS NULL OR v.party_ledger_id=?) ORDER BY v.date DESC,v.id DESC`,
     )
     .all(partyLedgerId ?? null, partyLedgerId ?? null) as Omit<
     SalesReturnCandidate,
@@ -43,7 +48,7 @@ export function salesReturnCandidates(
     .map((doc) => {
       const lines = db
         .prepare(
-          `SELECT il.id AS inventoryLineId,il.stock_item_id AS stockItemId,si.name AS itemName,il.qty_milli AS qtySoldMilli,COALESCE(SUM(r.qty_milli),0) AS qtyReturnedMilli,il.rate_paise AS ratePaise,il.amount AS value FROM inventory_lines il JOIN stock_items si ON si.id=il.stock_item_id LEFT JOIN sales_return_links r ON r.invoice_inventory_line_id=il.id WHERE il.voucher_id=? AND il.direction='out' GROUP BY il.id ORDER BY il.line_order,il.id`,
+          `SELECT il.id AS inventoryLineId,il.stock_item_id AS stockItemId,si.name AS itemName,il.qty_milli AS qtySoldMilli,COALESCE(SUM(CASE WHEN rv.id IS NULL THEN 0 ELSE r.qty_milli END),0) AS qtyReturnedMilli,il.rate_paise AS ratePaise,il.amount AS value FROM inventory_lines il JOIN stock_items si ON si.id=il.stock_item_id LEFT JOIN sales_return_links r ON r.invoice_inventory_line_id=il.id LEFT JOIN vouchers rv ON rv.id=r.return_voucher_id AND ${inBooksPredicate("rv")} WHERE il.voucher_id=? AND il.direction='out' GROUP BY il.id ORDER BY il.line_order,il.id`,
         )
         .all(doc.voucherId) as Array<
         Omit<SalesReturnCandidate["lines"][number], "openQtyMilli">
@@ -142,13 +147,7 @@ export function recordSalesReturn(
   }[],
   author: string,
 ): void {
-  const voucher = db
-    .prepare(
-      `SELECT vt.kind FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id WHERE v.id=?`,
-    )
-    .get(returnVoucherId) as { kind: string } | undefined;
-  if (voucher?.kind !== "credit_note")
-    throw new Error("Return evidence must attach to a credit note");
+  requireInBooksVoucher(db, returnVoucherId, ["credit_note"]);
   const returned = db
     .prepare(
       `SELECT id,stock_item_id AS stockItemId,qty_milli AS qtyMilli,amount FROM inventory_lines WHERE voucher_id=? AND direction='in' ORDER BY line_order,id`,
@@ -205,7 +204,7 @@ export function recordSalesReturn(
 export function warrantyRegister(db: DB): WarrantyClaim[] {
   return db
     .prepare(
-      `SELECT c.id,c.serial_id AS serialId,s.serial_no AS serialNo,si.name AS itemName,c.invoice_voucher_id AS invoiceVoucherId,v.number AS invoiceNumber,v.date AS invoiceDate,s.warranty_until AS warrantyUntil,c.opened_date AS openedDate,c.issue,c.status,c.outcome,c.service_cost AS serviceCost,c.resolved_date AS resolvedDate FROM sales_warranty_claims c JOIN inventory_serials s ON s.id=c.serial_id JOIN stock_items si ON si.id=s.stock_item_id JOIN vouchers v ON v.id=c.invoice_voucher_id ORDER BY c.opened_date DESC,c.id DESC`,
+      `SELECT c.id,c.serial_id AS serialId,s.serial_no AS serialNo,si.name AS itemName,c.invoice_voucher_id AS invoiceVoucherId,v.number AS invoiceNumber,v.date AS invoiceDate,s.warranty_until AS warrantyUntil,c.opened_date AS openedDate,c.issue,c.status,c.outcome,c.service_cost AS serviceCost,c.resolved_date AS resolvedDate FROM sales_warranty_claims c JOIN inventory_serials s ON s.id=c.serial_id JOIN stock_items si ON si.id=s.stock_item_id JOIN vouchers v ON v.id=c.invoice_voucher_id WHERE ${IN_BOOKS} ORDER BY c.opened_date DESC,c.id DESC`,
     )
     .all() as WarrantyClaim[];
 }
@@ -218,7 +217,7 @@ export function openWarrantyClaim(
 ): WarrantyClaim {
   const sold = db
     .prepare(
-      `SELECT v.id AS voucherId,v.date,s.warranty_until AS warrantyUntil FROM inventory_serials s JOIN inventory_serial_movements sm ON sm.serial_id=s.id AND sm.direction='out' JOIN inventory_lines il ON il.id=sm.inventory_line_id JOIN vouchers v ON v.id=il.voucher_id JOIN voucher_types vt ON vt.id=v.voucher_type_id WHERE s.id=? AND vt.kind='sales' ORDER BY v.date DESC LIMIT 1`,
+      `SELECT v.id AS voucherId,v.date,s.warranty_until AS warrantyUntil FROM inventory_serials s JOIN inventory_serial_movements sm ON sm.serial_id=s.id AND sm.direction='out' JOIN inventory_lines il ON il.id=sm.inventory_line_id JOIN vouchers v ON v.id=il.voucher_id JOIN voucher_types vt ON vt.id=v.voucher_type_id WHERE s.id=? AND vt.kind='sales' AND ${IN_BOOKS} ORDER BY v.date DESC LIMIT 1`,
     )
     .get(serialId) as
     | { voucherId: number; date: string; warrantyUntil: string | null }
@@ -250,6 +249,8 @@ export function resolveWarrantyClaim(
 ): WarrantyClaim {
   if (!["in_service", "resolved", "rejected"].includes(status))
     throw new Error("Invalid warranty outcome");
+  if (!warrantyRegister(db).some((claim) => claim.id === id))
+    throw new Error("Warranty claim is not linked to an active sales invoice");
   db.prepare(
     "UPDATE sales_warranty_claims SET status=?,outcome=?,service_cost=?,resolved_date=? WHERE id=?",
   ).run(status, outcome?.trim() || null, serviceCost, resolvedDate, id);
@@ -378,7 +379,7 @@ export function territorySales(
 ): TerritorySalesRow[] {
   return db
     .prepare(
-      `WITH sales AS (SELECT v.id,v.party_ledger_id,v.date,CASE vt.kind WHEN 'sales' THEN (SELECT COALESCE(SUM(amount),0) FROM voucher_lines WHERE voucher_id=v.id AND dr_cr='dr') ELSE 0 END AS sale,CASE vt.kind WHEN 'credit_note' THEN (SELECT COALESCE(SUM(amount),0) FROM voucher_lines WHERE voucher_id=v.id AND dr_cr='cr') ELSE 0 END AS ret FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id WHERE vt.kind IN ('sales','credit_note') AND v.date BETWEEN ? AND ? AND v.deleted_at IS NULL), tagged AS (SELECT s.*,a.territory_id,a.salesperson FROM sales s LEFT JOIN sales_customer_assignments a ON a.id=(SELECT a2.id FROM sales_customer_assignments a2 WHERE a2.customer_ledger_id=s.party_ledger_id AND a2.effective_from<=s.date AND (a2.effective_to IS NULL OR a2.effective_to>=s.date) ORDER BY a2.effective_from DESC LIMIT 1)) SELECT tagged.territory_id AS territoryId,COALESCE(t.name,'Unassigned') AS territoryName,COALESCE(tagged.salesperson,'Unassigned') AS salesperson,SUM(CASE WHEN sale>0 THEN 1 ELSE 0 END) AS invoiceCount,SUM(sale) AS salesAmount,SUM(ret) AS returnAmount,SUM(sale-ret) AS netSales,0 AS collections FROM tagged LEFT JOIN sales_territories t ON t.id=tagged.territory_id GROUP BY tagged.territory_id,tagged.salesperson ORDER BY netSales DESC`,
+      `WITH sales AS (SELECT v.id,v.party_ledger_id,v.date,CASE vt.kind WHEN 'sales' THEN (SELECT COALESCE(SUM(amount),0) FROM voucher_lines WHERE voucher_id=v.id AND dr_cr='dr') ELSE 0 END AS sale,CASE vt.kind WHEN 'credit_note' THEN (SELECT COALESCE(SUM(amount),0) FROM voucher_lines WHERE voucher_id=v.id AND dr_cr='cr') ELSE 0 END AS ret FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id WHERE vt.kind IN ('sales','credit_note') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}), tagged AS (SELECT s.*,a.territory_id,a.salesperson FROM sales s LEFT JOIN sales_customer_assignments a ON a.id=(SELECT a2.id FROM sales_customer_assignments a2 WHERE a2.customer_ledger_id=s.party_ledger_id AND a2.effective_from<=s.date AND (a2.effective_to IS NULL OR a2.effective_to>=s.date) ORDER BY a2.effective_from DESC LIMIT 1)) SELECT tagged.territory_id AS territoryId,COALESCE(t.name,'Unassigned') AS territoryName,COALESCE(tagged.salesperson,'Unassigned') AS salesperson,SUM(CASE WHEN sale>0 THEN 1 ELSE 0 END) AS invoiceCount,SUM(sale) AS salesAmount,SUM(ret) AS returnAmount,SUM(sale-ret) AS netSales,0 AS collections FROM tagged LEFT JOIN sales_territories t ON t.id=tagged.territory_id GROUP BY tagged.territory_id,tagged.salesperson ORDER BY netSales DESC`,
     )
     .all(from, to) as TerritorySalesRow[];
 }
@@ -448,7 +449,7 @@ export async function customerPortalBundle(
   mkdirSync(dir, { recursive: true });
   const vouchers = db
     .prepare(
-      `SELECT v.id,v.number,v.date,vt.kind FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id WHERE v.party_ledger_id=? AND v.date BETWEEN ? AND ? AND vt.kind IN ('sales','receipt','credit_note') AND v.deleted_at IS NULL ORDER BY v.date,v.id`,
+      `SELECT v.id,v.number,v.date,vt.kind FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id WHERE v.party_ledger_id=? AND v.date BETWEEN ? AND ? AND vt.kind IN ('sales','receipt','credit_note') AND ${IN_BOOKS} ORDER BY v.date,v.id`,
     )
     .all(customerLedgerId, from, to) as {
     id: number;

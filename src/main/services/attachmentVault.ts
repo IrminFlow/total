@@ -96,6 +96,16 @@ function assertManaged(slug: string, path: string): void {
     throw new Error("Attachment path is outside the managed attachment folder");
 }
 
+export function assertManagedAttachmentPath(slug: string, path: string): void {
+  assertManaged(slug, path);
+}
+
+/** Idempotent removal primitive for the durable voucher-purge cleanup journal. */
+export function removeManagedAttachment(slug: string, path: string): void {
+  assertManaged(slug, path);
+  if (existsSync(path)) unlinkSync(path);
+}
+
 function atomicWrite(path: string, data: Buffer): void {
   const temp = join(
     dirname(path),

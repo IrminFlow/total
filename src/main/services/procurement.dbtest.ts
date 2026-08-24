@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { seededDb } from '../db/testdb'
 import { compareSuppliers, createDebitNoteDraft, createGoodsReceipt, createPurchaseOrder, createReorderPurchaseOrders, createRequisition, getPurchaseOrder, getRequisition, listDebitNoteClaims, listGoodsReceipts, listInvoiceMatchCandidates, previewInvoiceMatch, recordDebitNoteLink, recordInvoiceMatch, reorderSuggestions, setPurchaseOrderStatus, setRequisitionStatus, supplierConcentration, supplierPriceHistory } from './procurement'
 import { stockSummary } from './reports'
-import { saveVoucher } from './vouchers'
+import { deleteVoucher, saveVoucher } from './vouchers'
 
 function fixtures() {
   const db = seededDb()
@@ -78,6 +78,21 @@ describe('procurement document chain', () => {
     expect(previewInvoiceMatch(db,{goodsReceiptId:receipt.id,lines:[{stockItemId:itemId,qtyMilli:4_000,ratePaise:1_100,amount:4_400,gstRate:18}]})).toMatchObject({status:'variance',quantityVarianceCount:1,rateVarianceCount:1,lines:[{quantityVarianceMilli:-1_000,rateVariancePaise:100}]})
   })
 
+  it('refuses to match a purchase invoice after it is moved to the bin', () => {
+    const { db, itemId, supplierId } = fixtures()
+    const po=createPurchaseOrder(db,{date:'2026-08-01',expectedDate:null,supplierLedgerId:supplierId,requisitionId:null,note:null,lines:[{stockItemId:itemId,qtyMilli:1_000,ratePaise:1_000,gstRate:18}]},'Kavya')
+    setPurchaseOrderStatus(db,po.id,'issued','Kavya')
+    const receipt=createGoodsReceipt(db,{purchaseOrderId:po.id,date:'2026-08-02',note:null,lines:[{purchaseOrderLineId:po.lines[0]!.id,qtyReceivedMilli:1_000,qtyAcceptedMilli:1_000,qtyRejectedMilli:0}]},'Stores')
+    const matchInput={goodsReceiptId:receipt.id,lines:[{stockItemId:itemId,qtyMilli:1_000,ratePaise:1_000,amount:1_000,gstRate:18}]}
+    const purchaseType=db.prepare("SELECT id FROM voucher_types WHERE kind='purchase' LIMIT 1").get() as {id:number}
+    const purchaseGroup=db.prepare("SELECT id FROM groups WHERE name='Purchase Accounts'").get() as {id:number}
+    const purchaseLedgerId=Number(db.prepare("INSERT INTO ledgers(name,group_id) VALUES('Binned Purchase',?)").run(purchaseGroup.id).lastInsertRowid)
+    const voucher=saveVoucher(db,{voucherTypeId:purchaseType.id,date:'2026-08-03',partyLedgerId:supplierId,narration:null,reference:null,instrumentNo:null,instrumentDate:null,transporterId:null,vehicleNo:null,transportDistanceKm:null,posOverride:null,currencyCode:null,exchangeRate:null,lines:[{ledgerId:purchaseLedgerId,drCr:'dr',amount:1_000},{ledgerId:supplierId,drCr:'cr',amount:1_000}],inventory:[],billRefs:[],tds:null})
+    deleteVoucher(db,voucher.id)
+    expect(() => recordInvoiceMatch(db,voucher.id,matchInput,'Owner')).toThrow('Voucher is not active in the books')
+    expect(listInvoiceMatchCandidates(db,supplierId)).toHaveLength(1)
+  })
+
   it('turns rejected delivery evidence into one financial-only linked debit note', () => {
     const {db,itemId,supplierId}=fixtures();const po=createPurchaseOrder(db,{date:'2026-08-01',expectedDate:null,supplierLedgerId:supplierId,requisitionId:null,note:null,lines:[{stockItemId:itemId,qtyMilli:2_000,ratePaise:1_000,gstRate:18}]},'Kavya');setPurchaseOrderStatus(db,po.id,'issued','Kavya')
     createGoodsReceipt(db,{purchaseOrderId:po.id,date:'2026-08-02',note:'Quality failure',lines:[{purchaseOrderLineId:po.lines[0]!.id,qtyReceivedMilli:2_000,qtyAcceptedMilli:1_000,qtyRejectedMilli:1_000}]},'Stores')
@@ -86,5 +101,16 @@ describe('procurement document chain', () => {
     const debitType=db.prepare("SELECT id FROM voucher_types WHERE kind='debit_note' LIMIT 1").get() as {id:number};const purchaseGroup=db.prepare("SELECT id FROM groups WHERE name='Purchase Accounts'").get() as {id:number};const accountId=Number(db.prepare("INSERT INTO ledgers(name,group_id) VALUES('Purchase Returns',?)").run(purchaseGroup.id).lastInsertRowid)
     const voucher=saveVoucher(db,{voucherTypeId:debitType.id,date:'2026-08-03',partyLedgerId:supplierId,narration:null,reference:null,instrumentNo:null,instrumentDate:null,transporterId:null,vehicleNo:null,transportDistanceKm:null,posOverride:null,currencyCode:null,exchangeRate:null,lines:[{ledgerId:supplierId,drCr:'dr',amount:1_000},{ledgerId:accountId,drCr:'cr',amount:1_000}],inventory:[],billRefs:[],tds:null})
     recordDebitNoteLink(db,voucher.id,claim!.sourceKey,'Owner');expect(listDebitNoteClaims(db)).toHaveLength(0);expect(()=>recordDebitNoteLink(db,voucher.id,claim!.sourceKey,'Owner')).toThrow('unavailable');expect(stockSummary(db,'2026-08-03')[0]?.closingQtyMilli).toBe(1_000)
+  })
+
+  it('refuses to link a procurement claim to a binned debit note', () => {
+    const {db,itemId,supplierId}=fixtures();const po=createPurchaseOrder(db,{date:'2026-08-01',expectedDate:null,supplierLedgerId:supplierId,requisitionId:null,note:null,lines:[{stockItemId:itemId,qtyMilli:2_000,ratePaise:1_000,gstRate:18}]},'Kavya');setPurchaseOrderStatus(db,po.id,'issued','Kavya')
+    createGoodsReceipt(db,{purchaseOrderId:po.id,date:'2026-08-02',note:null,lines:[{purchaseOrderLineId:po.lines[0]!.id,qtyReceivedMilli:2_000,qtyAcceptedMilli:1_000,qtyRejectedMilli:1_000}]},'Stores')
+    const claim=listDebitNoteClaims(db)[0]!
+    const debitType=db.prepare("SELECT id FROM voucher_types WHERE kind='debit_note' LIMIT 1").get() as {id:number};const purchaseGroup=db.prepare("SELECT id FROM groups WHERE name='Purchase Accounts'").get() as {id:number};const accountId=Number(db.prepare("INSERT INTO ledgers(name,group_id) VALUES('Binned Returns',?)").run(purchaseGroup.id).lastInsertRowid)
+    const voucher=saveVoucher(db,{voucherTypeId:debitType.id,date:'2026-08-03',partyLedgerId:supplierId,narration:null,reference:null,instrumentNo:null,instrumentDate:null,transporterId:null,vehicleNo:null,transportDistanceKm:null,posOverride:null,currencyCode:null,exchangeRate:null,lines:[{ledgerId:supplierId,drCr:'dr',amount:1_000},{ledgerId:accountId,drCr:'cr',amount:1_000}],inventory:[],billRefs:[],tds:null})
+    deleteVoucher(db,voucher.id)
+    expect(() => recordDebitNoteLink(db,voucher.id,claim.sourceKey,'Owner')).toThrow('Voucher is not active in the books')
+    expect(listDebitNoteClaims(db)).toHaveLength(1)
   })
 })

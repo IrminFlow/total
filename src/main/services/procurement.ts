@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type { GoodsReceipt, GoodsReceiptInput, InvoiceMatchCandidate, InvoiceMatchInput, InvoiceMatchPreview, ProcurementDebitNoteClaim, PurchaseOrder, PurchaseOrderInput, PurchaseRequisition, ReorderSuggestion, RequisitionInput, RequisitionStatus, SupplierComparisonRow, SupplierConcentrationReport, SupplierPriceHistoryRow } from '@shared/procurement'
-import { saveVoucher } from './vouchers'
+import { IN_BOOKS, requireInBooksVoucher, saveVoucher } from './vouchers'
 import { writeAudit } from './audit'
 import { saveVoucherDraft } from './voucherDrafts'
 import type { VoucherWorkDraft } from '@shared/voucherDrafts'
@@ -140,13 +140,13 @@ export function previewInvoiceMatch(db: DB, input: InvoiceMatchInput): InvoiceMa
 
 export function recordInvoiceMatch(db: DB, voucherId: number, input: InvoiceMatchInput, author: string): InvoiceMatchPreview {
   const preview = previewInvoiceMatch(db, input)
+  const activeVoucher = requireInBooksVoucher(db, voucherId, ['purchase'])
   const voucher = db.prepare(`
-    SELECT v.party_ledger_id AS partyLedgerId, vt.kind,
+    SELECT v.party_ledger_id AS partyLedgerId,
            (SELECT COUNT(*) FROM inventory_lines il WHERE il.voucher_id = v.id) AS inventoryLines
-    FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = ?
-  `).get(voucherId) as { partyLedgerId: number | null; kind: string; inventoryLines: number } | undefined
-  if (!voucher || voucher.kind !== 'purchase') throw new Error('Only a posted purchase invoice can be matched')
-  if (voucher.partyLedgerId !== preview.supplierLedgerId) throw new Error('Invoice supplier does not match the purchase order supplier')
+    FROM vouchers v WHERE v.id = ?
+  `).get(voucherId) as { partyLedgerId: number | null; inventoryLines: number }
+  if (activeVoucher.partyLedgerId !== preview.supplierLedgerId || voucher.partyLedgerId !== preview.supplierLedgerId) throw new Error('Invoice supplier does not match the purchase order supplier')
   if (voucher.inventoryLines !== 0) throw new Error('Matched invoice must not post stock already received by the GRN')
   const matchId = Number(db.prepare(`
     INSERT INTO purchase_invoice_matches
@@ -193,7 +193,7 @@ export function supplierPriceHistory(db: DB, stockItemIds: number[], supplierLed
       JOIN voucher_types vt ON vt.id = v.voucher_type_id AND vt.kind = 'purchase'
       JOIN stock_items si ON si.id = il.stock_item_id
       JOIN ledgers supplier ON supplier.id = v.party_ledger_id
-      WHERE il.stock_item_id IN (${marks}) AND il.direction = 'in' AND v.deleted_at IS NULL AND v.is_optional = 0
+      WHERE il.stock_item_id IN (${marks}) AND il.direction = 'in' AND ${IN_BOOKS}
       UNION ALL
       SELECT piml.stock_item_id, si.name, v.party_ledger_id, supplier.name, v.date, v.id, v.number,
              piml.invoiced_qty_milli, piml.invoice_rate_paise, 'matched_invoice'
@@ -202,7 +202,7 @@ export function supplierPriceHistory(db: DB, stockItemIds: number[], supplierLed
       JOIN vouchers v ON v.id = pim.voucher_id
       JOIN stock_items si ON si.id = piml.stock_item_id
       JOIN ledgers supplier ON supplier.id = v.party_ledger_id
-      WHERE piml.stock_item_id IN (${marks}) AND v.deleted_at IS NULL
+      WHERE piml.stock_item_id IN (${marks}) AND ${IN_BOOKS}
     ) history
     WHERE 1=1 ${supplierClause}
     ORDER BY date DESC, voucher_id DESC
@@ -270,7 +270,7 @@ export function listDebitNoteClaims(db: DB): ProcurementDebitNoteClaim[] {
   const shortageHeads=db.prepare(`SELECT po.id,po.number,po.supplier_ledger_id AS supplierLedgerId,s.name AS supplierName FROM purchase_orders po JOIN ledgers s ON s.id=po.supplier_ledger_id WHERE po.status='closed' ORDER BY po.date DESC,po.id DESC`).all() as {id:number;number:string;supplierLedgerId:number;supplierName:string}[]
   const shortageLines=db.prepare(`SELECT pol.stock_item_id AS stockItemId,si.name AS itemName,MAX(0,pol.qty_ordered_milli-COALESCE(SUM(CASE WHEN gr.status='posted' THEN grl.qty_accepted_milli ELSE 0 END),0)) AS qtyMilli,pol.rate_paise AS ratePaise,pol.gst_rate AS gstRate FROM purchase_order_lines pol JOIN stock_items si ON si.id=pol.stock_item_id LEFT JOIN goods_receipt_lines grl ON grl.purchase_order_line_id=pol.id LEFT JOIN goods_receipts gr ON gr.id=grl.goods_receipt_id WHERE pol.purchase_order_id=? GROUP BY pol.id HAVING qtyMilli>0`)
   for(const head of shortageHeads){const sourceKey=`shortage:${head.id}`;if(linked.has(sourceKey))continue;const lines=shortageLines.all(head.id) as ProcurementDebitNoteClaim['lines'];const amount=lines.reduce((sum,line)=>sum+Math.round(line.qtyMilli*line.ratePaise/1000),0);if(amount<=0)continue;claims.push({sourceKey,reason:'shortage',purchaseOrderId:head.id,purchaseOrderNumber:head.number,goodsReceiptId:null,goodsReceiptNumber:null,invoiceMatchId:null,supplierLedgerId:head.supplierLedgerId,supplierName:head.supplierName,amount,detail:'Order closed below the ordered quantity',lines})}
-  const rateHeads=db.prepare(`SELECT pim.id,pim.purchase_order_id AS purchaseOrderId,po.number AS purchaseOrderNumber,pim.goods_receipt_id AS goodsReceiptId,gr.number AS goodsReceiptNumber,po.supplier_ledger_id AS supplierLedgerId,s.name AS supplierName FROM purchase_invoice_matches pim JOIN purchase_orders po ON po.id=pim.purchase_order_id JOIN goods_receipts gr ON gr.id=pim.goods_receipt_id JOIN ledgers s ON s.id=po.supplier_ledger_id WHERE pim.rate_variance_count>0 ORDER BY pim.matched_at DESC,pim.id DESC`).all() as {id:number;purchaseOrderId:number;purchaseOrderNumber:string;goodsReceiptId:number;goodsReceiptNumber:string;supplierLedgerId:number;supplierName:string}[]
+  const rateHeads=db.prepare(`SELECT pim.id,pim.purchase_order_id AS purchaseOrderId,po.number AS purchaseOrderNumber,pim.goods_receipt_id AS goodsReceiptId,gr.number AS goodsReceiptNumber,po.supplier_ledger_id AS supplierLedgerId,s.name AS supplierName FROM purchase_invoice_matches pim JOIN vouchers v ON v.id=pim.voucher_id JOIN purchase_orders po ON po.id=pim.purchase_order_id JOIN goods_receipts gr ON gr.id=pim.goods_receipt_id JOIN ledgers s ON s.id=po.supplier_ledger_id WHERE pim.rate_variance_count>0 AND ${IN_BOOKS} ORDER BY pim.matched_at DESC,pim.id DESC`).all() as {id:number;purchaseOrderId:number;purchaseOrderNumber:string;goodsReceiptId:number;goodsReceiptNumber:string;supplierLedgerId:number;supplierName:string}[]
   const rateLines=db.prepare(`SELECT piml.stock_item_id AS stockItemId,si.name AS itemName,piml.invoiced_qty_milli AS qtyMilli,(piml.invoice_rate_paise-piml.po_rate_paise) AS ratePaise,piml.gst_rate AS gstRate FROM purchase_invoice_match_lines piml JOIN stock_items si ON si.id=piml.stock_item_id WHERE piml.match_id=? AND piml.invoice_rate_paise>piml.po_rate_paise`)
   for(const head of rateHeads){const sourceKey=`rate_difference:${head.id}`;if(linked.has(sourceKey))continue;const lines=rateLines.all(head.id) as ProcurementDebitNoteClaim['lines'];const amount=lines.reduce((sum,line)=>sum+Math.round(line.qtyMilli*line.ratePaise/1000),0);if(amount<=0)continue;claims.push({sourceKey,reason:'rate_difference',purchaseOrderId:head.purchaseOrderId,purchaseOrderNumber:head.purchaseOrderNumber,goodsReceiptId:head.goodsReceiptId,goodsReceiptNumber:head.goodsReceiptNumber,invoiceMatchId:head.id,supplierLedgerId:head.supplierLedgerId,supplierName:head.supplierName,amount,detail:`Invoice rate exceeded ${head.purchaseOrderNumber}`,lines})}
   return claims.sort((a,b)=>b.amount-a.amount)
@@ -285,13 +285,14 @@ export function createDebitNoteDraft(db: DB, sourceKey: string, author: string):
 
 export function recordDebitNoteLink(db:DB,voucherId:number,sourceKey:string,author:string):void{
   const claim=listDebitNoteClaims(db).find((row)=>row.sourceKey===sourceKey);if(!claim)throw new Error('This procurement claim is unavailable or already linked')
+  requireInBooksVoucher(db,voucherId,['debit_note'])
   const voucher=db.prepare(`SELECT v.party_ledger_id AS partyLedgerId,vt.kind,(SELECT COUNT(*) FROM inventory_lines il WHERE il.voucher_id=v.id) AS inventoryLines FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id WHERE v.id=?`).get(voucherId) as {partyLedgerId:number|null;kind:string;inventoryLines:number}|undefined
   if(!voucher||voucher.kind!=='debit_note')throw new Error('Only a posted debit note can settle a procurement claim');if(voucher.partyLedgerId!==claim.supplierLedgerId)throw new Error('Debit note supplier does not match the claim');if(voucher.inventoryLines)throw new Error('Procurement claim debit notes must not move stock')
   const id=Number(db.prepare(`INSERT INTO procurement_debit_note_links(voucher_id,source_key,purchase_order_id,goods_receipt_id,invoice_match_id,reason,claimed_amount,created_by) VALUES(?,?,?,?,?,?,?,?)`).run(voucherId,sourceKey,claim.purchaseOrderId,claim.goodsReceiptId,claim.invoiceMatchId,claim.reason,claim.amount,author).lastInsertRowid);writeAudit(db,'procurement_debit_note',id,'create',null,{voucherId,sourceKey,amount:claim.amount})
 }
 
 export function supplierConcentration(db:DB,from:string,to:string):SupplierConcentrationReport{
-  const spend=db.prepare(`SELECT v.party_ledger_id AS supplierLedgerId,l.name AS supplierName,SUM(vl.amount) AS purchaseAmount FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id AND vt.kind='purchase' JOIN ledgers l ON l.id=v.party_ledger_id JOIN voucher_lines vl ON vl.voucher_id=v.id AND vl.ledger_id=v.party_ledger_id AND vl.dr_cr='cr' WHERE v.date BETWEEN ? AND ? AND v.deleted_at IS NULL AND v.is_optional=0 AND v.post_dated=0 GROUP BY v.party_ledger_id ORDER BY purchaseAmount DESC`).all(from,to) as {supplierLedgerId:number;supplierName:string;purchaseAmount:number}[]
+  const spend=db.prepare(`SELECT v.party_ledger_id AS supplierLedgerId,l.name AS supplierName,SUM(vl.amount) AS purchaseAmount FROM vouchers v JOIN voucher_types vt ON vt.id=v.voucher_type_id AND vt.kind='purchase' JOIN ledgers l ON l.id=v.party_ledger_id JOIN voucher_lines vl ON vl.voucher_id=v.id AND vl.ledger_id=v.party_ledger_id AND vl.dr_cr='cr' WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} GROUP BY v.party_ledger_id ORDER BY purchaseAmount DESC`).all(from,to) as {supplierLedgerId:number;supplierName:string;purchaseAmount:number}[]
   const totalPurchases=spend.reduce((sum,row)=>sum+row.purchaseAmount,0)
   const sole=db.prepare(`SELECT supplier_ledger_id AS supplierLedgerId,COUNT(*) AS count FROM (SELECT pol.stock_item_id,MIN(po.supplier_ledger_id) AS supplier_ledger_id FROM purchase_order_lines pol JOIN purchase_orders po ON po.id=pol.purchase_order_id WHERE po.status<>'cancelled' GROUP BY pol.stock_item_id HAVING COUNT(DISTINCT po.supplier_ledger_id)=1) GROUP BY supplier_ledger_id`).all() as {supplierLedgerId:number;count:number}[]
   const soleMap=new Map(sole.map((row)=>[row.supplierLedgerId,row.count]));const categoryStmt=db.prepare(`SELECT DISTINCT COALESCE(sg.name,'Uncategorised') AS name FROM purchase_order_lines pol JOIN purchase_orders po ON po.id=pol.purchase_order_id JOIN stock_items si ON si.id=pol.stock_item_id LEFT JOIN stock_groups sg ON sg.id=si.group_id WHERE po.supplier_ledger_id=? AND po.status<>'cancelled' ORDER BY name LIMIT 8`)

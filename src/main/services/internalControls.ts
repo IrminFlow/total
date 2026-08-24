@@ -20,6 +20,7 @@ import type {
 } from "@shared/internalControls";
 import { writeAudit } from "./audit";
 import type { Role } from "./roles";
+import { IN_BOOKS, requireInBooksVoucher } from "./vouchers";
 
 type AnyRow = Record<string, unknown>;
 const parseArray = (value: unknown): string[] => {
@@ -66,7 +67,7 @@ export function listReviewQuestions(
     .prepare(
       `SELECT q.*, v.number voucher_number, v.date voucher_date, u.name assigned_to_name
     FROM review_questions q JOIN vouchers v ON v.id=q.voucher_id LEFT JOIN users u ON u.id=q.assigned_to_user_id
-    ${status ? "WHERE q.status=?" : ""}
+    WHERE ${IN_BOOKS} ${status ? "AND q.status=?" : ""}
     ORDER BY CASE q.status WHEN 'open' THEN 0 WHEN 'answered' THEN 1 ELSE 2 END,
     CASE q.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END,
     CASE WHEN q.due_date IS NULL THEN 1 ELSE 0 END,q.due_date,q.id DESC`,
@@ -86,8 +87,7 @@ export function createReviewQuestion(
   },
   actor: string,
 ): ReviewQuestion {
-  if (!db.prepare("SELECT 1 FROM vouchers WHERE id=?").get(input.voucherId))
-    throw new Error("Voucher not found");
+  requireInBooksVoucher(db, input.voucherId);
   if (
     input.assignedToUserId &&
     !db
@@ -561,12 +561,12 @@ export function controlReport(db: DB, from: string, to: string): ControlReport {
       to,
     ),
     reversals: scalar(
-      `SELECT COUNT(*) n FROM vouchers WHERE date BETWEEN ? AND ? AND (narration LIKE '%reversal%' OR narration LIKE '%reversed%')`,
+      `SELECT COUNT(*) n FROM vouchers v WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND (v.narration LIKE '%reversal%' OR v.narration LIKE '%reversed%')`,
       from,
       to,
     ),
     latePostings: scalar(
-      `SELECT COUNT(*) n FROM vouchers WHERE date BETWEEN ? AND ? AND julianday(date(created_at))-julianday(date)>7`,
+      `SELECT COUNT(*) n FROM vouchers v WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND julianday(date(v.created_at))-julianday(v.date)>7`,
       from,
       to,
     ),
@@ -576,10 +576,10 @@ export function controlReport(db: DB, from: string, to: string): ControlReport {
       to,
     ),
     openQuestions: scalar(
-      `SELECT COUNT(*) n FROM review_questions WHERE status IN ('open','answered')`,
+      `SELECT COUNT(*) n FROM review_questions q JOIN vouchers v ON v.id=q.voucher_id WHERE q.status IN ('open','answered') AND ${IN_BOOKS}`,
     ),
     overdueQuestions: scalar(
-      `SELECT COUNT(*) n FROM review_questions WHERE status IN ('open','answered') AND due_date<date('now')`,
+      `SELECT COUNT(*) n FROM review_questions q JOIN vouchers v ON v.id=q.voucher_id WHERE q.status IN ('open','answered') AND q.due_date<date('now') AND ${IN_BOOKS}`,
     ),
     pendingExceptions: scalar(
       `SELECT COUNT(*) n FROM policy_exceptions WHERE status='pending'`,

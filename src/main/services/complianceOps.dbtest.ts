@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { seededDb } from '../db/testdb'
+import { postSimpleVoucher, seededDb } from '../db/testdb'
 import type { CompanyInfo } from '@shared/domain'
 import {
-  addEdocEvent, addTdsChallan, installTaxContentPack, listGstRegistrations, listItcActions,
+  addEdocEvent, addTdsChallan, edocEvents, installTaxContentPack, listGstRegistrations, listItcActions,
   listGstRegistrationSeries, listLutAuthorizations, saveComplianceObligation, saveGst2bImport, saveGstRegistration,
   saveGstRegistrationSeries, saveLutAuthorization, setTdsReturnStatus,
   syncComplianceCalendar, tdsWorkspace, updateItcAction
 } from './complianceOps'
+import { deleteVoucher } from './vouchers'
 
 const company: CompanyInfo = {
   name:'Compliance Co',booksFrom:2026,stateCode:'27',gstin:'27AAPFU0939F1ZV',gstRegistrationType:'regular',address:'Pune',
@@ -25,13 +26,17 @@ describe('compliance operations', () => {
   })
 
   it('tracks e-document history with retry idempotency', () => {
-    const db=seededDb();const voucherId=(db.prepare('SELECT id FROM vouchers LIMIT 1').get() as {id:number}|undefined)?.id
-    if(!voucherId){
-      db.prepare("INSERT INTO vouchers(voucher_type_id,date,number,narration) SELECT id,'2026-08-24','E-1','Test' FROM voucher_types LIMIT 1").run()
-    }
-    const id=voucherId??Number((db.prepare('SELECT id FROM vouchers ORDER BY id DESC LIMIT 1').get() as {id:number}).id)
+    const db=seededDb();const id=postSimpleVoucher(db,{kind:'sales',date:'2026-08-24',amount:1_000}).id
     expect(addEdocEvent(db,{voucherId:id,kind:'einvoice',status:'pending',requestKey:'irn:E-1',documentNo:null,validUntil:null,vehicleNo:null,reason:null},'Asha').status).toBe('pending')
     expect(()=>addEdocEvent(db,{voucherId:id,kind:'einvoice',status:'pending',requestKey:'irn:E-1',documentNo:null,validUntil:null,vehicleNo:null,reason:null},'Asha')).toThrow()
+    deleteVoucher(db,id)
+    expect(edocEvents(db,id)).toHaveLength(0)
+    expect(()=>addEdocEvent(db,{voucherId:id,kind:'einvoice',status:'failed',requestKey:'irn:E-2',documentNo:null,validUntil:null,vehicleNo:null,reason:'retry'},'Asha')).toThrow('Voucher is not active in the books')
+  })
+
+  it('rejects an e-document lifecycle on an active but unsupported voucher kind', () => {
+    const db=seededDb();const id=postSimpleVoucher(db,{kind:'journal',date:'2026-08-24',amount:1_000}).id
+    expect(()=>addEdocEvent(db,{voucherId:id,kind:'einvoice',status:'pending',requestKey:'irn:J-1',documentNo:null,validUntil:null,vehicleNo:null,reason:null},'Asha')).toThrow('Voucher type journal is not valid')
   })
 
   it('ties TDS deductions to challans and filing evidence', () => {

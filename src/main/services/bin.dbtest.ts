@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { seededDb, postSimpleVoucher } from '../db/testdb'
-import { deleteVoucher, getVoucher, listBin, listVouchers, nextVoucherNumber, purgeOldDeleted, purgeVoucher, restoreVoucher, saveVoucher, setLockDate } from './vouchers'
+import { deleteVoucher, getVoucher, listBin, listVouchers, nextVoucherNumber, purgeOldDeleted, purgeVoucher, restoreVoucher, saveVoucher, setLockDate, sweepVoucherAttachmentCleanup } from './vouchers'
 import { trialBalance } from './reports'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { companyDir } from '../paths'
 
 describe('soft delete + bin', () => {
   it('excludes a binned voucher from listVouchers and trialBalance, while keeping the books balanced', () => {
@@ -82,6 +86,58 @@ describe('soft delete + bin', () => {
     expect(listBin(db)).toHaveLength(0)
     const row = db.prepare('SELECT COUNT(*) AS n FROM vouchers WHERE id = ?').get(v.id) as { n: number }
     expect(row.n).toBe(0)
+  })
+
+  it('journals managed attachment cleanup across voucher purge and retries a post-unlink crash', () => {
+    const previousDataDir = process.env.TOTAL_DATA_DIR
+    const root = mkdtempSync(join(tmpdir(), 'total-voucher-purge-'))
+    process.env.TOTAL_DATA_DIR = root
+    try {
+      const db = seededDb()
+      const slug = 'attachment-cleanup'
+      const attachmentDir = join(companyDir(slug), 'attachments', 'vouchers', '1')
+      mkdirSync(attachmentDir, { recursive: true })
+      const path = join(attachmentDir, 'evidence.pdf')
+      writeFileSync(path, 'evidence')
+      const voucher = postSimpleVoucher(db, { date: '2025-04-05', amount: 5000, kind: 'receipt' })
+      db.prepare(`INSERT INTO voucher_attachments(voucher_id,original_name,stored_path,kind,size_bytes,added_by) VALUES(?,?,?,?,?,?)`)
+        .run(voucher.id, 'evidence.pdf', path, 'receipt', 8, 'Owner')
+      deleteVoucher(db, voucher.id)
+      purgeVoucher(db, voucher.id, slug)
+      expect(existsSync(path)).toBe(false)
+      expect(db.prepare("SELECT value FROM meta WHERE key='voucher_attachments.cleanup.pending.v1'").get()).toBeUndefined()
+
+      // Simulate a crash after unlink but before the journal row was cleared. Missing is success.
+      db.prepare("INSERT INTO meta(key,value) VALUES('voucher_attachments.cleanup.pending.v1',?)")
+        .run(JSON.stringify([path]))
+      expect(sweepVoucherAttachmentCleanup(db, slug)).toEqual({ removed: 1, pending: 0 })
+    } finally {
+      if (previousDataDir === undefined) delete process.env.TOTAL_DATA_DIR
+      else process.env.TOTAL_DATA_DIR = previousDataDir
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to purge an attachment path outside the managed company vault', () => {
+    const previousDataDir = process.env.TOTAL_DATA_DIR
+    const root = mkdtempSync(join(tmpdir(), 'total-voucher-purge-path-'))
+    process.env.TOTAL_DATA_DIR = root
+    try {
+      const db = seededDb()
+      const voucher = postSimpleVoucher(db, { date: '2025-04-05', amount: 5000, kind: 'receipt' })
+      const outside = join(root, 'outside.pdf')
+      writeFileSync(outside, 'do not delete')
+      db.prepare(`INSERT INTO voucher_attachments(voucher_id,original_name,stored_path,kind,size_bytes,added_by) VALUES(?,?,?,?,?,?)`)
+        .run(voucher.id, 'outside.pdf', outside, 'receipt', 13, 'Owner')
+      deleteVoucher(db, voucher.id)
+      expect(() => purgeVoucher(db, voucher.id, 'attachment-cleanup')).toThrow('outside the managed attachment folder')
+      expect(getVoucher(db, voucher.id)).not.toBeNull()
+      expect(existsSync(outside)).toBe(true)
+    } finally {
+      if (previousDataDir === undefined) delete process.env.TOTAL_DATA_DIR
+      else process.env.TOTAL_DATA_DIR = previousDataDir
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('purgeVoucher refuses a voucher that is not yet in the bin', () => {

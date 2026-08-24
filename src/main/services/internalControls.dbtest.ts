@@ -10,6 +10,7 @@ import {
   boundaryAllows,
   getExportPermissions,
   getPeriodSignoff,
+  listReviewQuestions,
   listPolicyExceptions,
   listRetentionPolicies,
   listSessions,
@@ -23,6 +24,7 @@ import {
   setRetentionPolicy,
   touchSession,
 } from "./internalControls";
+import { deleteVoucher } from "./vouchers";
 
 describe("collaboration and internal controls", () => {
   it("runs voucher questions through answer and independent resolution", () => {
@@ -68,6 +70,29 @@ describe("collaboration and internal controls", () => {
       status: "resolved",
       resolvedBy: "Owner",
     });
+  });
+
+  it("does not create or expose review work for a voucher in the bin", () => {
+    const db = seededDb();
+    const live = postSimpleVoucher(db, { kind: "journal", date: "2026-08-20", amount: 10_000 });
+    const question = createReviewQuestion(db, {
+      voucherId: live.id,
+      question: "Check evidence",
+      assignedToUserId: null,
+      dueDate: "2026-08-25",
+      priority: "normal",
+    }, "Owner");
+    deleteVoucher(db, live.id);
+    expect(listReviewQuestions(db)).toHaveLength(0);
+    expect(controlReport(db, "2026-08-01", "2026-08-31").openQuestions).toBe(0);
+    expect(() => createReviewQuestion(db, {
+      voucherId: live.id,
+      question: "Try again",
+      assignedToUserId: null,
+      dueDate: null,
+      priority: "normal",
+    }, "Owner")).toThrow("Voucher is not active in the books");
+    expect(() => answerReviewQuestion(db, question.id, "Answer", "Owner")).toThrow("Review question not found");
   });
 
   it("requires independent period preparation and review and retains evidence", () => {
