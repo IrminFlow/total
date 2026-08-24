@@ -31,14 +31,35 @@ jobs:
       - name: DB-layer tests (Electron-as-Node)
         run: npm run test:db
 
+      - name: Renderer tests (jsdom + RTL)
+        run: npm run test:renderer
+
       - name: Build
         run: npm run build
+
+      - name: Bundle size budget
+        run: npm run bundle:budget
 
       - name: Hermetic IPC smoke test against the build
         run: npm run smoke
         env:
           TOTAL_DATA_DIR: ${{ runner.temp }}/total-data
           SMOKE_OUT: ${{ runner.temp }}/smoke
+
+      # The full UI suite. Neither platform ran it before: the release gate was a smoke test that
+      # proves the app boots and answers IPC, which is a long way from proving the screens work.
+      # A flake fails this — see scripts/run-e2e.mjs, which retries once and reports FLAKE
+      # separately, because a test that passes half the time is how a real bug ships green.
+      - name: UI end-to-end suite
+        run: npm run e2e -- --budget=1200
+
+      - name: Upload E2E artefacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-macos
+          path: smoke-out/e2e
+          retention-days: 7
 
       - name: Ensure the release exists (one per tag)
         # electron-builder's parallel asset uploads race to CREATE the release and can end up
@@ -120,6 +141,25 @@ jobs:
       # release reaches the majority of the target market.
       - name: Hermetic IPC smoke test against the build
         run: npm run smoke
+
+      # The full UI suite on Windows. Most of this market runs Windows, and the places a
+      # macOS-only suite is blind are exactly the places that break there: path separators,
+      # the native menu, `_electron` launch, and every file dialog.
+      #
+      # Given a generous budget: a cold Windows runner is slower than a Mac at booting Electron
+      # 30 times, and a budget that fails on runner variance teaches people to ignore it.
+      - name: UI end-to-end suite
+        run: npm run e2e -- --budget=1800
+
+      # Screenshots and results from a failed Windows run, which is otherwise the hardest
+      # failure to diagnose from a Mac.
+      - name: Upload E2E artefacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-windows
+          path: smoke-out/e2e
+          retention-days: 7
 
       - name: Report signing status
         shell: bash

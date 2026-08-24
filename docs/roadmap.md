@@ -436,7 +436,7 @@ Ordering within a section is roughly by value.
 322. ✓ Accelerator uniqueness enforced in CI (S)
 323. ✓ AI service boundaries enforced by a filesystem grep (S)
 324. ✓ MCP bundle load test that catches packaging failures (S)
-325. ✓ Windows unit, DB, renderer and smoke tests in CI (M) — the Windows job runs `npm test`,
+325. ✓ Windows unit, DB, renderer, smoke AND E2E tests in CI (M) — the Windows job runs `npm test`,
      `npm run test:db`, `npm run test:renderer`, builds the NSIS installer and gates the artefact
      on `npm run smoke`. The Playwright E2E suite is **not** among them; that is #343, and this
      entry used to claim it.
@@ -448,16 +448,16 @@ Ordering within a section is roughly by value.
 331. Lint rule requiring `NOT_DELETED` on voucher queries (M)
 332. Typed IPC channel registry generated from one source (M)
 333. Renderer test coverage reporting with a floor (S)
-334. E2E run time budget so the suite stays usable (S)
-335. Flake detection: rerun failures and report them separately (S) — one was found by hand
+334. ✓ E2E run time budget so the suite stays usable (S)
+335. ✓ Flake detection: rerun failures and report them separately (S) — one was found by hand
      while adding #171: scenario 02 failed about half the time because `staleTime` is 5s and
      `purchaseSuggestions` was in no screen's invalidation list, so a revisit inside five seconds
      served a cached empty panel. `__tests__/invalidation.test.ts` now guards the whole class.
-336. A `npm run verify` that runs everything in one command (S)
-337. Pre-commit hook running typecheck and the fast tests (S)
+336. ✓ A `npm run verify` that runs everything in one command (S)
+337. ✓ Pre-commit hook running typecheck and the fast tests (S)
 338. Dependency freshness report in CI (S)
-339. Bundle-size budget that fails on regression (S)
-340. Contributor guide covering the money and date invariants (S)
+339. ✓ Bundle-size budget that fails on regression (S)
+340. ✓ Contributor guide covering the money and date invariants (S)
 
 ---
 
@@ -492,7 +492,7 @@ lead time measured in weeks, which makes them the first items on the list and no
      procurement) — `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` are already wired. Organisation
      vetting takes one to three weeks. Unsigned NSIS installers get a full-screen SmartScreen
      block, on the platform most of this market runs.
-343. The Playwright E2E suite on Windows in CI (M) — see the correction on #325. Path handling,
+343. ✓ The Playwright E2E suite on Windows in CI (M) — see the correction on #325. Path handling,
      the native menu, `_electron` launch and every file dialog are the places a macOS-only suite
      is blind, and they are exactly what breaks on Windows.
 344. A generated 100,000-voucher book, timed through every screen, with the numbers published (M)
