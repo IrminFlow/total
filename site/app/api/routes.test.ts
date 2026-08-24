@@ -76,10 +76,36 @@ beforeEach(() => {
   delete process.env.SUPPORT_FALLBACK_EMAIL;
   delete process.env.BLOB_READ_WRITE_TOKEN;
   delete process.env.VERCEL_OIDC_TOKEN;
+  delete process.env.VERCEL_GIT_COMMIT_SHA;
+  delete process.env.VERCEL_DEPLOYMENT_ID;
+  delete process.env.TOTAL_SITE_REVISION;
+  delete process.env.TOTAL_DEPLOYMENT_ID;
   blobMocks.put.mockResolvedValue({});
   blobMocks.get.mockResolvedValue(null);
   blobMocks.list.mockResolvedValue({ blobs: [], hasMore: false, cursor: undefined });
   blobMocks.del.mockResolvedValue(undefined);
+});
+
+describe("deployment identity", () => {
+  it("exposes the immutable revision, deployment and product version without caching", async () => {
+    process.env.VERCEL_GIT_COMMIT_SHA = "a".repeat(40);
+    process.env.VERCEL_DEPLOYMENT_ID = "dpl_current123";
+    const { GET } = await import("./deployment/route");
+    const response = await GET();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(await response.json()).toEqual({
+      schema: 1,
+      sourceRevision: "a".repeat(40),
+      deploymentId: "dpl_current123",
+      productVersion: "0.5.0",
+    });
+  });
+
+  it("fails closed when deployment metadata is unavailable", async () => {
+    const { GET } = await import("./deployment/route");
+    expect((await GET()).status).toBe(503);
+  });
 });
 
 afterEach(() => {

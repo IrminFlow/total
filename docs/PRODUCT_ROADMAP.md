@@ -45,8 +45,8 @@ items in [BACKLOG_300.md](BACKLOG_300.md).
 
 - Configure Apple Developer ID/notarization and Windows Authenticode secrets in GitHub Actions.
 - Re-run the configured Vercel support, feedback, download and security-header checks on the final
-  release deployment. The 24 August production exercise and exact cleanup are recorded under
-  `docs/evidence/`.
+  release deployment. The 24 August production exercise under `docs/evidence/` remains a historical
+  audit record; release readiness requires fresh, executed evidence for the exact deployment.
 - Obtain legal review of the versioned privacy policy and terms for intended selling jurisdictions.
 - Tag only after the final commit is clean and green, then verify installers and updater metadata from
   the public release. See [PRODUCTION_CUTOVER.md](PRODUCTION_CUTOVER.md).

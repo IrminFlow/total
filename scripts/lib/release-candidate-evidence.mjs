@@ -72,7 +72,7 @@ export function validateReleaseCandidateEvidence(options) {
     const build = json(buildPath ?? join(root, buildName), `${platform} build evidence`);
     const scorecard = json(scorecardPath ?? join(root, scorecardName), `${platform} scorecard`);
 
-    assert(upgrade.schema === 2 && upgrade.ok === true && upgrade.executed === true, `${platform} upgrade evidence was not executed successfully`);
+    assert(upgrade.schema === 3 && upgrade.ok === true && upgrade.executed === true, `${platform} upgrade evidence was not executed successfully`);
     assert(upgrade.platform === platform, `${platform} upgrade evidence has the wrong platform`);
     assert(upgrade.sourceRevision === revision, `${platform} upgrade evidence revision does not match the release commit`);
     assert(upgrade.transition === `0.4.0 -> ${version}`, `${platform} upgrade transition is not 0.4.0 -> ${version}`);
@@ -93,6 +93,17 @@ export function validateReleaseCandidateEvidence(options) {
       assert(upgrade.candidateArtifacts.some((artifact) => artifact.name.endsWith(extension)), `${platform} evidence does not link a ${extension} candidate artifact`);
     for (const artifact of upgrade.candidateArtifacts)
       validateArtifact(files.get(artifact.name), artifact, `${platform} candidate artifact`);
+    const execution = upgrade.candidateExecution;
+    const expectedMethod = platform === "mac" ? "extracted-from-zip" : "installed-from-nsis";
+    const expectedExecutionSuffix = platform === "mac" ? "-mac.zip" : ".exe";
+    const expectedRelativeExecutable = platform === "mac" ? "Total.app/Contents/MacOS/Total" : "Total.exe";
+    assert(execution?.method === expectedMethod, `${platform} candidate was not executed from its distribution artifact`);
+    assert(execution?.artifact?.name?.endsWith(expectedExecutionSuffix), `${platform} execution artifact has the wrong type`);
+    assert(execution?.relativeExecutable === expectedRelativeExecutable, `${platform} candidate executable path is not derived from the execution artifact`);
+    assert(Number.isInteger(execution?.executable?.bytes) && execution.executable.bytes > 0 && /^[0-9a-f]{64}$/.test(execution?.executable?.sha256 ?? ""), `${platform} materialized executable provenance is missing`);
+    const listedExecutionArtifact = upgrade.candidateArtifacts.find((artifact) => artifact.name === execution.artifact.name);
+    assert(listedExecutionArtifact?.bytes === execution.artifact.bytes && listedExecutionArtifact?.sha256 === execution.artifact.sha256, `${platform} executed artifact is not one of the published candidate artifacts`);
+    validateArtifact(files.get(execution.artifact.name), execution.artifact, `${platform} execution artifact`);
 
     assert(build.schema === 1 && build.revision === revision && build.packageVersion === version, `${platform} build evidence is not tied to this release commit`);
     assert(build.sourceDirty === false, `${platform} build evidence came from a dirty worktree`);

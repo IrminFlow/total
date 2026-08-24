@@ -3,13 +3,13 @@
 // candidate migrates those same files and verifies them twice. Evidence is bound to
 // the source revision, the downloaded v0.4 package and the candidate installers.
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { _electron as electron } from "playwright-core";
 import { basename, dirname, join, resolve } from "node:path";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const oldExecutable = resolveRequired("OLD_TOTAL_EXECUTABLE");
-const candidateExecutable = resolveRequired("CURRENT_TOTAL_EXECUTABLE");
 const publicArtifactPath = resolveRequired("PUBLIC_TOTAL_ARTIFACT");
 const candidateArtifactDir = resolveRequired("CURRENT_TOTAL_ARTIFACT_DIR");
 const platform = requiredValue("UPGRADE_PLATFORM");
@@ -20,6 +20,9 @@ const evidencePath = resolve(process.env.UPGRADE_EVIDENCE ?? "dist/upgrade-evide
 const scratch = mkdtempSync(join(tmpdir(), "total-upgrade-smoke-"));
 const dataDir = join(scratch, "data");
 const profileDir = join(scratch, "profile");
+const candidateRoot = join(scratch, "candidate");
+let candidateExecutable = null;
+let candidateExecution = null;
 
 assert(platform === "mac" || platform === "win", "UPGRADE_PLATFORM must be mac or win");
 assert(/^[0-9a-f]{40}$/i.test(sourceRevision), "GITHUB_SHA must be a full release commit SHA");
@@ -56,6 +59,30 @@ function candidateArtifacts() {
   for (const extension of extensions)
     assert(paths.some((path) => path.endsWith(extension)), `Candidate artifact directory has no ${extension} file`);
   return paths.map(artifact).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function materializeCandidate() {
+  const suffix = platform === "mac" ? "-mac.zip" : ".exe";
+  const matches = readdirSync(candidateArtifactDir)
+    .map((name) => join(candidateArtifactDir, name))
+    .filter((path) => statSync(path).isFile() && path.endsWith(suffix));
+  assert(matches.length === 1, `Expected exactly one ${suffix} execution artifact, found ${matches.length}`);
+  const source = matches[0];
+  mkdirSync(candidateRoot, { recursive: true });
+  if (platform === "mac") {
+    execFileSync("ditto", ["-x", "-k", source, candidateRoot], { stdio: "pipe" });
+    candidateExecutable = join(candidateRoot, "Total.app", "Contents", "MacOS", "Total");
+  } else {
+    execFileSync(source, ["/S", `/D=${candidateRoot}`], { stdio: "pipe", timeout: 120_000, windowsHide: true });
+    candidateExecutable = join(candidateRoot, "Total.exe");
+  }
+  assert(existsSync(candidateExecutable), `Execution artifact did not materialize ${candidateExecutable}`);
+  candidateExecution = {
+    method: platform === "mac" ? "extracted-from-zip" : "installed-from-nsis",
+    artifact: artifact(source),
+    executable: artifact(candidateExecutable),
+    relativeExecutable: platform === "mac" ? "Total.app/Contents/MacOS/Total" : "Total.exe",
+  };
 }
 
 function digestFixture(value) {
@@ -197,16 +224,17 @@ async function verifyCandidate(old, pass) {
 }
 
 try {
+  materializeCandidate();
   const old = await seedWithPublicRelease();
   const firstOpen = await verifyCandidate(old, 1);
   const secondOpen = await verifyCandidate(old, 2);
   const domains = [["inventory", firstOpen.values.inventory], ["batches", firstOpen.values.batch], ["banking", firstOpen.values.banking], ["payroll", firstOpen.values.payroll], ["gst", firstOpen.values.gst], ["tds", firstOpen.values.tds], ["usersLock", firstOpen.values.users]].map(([id, detail]) => ({ id, status: "passed", detail }));
   domains.push({ id: "attachments", status: "passed", publicReleaseSupported: false, reason: "Public v0.4.0 has no managed voucher-attachment IPC or storage, so there is no public-release attachment state to migrate." });
   const evidence = {
-    schema: 2, ok: true, executed: true, checkedAt: new Date().toISOString(), platform, sourceRevision,
+    schema: 3, ok: true, executed: true, checkedAt: new Date().toISOString(), platform, sourceRevision,
     transition: `${old.identity.version} -> ${firstOpen.identity.version}`,
     publicArtifact: { ...artifact(publicArtifactPath), version: old.identity.version },
-    candidateExecutable: artifact(candidateExecutable), candidateArtifacts: candidateArtifacts(),
+    candidateExecution, candidateArtifacts: candidateArtifacts(),
     publicRelease: old, candidateFirstOpen: firstOpen, candidateSecondOpen: secondOpen, domains,
     assertions: ["packaged-builds", "artifact-digests-linked", "shared-data-root", "registry-preserved", "migration-idempotent", "voucher-and-trial-balance-preserved", "inventory-and-batches-preserved", "banking-preserved", "payroll-preserved", "gst-and-tds-preserved", "users-and-lock-preserved", "attachment-capability-recorded", "verified-backup-after-migration"],
   };

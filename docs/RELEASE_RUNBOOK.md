@@ -46,6 +46,10 @@ existing release because partial or mixed-version assets would break auto-update
   exact fixture digest, registry entry and lock; the first migrated open also produces a verified
   backup. The evidence records that v0.4 has no managed voucher attachments, rather than pretending
   an unsupported attachment migration was exercised.
+- The candidate used by that migration is materialized by the smoke itself from the signed macOS
+  ZIP or Windows NSIS installer. It never launches `dist/mac-*` or `dist/win-unpacked`; evidence
+  records the source artifact digest, extraction/install method, relative executable path and
+  materialized executable digest.
 - The final publication job recalculates the DMG, ZIP and NSIS digests and requires them to match
   both the executed platform-upgrade evidence and the clean-commit build evidence. It also requires
   the platform scorecards and evidence files to be hashed by that build evidence. A copied label,
@@ -67,3 +71,11 @@ Publication runs readiness again without `--pre-artifact`, with
 `RELEASE_REVISION` set to the tagged commit. Missing, modified, wrong-version or wrong-revision
 evidence is a release failure. Do not use `--pre-artifact` in the publication job or as a manual
 waiver.
+
+Before either platform build starts, release CI also exercises support create/track/resolve/delete
+and feedback submit/vote/follow/delete against production. `/api/deployment` must report the exact
+tagged commit, Vercel deployment ID and site product version. `dist/production-services.json` is
+accepted for six hours only. The publication job repeats the entire synthetic lifecycle in case
+production was redeployed while platform builds were running, replaces the earlier evidence with
+that result, and publishes it with the release evidence. Provider credentials or historical JSON
+files do not satisfy this gate.

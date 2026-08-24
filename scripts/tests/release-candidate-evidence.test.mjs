@@ -24,7 +24,7 @@ function fixture() {
     const upgradeName = `upgrade-evidence-${platform}.json`;
     const scorecardName = `release-scorecard-${platform}.json`;
     const upgrade = {
-      schema: 2, ok: true, executed: true, platform, sourceRevision: revision,
+      schema: 3, ok: true, executed: true, platform, sourceRevision: revision,
       transition: `0.4.0 -> ${version}`,
       publicArtifact: { name: "public-v04", version: "0.4.0", bytes: 12, sha256: "b".repeat(64) },
       publicRelease: { fixtureDigest: digest },
@@ -32,6 +32,12 @@ function fixture() {
       candidateSecondOpen: { fixtureDigest: digest, identity: { packaged: true } },
       domains: UPGRADE_DOMAINS.map((id) => ({ id, status: "passed", ...(id === "attachments" ? { publicReleaseSupported: false, reason: "not available in v0.4" } : {}) })),
       candidateArtifacts: candidates,
+      candidateExecution: {
+        method: platform === "mac" ? "extracted-from-zip" : "installed-from-nsis",
+        artifact: candidates.find((artifact) => artifact.name.endsWith(platform === "mac" ? "-mac.zip" : ".exe")),
+        executable: { name: platform === "mac" ? "Total" : "Total.exe", bytes: 123, sha256: "e".repeat(64) },
+        relativeExecutable: platform === "mac" ? "Total.app/Contents/MacOS/Total" : "Total.exe",
+      },
     };
     const upgradeArtifact = write(join(root, upgradeName), upgrade);
     const scorecardArtifact = write(join(root, scorecardName), { schema: 1, ok: true });
@@ -52,6 +58,15 @@ test("fails when an installer changes after the upgrade was executed", () => {
   const root = fixture();
   writeFileSync(join(root, "Total.Setup.0.5.0.exe"), "replaced exe");
   assert.throws(() => validateReleaseCandidateEvidence({ root, revision, version }), /digest|size/);
+});
+
+test("fails when execution is not derived from a published distribution artifact", () => {
+  const root = fixture();
+  const path = join(root, "upgrade-evidence-mac.json");
+  const evidence = JSON.parse(readFileSync(path, "utf8"));
+  evidence.candidateExecution.artifact = evidence.candidateArtifacts.find((artifact) => artifact.name.endsWith(".dmg"));
+  writeFileSync(path, JSON.stringify(evidence));
+  assert.throws(() => validateReleaseCandidateEvidence({ root, revision, version }), /execution artifact|wrong type/);
 });
 
 test("fails closed on a missing domain result or wrong source revision", () => {

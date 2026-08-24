@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { validateReleaseCandidateEvidence } from "./lib/release-candidate-evidence.mjs";
+import { validateProductionServiceEvidence } from "./lib/production-service-evidence.mjs";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const strict = process.argv.includes("--strict");
@@ -12,12 +13,17 @@ const text = (path) => readFileSync(resolve(root, path), "utf8");
 const productVersion = JSON.parse(text("package.json")).version;
 const sourceRevision = env.RELEASE_REVISION?.trim() || env.GITHUB_SHA?.trim() || execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 const hasAll = (...names) => names.every((name) => Boolean(env[name]?.trim()));
-const serviceEvidencePath = "docs/evidence/production-services-2026-08-24.json";
+const serviceEvidencePath = env.PRODUCTION_SERVICE_EVIDENCE?.trim();
 let serviceEvidence = null;
-try { serviceEvidence = JSON.parse(text(serviceEvidencePath)); } catch {}
-const supportVerified = serviceEvidence?.schema === 1 && serviceEvidence?.support?.ok === true && serviceEvidence?.support?.trackingAfterDeletionStatus === 404;
-const feedbackVerified = serviceEvidence?.schema === 1 && serviceEvidence?.feedback?.ok === true && serviceEvidence?.feedback?.syntheticEventsDeleted === 3;
-const privateDownloadVerified = serviceEvidence?.schema === 1 && serviceEvidence?.privateReleaseDownload?.ok === true;
+let serviceEvidenceError = null;
+if (serviceEvidencePath) {
+  try {
+    const raw = JSON.parse(readFileSync(resolve(root, serviceEvidencePath), "utf8"));
+    serviceEvidence = validateProductionServiceEvidence(raw, { revision: sourceRevision, version: productVersion });
+  } catch (error) {
+    serviceEvidenceError = error instanceof Error ? error.message : String(error);
+  }
+}
 const approvedEvidence = (envName, fallback, kind) => {
   const value = env[envName]?.trim() || fallback;
   if (!value || !existsSync(resolve(root, value))) return false;
@@ -44,9 +50,15 @@ const add = (id, status, detail, owner = "engineering") => checks.push({ id, sta
 add("legal-pages", ["site/app/privacy/page.tsx", "site/app/terms/page.tsx", "site/app/security/page.tsx"].every(file) ? "ready" : "blocked", "Privacy, terms and security disclosures are versioned with the site.");
 add("support-code", file("site/app/api/support/route.ts") && file("site/app/support/page.tsx") ? "ready" : "blocked", "Validated support intake and the user-facing fallback are present.");
 add("feedback-code", file("site/app/api/feedback/route.ts") && file("site/app/feedback/page.tsx") ? "ready" : "blocked", "Feedback board and provider adapter are present.");
-add("support-production", supportVerified || hasAll("BLOB_READ_WRITE_TOKEN") || hasAll("CONVEX_SUPPORT_URL") || hasAll("SUPPORT_WEBHOOK_URL") ? "ready" : "external", supportVerified ? `Production create, track, resolve and delete passed at ${serviceEvidence.checkedAt}.` : "Connect private intake storage or a support webhook and exercise one synthetic tracked case.", "operations");
-add("feedback-production", feedbackVerified || hasAll("BLOB_READ_WRITE_TOKEN") || hasAll("CONVEX_FEEDBACK_URL") ? "ready" : "external", feedbackVerified ? `Production submit, vote, follow and exact cleanup passed at ${serviceEvidence.checkedAt}.` : "Connect private intake storage or a feedback provider and exercise submit, vote and follow.", "operations");
-add("private-release-download", privateDownloadVerified || hasAll("GITHUB_TOKEN") ? "ready" : "external", privateDownloadVerified ? `The private release resolver returned public v${serviceEvidence.privateReleaseDownload.resolvedPublicVersion}.` : "Set a read-only repository GITHUB_TOKEN in Vercel while releases are private.", "operations");
+const serviceStatus = serviceEvidence ? "ready" : serviceEvidencePath ? "blocked" : "external";
+const serviceDetail = serviceEvidence
+  ? `Executed production checks passed at ${serviceEvidence.checkedAt} on deployment ${serviceEvidence.deploymentId} for ${serviceEvidence.sourceRevision}.`
+  : serviceEvidenceError
+    ? `Production service evidence failed validation: ${serviceEvidenceError}`
+    : "Run the production support and feedback exercise against the current deployment and set PRODUCTION_SERVICE_EVIDENCE to its fresh evidence file.";
+add("support-production", serviceStatus, serviceDetail, "operations");
+add("feedback-production", serviceStatus, serviceDetail, "operations");
+add("private-release-download", hasAll("GITHUB_TOKEN") ? "ready" : "external", "Set a read-only repository GITHUB_TOKEN in Vercel while releases are private.", "operations");
 add("mac-signing", hasAll("MAC_CSC_LINK", "MAC_CSC_KEY_PASSWORD", "APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER") || hasAll("CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER") ? "ready" : "external", "Configure Developer ID signing and App Store Connect notarization secrets in GitHub Actions.", "release-owner");
 add("windows-signing", hasAll("WIN_CSC_LINK", "WIN_CSC_KEY_PASSWORD") ? "ready" : "external", "Configure an Authenticode certificate and password in GitHub Actions.", "release-owner");
 add("release-workflow", text(".github/workflows/release.yml").includes("Create one complete public release") ? "ready" : "blocked", "Cross-platform signed artifacts converge into one non-draft release.");

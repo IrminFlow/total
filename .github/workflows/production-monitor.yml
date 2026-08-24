@@ -24,6 +24,8 @@ jobs:
         env:
           SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
           TOTAL_SYNTHETIC_EMAIL: synthetic-production-monitor@irminflow.invalid
+          TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
+          TOTAL_REQUIRE_SYNTHETIC: "1"
 
       - name: Upload monitoring evidence
         if: always()

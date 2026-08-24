@@ -1,11 +1,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 const origin = process.env.TOTAL_PRODUCTION_URL ?? "https://devjindal.tech";
 const secret = process.env.SUPPORT_WEBHOOK_SECRET ?? "";
 const syntheticEmail = process.env.TOTAL_SYNTHETIC_EMAIL ?? "";
+const intakeEvidence = process.argv.includes("--intake-evidence");
+const expectedSiteRevision = process.env.TOTAL_EXPECTED_SITE_REVISION?.trim() || process.env.GITHUB_SHA?.trim() || "";
+const requireSynthetic = intakeEvidence || process.env.TOTAL_REQUIRE_SYNTHETIC === "1";
 const routes = ["/", "/support", "/feedback", "/pricing", "/privacy", "/terms", "/security", "/capture"];
 const requiredHeaders = ["strict-transport-security", "x-content-type-options", "referrer-policy", "permissions-policy", "x-frame-options", "content-security-policy"];
 
@@ -13,6 +16,28 @@ async function requestJson(path, init = {}) {
   const response = await fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(15_000) });
   const body = await response.json().catch(() => null);
   return { response, body };
+}
+
+if (intakeEvidence && !/^[0-9a-f]{40}$/i.test(expectedSiteRevision)) throw new Error("Intake evidence requires TOTAL_EXPECTED_SITE_REVISION or GITHUB_SHA as a full commit SHA");
+
+let deployment = { ok: false, status: null, id: null, sourceRevision: null, productVersion: null, origin };
+try {
+  const { response, body } = await requestJson("/api/deployment");
+  deployment = {
+    ok: response.ok
+      && /^[0-9a-f]{40}$/i.test(body?.sourceRevision ?? "")
+      && typeof body?.deploymentId === "string"
+      && body.deploymentId.length >= 8
+      && body?.productVersion === pkg.version
+      && (!expectedSiteRevision || body.sourceRevision === expectedSiteRevision),
+    status: response.status,
+    id: body?.deploymentId ?? null,
+    sourceRevision: body?.sourceRevision ?? null,
+    productVersion: body?.productVersion ?? null,
+    origin,
+  };
+} catch (error) {
+  deployment = { ...deployment, error: error instanceof Error ? error.message : String(error) };
 }
 
 const routeResults = await Promise.all(routes.map(async (path) => {
@@ -109,19 +134,30 @@ if (synthetic.enabled) {
 }
 
 const securityHeadersOk = routeResults.every((row) => row.ok && requiredHeaders.every((name) => Boolean(row.headers?.[name])));
+const publicChecksOk = routeResults.every((row) => row.ok)
+  && release.ok
+  && Object.values(downloads).every((download) => download.ok)
+  && securityHeadersOk;
+const serviceChecksOk = deployment.ok && securityHeadersOk && synthetic.enabled && synthetic.ok;
 const output = {
-  schema: 2,
+  schema: 3,
+  kind: intakeEvidence ? "production-service-execution" : "production-live-execution",
+  executed: true,
   checkedAt: new Date().toISOString(),
   origin,
+  sourceRevision: deployment.sourceRevision,
+  productVersion: deployment.productVersion,
+  deployment: { id: deployment.id, origin, verified: deployment.ok },
   expectedVersion: pkg.version,
-  ok: routeResults.every((row) => row.ok) && release.ok && Object.values(downloads).every((download) => download.ok) && securityHeadersOk && (!synthetic.enabled || synthetic.ok),
+  ok: intakeEvidence ? serviceChecksOk : publicChecksOk && deployment.ok && (!requireSynthetic || serviceChecksOk),
   routes: routeResults,
   release,
   downloads,
   securityHeadersOk,
   synthetic,
 };
-mkdirSync(resolve(root, "dist"), { recursive: true });
-writeFileSync(resolve(root, "dist/production-live-readiness.json"), `${JSON.stringify(output, null, 2)}\n`);
+const outputPath = resolve(root, process.env.PRODUCTION_SERVICE_EVIDENCE_OUT?.trim() || (intakeEvidence ? "dist/production-services.json" : "dist/production-live-readiness.json"));
+mkdirSync(dirname(outputPath), { recursive: true });
+writeFileSync(outputPath, `${JSON.stringify(output, null, 2)}\n`);
 console.log(JSON.stringify(output, null, 2));
 if (!output.ok) process.exit(1);

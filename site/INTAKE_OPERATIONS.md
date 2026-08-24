@@ -22,3 +22,16 @@ Authenticated support deletion uses `DELETE /api/support?caseId=…`. Feedback d
 Create a temporary hold with `PATCH /api/maintenance/intake` and a JSON body containing `entity`, `id`, `reasonCode` (`legal` or `security`), and `holdUntil`. A hold may last up to two years and can be extended. Release it with `DELETE /api/maintenance/intake?entity=…&id=…`; the original deletion date is restored.
 
 After deployment, submit one synthetic case and one feedback event, resolve the case through the authenticated API, confirm their retention indexes in private Blob storage, invoke the maintenance endpoint with a small limit, and retain the redacted JSON response as release evidence. If `CONVEX_FEEDBACK_URL` is used, that provider must apply the same 24-month deletion rule to its copy; the website cannot delete data held by an external provider without that provider's deletion contract.
+
+## Release evidence
+
+`/api/deployment` returns the current immutable source revision, deployment ID and site version with
+`Cache-Control: private, no-store`. Vercel supplies `VERCEL_GIT_COMMIT_SHA` and
+`VERCEL_DEPLOYMENT_ID`; `TOTAL_SITE_REVISION` and `TOTAL_DEPLOYMENT_ID` are explicit fallbacks when
+system variables are not exposed.
+
+The release gate runs `npm run release:live -- --intake-evidence` with the expected commit and an
+authenticated synthetic email. It must complete support create, track, resolve and delete plus
+feedback vote, follow, submit and exact cleanup. The resulting `dist/production-services.json` is
+valid for six hours and only for its exact source revision, deployment ID and product version.
+Configuration presence and the dated files in `docs/evidence/` are not production acceptance.

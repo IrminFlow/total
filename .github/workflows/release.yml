@@ -43,9 +43,17 @@ jobs:
       - name: Validate tag and release configuration
         run: npm run release:preflight
 
+      - name: Exercise production support and feedback on this deployment
+        run: npm run release:live -- --intake-evidence
+        env:
+          TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
+          TOTAL_SYNTHETIC_EMAIL: synthetic-release-gate@irminflow.invalid
+          SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
+
       - name: Require every public-release readiness gate
         run: npm run release:readiness -- --strict --pre-artifact
         env:
+          PRODUCTION_SERVICE_EVIDENCE: dist/production-services.json
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
@@ -54,10 +62,12 @@ jobs:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.VERCEL_GITHUB_TOKEN }}
-          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-          CONVEX_SUPPORT_URL: ${{ secrets.CONVEX_SUPPORT_URL }}
-          SUPPORT_WEBHOOK_URL: ${{ secrets.SUPPORT_WEBHOOK_URL }}
-          CONVEX_FEEDBACK_URL: ${{ secrets.CONVEX_FEEDBACK_URL }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-production-services
+          if-no-files-found: error
+          path: dist/production-services.json
 
   release-mac:
     needs: release-gate
@@ -145,7 +155,6 @@ jobs:
         run: npm run release:upgrade-smoke
         env:
           OLD_TOTAL_EXECUTABLE: ${{ runner.temp }}/total-v04/app/Total.app/Contents/MacOS/Total
-          CURRENT_TOTAL_EXECUTABLE: ${{ github.workspace }}/dist/mac-universal/Total.app/Contents/MacOS/Total
           PUBLIC_TOTAL_ARTIFACT: ${{ runner.temp }}/total-v04/Total-0.4.0-arm64-mac.zip
           CURRENT_TOTAL_ARTIFACT_DIR: ${{ github.workspace }}/dist
           UPGRADE_PLATFORM: mac
@@ -240,7 +249,6 @@ jobs:
         run: npm run release:upgrade-smoke
         env:
           OLD_TOTAL_EXECUTABLE: ${{ runner.temp }}\total-v04\app\Total.exe
-          CURRENT_TOTAL_EXECUTABLE: ${{ github.workspace }}\dist\win-unpacked\Total.exe
           PUBLIC_TOTAL_ARTIFACT: ${{ runner.temp }}\total-v04\Total.Setup.0.4.0.exe
           CURRENT_TOTAL_ARTIFACT_DIR: ${{ github.workspace }}\dist
           UPGRADE_PLATFORM: win
@@ -301,10 +309,19 @@ jobs:
           RELEASE_REVISION: ${{ github.sha }}
           RELEASE_TAG: ${{ github.ref_name }}
 
+      - name: Re-exercise production services on the current deployment
+        run: npm run release:live -- --intake-evidence
+        env:
+          TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
+          TOTAL_SYNTHETIC_EMAIL: synthetic-publication-gate@irminflow.invalid
+          SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
+          PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/release/production-services.json
+
       - name: Require final public-release readiness
         run: npm run release:readiness -- --strict
         env:
           RELEASE_CANDIDATE_EVIDENCE_DIR: ${{ github.workspace }}/release
+          PRODUCTION_SERVICE_EVIDENCE: ${{ github.workspace }}/release/production-services.json
           RELEASE_REVISION: ${{ github.sha }}
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
@@ -314,10 +331,6 @@ jobs:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.VERCEL_GITHUB_TOKEN }}
-          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-          CONVEX_SUPPORT_URL: ${{ secrets.CONVEX_SUPPORT_URL }}
-          SUPPORT_WEBHOOK_URL: ${{ secrets.SUPPORT_WEBHOOK_URL }}
-          CONVEX_FEEDBACK_URL: ${{ secrets.CONVEX_FEEDBACK_URL }}
 
       - name: Validate cross-platform updater contract
         run: npm run release:contract
