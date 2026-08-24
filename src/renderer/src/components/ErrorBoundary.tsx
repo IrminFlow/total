@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { api } from '../lib/client'
+import { coreApi } from '../lib/coreClient'
 import { useNav } from '../state/stores'
 import { Button, Panel } from './ui'
 
@@ -28,7 +28,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     this.setState({ componentStack: info.componentStack ?? null })
-    api.log
+    coreApi.log
       .renderer({
         message: error.message,
         stack: error.stack,
@@ -38,7 +38,7 @@ export class ErrorBoundary extends Component<Props, State> {
       .catch(() => {
         // Logging must never compound the crash.
       })
-    api.crashes
+    coreApi.crashes
       .record({
         message: error.message,
         stack: error.stack,

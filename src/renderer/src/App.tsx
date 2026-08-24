@@ -2,19 +2,26 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNav, useScreen, useSession } from "./state/stores";
 import { Button, Modal, Toasts } from "./components/ui";
-import { CompanySelect } from "./screens/CompanySelect";
-import { Shell } from "./components/Shell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { LockScreen } from "./components/LockScreen";
 import { DialogHost } from "./components/dialogs";
 import { invalidationFamilies } from "./lib/screens";
 import { rememberRecentRecord } from "./lib/recentRecords";
-import { api } from "./lib/client";
+import { coreApi } from "./lib/coreClient";
 import {
   markReleaseNotesSeen,
   releaseNotesDue,
 } from "./lib/productEducation";
 import { readProductFlags } from "./lib/productFlags";
+
+const CompanySelect = lazy(async () => ({
+  default: (await import("./screens/CompanySelect")).CompanySelect,
+}));
+const Shell = lazy(async () => ({
+  default: (await import("./components/Shell")).Shell,
+}));
+const LockScreen = lazy(async () => ({
+  default: (await import("./components/LockScreen")).LockScreen,
+}));
 
 const Gateway = lazy(async () => ({
   default: (await import("./screens/Gateway")).Gateway,
@@ -201,7 +208,7 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     if (!slug || locked) return;
-    void api.app.info().then((info) => {
+    void coreApi.app.info().then((info) => {
       setAppVersion(info.version);
       if (releaseNotesDue(localStorage, info.version)) setHelpCentre("release");
     });
@@ -277,7 +284,9 @@ export default function App(): React.JSX.Element {
   if (!slug)
     return (
       <>
-        <CompanySelect />
+        <Suspense fallback={<ScreenLoading />}>
+          <CompanySelect />
+        </Suspense>
         {integrityModal}
         <DialogHost />
         <Toasts />
@@ -287,7 +296,9 @@ export default function App(): React.JSX.Element {
   if (locked)
     return (
       <>
-        <LockScreen />
+        <Suspense fallback={<ScreenLoading />}>
+          <LockScreen />
+        </Suspense>
         {integrityModal}
         <DialogHost />
         <Toasts />
@@ -296,16 +307,17 @@ export default function App(): React.JSX.Element {
 
   return (
     <>
-      <Shell
-        onOpenPalette={() => setPaletteOpen(true)}
-        onOpenCopilot={() => setCopilotOpen(true)}
-        onOpenHelp={() => {
-          if (readProductFlags(localStorage).flags.guidedHelp) setHelpCentre("context");
-          else setHelpOpen(true);
-        }}
-      >
-        <ErrorBoundary key={screen.name} screen={screen.name}>
-          <Suspense fallback={<ScreenLoading />}>
+      <Suspense fallback={<ScreenLoading />}>
+        <Shell
+          onOpenPalette={() => setPaletteOpen(true)}
+          onOpenCopilot={() => setCopilotOpen(true)}
+          onOpenHelp={() => {
+            if (readProductFlags(localStorage).flags.guidedHelp) setHelpCentre("context");
+            else setHelpOpen(true);
+          }}
+        >
+          <ErrorBoundary key={screen.name} screen={screen.name}>
+            <Suspense fallback={<ScreenLoading />}>
             {screen.name === "gateway" && <Gateway />}
             {screen.name === "action-centre" && <ActionCentreScreen />}
             {screen.name === "control-room" && <ControlRoomScreen />}
@@ -390,9 +402,10 @@ export default function App(): React.JSX.Element {
             {screen.name === "settings" && (
               <Settings key={screen.tab ?? "backups"} tab={screen.tab} />
             )}
-          </Suspense>
-        </ErrorBoundary>
-      </Shell>
+            </Suspense>
+          </ErrorBoundary>
+        </Shell>
+      </Suspense>
       <Suspense fallback={null}>
         {paletteOpen && (
           <CommandPalette onClose={() => setPaletteOpen(false)} />
