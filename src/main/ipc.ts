@@ -17,11 +17,14 @@ import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
-  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
+  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, reportScheduleInputSchema, reportViewSaveSchema, exportXlsSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
+import {
+  buildSpreadsheet, date as xlsDate, money as xlsMoney, num as xlsNum, text as xlsText
+} from '@shared/spreadsheet'
 import { aiSettingsSchema } from '@shared/ai/config'
 import * as aiConfig from './services/ai/config'
 import * as licenseSvc from './services/license'
@@ -51,6 +54,9 @@ import * as payroll from './services/payroll'
 import * as nic from './services/nic'
 import * as tds from './services/tds'
 import * as costCentres from './services/costCentres'
+import * as cashForecast from './services/cashForecast'
+import * as reportViews from './services/reportViews'
+import * as reportSchedules from './services/reportSchedules'
 import * as stockAnalysis from './services/stockAnalysis'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
@@ -177,6 +183,7 @@ const LICENSE_EXEMPT_CHANNELS = new Set([
   'backup:exportEncrypted',
   'backup:importEncrypted',
   'export:csv',
+  'export:xls',
   'export:caPack',
   'export:tallyXml',
   'license:get',
@@ -347,6 +354,18 @@ export function registerIpc(): void {
       if (prunedAudit > 0) log('info', 'audit-prune', { pruned: prunedAudit, keepDays: auditKeepDays })
     }
     touchLastOpened(slug)
+    // Scheduled reports. There is no daemon in an offline app, so "on a timer" means "the next
+    // time the books are opened after the due date" — deliberately fire-and-forget so a slow PDF
+    // render (or a folder that has gone away) can never delay opening the company.
+    void reportSchedules
+      .runDue(db, info, slug, todayISO())
+      .then((runs) => {
+        for (const r of runs) {
+          if (r.error) log('warn', 'report-schedule-failed', { id: r.id, report: r.report, error: r.error })
+          else log('info', 'report-schedule-written', { id: r.id, report: r.report, path: r.path })
+        }
+      })
+      .catch((err: unknown) => log('warn', 'report-schedule-run-failed', { slug, error: String(err) }))
     // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
     if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
     return { slug, info, integrity, locked: current.usersExist }
@@ -857,10 +876,65 @@ export function registerIpc(): void {
     return reports.itemProfitability(requireCompany().db, from, to)
   }, 'viewer')
   handle('report:exceptions', (p) => {
-    const { from, to } = periodSchema.parse(p)
+    const { from, to, largeVoucherPaise } = z
+      .object({
+        from: isoDate,
+        to: isoDate,
+        largeVoucherPaise: z.number().int().min(0).max(1_000_000_000_00).optional()
+      })
+      .parse(p)
     const c = requireCompany()
-    return reports.exceptions(c.db, from, to, c.info)
+    return reports.exceptions(c.db, from, to, c.info, largeVoucherPaise)
   }, 'viewer')
+
+  handle('report:whatChanged', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return reports.whatChanged(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('report:ratios', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return reports.ratios(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('report:itemProfitByPeriod', (p) => {
+    const { from, to, groupBy } = z
+      .object({ from: isoDate, to: isoDate, groupBy: z.enum(PERIODS) })
+      .parse(p)
+    return reports.itemProfitabilityByPeriod(requireCompany().db, from, to, groupBy)
+  }, 'viewer')
+  handle('report:cashForecast', (p) => {
+    const { from, to, bucketDays } = z
+      .object({ from: isoDate, to: isoDate, bucketDays: z.number().int().min(1).max(31).default(7) })
+      .parse(p)
+    return cashForecast.cashForecast(requireCompany().db, from, to, bucketDays)
+  }, 'viewer')
+
+  // ---------- saved report views (C58) ----------
+  handle('view:list', (p) => {
+    const { screen } = z.object({ screen: z.string().trim().max(40).optional() }).parse(p ?? {})
+    return reportViews.listReportViews(requireCompany().db, screen)
+  }, 'viewer')
+  handle('view:save', (p) => {
+    const { screen, name, state } = reportViewSaveSchema.parse(p)
+    return reportViews.saveReportView(requireCompany().db, screen, name, state)
+  })
+  handle('view:delete', (p) => reportViews.deleteReportView(requireCompany().db, idSchema.parse(p).id))
+
+  // ---------- scheduled reports (C59) ----------
+  handle('schedule:list', () => reportSchedules.listSchedules(requireCompany().db), 'viewer')
+  handle('schedule:save', (p) => {
+    const { id, data } = z
+      .object({ id: z.number().int().positive().optional(), data: reportScheduleInputSchema })
+      .parse(p)
+    return reportSchedules.saveSchedule(requireCompany().db, data, id)
+  })
+  handle('schedule:delete', (p) => reportSchedules.deleteSchedule(requireCompany().db, idSchema.parse(p).id))
+  handle('schedule:run', async (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    const schedule = reportSchedules.listSchedules(c.db).find((s) => s.id === id)
+    if (!schedule) throw new Error('Schedule not found')
+    return reportSchedules.runSchedule(c.db, c.info, c.slug, schedule, todayISO())
+  })
 
   // ---------- consolidated (multi-company, read-only) ----------
   handle('consol:run', (p) => {
@@ -1893,14 +1967,54 @@ export function registerIpc(): void {
     return { path }
   }, 'viewer')
 
+  /**
+   * Spreadsheet export.
+   *
+   * The renderer sends TYPED cells — money as integer paise, dates as ISO — and the workbook is
+   * built here, so an amount reaches Excel as a number it can sum rather than as the string
+   * "₹1,234.56". That is the whole reason this channel exists beside export:csv.
+   *
+   * Written as .xls (SpreadsheetML) rather than .xlsx: see src/shared/spreadsheet.ts for why the
+   * honest single-file format beat adding a ZIP dependency to an offline app.
+   */
+  handle('export:xls', (p) => {
+    const { filename, sheets } = exportXlsSchema.parse(p)
+    const c = requireCompany()
+    const xml = buildSpreadsheet(
+      sheets.map((sheet) => ({
+        name: sheet.name,
+        header: sheet.columns.map((col) => col.label),
+        rows: sheet.rows.map((row) => ({
+          bold: row.bold,
+          cells: row.cells.map((value, i) => {
+            const kind = sheet.columns[i]?.kind ?? 'text'
+            if (value === null) return xlsText('')
+            if (kind === 'money') return typeof value === 'number' ? xlsMoney(value) : xlsText(String(value))
+            if (kind === 'number') return typeof value === 'number' ? xlsNum(value) : xlsText(String(value))
+            if (kind === 'date') return typeof value === 'string' ? xlsDate(value) : xlsText(String(value))
+            return xlsText(String(value))
+          })
+        }))
+      }))
+    )
+    const path = join(companyExportsDir(c.slug), `${filename}.xls`)
+    writeFileSync(path, xml, 'utf8')
+    auditExport(c.db, 'xls', { filename, path })
+    return { path }
+  }, 'viewer')
+
   // ---------- CA export pack + Tally XML export ----------
-  handle('export:caPack', (p) => {
+  handle('export:caPack', async (p) => {
     const { from, to } = periodSchema.parse(p)
     const c = requireCompany()
     const r = caPack.exportCaPack(c.db, c.info, c.slug, from, to)
-    auditExport(c.db, 'ca_pack', { from, to, path: r.path })
+    // The CSVs are for a machine; the PDF and the workbook are for the accountant who opens the
+    // folder. All three, because the pack is handed to a person who then feeds it to a tool.
+    const pdf = await caPack.exportCaPackPdf(c.db, c.info, c.slug, from, to)
+    const workbook = caPack.exportCaPackWorkbook(c.db, c.info, c.slug, from, to)
+    auditExport(c.db, 'ca_pack', { from, to, path: r.path, pdf: pdf.path, workbook: workbook.path })
     shell.showItemInFolder(r.path)
-    return r
+    return { ...r, pdfPath: pdf.path, workbookPath: workbook.path }
   })
   handle('export:tallyXml', (p) => {
     const { from, to } = periodSchema.parse(p)

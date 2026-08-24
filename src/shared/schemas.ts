@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SCHEDULE_FORMATS, SCHEDULE_FREQUENCIES, SCHEDULE_PERIODS, SCHEDULE_REPORTS } from './reportSchedule'
 import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
 import { isUqc } from './gst/uqc'
@@ -625,6 +626,57 @@ export const exportCsvSchema = z.object({
   csv: z.string().max(2 * 1024 * 1024)
 })
 export type ExportCsvInput = z.infer<typeof exportCsvSchema>
+
+// ---------- spreadsheet export, saved views, scheduled reports (roadmap C58/C59/C67) ----------
+
+/** A cell as the renderer sends it: money stays integer paise all the way into the workbook. */
+const xlsCellSchema = z.union([z.string().max(1000), z.number(), z.null()])
+
+export const exportXlsSchema = z.object({
+  filename: exportFilename,
+  sheets: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(60),
+        columns: z
+          .array(
+            z.object({
+              label: z.string().trim().max(60),
+              kind: z.enum(['text', 'money', 'date', 'number'])
+            })
+          )
+          .min(1)
+          .max(40),
+        // Deliberately generous: an export covers the whole period, and a cap that silently
+        // truncated a year of day book would be exactly the trap CSV export already avoids.
+        rows: z
+          .array(z.object({ cells: z.array(xlsCellSchema).max(40), bold: z.boolean().optional() }))
+          .max(200_000)
+      })
+    )
+    .min(1)
+    .max(20)
+})
+export type ExportXlsInput = z.infer<typeof exportXlsSchema>
+
+export const reportViewSaveSchema = z.object({
+  screen: z.string().trim().min(1).max(40),
+  name: z.string().trim().min(1).max(60),
+  /** Opaque display state — the screen that wrote it is the only thing that reads it. */
+  state: z.unknown()
+})
+
+export const reportScheduleInputSchema = z.object({
+  report: z.enum(SCHEDULE_REPORTS),
+  periodKind: z.enum(SCHEDULE_PERIODS),
+  format: z.enum(SCHEDULE_FORMATS),
+  frequency: z.enum(SCHEDULE_FREQUENCIES),
+  /** Absolute path, or null for the company's own exports folder. */
+  folder: z.string().trim().max(500).nullable().default(null),
+  nextRun: isoDate,
+  active: z.boolean().default(true)
+})
+export type ReportScheduleInputParsed = z.infer<typeof reportScheduleInputSchema>
 
 // ---------- payroll pay heads + statutory exports (lane Y, task Y1) ----------
 

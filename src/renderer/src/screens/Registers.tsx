@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useTableNav } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, useTableNav } from '../components/ui'
 import { TabBar } from '../components/TabBar'
-import { csvReport, printReport } from '../lib/reportExport'
+import { csvReport, printReport, xlsReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import type { RegisterPeriodRow } from '@shared/reports'
 import { toDisplayDate } from '@shared/dates'
@@ -247,6 +247,45 @@ function PeriodRow({
 
 /** Item profitability (v0.3 R3): per-item qty sold, sales value, engine-valued COGS and margin. */
 function ItemProfitPanel({ from, to, periodLabel }: { from: string; to: string; periodLabel: string }): React.JSX.Element {
+  const [granularity, setGranularity] = useState<'total' | Period>('total')
+  const selector = (
+    <Select
+      aria-label="Margin granularity"
+      data-testid="select-item-granularity"
+      value={granularity}
+      onChange={(e) => setGranularity(e.currentTarget.value as 'total' | Period)}
+      className="w-36"
+    >
+      <option value="total">Whole period</option>
+      {GRANULARITIES.map((g) => (
+        <option key={g.period} value={g.period}>
+          {g.label}
+        </option>
+      ))}
+    </Select>
+  )
+  if (granularity !== 'total') {
+    return (
+      <>
+        <div className="mb-2 flex justify-end">{selector}</div>
+        <ItemMarginMatrix from={from} to={to} granularity={granularity} periodLabel={periodLabel} />
+      </>
+    )
+  }
+  return <ItemProfitTotals from={from} to={to} periodLabel={periodLabel} selector={selector} />
+}
+
+function ItemProfitTotals({
+  from,
+  to,
+  periodLabel,
+  selector
+}: {
+  from: string
+  to: string
+  periodLabel: string
+  selector: React.ReactNode
+}): React.JSX.Element {
   const toast = useToasts()
   const { data, isLoading } = useQuery({
     queryKey: ['register', 'item-profit', from, to],
@@ -287,6 +326,7 @@ function ItemProfitPanel({ from, to, periodLabel }: { from: string; to: string; 
   return (
     <>
       <div className="mb-2 flex justify-end gap-2">
+        {selector}
         <Button
           variant="ghost"
           onClick={() => void printReport({ title: 'Item profitability', periodLabel, columns: ITEM_COLUMNS, rows: exportRows }, toast)}
@@ -509,6 +549,172 @@ function PartySharePanel({
       <p className="mt-2 text-hint text-muted">
         Netted across the period, credit and debit notes included. Click a party to open its ledger.
       </p>
+    </>
+  )
+}
+
+/**
+ * Item margin, period by period.
+ *
+ * One margin for the year hides the month a discount ran and the month a supplier put a price up.
+ * The matrix is margin per item per sub-period, with the rupee profit on hover — percentages
+ * compare across items, rupees say which one matters.
+ *
+ * A blank cell means the item was not sold in that period, which is different from a nil margin
+ * and is drawn differently for exactly that reason.
+ */
+function ItemMarginMatrix({
+  from,
+  to,
+  granularity,
+  periodLabel
+}: {
+  from: string
+  to: string
+  granularity: Period
+  periodLabel: string
+}): React.JSX.Element {
+  const toast = useToasts()
+  const { data, isLoading } = useQuery({
+    queryKey: ['register', 'item-profit-period', from, to, granularity],
+    queryFn: () => api.reports.itemProfitByPeriod(from, to, granularity)
+  })
+  const buckets = data ?? []
+
+  // Union of every item sold anywhere in the range, ordered by total profit: the matrix is read
+  // top-down and the row worth reading first is the one carrying the money.
+  const byItem = new Map<number, { name: string; totalProfit: number; totalSales: number; cells: Map<string, { profit: number; sales: number }> }>()
+  for (const bucket of buckets) {
+    for (const row of bucket.rows) {
+      const entry = byItem.get(row.stockItemId) ?? { name: row.name, totalProfit: 0, totalSales: 0, cells: new Map() }
+      entry.totalProfit += row.profit
+      entry.totalSales += row.salesValue
+      entry.cells.set(bucket.key, { profit: row.profit, sales: row.salesValue })
+      byItem.set(row.stockItemId, entry)
+    }
+  }
+  const items = [...byItem.entries()].sort((a, b) => b[1].totalProfit - a[1].totalProfit)
+  const marginOf = (profit: number, sales: number): string => (sales !== 0 ? `${((profit / sales) * 100).toFixed(1)}%` : '—')
+
+  const columns: PdfColumn[] = [
+    { label: 'Item', align: 'l' },
+    ...buckets.map((b) => ({ label: b.label, align: 'r' as const })),
+    { label: 'Total', align: 'r' }
+  ]
+  const exportRows: PdfRow[] = items.map(([, entry]) => ({
+    cells: [
+      entry.name,
+      ...buckets.map((b) => {
+        const cell = entry.cells.get(b.key)
+        return cell ? marginOf(cell.profit, cell.sales) : ''
+      }),
+      marginOf(entry.totalProfit, entry.totalSales)
+    ]
+  }))
+
+  return (
+    <>
+      <div className="mb-2 flex justify-end gap-2">
+        <Button
+          variant="ghost"
+          data-testid="btn-item-matrix-pdf"
+          onClick={() => void printReport({ title: 'Item margin by period', periodLabel, columns, rows: exportRows }, toast)}
+        >
+          PDF
+        </Button>
+        <Button
+          variant="ghost"
+          data-testid="btn-item-matrix-csv"
+          onClick={() =>
+            void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'item-margin-by-period', toast)
+          }
+        >
+          CSV
+        </Button>
+        <Button
+          variant="ghost"
+          data-testid="btn-item-matrix-xls"
+          onClick={() =>
+            void xlsReport(
+              'item-margin-by-period',
+              [
+                {
+                  name: 'Item margin',
+                  columns: [
+                    { label: 'Item', kind: 'text' },
+                    ...buckets.flatMap((b) => [
+                      { label: `${b.label} sales`, kind: 'money' as const },
+                      { label: `${b.label} profit`, kind: 'money' as const }
+                    ])
+                  ],
+                  rows: items.map(([, entry]) => ({
+                    cells: [
+                      entry.name,
+                      ...buckets.flatMap((b) => {
+                        const cell = entry.cells.get(b.key)
+                        return [cell?.sales ?? 0, cell?.profit ?? 0]
+                      })
+                    ]
+                  }))
+                }
+              ],
+              toast
+            )
+          }
+        >
+          XLS
+        </Button>
+      </div>
+      <Panel scroll={{ maxH: '70vh' }}>
+        {isLoading ? (
+          <SkeletonRows />
+        ) : items.length === 0 ? (
+          <EmptyState title="No item sales in this period" />
+        ) : (
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th scope="col">Item</th>
+                {/* Narrow columns on purpose: twelve months plus a total has to fit without a
+                    horizontal scroll, and a margin is three characters. */}
+                {buckets.map((b) => (
+                  <th key={b.key} scope="col" className="r w-20">
+                    {b.label}
+                  </th>
+                ))}
+                <th scope="col" className="r w-20">Total</th>
+              </tr>
+            </thead>
+            <tbody data-testid="rows-item-margin-matrix">
+              {items.map(([id, entry]) => (
+                <tr key={id}>
+                  <td>{entry.name}</td>
+                  {buckets.map((b) => {
+                    const cell = entry.cells.get(b.key)
+                    return (
+                      <td key={b.key} className="r num">
+                        {cell === undefined ? (
+                          <span className="text-muted/50" title="Not sold in this period">
+                            ·
+                          </span>
+                        ) : (
+                          <span
+                            className={cell.profit < 0 ? 'text-cr' : ''}
+                            title={`${formatPaise(cell.profit)} on ${formatPaise(cell.sales)}`}
+                          >
+                            {marginOf(cell.profit, cell.sales)}
+                          </span>
+                        )}
+                      </td>
+                    )
+                  })}
+                  <td className="r num font-medium">{marginOf(entry.totalProfit, entry.totalSales)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
     </>
   )
 }

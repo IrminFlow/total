@@ -9,8 +9,11 @@ import { useStickyFlag } from '../lib/useStickyTab'
 import type { StatementNode } from '@shared/reports'
 import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
-import { toDisplayDate } from '@shared/dates'
+import { addDays, daysBetween, fyOf, toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
+import { RatioPanel } from '../components/RatioPanel'
+import { SavedViews } from '../components/SavedViews'
+import { xlsReport } from '../lib/reportExport'
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Particulars', align: 'l' },
@@ -30,6 +33,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
   // Above the early return: every hook has to run on every render, and the first happens before
   // `data` arrives.
   const [comparePrior, setComparePrior] = useStickyFlag('bs-compare-prior', false)
+  const [showRatios, setShowRatios] = useStickyFlag('bs-show-ratios', false)
   const { data, isPlaceholderData } = useQuery({
     queryKey: ['balanceSheet', asOn, comparePrior],
     queryFn: () => api.reports.balanceSheet(asOn, comparePrior),
@@ -54,6 +58,30 @@ export function BalanceSheetScreen(): React.JSX.Element {
     { cells: ['Total assets', formatPaise(data.totalAssets, { zeroDash: true })], bold: true, rule: true }
   ]
 
+  // Typed cells, not the formatted PDF rows: money reaches the sheet as a number that sums.
+  const exportXls = (): Promise<void> =>
+    xlsReport(
+      'balance-sheet',
+      [
+        {
+          name: 'Balance sheet',
+          columns: [
+            { label: 'Particulars', kind: 'text' },
+            { label: 'Amount', kind: 'money' }
+          ],
+          rows: [
+            { cells: ['Liabilities', null], bold: true },
+            ...xlsNodes(data.liabilities, 1),
+            { cells: ['Total liabilities', data.totalLiabilities], bold: true },
+            { cells: ['Assets', null], bold: true },
+            ...xlsNodes(data.assets, 1),
+            { cells: ['Total assets', data.totalAssets], bold: true }
+          ]
+        }
+      ],
+      toast
+    )
+
   return (
     <div className="mx-auto max-w-5xl">
       <SectionTitle
@@ -66,6 +94,19 @@ export function BalanceSheetScreen(): React.JSX.Element {
             )}
             <span className="text-small text-muted">as on</span>
             <DateInput value={asOn} context={asOn} onChange={setAsOn} className="w-28" testId="input-bs-ason" />
+            <DateScrubber asOn={asOn} onChange={setAsOn} />
+            <SavedViews<{ asOn: string; comparePrior: boolean; showRatios: boolean }>
+              screen="balance-sheet"
+              state={{ asOn, comparePrior, showRatios }}
+              onRestore={(v) => {
+                setAsOn(v.asOn)
+                setComparePrior(v.comparePrior)
+                setShowRatios(v.showRatios)
+              }}
+            />
+            <Button variant="ghost" data-testid="btn-bs-ratios" onClick={() => setShowRatios(!showRatios)}>
+              {showRatios ? 'Hide ratios' : 'Ratios'}
+            </Button>
             <Button variant="ghost" data-testid="btn-bs-compare" onClick={() => setComparePrior(!comparePrior)}>
               {comparePrior ? 'Hide last year' : 'vs last year'}
             </Button>
@@ -82,6 +123,9 @@ export function BalanceSheetScreen(): React.JSX.Element {
               }
             >
               CSV
+            </Button>
+            <Button variant="ghost" data-testid="btn-bs-xls" onClick={() => void exportXls()}>
+              XLS
             </Button>
           </div>
         }
@@ -117,6 +161,11 @@ export function BalanceSheetScreen(): React.JSX.Element {
           </div>
         </Panel>
       </div>
+      {showRatios && (
+        <div className="mt-3">
+          <RatioPanel fyFrom={fyOf(data.asOn).from} asOn={data.asOn} />
+        </div>
+      )}
       {!balanced && (
         <p className="mt-3 text-body-sm text-amber">
           The two sides differ by {<Money paise={Math.abs(data.totalAssets - data.totalLiabilities)} />} — usually an opening balance entered on one side only.
@@ -148,5 +197,48 @@ function Section({
       )}
       <ComparedStatementTree nodes={compareStatements(nodes, prior)} />
     </>
+  )
+}
+
+/** StatementNode tree → typed spreadsheet rows (money stays paise). Mirrors flattenNodes. */
+function xlsNodes(
+  nodes: StatementNode[],
+  depth = 0
+): { cells: (string | number | null)[]; bold?: boolean }[] {
+  const out: { cells: (string | number | null)[]; bold?: boolean }[] = []
+  for (const n of nodes) {
+    out.push({ cells: [`${'   '.repeat(depth)}${n.name}`, n.amount], bold: n.kind !== 'ledger' })
+    if (n.children.length) out.push(...xlsNodes(n.children, depth + 1))
+  }
+  return out
+}
+
+/**
+ * The date scrubber: drag a day and the whole sheet recomputes as on that date.
+ *
+ * Typing a date already works (the field beside it), and typing is what you do when you know the
+ * date you want. The scrubber is for the other question — "when did this go wrong" — which is
+ * answered by watching the figures move, not by guessing a date and pressing enter eleven times.
+ *
+ * It runs over the financial year the current as-on date falls in, so the two ends of the track
+ * are always meaningful dates rather than an arbitrary window. The query keeps the previous data
+ * on screen while the new one loads (keepPreviousData above), so dragging does not strobe.
+ */
+function DateScrubber({ asOn, onChange }: { asOn: string; onChange: (d: string) => void }): React.JSX.Element {
+  const fy = fyOf(asOn)
+  const total = daysBetween(fy.from, fy.to)
+  const value = Math.max(0, Math.min(total, daysBetween(fy.from, asOn)))
+  return (
+    <input
+      type="range"
+      min={0}
+      max={total}
+      value={value}
+      aria-label={`As on date within ${fy.label}`}
+      title={`${toDisplayDate(fy.from)} → ${toDisplayDate(fy.to)}`}
+      data-testid="input-bs-scrubber"
+      className="h-1 w-32 cursor-pointer accent-amber"
+      onChange={(e) => onChange(addDays(fy.from, Number(e.currentTarget.value)))}
+    />
   )
 }

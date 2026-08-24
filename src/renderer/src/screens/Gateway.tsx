@@ -7,7 +7,8 @@ import { toDisplayDate, toDisplayDateTime, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { buildReminder } from '@shared/outstanding'
 import type { RecurringTemplate } from '@shared/domain'
-import type { CashSparkPoint, TopLedgerRow } from '@shared/reports'
+import type { CashSparkPoint, TileSparkKey, TopLedgerRow } from '@shared/reports'
+import { Sparkline } from '../components/Sparkline'
 import { templateOpenTarget } from './Recurring'
 
 export function Gateway(): React.JSX.Element {
@@ -30,14 +31,19 @@ export function Gateway(): React.JSX.Element {
    * lines and standing a head taller than its neighbours. A due date is not a balance — it now
    * reads as a countdown on the compliance calendar, which is the panel that owns dates.
    */
-  const tiles: { label: string; value: number }[] = [
-    { label: 'Cash in hand', value: data?.cashBalance ?? 0 },
-    { label: 'Bank balance', value: data?.bankBalance ?? 0 },
-    { label: 'Receivables', value: data?.receivables ?? 0 },
-    { label: 'Payables', value: data?.payables ?? 0 },
-    { label: 'Sales this month', value: data?.monthSales ?? 0 },
-    { label: 'GST payable', value: data?.gstPayable ?? 0 }
+  const tiles: { label: string; value: number; spark: TileSparkKey }[] = [
+    { label: 'Cash in hand', value: data?.cashBalance ?? 0, spark: 'cash' },
+    { label: 'Bank balance', value: data?.bankBalance ?? 0, spark: 'bank' },
+    { label: 'Receivables', value: data?.receivables ?? 0, spark: 'receivables' },
+    { label: 'Payables', value: data?.payables ?? 0, spark: 'payables' },
+    { label: 'Sales this month', value: data?.monthSales ?? 0, spark: 'sales' },
+    { label: 'GST payable', value: data?.gstPayable ?? 0, spark: 'gst' }
   ]
+  // A figure with no history behind it is a figure nobody can judge: 4.2 lakh of receivables is
+  // either a good month or a collections problem, and only the shape of the last twelve tells
+  // you which. The line is anchored at zero (see Sparkline) so it cannot dramatise noise.
+  const sparkFor = (key: TileSparkKey): { month: string; value: number }[] =>
+    data?.tileSparks.find((s) => s.key === key)?.points ?? []
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -49,9 +55,12 @@ export function Gateway(): React.JSX.Element {
               // Loading — a skeleton, not a misleading ₹0.00.
               <Skeleton className="mt-2.5 h-4 w-20" />
             ) : (
-              <p className="num mt-1.5 text-title font-medium">
-                <Money paise={t.value} />
-              </p>
+              <>
+                <p className="num mt-1.5 text-title font-medium">
+                  <Money paise={t.value} />
+                </p>
+                <Sparkline points={sparkFor(t.spark)} label={t.label} testId={`spark-tile-${t.spark}`} />
+              </>
             )}
           </Panel>
         ))}

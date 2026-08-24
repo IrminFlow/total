@@ -86,6 +86,12 @@ export interface TrialBalanceRow {
   ledgerName: string
   groupName: string
   /**
+   * The primary (root) group the ledger's group descends from — 'Current Assets' where
+   * `groupName` is 'Sundry Debtors'. Carried so the screen can subtotal at balance-sheet level
+   * without a second query; optional so an older payload still renders.
+   */
+  topGroupName?: string
+  /**
    * Nature of the group this ledger sits under.
    *
    * Carried so the screen can flag a balance on the wrong side — a bank account in credit, a
@@ -268,6 +274,8 @@ export interface ExceptionSection {
     | 'numberGaps'
     /** Buyers past the section 206C(1H) receipts threshold, where TCS may be collectible. */
     | 'tcsThreshold'
+    /** Vouchers above the amount the user asked to be told about. */
+    | 'largeVouchers'
   label: string
   count: number
   /** Detail rows, capped at 200 per section (count is the true total). */
@@ -325,6 +333,51 @@ export interface DashboardData {
   hasEmployees: boolean
   /** Financial ratio panel, FY-to-date (v0.3 #54). */
   ratios: RatioPanel
+  /** One twelve-month trend per Gateway tile, keyed by the tile it belongs to. */
+  tileSparks: TileSpark[]
+}
+
+export type TileSparkKey = 'cash' | 'bank' | 'receivables' | 'payables' | 'sales' | 'gst'
+
+export interface TileSpark {
+  key: TileSparkKey
+  /** Twelve points, oldest first, ending in the current month. `month` is `YYYY-MM`. */
+  points: { month: string; value: number }[]
+}
+
+/** A ratio panel with the figures it was computed from, so the screen can show its workings —
+ *  a ratio nobody can check is a ratio nobody should act on. */
+export interface RatioReport {
+  asOn: string
+  from: string
+  ratios: RatioPanel
+  inputs: {
+    currentAssets: number
+    currentLiabilities: number
+    stock: number
+    receivables: number
+    payables: number
+    borrowings: number
+    equity: number
+    sales: number
+    purchases: number
+    grossProfit: number
+    netProfit: number
+    periodDays: number
+  }
+}
+
+/** Item-wise gross margin, one block per sub-period (v0.3 C72). */
+export interface ItemProfitPeriod {
+  /** periodKey from @shared/period, e.g. '2026-04' or '2026-Q1'. */
+  key: string
+  label: string
+  from: string
+  to: string
+  rows: ItemProfitRow[]
+  salesValue: number
+  cogs: number
+  profit: number
 }
 
 export interface VoucherListRow {

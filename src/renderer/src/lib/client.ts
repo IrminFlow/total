@@ -10,9 +10,12 @@ import type {
   PurchaseSuggestionRow,
   ReconciliationStatus,
   LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterPeriodRow, StockAgeingRow,
+  ItemProfitPeriod, RatioReport,
   StockSummaryRow, TrialBalance,
   VoucherListRow
 } from '@shared/reports'
+import type { ChangeReport } from '@shared/whatChanged'
+import type { CashForecast } from '@shared/forecast'
 import type { CashFlowStatement } from '@shared/reportMath'
 import type { Concentration } from '@shared/concentration'
 import type { VoucherDraft } from '../state/stores'
@@ -34,6 +37,9 @@ import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Period } from '@shared/period'
+import type {
+  ScheduleFrequency, SchedulePeriodKind, ScheduleReport
+} from '@shared/reportSchedule'
 import type { AiConfigView, AiSettings } from '@shared/ai/config'
 import type { LicenseState } from '@shared/license'
 import type { Cmp08, CompositionCategory, Gstr4 } from '@shared/gst/composition'
@@ -41,6 +47,50 @@ import type { FilingLiability, FilingRecord, FilingRow } from '@shared/gst/filin
 import type { Gstr9Working } from '@shared/gst/gstr9'
 import type { ChecklistState } from '@shared/onboarding'
 import type { Registry } from '../types'
+
+/** A saved report view, as the views service returns it. */
+export interface ReportView {
+  id: number
+  screen: string
+  name: string
+  state: unknown
+  createdAt: string
+}
+
+export type ScheduleFormatName = 'csv' | 'xls' | 'pdf'
+
+export interface ReportScheduleInput {
+  report: ScheduleReport
+  periodKind: SchedulePeriodKind
+  format: ScheduleFormatName
+  frequency: ScheduleFrequency
+  folder: string | null
+  nextRun: string
+  active: boolean
+}
+
+export interface ReportSchedule extends ReportScheduleInput {
+  id: number
+  label: string
+  lastRun: string | null
+  lastPath: string | null
+  lastError: string | null
+}
+
+export interface ScheduleRunResult {
+  id: number
+  report: string
+  period: { from: string; to: string }
+  path: string | null
+  error: string | null
+}
+
+/** One sheet of a spreadsheet export. Cells are RAW: money in integer paise, dates ISO. */
+export interface XlsExportSheet {
+  name: string
+  columns: { label: string; kind: 'text' | 'money' | 'date' | 'number' }[]
+  rows: { cells: (string | number | null)[]; bold?: boolean }[]
+}
 
 export type Role = 'owner' | 'accountant' | 'viewer'
 
@@ -884,11 +934,14 @@ export interface TdsSummaryRow {
 
 /** Mirrors src/main/services/costCentres.ts's CcReportRow shape (kept local — that file is main-process only). */
 export interface CcReportRow {
+  /** -1 on the synthetic "Not allocated" reconciling row. */
   costCentreId: number
   name: string
   income: number
   expense: number
   net: number
+  /** net ÷ income as a percentage; null when there was no income to take a margin on. */
+  marginPct: number | null
 }
 
 /** Mirrors src/main/services/costCentres.ts's CcStatementRow shape (kept local — that file is main-process only). */
@@ -1162,7 +1215,30 @@ export const api = {
     cashFlow: (from: string, to: string) => call<CashFlowStatement>('report:cashFlow', { from, to }),
     stockAgeing: (asOn: string) => call<StockAgeingRow[]>('report:stockAgeing', { asOn }),
     itemProfitability: (from: string, to: string) => call<ItemProfitRow[]>('report:itemProfitability', { from, to }),
-    exceptions: (from: string, to: string) => call<ExceptionsReport>('report:exceptions', { from, to })
+    exceptions: (from: string, to: string, largeVoucherPaise?: number) =>
+      call<ExceptionsReport>('report:exceptions', { from, to, largeVoucherPaise }),
+    /** Every ledger that moved between two dates, biggest mover first (roadmap C66). */
+    whatChanged: (from: string, to: string) => call<ChangeReport>('report:whatChanged', { from, to }),
+    /** The ratio panel with the figures behind it, as on `to` (roadmap C60). */
+    ratios: (fyFrom: string, asOn: string) => call<RatioReport>('report:ratios', { from: fyFrom, to: asOn }),
+    itemProfitByPeriod: (from: string, to: string, groupBy: Period) =>
+      call<ItemProfitPeriod[]>('report:itemProfitByPeriod', { from, to, groupBy }),
+    /** Cash forecast from open bills, PDCs and recurring templates (roadmap C61). */
+    cashForecast: (from: string, to: string, bucketDays?: number) =>
+      call<CashForecast>('report:cashForecast', { from, to, bucketDays })
+  },
+  /** Saved report views: named display state per screen (roadmap C58). */
+  views: {
+    list: (screen?: string) => call<ReportView[]>('view:list', { screen }),
+    save: (screen: string, name: string, state: unknown) => call<ReportView>('view:save', { screen, name, state }),
+    remove: (id: number) => call<null>('view:delete', { id })
+  },
+  /** Reports written to a folder on a timer (roadmap C59). */
+  schedules: {
+    list: () => call<ReportSchedule[]>('schedule:list'),
+    save: (data: ReportScheduleInput, id?: number) => call<ReportSchedule>('schedule:save', { data, id }),
+    remove: (id: number) => call<null>('schedule:delete', { id }),
+    run: (id: number) => call<ScheduleRunResult>('schedule:run', { id })
   },
   consolidated: {
     run: (slugs: string[], kind: 'tb' | 'pnl', from: string, to: string) =>
@@ -1486,12 +1562,16 @@ export const api = {
     template: (kind: ImportKind) => call<{ path: string }>('import:template', { kind })
   },
   exporter: {
-    caPack: (from: string, to: string) => call<{ path: string }>('export:caPack', { from, to }),
+    caPack: (from: string, to: string) =>
+      call<{ path: string; pdfPath: string; workbookPath: string }>('export:caPack', { from, to }),
     tallyXml: (from: string, to: string) => call<{ path: string }>('export:tallyXml', { from, to })
   },
   exportReport: {
     pdf: (input: ReportPdfInput) => call<{ path: string }>('report:pdf', input),
-    csv: (filename: string, csv: string) => call<{ path: string }>('export:csv', { filename, csv })
+    csv: (filename: string, csv: string) => call<{ path: string }>('export:csv', { filename, csv }),
+    /** Typed cells, not formatted strings: money crosses as integer paise so it lands in the
+     *  sheet as a number that adds up. */
+    xls: (filename: string, sheets: XlsExportSheet[]) => call<{ path: string }>('export:xls', { filename, sheets })
   },
   nic: {
     get: () => call<NicCredentials & { secretStorage: 'keychain' | 'session' }>('nic:get'),

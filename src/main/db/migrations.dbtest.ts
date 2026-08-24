@@ -44,6 +44,8 @@ const EXPECTED_TABLES = [
   'depreciation_runs',
   'employee_loans',
   'fixed_assets',
+  'report_views',
+  'report_schedules',
   'loan_recoveries',
   'luts',
   'party_notes',

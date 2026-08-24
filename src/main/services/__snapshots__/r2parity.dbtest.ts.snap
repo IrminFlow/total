@@ -157,6 +157,7 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
   "ratios": {
     "creditorDays": 201.17,
     "currentRatio": 7.56,
+    "debtEquity": null,
     "debtorDays": 183.54,
     "grossMarginPct": 43.5,
     "inventoryTurnover": 0.2,
@@ -255,6 +256,326 @@ exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 
       "postDated": false,
       "voucherId": 1,
       "voucherType": "Sales",
+    },
+  ],
+  "tileSparks": [
+    {
+      "key": "cash",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 0,
+        },
+        {
+          "month": "2024-08",
+          "value": 0,
+        },
+        {
+          "month": "2024-09",
+          "value": 0,
+        },
+        {
+          "month": "2024-10",
+          "value": 0,
+        },
+        {
+          "month": "2024-11",
+          "value": 0,
+        },
+        {
+          "month": "2024-12",
+          "value": 0,
+        },
+        {
+          "month": "2025-01",
+          "value": 0,
+        },
+        {
+          "month": "2025-02",
+          "value": 0,
+        },
+        {
+          "month": "2025-03",
+          "value": 0,
+        },
+        {
+          "month": "2025-04",
+          "value": 0,
+        },
+        {
+          "month": "2025-05",
+          "value": -10000,
+        },
+        {
+          "month": "2025-06",
+          "value": 10000,
+        },
+      ],
+    },
+    {
+      "key": "bank",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 500000,
+        },
+        {
+          "month": "2024-08",
+          "value": 500000,
+        },
+        {
+          "month": "2024-09",
+          "value": 500000,
+        },
+        {
+          "month": "2024-10",
+          "value": 500000,
+        },
+        {
+          "month": "2024-11",
+          "value": 500000,
+        },
+        {
+          "month": "2024-12",
+          "value": 500000,
+        },
+        {
+          "month": "2025-01",
+          "value": 500000,
+        },
+        {
+          "month": "2025-02",
+          "value": 500000,
+        },
+        {
+          "month": "2025-03",
+          "value": 500000,
+        },
+        {
+          "month": "2025-04",
+          "value": 550000,
+        },
+        {
+          "month": "2025-05",
+          "value": 530000,
+        },
+        {
+          "month": "2025-06",
+          "value": 530000,
+        },
+      ],
+    },
+    {
+      "key": "receivables",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 250000,
+        },
+        {
+          "month": "2024-08",
+          "value": 250000,
+        },
+        {
+          "month": "2024-09",
+          "value": 250000,
+        },
+        {
+          "month": "2024-10",
+          "value": 250000,
+        },
+        {
+          "month": "2024-11",
+          "value": 250000,
+        },
+        {
+          "month": "2024-12",
+          "value": 250000,
+        },
+        {
+          "month": "2025-01",
+          "value": 250000,
+        },
+        {
+          "month": "2025-02",
+          "value": 250000,
+        },
+        {
+          "month": "2025-03",
+          "value": 250000,
+        },
+        {
+          "month": "2025-04",
+          "value": 318000,
+        },
+        {
+          "month": "2025-05",
+          "value": 318000,
+        },
+        {
+          "month": "2025-06",
+          "value": 357000,
+        },
+      ],
+    },
+    {
+      "key": "payables",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 100000,
+        },
+        {
+          "month": "2024-08",
+          "value": 100000,
+        },
+        {
+          "month": "2024-09",
+          "value": 100000,
+        },
+        {
+          "month": "2024-10",
+          "value": 100000,
+        },
+        {
+          "month": "2024-11",
+          "value": 100000,
+        },
+        {
+          "month": "2024-12",
+          "value": 100000,
+        },
+        {
+          "month": "2025-01",
+          "value": 100000,
+        },
+        {
+          "month": "2025-02",
+          "value": 100000,
+        },
+        {
+          "month": "2025-03",
+          "value": 100000,
+        },
+        {
+          "month": "2025-04",
+          "value": 100000,
+        },
+        {
+          "month": "2025-05",
+          "value": 182600,
+        },
+        {
+          "month": "2025-06",
+          "value": 182600,
+        },
+      ],
+    },
+    {
+      "key": "sales",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 0,
+        },
+        {
+          "month": "2024-08",
+          "value": 0,
+        },
+        {
+          "month": "2024-09",
+          "value": 0,
+        },
+        {
+          "month": "2024-10",
+          "value": 0,
+        },
+        {
+          "month": "2024-11",
+          "value": 0,
+        },
+        {
+          "month": "2024-12",
+          "value": 0,
+        },
+        {
+          "month": "2025-01",
+          "value": 0,
+        },
+        {
+          "month": "2025-02",
+          "value": 0,
+        },
+        {
+          "month": "2025-03",
+          "value": 0,
+        },
+        {
+          "month": "2025-04",
+          "value": 118000,
+        },
+        {
+          "month": "2025-05",
+          "value": 0,
+        },
+        {
+          "month": "2025-06",
+          "value": 59000,
+        },
+      ],
+    },
+    {
+      "key": "gst",
+      "points": [
+        {
+          "month": "2024-07",
+          "value": 0,
+        },
+        {
+          "month": "2024-08",
+          "value": 0,
+        },
+        {
+          "month": "2024-09",
+          "value": 0,
+        },
+        {
+          "month": "2024-10",
+          "value": 0,
+        },
+        {
+          "month": "2024-11",
+          "value": 0,
+        },
+        {
+          "month": "2024-12",
+          "value": 0,
+        },
+        {
+          "month": "2025-01",
+          "value": 0,
+        },
+        {
+          "month": "2025-02",
+          "value": 0,
+        },
+        {
+          "month": "2025-03",
+          "value": 0,
+        },
+        {
+          "month": "2025-04",
+          "value": 0,
+        },
+        {
+          "month": "2025-05",
+          "value": 0,
+        },
+        {
+          "month": "2025-06",
+          "value": 0,
+        },
+      ],
     },
   ],
   "todaySales": 0,
@@ -843,6 +1164,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "movementDebit": 0,
       "nature": "liability",
       "opening": -650000,
+      "topGroupName": "Capital Account",
     },
     {
       "credit": 0,
@@ -854,6 +1176,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "movementDebit": 40000,
       "nature": "asset",
       "opening": 0,
+      "topGroupName": "Current Assets",
     },
     {
       "credit": 182600,
@@ -865,6 +1188,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "movementDebit": 0,
       "nature": "liability",
       "opening": -100000,
+      "topGroupName": "Current Liabilities",
     },
     {
       "credit": 0,
@@ -876,6 +1200,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "movementDebit": 118000,
       "nature": "asset",
       "opening": 250000,
+      "topGroupName": "Current Assets",
     },
     {
       "credit": 0,
@@ -887,6 +1212,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "movementDebit": 59000,
       "nature": "asset",
       "opening": 0,
+      "topGroupName": "Current Assets",
     },
     {
       "credit": 0,
@@ -898,6 +1224,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "movementDebit": 50000,
       "nature": "asset",
       "opening": 500000,
+      "topGroupName": "Current Assets",
     },
     {
       "credit": 0,
@@ -909,6 +1236,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "movementDebit": 82600,
       "nature": "expense",
       "opening": 0,
+      "topGroupName": "Purchase Accounts",
     },
     {
       "credit": 0,
@@ -920,6 +1248,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "movementDebit": 30000,
       "nature": "expense",
       "opening": 0,
+      "topGroupName": "Indirect Expenses",
     },
     {
       "credit": 177000,
@@ -931,6 +1260,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "movementDebit": 0,
       "nature": "income",
       "opening": 0,
+      "topGroupName": "Sales Accounts",
     },
     {
       "credit": 0,
@@ -942,6 +1272,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "movementDebit": 0,
       "nature": "asset",
       "opening": 500000,
+      "topGroupName": "Current Assets",
     },
   ],
   "totalCredit": 1009600,
