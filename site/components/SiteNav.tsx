@@ -15,6 +15,9 @@ export default function SiteNav(): React.JSX.Element {
           <Link href="/docs">Docs</Link>
           <Link href="/compare">Compare</Link>
           <Link href="/changelog">Changelog</Link>
+          <Link href="/feedback">Ideas</Link>
+          <Link href="/capture">Capture</Link>
+          <Link href="/support">Support</Link>
         </span>
         <a className="btn small" href="/api/download">
           Download

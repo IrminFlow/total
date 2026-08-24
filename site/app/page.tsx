@@ -6,6 +6,8 @@ import voucherDark from '@/public/voucher-dark.jpg'
 import gstr1Light from '@/public/gstr1-light.jpg'
 
 const FEATURES: { f: string; p: string }[] = [
+  { f: 'Action centre', p: 'One daily queue for overdue collections, book exceptions, recurring work, low stock and compliance deadlines' },
+  { f: 'Your workspace', p: 'Pin the screens you use, reopen recent work instantly, or jump anywhere with red keyboard mnemonics and Command K' },
   { f: 'Vouchers', p: 'Contra to credit note, invoice mode with live GST, audit log on every change' },
   { f: 'GST returns', p: "GSTR-1 and GSTR-3B on screen, exported as JSON the portal's offline tool accepts" },
   { f: 'e-Invoice & e-Way', p: 'Offline JSON for the government tools — or live IRN and e-way bill generation with your NIC credentials' },
@@ -14,6 +16,10 @@ const FEATURES: { f: string; p: string }[] = [
   { f: 'Banking', p: 'Reconciliation with statement CSV import that matches entries by amount and date' },
   { f: 'Payroll', p: 'EPF, ESI and professional tax computed to the rupee; payslip PDFs; one balanced posting' },
   { f: 'Registers & ageing', p: 'Sales and purchase registers, receivable and payable ageing with FIFO bill settlement' },
+  { f: 'Monthly or quarterly', p: 'Switch sales and purchase registers to Indian financial-year quarters, then drill into the exact vouchers' },
+  { f: 'Prior-year comparisons', p: 'Compare profit, margins, stock and balance-sheet totals against the matching period without exporting a sheet' },
+  { f: 'AI copilot, on your terms', p: 'OpenAI or your compatible provider, explicit context sharing, and voucher drafts that require human approval' },
+  { f: 'Agent-ready books', p: 'JSON mirrors and a local MCP server let Claude, Codex and other tools read safely without touching the live database' },
   { f: 'Multi-currency', p: 'Invoice in USD or EUR at your rate; the books stay in rupees' },
   { f: 'Tally import', p: "Bring your masters and vouchers across from Tally's XML export" }
 ]
@@ -32,6 +38,7 @@ export default async function Home(): Promise<React.JSX.Element> {
             <Link href="/docs">Docs</Link>
             <Link href="/compare">Compare</Link>
             <Link href="/changelog">Changelog</Link>
+            <Link href="/support">Support</Link>
           </span>
           <span className="cta-mini">
             <a className="btn small" href="/api/download">
@@ -47,8 +54,8 @@ export default async function Home(): Promise<React.JSX.Element> {
           </h1>
           <p className="lede">
             Total is Tally-grade double-entry accounting rebuilt for macOS — GST returns, invoices, stock, banking and
-            payroll, all computed on your machine and saved in a folder you can copy. No cloud. No account. No internet
-            required.
+            payroll, all computed on your machine and saved in a folder you can copy. No cloud account and no internet
+            required for accounting; AI and live filing are strictly opt-in.
           </p>
           <div className="hero-ctas">
             <a className="btn" href="/api/download?platform=mac">
@@ -227,8 +234,8 @@ export default async function Home(): Promise<React.JSX.Element> {
                 you type, and asks twice before an amount ten times a ledger&rsquo;s usual size.
               </p>
               <p>
-                Updates arrive on their own: the app checks GitHub releases and installs new versions with one restart —
-                your books never move.
+                Total checks for releases and opens the verified download when an update is available. Signed builds
+                can update in place; your books remain in the same local company folder.
               </p>
             </div>
           </div>
@@ -253,10 +260,6 @@ export default async function Home(): Promise<React.JSX.Element> {
           </p>
         </div>
 
-        <footer>
-          <span>Total — offline accounting for macOS.</span>
-          <span>Made for the desk that used to hold the bahi khata.</span>
-        </footer>
       </div>
     </>
   )
