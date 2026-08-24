@@ -1,6 +1,7 @@
 import type { Screen } from '../state/stores'
 import { useNav } from '../state/stores'
 import { TabBar } from '../components/TabBar'
+import { AppearanceSection } from './settings/AppearanceSection'
 import { BackupsSection } from './settings/BackupsSection'
 import { BinSection } from './settings/BinSection'
 import { UsersSection } from './settings/UsersSection'
@@ -17,6 +18,7 @@ import { AboutSection } from './settings/AboutSection'
 export type SettingsTab = NonNullable<Extract<Screen, { name: 'settings' }>['tab']>
 
 const TABS: { id: SettingsTab; label: string }[] = [
+  { id: 'appearance', label: 'Appearance' },
   { id: 'backups', label: 'Backups' },
   { id: 'bin', label: 'Bin' },
   { id: 'users', label: 'Users' },
@@ -52,6 +54,7 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
         />
       </aside>
       <div className="min-w-0 flex-1">
+        {active === 'appearance' && <AppearanceSection />}
         {active === 'backups' && <BackupsSection />}
         {active === 'bin' && <BinSection />}
         {active === 'users' && <UsersSection />}

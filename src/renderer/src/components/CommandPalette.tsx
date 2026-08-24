@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { api } from '../lib/client'
-import { useKeyNav } from './ui'
+import { isAnyModalOpen, useFocusTrap, useKeyNav } from './ui'
 import { useFeatures } from '../lib/useFeatures'
 import { SCREENS } from '../lib/screens'
 import type { CompanyFeatures } from '@shared/features'
@@ -30,6 +30,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   const { clearCompany } = useSession()
   const features = useFeatures()
   const [query, setQuery] = useState('')
+  const dialogRef = useRef<HTMLDivElement>(null)
 
   const commands = useMemo<Command[]>(() => {
     const go = (screen: Screen) => () => nav.go(screen)
@@ -78,6 +79,13 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             toast.push('error', (err as Error).message)
           }
         }
+      },
+      // Named for what people search for, not for the tab: someone whose eyes hurt types
+      // "contrast" or "text size", never "appearance".
+      {
+        label: 'Appearance — theme, text size, motion',
+        keywords: ['contrast', 'high contrast', 'text size', 'font size', 'dark', 'motion', 'accessibility'],
+        run: go({ name: 'settings', tab: 'appearance' })
       },
       { label: 'Backups', run: go({ name: 'settings', tab: 'backups' }) },
       { label: 'Bin', run: go({ name: 'settings', tab: 'bin' }) },
@@ -150,6 +158,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   const { active, setActive } = useKeyNav(navItems.length, () => {}, false)
 
+  // The input keeps its own `autoFocus` (it must be focused, not merely first in the trap), so
+  // the hook only has to wrap Tab and hand focus back to whatever was focused when ⌘K was hit.
+  // It yields to any modal opened over the palette — the modal's own trap wins.
+  useFocusTrap(dialogRef, { autoFocus: false, isTop: () => !isAnyModalOpen() })
+
   const runItem = (item: NavItem | undefined): void => {
     if (!item) return
     onClose()
@@ -165,7 +178,18 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
 
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 pt-[14vh]" onMouseDown={onClose}>
-      <div className="w-full max-w-xl overflow-hidden rounded-lg border border-line bg-panel shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+      {/* A dialog in every way that matters to the user, so it says so to the reader too: named,
+          modal, and trapped. Before this it was an unlabelled <div> whose only a11y behaviour was
+          `autoFocus` on the input — Tab walked straight out into the sidebar behind the dimmer. */}
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        data-testid="command-palette"
+        className="w-full max-w-xl overflow-hidden rounded-lg border border-line bg-panel shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <input
           autoFocus
           data-testid="input-palette"

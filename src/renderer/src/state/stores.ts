@@ -69,7 +69,7 @@ export type Screen =
   | { name: 'budgets' }
   | { name: 'company-info' }
   | { name: 'year-end' }
-  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'collections' | 'agents' | 'ai' | 'license' | 'about' }
+  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'collections' | 'agents' | 'ai' | 'license' | 'about' }
 
 interface NavState {
   stack: Screen[]
@@ -191,11 +191,24 @@ export const useSession = create<SessionState>((set) => ({
 
 // ---------- theme ----------
 
-export type Theme = 'light' | 'dark'
+/** 'contrast' is the high-contrast theme (#278) — see the token block in app.css. */
+export type Theme = 'light' | 'dark' | 'contrast'
+
+/** The order the header button cycles through. High contrast is last: it is a destination, not
+ *  something to land on by accident while flipping between light and dark. */
+export const THEME_ORDER: Theme[] = ['light', 'dark', 'contrast']
+
+export const THEME_LABEL: Record<Theme, string> = {
+  light: 'Light',
+  dark: 'Dark',
+  contrast: 'High contrast'
+}
 
 interface ThemeState {
   theme: Theme
+  /** Advance to the next theme in THEME_ORDER — what the header button does. */
   toggle: () => void
+  set: (theme: Theme) => void
 }
 
 export function applyTheme(theme: Theme): void {
@@ -205,17 +218,128 @@ export function applyTheme(theme: Theme): void {
 
 export function initialTheme(): Theme {
   const stored = localStorage.getItem('total-theme')
-  return stored === 'dark' ? 'dark' : 'light'
+  return (THEME_ORDER as string[]).includes(stored ?? '') ? (stored as Theme) : 'light'
 }
 
 export const useTheme = create<ThemeState>((set) => ({
   theme: initialTheme(),
   toggle: () =>
     set((s) => {
-      const next: Theme = s.theme === 'light' ? 'dark' : 'light'
+      const next = THEME_ORDER[(THEME_ORDER.indexOf(s.theme) + 1) % THEME_ORDER.length]!
       applyTheme(next)
       return { theme: next }
+    }),
+  set: (theme) =>
+    set(() => {
+      applyTheme(theme)
+      return { theme }
     })
+}))
+
+// ---------- accessibility preferences ----------
+
+/**
+ * Text size (#279) and motion (#277).
+ *
+ * Both are machine-level, not company-level: they describe the eyes and the vestibular system in
+ * front of the screen, and those do not change when the user switches to their second company.
+ * So: localStorage, applied to <html>, same as the theme.
+ */
+export type TextSize = 'small' | 'default' | 'large' | 'largest'
+
+/** The multiplier fed to --t-font-scale. `largest` is 1.3, which is the WCAG 1.4.4 "200% of a
+ *  16px baseline" target measured from this app's 13px body step (13 × 1.3 ≈ 17, and the browser
+ *  zoom the user still has on top of it does the rest). */
+export const TEXT_SIZE_SCALE: Record<TextSize, number> = {
+  small: 0.92,
+  default: 1,
+  large: 1.15,
+  largest: 1.3
+}
+
+export const TEXT_SIZE_LABEL: Record<TextSize, string> = {
+  small: 'Small',
+  default: 'Default',
+  large: 'Large',
+  largest: 'Largest'
+}
+
+/** 'system' defers to prefers-reduced-motion; 'reduced' forces it on regardless. There is no
+ *  'full' — an app has no business overriding an OS accessibility setting to add motion back. */
+export type MotionPref = 'system' | 'reduced'
+
+interface A11yState {
+  textSize: TextSize
+  motion: MotionPref
+  setTextSize: (size: TextSize) => void
+  setMotion: (motion: MotionPref) => void
+}
+
+export function applyTextSize(size: TextSize): void {
+  document.documentElement.style.setProperty('--t-font-scale', String(TEXT_SIZE_SCALE[size]))
+  localStorage.setItem('total-text-size', size)
+}
+
+export function applyMotion(motion: MotionPref): void {
+  // Absent rather than 'system' when off: the CSS keys off the attribute existing, and an
+  // attribute that is always present would need a second selector to say "but not that value".
+  if (motion === 'reduced') document.documentElement.dataset.motion = 'reduced'
+  else delete document.documentElement.dataset.motion
+  localStorage.setItem('total-motion', motion)
+}
+
+export function initialTextSize(): TextSize {
+  const stored = localStorage.getItem('total-text-size')
+  return stored != null && stored in TEXT_SIZE_SCALE ? (stored as TextSize) : 'default'
+}
+
+export function initialMotion(): MotionPref {
+  return localStorage.getItem('total-motion') === 'reduced' ? 'reduced' : 'system'
+}
+
+export const useA11y = create<A11yState>((set) => ({
+  textSize: initialTextSize(),
+  motion: initialMotion(),
+  setTextSize: (textSize) =>
+    set(() => {
+      applyTextSize(textSize)
+      return { textSize }
+    }),
+  setMotion: (motion) =>
+    set(() => {
+      applyMotion(motion)
+      return { motion }
+    })
+}))
+
+// ---------- screen-reader announcements ----------
+
+interface AnnouncerState {
+  /** The current polite message. Rendered by <LiveAnnouncer/> into an sr-only live region. */
+  message: string
+  announce: (message: string) => void
+}
+
+/**
+ * One app-wide polite live region (#275).
+ *
+ * Row selection moves with the arrow keys and repaints an amber bar — which says nothing at all
+ * to a screen reader, because nothing in the accessibility tree changed. The row has to be read
+ * out, and it has to be read out politely: an assertive region would interrupt the user mid-word
+ * on every single arrow press.
+ *
+ * A store rather than a DOM write so React owns the node, and one region rather than one per
+ * list because two live regions racing is how announcements get dropped.
+ */
+export const useAnnouncer = create<AnnouncerState>((set) => ({
+  message: '',
+  announce: (message) =>
+    set((s) =>
+      // Re-announcing identical text needs the node to actually change, or the reader stays
+      // silent. A trailing zero-width space is the cheapest way to make "same row" audible when
+      // the user arrows down into a duplicate line.
+      s.message === message ? { message: `${message}\u200b` } : { message }
+    )
 }))
 
 // ---------- toasts ----------

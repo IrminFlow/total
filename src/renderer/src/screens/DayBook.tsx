@@ -138,7 +138,7 @@ const DayBookRowView = memo(function DayBookRowView({
       <td className="r" onClick={(e) => e.stopPropagation()}>
         {row.kind === 'sales' && (
           <button
-            className="text-hint text-blue opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 group-data-[active=true]:opacity-100 hover:underline"
+            className="row-action text-hint text-blue hover:underline"
             onClick={(e) => onPdf(row.voucherId, e)}
             title={`Invoice PDF — ${row.voucherType} ${row.number}`}
           >

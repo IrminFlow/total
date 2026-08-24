@@ -103,14 +103,14 @@ export function CompanySelect(): React.JSX.Element {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-hint text-muted opacity-0 group-hover:opacity-100 group-data-[active=true]:opacity-100">
+                    <span className="row-action text-hint text-muted">
                       Enter ↵
                     </span>
                     <button
                       type="button"
                       data-testid={`btn-company-delete-${c.slug}`}
                       title={`Delete ${c.name}`}
-                      className="rounded-md px-1.5 py-0.5 text-detail text-muted opacity-0 transition-opacity hover:border hover:border-cr/50 hover:text-cr group-hover:opacity-100 focus-visible:opacity-100 focus-visible:text-cr focus-visible:outline-2 focus-visible:outline-cr/60"
+                      className="row-action rounded-md px-1.5 py-0.5 text-detail text-muted hover:border hover:border-cr/50 hover:text-cr focus-visible:text-cr focus-visible:outline-2 focus-visible:outline-cr/60"
                       onClick={(e) => {
                         e.stopPropagation()
                         setDeleting(c)

@@ -93,3 +93,58 @@ describe('colour tokens', () => {
     expect(offenders).toEqual([])
   })
 })
+
+describe('row actions are never hover-only (#283)', () => {
+  /**
+   * Hover is a pointer word.
+   *
+   * A control faded to `opacity-0` and brought back only by `group-hover` is unreachable from the
+   * keyboard and unannounceable to a screen reader — and two screens shipped exactly that when
+   * their row actions moved onto hover. `.row-action` in app.css is the one implementation that
+   * also honours :focus-within, the keyboard-active row and :focus-visible. This fails when
+   * someone hand-rolls the pattern again instead of using it.
+   */
+  it('use the .row-action class rather than a hand-rolled group-hover fade', () => {
+    const offenders = FILES.flatMap((file) => {
+      const classAttrs = readFileSync(file, 'utf8').match(/className=\{?[`"'][^`"']*[`"']/g) ?? []
+      return classAttrs
+        .filter((attr) => /\bopacity-0\b/.test(attr) && /group-hover:opacity-100/.test(attr))
+        .filter((attr) => !/focus-within|row-action/.test(attr))
+        .map((attr) => `${rel(file)}: ${attr.slice(0, 100)}`)
+    })
+    expect(offenders, 'use the `row-action` class from app.css').toEqual([])
+  })
+})
+
+describe('the type scale follows the text-size preference (#279)', () => {
+  const CSS = readFileSync(join(SRC, 'app.css'), 'utf8')
+
+  /**
+   * The preference works by multiplying every step of the scale by --t-font-scale. A step added
+   * later as a bare pixel value would silently refuse to grow — and it would then be the one
+   * size on screen that stays small, which reads as a bug rather than as a missing feature.
+   */
+  it('every --text-* step is multiplied by --t-font-scale', () => {
+    const steps = (CSS.match(/^\s*--text-[a-z0-9-]+:\s*[^;]+;/gm) ?? []).filter((s) => !s.includes('--line-height'))
+    expect(steps.length).toBeGreaterThan(10)
+    expect(steps.filter((s) => !s.includes('var(--t-font-scale)'))).toEqual([])
+  })
+
+  it('and so does the inherited body size', () => {
+    expect(CSS).toMatch(/font-size:\s*calc\(13px \* var\(--t-font-scale\)\)/)
+  })
+})
+
+describe('the high-contrast theme is complete (#278)', () => {
+  const CSS = readFileSync(join(SRC, 'app.css'), 'utf8')
+
+  /** A theme block that defines only some tokens inherits the rest from :root — which in a
+   *  high-contrast theme means silently keeping the low-contrast colour it exists to replace. */
+  it('defines every token :root does', () => {
+    const tokensIn = (block: string): Set<string> =>
+      new Set((block.match(/--t-[a-z0-9-]+(?=:)/g) ?? []).filter((t) => t !== '--t-font-scale'))
+    const root = tokensIn(CSS.slice(CSS.indexOf(':root {'), CSS.indexOf("[data-theme='dark']")))
+    const hc = tokensIn(CSS.slice(CSS.indexOf("[data-theme='contrast']"), CSS.indexOf('@theme inline')))
+    expect([...root].filter((t) => !hc.has(t))).toEqual([])
+  })
+})

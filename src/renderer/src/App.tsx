@@ -6,7 +6,7 @@ import { NAV_ACCEL, NAV_ORDER } from './lib/accel'
 import { api } from './lib/client'
 import { useMenuCommands } from './lib/menuCommands'
 import { useFeatures } from './lib/useFeatures'
-import { Button, Modal, Toasts } from './components/ui'
+import { Button, LiveAnnouncer, Modal, Toasts } from './components/ui'
 import { CompanySelect } from './screens/CompanySelect'
 import { Shell } from './components/Shell'
 import { Gateway } from './screens/Gateway'
@@ -160,6 +160,7 @@ export default function App(): React.JSX.Element {
       {integrityModal}
       <DialogHost />
       <Toasts />
+      <LiveAnnouncer />
     </>
   )
 
@@ -169,6 +170,7 @@ export default function App(): React.JSX.Element {
       {integrityModal}
       <DialogHost />
       <Toasts />
+      <LiveAnnouncer />
     </>
   )
 
@@ -224,6 +226,7 @@ export default function App(): React.JSX.Element {
       {integrityModal}
       <DialogHost />
       <Toasts />
+      <LiveAnnouncer />
     </>
   )
 }
