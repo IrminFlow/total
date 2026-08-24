@@ -506,7 +506,12 @@ Ordering within a section is roughly by value.
      that the audit trail then attributes to a viewer.
 267. ✓ Session timeout, as the idle auto-lock (#263) — a separate timeout on the lock screen
      itself would guard a screen that already holds nothing (S)
-268. Redact sensitive fields in exported diagnostics (done) (S)
+268. ✓ Redact sensitive fields in exported diagnostics (S) — redaction by construction rather
+     than by filter: `log()` records channel names, event names and error messages and never IPC
+     payloads, so there is nothing to strip. Asserting that is one thing and proving it is
+     another, so `scripts/e2e/33-support-send.mjs` posts a party with a GSTIN, sends a support
+     message, and reads the bytes off a recording server to check that neither the party, the
+     GSTIN nor the company name is anywhere in them.
 269. ✓ Content-Security-Policy audit and tightening (S) — base-uri, form-action and
      frame-ancestors do not fall back to default-src and were unset; connect-src is now stated
      rather than inherited, because every network call in the product belongs to main and one
@@ -516,7 +521,12 @@ Ordering within a section is roughly by value.
      release workflow. Runtime dependencies only: this app ships a Chromium to every user, so a
      known RCE in something it bundles is a shipped RCE, while a build-tool advisory blocking a
      release only teaches people to pass --force.
-271. Signed releases and update verification (config done) (M)
+271. ⏳ Signed releases and update verification (M) — blocked on procurement, not on code. The
+     workflow, the hardened runtime and `build/entitlements.mac.plist` already read `CSC_LINK`,
+     `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`,
+     `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`, and log a `::warning::` on every build that runs
+     without them. The next tag after the certificates land is signed with no code change. See
+     #341 and #342.
 272. ✓ Privacy page documenting exactly what leaves the machine (S) — written as a list of
      network calls, not as a policy: that is the only form a reader can check against the app.
 273. ✓ A "panic" key that locks immediately — ⌘⇧L from any screen (S)
@@ -633,10 +643,11 @@ Ordering within a section is roughly by value.
 309. ✓ Contact page with a WhatsApp number (S)
 310. ✓ SEO pages for the real queries people type (M)
 311. ✓ Downloads page with checksums and signing language (S)
-312. In-app feedback form posting to a real endpoint (M) — the endpoint exists:
+312. ✓ In-app feedback form posting to a real endpoint (M) — done with #345. The endpoint exists:
      `site/app/api/feedback/route.ts` stores each message as an issue in the private repo and
      forwards it by mail, and returns 503 rather than swallowing anything when no sink is
-     configured. The in-app half is the other half of this item.
+     configured. The in-app half is now the Support dialog: a message, an optional address, and
+     the diagnostics tail attached by default and shown in full before anything moves.
 313. ✓ Changelog surfaced in-app, not only on the site (S)
 314. ✓ Update notes shown before an update is applied (S)
 315. ✓ Referral or word-of-mouth tracking without telemetry (M)
