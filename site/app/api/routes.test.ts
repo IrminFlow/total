@@ -54,7 +54,10 @@ function installBlobStore(seed: Record<string, unknown> = {}): Map<string, strin
     const page = start < 0 ? [] : keys.slice(start, start + limit);
     const hasMore = page.length > 0 && keys.some((key) => key > page.at(-1)!);
     return {
-      blobs: page.map((pathname) => ({ pathname, url: `https://blob.example/${pathname}` })),
+      blobs: page.map((pathname) => ({
+        pathname,
+        url: `https://blob.example/${pathname}`,
+      })),
       hasMore,
       cursor: hasMore ? page.at(-1) : undefined,
     };
@@ -85,7 +88,11 @@ beforeEach(() => {
   delete process.env.TOTAL_DEPLOYMENT_ID;
   blobMocks.put.mockResolvedValue({});
   blobMocks.get.mockResolvedValue(null);
-  blobMocks.list.mockResolvedValue({ blobs: [], hasMore: false, cursor: undefined });
+  blobMocks.list.mockResolvedValue({
+    blobs: [],
+    hasMore: false,
+    cursor: undefined,
+  });
   blobMocks.del.mockResolvedValue(undefined);
 });
 
@@ -123,12 +130,17 @@ describe("support intake", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { POST } = await import("./support/route");
 
-    const response = await POST(post("/api/support", {
-      category: "bug",
-      email: "books@example.com",
-      message: "The trial balance screen does not open for this company.",
-    }));
-    const result = await response.json() as { caseId: string; status: string };
+    const response = await POST(
+      post("/api/support", {
+        category: "bug",
+        email: "books@example.com",
+        message: "The trial balance screen does not open for this company.",
+      }),
+    );
+    const result = (await response.json()) as {
+      caseId: string;
+      status: string;
+    };
 
     expect(response.status).toBe(200);
     expect(result.status).toBe("submitted");
@@ -137,7 +149,10 @@ describe("support intake", () => {
       new URL("https://support.example/intake"),
       expect.objectContaining({
         method: "POST",
-        headers: expect.objectContaining({ authorization: "Bearer test-secret" }),
+        headers: expect.objectContaining({
+          authorization: "Bearer test-secret",
+          "idempotency-key": expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
       }),
     );
   });
@@ -145,54 +160,83 @@ describe("support intake", () => {
   it("preserves the case id and prepared email when delivery fails", async () => {
     process.env.SUPPORT_WEBHOOK_URL = "https://support.example/intake";
     process.env.SUPPORT_FALLBACK_EMAIL = "help@example.com";
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
     const { POST } = await import("./support/route");
 
-    const response = await POST(post("/api/support", {
+    const retryPayload = {
       category: "question",
       email: "owner@example.com",
       message: "Please help me restore the verified backup from yesterday.",
-    }));
-    const result = await response.json() as { caseId: string; status: string; fallbackEmail: string; mailto: string };
+    };
+    const retryRequest = () =>
+      new NextRequest("https://total.example/api/support", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": "192.0.2.2",
+        },
+        body: JSON.stringify(retryPayload),
+      });
+    const response = await POST(retryRequest());
+    const result = (await response.json()) as {
+      caseId: string;
+      status: string;
+      fallbackEmail: string;
+      mailto: string;
+    };
 
     expect(response.status).toBe(202);
     expect(result.status).toBe("fallback");
     expect(result.caseId).toMatch(/^TOT-\d{8}-[A-F0-9]{12}$/);
     expect(result.fallbackEmail).toBe("help@example.com");
     expect(result.mailto).toContain(encodeURIComponent(result.caseId));
+    const retried = await POST(retryRequest());
+    expect(retried.status).toBe(200);
+    const firstDelivery = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)) as { caseId: string };
+    const secondDelivery = JSON.parse(String(fetchMock.mock.calls[1]![1]?.body)) as { caseId: string };
+    expect(secondDelivery.caseId).toBe(firstDelivery.caseId);
+    expect(fetchMock.mock.calls[1]![1]?.headers).toMatchObject({
+      "idempotency-key": (fetchMock.mock.calls[0]![1]?.headers as Record<string, string>)["idempotency-key"],
+    });
   });
 
   it("rejects invalid support fields before delivery", async () => {
     const { POST } = await import("./support/route");
     const response = await POST(post("/api/support", { message: "short", email: "not-an-email" }));
     expect(response.status).toBe(400);
-    const missingEmail = await POST(post("/api/support", {
-      message: "Please help me reconcile this opening balance.",
-    }));
+    const missingEmail = await POST(
+      post("/api/support", {
+        message: "Please help me reconcile this opening balance.",
+      }),
+    );
     expect(missingEmail.status).toBe(400);
-    const fakeAnonymousCrash = await POST(post("/api/support", {
-      message: "Anonymous crash report",
-      crashEnvelope: {},
-    }));
+    const fakeAnonymousCrash = await POST(
+      post("/api/support", {
+        message: "Anonymous crash report",
+        crashEnvelope: {},
+      }),
+    );
     expect(fakeAnonymousCrash.status).toBe(400);
   });
 
   it("persists a private case and allows email-bound status tracking", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
     const { POST, GET } = await import("./support/route");
-    const response = await POST(post("/api/support", {
-      category: "bug",
-      email: "owner@example.com",
-      message: "The imported opening balance needs review before month close.",
-    }));
-    const receipt = await response.json() as { caseId: string; status: string };
+    const response = await POST(
+      post("/api/support", {
+        category: "bug",
+        email: "owner@example.com",
+        message: "The imported opening balance needs review before month close.",
+      }),
+    );
+    const receipt = (await response.json()) as {
+      caseId: string;
+      status: string;
+    };
     expect(response.status).toBe(200);
     expect(receipt.status).toBe("submitted");
-    expect(blobMocks.put).toHaveBeenCalledWith(
-      expect.stringMatching(new RegExp(`${receipt.caseId}\\.json$`)),
-      expect.any(String),
-      expect.objectContaining({ access: "private", addRandomSuffix: false }),
-    );
+    expect(blobMocks.put).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`${receipt.caseId}\\.json$`)), expect.any(String), expect.objectContaining({ access: "private", addRandomSuffix: false }));
     const pathname = blobMocks.put.mock.calls.at(-1)![0] as string;
     const stored = JSON.parse(blobMocks.put.mock.calls.at(-1)![1] as string);
     blobMocks.list.mockImplementation(async ({ prefix }: { prefix: string }) => ({
@@ -200,10 +244,16 @@ describe("support intake", () => {
       hasMore: false,
       cursor: undefined,
     }));
-    blobMocks.get.mockImplementation(async () => ({ statusCode: 200, stream: new Blob([JSON.stringify(stored)]).stream() }));
+    blobMocks.get.mockImplementation(async () => ({
+      statusCode: 200,
+      stream: new Blob([JSON.stringify(stored)]).stream(),
+    }));
     const tracked = await GET(new NextRequest(`https://total.example/api/support?caseId=${receipt.caseId}&email=owner%40example.com`));
     expect(tracked.status).toBe(200);
-    expect(await tracked.json()).toMatchObject({ caseId: receipt.caseId, status: "submitted" });
+    expect(await tracked.json()).toMatchObject({
+      caseId: receipt.caseId,
+      status: "submitted",
+    });
     const hidden = await GET(new NextRequest(`https://total.example/api/support?caseId=${receipt.caseId}&email=wrong%40example.com`));
     expect(hidden.status).toBe(404);
   });
@@ -224,13 +274,17 @@ describe("support intake", () => {
       },
     });
     const { GET } = await import("./support/route");
-    const lookup = () => GET(new NextRequest(
-      `https://total.example/api/support?caseId=${caseId}&email=${encodeURIComponent(email)}`,
-      { headers: { "x-forwarded-for": "203.0.113.90", "user-agent": "test-browser" } },
-    ));
+    const lookup = () =>
+      GET(
+        new NextRequest(`https://total.example/api/support?caseId=${caseId}&email=${encodeURIComponent(email)}`, {
+          headers: {
+            "x-forwarded-for": "203.0.113.90",
+            "user-agent": "test-browser",
+          },
+        }),
+      );
 
-    for (let attempt = 1; attempt <= 12; attempt += 1)
-      expect((await lookup()).status).toBe(200);
+    for (let attempt = 1; attempt <= 12; attempt += 1) expect((await lookup()).status).toBe(200);
     const rateObjectsAtLimit = [...objects.keys()].filter((key) => key.startsWith("intake-security/rate/support-")).length;
     const limited = await lookup();
     expect(limited.status).toBe(404);
@@ -258,21 +312,95 @@ describe("support intake", () => {
     process.env.INTAKE_SECURITY_SECRET = "a-separate-test-secret-with-32-bytes";
     const objects = installBlobStore();
     const { POST } = await import("./support/route");
-    const request = () => new NextRequest("https://total.example/api/support", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.77", "user-agent": "test-browser" },
-      body: JSON.stringify({ category: "bug", email: "owner@example.com", message: "The same retry should create only one support case." }),
-    });
+    const request = () =>
+      new NextRequest("https://total.example/api/support", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": "203.0.113.77",
+          "user-agent": "test-browser",
+        },
+        body: JSON.stringify({
+          category: "bug",
+          email: "owner@example.com",
+          message: "The same retry should create only one support case.",
+        }),
+      });
 
     const first = await POST(request());
     const second = await POST(request());
-    const firstReceipt = await first.json() as { caseId: string };
-    const secondReceipt = await second.json() as { caseId: string; duplicate: boolean };
+    const firstReceipt = (await first.json()) as { caseId: string };
+    const secondReceipt = (await second.json()) as {
+      caseId: string;
+      duplicate: boolean;
+    };
 
-    expect(secondReceipt).toMatchObject({ caseId: firstReceipt.caseId, duplicate: true });
+    expect(secondReceipt).toMatchObject({
+      caseId: firstReceipt.caseId,
+      duplicate: true,
+    });
     expect([...objects.keys()].filter((key) => /^support\/.*\.json$/.test(key))).toHaveLength(1);
     expect([...objects.values()].join("\n")).not.toContain("203.0.113.77");
     expect([...objects.keys()].some((key) => key.startsWith("intake-security/rate/support/"))).toBe(true);
+  });
+
+  it("allows an honest retry when private case storage fails", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.INTAKE_SECURITY_SECRET = "a-separate-test-secret-with-32-bytes";
+    const objects = installBlobStore();
+    const normalPut = blobMocks.put.getMockImplementation()!;
+    let failCaseWrite = true;
+    blobMocks.put.mockImplementation(async (...args: Parameters<typeof normalPut>) => {
+      if (failCaseWrite && String(args[0]).startsWith("support/")) {
+        failCaseWrite = false;
+        throw new Error("case storage unavailable");
+      }
+      return normalPut(...args);
+    });
+    const { POST } = await import("./support/route");
+    const request = () =>
+      new NextRequest("https://total.example/api/support", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": "203.0.113.78",
+        },
+        body: JSON.stringify({
+          category: "bug",
+          email: "owner@example.com",
+          message: "Retry this support case after storage recovers.",
+        }),
+      });
+
+    expect((await POST(request())).status).toBe(202);
+    const retried = await POST(request());
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({ status: "submitted" });
+    expect([...objects.keys()].filter((key) => /^support\/.*\.json$/.test(key))).toHaveLength(1);
+  });
+
+  it("keeps a durably stored support case successful when dedupe finalization fails", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    const objects = installBlobStore();
+    const normalPut = blobMocks.put.getMockImplementation()!;
+    blobMocks.put.mockImplementation(async (...args: Parameters<typeof normalPut>) => {
+      const options = args[2] as { allowOverwrite?: boolean };
+      if (String(args[0]).startsWith("intake-security/dedup/support/") && options.allowOverwrite) throw new Error("dedupe finalization unavailable");
+      return normalPut(...args);
+    });
+    const { POST } = await import("./support/route");
+    const response = await POST(
+      post("/api/support", {
+        category: "bug",
+        email: "owner@example.com",
+        message: "The durable support case must still receive an acknowledgement.",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const receipt = (await response.json()) as { caseId: string; status: string };
+    expect(receipt.status).toBe("submitted");
+    expect(objects.has(`support/${receipt.caseId.slice(4, 8)}/${receipt.caseId.slice(8, 10)}/${receipt.caseId}.json`)).toBe(true);
   });
 
   it("indexes resolved cases for 90-day deletion and returns the exact deadline", async () => {
@@ -294,12 +422,20 @@ describe("support intake", () => {
       },
     });
     const { PATCH } = await import("./support/route");
-    const response = await PATCH(new NextRequest("https://total.example/api/support", {
-      method: "PATCH",
-      headers: { authorization: "Bearer support-admin-secret", "content-type": "application/json" },
-      body: JSON.stringify({ caseId, status: "resolved" }),
-    }));
-    const result = await response.json() as { updatedAt: string; deleteAfter: string };
+    const response = await PATCH(
+      new NextRequest("https://total.example/api/support", {
+        method: "PATCH",
+        headers: {
+          authorization: "Bearer support-admin-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ caseId, status: "resolved" }),
+      }),
+    );
+    const result = (await response.json()) as {
+      updatedAt: string;
+      deleteAfter: string;
+    };
 
     expect(response.status).toBe(200);
     expect(Date.parse(result.deleteAfter) - Date.parse(result.updatedAt)).toBe(90 * 24 * 60 * 60_000);
@@ -312,11 +448,21 @@ describe("support intake", () => {
     process.env.INTAKE_SECURITY_SECRET = "a-separate-test-secret-with-32-bytes";
     installBlobStore();
     const { POST } = await import("./support/route");
-    const submit = (number: number) => POST(new NextRequest("https://total.example/api/support", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.22", "user-agent": "test-browser" },
-      body: JSON.stringify({ email: "owner@example.com", message: `Support request number ${number} has enough detail to be valid.` }),
-    }));
+    const submit = (number: number) =>
+      POST(
+        new NextRequest("https://total.example/api/support", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-forwarded-for": "198.51.100.22",
+            "user-agent": `rotating-agent-${number}`,
+          },
+          body: JSON.stringify({
+            email: "owner@example.com",
+            message: `Support request number ${number} has enough detail to be valid.`,
+          }),
+        }),
+      );
 
     for (let number = 1; number <= 8; number += 1) expect((await submit(number)).status).toBe(200);
     expect((await submit(9)).status).toBe(429);
@@ -333,7 +479,13 @@ describe("feedback board", () => {
     });
     const { GET } = await import("./feedback/route");
     const response = await GET();
-    const result = await response.json() as { ideas: Array<{ id: string; status: string; releaseVersion: string | null }> };
+    const result = (await response.json()) as {
+      ideas: Array<{
+        id: string;
+        status: string;
+        releaseVersion: string | null;
+      }>;
+    };
     expect(response.status).toBe(200);
     expect(result.ideas.find((idea) => idea.id === "quarter-registers")).toMatchObject({
       status: "planned",
@@ -349,7 +501,13 @@ describe("feedback board", () => {
       assets: {},
     });
     const { GET } = await import("./feedback/route");
-    const result = await (await GET()).json() as { ideas: Array<{ id: string; status: string; releaseVersion: string | null }> };
+    const result = (await (await GET()).json()) as {
+      ideas: Array<{
+        id: string;
+        status: string;
+        releaseVersion: string | null;
+      }>;
+    };
     expect(result.ideas.find((idea) => idea.id === "quarter-registers")).toMatchObject({
       status: "released",
       releaseVersion: "0.5.0",
@@ -362,11 +520,21 @@ describe("feedback board", () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true, votes: 8 }));
     vi.stubGlobal("fetch", fetchMock);
     const { POST } = await import("./feedback/route");
-    const response = await POST(post("/api/feedback", { action: "follow", ideaId: "mobile-companion", email: "owner@example.com" }));
+    const response = await POST(
+      post("/api/feedback", {
+        action: "follow",
+        ideaId: "mobile-companion",
+        email: "owner@example.com",
+      }),
+    );
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledWith(
       new URL("https://feedback.example/actions"),
-      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer feedback-secret" }) }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: "Bearer feedback-secret",
+        }),
+      }),
     );
   });
 
@@ -375,12 +543,96 @@ describe("feedback board", () => {
     const { POST } = await import("./feedback/route");
     const response = await POST(post("/api/feedback", { action: "vote", ideaId: "mobile-companion" }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, status: "recorded", receivedAt: expect.any(String) });
-    expect(blobMocks.put).toHaveBeenCalledWith(
-      expect.stringMatching(/^feedback\/events\//),
-      expect.any(String),
-      expect.objectContaining({ access: "private", addRandomSuffix: false }),
-    );
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      status: "recorded",
+      receivedAt: expect.any(String),
+    });
+    expect(blobMocks.put).toHaveBeenCalledWith(expect.stringMatching(/^feedback\/events\//), expect.any(String), expect.objectContaining({ access: "private", addRandomSuffix: false }));
+  });
+
+  it("allows an honest retry when private feedback storage fails", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.INTAKE_SECURITY_SECRET = "a-separate-test-secret-with-32-bytes";
+    const objects = installBlobStore();
+    const normalPut = blobMocks.put.getMockImplementation()!;
+    let failEventWrite = true;
+    blobMocks.put.mockImplementation(async (...args: Parameters<typeof normalPut>) => {
+      if (failEventWrite && String(args[0]).startsWith("feedback/events/")) {
+        failEventWrite = false;
+        throw new Error("event storage unavailable");
+      }
+      return normalPut(...args);
+    });
+    const { POST } = await import("./feedback/route");
+    const request = () =>
+      new NextRequest("https://total.example/api/feedback", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": "203.0.113.79",
+        },
+        body: JSON.stringify({ action: "vote", ideaId: "mobile-companion" }),
+      });
+
+    expect((await POST(request())).status).toBe(503);
+    const retried = await POST(request());
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({ status: "recorded" });
+    expect([...objects.keys()].filter((key) => key.startsWith("feedback/events/"))).toHaveLength(1);
+  });
+
+  it("keeps a durably stored feedback event successful when dedupe finalization fails", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    const objects = installBlobStore();
+    const normalPut = blobMocks.put.getMockImplementation()!;
+    blobMocks.put.mockImplementation(async (...args: Parameters<typeof normalPut>) => {
+      const options = args[2] as { allowOverwrite?: boolean };
+      if (String(args[0]).startsWith("intake-security/dedup/feedback/") && options.allowOverwrite) throw new Error("dedupe finalization unavailable");
+      return normalPut(...args);
+    });
+    const { POST } = await import("./feedback/route");
+    const response = await POST(post("/api/feedback", { action: "vote", ideaId: "mobile-companion" }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: "recorded" });
+    expect([...objects.keys()].filter((key) => key.startsWith("feedback/events/"))).toHaveLength(1);
+  });
+
+  it("allows an honest retry when the configured feedback provider fails", async () => {
+    process.env.CONVEX_FEEDBACK_URL = "https://feedback.example/actions";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(Response.json({ ok: true, votes: 9 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("./feedback/route");
+    const request = () =>
+      new NextRequest("https://total.example/api/feedback", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": "203.0.113.80",
+        },
+        body: JSON.stringify({
+          action: "follow",
+          ideaId: "mobile-companion",
+          email: "owner@example.com",
+        }),
+      });
+
+    expect((await POST(request())).status).toBe(502);
+    expect((await POST(request())).status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const first = fetchMock.mock.calls[0]![1]!;
+    const second = fetchMock.mock.calls[1]![1]!;
+    expect(second.headers).toMatchObject({
+      "idempotency-key": (first.headers as Record<string, string>)["idempotency-key"],
+    });
+    expect(JSON.parse(String(second.body))).toMatchObject({
+      id: JSON.parse(String(first.body)).id,
+      receivedAt: JSON.parse(String(first.body)).receivedAt,
+    });
   });
 
   it("materializes vote totals and updates them when an event is deleted", async () => {
@@ -389,22 +641,36 @@ describe("feedback board", () => {
     const objects = installBlobStore();
     const { GET, POST, DELETE } = await import("./feedback/route");
     const created = await POST(post("/api/feedback", { action: "vote", ideaId: "mobile-companion" }));
-    const receipt = await created.json() as { id: string; receivedAt: string };
+    const receipt = (await created.json()) as {
+      id: string;
+      receivedAt: string;
+    };
 
     expect(created.status).toBe(200);
     expect(objects.has("feedback/materialized/public-summary.json")).toBe(true);
     blobMocks.list.mockClear();
-    const firstBoard = await (await GET()).json() as { ideas: Array<{ id: string; votes: number }> };
+    const firstBoard = (await (await GET()).json()) as {
+      ideas: Array<{ id: string; votes: number }>;
+    };
     expect(firstBoard.ideas.find((idea) => idea.id === "mobile-companion")?.votes).toBe(1);
     expect(blobMocks.list.mock.calls.some(([options]) => options.prefix === "feedback/events/")).toBe(false);
 
-    const removed = await DELETE(new NextRequest("https://total.example/api/feedback", {
-      method: "DELETE",
-      headers: { authorization: "Bearer feedback-secret", "content-type": "application/json" },
-      body: JSON.stringify({ events: [{ id: receipt.id, receivedAt: receipt.receivedAt }] }),
-    }));
+    const removed = await DELETE(
+      new NextRequest("https://total.example/api/feedback", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer feedback-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          events: [{ id: receipt.id, receivedAt: receipt.receivedAt }],
+        }),
+      }),
+    );
     expect(removed.status).toBe(200);
-    const secondBoard = await (await GET()).json() as { ideas: Array<{ id: string; votes: number }> };
+    const secondBoard = (await (await GET()).json()) as {
+      ideas: Array<{ id: string; votes: number }>;
+    };
     expect(secondBoard.ideas.find((idea) => idea.id === "mobile-companion")?.votes).toBe(0);
   });
 
@@ -421,11 +687,16 @@ describe("feedback board", () => {
     const { DELETE } = await import("./feedback/route");
     const id = "09a74630-4f8b-46dd-81fe-be117cb06484";
     const receivedAt = "2026-08-24T10:15:30.000Z";
-    const response = await DELETE(new NextRequest("https://total.example/api/feedback", {
-      method: "DELETE",
-      headers: { authorization: "Bearer feedback-secret", "content-type": "application/json" },
-      body: JSON.stringify({ events: [{ id, receivedAt }] }),
-    }));
+    const response = await DELETE(
+      new NextRequest("https://total.example/api/feedback", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer feedback-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ events: [{ id, receivedAt }] }),
+      }),
+    );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, deleted: 1 });
     expect(blobMocks.del).toHaveBeenCalledWith(`feedback/events/2026-08/${id}.json`);
@@ -435,11 +706,20 @@ describe("feedback board", () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
     process.env.SUPPORT_WEBHOOK_SECRET = "feedback-secret";
     const { DELETE } = await import("./feedback/route");
-    const response = await DELETE(new NextRequest("https://total.example/api/feedback", {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ events: [{ id: "09a74630-4f8b-46dd-81fe-be117cb06484", receivedAt: "2026-08-24T10:15:30.000Z" }] }),
-    }));
+    const response = await DELETE(
+      new NextRequest("https://total.example/api/feedback", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          events: [
+            {
+              id: "09a74630-4f8b-46dd-81fe-be117cb06484",
+              receivedAt: "2026-08-24T10:15:30.000Z",
+            },
+          ],
+        }),
+      }),
+    );
     expect(response.status).toBe(401);
     expect(blobMocks.del).not.toHaveBeenCalled();
   });
@@ -474,23 +754,45 @@ describe("intake retention maintenance", () => {
     const feedbackIndex = `retention-index/feedback/2022-01/${feedbackId}.json`;
     const objects = installBlobStore({
       [casePath]: { caseId, status: "resolved" },
-      [`support-status/2020/01/${caseId}/resolved.json`]: { caseId, status: "resolved" },
-      [supportIndex]: { entity: "support", id: caseId, objectPath: casePath, deleteAfter: "2020-04-01T00:00:00.000Z" },
-      [`retention-pointers/support/${caseId}.json`]: { indexPath: supportIndex },
+      [`support-status/2020/01/${caseId}/resolved.json`]: {
+        caseId,
+        status: "resolved",
+      },
+      [supportIndex]: {
+        entity: "support",
+        id: caseId,
+        objectPath: casePath,
+        deleteAfter: "2020-04-01T00:00:00.000Z",
+      },
+      [`retention-pointers/support/${caseId}.json`]: {
+        indexPath: supportIndex,
+      },
       [feedbackPath]: { id: feedbackId, action: "follow" },
-      [feedbackIndex]: { entity: "feedback", id: feedbackId, objectPath: feedbackPath, deleteAfter: "2022-01-01T00:00:00.000Z" },
-      [`retention-pointers/feedback/${feedbackId}.json`]: { indexPath: feedbackIndex },
+      [feedbackIndex]: {
+        entity: "feedback",
+        id: feedbackId,
+        objectPath: feedbackPath,
+        deleteAfter: "2022-01-01T00:00:00.000Z",
+      },
+      [`retention-pointers/feedback/${feedbackId}.json`]: {
+        indexPath: feedbackIndex,
+      },
     });
     const { GET } = await import("./maintenance/intake/route");
 
     const denied = await GET(new NextRequest("https://total.example/api/maintenance/intake"));
     expect(denied.status).toBe(401);
-    const response = await GET(new NextRequest("https://total.example/api/maintenance/intake?limit=10", {
-      headers: { authorization: "Bearer cron-test-secret" },
-    }));
+    const response = await GET(
+      new NextRequest("https://total.example/api/maintenance/intake?limit=10", {
+        headers: { authorization: "Bearer cron-test-secret" },
+      }),
+    );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ support: { deleted: 1 }, feedback: { deleted: 1 } });
+    expect(await response.json()).toMatchObject({
+      support: { deleted: 1 },
+      feedback: { deleted: 1 },
+    });
     expect(objects.has(casePath)).toBe(false);
     expect(objects.has(feedbackPath)).toBe(false);
     expect([...objects.keys()].some((key) => key.includes(caseId) || key.includes(feedbackId))).toBe(false);
@@ -502,17 +804,26 @@ describe("intake retention maintenance", () => {
     const caseId = "TOT-20990101-ABCDEF";
     const objectPath = `support/2099/01/${caseId}.json`;
     const legacyPath = `retention-index/support/2099-04/${caseId}.json`;
-    const index = { entity: "support", id: caseId, objectPath, deleteAfter: "2099-04-01T00:00:00.000Z" };
+    const index = {
+      entity: "support",
+      id: caseId,
+      objectPath,
+      deleteAfter: "2099-04-01T00:00:00.000Z",
+    };
     const objects = installBlobStore({
       [objectPath]: { caseId, status: "resolved" },
       [legacyPath]: index,
       [`retention-pointers/support/${caseId}.json`]: { indexPath: legacyPath },
     });
     const { GET } = await import("./maintenance/intake/route");
-    const response = await GET(new NextRequest("https://total.example/api/maintenance/intake?limit=10", {
-      headers: { authorization: "Bearer cron-test-secret" },
-    }));
-    const result = await response.json() as { support: { migrated: number; deleted: number } };
+    const response = await GET(
+      new NextRequest("https://total.example/api/maintenance/intake?limit=10", {
+        headers: { authorization: "Bearer cron-test-secret" },
+      }),
+    );
+    const result = (await response.json()) as {
+      support: { migrated: number; deleted: number };
+    };
 
     expect(result.support).toMatchObject({ migrated: 1, deleted: 0 });
     expect(objects.has(legacyPath)).toBe(false);
@@ -522,19 +833,23 @@ describe("intake retention maintenance", () => {
   it("drains cursor-paginated security records and reports remaining backlog", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
     process.env.CRON_SECRET = "cron-test-secret";
-    const expired = Object.fromEntries(Array.from({ length: 205 }, (_, index) => [
-      `intake-security/rate/test/${String(index).padStart(3, "0")}.json`,
-      { expiresAt: "2020-01-01T00:00:00.000Z" },
-    ]));
+    const expired = Object.fromEntries(Array.from({ length: 205 }, (_, index) => [`intake-security/rate/test/${String(index).padStart(3, "0")}.json`, { expiresAt: "2020-01-01T00:00:00.000Z" }]));
     const objects = installBlobStore(expired);
     const { GET } = await import("./maintenance/intake/route");
-    const run = () => GET(new NextRequest("https://total.example/api/maintenance/intake?limit=201", {
-      headers: { authorization: "Bearer cron-test-secret" },
-    }));
+    const run = () =>
+      GET(
+        new NextRequest("https://total.example/api/maintenance/intake?limit=201", {
+          headers: { authorization: "Bearer cron-test-secret" },
+        }),
+      );
 
-    const first = await (await run()).json() as { security: { deleted: number; backlog: boolean } };
+    const first = (await (await run()).json()) as {
+      security: { deleted: number; backlog: boolean };
+    };
     expect(first.security).toEqual(expect.objectContaining({ deleted: 201, backlog: true }));
-    const second = await (await run()).json() as { security: { deleted: number; backlog: boolean } };
+    const second = (await (await run()).json()) as {
+      security: { deleted: number; backlog: boolean };
+    };
     expect(second.security).toEqual(expect.objectContaining({ deleted: 4, backlog: false }));
     expect([...objects.keys()].filter((key) => key.startsWith("intake-security/rate/"))).toHaveLength(0);
   });
