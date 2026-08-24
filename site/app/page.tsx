@@ -10,7 +10,7 @@ const FEATURES: { f: string; p: string }[] = [
   { f: 'Your workspace', p: 'Pin the screens you use, reopen recent work instantly, or jump anywhere with red keyboard mnemonics and Command K' },
   { f: 'Vouchers', p: 'Contra to credit note, invoice mode with live GST, audit log on every change' },
   { f: 'GST returns', p: "GSTR-1 and GSTR-3B on screen, exported as JSON the portal's offline tool accepts" },
-  { f: 'e-Invoice & e-Way', p: 'Offline JSON for the government tools — or live IRN and e-way bill generation with your NIC credentials' },
+  { f: 'e-Invoice & e-Way', p: 'Validated JSON exports for the government offline tools, ready for review before upload' },
   { f: 'Invoice PDF', p: 'GST tax invoice with HSN, tax breakup, amount in words and the double rule' },
   { f: 'Stock & manufacturing', p: 'Weighted-average valuation, bills of materials, one-screen manufacture vouchers' },
   { f: 'Banking', p: 'Reconciliation with statement CSV import that matches entries by amount and date' },
@@ -57,9 +57,8 @@ export default async function Home(): Promise<React.JSX.Element> {
             Your books. On this Mac. <span className="quiet">Nowhere else.</span>
           </h1>
           <p className="lede">
-            Total is Tally-grade double-entry accounting rebuilt for macOS — GST returns, invoices, stock, banking and
-            payroll, all computed on your machine and saved in a folder you can copy. No cloud account and no internet
-            required for accounting; AI and live filing are strictly opt-in.
+            Double-entry books, GST returns, invoices, stock, banking and payroll, computed on your computer. No cloud
+            account is required. AI is optional and shares book data only when you approve it.
           </p>
           <div className="hero-ctas">
             <a className="btn" href="/api/download?platform=mac">
@@ -67,9 +66,6 @@ export default async function Home(): Promise<React.JSX.Element> {
             </a>
             <a className="btn ghost" href="/api/download?platform=win">
               Windows
-            </a>
-            <a className="btn ghost" href="#ledger">
-              See what&rsquo;s inside
             </a>
             <span className="hero-note">{versionNote}</span>
           </div>
@@ -171,22 +167,22 @@ export default async function Home(): Promise<React.JSX.Element> {
         <div className="wrap">
           <div className="band-grid">
             <div>
-              <h2 className="serif">No cloud. No account. No &ldquo;sync&rdquo;.</h2>
+              <h2 className="serif">Your books stay on your computer.</h2>
               <p className="sub">
-                Your ledgers are yours the way a bahi khata was yours — a thing on your desk, not a row in someone
-                else&rsquo;s database.
+                Each company lives in a folder you control. Copy it, back it up and open it without an internet
+                connection.
               </p>
               <span className="path">~/Documents/total</span>
               <ul>
                 <li>
-                  <b>One SQLite file per company.</b> Copy the folder and you&rsquo;ve backed up the business.
+                  <b>One folder per company.</b> Books, attachments and recovery files stay together.
                 </li>
                 <li>
                   <b>Automatic snapshots</b> every time books open — the last twenty are kept.
                 </li>
                 <li>
-                  <b>Works on a train, in a power cut, forever.</b> Filing happens through exported files, the way
-                  offline Tally users have always filed.
+                  <b>Accounting works offline.</b> Prepare validated filing exports without connecting the books to a
+                  remote accounting service.
                 </li>
               </ul>
             </div>
