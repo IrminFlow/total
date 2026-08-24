@@ -68,7 +68,6 @@ import {
   backupFileSchema,
   bankRuleInputSchema,
   batchInputSchema,
-  billsOpenSchema,
   chequeConfigSchema,
   companyCreateSchema,
   companySlugSchema,
@@ -124,7 +123,6 @@ import * as banking from "./services/banking";
 import * as edocs from "./services/edocs";
 import * as invoice from "./services/invoice";
 import * as cheque from "./services/cheque";
-import * as extras from "./services/extras";
 import * as payroll from "./services/payroll";
 import * as payrollOperations from "./services/payrollOperations";
 import * as workforce from "./services/workforce";
@@ -201,6 +199,9 @@ import { registerSearchHandlers } from "./ipc/searchHandlers";
 import { registerConfigHandlers } from "./ipc/configHandlers";
 import { registerPlanningHandlers } from "./ipc/planningHandlers";
 import { registerRecurringHandlers } from "./ipc/recurringHandlers";
+import { registerOutstandingBillsHandlers } from "./ipc/outstandingBillsHandlers";
+import { registerComplianceHandlers } from "./ipc/complianceHandlers";
+import { registerExtrasHandlers } from "./ipc/extrasHandlers";
 import type { IpcHandler, OpenCompany } from "./ipc/types";
 import * as caPack from "./services/caPack";
 import { htmlToPdf, writeExportPdf } from "./services/pdf";
@@ -216,8 +217,6 @@ import {
 } from "./services/companyDelete";
 import type { Role } from "./services/roles";
 import {
-  bomInputSchema,
-  currencyInputSchema,
   employeeInputSchema,
   nicCredentialsSchema,
   userInputSchema,
@@ -4498,14 +4497,7 @@ export function registerIpc(): void {
   );
 
   // ---------- outstanding bills (party picker for receipt/payment "settle against") ----------
-  handle(
-    "bills:open",
-    (p) => {
-      const { partyLedgerId, asOn } = billsOpenSchema.parse(p);
-      return analysis.openBills(requireCompany().db, partyLedgerId, asOn);
-    },
-    "viewer",
-  );
+  registerOutstandingBillsHandlers({ handle, requireCompany });
 
   // ---------- TDS ----------
   handle("tds:sections", () => tds.listSections(requireCompany().db), "viewer");
@@ -4593,62 +4585,10 @@ export function registerIpc(): void {
     );
   });
 
-  handle(
-    "compliance:list",
-    (p) => {
-      const data = z
-        .object({ from: isoDate.optional(), to: isoDate.optional() })
-        .parse(p ?? {});
-      return complianceOps.listComplianceObligations(
-        requireCompany().db,
-        data.from,
-        data.to,
-      );
-    },
-    "viewer",
-  );
-  handle("compliance:sync", (p) => {
-    const { today } = z.object({ today: isoDate }).parse(p);
-    const c = requireCompany();
-    return complianceOps.syncComplianceCalendar(
-      c.db,
-      c.info,
-      today,
-      configSvc.getFeatures(c.db).payroll,
-      sessionUser?.name ?? "Local user",
-    );
-  });
-  handle("compliance:save", (p) => {
-    const data = z
-      .object({
-        id: z.number().int().positive().optional(),
-        title: z.string().trim().min(1).max(180),
-        dueDate: isoDate,
-        kind: z.enum([
-          "gst",
-          "tds",
-          "pf",
-          "esi",
-          "advance-tax",
-          "state",
-          "custom",
-        ]),
-        status: z.enum([
-          "open",
-          "in_progress",
-          "filed",
-          "paid",
-          "not_applicable",
-        ]),
-        owner: z.string().trim().max(80).nullable().optional(),
-        note: z.string().trim().max(1000).nullable().optional(),
-      })
-      .parse(p);
-    return complianceOps.saveComplianceObligation(
-      requireCompany().db,
-      data,
-      sessionUser?.name ?? "Local user",
-    );
+  registerComplianceHandlers({
+    handle,
+    requireCompany,
+    actor: () => sessionUser?.name ?? "Local user",
   });
 
   // ---------- cost centres ----------
@@ -5518,30 +5458,7 @@ export function registerIpc(): void {
   registerConfigHandlers({ handle, requireCompany });
 
   // ---------- currencies + BOM ----------
-  handle(
-    "currency:list",
-    () => extras.listCurrencies(requireCompany().db),
-    "viewer",
-  );
-  handle("currency:create", (p) =>
-    extras.createCurrency(requireCompany().db, currencyInputSchema.parse(p)),
-  );
-  handle("currency:delete", (p) =>
-    extras.deleteCurrency(requireCompany().db, idSchema.parse(p).id),
-  );
-  handle(
-    "bom:get",
-    (p) =>
-      extras.getBom(
-        requireCompany().db,
-        z.object({ itemId: z.number().int().positive() }).parse(p).itemId,
-      ),
-    "viewer",
-  );
-  handle("bom:set", (p) =>
-    extras.setBom(requireCompany().db, bomInputSchema.parse(p)),
-  );
-  handle("bom:items", () => extras.itemsWithBom(requireCompany().db), "viewer");
+  registerExtrasHandlers({ handle, requireCompany });
 
   // ---------- payroll ----------
   const daysSchema = z.array(

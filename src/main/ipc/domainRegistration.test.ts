@@ -8,6 +8,9 @@ import { registerIntelligenceHandlers } from "./intelligenceHandlers";
 import { registerSearchHandlers } from "./searchHandlers";
 import { registerPlanningHandlers } from "./planningHandlers";
 import { registerRecurringHandlers } from "./recurringHandlers";
+import { registerOutstandingBillsHandlers } from "./outstandingBillsHandlers";
+import { registerComplianceHandlers } from "./complianceHandlers";
+import { registerExtrasHandlers } from "./extrasHandlers";
 import type { IpcHandle } from "./types";
 import type { Role } from "../services/roles";
 
@@ -28,12 +31,21 @@ describe("extracted IPC domain registration", () => {
     registerConfigHandlers({ handle, requireCompany });
     registerIntelligenceHandlers({ handle, requireCompany });
     registerSearchHandlers({ handle, requireCompany });
+    registerOutstandingBillsHandlers({ handle, requireCompany });
+    registerComplianceHandlers({
+      handle,
+      requireCompany,
+      actor: () => {
+        throw new Error("registration must not resolve an actor");
+      },
+    });
     registerPlanningHandlers({ handle, requireCompany });
     registerRecurringHandlers({
       handle,
       requireCompany,
       getSessionUser: () => null,
     });
+    registerExtrasHandlers({ handle, requireCompany });
 
     expect(registrations).toEqual([
       ["consol:run", "viewer"],
@@ -52,6 +64,10 @@ describe("extracted IPC domain registration", () => {
       ["intel:suggestLedgers", "viewer"],
       ["intel:anomaly", "viewer"],
       ["search:global", "viewer"],
+      ["bills:open", "viewer"],
+      ["compliance:list", "viewer"],
+      ["compliance:sync", undefined],
+      ["compliance:save", undefined],
       ["cc:list", "viewer"],
       ["cc:save", undefined],
       ["cc:delete", undefined],
@@ -67,6 +83,12 @@ describe("extracted IPC domain registration", () => {
       ["recurring:due", "viewer"],
       ["recurring:post", undefined],
       ["recurring:skip", undefined],
+      ["currency:list", "viewer"],
+      ["currency:create", undefined],
+      ["currency:delete", undefined],
+      ["bom:get", "viewer"],
+      ["bom:set", undefined],
+      ["bom:items", "viewer"],
     ]);
   });
 });
