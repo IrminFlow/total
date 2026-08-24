@@ -6,6 +6,20 @@ import { scenario, assert } from '../lib/harness.mjs'
 await scenario('11-keyboard', async (h) => {
   await h.createDemoCompany()
 
+  const gatewayLayout = await h.page.evaluate(() => {
+    const operations = document.querySelector('[data-testid="gateway-operations"]')?.getBoundingClientRect()
+    const firstTask = document.querySelector('[data-testid^="card-"]')?.getBoundingClientRect()
+    return {
+      operationsBeforeTasks: Boolean(operations && firstTask && operations.top < firstTask.top),
+      visibleTaskCount: document.querySelectorAll('[data-testid^="card-"]').length,
+    }
+  })
+  assert(gatewayLayout.operationsBeforeTasks, 'cash and outstanding balances appear before task launchers')
+  assert(gatewayLayout.visibleTaskCount <= 6, `Gateway keeps the first view focused (${gatewayLayout.visibleTaskCount} task launchers)`)
+  await h.click('btn-all-gateway-tasks')
+  await h.page.waitForSelector('[data-testid="all-task-month-close"]')
+  await h.page.keyboard.press('Escape')
+
   // A opens the new daily work queue. Pinning is company-specific and survives navigation.
   await h.page.keyboard.press('a')
   await h.waitScreen('action-centre')
@@ -23,6 +37,16 @@ await scenario('11-keyboard', async (h) => {
   await h.page.keyboard.press('v')
   await h.waitScreen('voucher-entry')
   await h.page.waitForSelector('[data-testid="tab-voucher-entry-contra"]')
+  const voucherFunctionKeys = await h.page.evaluate(() =>
+    ['contra', 'payment', 'receipt', 'journal', 'sales', 'purchase'].map((kind) =>
+      document.querySelector(`[data-testid="tab-voucher-entry-${kind}"] kbd`)?.textContent?.trim()
+    )
+  )
+  assert(
+    JSON.stringify(voucherFunctionKeys) === JSON.stringify(['F4', 'F5', 'F6', 'F7', 'F8', 'F9']),
+    `voucher toolbar exposes F4-F9 beside their types: ${JSON.stringify(voucherFunctionKeys)}`,
+  )
+  await h.shot('00-voucher-shortcuts')
   await h.page.keyboard.press('c')
   await h.page.waitForSelector('[data-testid="tab-voucher-entry-contra"][aria-current="page"]')
   assert(true, 'C selected Contra')
@@ -37,6 +61,25 @@ await scenario('11-keyboard', async (h) => {
 
   // ↓ moves the amber selection bar; the active row follows data-active.
   await h.page.waitForSelector('[data-testid="rows-daybook"] tr[data-row-id]', { timeout: 10000 })
+  const dayBookTable = await h.page.evaluate(() => {
+    const row = document.querySelector('[data-testid="rows-daybook"] tr[data-active="true"]')
+    const date = row?.querySelector('td:nth-child(2)')
+    const header = document.querySelector('.daybook-ledger thead th')
+    const scroller = document.querySelector('[data-testid="daybook-table-scroll"]')
+    return {
+      role: row?.getAttribute('role'),
+      tabIndex: row?.getAttribute('tabindex'),
+      dateWhiteSpace: date ? getComputedStyle(date).whiteSpace : null,
+      headerPosition: header ? getComputedStyle(header).position : null,
+      reportSelection: scroller ? getComputedStyle(scroller).userSelect : null,
+      horizontalOverflow: scroller ? scroller.scrollWidth > scroller.clientWidth + 1 : true,
+    }
+  })
+  assert(dayBookTable.role === 'button' && dayBookTable.tabIndex === '0', 'active Day Book row is a roving keyboard target')
+  assert(dayBookTable.dateWhiteSpace === 'nowrap', 'Day Book dates do not wrap')
+  assert(dayBookTable.headerPosition === 'sticky', 'Day Book column headings remain visible while scrolling')
+  assert(dayBookTable.reportSelection === 'text', 'Day Book report values remain selectable')
+  assert(!dayBookTable.horizontalOverflow, 'Day Book fits its standard 1440px workbench without horizontal scrolling')
   const activeRowId = () =>
     h.page.evaluate(() => {
       const rows = document.querySelectorAll('.kbar-row[data-active="true"]')
@@ -53,6 +96,7 @@ await scenario('11-keyboard', async (h) => {
   assert(back != null, 'ArrowUp kept a valid row selected')
 
   // ↵ opens the selected voucher in the entry screen (alteration mode).
+  await h.page.locator('.kbar-row[data-active="true"]').last().focus()
   await h.page.keyboard.press('Enter')
   await h.waitScreen('voucher-entry', 20000)
   await h.shot('02-voucher-opened-by-enter')

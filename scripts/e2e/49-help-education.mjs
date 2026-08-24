@@ -31,6 +31,8 @@ await scenario("49-help-education", async (h) => {
   await h.goto("registers");
   const discovery = h.page.locator('[data-testid="feature-discovery"]');
   await discovery.getByText("See the same register by quarter", { exact: true }).waitFor();
+  const discoveryHeight = await discovery.evaluate((element) => element.getBoundingClientRect().height);
+  assert(discoveryHeight <= 44, `feature discovery stays compact (${discoveryHeight}px high)`);
   await h.shot("03-related-feature-tip");
   await discovery.getByText("Never show this tip", { exact: true }).click();
   await h.goto("gateway");

@@ -22,50 +22,33 @@ export function FeatureDiscovery({ screen }: { screen: string }): React.JSX.Elem
     <aside
       data-testid="feature-discovery"
       aria-label="Feature tip"
-      className="relative z-10 mb-4 ml-auto w-[330px] rounded-lg border border-amber/35 bg-panel p-4 shadow-lg"
+      className="mb-2 flex min-h-8 items-center gap-2 rounded-md border border-amber/35 bg-amber/5 px-2.5 py-1.5"
     >
-      <div className="flex items-start gap-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-amber/30 bg-amber/10 text-amber-deep">
-          <Lightbulb size={17} weight="fill" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-deep">
-            Useful here
-          </p>
-          <p className="mt-1 text-[12px] font-semibold text-ink">{tip.title}</p>
-          <p className="mt-1 text-[10.5px] leading-4 text-muted">{tip.detail}</p>
-        </div>
-        <button
-          aria-label="Dismiss feature tip"
-          className="rounded p-1 text-muted hover:bg-panel2 hover:text-ink"
-          onClick={() => {
-            dismissDiscovery(localStorage, tip.id, false);
-            setTip(null);
-          }}
-        >
-          <X size={14} />
-        </button>
-      </div>
-      <div className="mt-3 flex items-center justify-end gap-3 border-t border-line pt-2.5">
-        <button
-          className="text-[10.5px] text-muted hover:text-ink"
-          onClick={() => {
-            dismissDiscovery(localStorage, tip.id, true);
-            setTip(null);
-          }}
-        >
-          Never show this tip
-        </button>
-        <button
-          className="rounded border border-line bg-panel2 px-2.5 py-1 text-[10.5px] font-medium text-ink hover:border-amber/50"
-          onClick={() => {
-            dismissDiscovery(localStorage, tip.id, false);
-            setTip(null);
-          }}
-        >
-          Got it
-        </button>
-      </div>
+      <Lightbulb size={14} weight="fill" className="shrink-0 text-amber" />
+      <p className="min-w-0 flex-1 truncate text-[11.5px] text-ink" title={`${tip.title}. ${tip.detail}`}>
+        <span className="font-semibold">{tip.title}</span>
+        <span className="feature-tip-detail text-muted">: {tip.detail}</span>
+      </p>
+      <button
+        className="shrink-0 whitespace-nowrap px-1.5 py-1 text-[10.5px] text-muted hover:text-ink"
+        onClick={() => {
+          dismissDiscovery(localStorage, tip.id, true);
+          setTip(null);
+        }}
+      >
+        Never show this tip
+      </button>
+      <button
+        aria-label="Dismiss feature tip"
+        title="Dismiss for 30 days"
+        className="shrink-0 rounded p-1 text-muted hover:bg-panel2 hover:text-ink"
+        onClick={() => {
+          dismissDiscovery(localStorage, tip.id, false);
+          setTip(null);
+        }}
+      >
+        <X size={14} />
+      </button>
     </aside>
   );
 }

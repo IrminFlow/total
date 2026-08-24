@@ -45,7 +45,7 @@ export interface DiscoveryTip {
 
 export const DISCOVERY_TIPS: DiscoveryTip[] = [
   { id: "register-quarter", screen: "registers", title: "See the same register by quarter", detail: "The Monthly / Quarterly switch changes the grouping, while drill-down keeps the exact voucher trail." },
-  { id: "voucher-keys", screen: "voucher-entry", title: "Your hands can stay on the keyboard", detail: "F4–F9 choose the common voucher types; Command/Ctrl+Enter saves after validation." },
+  { id: "voucher-keys", screen: "voucher-entry", title: "Your hands can stay on the keyboard", detail: "F4-F9 choose the common voucher types; Command/Ctrl+Enter saves after validation." },
   { id: "daybook-batch", screen: "daybook", title: "Export several invoices together", detail: "Select sales rows in the Day book and create one reviewed batch of PDFs." },
   { id: "bank-match-evidence", screen: "banking", title: "Inspect why a bank match ranked first", detail: "Open match evidence to compare amount, date, reference and alternatives before clearing." },
   { id: "assist-preview", screen: "assist", title: "Preview before anything leaves this device", detail: "Choose individual context fields and inspect the exact provider payload before asking Assist." },

@@ -72,11 +72,29 @@ const DayBookRowView = memo(function DayBookRowView({
 }): React.JSX.Element {
   return (
     <tr
+      role="button"
+      tabIndex={isActive ? 0 : -1}
+      aria-current={isActive ? "true" : undefined}
       data-active={isActive}
       data-row-id={row.voucherId}
       className="kbar-row cursor-pointer"
       onMouseEnter={() => onHover(index)}
-      onClick={() => onOpen(row.voucherId)}
+      onFocus={() => onHover(index)}
+      onClick={(event) => {
+        const nestedControl =
+          event.target instanceof HTMLElement &&
+          event.target.closest("button, a, input, select, textarea") !== null;
+        const selectedText = window.getSelection()?.toString().trim();
+        if (!nestedControl && !selectedText) onOpen(row.voucherId);
+      }}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpen(row.voucherId);
+        }
+      }}
     >
       <td className="w-10 text-center" onClick={(e) => e.stopPropagation()}>
         <input
@@ -88,9 +106,9 @@ const DayBookRowView = memo(function DayBookRowView({
           className="accent-amberbar"
         />
       </td>
-      <td className="num text-muted">{toDisplayDate(row.date)}</td>
-      {visible.type && <td className="text-muted">{row.voucherType}</td>}
-      {visible.number && <td className="num text-muted">{row.number}</td>}
+      <td className="num whitespace-nowrap text-muted">{toDisplayDate(row.date)}</td>
+      {visible.type && <td className="whitespace-nowrap text-muted">{row.voucherType}</td>}
+      {visible.number && <td className="num whitespace-nowrap text-muted">{row.number}</td>}
       {visible.account && (
         <td>
           <div>{row.account}</div>
@@ -141,26 +159,29 @@ const DayBookRowView = memo(function DayBookRowView({
           )}
         </td>
       )}
-      <td className="max-w-56 truncate text-muted">{row.narration}</td>
+      <td className="max-w-56 overflow-hidden text-ellipsis whitespace-nowrap text-muted">{row.narration}</td>
       {visible.debit && (
-        <td className="r">
+        <td className="r whitespace-nowrap">
           <Money paise={row.debit} />
-          {row.kind === "sales" && (
-            <button
-              className="ml-2 text-[11.5px] text-blue hover:underline"
-              onClick={(e) => onPdf(row.voucherId, e)}
-              title="Invoice PDF"
-            >
-              PDF
-            </button>
-          )}
         </td>
       )}
       {visible.credit && (
-        <td className="r">
+        <td className="r whitespace-nowrap">
           <Money paise={row.credit} />
         </td>
       )}
+      <td className="w-16 whitespace-nowrap text-right">
+        {row.kind === "sales" && (
+          <button
+            className="text-[11.5px] text-blue hover:underline"
+            onClick={(event) => onPdf(row.voucherId, event)}
+            title="Create invoice PDF"
+            aria-label={`Create invoice PDF for voucher ${row.number}`}
+          >
+            PDF
+          </button>
+        )}
+      </td>
     </tr>
   );
 });
@@ -307,7 +328,7 @@ export function DayBook({
 
   // Date and Narration always show; the rest follow the F12 column config.
   const colCount =
-    3 +
+    4 +
     (visible.type ? 1 : 0) +
     (visible.number ? 1 : 0) +
     (visible.account ? 1 : 0) +
@@ -562,8 +583,9 @@ export function DayBook({
             hint="Press V for voucher entry"
           />
         ) : (
-          <table className="ledger-table">
-            <thead>
+          <div data-testid="daybook-table-scroll" className="daybook-table-scroll max-h-[calc(100dvh-13rem)] overflow-auto">
+          <table className="daybook-ledger ledger-table">
+            <thead className="sticky top-0 z-10">
               <tr>
                 <th className="w-10 text-center">
                   <input
@@ -588,6 +610,9 @@ export function DayBook({
                 <th>Narration</th>
                 {visible.debit && <th className="r w-36">Debit</th>}
                 {visible.credit && <th className="r w-36">Credit</th>}
+                <th className="w-16 text-right">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody data-testid="rows-daybook">
@@ -624,7 +649,8 @@ export function DayBook({
                   colSpan={
                     colCount -
                     (visible.debit ? 1 : 0) -
-                    (visible.credit ? 1 : 0)
+                    (visible.credit ? 1 : 0) -
+                    1
                   }
                 >
                   Total{hasOutOfBooks ? " (in books)" : ""} · {bookRows.length}{" "}
@@ -640,9 +666,11 @@ export function DayBook({
                     <Money paise={totalCredit} />
                   </td>
                 )}
+                <td aria-hidden="true" />
               </tr>
             </tbody>
           </table>
+          </div>
         )}
       </Panel>
       {selectedRows.length > 0 && (

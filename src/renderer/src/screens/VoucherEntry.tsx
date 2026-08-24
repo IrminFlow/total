@@ -19,6 +19,10 @@ const FKEYS: Record<string, VoucherKind> = {
   F4: 'contra', F5: 'payment', F6: 'receipt', F7: 'journal', F8: 'sales', F9: 'purchase'
 }
 
+const FKEY_LABELS: Partial<Record<VoucherKind, string>> = {
+  contra: 'F4', payment: 'F5', receipt: 'F6', journal: 'F7', sales: 'F8', purchase: 'F9'
+}
+
 const LETTER_KEYS: Partial<Record<VoucherKind, string>> = {
   contra: 'c', payment: 'p', receipt: 'r', journal: 'j', sales: 's', purchase: 'u',
   credit_note: 'n', debit_note: 'd', stock_journal: 'k', physical_stock: 'h'
@@ -189,11 +193,21 @@ export function VoucherEntry({
               aria-current={type.id === currentType.id ? 'page' : undefined}
               aria-pressed={type.id === currentType.id}
               onClick={() => setTypeId(type.id)}
-              className={`min-h-8 shrink-0 rounded-md px-2.5 py-1 text-[12px] transition-colors ${
+              className={`flex min-h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors ${
                 type.id === currentType.id ? 'bg-amber/20 font-medium text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
               }`}
             >
-              <MnemonicText label={type.name} mnemonic={LETTER_KEYS[type.kind] ?? ''} />
+              <span>
+                <MnemonicText label={type.name} mnemonic={LETTER_KEYS[type.kind] ?? ''} />
+              </span>
+              <kbd
+                aria-label={`${FKEY_LABELS[type.kind]} shortcut`}
+                className={`num rounded border px-1 py-px text-[9.5px] leading-none ${
+                  type.id === currentType.id ? 'border-amber/40 text-amber' : 'border-line text-muted/75'
+                }`}
+              >
+                {FKEY_LABELS[type.kind]}
+              </kbd>
             </button>
           ))}
           {additionalTypes.length > 0 && (
@@ -254,7 +268,7 @@ export function VoucherEntry({
         />
       )}
       <p className="mt-3 text-[11.5px] text-muted">
-        <Kbd>F4</Kbd>–<Kbd>F9</Kbd> switch type · <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>, <span className="num">7/4</span>, <span className="num">y</span>
+        <Kbd>F4</Kbd>-<Kbd>F9</Kbd> switch type · <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>, <span className="num">7/4</span>, <span className="num">y</span>
       </p>
       {reverseOpen && voucherId && (
         <VoucherReverseModal

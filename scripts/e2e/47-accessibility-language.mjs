@@ -4,6 +4,31 @@ import { scenario, assert, assertEq } from "../lib/harness.mjs";
 
 await scenario("47-accessibility-language", async (h) => {
   await h.createDemoCompany();
+  await h.page.setViewportSize({ width: 1080, height: 700 });
+  const minimumShell = await h.page.evaluate(() => {
+    const header = document.querySelector('[data-testid="app-header"]');
+    const supportEmail = header?.querySelector('.support-email');
+    const rect = header?.getBoundingClientRect();
+    const controls = header ? [...header.querySelectorAll('button')] : [];
+    return {
+      headerHeight: rect?.height ?? 0,
+      headerScrollHeight: header?.scrollHeight ?? 0,
+      controlsStayInside: Boolean(
+        rect && controls.every((control) => {
+          const controlRect = control.getBoundingClientRect();
+          return controlRect.top >= rect.top - 1 && controlRect.bottom <= rect.bottom + 1;
+        }),
+      ),
+      supportEmailVisible: supportEmail ? getComputedStyle(supportEmail).display !== 'none' : false,
+    };
+  });
+  assert(
+    minimumShell.headerScrollHeight <= minimumShell.headerHeight + 1 && minimumShell.controlsStayInside,
+    `1080x700 header stays on one line: ${JSON.stringify(minimumShell)}`,
+  );
+  assert(minimumShell.supportEmailVisible, "support email remains visible in the minimum-width top bar");
+  await h.shot("00-minimum-shell");
+  await h.page.setViewportSize({ width: 1440, height: 900 });
   await h.goto("settings");
   await h.page
     .getByRole("button", { name: "Accessibility", exact: true })
@@ -66,6 +91,21 @@ await scenario("47-accessibility-language", async (h) => {
     preferences.voiceCommand,
     "Day book",
     "voice-command identity stays stable",
+  );
+  const resilientSidebar = await h.page.evaluate(() => {
+    const sidebar = document.querySelector('[data-testid="primary-navigation"]');
+    const itemHeights = sidebar
+      ? [...sidebar.querySelectorAll('.app-nav-item')].map((item) => item.getBoundingClientRect().height)
+      : [];
+    return {
+      width: sidebar?.getBoundingClientRect().width ?? 0,
+      horizontalOverflow: sidebar ? sidebar.scrollWidth > sidebar.clientWidth + 1 : true,
+      tallestItem: Math.max(0, ...itemHeights),
+    };
+  });
+  assert(
+    resilientSidebar.width >= 240 && !resilientSidebar.horizontalOverflow && resilientSidebar.tallestItem < 60,
+    `large Hindi sidebar remains scan-friendly: ${JSON.stringify(resilientSidebar)}`,
   );
   await h.shot("01-large-hindi-spaced");
 

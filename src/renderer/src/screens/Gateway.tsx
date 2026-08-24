@@ -28,7 +28,10 @@ import {
 import { ArrowsDownUp, Eye, EyeSlash } from "@phosphor-icons/react";
 import { ArrowUpRight, ClipboardText, SunHorizon } from "@phosphor-icons/react";
 import { morningDigestText } from "../lib/morningDigest";
-import { useAccessibilityPreferences } from "../lib/accessibilityPrefs";
+import {
+  useAccessibilityPreferences,
+  type UiLanguage,
+} from "../lib/accessibilityPrefs";
 import { localizedLabel } from "../lib/localization";
 import { deadlineCountdown } from "../lib/deadlineCountdown";
 
@@ -61,6 +64,7 @@ export function Gateway(): React.JSX.Element {
   );
   const [customizing, setCustomizing] = useState(false);
   const [digestOpen, setDigestOpen] = useState(false);
+  const [allTasksOpen, setAllTasksOpen] = useState(false);
   useEffect(
     () => setHomePrefs(readWorkspacePrefs(slug, identity)),
     [slug, identity],
@@ -83,6 +87,7 @@ export function Gateway(): React.JSX.Element {
           (rank.get(b.name as Screen["name"]) ?? 999),
       );
   }, [availableCards, homePrefs]);
+  const primaryCards = cards.slice(0, 6);
   const { data } = useQuery({
     queryKey: ["dashboard", today, from],
     queryFn: ({ signal }) => api.reports.dashboard(today, from, signal),
@@ -119,7 +124,7 @@ export function Gateway(): React.JSX.Element {
       <header className="mb-5 flex items-end justify-between border-b border-line pb-5">
         <div>
           <p className="num text-[10.5px] font-semibold tracking-[0.14em] text-muted uppercase">
-            Gateway of Total · FY {from.slice(0, 4)}–{to.slice(2, 4)}
+            Gateway of Total · FY {from.slice(0, 4)}-{to.slice(2, 4)}
           </p>
           <h1 className="mt-1 font-serif text-[30px] font-semibold leading-tight tracking-[-0.02em]">
             {info?.name ?? "Your books"}
@@ -159,9 +164,9 @@ export function Gateway(): React.JSX.Element {
           </button>
         </div>
       </header>
-      <div className="gateway-kpis grid grid-cols-3 gap-3 lg:grid-cols-6">
+      <div className="gateway-kpis grid grid-cols-3 gap-px overflow-hidden rounded-md border border-line bg-line lg:grid-cols-6">
         {tiles.map((t) => (
-          <Panel key={t.label} className="px-4 py-3">
+          <div key={t.label} className="min-w-0 bg-panel px-3 py-2.5">
             <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">
               {t.label}
             </p>
@@ -175,7 +180,7 @@ export function Gateway(): React.JSX.Element {
                 {t.text ?? <Money paise={t.value ?? 0} />}
               </p>
             )}
-          </Panel>
+          </div>
         ))}
       </div>
 
@@ -213,7 +218,7 @@ export function Gateway(): React.JSX.Element {
               <span className="text-[10.5px] text-muted">{metric.label}</span>
               <span className="num text-[11.5px] font-medium">
                 {metric.value === null
-                  ? "—"
+                  ? "-"
                   : `${metric.value.toFixed(1)}${metric.suffix}`}
               </span>
             </div>
@@ -221,64 +226,11 @@ export function Gateway(): React.JSX.Element {
         </div>
       )}
 
-      <DueTodayPanel />
-      <CompliancePanel
-        hasEmployees={data?.hasEmployees ?? false}
-        dashboardLoaded={data !== undefined}
-      />
-
-      <div className="mt-7 mb-2 flex items-baseline justify-between">
-        <p className="text-[10.5px] font-semibold tracking-[0.12em] text-muted uppercase">
-          Common tasks
-        </p>
-        <div className="flex items-center gap-3">
-          <p className="text-[10.5px] text-muted">
-            Press the red letter to open
-          </p>
-          <button
-            data-testid="btn-customize-home"
-            onClick={() => setCustomizing(true)}
-            className="text-[11px] font-medium text-blue hover:underline"
-          >
-            Customize
-          </button>
-        </div>
-      </div>
-      <div
-        className={`grid gap-px overflow-hidden rounded-lg border border-line bg-line ${homePrefs.density === "compact" ? "grid-cols-4" : "grid-cols-3"}`}
+      <section
+        data-testid="gateway-operations"
+        aria-label="Cash and outstanding balances"
+        className="mt-4 grid h-[260px] grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-3"
       >
-        {cards.map((c) => (
-          <button
-            key={c.label}
-            data-testid={`card-${c.name}`}
-            onClick={() => nav.go(c.screen)}
-            aria-label={localizedLabel(c.label, language)}
-            data-voice-command={c.label}
-            className={`group bg-panel text-left transition-colors hover:bg-panel2 ${homePrefs.density === "compact" ? "min-h-20 px-4 py-3" : "min-h-24 px-5 py-4"}`}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-[14.5px] font-medium">
-                <MnemonicText
-                  label={localizedLabel(c.label, language)}
-                  mnemonic={c.key}
-                />
-              </span>
-              <span
-                aria-hidden="true"
-                className="text-[15px] text-muted/40 transition-transform group-hover:translate-x-0.5 group-hover:text-ink"
-              >
-                →
-              </span>
-            </div>
-            <p className="mt-1 text-[12px] text-muted">{c.sub}</p>
-          </button>
-        ))}
-      </div>
-
-      {/* Fixed row height: long receivable/payable lists scroll inside their panels instead of
-          stretching the row — which would also stretch the sparkline opposite and make its
-          aspect depend on how many debtors the company has. */}
-      <div className="mt-6 grid h-[420px] grid-cols-2 gap-3">
         <div className="flex min-h-0 flex-col gap-3">
           <TopLedgersPanel
             title="Top receivables"
@@ -290,7 +242,46 @@ export function Gateway(): React.JSX.Element {
           />
         </div>
         <CashSparklinePanel points={data?.cashSpark ?? []} />
+      </section>
+
+      <div className="mt-5 mb-2 flex items-baseline justify-between">
+        <p className="text-[10.5px] font-semibold tracking-[0.12em] text-muted uppercase">
+          Frequent tasks
+        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-[10.5px] text-muted">
+            Press the red letter to open
+          </p>
+          {cards.length > primaryCards.length && (
+            <button
+              data-testid="btn-all-gateway-tasks"
+              onClick={() => setAllTasksOpen(true)}
+              className="text-[11px] font-medium text-blue hover:underline"
+            >
+              All {cards.length} tasks
+            </button>
+          )}
+          <button
+            data-testid="btn-customize-home"
+            onClick={() => setCustomizing(true)}
+            className="text-[11px] font-medium text-blue hover:underline"
+          >
+            Customize
+          </button>
+        </div>
       </div>
+      <GatewayTaskGrid
+        cards={primaryCards}
+        density={homePrefs.density}
+        language={language}
+        onOpen={(screen) => nav.go(screen)}
+      />
+
+      <DueTodayPanel />
+      <CompliancePanel
+        hasEmployees={data?.hasEmployees ?? false}
+        dashboardLoaded={data !== undefined}
+      />
 
       {data && data.voucherCount === 0 ? (
         <OnboardingChecklist
@@ -363,6 +354,72 @@ export function Gateway(): React.JSX.Element {
       {digestOpen && (
         <MorningDigestModal onClose={() => setDigestOpen(false)} />
       )}
+      {allTasksOpen && (
+        <Modal title="All Gateway tasks" onClose={() => setAllTasksOpen(false)} wide>
+          <p className="mb-3 text-[11.5px] text-muted">
+            Open any task here, or press its red letter while the Gateway is active.
+          </p>
+          <GatewayTaskGrid
+            cards={cards}
+            density="compact"
+            language={language}
+            testIdPrefix="all-task"
+            onOpen={(screen) => {
+              setAllTasksOpen(false);
+              nav.go(screen);
+            }}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function GatewayTaskGrid({
+  cards,
+  density,
+  language,
+  testIdPrefix = "card",
+  onOpen,
+}: {
+  cards: typeof CARDS;
+  density: WorkspacePrefs["density"];
+  language: UiLanguage;
+  testIdPrefix?: string;
+  onOpen: (screen: Screen) => void;
+}): React.JSX.Element {
+  return (
+    <div
+      className={`grid gap-px overflow-hidden rounded-lg border border-line bg-line ${density === "compact" ? "grid-cols-4" : "grid-cols-3"}`}
+    >
+      {cards.map((card) => (
+        <button
+          key={card.label}
+          data-testid={`${testIdPrefix}-${card.name}`}
+          onClick={() => onOpen(card.screen)}
+          aria-label={localizedLabel(card.label, language)}
+          data-voice-command={card.label}
+          className={`group min-w-0 bg-panel text-left transition-colors hover:bg-panel2 ${density === "compact" ? "min-h-16 px-3.5 py-2.5" : "min-h-20 px-4 py-3"}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-[13.5px] font-medium">
+              <MnemonicText
+                label={localizedLabel(card.label, language)}
+                mnemonic={card.key}
+              />
+            </span>
+            <span
+              aria-hidden="true"
+              className="shrink-0 text-[15px] text-muted/40 transition-transform group-hover:translate-x-0.5 group-hover:text-ink"
+            >
+              →
+            </span>
+          </div>
+          <p className="mt-0.5 truncate text-[11px] text-muted" title={card.sub}>
+            {card.sub}
+          </p>
+        </button>
+      ))}
     </div>
   );
 }

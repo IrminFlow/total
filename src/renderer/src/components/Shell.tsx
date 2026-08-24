@@ -313,7 +313,8 @@ export function Shell({
       }}
     >
       <header
-        className={`drag-region flex h-12 shrink-0 items-center gap-3 border-b border-line bg-panel pr-4 panel-shadow ${
+        data-testid="app-header"
+        className={`shell-header drag-region flex h-12 shrink-0 items-center gap-2 border-b border-line bg-panel pr-3 panel-shadow ${
           window.total.platform === "darwin" ? "pl-24" : "pl-4"
         }`}
       >
@@ -352,7 +353,12 @@ export function Shell({
             <ClockCounterClockwise size={15} />
           </button>
         </div>
-        <span className="text-[13px] font-medium text-ink">{currentTitle}</span>
+        <span
+          className="shell-screen-title min-w-0 max-w-40 truncate whitespace-nowrap text-[13px] font-medium text-ink"
+          title={currentTitle}
+        >
+          {currentTitle}
+        </span>
         {focusActive && (
           <span className="rounded border border-amber/35 bg-amber/10 px-2 py-0.5 text-[10.5px] font-medium text-ink">
             Focus mode
@@ -387,10 +393,10 @@ export function Shell({
               </span>
             </button>
           )}
-        <div className="flex-1" />
+        <div className="min-w-0 flex-1" />
         <button
           data-testid="btn-period"
-          className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+          className="shell-action num shrink-0 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
           onClick={() => setPeriodOpen(true)}
           title="Change period"
         >
@@ -400,19 +406,21 @@ export function Shell({
           <button
             data-testid="btn-focus-mode"
             aria-pressed={focusActive}
-            className={`no-drag flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-medium ${focusActive ? "border-amber/50 bg-amber/10 text-ink" : "border-line bg-panel2 text-muted hover:border-amber/60 hover:text-ink"}`}
+            className={`shell-action no-drag flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-[12px] font-medium ${focusActive ? "border-amber/50 bg-amber/10 text-ink" : "border-line bg-panel2 text-muted hover:border-amber/60 hover:text-ink"}`}
             onClick={() => setFocusMode((value) => !value)}
             title="Toggle focus mode (Command+Shift+F)"
           >
             {focusActive ? <CornersOut size={15} /> : <CornersIn size={15} />}
-            {focusActive ? "Exit focus" : "Focus"}
+            <span className="shell-action-label">
+              {focusActive ? "Exit focus" : "Focus"}
+            </span>
           </button>
         )}
         {!focusActive && (
           <>
             <button
               data-testid="btn-theme"
-              className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+              className="shell-action shrink-0 rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
               onClick={toggle}
               title="Switch theme"
             >
@@ -424,36 +432,43 @@ export function Shell({
             <button
               data-testid="btn-help-centre"
               aria-label="Open help centre"
-              className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+              className="shell-action shrink-0 rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
               onClick={onOpenHelp}
               title="Help centre"
             >
               <Question size={15} />
             </button>
             <button
-              className="flex items-center gap-2 rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+              aria-label="Search books (Command+K)"
+              title="Search books (Command+K)"
+              className="shell-action flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
               onClick={onOpenPalette}
             >
-              <MagnifyingGlass size={15} /> Search books <Kbd>⌘K</Kbd>
+              <MagnifyingGlass size={15} />
+              <span className="shell-action-label">Search books</span>
+              <span className="shell-search-kbd"><Kbd>⌘K</Kbd></span>
             </button>
             <button
               data-testid="btn-copilot"
-              className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] font-medium text-ink hover:border-amber/60"
+              className="shell-action shrink-0 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] font-medium text-ink hover:border-amber/60"
               onClick={onOpenCopilot}
               title="Ask Total copilot"
+              aria-label="Ask Total copilot"
             >
-              <Sparkle size={15} className="inline-block -translate-y-px" />{" "}
-              Copilot
+              <Sparkle size={15} className="inline-block -translate-y-px" />
+              <span className="shell-action-label ml-1.5">Copilot</span>
             </button>
-            <SupportLink className="px-1 text-[11px]" />
+            <SupportLink className="shell-support px-1 text-[11px]" />
             {user && (
               <>
-                <span className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted capitalize">
+                <span className="shell-user-badge num shrink-0 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted capitalize">
                   {user.name} · {user.role}
                 </span>
                 <button
                   data-testid="btn-lock"
-                  className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
+                  aria-label={`Lock ${user.name}'s session`}
+                  title={`Lock ${user.name}'s session`}
+                  className="shell-action shrink-0 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
                   onClick={async () => {
                     try {
                       await api.auth.logout();
@@ -464,8 +479,8 @@ export function Shell({
                     }
                   }}
                 >
-                  <LockKey size={15} className="inline-block -translate-y-px" />{" "}
-                  Lock
+                  <LockKey size={15} className="inline-block -translate-y-px" />
+                  <span className="shell-action-label ml-1.5">Lock</span>
                 </button>
               </>
             )}
@@ -475,7 +490,7 @@ export function Shell({
 
       <div className="flex min-h-0 flex-1">
         {!focusActive && (
-          <aside data-testid="primary-navigation" className="flex w-[216px] shrink-0 flex-col overflow-hidden border-r border-line bg-panel px-2 py-2.5">
+          <aside data-testid="primary-navigation" className="shell-sidebar flex w-[216px] shrink-0 flex-col overflow-hidden border-r border-line bg-panel px-2 py-2.5">
             <div className="mb-2 flex items-start gap-1 border-b border-line px-1 pb-3">
               <button
                 className="min-w-0 flex-1 px-1.5 text-left"
@@ -896,7 +911,7 @@ function PeriodModal({ onClose }: { onClose: () => void }): React.JSX.Element {
         </div>
         {quickError && (
           <p className="mt-1 text-[11px] text-cr">
-            Try today, last Friday, Q1–Q4, this month or last FY.
+            Try today, last Friday, Q1-Q4, this month or last FY.
           </p>
         )}
       </div>
