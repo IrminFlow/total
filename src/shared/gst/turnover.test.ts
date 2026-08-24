@@ -32,19 +32,21 @@ describe('turnover bands', () => {
     expect(bandOf(49_99_99_900)).toBe('upto-50L') // ₹49,99,999
     expect(bandOf(50_00_00_000)).toBe('50L-1.5Cr') // exactly ₹50 lakh
     expect(bandOf(150_00_00_000)).toBe('1.5Cr-5Cr') // exactly ₹1.5 crore
-    expect(bandOf(500_00_00_000)).toBe('5Cr-plus') // exactly ₹5 crore
-    expect(bandOf(50_000_00_00_000)).toBe('5Cr-plus') // ₹500 crore
+    expect(bandOf(500_00_00_000)).toBe('5Cr-10Cr') // exactly ₹5 crore
+    expect(bandOf(1000_00_00_000)).toBe('10Cr-plus') // exactly ₹10 crore
+    expect(bandOf(50_000_00_00_000)).toBe('10Cr-plus') // ₹500 crore
   })
 
   it('reads a band as its lower bound', () => {
     expect(bandFloorPaise('upto-50L')).toBe(0)
-    expect(bandFloorPaise('5Cr-plus')).toBe(EINVOICE_THRESHOLD_PAISE)
+    expect(bandFloorPaise('5Cr-10Cr')).toBe(EINVOICE_THRESHOLD_PAISE)
   })
 })
 
 describe('e-invoicing', () => {
   it('is mandatory only over ₹5 crore', () => {
-    expect(eInvoiceMandatory('5Cr-plus')).toBe(true)
+    expect(eInvoiceMandatory('5Cr-10Cr')).toBe(true)
+    expect(eInvoiceMandatory('10Cr-plus')).toBe(true)
     expect(eInvoiceMandatory('1.5Cr-5Cr')).toBe(false)
     expect(eInvoiceMandatory('upto-50L')).toBe(false)
   })
@@ -58,7 +60,7 @@ describe('e-invoicing', () => {
 describe('QRMP eligibility', () => {
   it('is available up to ₹5 crore and not above it', () => {
     expect(qrmpEligible('1.5Cr-5Cr')).toBe(true)
-    expect(qrmpEligible('5Cr-plus')).toBe(false)
+    expect(qrmpEligible('5Cr-10Cr')).toBe(false)
   })
 
   it('does not block an undeclared business from a scheme it may well qualify for', () => {
@@ -68,7 +70,7 @@ describe('QRMP eligibility', () => {
 
 describe('minimum HSN digits (rule 46)', () => {
   it('wants six digits over ₹5 crore and four at or under it', () => {
-    expect(minHsnDigits('5Cr-plus')).toBe(6)
+    expect(minHsnDigits('5Cr-10Cr')).toBe(6)
     expect(minHsnDigits('1.5Cr-5Cr')).toBe(4)
     expect(minHsnDigits(null)).toBe(4)
   })
@@ -95,8 +97,8 @@ describe('composition eligibility', () => {
 
 describe('turnoverObligations', () => {
   it('states the whole set for a large business', () => {
-    expect(turnoverObligations('5Cr-plus')).toEqual({
-      band: '5Cr-plus',
+    expect(turnoverObligations('5Cr-10Cr')).toEqual({
+      band: '5Cr-10Cr',
       eInvoice: true,
       qrmp: false,
       minHsnDigits: 6

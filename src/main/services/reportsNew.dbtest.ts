@@ -1,7 +1,7 @@
 /** DB-layer tests for the v0.3 lane-R report additions (#53–#60). */
 import { describe, it, expect } from 'vitest'
 import type { DB } from '../db/connection'
-import { seededDb, postSimpleVoucher } from '../db/testdb'
+import { seededDb, postSimpleVoucher, TEST_INFO } from '../db/testdb'
 import { createLedger } from './masters'
 import { saveVoucher } from './vouchers'
 import type { VoucherInput } from '@shared/schemas'
@@ -353,6 +353,62 @@ describe('exception reports (#60)', () => {
 
     const section = exceptions(db, '2020-04-01', '2021-03-31').sections.find((x) => x.key === 'itcAtRisk')!
     expect(section.count).toBe(0)
+  })
+
+  it('flags a buyer past the TCS threshold only when the seller is above ₹10 crore', () => {
+    // Section 206C(1H) is collected on RECEIPT, not on sale, which is what makes it easy to miss:
+    // nothing about the invoice tells you, and the threshold is crossed by a payment arriving.
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const buyer = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Big Buyer', groupId: groupId(db, 'Sundry Debtors'), openingBalance: 0,
+      pan: 'AAAPA1234A'
+    }).id
+    // Rs 60 lakh received — Rs 10 lakh over the Rs 50 lakh threshold.
+    postLines(db, 'receipt', '2026-05-01', [
+      { ledgerId: cash, drCr: 'dr', amount: 60_00_000_00 },
+      { ledgerId: buyer, drCr: 'cr', amount: 60_00_000_00 }
+    ], buyer)
+
+    const small = { ...TEST_INFO, turnoverBand: '1.5Cr-5Cr' as const }
+    const sectionFor = (info: typeof TEST_INFO) =>
+      exceptions(db, '2026-04-01', '2027-03-31', info).sections.find((x) => x.key === 'tcsThreshold')!
+
+    // Under ₹10 crore the section does not apply at all, so there is nothing to say.
+    expect(sectionFor(small).count).toBe(0)
+    // And an undeclared turnover says nothing either: a warning about a threshold that probably
+    // does not apply is noise that gets the whole feature ignored.
+    expect(sectionFor({ ...TEST_INFO, turnoverBand: null }).count).toBe(0)
+
+    // ₹5–10 crore is still under the seller threshold, so still nothing.
+    expect(sectionFor({ ...TEST_INFO, turnoverBand: '5Cr-10Cr' as const }).count).toBe(0)
+
+    // Above ₹10 crore the section applies, and the buyer who crossed ₹50 lakh is named.
+    const big = sectionFor({ ...TEST_INFO, turnoverBand: '10Cr-plus' as const })
+    expect(big.count).toBe(1)
+    expect(big.rows[0]!.label).toBe('Big Buyer')
+    // 0.1% of the ₹10 lakh excess is ₹1,000.
+    expect(big.rows[0]!.amount).toBe(1_000_00)
+    expect(big.rows[0]!.ledgerId).toBeDefined()
+  })
+
+  it('charges ten times as much when the buyer has no PAN, and says so', () => {
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const buyer = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'No PAN Buyer', groupId: groupId(db, 'Sundry Debtors'), openingBalance: 0
+    }).id
+    postLines(db, 'receipt', '2026-05-01', [
+      { ledgerId: cash, drCr: 'dr', amount: 60_00_000_00 },
+      { ledgerId: buyer, drCr: 'cr', amount: 60_00_000_00 }
+    ], buyer)
+
+    const section = exceptions(db, '2026-04-01', '2027-03-31', {
+      ...TEST_INFO,
+      turnoverBand: '10Cr-plus' as const
+    }).sections.find((x) => x.key === 'tcsThreshold')!
+    expect(section.rows[0]!.amount).toBe(10_000_00) // 1% of ₹10 lakh
+    expect(section.rows[0]!.detail).toMatch(/no PAN/)
   })
 
   it('reports a gap left by a deleted voucher, and nothing on an unbroken series', () => {

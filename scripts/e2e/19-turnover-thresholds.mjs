@@ -48,7 +48,7 @@ await scenario('19-turnover-thresholds', async (h) => {
   assert(Array.isArray(undeclared), 'gst:validate still answers')
 
   // ---- over ₹5 crore, both obligations appear ----
-  await setBand('5Cr-plus')
+  await setBand('5Cr-10Cr')
   const big = await codesFor()
   assert(big.includes('hsn_too_short'), 'rule 46 wants 6 HSN digits over ₹5 crore')
   assert(big.includes('missing_irn'), 'e-invoicing is mandatory over ₹5 crore')

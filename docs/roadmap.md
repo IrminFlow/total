@@ -121,7 +121,9 @@ Ordering within a section is roughly by value.
 87. ✓ Reverse-charge ledger auto-selection on notified supplies (M)
 88. ✓ Bill of supply for exempt and composition sales (M)
 89. Delivery challan and job-work challan (ITC-04) (L)
-90. TCS on sale of goods, section 206C(1H) (M)
+90. ✓ TCS on sale of goods, section 206C(1H) (M) — detection, not automatic collection: the
+    section does not apply where the buyer deducts TDS under 194Q on the same transaction, which
+    the seller cannot know from their own books.
 91. 26AS reconciliation against TDS entries (L)
 92. GST rate-change handling: rate history per item with effective dates (L)
 93. ✓ HSN summary validation against the GSTR-1 schema before export (S)

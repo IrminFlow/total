@@ -702,7 +702,7 @@ describe('validateGstr1', () => {
     // Rule 46 asks for 6 HSN digits over ₹5 crore and 4 below, and e-invoicing is mandatory over
     // the same line. Both are silent until the company declares a band, because guessing it from
     // these books would be wrong for exactly the multi-GSTIN businesses the rules target.
-    const big = { ...company, turnoverBand: '5Cr-plus' as const }
+    const big = { ...company, turnoverBand: '5Cr-10Cr' as const }
     const small = { ...company, turnoverBand: '1.5Cr-5Cr' as const }
 
     /** Every HSN in the fixture rewritten to one code, so the assertion is about the rule and

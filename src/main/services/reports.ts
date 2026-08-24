@@ -11,8 +11,11 @@ import { CASH_BANK_GROUPS } from '@shared/seed'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
 import { periodKey, periodLabel, periodRange, type Period } from '@shared/period'
 import { todayISO } from '@shared/dates'
+import type { CompanyInfo } from '@shared/domain'
 import { itcRisk } from '@shared/gst/itcAgeing'
 import { describeGap, gapSize, numberGaps } from '@shared/numberSeries'
+import { computeTcs, tcsAppliesToSeller, TCS_THRESHOLD_PAISE } from '@shared/tcs'
+import { fyOf } from '@shared/dates'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
 
@@ -317,7 +320,7 @@ export function itemProfitability(db: DB, from: string, to: string): ItemProfitR
 const EXCEPTION_ROW_CAP = 200
 
 /** Exception reports (v0.3 #60): things that are almost certainly mistakes, with drillable rows. */
-export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
+export function exceptions(db: DB, from: string, to: string, company?: CompanyInfo): ExceptionsReport {
   const sections: ExceptionSection[] = []
   const section = (key: ExceptionSection['key'], label: string, rows: ExceptionRow[]): void => {
     sections.push({ key, label, count: rows.length, rows: rows.slice(0, EXCEPTION_ROW_CAP) })
@@ -467,6 +470,49 @@ export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
     }
   }
   section('numberGaps', 'Gaps in voucher numbering', gapRows)
+
+  // Section 206C(1H): once receipts from one buyer pass Rs 50 lakh in a financial year, TCS at
+  // 0.1% may be collectible on the excess. It is collected on RECEIPT rather than on sale, which
+  // is what makes it easy to miss — nothing about the invoice tells you, and the threshold is
+  // crossed by a payment arriving.
+  //
+  // Flagged rather than collected: 206C(1H) does not apply where the buyer is deducting TDS under
+  // 194Q on the same transaction, which is now the common case and which the seller cannot know
+  // from their own books. Adding 0.1% on that assumption would be collecting tax that should not
+  // have been collected.
+  const tcsRows: ExceptionRow[] = []
+  if (tcsAppliesToSeller(company?.turnoverBand ?? null)) {
+    const fy = fyOf(to)
+    const receipts = db
+      .prepare(
+        `SELECT l.id AS ledgerId, l.name, l.pan,
+                COALESCE(SUM(vl.amount), 0) AS received
+         FROM vouchers v
+         JOIN voucher_types vt ON vt.id = v.voucher_type_id
+         JOIN voucher_lines vl ON vl.voucher_id = v.id AND vl.ledger_id = v.party_ledger_id
+         JOIN ledgers l ON l.id = v.party_ledger_id
+         WHERE vt.kind = 'receipt' AND vl.dr_cr = 'cr'
+           AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         GROUP BY l.id
+         HAVING received > ?`
+      )
+      .all(fy.from, fy.to, TCS_THRESHOLD_PAISE) as {
+        ledgerId: number; name: string; pan: string | null; received: number
+      }[]
+
+    for (const r of receipts) {
+      const t = computeTcs({ receiptsThisFy: r.received, hasPan: !!r.pan })
+      tcsRows.push({
+        label: r.name,
+        detail:
+          `Received ${(r.received / 100).toLocaleString('en-IN')} this year — TCS at ${t.ratePercent}% on the excess` +
+          (r.pan ? '' : ' (no PAN on record, so 1% rather than 0.1%)'),
+        ledgerId: r.ledgerId,
+        amount: t.collectible
+      })
+    }
+  }
+  section('tcsThreshold', 'Buyers past the TCS threshold (206C(1H))', tcsRows)
 
   return { sections }
 }

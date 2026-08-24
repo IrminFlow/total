@@ -42,7 +42,10 @@ export const TURNOVER_BANDS = [
   { id: 'upto-50L', label: 'Up to ₹50 lakh', fromPaise: 0, toPaise: 50 * LAKH },
   { id: '50L-1.5Cr', label: '₹50 lakh to ₹1.5 crore', fromPaise: 50 * LAKH, toPaise: 150 * LAKH },
   { id: '1.5Cr-5Cr', label: '₹1.5 crore to ₹5 crore', fromPaise: 150 * LAKH, toPaise: 5 * CRORE },
-  { id: '5Cr-plus', label: 'Over ₹5 crore', fromPaise: 5 * CRORE, toPaise: null }
+  { id: '5Cr-10Cr', label: '₹5 crore to ₹10 crore', fromPaise: 5 * CRORE, toPaise: 10 * CRORE },
+  // The top band exists because section 206C(1H) keys off ₹10 crore. Without a boundary there,
+  // no band could express "above it", and the TCS check could never fire for anyone.
+  { id: '10Cr-plus', label: 'Over ₹10 crore', fromPaise: 10 * CRORE, toPaise: null }
 ] as const
 
 export type TurnoverBand = (typeof TURNOVER_BANDS)[number]['id']

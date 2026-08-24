@@ -266,6 +266,8 @@ export interface ExceptionSection {
     | 'itcAtRisk'
     /** Gaps in an auto-numbered voucher series — a missing invoice number an auditor will ask about. */
     | 'numberGaps'
+    /** Buyers past the section 206C(1H) receipts threshold, where TCS may be collectible. */
+    | 'tcsThreshold'
   label: string
   count: number
   /** Detail rows, capped at 200 per section (count is the true total). */

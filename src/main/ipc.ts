@@ -826,7 +826,8 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('report:exceptions', (p) => {
     const { from, to } = periodSchema.parse(p)
-    return reports.exceptions(requireCompany().db, from, to)
+    const c = requireCompany()
+    return reports.exceptions(c.db, from, to, c.info)
   }, 'viewer')
 
   // ---------- consolidated (multi-company, read-only) ----------
