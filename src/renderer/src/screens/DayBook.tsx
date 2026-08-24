@@ -5,7 +5,7 @@ import { nextDraftId, useNav, useSession, useToasts } from '../state/stores'
 import { useKeyLayer } from '../lib/keyboard'
 import { confirmDialog } from '../lib/dialogs'
 import type { VoucherKind } from '@shared/domain'
-import { Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput, useKeyNav, useTableNav } from '../components/ui'
+import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput, useKeyNav, useTableNav } from '../components/ui'
 import { useStickyFlag } from '../lib/useStickyTab'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
@@ -63,6 +63,7 @@ const DayBookRowView = memo(function DayBookRowView({
   onHover,
   onOpen,
   onPdf,
+  onDotMatrix,
   onToggleSelect
 }: {
   row: DayBookRow
@@ -73,6 +74,7 @@ const DayBookRowView = memo(function DayBookRowView({
   onHover: (i: number) => void
   onOpen: (voucherId: number) => void
   onPdf: (voucherId: number, e: React.MouseEvent) => void
+  onDotMatrix: (voucherId: number, e: React.MouseEvent) => void
   onToggleSelect: (voucherId: number) => void
 }): React.JSX.Element {
   return (
@@ -145,6 +147,18 @@ const DayBookRowView = memo(function DayBookRowView({
             PDF
           </button>
         )}
+        {/* Dot-matrix, next to the PDF and not instead of it: a shop that prints on impact
+            stationery still emails a PDF, and the two are different jobs to different devices. */}
+        {row.kind === 'sales' && (
+          <button
+            className="ml-2 text-hint text-blue opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 group-data-[active=true]:opacity-100 hover:underline"
+            data-testid={`btn-daybook-dmp-${row.voucherId}`}
+            onClick={(e) => onDotMatrix(row.voucherId, e)}
+            title={`Print raw to a dot-matrix printer — ${row.voucherType} ${row.number}`}
+          >
+            DMP
+          </button>
+        )}
       </td>
     </tr>
   )
@@ -163,6 +177,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
    * see, and the only action offered here deletes things.
    */
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [dotMatrixFor, setDotMatrixFor] = useState<number | null>(null)
   const toast = useToasts()
   const [filter, setFilter] = useState('')
   const [scope, setScope] = useState<Scope>('books')
@@ -332,6 +347,11 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
     },
     [toast]
   )
+
+  const openDotMatrix = useCallback((voucherId: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDotMatrixFor(voucherId)
+  }, [])
 
   const colCount =
     // Date, Narration, the select checkbox and the trailing invoice-action column always show;
@@ -536,6 +556,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                   onHover={setActive}
                   onOpen={openRow}
                   onPdf={openPdf}
+                  onDotMatrix={openDotMatrix}
                   onToggleSelect={toggleSelected}
                 />
               ))}
@@ -580,6 +601,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
         )}
       </Panel>
       )}
+      {dotMatrixFor !== null && <DotMatrixModal voucherId={dotMatrixFor} onClose={() => setDotMatrixFor(null)} />}
     </div>
   )
 }
@@ -653,5 +675,113 @@ function ByTypePanel({
         vouchers.
       </p>
     </>
+  )
+}
+
+/**
+ * Print an invoice as ESC/P bytes on an impact printer (roadmap #379).
+ *
+ * A preview of the byte stream rather than of a page, because that is what is actually sent:
+ * escape codes in angle brackets, text as text. Nobody has ever run this against a physical
+ * printer — the sequences are the documented ones and the job is sent with `lp -o raw`, but the
+ * "save to a file" button exists so that whoever tries it first can look at the bytes.
+ */
+function DotMatrixModal({ voucherId, onClose }: { voucherId: number; onClose: () => void }): React.JSX.Element {
+  const toast = useToasts()
+  const [width, setWidth] = useState<80 | 132>(80)
+  const [copies, setCopies] = useState(1)
+  const [preprinted, setPreprinted] = useState(false)
+  const [printer, setPrinter] = useState('')
+
+  const COPY_LABELS = ['ORIGINAL FOR RECIPIENT', 'DUPLICATE FOR TRANSPORTER', 'TRIPLICATE FOR SUPPLIER']
+  const options = {
+    width,
+    condensed: width === 132,
+    preprintedHeader: preprinted,
+    copies: COPY_LABELS.slice(0, copies)
+  }
+
+  const { data: printers } = useQuery({ queryKey: ['rawPrinters'], queryFn: api.rawPrint.printers })
+  const { data: preview } = useQuery({
+    queryKey: ['escpPreview', voucherId, width, copies, preprinted],
+    queryFn: () => api.rawPrint.preview(voucherId, options)
+  })
+
+  const send = async (): Promise<void> => {
+    try {
+      const result = await api.rawPrint.print(voucherId, printer, options)
+      toast.push('success', `${result.bytes} bytes sent to ${result.printer}`)
+      onClose()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const save = async (): Promise<void> => {
+    try {
+      const result = await api.rawPrint.save(voucherId, options)
+      toast.push('success', `Saved to ${result.path}`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <Modal title="Print on a dot-matrix printer" onClose={onClose} wide>
+      <div className="grid grid-cols-4 gap-3">
+        <Field label="Paper" hint="132 columns prints condensed">
+          <Select data-testid="select-dmp-width" value={width} onChange={(e) => setWidth(Number(e.target.value) as 80 | 132)}>
+            <option value={80}>80 columns</option>
+            <option value={132}>132 columns</option>
+          </Select>
+        </Field>
+        <Field label="Copies" hint="Rule 46 asks each to be marked">
+          <Select value={copies} onChange={(e) => setCopies(Number(e.target.value))}>
+            <option value={1}>Original only</option>
+            <option value={2}>Original + duplicate</option>
+            <option value={3}>All three</option>
+          </Select>
+        </Field>
+        <Field label="Stationery">
+          <Select value={preprinted ? 'pre' : 'plain'} onChange={(e) => setPreprinted(e.target.value === 'pre')}>
+            <option value="plain">Plain continuous</option>
+            <option value="pre">Pre-printed letterhead</option>
+          </Select>
+        </Field>
+        <Field label="Printer" hint="A raw queue, not a PDF one">
+          <Select data-testid="select-dmp-printer" value={printer} onChange={(e) => setPrinter(e.target.value)}>
+            <option value="">Choose…</option>
+            {(printers ?? []).map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.name}
+                {p.isDefault ? ' (default)' : ''}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+
+      <pre
+        className="mt-4 max-h-80 overflow-auto rounded-md border border-line bg-panel2 p-3 num text-hint whitespace-pre"
+        data-testid="dmp-preview"
+      >
+        {preview?.text ?? '…'}
+      </pre>
+      <p className="mt-2 text-hint text-muted">
+        {preview ? `${preview.bytes} bytes.` : ''} Escape codes are shown in angle brackets — that
+        is what goes down the wire, unrendered. This has never been tested against a physical
+        printer.
+      </p>
+
+      <div className="mt-5 flex justify-end gap-2">
+        <Button onClick={onClose}>Cancel</Button>
+        <Button data-testid="btn-dmp-save" onClick={() => void save()}>
+          Save the bytes
+        </Button>
+        <Button variant="primary" data-testid="btn-dmp-print" disabled={!printer} onClick={() => void send()}>
+          Print
+        </Button>
+      </div>
+    </Modal>
   )
 }

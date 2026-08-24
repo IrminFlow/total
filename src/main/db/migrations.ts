@@ -896,5 +896,309 @@ export const MIGRATIONS: string[] = [
   -- The income-tax charge per asset per year, so the block rolls forward on its own rate rather
   -- than on the books'. Stored beside the Companies Act charge, never derived from it.
   ALTER TABLE depreciation_lines ADD COLUMN tax_depreciation INTEGER NOT NULL DEFAULT 0;
+  `,
+
+  // 35 — the counter: a till, a drawer and a walk-in.
+  //
+  // A kirana, a pharmacy or a hardware shop cannot run the voucher screen at a counter, and that
+  // is most of the businesses this app is otherwise right for. What a counter needs that a
+  // voucher form does not: a tender (which may be split across cash, card and UPI), a change
+  // figure, and a drawer that is opened with a float in the morning and counted at night.
+  //
+  // The walk-in deliberately leaves no ledger behind. A shop doing two hundred cash sales a day
+  // would otherwise accumulate two hundred masters a day and make the party picker unusable
+  // within a month, so a counter sale posts straight to cash with the customer's name — if they
+  // gave one — recorded against the sale rather than as a master record.
+  `
+  CREATE TABLE counter_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The business date the till is trading on, which is not always the wall-clock date: a shop
+    -- open past midnight is still on yesterday's takings until somebody closes the drawer.
+    opened_on TEXT NOT NULL,
+    opened_at TEXT NOT NULL DEFAULT (datetime('now')),
+    operator TEXT,
+    opening_float INTEGER NOT NULL DEFAULT 0,
+    -- Which cash ledger the till settles to.
+    cash_ledger_id INTEGER REFERENCES ledgers(id),
+    closed_at TEXT,
+    -- What was physically counted at closing. NULL while the session is open.
+    counted_paise INTEGER,
+    -- Counted less expected, signed: negative is short. Stored rather than recomputed so a
+    -- closed session still reports the variance it was closed on.
+    variance_paise INTEGER,
+    notes TEXT
+  );
+  CREATE INDEX idx_counter_sessions_open ON counter_sessions(closed_at);
+
+  CREATE TABLE counter_sales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER REFERENCES counter_sessions(id) ON DELETE SET NULL,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    -- A walk-in leaves a name on the bill, never a ledger.
+    customer_name TEXT,
+    customer_phone TEXT,
+    change_paise INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'sale' CHECK (kind IN ('sale','return')),
+    -- The sale a return reverses, when the customer still has the receipt.
+    returns_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX idx_counter_sales_voucher ON counter_sales(voucher_id);
+  CREATE INDEX idx_counter_sales_session ON counter_sales(session_id);
+
+  CREATE TABLE counter_tenders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    counter_sale_id INTEGER NOT NULL REFERENCES counter_sales(id) ON DELETE CASCADE,
+    mode TEXT NOT NULL CHECK (mode IN ('cash','card','upi','credit')),
+    amount INTEGER NOT NULL,
+    reference TEXT
+  );
+  CREATE INDEX idx_counter_tenders_sale ON counter_tenders(counter_sale_id);
+
+  -- Cash in and out of the drawer that is not a sale: a bank drop, the tea money, a float top-up.
+  -- Without these the closing count never agrees and the operator learns to ignore the variance,
+  -- which is the same as not counting at all.
+  CREATE TABLE counter_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES counter_sessions(id) ON DELETE CASCADE,
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    kind TEXT NOT NULL CHECK (kind IN ('payin','payout')),
+    amount INTEGER NOT NULL,
+    reason TEXT,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL
+  );
+  CREATE INDEX idx_counter_movements_session ON counter_movements(session_id);
+
+  -- Quantity-break and scheme discounts. Priced by hand today, and got wrong in the customer's
+  -- favour about as often as the reverse.
+  CREATE TABLE discount_schemes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    -- Exactly one of these: a scheme is written for an item or for a group, never both.
+    stock_item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
+    stock_group_id INTEGER REFERENCES stock_groups(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('percent','rate','free')),
+    -- The slab starts here, in thousandths.
+    min_qty_milli INTEGER NOT NULL,
+    -- Basis points off, for 'percent'.
+    percent_bp INTEGER,
+    -- Flat rate per base unit, for 'rate'.
+    rate_paise INTEGER,
+    -- Units free per min_qty_milli bought, for 'free'.
+    free_qty_milli INTEGER,
+    from_date TEXT NOT NULL,
+    to_date TEXT,
+    active INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE INDEX idx_discount_schemes_item ON discount_schemes(stock_item_id);
+  CREATE INDEX idx_discount_schemes_group ON discount_schemes(stock_group_id);
+  `,
+
+  // 36 — quotation, order and delivery challan.
+  //
+  // The sale does not start at the invoice. It starts at a quotation, which becomes an order,
+  // which is delivered on a challan, which is invoiced. None of the first three is an accounting
+  // entry — no money has moved and no liability exists — so they are their own documents rather
+  // than memorandum vouchers, and only the last stage posts.
+  //
+  // Each stage records what it became, and a document that has already been converted refuses to
+  // convert again: quoting once and invoicing twice is the failure this chain exists to prevent.
+  `
+  CREATE TABLE sales_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage TEXT NOT NULL CHECK (stage IN ('quotation','order','challan')),
+    number TEXT NOT NULL,
+    date TEXT NOT NULL,
+    -- A quotation often goes to somebody who is not a customer yet, so the party may be a name
+    -- rather than a ledger. An order or a challan needs the ledger.
+    party_ledger_id INTEGER REFERENCES ledgers(id),
+    party_name TEXT,
+    -- A quotation that never expires is a price the shop is still held to two years later.
+    valid_until TEXT,
+    reference TEXT,
+    narration TEXT,
+    terms TEXT,
+    -- The document this one came from, and the one it became. A chain, walkable both ways.
+    from_document_id INTEGER REFERENCES sales_documents(id) ON DELETE SET NULL,
+    converted_to_id INTEGER REFERENCES sales_documents(id) ON DELETE SET NULL,
+    invoice_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    converted_on TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','converted','closed','lost')),
+    -- Why a quotation was lost. The only field on this table worth a report of its own.
+    closed_reason TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX idx_sales_documents_number ON sales_documents(stage, number);
+  CREATE INDEX idx_sales_documents_party ON sales_documents(party_ledger_id);
+  CREATE INDEX idx_sales_documents_status ON sales_documents(stage, status);
+
+  CREATE TABLE sales_document_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES sales_documents(id) ON DELETE CASCADE,
+    -- NULL for a service line, which a quotation has far more often than an invoice does.
+    stock_item_id INTEGER REFERENCES stock_items(id) ON DELETE SET NULL,
+    description TEXT NOT NULL,
+    qty_milli INTEGER NOT NULL,
+    rate_paise INTEGER NOT NULL,
+    discount_paise INTEGER NOT NULL DEFAULT 0,
+    gst_rate REAL,
+    hsn TEXT,
+    -- Quantity already carried downstream, so an order can be part-delivered on two challans.
+    fulfilled_milli INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_sales_document_lines_doc ON sales_document_lines(document_id);
+  `,
+
+  // 37 — what the business owes and what it has parked: loans, deposits, projects, prepayments,
+  // and the return the bank asks for every month.
+  //
+  // Every business with a vehicle or a machine has a loan, and every one of them books the whole
+  // EMI to the loan account — which leaves the loan balance wrong and the profit overstated by
+  // the interest for as long as the loan runs. What was missing was not the arithmetic but a
+  // place to record the terms it is computed from.
+  //
+  // The stock statement is stored rather than recomputed on demand because it is a FILED
+  // document: what was sent to the bank in June must still read as it read in June, even after
+  // somebody back-dates a purchase invoice into that month.
+  `
+  CREATE TABLE loans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    lender TEXT,
+    account_number TEXT,
+    kind TEXT NOT NULL DEFAULT 'term' CHECK (kind IN ('term','vehicle','machinery','working_capital','other')),
+    -- The liability ledger the loan sits in, so the register reconciles to the books.
+    ledger_id INTEGER REFERENCES ledgers(id),
+    -- Where the interest is charged.
+    interest_ledger_id INTEGER REFERENCES ledgers(id),
+    principal INTEGER NOT NULL,
+    -- Annual rate in basis points: 9.25% p.a. is 925.
+    annual_rate_bp INTEGER NOT NULL,
+    months INTEGER NOT NULL,
+    -- The instalment the sanction letter states. NULL means compute it.
+    emi INTEGER,
+    disbursed_on TEXT NOT NULL,
+    first_instalment_date TEXT NOT NULL,
+    notes TEXT,
+    closed_on TEXT
+  );
+
+  -- Which instalments have actually been posted, so a month is not booked twice and the register
+  -- can show what is behind.
+  CREATE TABLE loan_postings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loan_id INTEGER NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    instalment_no INTEGER NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    posted_on TEXT NOT NULL,
+    interest INTEGER NOT NULL,
+    principal INTEGER NOT NULL,
+    UNIQUE (loan_id, instalment_no)
+  );
+
+  -- Security deposits paid and received. Money that is genuinely the business's and is routinely
+  -- forgotten — a shop deposit from 2014 that nobody has asked for back.
+  CREATE TABLE deposits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    direction TEXT NOT NULL CHECK (direction IN ('paid','received')),
+    counterparty TEXT NOT NULL,
+    party_ledger_id INTEGER REFERENCES ledgers(id),
+    ledger_id INTEGER REFERENCES ledgers(id),
+    purpose TEXT,
+    amount INTEGER NOT NULL,
+    paid_on TEXT NOT NULL,
+    -- When it is due back. NULL means "on termination", which is most of them.
+    refundable_on TEXT,
+    interest_rate_bp INTEGER,
+    returned_on TEXT,
+    returned_amount INTEGER,
+    notes TEXT
+  );
+  CREATE INDEX idx_deposits_open ON deposits(returned_on);
+
+  -- Capital work in progress: costs accumulate against a project and become an asset on a date.
+  -- Today they land in an expense or sit in a ledger nobody revisits.
+  CREATE TABLE cwip_projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    started_on TEXT NOT NULL,
+    ledger_id INTEGER REFERENCES ledgers(id),
+    notes TEXT,
+    -- Set when the project is capitalised into the fixed asset register.
+    capitalised_on TEXT,
+    fixed_asset_id INTEGER REFERENCES fixed_assets(id) ON DELETE SET NULL,
+    capitalisation_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL
+  );
+
+  CREATE TABLE cwip_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES cwip_projects(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    description TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    supplier TEXT
+  );
+  CREATE INDEX idx_cwip_costs_project ON cwip_costs(project_id);
+
+  -- An annual premium amortised across the months it covers, posted monthly, rather than
+  -- expensed in April and explained in March. The same table runs the other way for an accrual.
+  CREATE TABLE prepaid_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK (kind IN ('prepaid','accrued')),
+    name TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    basis TEXT NOT NULL DEFAULT 'month' CHECK (basis IN ('month','day')),
+    expense_ledger_id INTEGER REFERENCES ledgers(id),
+    balance_ledger_id INTEGER REFERENCES ledgers(id),
+    source_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    notes TEXT
+  );
+
+  CREATE TABLE prepaid_postings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_id INTEGER NOT NULL REFERENCES prepaid_schedules(id) ON DELETE CASCADE,
+    -- 'YYYY-MM'.
+    month TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    posted_on TEXT NOT NULL,
+    UNIQUE (schedule_id, month)
+  );
+
+  -- The monthly stock statement a cash-credit borrower files, and the drawing power it produces.
+  -- Stored as filed: the margins are copied on to the row rather than read from a setting, so a
+  -- statement printed a year later shows the arithmetic that was actually sent.
+  CREATE TABLE stock_statements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    as_on TEXT NOT NULL UNIQUE,
+    stock INTEGER NOT NULL,
+    eligible_debtors INTEGER NOT NULL,
+    ineligible_debtors INTEGER NOT NULL,
+    creditors INTEGER NOT NULL,
+    utilised INTEGER NOT NULL,
+    stock_margin_percent REAL NOT NULL,
+    debtor_margin_percent REAL NOT NULL,
+    debtor_age_limit_days INTEGER NOT NULL,
+    sanctioned_limit INTEGER NOT NULL,
+    drawing_power INTEGER NOT NULL,
+    filed_on TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- What a salesperson earns, and on what. Dated, because a rate change is not retrospective.
+  CREATE TABLE commission_schemes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    salesperson TEXT NOT NULL,
+    rate_bp INTEGER NOT NULL,
+    basis TEXT NOT NULL DEFAULT 'net_of_tax' CHECK (basis IN ('gross','net_of_tax')),
+    from_date TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (salesperson, from_date)
+  );
   `
 ]

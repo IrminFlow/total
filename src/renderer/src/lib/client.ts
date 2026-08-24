@@ -29,6 +29,13 @@ import type {
   VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
+import type { CartTotals, DrawerReconciliation, PricingMode, Tender, TenderResult } from '@shared/counter'
+import type { Scheme, SchemeApplication } from '@shared/scheme'
+import type { LoanSchedule } from '@shared/loan'
+import type { AmortisationRow } from '@shared/prepaid'
+import type { DrawingPowerMargins, DrawingPowerResult } from '@shared/drawingPower'
+import type { CommissionStatement } from '@shared/commission'
+import type { EscpOptions } from '@shared/escp'
 import type { SearchHit } from '@shared/search'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { CloseLedgerRow } from '@shared/yearEnd'
@@ -552,6 +559,368 @@ export interface DepreciationDraft {
   narration: string
   lines: { ledgerName: string; group: string; drCr: 'dr' | 'cr'; amount: number }[]
   total: number
+}
+
+// ---------- counter mode, the sales chain and borrowing (roadmap T and U) ----------
+//
+// Shapes the main process returns. Declared here, as everything else on this boundary is: the
+// renderer cannot import from src/main, and duplicating a type is cheaper than a shared module
+// that would drag the services' imports across the process line with it.
+
+export interface CounterItem {
+  stockItemId: number
+  name: string
+  code: string | null
+  groupId: number | null
+  unitSymbol: string | null
+  ratePaise: number
+  gstRate: number
+  cessRate: number
+  costPaise: number | null
+  onHandMilli: number
+  schemes: DiscountScheme[]
+}
+
+export interface DiscountScheme extends Scheme {
+  name: string
+}
+
+export type SchemeInput = Omit<DiscountScheme, 'id' | 'active'> & { active?: boolean }
+
+export interface CounterCartLineInput {
+  stockItemId: number
+  qtyMilli: number
+  ratePaise?: number
+  discountPaise?: number
+  noScheme?: boolean
+}
+
+export interface PriceCartInput {
+  lines: CounterCartLineInput[]
+  date?: string
+  partyLedgerId?: number | null
+  pricingMode?: PricingMode
+}
+
+export interface CounterCart extends Omit<CartTotals, 'lines'> {
+  lines: (CartTotals['lines'][number] & { onHandMilli: number; scheme: SchemeApplication | null })[]
+  supply: 'intra' | 'inter'
+  pricingMode: PricingMode
+  shortLines: { stockItemId: number; name: string; onHandMilli: number; qtyMilli: number }[]
+}
+
+export interface CounterSaleInput extends PriceCartInput {
+  tenders: Tender[]
+  customerName?: string | null
+  customerPhone?: string | null
+  narration?: string | null
+  returnsVoucherId?: number | null
+  kind?: 'sale' | 'return'
+}
+
+export interface CounterSaleResult {
+  counterSaleId: number
+  voucherId: number
+  number: string
+  cart: CounterCart
+  tender: TenderResult
+  sessionId: number | null
+}
+
+export interface CounterSession {
+  id: number
+  openedOn: string
+  openedAt: string
+  operator: string | null
+  openingFloatPaise: number
+  cashLedgerId: number | null
+  closedAt: string | null
+  countedPaise: number | null
+  variancePaise: number | null
+  notes: string | null
+}
+
+export interface DrawerMovement {
+  id: number
+  sessionId: number
+  at: string
+  kind: 'payin' | 'payout'
+  amountPaise: number
+  reason: string | null
+}
+
+export interface SessionSummary {
+  session: CounterSession
+  drawer: DrawerReconciliation
+  sales: number
+  returns: number
+  byMode: { mode: string; amountPaise: number }[]
+  movements: DrawerMovement[]
+  turnoverPaise: number
+}
+
+export interface CounterSaleRow {
+  id: number
+  voucherId: number
+  number: string
+  date: string
+  kind: 'sale' | 'return'
+  customerName: string | null
+  totalPaise: number
+  changePaise: number
+  modes: string
+}
+
+export interface ReturnableSale {
+  voucherId: number
+  number: string
+  date: string
+  totalPaise: number
+  customerName: string | null
+  lines: { stockItemId: number; name: string; qtyMilli: number; ratePaise: number }[]
+}
+
+export type Stage = 'quotation' | 'order' | 'challan'
+export type DocStatus = 'open' | 'converted' | 'closed' | 'lost'
+
+export interface SalesDocLine {
+  id: number
+  stockItemId: number | null
+  description: string
+  qtyMilli: number
+  ratePaise: number
+  discountPaise: number
+  gstRate: number | null
+  hsn: string | null
+  fulfilledMilli: number
+  pendingMilli: number
+  amountPaise: number
+}
+
+export interface SalesDoc {
+  id: number
+  stage: Stage
+  number: string
+  date: string
+  partyLedgerId: number | null
+  partyName: string | null
+  validUntil: string | null
+  reference: string | null
+  narration: string | null
+  terms: string | null
+  fromDocumentId: number | null
+  convertedToId: number | null
+  invoiceVoucherId: number | null
+  convertedOn: string | null
+  status: DocStatus
+  closedReason: string | null
+  createdAt: string
+  lines: SalesDocLine[]
+  taxablePaise: number
+  gst: { taxable: number; cgst: number; sgst: number; igst: number; cess: number; total: number }
+  totalPaise: number
+  expired: boolean
+}
+
+export interface SalesDocInput {
+  stage: Stage
+  number?: string
+  date: string
+  partyLedgerId?: number | null
+  partyName?: string | null
+  validUntil?: string | null
+  reference?: string | null
+  narration?: string | null
+  terms?: string | null
+  lines: {
+    stockItemId?: number | null
+    description: string
+    qtyMilli: number
+    ratePaise: number
+    discountPaise?: number
+    gstRate?: number | null
+    hsn?: string | null
+  }[]
+}
+
+export interface InvoiceDraft {
+  documentId: number
+  documentNumber: string
+  date: string
+  partyLedgerId: number
+  narration: string
+  lines: { ledgerName: string; group: string; drCr: 'dr' | 'cr'; amount: number }[]
+  inventory: { stockItemId: number; description: string; qtyMilli: number; ratePaise: number; discountPaise: number; amount: number }[]
+  gst: { taxable: number; cgst: number; sgst: number; igst: number; cess: number; total: number }
+  totalPaise: number
+}
+
+export interface SalesPipeline {
+  stages: { stage: Stage; open: number; openValuePaise: number; converted: number; lost: number }[]
+  expiringSoon: SalesDoc[]
+}
+
+export interface JournalDraft {
+  date: string
+  narration: string
+  lines: { ledgerName: string; group: string; drCr: 'dr' | 'cr'; amount: number }[]
+  total: number
+}
+
+export type LoanKind = 'term' | 'vehicle' | 'machinery' | 'working_capital' | 'other'
+
+export interface Loan {
+  id: number
+  name: string
+  lender: string | null
+  accountNumber: string | null
+  kind: LoanKind
+  ledgerId: number | null
+  interestLedgerId: number | null
+  principalPaise: number
+  annualRateBp: number
+  months: number
+  emiPaise: number | null
+  disbursedOn: string
+  firstInstalmentDate: string
+  notes: string | null
+  closedOn: string | null
+}
+
+export type LoanInput = Omit<Loan, 'id' | 'closedOn'>
+
+export interface LoanPosting {
+  instalmentNo: number
+  voucherId: number | null
+  postedOn: string
+  interestPaise: number
+  principalPaise: number
+}
+
+export interface LoanView {
+  loan: Loan
+  schedule: LoanSchedule
+  postings: LoanPosting[]
+  outstandingPaise: number
+  unposted: LoanSchedule['rows']
+  interestThisYearPaise: number
+}
+
+export interface Deposit {
+  id: number
+  direction: 'paid' | 'received'
+  counterparty: string
+  partyLedgerId: number | null
+  ledgerId: number | null
+  purpose: string | null
+  amountPaise: number
+  paidOn: string
+  refundableOn: string | null
+  interestRateBp: number | null
+  returnedOn: string | null
+  returnedAmountPaise: number | null
+  notes: string | null
+}
+
+export type DepositInput = Omit<Deposit, 'id' | 'returnedOn' | 'returnedAmountPaise'>
+
+export interface DepositSummary {
+  paidPaise: number
+  receivedPaise: number
+  overdue: Deposit[]
+  stale: Deposit[]
+}
+
+export interface CwipCost {
+  id: number
+  date: string
+  description: string
+  amountPaise: number
+  voucherId: number | null
+  supplier: string | null
+}
+
+export interface CwipProject {
+  id: number
+  name: string
+  startedOn: string
+  ledgerId: number | null
+  notes: string | null
+  capitalisedOn: string | null
+  fixedAssetId: number | null
+  capitalisationVoucherId: number | null
+  costs: CwipCost[]
+  totalPaise: number
+}
+
+export interface CapitalisationDraft extends JournalDraft {
+  project: CwipProject
+}
+
+export interface PrepaidSchedule {
+  id: number
+  kind: 'prepaid' | 'accrued'
+  name: string
+  amountPaise: number
+  periodFrom: string
+  periodTo: string
+  basis: 'month' | 'day'
+  expenseLedgerId: number | null
+  balanceLedgerId: number | null
+  sourceVoucherId: number | null
+  notes: string | null
+  rows: AmortisationRow[]
+  postedMonths: string[]
+  duePaise: number
+  unexpiredPaise: number
+}
+
+export type PrepaidInput = Omit<PrepaidSchedule, 'id' | 'rows' | 'postedMonths' | 'duePaise' | 'unexpiredPaise'>
+
+export interface StockStatement extends DrawingPowerResult {
+  id: number | null
+  filedOn: string | null
+  notes: string | null
+  margins: DrawingPowerMargins
+  excludedParties: { name: string; pending: number }[]
+}
+
+export interface FiledStatement {
+  id: number
+  asOn: string
+  stockPaise: number
+  eligibleDebtorsPaise: number
+  creditorsPaise: number
+  drawingPowerPaise: number
+  utilisedPaise: number
+  filedOn: string | null
+}
+
+export interface CommissionScheme {
+  id: number
+  salesperson: string
+  rateBp: number
+  basis: 'gross' | 'net_of_tax'
+  fromDate: string
+  active: boolean
+}
+
+export interface CommissionReport {
+  from: string
+  to: string
+  statements: CommissionStatement[]
+  totalCommissionPaise: number
+  totalCollectedPaise: number
+  unassignedCollectedPaise: number
+  withoutScheme: string[]
+}
+
+export type CommissionDraft = JournalDraft
+
+export interface RawPrinter {
+  name: string
+  description: string | null
+  isDefault: boolean
 }
 
 export interface DisposalDraft {
@@ -1276,6 +1645,108 @@ export const api = {
       call<DisposalDraft>('assets:disposalDraft', { assetId, on, proceeds }),
     dispose: (assetId: number, on: string, proceeds: number, voucherId?: number) =>
       call<FixedAsset>('assets:dispose', { assetId, on, proceeds, voucherId })
+  },
+  /** Counter mode: the till, the drawer and the schemes that price it. */
+  counter: {
+    lookup: (query: string, asOn?: string) => call<CounterItem | null>('counter:lookup', { query, asOn }),
+    price: (input: PriceCartInput) => call<CounterCart>('counter:price', input),
+    sale: (input: CounterSaleInput) => call<CounterSaleResult>('counter:sale', input),
+    session: () => call<CounterSession | null>('counter:session'),
+    sessions: (limit?: number) => call<CounterSession[]>('counter:sessions', { limit }),
+    open: (input: { openedOn?: string; operator?: string | null; openingFloatPaise: number }) =>
+      call<CounterSession>('counter:open', input),
+    summary: (sessionId: number) => call<SessionSummary>('counter:summary', { sessionId }),
+    close: (sessionId: number, countedPaise: number, notes: string | null) =>
+      call<SessionSummary>('counter:close', { sessionId, countedPaise, notes }),
+    movement: (sessionId: number, kind: 'payin' | 'payout', amountPaise: number, reason: string | null) =>
+      call<DrawerMovement>('counter:movement', { sessionId, kind, amountPaise, reason }),
+    sales: (sessionId?: number, limit?: number) => call<CounterSaleRow[]>('counter:sales', { sessionId, limit }),
+    findSale: (query: string) => call<ReturnableSale | null>('counter:findSale', { query }),
+    schemes: () => call<DiscountScheme[]>('counter:schemes'),
+    saveScheme: (data: SchemeInput, id?: number) => call<DiscountScheme>('counter:saveScheme', { data, id }),
+    deleteScheme: (id: number) => call<null>('counter:deleteScheme', { id })
+  },
+  /** Quotation → order → challan → invoice. */
+  salesDocs: {
+    list: (stage?: Stage, status?: DocStatus) => call<SalesDoc[]>('salesdoc:list', { stage, status }),
+    get: (id: number) => call<SalesDoc | null>('salesdoc:get', { id }),
+    next: (stage: Stage) => call<{ number: string }>('salesdoc:next', { stage }),
+    save: (data: SalesDocInput, id?: number) => call<SalesDoc>('salesdoc:save', { data, id }),
+    remove: (id: number) => call<null>('salesdoc:delete', { id }),
+    close: (id: number, status: 'closed' | 'lost', reason: string | null) =>
+      call<SalesDoc>('salesdoc:close', { id, status, reason }),
+    convert: (id: number, opts: { quantities?: { lineId: number; qtyMilli: number }[]; date?: string } = {}) =>
+      call<SalesDoc>('salesdoc:convert', { id, ...opts }),
+    invoiceDraft: (id: number) => call<InvoiceDraft>('salesdoc:invoiceDraft', { id }),
+    markInvoiced: (id: number, voucherId: number) => call<SalesDoc>('salesdoc:markInvoiced', { id, voucherId }),
+    pipeline: () => call<SalesPipeline>('salesdoc:pipeline')
+  },
+  /** Loans, deposits, projects, prepayments — and the return the bank asks for every month. */
+  borrowing: {
+    loans: () => call<Loan[]>('loans:list'),
+    saveLoan: (data: LoanInput, id?: number) => call<Loan>('loans:save', { data, id }),
+    removeLoan: (id: number) => call<null>('loans:delete', { id }),
+    loanView: (id: number, asOn?: string, fyFrom?: string, fyTo?: string) =>
+      call<LoanView>('loans:view', { id, asOn, fyFrom, fyTo }),
+    instalmentDraft: (id: number, instalmentNo: number) =>
+      call<JournalDraft>('loans:instalmentDraft', { id, instalmentNo }),
+    postInstalment: (id: number, instalmentNo: number, voucherId: number | null) =>
+      call<LoanPosting>('loans:postInstalment', { id, instalmentNo, voucherId }),
+
+    deposits: (includeReturned = false) => call<Deposit[]>('deposits:list', { includeReturned }),
+    depositSummary: (asOn?: string) => call<DepositSummary>('deposits:summary', { asOn }),
+    saveDeposit: (data: DepositInput, id?: number) => call<Deposit>('deposits:save', { data, id }),
+    returnDeposit: (id: number, on: string, amountPaise: number) =>
+      call<Deposit>('deposits:return', { id, on, amountPaise }),
+    removeDeposit: (id: number) => call<null>('deposits:delete', { id }),
+
+    projects: (includeCapitalised = true) => call<CwipProject[]>('cwip:list', { includeCapitalised }),
+    saveProject: (data: { name: string; startedOn: string; ledgerId?: number | null; notes?: string | null }, id?: number) =>
+      call<CwipProject>('cwip:save', { data, id }),
+    addCost: (
+      projectId: number,
+      data: { date: string; description: string; amountPaise: number; supplier?: string | null }
+    ) => call<CwipProject>('cwip:addCost', { projectId, data }),
+    removeCost: (id: number) => call<null>('cwip:removeCost', { id }),
+    capitaliseDraft: (id: number, on: string, assetLedgerName: string) =>
+      call<CapitalisationDraft>('cwip:capitaliseDraft', { id, on, assetLedgerName }),
+    capitalise: (id: number, on: string, fixedAssetId: number | null, voucherId: number | null) =>
+      call<CwipProject>('cwip:capitalise', { id, on, fixedAssetId, voucherId }),
+
+    prepaid: (asOn?: string) => call<PrepaidSchedule[]>('prepaid:list', { asOn }),
+    savePrepaid: (data: PrepaidInput, id?: number) => call<PrepaidSchedule>('prepaid:save', { data, id }),
+    removePrepaid: (id: number) => call<null>('prepaid:delete', { id }),
+    prepaidDraft: (id: number, month: string) => call<JournalDraft>('prepaid:draft', { id, month }),
+    postPrepaid: (id: number, month: string, voucherId: number | null) =>
+      call<PrepaidSchedule>('prepaid:post', { id, month, voucherId }),
+
+    stockStatement: (asOn: string, margins?: DrawingPowerMargins, ccLedgerId?: number | null) =>
+      call<StockStatement>('bank:stockStatement', { asOn, margins, ccLedgerId }),
+    fileStatement: (asOn: string, margins: DrawingPowerMargins, notes: string | null) =>
+      call<StockStatement>('bank:fileStatement', { asOn, margins, notes }),
+    statements: () => call<FiledStatement[]>('bank:statements'),
+    unfileStatement: (id: number) => call<null>('bank:unfileStatement', { id })
+  },
+  /** Salesperson commission, computed on the receipt rather than on the invoice. */
+  commission: {
+    report: (from: string, to: string) => call<CommissionReport>('commission:report', { from, to }),
+    draft: (from: string, to: string) => call<CommissionDraft | null>('commission:draft', { from, to }),
+    schemes: () => call<CommissionScheme[]>('commission:schemes'),
+    saveScheme: (
+      data: { salesperson: string; rateBp: number; basis: 'gross' | 'net_of_tax'; fromDate: string; active?: boolean },
+      id?: number
+    ) => call<CommissionScheme>('commission:saveScheme', { data, id }),
+    deleteScheme: (id: number) => call<null>('commission:deleteScheme', { id })
+  },
+  /** Dot-matrix, printed raw. Untested against a physical printer — see services/rawPrint.ts. */
+  rawPrint: {
+    printers: () => call<RawPrinter[]>('print:printers'),
+    preview: (voucherId: number, options?: EscpOptions) =>
+      call<{ number: string; bytes: number; text: string }>('print:escpPreview', { voucherId, options }),
+    print: (voucherId: number, printer: string, options?: EscpOptions) =>
+      call<{ printer: string | null; bytes: number; path: string | null; number: string }>('print:escp', { voucherId, printer, options }),
+    save: (voucherId: number, options?: EscpOptions) =>
+      call<{ printer: string | null; bytes: number; path: string | null; number: string }>('print:escpSave', { voucherId, options })
   },
   /** Disclosure: related parties, the audit trail about itself, the LUT, the IRP window. */
   disclosure: {

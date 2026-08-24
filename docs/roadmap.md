@@ -587,21 +587,21 @@ questions every year-end asks.
      avoid.
 368. ✓ Asset disposal (M) — sale or scrapping, profit or loss on sale, and the block adjustment,
      which is where a hand-computed schedule usually goes wrong.
-369. Capital work in progress, and capitalising it (S) — costs accumulate against a project and
+369. ✓ Capital work in progress, and capitalising it (S) — costs accumulate against a project and
      become an asset on a date. Today they land in an expense or sit in a ledger nobody revisits.
-370. A loan register for money the business borrowed (M) — the EMI split into interest and
+370. ✓ A loan register for money the business borrowed (M) — the EMI split into interest and
      principal, a schedule that runs to the end, and the monthly journal. Every business with a
      vehicle or a machine has one, and every one of them books the whole EMI to the loan account.
 371. CMA data for a working-capital application (L) — the format banks require, generated from
      the books. A CA charges thousands for this and rebuilds it from a trial balance by hand.
      Nothing in this market produces it; the data to do so is already here.
-372. The monthly stock statement for the bank (M) — stock, book debts and creditors as at
+372. ✓ The monthly stock statement for the bank (M) — stock, book debts and creditors as at
      month end, which is the return every cash-credit borrower files and most file late.
-373. Drawing power, from #372 and the bank's margins (S) — the number the statement exists to
+373. ✓ Drawing power, from #372 and the bank's margins (S) — the number the statement exists to
      produce, and the one the borrower actually wants to see before they file it.
-374. Prepaid and accrued schedules (M) — an annual insurance premium amortised across twelve
+374. ✓ Prepaid and accrued schedules (M) — an annual insurance premium amortised across twelve
      months, posted monthly, rather than expensed in April and explained in March.
-375. A deposit register (S) — security deposits paid and received, with the date they are due
+375. ✓ A deposit register (S) — security deposits paid and received, with the date they are due
      back. Money that is genuinely the business's and is routinely forgotten.
 
 ## U. Selling: the counter, the quote and the paper
@@ -609,28 +609,28 @@ questions every year-end asks.
 The app assumes someone entering vouchers at a desk. A large part of this market is instead
 standing at a counter with a customer waiting, or printing on hardware that predates PDF.
 
-376. Counter mode (L) — full screen, scanner first, tender and change, and one keystroke to the
+376. ✓ Counter mode (L) — full screen, scanner first, tender and change, and one keystroke to the
      next sale. A kirana, a pharmacy or a hardware shop cannot run the voucher screen at a
      counter, and that is most of the businesses this app is otherwise right for.
-377. A cash-drawer session (M) — opening float, the day's sales, the closing count, and the
+377. ✓ A cash-drawer session (M) — opening float, the day's sales, the closing count, and the
      variance. Counter mode without it is a billing screen rather than a till.
-378. Quotation → order → challan → invoice, each converting into the next (L) — #188 and #189
+378. ✓ Quotation → order → challan → invoice, each converting into the next (L) — #188 and #189
      cover the middle; the quotation is missing entirely, and it is where the sale starts.
-379. Dot-matrix and continuous stationery, printed raw (M) — a large share of this market prints
+379. ✓ Dot-matrix and continuous stationery, printed raw (M) — a large share of this market prints
      invoices on a decade-old impact printer on pre-printed multi-part stationery, and a PDF
      does not reach it. This is a genuine Tally-compatibility feature, not a nostalgia one.
-380. Salesperson commission, on collection rather than on billing (M) — the party already
+380. ✓ Salesperson commission, on collection rather than on billing (M) — the party already
      carries a salesperson (#156). Commission paid on an invoice that is never collected is how
      a business pays twice for one sale, so it is computed off the receipt.
-381. A counter-sale party that does not become a master record (S) — a walk-in should not leave
+381. ✓ A counter-sale party that does not become a master record (S) — a walk-in should not leave
      a ledger behind, and a thousand of them should not make the party picker unusable.
-382. A price-below-cost warning at entry (S) — the valuation is already known per item; the
+382. ✓ A price-below-cost warning at entry (S) — the valuation is already known per item; the
      moment it is worth saying so is while the line is being typed.
-383. Quantity-break and scheme discounts (M) — buy ten get one, slab rates. Priced by hand today
+383. ✓ Quantity-break and scheme discounts (M) — buy ten get one, slab rates. Priced by hand today
      and got wrong in the customer's favour about as often as the reverse.
-384. Returns and exchanges at the counter (M) — a credit note is the correct accounting and a
+384. ✓ Returns and exchanges at the counter (M) — a credit note is the correct accounting and a
      terrible interaction when somebody is standing there with a receipt.
-385. A second screen for the customer (S) — nearly free once counter mode exists, and the thing
+385. ✓ A second screen for the customer (S) — nearly free once counter mode exists, and the thing
      that makes a small shop look like it runs a real system.
 
 ## V. Control, delegation and trust

@@ -47,6 +47,22 @@ const EXPECTED_TABLES = [
   'loan_recoveries',
   'luts',
   'party_notes',
+  'counter_sessions',
+  'counter_sales',
+  'counter_tenders',
+  'counter_movements',
+  'discount_schemes',
+  'sales_documents',
+  'sales_document_lines',
+  'loans',
+  'loan_postings',
+  'deposits',
+  'cwip_projects',
+  'cwip_costs',
+  'prepaid_schedules',
+  'prepaid_postings',
+  'stock_statements',
+  'commission_schemes',
   'migrations'
 ]
 

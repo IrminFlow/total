@@ -40,6 +40,13 @@ import * as receivables from './services/receivables'
 import * as attendance from './services/attendance'
 import * as assets from './services/assets'
 import * as disclosure from './services/disclosure'
+import * as counter from './services/counter'
+import * as salesDocs from './services/salesDocs'
+import * as borrowing from './services/borrowing'
+import * as commission from './services/commission'
+import * as rawPrint from './services/rawPrint'
+import { DEFAULT_MARGINS } from '@shared/drawingPower'
+import { escpDebug } from '@shared/escp'
 import { ratesForMonth, STATUTORY_HISTORY } from '@shared/statutory'
 import { statementHtml } from './services/statementHtml'
 import * as banking from './services/banking'
@@ -1220,6 +1227,584 @@ export function registerIpc(): void {
       .parse(p)
     return assets.recordDisposal(requireCompany().db, assetId, on, proceeds, voucherId)
   })
+
+  // ---------- counter mode, the drawer and schemes (roadmap #376–#385) ----------
+
+  const cartLineSchema = z.object({
+    stockItemId: z.number().int().positive(),
+    qtyMilli: z.number().int().positive(),
+    ratePaise: z.number().int().min(0).optional(),
+    discountPaise: z.number().int().min(0).optional(),
+    noScheme: z.boolean().optional()
+  })
+  const tenderSchema = z.object({
+    mode: z.enum(['cash', 'card', 'upi', 'credit']),
+    amountPaise: z.number().int().min(0)
+  })
+  const pricingModeSchema = z.enum(['exclusive', 'inclusive'])
+
+  handle('counter:lookup', (p) => {
+    const { query, asOn } = z.object({ query: z.string().trim().min(1).max(80), asOn: isoDate.optional() }).parse(p)
+    return counter.lookup(requireCompany().db, query, asOn ?? todayISO())
+  }, 'viewer')
+
+  handle('counter:price', (p) => {
+    const input = z
+      .object({
+        lines: z.array(cartLineSchema).max(200),
+        date: isoDate.optional(),
+        partyLedgerId: z.number().int().positive().nullable().optional(),
+        pricingMode: pricingModeSchema.optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return counter.priceCounterCart(c.db, c.info, input)
+  }, 'viewer')
+
+  handle('counter:sale', (p) => {
+    const input = z
+      .object({
+        lines: z.array(cartLineSchema).min(1).max(200),
+        tenders: z.array(tenderSchema).min(1).max(6),
+        date: isoDate.optional(),
+        pricingMode: pricingModeSchema.optional(),
+        partyLedgerId: z.number().int().positive().nullable().optional(),
+        customerName: z.string().trim().max(80).nullable().optional(),
+        customerPhone: z.string().trim().max(20).nullable().optional(),
+        narration: z.string().trim().max(500).nullable().optional(),
+        returnsVoucherId: z.number().int().positive().nullable().optional(),
+        kind: z.enum(['sale', 'return']).optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return counter.saveCounterSale(c.db, c.info, input)
+  })
+
+  handle('counter:session', () => counter.openSession(requireCompany().db), 'viewer')
+  handle('counter:sessions', (p) => {
+    const { limit } = z.object({ limit: z.number().int().positive().max(500).optional() }).parse(p ?? {})
+    return counter.listSessions(requireCompany().db, limit)
+  }, 'viewer')
+
+  handle('counter:open', (p) => {
+    const input = z
+      .object({
+        openedOn: isoDate.optional(),
+        operator: z.string().trim().max(60).nullable().optional(),
+        openingFloatPaise: z.number().int().min(0),
+        cashLedgerId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    return counter.openDrawer(requireCompany().db, input)
+  })
+
+  handle('counter:summary', (p) => {
+    const { sessionId } = z.object({ sessionId: z.number().int().positive() }).parse(p)
+    return counter.sessionSummary(requireCompany().db, sessionId)
+  }, 'viewer')
+
+  handle('counter:close', (p) => {
+    const { sessionId, countedPaise, notes } = z
+      .object({
+        sessionId: z.number().int().positive(),
+        countedPaise: z.number().int().min(0),
+        notes: z.string().trim().max(500).nullable().default(null)
+      })
+      .parse(p)
+    return counter.closeDrawer(requireCompany().db, sessionId, countedPaise, notes)
+  })
+
+  handle('counter:movement', (p) => {
+    const { sessionId, kind, amountPaise, reason } = z
+      .object({
+        sessionId: z.number().int().positive(),
+        kind: z.enum(['payin', 'payout']),
+        amountPaise: z.number().int().positive(),
+        reason: z.string().trim().max(200).nullable().default(null)
+      })
+      .parse(p)
+    return counter.recordMovement(requireCompany().db, sessionId, kind, amountPaise, reason)
+  })
+
+  handle('counter:sales', (p) => {
+    const { sessionId, limit } = z
+      .object({ sessionId: z.number().int().positive().optional(), limit: z.number().int().positive().max(1000).optional() })
+      .parse(p ?? {})
+    return counter.listCounterSales(requireCompany().db, sessionId, limit)
+  }, 'viewer')
+
+  handle('counter:findSale', (p) => {
+    const { query } = z.object({ query: z.string().trim().min(1).max(60) }).parse(p)
+    return counter.findSaleForReturn(requireCompany().db, query)
+  }, 'viewer')
+
+  handle('counter:schemes', () => counter.listSchemes(requireCompany().db), 'viewer')
+
+  handle('counter:saveScheme', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          name: z.string().trim().min(1).max(80),
+          stockItemId: z.number().int().positive().nullable().optional(),
+          stockGroupId: z.number().int().positive().nullable().optional(),
+          kind: z.enum(['percent', 'rate', 'free']),
+          minQtyMilli: z.number().int().positive(),
+          percentBp: z.number().int().min(0).max(10000).nullable().optional(),
+          ratePaise: z.number().int().min(0).nullable().optional(),
+          freeQtyMilli: z.number().int().min(0).nullable().optional(),
+          fromDate: isoDate,
+          toDate: isoDate.nullable().optional(),
+          active: z.boolean().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return counter.saveScheme(requireCompany().db, data, id)
+  })
+
+  handle('counter:deleteScheme', (p) => {
+    counter.deleteScheme(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  // ---------- quotation → order → challan → invoice (roadmap #378) ----------
+
+  const stageSchema = z.enum(['quotation', 'order', 'challan'])
+  const docLineSchema = z.object({
+    stockItemId: z.number().int().positive().nullable().optional(),
+    description: z.string().trim().min(1).max(200),
+    qtyMilli: z.number().int().positive(),
+    ratePaise: z.number().int().min(0),
+    discountPaise: z.number().int().min(0).optional(),
+    gstRate: z.number().min(0).max(100).nullable().optional(),
+    hsn: z.string().trim().max(12).nullable().optional()
+  })
+
+  handle('salesdoc:list', (p) => {
+    const { stage, status } = z
+      .object({ stage: stageSchema.optional(), status: z.enum(['open', 'converted', 'closed', 'lost']).optional() })
+      .parse(p ?? {})
+    const c = requireCompany()
+    return salesDocs.listDocuments(c.db, c.info, { stage, status })
+  }, 'viewer')
+
+  handle('salesdoc:get', (p) => {
+    const c = requireCompany()
+    return salesDocs.getDocument(c.db, idSchema.parse(p).id, c.info)
+  }, 'viewer')
+
+  handle('salesdoc:next', (p) => {
+    const { stage } = z.object({ stage: stageSchema }).parse(p)
+    return { number: salesDocs.nextNumber(requireCompany().db, stage) }
+  }, 'viewer')
+
+  handle('salesdoc:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          stage: stageSchema,
+          number: z.string().trim().max(40).optional(),
+          date: isoDate,
+          partyLedgerId: z.number().int().positive().nullable().optional(),
+          partyName: z.string().trim().max(120).nullable().optional(),
+          validUntil: isoDate.nullable().optional(),
+          reference: z.string().trim().max(120).nullable().optional(),
+          narration: z.string().trim().max(1000).nullable().optional(),
+          terms: z.string().trim().max(2000).nullable().optional(),
+          lines: z.array(docLineSchema).min(1).max(200)
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return salesDocs.saveDocument(c.db, c.info, data, id)
+  })
+
+  handle('salesdoc:delete', (p) => {
+    const c = requireCompany()
+    salesDocs.deleteDocument(c.db, idSchema.parse(p).id, c.info)
+    return null
+  })
+
+  handle('salesdoc:close', (p) => {
+    const { id, status, reason } = z
+      .object({
+        id: z.number().int().positive(),
+        status: z.enum(['closed', 'lost']),
+        reason: z.string().trim().max(200).nullable().default(null)
+      })
+      .parse(p)
+    const c = requireCompany()
+    return salesDocs.closeDocument(c.db, id, c.info, status, reason)
+  })
+
+  handle('salesdoc:convert', (p) => {
+    const { id, quantities, date, number } = z
+      .object({
+        id: z.number().int().positive(),
+        quantities: z.array(z.object({ lineId: z.number().int().positive(), qtyMilli: z.number().int().min(0) })).max(200).optional(),
+        date: isoDate.optional(),
+        number: z.string().trim().max(40).optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return salesDocs.convert(c.db, id, c.info, { quantities, date, number })
+  })
+
+  handle('salesdoc:invoiceDraft', (p) => {
+    const c = requireCompany()
+    return salesDocs.invoiceDraft(c.db, idSchema.parse(p).id, c.info)
+  }, 'viewer')
+
+  handle('salesdoc:markInvoiced', (p) => {
+    const { id, voucherId } = z.object({ id: z.number().int().positive(), voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    return salesDocs.markInvoiced(c.db, id, voucherId, c.info)
+  })
+
+  handle('salesdoc:pipeline', () => {
+    const c = requireCompany()
+    return salesDocs.pipeline(c.db, c.info)
+  }, 'viewer')
+
+  // ---------- borrowing: loans, deposits, projects, prepayments, the bank's return ----------
+
+  handle('loans:list', () => borrowing.listLoans(requireCompany().db), 'viewer')
+
+  handle('loans:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          name: z.string().trim().min(1).max(120),
+          lender: z.string().trim().max(120).nullable().optional(),
+          accountNumber: z.string().trim().max(40).nullable().optional(),
+          kind: z.enum(['term', 'vehicle', 'machinery', 'working_capital', 'other']).optional(),
+          ledgerId: z.number().int().positive().nullable().optional(),
+          interestLedgerId: z.number().int().positive().nullable().optional(),
+          principalPaise: z.number().int().positive(),
+          annualRateBp: z.number().int().min(0).max(10000),
+          months: z.number().int().positive().max(600),
+          emiPaise: z.number().int().min(0).nullable().optional(),
+          disbursedOn: isoDate,
+          firstInstalmentDate: isoDate,
+          notes: z.string().trim().max(500).nullable().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return borrowing.saveLoan(requireCompany().db, data, id)
+  })
+
+  handle('loans:delete', (p) => {
+    borrowing.deleteLoan(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('loans:view', (p) => {
+    const { id, asOn, fyFrom, fyTo } = z
+      .object({
+        id: z.number().int().positive(),
+        asOn: isoDate.optional(),
+        fyFrom: isoDate.optional(),
+        fyTo: isoDate.optional()
+      })
+      .parse(p)
+    return borrowing.loanView(requireCompany().db, id, asOn ?? todayISO(), fyFrom, fyTo)
+  }, 'viewer')
+
+  handle('loans:instalmentDraft', (p) => {
+    const { id, instalmentNo } = z.object({ id: z.number().int().positive(), instalmentNo: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    borrowing.ensureLoanLedgers(c.db)
+    return borrowing.instalmentDraft(c.db, id, instalmentNo)
+  }, 'viewer')
+
+  handle('loans:postInstalment', (p) => {
+    const { id, instalmentNo, voucherId } = z
+      .object({
+        id: z.number().int().positive(),
+        instalmentNo: z.number().int().positive(),
+        voucherId: z.number().int().positive().nullable().default(null)
+      })
+      .parse(p)
+    return borrowing.recordInstalment(requireCompany().db, id, instalmentNo, voucherId)
+  })
+
+  handle('deposits:list', (p) => {
+    const { includeReturned } = z.object({ includeReturned: z.boolean().optional() }).parse(p ?? {})
+    return borrowing.listDeposits(requireCompany().db, includeReturned)
+  }, 'viewer')
+
+  handle('deposits:summary', (p) => {
+    const { asOn } = z.object({ asOn: isoDate.optional() }).parse(p ?? {})
+    return borrowing.depositSummary(requireCompany().db, asOn ?? todayISO())
+  }, 'viewer')
+
+  handle('deposits:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          direction: z.enum(['paid', 'received']),
+          counterparty: z.string().trim().min(1).max(120),
+          partyLedgerId: z.number().int().positive().nullable().optional(),
+          ledgerId: z.number().int().positive().nullable().optional(),
+          purpose: z.string().trim().max(200).nullable().optional(),
+          amountPaise: z.number().int().positive(),
+          paidOn: isoDate,
+          refundableOn: isoDate.nullable().optional(),
+          interestRateBp: z.number().int().min(0).max(10000).nullable().optional(),
+          notes: z.string().trim().max(500).nullable().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return borrowing.saveDeposit(requireCompany().db, data, id)
+  })
+
+  handle('deposits:return', (p) => {
+    const { id, on, amountPaise } = z
+      .object({ id: z.number().int().positive(), on: isoDate, amountPaise: z.number().int().min(0) })
+      .parse(p)
+    return borrowing.returnDeposit(requireCompany().db, id, on, amountPaise)
+  })
+
+  handle('deposits:delete', (p) => {
+    borrowing.deleteDeposit(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('cwip:list', (p) => {
+    const { includeCapitalised } = z.object({ includeCapitalised: z.boolean().optional() }).parse(p ?? {})
+    return borrowing.listProjects(requireCompany().db, includeCapitalised ?? true)
+  }, 'viewer')
+
+  handle('cwip:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          name: z.string().trim().min(1).max(120),
+          startedOn: isoDate,
+          ledgerId: z.number().int().positive().nullable().optional(),
+          notes: z.string().trim().max(500).nullable().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    borrowing.ensureCwipLedger(c.db)
+    return borrowing.saveProject(c.db, data, id)
+  })
+
+  handle('cwip:addCost', (p) => {
+    const { projectId, data } = z
+      .object({
+        projectId: z.number().int().positive(),
+        data: z.object({
+          date: isoDate,
+          description: z.string().trim().min(1).max(200),
+          amountPaise: z.number().int().positive(),
+          voucherId: z.number().int().positive().nullable().optional(),
+          supplier: z.string().trim().max(120).nullable().optional()
+        })
+      })
+      .parse(p)
+    return borrowing.addCost(requireCompany().db, projectId, data)
+  })
+
+  handle('cwip:removeCost', (p) => {
+    borrowing.removeCost(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('cwip:capitaliseDraft', (p) => {
+    const { id, on, assetLedgerName } = z
+      .object({ id: z.number().int().positive(), on: isoDate, assetLedgerName: z.string().trim().min(1).max(120) })
+      .parse(p)
+    return borrowing.capitalisationDraft(requireCompany().db, id, on, assetLedgerName)
+  }, 'viewer')
+
+  handle('cwip:capitalise', (p) => {
+    const { id, on, fixedAssetId, voucherId } = z
+      .object({
+        id: z.number().int().positive(),
+        on: isoDate,
+        fixedAssetId: z.number().int().positive().nullable().default(null),
+        voucherId: z.number().int().positive().nullable().default(null)
+      })
+      .parse(p)
+    return borrowing.recordCapitalisation(requireCompany().db, id, on, fixedAssetId, voucherId)
+  })
+
+  handle('prepaid:list', (p) => {
+    const { asOn } = z.object({ asOn: isoDate.optional() }).parse(p ?? {})
+    return borrowing.listPrepaid(requireCompany().db, asOn ?? todayISO())
+  }, 'viewer')
+
+  handle('prepaid:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          kind: z.enum(['prepaid', 'accrued']),
+          name: z.string().trim().min(1).max(120),
+          amountPaise: z.number().int().positive(),
+          periodFrom: isoDate,
+          periodTo: isoDate,
+          basis: z.enum(['month', 'day']).optional(),
+          expenseLedgerId: z.number().int().positive().nullable().optional(),
+          balanceLedgerId: z.number().int().positive().nullable().optional(),
+          sourceVoucherId: z.number().int().positive().nullable().optional(),
+          notes: z.string().trim().max(500).nullable().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    borrowing.ensurePrepaidLedgers(c.db)
+    return borrowing.savePrepaid(c.db, data, id)
+  })
+
+  handle('prepaid:delete', (p) => {
+    borrowing.deletePrepaid(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('prepaid:draft', (p) => {
+    const { id, month } = z.object({ id: z.number().int().positive(), month: z.string().regex(/^\d{4}-\d{2}$/) }).parse(p)
+    const c = requireCompany()
+    borrowing.ensurePrepaidLedgers(c.db)
+    return borrowing.prepaidDraft(c.db, id, month)
+  }, 'viewer')
+
+  handle('prepaid:post', (p) => {
+    const { id, month, voucherId } = z
+      .object({
+        id: z.number().int().positive(),
+        month: z.string().regex(/^\d{4}-\d{2}$/),
+        voucherId: z.number().int().positive().nullable().default(null)
+      })
+      .parse(p)
+    return borrowing.recordPrepaidPosting(requireCompany().db, id, month, voucherId)
+  })
+
+  const marginsSchema = z.object({
+    stockMarginPercent: z.number().min(0).max(100),
+    debtorMarginPercent: z.number().min(0).max(100),
+    debtorAgeLimitDays: z.number().int().min(1).max(3650),
+    sanctionedLimitPaise: z.number().int().min(0)
+  })
+
+  handle('bank:stockStatement', (p) => {
+    const { asOn, margins, ccLedgerId } = z
+      .object({
+        asOn: isoDate,
+        margins: marginsSchema.optional(),
+        ccLedgerId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    return borrowing.computeStockStatement(requireCompany().db, asOn, margins ?? DEFAULT_MARGINS, ccLedgerId ?? null)
+  }, 'viewer')
+
+  handle('bank:fileStatement', (p) => {
+    const { asOn, margins, notes, ccLedgerId } = z
+      .object({
+        asOn: isoDate,
+        margins: marginsSchema,
+        notes: z.string().trim().max(500).nullable().default(null),
+        ccLedgerId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    return borrowing.fileStockStatement(requireCompany().db, asOn, margins, notes, ccLedgerId ?? null)
+  })
+
+  handle('bank:statements', () => borrowing.listFiledStatements(requireCompany().db), 'viewer')
+
+  handle('bank:unfileStatement', (p) => {
+    borrowing.unfileStockStatement(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  // ---------- salesperson commission, on collection (roadmap #380) ----------
+
+  handle('commission:report', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return commission.commissionReport(requireCompany().db, from, to)
+  }, 'viewer')
+
+  handle('commission:draft', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return commission.commissionDraft(requireCompany().db, from, to)
+  }, 'viewer')
+
+  handle('commission:schemes', () => commission.listCommissionSchemes(requireCompany().db), 'viewer')
+
+  handle('commission:saveScheme', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          salesperson: z.string().trim().min(1).max(60),
+          rateBp: z.number().int().min(0).max(10000),
+          basis: z.enum(['gross', 'net_of_tax']),
+          fromDate: isoDate,
+          active: z.boolean().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return commission.saveCommissionScheme(requireCompany().db, data, id)
+  })
+
+  handle('commission:deleteScheme', (p) => {
+    commission.deleteCommissionScheme(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  // ---------- dot-matrix, printed raw (roadmap #379) ----------
+
+  handle('print:printers', () => rawPrint.listPrinters(), 'viewer')
+
+  const escpOptionsSchema = z.object({
+    width: z.union([z.literal(80), z.literal(132)]).optional(),
+    formLines: z.number().int().min(1).max(127).optional(),
+    perforationSkip: z.number().int().min(1).max(127).optional(),
+    condensed: z.boolean().optional(),
+    preprintedHeader: z.boolean().optional(),
+    copies: z.array(z.string().trim().max(40)).max(4).optional()
+  })
+
+  handle('print:escpPreview', (p) => {
+    const { voucherId, options } = z
+      .object({ voucherId: z.number().int().positive(), options: escpOptionsSchema.optional() })
+      .parse(p)
+    const c = requireCompany()
+    const { bytes, number } = rawPrint.invoiceEscp(c.db, c.info, voucherId, options ?? {})
+    // The preview is the byte stream as characters, escape codes shown in angle brackets: the
+    // only honest preview of a job whose whole point is that it is not a rendered page.
+    return { number, bytes: bytes.length, text: escpDebug(bytes) }
+  }, 'viewer')
+
+  handle('print:escp', async (p) => {
+    const { voucherId, printer, options } = z
+      .object({
+        voucherId: z.number().int().positive(),
+        printer: z.string().trim().min(1).max(120),
+        options: escpOptionsSchema.optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    const { bytes, number } = rawPrint.invoiceEscp(c.db, c.info, voucherId, options ?? {})
+    const result = await rawPrint.printRaw(bytes, printer)
+    return { ...result, number }
+  }, 'viewer')
+
+  handle('print:escpSave', async (p) => {
+    const { voucherId, options } = z
+      .object({ voucherId: z.number().int().positive(), options: escpOptionsSchema.optional() })
+      .parse(p)
+    const c = requireCompany()
+    const { bytes, number } = rawPrint.invoiceEscp(c.db, c.info, voucherId, options ?? {})
+    const path = join(companyExportsDir(c.slug), `invoice-${slugify(number)}.escp`)
+    return { ...rawPrint.saveRaw(bytes, path), number }
+  }, 'viewer')
 
   // ---------- disclosure: related parties, the audit trail, LUT, the IRP window ----------
 
