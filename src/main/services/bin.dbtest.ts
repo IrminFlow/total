@@ -186,6 +186,11 @@ describe('soft delete + bin', () => {
       .prepare("SELECT action, after_json FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id")
       .all(v.id) as { action: string; after_json: string | null }[]
     expect(rows.map((r) => r.action)).toEqual(['create', 'delete', 'update', 'delete', 'delete'])
-    expect(JSON.parse(rows[2]!.after_json!)).toEqual({ restored: true })
+    // The restore records the whole voucher on both sides, not a `{ restored: true }` marker.
+    // Against a marker, a reader comparing snapshots sees every field on the voucher reported as
+    // removed — the opposite of what happened.
+    const restored = JSON.parse(rows[2]!.after_json!) as { id: number; deletedAt: string | null }
+    expect(restored.id).toBe(v.id)
+    expect(restored.deletedAt).toBeNull()
   })
 })

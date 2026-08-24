@@ -4,7 +4,9 @@ import type { VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import { api } from '../lib/client'
 import { useSession, type VoucherDraft } from '../state/stores'
-import { Kbd } from '../components/ui'
+import { Kbd, Panel } from '../components/ui'
+import { auditFieldChanges, fieldLabel } from '@shared/auditDiff'
+import { formatPaise } from '@shared/money'
 import { useFeatures } from '../lib/useFeatures'
 import { TRADING_KINDS } from './voucher/hooks'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
@@ -158,6 +160,7 @@ export function VoucherEntry({
           draft={draft}
         />
       )}
+      {voucherId && <VoucherHistory voucherId={voucherId} />}
       <p className="mt-3 text-hint text-muted">
         <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>,{' '}
         <span className="num">7/4</span>, <span className="num">y</span> · the type keys are in the
@@ -165,6 +168,89 @@ export function VoucherEntry({
       </p>
     </div>
   )
+}
+
+/**
+ * This voucher's own audit trail: who touched it, when, and what they changed.
+ *
+ * The audit log has always held whole before/after snapshots, and Settings could list them — but
+ * only across the whole book, so answering "who changed this invoice" meant scrolling a global
+ * feed. The trail belongs next to the thing it is about.
+ *
+ * Collapsed by default. Most alterations are opened to make an edit, not to investigate one, and
+ * a panel of history above the save button would be in the way every time.
+ */
+function VoucherHistory({ voucherId }: { voucherId: number }): React.JSX.Element | null {
+  const [open, setOpen] = useState(false)
+  const { data } = useQuery({
+    queryKey: ['voucherAudit', voucherId],
+    queryFn: () => api.audit.list({ entity: 'voucher', entityId: voucherId, page: 0, pageSize: 50 }),
+    enabled: open
+  })
+
+  return (
+    <div className="mt-4">
+      <button
+        data-testid="btn-voucher-history"
+        className="text-small text-muted hover:text-ink"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? '▾' : '▸'} History
+      </button>
+      {open && (
+        <Panel className="mt-2 p-3" data-testid="voucher-history">
+          {!data ? (
+            <p className="text-hint text-muted">Loading…</p>
+          ) : data.rows.length === 0 ? (
+            // Possible: audit retention can have trimmed the entries, and a voucher imported from
+            // Tally never had a create event of its own.
+            <p className="text-hint text-muted">No recorded history for this voucher.</p>
+          ) : (
+            <ol className="flex flex-col gap-2">
+              {data.rows.map((row) => {
+                // Field changes only for an edit between two full records. On a create or a
+                // delete one side is absent, so every field would list as "— → value" or
+                // "value → —" — a wall of noise restating what the action label already said.
+                const changes =
+                  row.beforeJson && row.afterJson
+                    ? auditFieldChanges(
+                        JSON.parse(row.beforeJson) as unknown,
+                        JSON.parse(row.afterJson) as unknown,
+                        (paise) => formatPaise(paise)
+                      )
+                    : []
+                return (
+                  <li key={row.id} className="text-body-sm">
+                    <span className="font-medium">{ACTION_LABEL[row.action] ?? row.action}</span>{' '}
+                    <span className="text-muted">
+                      by {row.userName ?? 'someone'} · <span className="num">{row.at}</span>
+                    </span>
+                    {changes.length > 0 && (
+                      <ul className="mt-0.5 ml-4 flex flex-col gap-0.5 text-hint text-muted">
+                        {changes.map((c) => (
+                          <li key={c.field}>
+                            {fieldLabel(c.field)}: <span className="num">{c.before ?? '—'}</span> →{' '}
+                            <span className="num text-ink">{c.after ?? '—'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+        </Panel>
+      )}
+    </div>
+  )
+}
+
+const ACTION_LABEL: Record<string, string> = {
+  create: 'Created',
+  update: 'Altered',
+  delete: 'Deleted',
+  import: 'Imported'
 }
 
 // Re-export for renderer unit tests that target the pre-split path (lane T's voucherNumberField.test).

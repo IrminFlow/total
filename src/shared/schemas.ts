@@ -305,6 +305,8 @@ export const passphraseSchema = z.string().min(8, 'Passphrase must be at least 8
 /** audit:list query — entity/date range are optional filters; page is server-paged at 100 rows. */
 export const auditListSchema = z.object({
   entity: z.string().trim().min(1).optional(),
+  /** Narrow to one record's history — the trail behind a single voucher, ledger or filing. */
+  entityId: z.number().int().positive().optional(),
   from: isoDate.optional(),
   to: isoDate.optional(),
   page: z.number().int().min(0).default(0),

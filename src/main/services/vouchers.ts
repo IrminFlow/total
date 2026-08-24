@@ -501,7 +501,10 @@ export function restoreVoucher(db: DB, id: number): void {
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
   db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
-  writeAudit(db, 'voucher', id, 'update', before, { restored: true })
+  // The full record on both sides, not a `{ restored: true }` marker. A reader comparing two
+  // snapshots sees "deletedAt: a date -> none"; against a marker they would see every field on
+  // the voucher reported as having been removed, which is the opposite of what happened.
+  writeAudit(db, 'voucher', id, 'update', before, getVoucher(db, id))
 }
 
 // ---------- post-dated vouchers (lane I, task 77) ----------

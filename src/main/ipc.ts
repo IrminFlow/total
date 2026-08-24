@@ -1451,8 +1451,8 @@ export function registerIpc(): void {
 
   // ---------- audit ----------
   handle('audit:list', (p) => {
-    const { entity, from, to, page } = auditListSchema.parse(p)
-    return listAudit(requireCompany().db, { entity, from, to, page })
+    const { entity, entityId, from, to, page, pageSize } = auditListSchema.parse(p)
+    return listAudit(requireCompany().db, { entity, entityId, from, to, page, pageSize })
   }, 'viewer')
 
   // ---------- audit retention (lane Q, task Q1 #92) ----------

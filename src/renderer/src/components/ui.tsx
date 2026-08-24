@@ -277,12 +277,16 @@ export const Panel = forwardRef<
     scroll?: { maxH: string }
     /** Entry forms attach the Enter-chaining handler to the panel that wraps their fields. */
     onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void
+    /** A panel is often the thing a test wants to assert on; without this it silently swallows
+     *  the attribute and the selector never matches. */
+    'data-testid'?: string
   }
->(function Panel({ children, className = '', scroll, onKeyDown }, ref): React.JSX.Element {
+>(function Panel({ children, className = '', scroll, onKeyDown, ...rest }, ref): React.JSX.Element {
   return (
     <div
       ref={ref}
       onKeyDown={onKeyDown}
+      {...rest}
       className={`rounded-lg border border-line bg-panel panel-shadow overflow-hidden ${className}`}
     >
       {scroll ? (

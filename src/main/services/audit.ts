@@ -97,6 +97,9 @@ export interface AuditRow {
 
 export interface AuditListQuery {
   entity?: string
+  /** One record's history. Ignored without `entity`: ids are per-entity, so voucher 7 and
+   *  ledger 7 are different records and filtering on the id alone would mix them. */
+  entityId?: number
   /** Inclusive lower bound, 'YYYY-MM-DD'. */
   from?: string
   /** Inclusive upper bound, 'YYYY-MM-DD'. */
@@ -117,6 +120,12 @@ export function listAudit(db: DB, query: AuditListQuery): { rows: AuditRow[]; to
   if (query.entity) {
     conditions.push('entity = ?')
     params.push(query.entity)
+  }
+  // Only meaningful alongside an entity: ids are per-entity, so voucher 7 and ledger 7 are
+  // different records and filtering on the id alone would mix them.
+  if (query.entityId != null && query.entity) {
+    conditions.push('entity_id = ?')
+    params.push(query.entityId)
   }
   if (query.from) {
     conditions.push('date(at) >= ?')
