@@ -150,7 +150,10 @@ export function CommunitySection(): React.JSX.Element {
                     onClick={() =>
                       void api.community
                         .vote(idea.id)
-                        .then(() => toast.push("success", "Vote counted"))
+                        .then(async () => {
+                          toast.push("success", "Vote counted");
+                          await queryClient.invalidateQueries({ queryKey: ["communityIdeas"] });
+                        })
                         .catch((error: Error) => toast.push("error", error.message))
                     }
                   >
@@ -158,16 +161,20 @@ export function CommunitySection(): React.JSX.Element {
                   </button>
                   <button
                     className="rounded border border-line bg-panel px-2 py-1 text-[9.5px] text-muted hover:text-ink"
-                    onClick={() =>
+                    onClick={() => {
+                      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ideaEmail.trim())) {
+                        toast.push("error", "Enter your update email below before following");
+                        return;
+                      }
                       void api.community
-                        .follow(idea.id)
+                        .follow(idea.id, ideaEmail.trim())
                         .then(() => {
                           const next = { ...state, followedIdeas: [...new Set([...state.followedIdeas, idea.id])] };
                           save(next);
                           toast.push("success", "Following release updates");
                         })
                         .catch((error: Error) => toast.push("error", error.message))
-                    }
+                    }}
                   >
                     {state.followedIdeas.includes(idea.id) ? "Following" : "Follow"}
                   </button>
@@ -184,7 +191,7 @@ export function CommunitySection(): React.JSX.Element {
           <div className="mt-3 grid gap-2 border-t border-line pt-3">
             <input value={ideaTitle} maxLength={120} onChange={(event) => setIdeaTitle(event.target.value)} placeholder="Idea title" className="rounded border border-line bg-panel2 px-2.5 py-2 text-[11px] text-ink" />
             <textarea value={ideaDetail} maxLength={2000} onChange={(event) => setIdeaDetail(event.target.value)} placeholder="What job would this improve?" className="min-h-20 resize-y rounded border border-line bg-panel2 px-2.5 py-2 text-[11px] text-ink" />
-            <div className="flex gap-2"><input value={ideaEmail} onChange={(event) => setIdeaEmail(event.target.value)} type="email" placeholder="Email for updates (optional)" className="min-w-0 flex-1 rounded border border-line bg-panel2 px-2.5 py-2 text-[11px] text-ink" /><Button disabled={sending || ideaTitle.trim().length < 5 || ideaDetail.trim().length < 10} onClick={() => void submitIdea()}>{sending ? "Sending…" : "Submit idea"}</Button></div>
+            <div className="flex gap-2"><input value={ideaEmail} onChange={(event) => setIdeaEmail(event.target.value)} type="email" placeholder="Email for idea and follow updates" className="min-w-0 flex-1 rounded border border-line bg-panel2 px-2.5 py-2 text-[11px] text-ink" /><Button disabled={sending || ideaTitle.trim().length < 5 || ideaDetail.trim().length < 10} onClick={() => void submitIdea()}>{sending ? "Sending…" : "Submit idea"}</Button></div>
           </div>
         </Panel>
 

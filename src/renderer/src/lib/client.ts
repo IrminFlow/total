@@ -3352,10 +3352,11 @@ export const api = {
         action: "vote",
         ideaId,
       }),
-    follow: (ideaId: string) =>
+    follow: (ideaId: string, email: string) =>
       call<{ ok: true; ideaId: string }>("community:feedback:action", {
         action: "follow",
         ideaId,
+        email,
       }),
     submitCohort: (payload: Record<string, unknown>) =>
       call<{ ok: true }>("community:cohort:submit", payload),
