@@ -77,6 +77,8 @@ git push --follow-tags # → GitHub Actions: tests, DMG+ZIP build, publishes the
 - Import the repo, **Root Directory = `site`**, framework auto-detected (Next.js). Auto-deploys on push to `main`.
 - Required env while the repo is private: `GITHUB_TOKEN` — fine-grained PAT, read-only on this repo — lets the site show the latest version, serve `/api/download` (exchanges the private DMG asset for a short-lived URL; token never reaches the browser), and answer `/api/latest` for the app's update check.
 - Optional env: `NEXT_PUBLIC_SITE_URL` (custom domain, for OG cards), `GITHUB_REPO` (override).
+- Support intake: set `CONVEX_SUPPORT_URL` (a Convex HTTP action) or `SUPPORT_WEBHOOK_URL`; optionally
+  set `SUPPORT_WEBHOOK_SECRET`. Without one, `/api/support` returns 503 and the app offers email.
 - Canonical site URL is `https://devjindal.tech`. `src/shared/product.ts` (`SITE_URL`, `GITHUB_REPO`) is the
   in-app source of truth — `src/main/updater.ts` imports it. The site under `site/` can't import
   `src/shared` (separate tsconfig, no path there) so it stays env-driven instead: `NEXT_PUBLIC_SITE_URL`
