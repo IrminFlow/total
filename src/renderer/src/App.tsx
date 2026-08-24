@@ -37,6 +37,9 @@ import { FilingsScreen } from './screens/Filings'
 import { KhataScreen } from './screens/Khata'
 import { CollectionsScreen } from './screens/Collections'
 import { AssetsScreen } from './screens/Assets'
+import { CounterScreen } from './screens/Counter'
+import { SalesChainScreen } from './screens/SalesChain'
+import { BorrowingScreen } from './screens/Borrowing'
 import { DisclosureScreen } from './screens/Disclosure'
 import { CostCentresScreen } from './screens/CostCentres'
 import { BudgetsScreen } from './screens/Budgets'
@@ -210,6 +213,9 @@ export default function App(): React.JSX.Element {
           {screen.name === 'khata' && <KhataScreen />}
           {screen.name === 'collections' && <CollectionsScreen />}
           {screen.name === 'assets' && <AssetsScreen />}
+          {screen.name === 'counter' && <CounterScreen />}
+          {screen.name === 'sales-chain' && <SalesChainScreen />}
+          {screen.name === 'borrowing' && <BorrowingScreen />}
           {screen.name === 'disclosure' && <DisclosureScreen />}
           {screen.name === 'filings' && <FilingsScreen />}
           {screen.name === 'composition' && <CompositionScreen />}

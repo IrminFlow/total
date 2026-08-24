@@ -84,7 +84,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'top',
     accel: 'D',
     card: { sub: 'Every entry, in order' },
-    invalidates: ['daybook', 'dayBookByType']
+    invalidates: ['daybook', 'dayBookByType', 'rawPrinters', 'escpPreview']
   },
   {
     name: 'masters',
@@ -337,6 +337,51 @@ export const SCREENS: ScreenDef[] = [
       'straight line', 'disposal', 'written down value'
     ],
     invalidates: ['assets', 'assetBlocks', 'assetSchedule', 'disposalDraft']
+  },
+  {
+    name: 'counter',
+    title: 'Counter mode',
+    screen: { name: 'counter' },
+    navSection: 'top',
+    navLabel: 'Counter',
+    // "Counter" — C is cost centres, O outstandings, U budgets, N reconciliation, T trial
+    // balance, E settings, R registers. Every letter is claimed, so 7 rides as a badge.
+    accel: '7',
+    card: { sub: 'Scan, tender, next customer' },
+    feature: 'inventory',
+    keywords: ['counter', 'pos', 'till', 'billing', 'scan', 'barcode', 'cash drawer', 'tender', 'change', 'retail', 'shop'],
+    invalidates: ['counterSession', 'counterCart', 'counterSummary', 'counterSales']
+  },
+  {
+    name: 'sales-chain',
+    title: 'Quotations, orders & challans',
+    screen: { name: 'sales-chain' },
+    navSection: 'top',
+    navLabel: 'Quotations',
+    // Q is the filing register, U budgets, O outstandings, T trial balance, A year-end,
+    // I import, N reconciliation, S stock summary. 8 rides as a badge.
+    accel: '8',
+    keywords: ['quotation', 'quote', 'estimate', 'sales order', 'order', 'delivery challan', 'challan', 'proforma', 'pipeline'],
+    invalidates: ['salesDocs', 'salesPipeline', 'ledgers', 'stockItems']
+  },
+  {
+    name: 'borrowing',
+    title: 'Borrowing & the bank',
+    screen: { name: 'borrowing' },
+    navSection: 'books',
+    navLabel: 'Borrowing',
+    // "Borrowing" — B balance sheet, O outstandings, R registers, W edocs, I import,
+    // N reconciliation, G gateway. Nothing free, so 9 rides as a badge.
+    accel: '9',
+    keywords: [
+      'loan', 'emi', 'interest', 'amortisation', 'stock statement', 'drawing power', 'cash credit',
+      'deposit', 'security deposit', 'cwip', 'capital work in progress', 'prepaid', 'accrued',
+      'commission', 'salesperson'
+    ],
+    invalidates: [
+      'loans', 'loanView', 'stockStatement', 'filedStatements', 'deposits', 'depositSummary',
+      'cwipProjects', 'prepaid', 'commissionReport', 'commissionSchemes'
+    ]
   },
   {
     name: 'disclosure',

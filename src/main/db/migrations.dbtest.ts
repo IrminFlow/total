@@ -56,6 +56,22 @@ const EXPECTED_TABLES = [
   'bank_import_profiles',
   'bank_narration_memory',
   'landed_costs',
+  'counter_sessions',
+  'counter_sales',
+  'counter_tenders',
+  'counter_movements',
+  'discount_schemes',
+  'sales_documents',
+  'sales_document_lines',
+  'loans',
+  'loan_postings',
+  'deposits',
+  'cwip_projects',
+  'cwip_costs',
+  'prepaid_schedules',
+  'prepaid_postings',
+  'stock_statements',
+  'commission_schemes',
   'migrations'
 ]
 

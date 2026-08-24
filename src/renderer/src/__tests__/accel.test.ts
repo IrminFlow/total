@@ -22,7 +22,16 @@ const BADGE_ACCELS = new Set([
   'assets',
   // Disclosure: D day book, I import, S stock summary, C cost centres, L consolidated,
   // O outstandings, U budgets, R registers, E settings. Nothing free; 6 rides as a badge.
-  'disclosure'
+  'disclosure',
+  // Counter: C cost centres, O outstandings, U budgets, N reconciliation, T trial balance,
+  // E settings, R registers. The whole word is spoken for; 7 was free.
+  'counter',
+  // Quotations: Q filing register, U budgets, O outstandings, T trial balance, A year-end,
+  // I import, N reconciliation, S stock summary. 8 was free.
+  'sales-chain',
+  // Borrowing: B balance sheet, O outstandings, R registers, W edocs, I import,
+  // N reconciliation, G gateway. 9 was free.
+  'borrowing'
 ])
 
 /**

@@ -61,6 +61,9 @@ export type Screen =
   | { name: 'khata' }
   | { name: 'collections' }
   | { name: 'assets' }
+  | { name: 'counter' }
+  | { name: 'sales-chain' }
+  | { name: 'borrowing' }
   | { name: 'disclosure' }
   | { name: 'filings' }
   | { name: 'composition' }
