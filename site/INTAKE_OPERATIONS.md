@@ -17,7 +17,7 @@ The website stores support cases and feedback events only when private Vercel Bl
 Every configured administration, cron, intake-HMAC and provider credential must be distinct. The API
 fails closed if privileged credentials are shorter than 32 characters or any configured values collide.
 
-`vercel.json` calls `GET /api/maintenance/intake?limit=100` every day at 03:17 UTC. Vercel sends `Authorization: Bearer $CRON_SECRET`. A run examines at most 100 support indexes, 100 feedback indexes, and 100 records from each security prefix. Repeated runs drain a backlog without an unbounded scan.
+`vercel.json` calls `GET /api/maintenance/intake?limit=500` every day at 03:17 UTC. Vercel sends `Authorization: Bearer $CRON_SECRET`. A run deletes at most 500 due support records and 500 due feedback records; each invocation also uses bounded index and security-record scan budgets. Repeated runs drain a backlog without an unbounded scan.
 
 Resolved support cases are indexed for deletion 90 days after resolution. Reopening a case removes its deletion index. Blob-backed feedback events are indexed for deletion 24 calendar months after their recorded activity. Cleanup removes the primary object, its retention index, its pointer, and support status history together.
 

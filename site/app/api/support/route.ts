@@ -1,9 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { intakeStoreConfigured, jsonExists, listJson, readJson, storeJson } from "@/lib/intakeStore";
-import { allowProtectedLookup, completeIntake, protectIntake, releaseIntake } from "@/lib/intakeProtection";
-import { deleteSupportCase, indexForRetention, removeRetentionIndex, retentionHoldFor, supportDeleteAfter } from "@/lib/intakeRetention";
-import { bearerFrom, privilegedSecretMatches, providerAuthorization } from "@/lib/serverSecrets";
+import {
+  intakeStoreConfigured,
+  jsonExists,
+  listJson,
+  readJson,
+  storeJson,
+} from "@/lib/intakeStore";
+import {
+  allowProtectedLookup,
+  completeIntake,
+  protectIntake,
+  releaseIntake,
+} from "@/lib/intakeProtection";
+import {
+  deleteSupportCase,
+  indexForRetention,
+  removeRetentionIndex,
+  retentionHoldFor,
+  supportDeleteAfter,
+} from "@/lib/intakeRetention";
+import {
+  bearerFrom,
+  privilegedSecretMatches,
+  providerAuthorization,
+} from "@/lib/serverSecrets";
 
 export const runtime = "nodejs";
 
@@ -54,12 +75,19 @@ function authorized(request: NextRequest): boolean {
 }
 
 function emailMatches(expected: string, supplied: string): boolean {
-  const digest = (value: string) => createHash("sha256").update(value.trim().toLowerCase()).digest();
+  const digest = (value: string) =>
+    createHash("sha256").update(value.trim().toLowerCase()).digest();
   return timingSafeEqual(digest(expected), digest(supplied));
 }
 
-function fallback(caseId: string, category: string, email: string, message: string): NextResponse {
-  const fallbackEmail = process.env.SUPPORT_FALLBACK_EMAIL || "total@irminflow.com";
+function fallback(
+  caseId: string,
+  category: string,
+  email: string,
+  message: string,
+): NextResponse {
+  const fallbackEmail =
+    process.env.SUPPORT_FALLBACK_EMAIL || "total@irminflow.com";
   const subject = `[${caseId}] Total support: ${category}`;
   const reply = email ? `\n\nReply to: ${email}` : "";
   const body = `${message.slice(0, 1_600)}${reply}\n\nCase: ${caseId}`;
@@ -77,7 +105,11 @@ function fallback(caseId: string, category: string, email: string, message: stri
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > 850_000) return NextResponse.json({ error: "Request is too large" }, { status: 413 });
+  if (contentLength > 850_000)
+    return NextResponse.json(
+      { error: "Request is too large" },
+      { status: 413 },
+    );
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -87,11 +119,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (body.website) return NextResponse.json({ ok: true }); // honeypot
   const message = typeof body.message === "string" ? body.message.trim() : "";
   const email = typeof body.email === "string" ? body.email.trim() : "";
-  const category = ["question", "bug", "idea", "accessibility"].includes(String(body.category)) ? String(body.category) : "question";
+  const category = ["question", "bug", "idea", "accessibility"].includes(
+    String(body.category),
+  )
+    ? String(body.category)
+    : "question";
   const generatedCaseId = `TOT-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${randomUUID().replaceAll("-", "").slice(0, CASE_ID_SUFFIX_LENGTH).toUpperCase()}`;
-  const caseId = CASE_ID_PATTERN.test(String(body.caseId)) ? String(body.caseId) : generatedCaseId;
-  const rawFocus = body.focusContext && typeof body.focusContext === "object" ? (body.focusContext as Record<string, unknown>) : null;
-  const bounded = (value: unknown, max: number): string | null => (typeof value === "string" ? value.slice(0, max) : null);
+  const caseId = CASE_ID_PATTERN.test(String(body.caseId))
+    ? String(body.caseId)
+    : generatedCaseId;
+  const rawFocus =
+    body.focusContext && typeof body.focusContext === "object"
+      ? (body.focusContext as Record<string, unknown>)
+      : null;
+  const bounded = (value: unknown, max: number): string | null =>
+    typeof value === "string" ? value.slice(0, max) : null;
   const focusContext = rawFocus
     ? {
         tag: bounded(rawFocus.tag, 40),
@@ -101,8 +143,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         screen: bounded(rawFocus.screen, 120),
       }
     : null;
-  const screenshotDataUrl = typeof body.screenshotDataUrl === "string" && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(body.screenshotDataUrl) && body.screenshotDataUrl.length <= 700_000 ? body.screenshotDataUrl : null;
-  const rawDiagnostics = body.diagnostics && typeof body.diagnostics === "object" ? (body.diagnostics as Record<string, unknown>) : null;
+  const screenshotDataUrl =
+    typeof body.screenshotDataUrl === "string" &&
+    /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(body.screenshotDataUrl) &&
+    body.screenshotDataUrl.length <= 700_000
+      ? body.screenshotDataUrl
+      : null;
+  const rawDiagnostics =
+    body.diagnostics && typeof body.diagnostics === "object"
+      ? (body.diagnostics as Record<string, unknown>)
+      : null;
   const diagnostics = rawDiagnostics
     ? {
         version: bounded(rawDiagnostics.version, 30) ?? "",
@@ -124,14 +174,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ];
       })
     : null;
-  const rawCompany = body.companyMetadata && typeof body.companyMetadata === "object" ? (body.companyMetadata as Record<string, unknown>) : null;
+  const rawCompany =
+    body.companyMetadata && typeof body.companyMetadata === "object"
+      ? (body.companyMetadata as Record<string, unknown>)
+      : null;
   const companyMetadata = rawCompany
     ? {
         name: bounded(rawCompany.name, 200) ?? "",
         stateCode: bounded(rawCompany.stateCode, 4) ?? "",
         gstRegistrationType: bounded(rawCompany.gstRegistrationType, 40) ?? "",
-        schemaVersion: Number.isInteger(rawCompany.schemaVersion) ? Number(rawCompany.schemaVersion) : 0,
-        voucherCount: Number.isInteger(rawCompany.voucherCount) ? Math.max(0, Number(rawCompany.voucherCount)) : 0,
+        schemaVersion: Number.isInteger(rawCompany.schemaVersion)
+          ? Number(rawCompany.schemaVersion)
+          : 0,
+        voucherCount: Number.isInteger(rawCompany.voucherCount)
+          ? Math.max(0, Number(rawCompany.voucherCount))
+          : 0,
         enabledFeatures: Array.isArray(rawCompany.enabledFeatures)
           ? rawCompany.enabledFeatures
               .filter((value): value is string => typeof value === "string")
@@ -140,17 +197,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           : [],
       }
     : null;
-  const rawCrash = body.crashEnvelope && typeof body.crashEnvelope === "object" ? (body.crashEnvelope as Record<string, unknown>) : null;
+  const rawCrash =
+    body.crashEnvelope && typeof body.crashEnvelope === "object"
+      ? (body.crashEnvelope as Record<string, unknown>)
+      : null;
   const crashEnvelope = rawCrash
     ? {
-        id: /^CR-\d{8}-[A-F0-9]{6}$/.test(String(rawCrash.id)) ? String(rawCrash.id) : "",
+        id: /^CR-\d{8}-[A-F0-9]{6}$/.test(String(rawCrash.id))
+          ? String(rawCrash.id)
+          : "",
         timestamp: bounded(rawCrash.timestamp, 40) ?? "",
         kind: bounded(rawCrash.kind, 40) ?? "",
         appVersion: bounded(rawCrash.appVersion, 30) ?? "",
         platform: bounded(rawCrash.platform, 30) ?? "",
         arch: bounded(rawCrash.arch, 30) ?? "",
         screen: bounded(rawCrash.screen, 80),
-        fingerprint: /^[a-f0-9]{16}$/.test(String(rawCrash.fingerprint)) ? String(rawCrash.fingerprint) : "",
+        fingerprint: /^[a-f0-9]{16}$/.test(String(rawCrash.fingerprint))
+          ? String(rawCrash.fingerprint)
+          : "",
         message: bounded(rawCrash.message, 300) ?? "",
         stackFrames: Array.isArray(rawCrash.stackFrames)
           ? rawCrash.stackFrames
@@ -160,10 +224,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           : [],
       }
     : null;
-  if (message.length < 10 || message.length > 5000 || email.length > 200 || (!(crashEnvelope?.id && crashEnvelope.fingerprint) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+  if (
+    message.length < 10 ||
+    message.length > 5000 ||
+    email.length > 200 ||
+    (!(crashEnvelope?.id && crashEnvelope.fingerprint) &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+  ) {
     return NextResponse.json(
       {
-        error: "Enter a valid email and a message between 10 and 5,000 characters",
+        error:
+          "Enter a valid email and a message between 10 and 5,000 characters",
       },
       { status: 400 },
     );
@@ -185,10 +256,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   if (!protection.allowed)
     return protection.pending
-      ? NextResponse.json({ error: "This support case is still being submitted" }, { status: 409 })
+      ? NextResponse.json(
+          { error: "This support case is still being submitted" },
+          { status: 409 },
+        )
       : protection.unavailable
         ? fallback(caseId, category, email, message)
-        : NextResponse.json({ error: "Please wait before sending another support case" }, { status: 429 });
+        : NextResponse.json(
+            { error: "Please wait before sending another support case" },
+            { status: 429 },
+          );
   if (protection.duplicate)
     return NextResponse.json({
       ok: true,
@@ -225,9 +302,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await completeIntake(protection).catch(() => undefined);
   }
 
-  const webhook = process.env.CONVEX_SUPPORT_URL || process.env.SUPPORT_WEBHOOK_URL;
+  const webhook =
+    process.env.CONVEX_SUPPORT_URL || process.env.SUPPORT_WEBHOOK_URL;
   if (!webhook) {
-    if (intakeStoreConfigured()) return NextResponse.json({ ok: true, caseId: acceptedCaseId, status: "submitted" });
+    if (intakeStoreConfigured())
+      return NextResponse.json({
+        ok: true,
+        caseId: acceptedCaseId,
+        status: "submitted",
+        notification: "not_configured",
+      });
     await releaseIntake(protection);
     return fallback(acceptedCaseId, category, email, message);
   }
@@ -247,7 +331,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(protection.idempotencyKey ? { "idempotency-key": protection.idempotencyKey } : {}),
+        ...(protection.idempotencyKey
+          ? { "idempotency-key": protection.idempotencyKey }
+          : {}),
         ...providerAuthorization(process.env.SUPPORT_PROVIDER_SECRET),
       },
       body: JSON.stringify(storedCase),
@@ -264,8 +350,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           })
         : fallback(acceptedCaseId, category, email, message);
     }
-    if (!intakeStoreConfigured()) await completeIntake(protection).catch(() => undefined);
-    return NextResponse.json({ ok: true, caseId: acceptedCaseId, status: "submitted" });
+    if (!intakeStoreConfigured())
+      await completeIntake(protection).catch(() => undefined);
+    return NextResponse.json({
+      ok: true,
+      caseId: acceptedCaseId,
+      status: "submitted",
+      notification: "delivered",
+    });
   } catch {
     if (!intakeStoreConfigured()) await releaseIntake(protection);
     return intakeStoreConfigured()
@@ -282,8 +374,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const caseId = request.nextUrl.searchParams.get("caseId") ?? "";
   const email = request.nextUrl.searchParams.get("email") ?? "";
-  if (!CASE_ID_PATTERN.test(caseId) || !email) return NextResponse.json({ error: "Case not found" }, { status: 404 });
-  if (!intakeStoreConfigured()) return NextResponse.json({ error: "Case tracking is unavailable" }, { status: 503 });
+  if (!CASE_ID_PATTERN.test(caseId) || !email)
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  if (!intakeStoreConfigured())
+    return NextResponse.json(
+      { error: "Case tracking is unavailable" },
+      { status: 503 },
+    );
   const allowed = await allowProtectedLookup({
     request,
     keyMaterial: `${caseId}\n${email.trim().toLowerCase()}`,
@@ -291,13 +388,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     maxKeyRequests: TRACKING_MAX_REFERENCE_REQUESTS,
     windowMs: TRACKING_WINDOW_MS,
   });
-  if (!allowed) return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  if (!allowed)
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
   const pathname = casePath(caseId);
-  if (!(await jsonExists(pathname))) return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  if (!(await jsonExists(pathname)))
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
   const row = await readJson<StoredCase>(pathname);
-  if (!row || !emailMatches(row.email, email)) return NextResponse.json({ error: "Case not found" }, { status: 404 });
-  const statusEvents = await listJson<CaseStatusEvent>(caseStatusPrefix(caseId));
-  const latest = statusEvents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  if (!row || !emailMatches(row.email, email))
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  const statusEvents = await listJson<CaseStatusEvent>(
+    caseStatusPrefix(caseId),
+  );
+  const latest = statusEvents.sort((a, b) =>
+    b.updatedAt.localeCompare(a.updatedAt),
+  )[0];
   return NextResponse.json({
     caseId: row.caseId,
     category: row.category,
@@ -308,26 +412,46 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
-  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!authorized(request))
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = (await request.json().catch(() => null)) as {
     caseId?: string;
     status?: StoredCase["status"];
   } | null;
-  if (!body?.caseId || !CASE_ID_PATTERN.test(body.caseId) || !["submitted", "in_review", "waiting_for_customer", "resolved"].includes(String(body.status))) return NextResponse.json({ error: "Invalid status update" }, { status: 400 });
+  if (
+    !body?.caseId ||
+    !CASE_ID_PATTERN.test(body.caseId) ||
+    !["submitted", "in_review", "waiting_for_customer", "resolved"].includes(
+      String(body.status),
+    )
+  )
+    return NextResponse.json(
+      { error: "Invalid status update" },
+      { status: 400 },
+    );
   const pathname = casePath(body.caseId);
-  if (!(await jsonExists(pathname))) return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  if (!(await jsonExists(pathname)))
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
   const stored = await readJson<StoredCase>(pathname);
-  if (!stored) return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  if (!stored)
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
   const updatedAt = new Date().toISOString();
   const event: CaseStatusEvent = {
     caseId: body.caseId,
     status: body.status!,
     updatedAt,
   };
-  await storeJson(`${caseStatusPrefix(body.caseId)}${updatedAt.replace(/[:.]/g, "-")}-${randomUUID()}.json`, event);
+  await storeJson(
+    `${caseStatusPrefix(body.caseId)}${updatedAt.replace(/[:.]/g, "-")}-${randomUUID()}.json`,
+    event,
+  );
   const resolvedAt = body.status === "resolved" ? updatedAt : null;
   const deleteAfter = resolvedAt ? supportDeleteAfter(resolvedAt) : null;
-  await storeJson(pathname, { ...stored, status: body.status!, updatedAt, resolvedAt }, true);
+  await storeJson(
+    pathname,
+    { ...stored, status: body.status!, updatedAt, resolvedAt },
+    true,
+  );
   if (resolvedAt) {
     await indexForRetention({
       entity: "support",
@@ -348,10 +472,16 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
-  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!authorized(request))
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const caseId = request.nextUrl.searchParams.get("caseId") ?? "";
-  if (!CASE_ID_PATTERN.test(caseId)) return NextResponse.json({ error: "Invalid case ID" }, { status: 400 });
-  if (await retentionHoldFor("support", caseId)) return NextResponse.json({ error: "This case is subject to a temporary legal or security hold" }, { status: 423 });
+  if (!CASE_ID_PATTERN.test(caseId))
+    return NextResponse.json({ error: "Invalid case ID" }, { status: 400 });
+  if (await retentionHoldFor("support", caseId))
+    return NextResponse.json(
+      { error: "This case is subject to a temporary legal or security hold" },
+      { status: 423 },
+    );
   const pathname = casePath(caseId);
   const result = await deleteSupportCase(caseId, pathname);
   return NextResponse.json({

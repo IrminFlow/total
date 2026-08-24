@@ -6,7 +6,10 @@ import { resolve } from "node:path";
 const root = resolve(new URL("../..", import.meta.url).pathname);
 
 test("production evidence keeps administration and cleanup credentials separate", () => {
-  const script = readFileSync(resolve(root, "scripts/production-live-check.mjs"), "utf8");
+  const script = readFileSync(
+    resolve(root, "scripts/production-live-check.mjs"),
+    "utf8",
+  );
   assert.match(script, /const adminSecret = process\.env\.INTAKE_ADMIN_SECRET/);
   assert.match(script, /const cronSecret = process\.env\.CRON_SECRET/);
   assert.match(
@@ -19,6 +22,19 @@ test("production evidence keeps administration and cleanup credentials separate"
   );
 });
 
+test("production evidence requires delivered notifications and proves exact retention indexes", () => {
+  const script = readFileSync(
+    resolve(root, "scripts/production-live-check.mjs"),
+    "utf8",
+  );
+  assert.match(script, /created\.body\?\.notification === "delivered"/);
+  assert.match(script, /syntheticRunId/);
+  assert.match(script, /method: "PATCH"[\s\S]{0,180}reasonCode: "security"/);
+  assert.match(script, /method: "DELETE", headers: authHeaders/);
+  assert.match(script, /synthetic\.checks\.retentionIndexes = \{/);
+  assert.match(script, /synthetic\.checks\.retentionIndexes\?\.ok/);
+});
+
 for (const workflow of [
   ".github/workflows/production-monitor.yml",
   ".github/workflows/release-candidate.yml",
@@ -26,7 +42,10 @@ for (const workflow of [
 ]) {
   test(`${workflow} supplies both production intake authorities`, () => {
     const source = readFileSync(resolve(root, workflow), "utf8");
-    assert.match(source, /INTAKE_ADMIN_SECRET: \$\{\{ secrets\.INTAKE_ADMIN_SECRET \}\}/);
+    assert.match(
+      source,
+      /INTAKE_ADMIN_SECRET: \$\{\{ secrets\.INTAKE_ADMIN_SECRET \}\}/,
+    );
     assert.match(source, /CRON_SECRET: \$\{\{ secrets\.CRON_SECRET \}\}/);
   });
 }
