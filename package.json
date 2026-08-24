@@ -88,7 +88,7 @@
   "build": {
     "appId": "com.irminlabs.total",
     "productName": "Total",
-    "icon": "build/icon.png",
+    "icon": "build/icon-v2.png",
     "directories": {
       "output": "dist"
     },
@@ -109,6 +109,7 @@
       }
     ],
     "mac": {
+      "icon": "build/icon-v2.icns",
       "category": "public.app-category.finance",
       "hardenedRuntime": true,
       "notarize": true,
