@@ -69,6 +69,7 @@ export const AUDIT_ENTITIES = [
   "ai_task_route",
   "import_mapping_profile",
   "import_attachment",
+  "migration_certificate",
   "ledger",
   "nic_credentials",
   "pay_head",

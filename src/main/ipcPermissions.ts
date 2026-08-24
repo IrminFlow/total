@@ -199,6 +199,11 @@ export const IPC_EXPORT_CONTRACTS = {
     departmentScope: "source_data",
     label: "The import error workbook",
   },
+  "export:migrationCertificate": {
+    format: "full_data",
+    departmentScope: "company_wide",
+    label: "The migration reconciliation certificate",
+  },
   "export:portable": {
     format: "full_data",
     departmentScope: "company_wide",

@@ -1027,6 +1027,14 @@ export interface ImportResult {
   batchId: number;
 }
 
+export interface MigrationCertificateExport {
+  jsonPath: string;
+  pdfPath: string;
+  contentSha256: string;
+  status: "checks_passed" | "attention_required";
+  signaturePaths?: { json: string; pdf: string };
+}
+
 /** Invoke a main-process channel; throws the error message on failure. */
 /** Mirrors src/main/services/reportHtml.ts's ReportColumnSpec/ReportRowSpec shapes (kept local —
  *  that file is main-process only). Shared by every screen's PDF/CSV export buttons. */
@@ -1148,11 +1156,7 @@ export interface PdcRow {
 
 export type SupportCategory = "question" | "bug" | "idea" | "accessibility";
 export type SupportCaseStatus =
-  | "draft"
-  | "sending"
-  | "submitted"
-  | "failed"
-  | "saved_offline";
+  "draft" | "sending" | "submitted" | "failed" | "saved_offline";
 export interface SupportConsent {
   message: boolean;
   diagnostics: boolean;
@@ -1222,8 +1226,15 @@ export interface CrashEnvelope {
   stackFrames: string[];
 }
 
-export type BusinessType = "retailer" | "wholesaler" | "service" | "manufacturer" | "freelancer" | "professional";
-export type PriorSoftware = "tally" | "busy" | "marg" | "zoho" | "excel" | "first-time";
+export type BusinessType =
+  | "retailer"
+  | "wholesaler"
+  | "service"
+  | "manufacturer"
+  | "freelancer"
+  | "professional";
+export type PriorSoftware =
+  "tally" | "busy" | "marg" | "zoho" | "excel" | "first-time";
 export interface OnboardingSelection {
   businessType: BusinessType;
   priorSoftware: PriorSoftware;
@@ -1231,7 +1242,11 @@ export interface OnboardingSelection {
   needsPayroll: boolean;
 }
 export interface OnboardingStatus {
-  profile: OnboardingSelection & { schema: 1; createdAt: string; setupSteps: Record<string, boolean> };
+  profile: OnboardingSelection & {
+    schema: 1;
+    createdAt: string;
+    setupSteps: Record<string, boolean>;
+  };
   score: number;
   openingDifference: number;
   openingRows: { id: number; name: string; openingBalance: number }[];
@@ -1257,9 +1272,11 @@ export interface SmartLedgerDefaults {
 export const api = {
   company: {
     list: () => call<Registry>("company:list"),
-    create: (input: CompanyCreateInput & { onboarding?: OnboardingSelection }) =>
-      call<{ slug: string }>("company:create", input),
-    createDemo: (businessType: BusinessType = "retailer") => call<{ slug: string }>("company:createDemo", businessType),
+    create: (
+      input: CompanyCreateInput & { onboarding?: OnboardingSelection },
+    ) => call<{ slug: string }>("company:create", input),
+    createDemo: (businessType: BusinessType = "retailer") =>
+      call<{ slug: string }>("company:createDemo", businessType),
     remove: (slug: string, confirmName: string, pin?: string) =>
       call<null>("company:delete", { slug, confirmName, pin }),
     open: (slug: string) =>
@@ -1283,11 +1300,22 @@ export const api = {
       call<{ date: string | null }>("company:lock:set", { date, exceptionId }),
   },
   onboarding: {
-    preflight: () => call<{ writable: boolean; freeBytes: number; diskReady: boolean; clockReady: boolean; secureCredentials: boolean; automaticBackups: boolean; dataPath: string }>("onboarding:preflight"),
+    preflight: () =>
+      call<{
+        writable: boolean;
+        freeBytes: number;
+        diskReady: boolean;
+        clockReady: boolean;
+        secureCredentials: boolean;
+        automaticBackups: boolean;
+        dataPath: string;
+      }>("onboarding:preflight"),
     status: () => call<OnboardingStatus>("onboarding:status"),
-    update: (input: Partial<OnboardingSelection>) => call<OnboardingStatus>("onboarding:update", input),
+    update: (input: Partial<OnboardingSelection>) =>
+      call<OnboardingStatus>("onboarding:update", input),
     exportHandoff: () => call<{ path: string }>("onboarding:handoff:export"),
-    importHandoff: () => call<OnboardingStatus | null>("onboarding:handoff:import"),
+    importHandoff: () =>
+      call<OnboardingStatus | null>("onboarding:handoff:import"),
   },
   backups: {
     list: () => call<BackupInfo[]>("backup:list"),
@@ -1363,24 +1391,25 @@ export const api = {
         call<null>("communications:contacts:delete", { id }),
     },
     smtp: {
-      list: () =>
-        call<SmtpProfileSummary[]>("communications:smtp:list"),
+      list: () => call<SmtpProfileSummary[]>("communications:smtp:list"),
       create: (data: SmtpProfileInput) =>
         call<SmtpProfileSummary>("communications:smtp:create", data),
       update: (id: number, data: SmtpProfileUpdate) =>
         call<SmtpProfileSummary>("communications:smtp:update", { id, data }),
-      remove: (id: number) =>
-        call<null>("communications:smtp:delete", { id }),
+      remove: (id: number) => call<null>("communications:smtp:delete", { id }),
       test: (id: number) =>
-        call<{ ok: true; serverResponse: string }>("communications:smtp:test", { id }),
+        call<{ ok: true; serverResponse: string }>("communications:smtp:test", {
+          id,
+        }),
     },
     messages: {
-      list: (filter: {
-        ledgerId?: number;
-        status?: OutboundMessageStatus;
-        limit?: number;
-      } = {}) =>
-        call<OutboundMessage[]>("communications:messages:list", filter),
+      list: (
+        filter: {
+          ledgerId?: number;
+          status?: OutboundMessageStatus;
+          limit?: number;
+        } = {},
+      ) => call<OutboundMessage[]>("communications:messages:list", filter),
       get: (id: string) =>
         call<OutboundMessage>("communications:messages:get", { id }),
       events: (id: string) =>
@@ -1388,7 +1417,10 @@ export const api = {
       createDraft: (data: OutboundDraftInput) =>
         call<OutboundMessage>("communications:messages:createDraft", data),
       updateDraft: (id: string, data: OutboundDraftUpdate) =>
-        call<OutboundMessage>("communications:messages:updateDraft", { id, data }),
+        call<OutboundMessage>("communications:messages:updateDraft", {
+          id,
+          data,
+        }),
       review: (id: string, expectedRevision: number) =>
         call<OutboundMessage>("communications:messages:review", {
           id,
@@ -1408,10 +1440,7 @@ export const api = {
         }),
       cancel: (id: string) =>
         call<OutboundMessage>("communications:messages:cancel", { id }),
-      exportEml: (
-        id: string,
-        smtpProfileId?: number,
-      ) =>
+      exportEml: (id: string, smtpProfileId?: number) =>
         call<{ path: string; message: OutboundMessage } | null>(
           "communications:messages:exportEml",
           { id, smtpProfileId },
@@ -1649,13 +1678,25 @@ export const api = {
     addComment: (id: number, body: string) =>
       call<VoucherComment>("voucher:commentAdd", { id, body }),
     smartDefaults: (partyLedgerId: number, kind: VoucherKind) =>
-      call<SmartLedgerDefaults | null>("voucher:smartDefaults", { partyLedgerId, kind }),
-    creditExposure: (partyLedgerId: number, proposedDebit: number) => call<{ exceeded: boolean; ledgerName: string; creditLimit: number | null; currentOutstanding: number; proposedOutstanding: number }>("voucher:creditExposure", { partyLedgerId, proposedDebit }),
+      call<SmartLedgerDefaults | null>("voucher:smartDefaults", {
+        partyLedgerId,
+        kind,
+      }),
+    creditExposure: (partyLedgerId: number, proposedDebit: number) =>
+      call<{
+        exceeded: boolean;
+        ledgerName: string;
+        creditLimit: number | null;
+        currentOutstanding: number;
+        proposedOutstanding: number;
+      }>("voucher:creditExposure", { partyLedgerId, proposedDebit }),
     clipboardLines: () => call<{ text: string }>("voucher:clipboardLines"),
-    attachments: (id: number) => call<VoucherAttachment[]>("voucher:attachments", { id }),
+    attachments: (id: number) =>
+      call<VoucherAttachment[]>("voucher:attachments", { id }),
     addAttachments: (id: number, kind: VoucherAttachment["kind"]) =>
       call<VoucherAttachment[]>("voucher:attachmentAdd", { id, kind }),
-    openAttachment: (id: number) => call<null>("voucher:attachmentOpen", { id }),
+    openAttachment: (id: number) =>
+      call<null>("voucher:attachmentOpen", { id }),
     batchReverse: (ids: number[], date: string, reason: string) =>
       call<Voucher[]>("voucher:batchReverse", { ids, date, reason }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
@@ -2276,14 +2317,61 @@ export const api = {
         status,
         outcomeNote,
       }),
-    workspace: (ledgerId: number, asOn: string) => call<CollectionCustomerWorkspace>("collections:workspace", { ledgerId, asOn }),
-    saveSettings: (ledgerId: number, settings: CollectionCustomerSettings) => call<CollectionCustomerSettings>("collections:settingsSave", { ledgerId, settings }),
-    openDispute: (ledgerId: number, voucherId: number, reason: string, owner: string) => call<null>("collections:disputeOpen", { ledgerId, voucherId, reason, owner }),
-    resolveDispute: (id: number, resolution: string) => call<null>("collections:disputeResolve", { id, resolution }),
-    addNote: (ledgerId: number, body: string) => call<null>("collections:noteAdd", { ledgerId, body }),
-    draftReminder: (input: { ledgerId: number; voucherId: number | null; channel: "email" | "whatsapp" | "phone"; body: string; dueDate: string }) => call<null>("collections:reminderDraft", input),
-    receiptSuggestions: (amount: number, date: string, reference: string, payer: string) => call<ReceiptSuggestion[]>("collections:receiptSuggestions", { amount, date, reference, payer }),
-    ownerWorkload: (asOn: string) => call<{ owner: string; customers: number; overdue: number; followUpsDue: number; collected90Days: number }[]>("collections:ownerWorkload", { asOn }),
+    workspace: (ledgerId: number, asOn: string) =>
+      call<CollectionCustomerWorkspace>("collections:workspace", {
+        ledgerId,
+        asOn,
+      }),
+    saveSettings: (ledgerId: number, settings: CollectionCustomerSettings) =>
+      call<CollectionCustomerSettings>("collections:settingsSave", {
+        ledgerId,
+        settings,
+      }),
+    openDispute: (
+      ledgerId: number,
+      voucherId: number,
+      reason: string,
+      owner: string,
+    ) =>
+      call<null>("collections:disputeOpen", {
+        ledgerId,
+        voucherId,
+        reason,
+        owner,
+      }),
+    resolveDispute: (id: number, resolution: string) =>
+      call<null>("collections:disputeResolve", { id, resolution }),
+    addNote: (ledgerId: number, body: string) =>
+      call<null>("collections:noteAdd", { ledgerId, body }),
+    draftReminder: (input: {
+      ledgerId: number;
+      voucherId: number | null;
+      channel: "email" | "whatsapp" | "phone";
+      body: string;
+      dueDate: string;
+    }) => call<null>("collections:reminderDraft", input),
+    receiptSuggestions: (
+      amount: number,
+      date: string,
+      reference: string,
+      payer: string,
+    ) =>
+      call<ReceiptSuggestion[]>("collections:receiptSuggestions", {
+        amount,
+        date,
+        reference,
+        payer,
+      }),
+    ownerWorkload: (asOn: string) =>
+      call<
+        {
+          owner: string;
+          customers: number;
+          overdue: number;
+          followUpsDue: number;
+          collected90Days: number;
+        }[]
+      >("collections:ownerWorkload", { asOn }),
   },
   payables: {
     queue: (asOn: string) => call<SupplierDueQueue>("payables:queue", { asOn }),
@@ -2918,7 +3006,12 @@ export const api = {
   },
   importer: {
     pickCsv: () =>
-      call<{ csvText: string; fileName: string; sheetName: string | null; sourceFormat: "csv" | "tsv" | "xlsx" } | null>("import:pickCsv"),
+      call<{
+        csvText: string;
+        fileName: string;
+        sheetName: string | null;
+        sourceFormat: "csv" | "tsv" | "xlsx";
+      } | null>("import:pickCsv"),
     preview: (kind: ImportKind, csvText: string) =>
       call<ImportPreview>("import:preview", { kind, csvText }),
     apply: (kind: ImportKind, csvText: string) =>
@@ -2951,6 +3044,10 @@ export const api = {
       call<{ linked: number; missing: string[] } | null>("import:attachments", {
         batchId,
         csvText,
+      }),
+    certificate: (batchId: number) =>
+      call<MigrationCertificateExport>("export:migrationCertificate", {
+        batchId,
       }),
   },
   exporter: {
@@ -3381,8 +3478,7 @@ export const api = {
       category: SupportCategory;
       consent: SupportConsent;
     }) => call<SupportCaseRecord>("support:case:create", input),
-    contextPreview: () =>
-      call<SupportContextPreview>("support:contextPreview"),
+    contextPreview: () => call<SupportContextPreview>("support:contextPreview"),
     submit: (input: SupportPayload) =>
       call<{ ok: true; caseId: string; status: SupportCaseStatus }>(
         "support:submit",

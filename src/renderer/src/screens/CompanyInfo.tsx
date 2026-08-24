@@ -24,6 +24,7 @@ import { formatPaise } from "@shared/money";
 import {
   CheckCircle,
   FileCsv,
+  FilePdf,
   Fingerprint,
   Warning,
 } from "@phosphor-icons/react";
@@ -35,7 +36,10 @@ export function CompanyInfoScreen(): React.JSX.Element {
   const { info, slug, setCompany } = useSession();
   const toast = useToasts();
   const nav = useNav();
-  const setup = useQuery({ queryKey: ["onboarding-status"], queryFn: api.onboarding.status });
+  const setup = useQuery({
+    queryKey: ["onboarding-status"],
+    queryFn: api.onboarding.status,
+  });
   const [name, setName] = useState(info?.name ?? "");
   const [stateCode, setStateCode] = useState(info?.stateCode ?? "27");
   const [gstin, setGstin] = useState(info?.gstin ?? "");
@@ -128,25 +132,92 @@ export function CompanyInfoScreen(): React.JSX.Element {
     <div className="mx-auto max-w-2xl">
       <SectionTitle>Company details</SectionTitle>
       {setup.data && (
-        <Panel className="mb-4 overflow-hidden p-0" data-testid="setup-progress">
+        <Panel
+          className="mb-4 overflow-hidden p-0"
+          data-testid="setup-progress"
+        >
           <div className="flex items-center justify-between border-b border-line bg-panel2 px-4 py-3">
-            <div><p className="text-[12px] font-semibold">Setup health · {setup.data.score}%</p><p className="mt-0.5 text-[9.5px] text-muted">Resumable, local and safe to finish in any order.</p></div>
-            <div className="h-1.5 w-36 overflow-hidden rounded bg-line"><div className="h-full bg-amber" style={{ width: `${setup.data.score}%` }} /></div>
+            <div>
+              <p className="text-[12px] font-semibold">
+                Setup health · {setup.data.score}%
+              </p>
+              <p className="mt-0.5 text-[9.5px] text-muted">
+                Resumable, local and safe to finish in any order.
+              </p>
+            </div>
+            <div className="h-1.5 w-36 overflow-hidden rounded bg-line">
+              <div
+                className="h-full bg-amber"
+                style={{ width: `${setup.data.score}%` }}
+              />
+            </div>
           </div>
           <div className="grid grid-cols-7 gap-px bg-line">
-            {Object.entries(setup.data.profile.setupSteps).map(([step, done]) => <div key={step} className="bg-panel px-2 py-2 text-center"><p className={done ? 'text-dr' : 'text-muted'}>{done ? '✓' : '○'}</p><p className="mt-0.5 text-[8px] capitalize text-muted">{step.replace(/([A-Z])/g, ' $1')}</p></div>)}
+            {Object.entries(setup.data.profile.setupSteps).map(
+              ([step, done]) => (
+                <div key={step} className="bg-panel px-2 py-2 text-center">
+                  <p className={done ? "text-dr" : "text-muted"}>
+                    {done ? "✓" : "○"}
+                  </p>
+                  <p className="mt-0.5 text-[8px] capitalize text-muted">
+                    {step.replace(/([A-Z])/g, " $1")}
+                  </p>
+                </div>
+              ),
+            )}
           </div>
           {setup.data.openingRows.length > 0 && (
-            <div className={`px-4 py-2 text-[10px] ${setup.data.openingDifference === 0 ? 'text-dr' : 'text-cr'}`}>
-              Opening balances · {setup.data.openingRows.length} ledgers · unresolved difference {formatPaise(setup.data.openingDifference)}
+            <div
+              className={`px-4 py-2 text-[10px] ${setup.data.openingDifference === 0 ? "text-dr" : "text-cr"}`}
+            >
+              Opening balances · {setup.data.openingRows.length} ledgers ·
+              unresolved difference {formatPaise(setup.data.openingDifference)}
             </div>
           )}
           <div className="flex flex-wrap gap-2 border-t border-line px-4 py-3">
-            <Button onClick={() => nav.go({ name: 'masters', tab: 'ledgers' })}>Review openings</Button>
-            <Button onClick={() => nav.go({ name: 'settings', tab: 'backups' })}>Backups</Button>
-            <Button onClick={() => void api.importer.template('ledgers').then(() => toast.push('success', 'Sample ledger template saved')).catch((error: Error) => toast.push('error', error.message))}>Sample import</Button>
-            <Button onClick={() => void api.onboarding.exportHandoff().then(() => toast.push('success', 'Accountant handoff saved')).catch((error: Error) => toast.push('error', error.message))}>Export handoff</Button>
-            <Button onClick={() => void api.onboarding.importHandoff().then((result) => { if (result) toast.push('success', 'Accountant setup imported') }).catch((error: Error) => toast.push('error', error.message))}>Import handoff…</Button>
+            <Button onClick={() => nav.go({ name: "masters", tab: "ledgers" })}>
+              Review openings
+            </Button>
+            <Button
+              onClick={() => nav.go({ name: "settings", tab: "backups" })}
+            >
+              Backups
+            </Button>
+            <Button
+              onClick={() =>
+                void api.importer
+                  .template("ledgers")
+                  .then(() =>
+                    toast.push("success", "Sample ledger template saved"),
+                  )
+                  .catch((error: Error) => toast.push("error", error.message))
+              }
+            >
+              Sample import
+            </Button>
+            <Button
+              onClick={() =>
+                void api.onboarding
+                  .exportHandoff()
+                  .then(() => toast.push("success", "Accountant handoff saved"))
+                  .catch((error: Error) => toast.push("error", error.message))
+              }
+            >
+              Export handoff
+            </Button>
+            <Button
+              onClick={() =>
+                void api.onboarding
+                  .importHandoff()
+                  .then((result) => {
+                    if (result)
+                      toast.push("success", "Accountant setup imported");
+                  })
+                  .catch((error: Error) => toast.push("error", error.message))
+              }
+            >
+              Import handoff…
+            </Button>
           </div>
         </Panel>
       )}
@@ -312,7 +383,9 @@ function CsvImportCard(): React.JSX.Element {
       const p =
         profiled?.preview ?? (await api.importer.preview(kind, picked.csvText));
       setFileName(picked.fileName);
-      setSourceDetail(`${picked.sourceFormat.toUpperCase()}${picked.sheetName ? ` · ${picked.sheetName}` : ""}`);
+      setSourceDetail(
+        `${picked.sourceFormat.toUpperCase()}${picked.sheetName ? ` · ${picked.sheetName}` : ""}`,
+      );
       setCsvText(picked.csvText);
       setPreview(p);
       setDryRun(profiled?.dryRun ?? null);
@@ -385,6 +458,23 @@ function CsvImportCard(): React.JSX.Element {
         );
     } catch (err) {
       toast.push("error", (err as Error).message);
+    }
+  };
+  const exportCertificate = async (): Promise<void> => {
+    if (!lastBatch) return;
+    setBusy(true);
+    try {
+      const result = await api.importer.certificate(lastBatch);
+      toast.push(
+        result.status === "checks_passed" ? "success" : "info",
+        result.status === "checks_passed"
+          ? `Batch #${lastBatch} certificate saved as JSON and PDF`
+          : `Batch #${lastBatch} certificate saved; review the checks needing attention`,
+      );
+    } catch (err) {
+      toast.push("error", (err as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -463,7 +553,10 @@ function CsvImportCard(): React.JSX.Element {
             Pick file…
           </Button>
           {fileName && (
-            <span className="text-[12px] text-muted">{fileName}{sourceDetail ? ` · ${sourceDetail}` : ""}</span>
+            <span className="text-[12px] text-muted">
+              {fileName}
+              {sourceDetail ? ` · ${sourceDetail}` : ""}
+            </span>
           )}
         </div>
 
@@ -646,14 +739,39 @@ function CsvImportCard(): React.JSX.Element {
           </>
         )}
         {lastBatch && !preview && (
-          <div className="flex items-center justify-between rounded-md border border-dr/30 bg-dr/5 p-3">
-            <span className="text-[11.5px] text-dr">
-              Import batch #{lastBatch} completed and can be reconciled from the
-              retained receipt.
-            </span>
-            <Button onClick={() => void linkAttachments()}>
-              Link source documents…
-            </Button>
+          <div
+            className="rounded-md border border-dr/30 bg-dr/5 p-3.5"
+            data-testid="import-complete-actions"
+          >
+            <div className="flex items-start gap-2.5">
+              <CheckCircle
+                size={19}
+                weight="fill"
+                className="mt-0.5 shrink-0 text-dr"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-semibold text-dr">
+                  Import batch #{lastBatch} is in the books
+                </p>
+                <p className="mt-0.5 text-[10.5px] text-muted">
+                  Keep its source documents, then export a self-checked JSON and
+                  PDF reconciliation record for review.
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-dr/15 pt-3">
+              <Button
+                variant="ghost"
+                onClick={() => void linkAttachments()}
+                disabled={busy}
+              >
+                Link source documents…
+              </Button>
+              <Button onClick={() => void exportCertificate()} disabled={busy}>
+                <FilePdf size={15} />{" "}
+                {busy ? "Preparing…" : "Export reconciliation certificate"}
+              </Button>
+            </div>
           </div>
         )}
       </div>
