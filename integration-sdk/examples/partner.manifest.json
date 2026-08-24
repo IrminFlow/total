@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "in.example.total.partner",
+  "name": "Example commerce bridge",
+  "version": "1.0.0",
+  "publisher": "Example Partners",
+  "runtime": "declarative-v1",
+  "compatibility": {
+    "contractVersion": 1,
+    "minAppVersion": "0.5.0"
+  },
+  "permissions": ["imports:preview", "reports:read"],
+  "networkHosts": [],
+  "screens": [
+    {
+      "id": "overview",
+      "title": "Commerce overview",
+      "description": "Review imported commerce batches and exceptions."
+    }
+  ],
+  "importers": [
+    {
+      "id": "orders-json",
+      "label": "Order JSON",
+      "input": "json",
+      "recordKind": "ecommerce_order",
+      "fieldMap": {
+        "orderId": "order.id",
+        "orderDate": "order.date",
+        "totalPaise": "order.totalPaise"
+      }
+    }
+  ],
+  "reports": [
+    {
+      "id": "sales-register",
+      "label": "Sales register",
+      "primitive": "sales_register"
+    }
+  ],
+  "exports": []
+}
+

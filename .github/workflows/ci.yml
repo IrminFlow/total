@@ -10,6 +10,26 @@ on:
     branches: [main]
 
 jobs:
+  site-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install site dependencies
+        run: npm ci
+
+      - name: Build marketing and support site
+        run: npm run build
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -28,6 +48,12 @@ jobs:
 
       - name: Unit tests (pure engine, no DB)
         run: npm test
+
+      - name: Dependency and license policy
+        run: npm run security:dependencies
+
+      - name: Production readiness contract
+        run: npm run release:readiness
 
       - name: Renderer tests (jsdom + RTL)
         run: npm run test:renderer
@@ -51,11 +77,19 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Renderer bundle budget
+        run: npm run perf:bundle
+
       - name: Hermetic IPC smoke test
         run: npm run smoke
         env:
           TOTAL_DATA_DIR: ${{ runner.temp }}/total-data
           SMOKE_OUT: ${{ runner.temp }}/smoke
+
+      - name: Large-workflow memory budget
+        run: npm run perf:memory
+        env:
+          SMOKE_OUT: ${{ runner.temp }}/performance
 
       - name: Upload smoke screenshots
         if: always()
@@ -85,6 +119,11 @@ jobs:
 
       - name: E2E scenarios
         run: npm run e2e
+        env:
+          SMOKE_OUT: ${{ runner.temp }}/e2e
+
+      - name: Visual regression contracts
+        run: npm run test:visual -- --inspect-only
         env:
           SMOKE_OUT: ${{ runner.temp }}/e2e
 

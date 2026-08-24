@@ -1,12 +1,11 @@
-# Build the macOS app and publish it to GitHub Releases whenever a version tag is pushed.
-# Tag with:  npm version patch && git push --follow-tags
-# electron-updater in the app reads these releases to auto-update installed copies.
+# Production release: both platforms are built, signed and verified before one public
+# GitHub release is created. Tag with: npm version patch && git push --follow-tags
 name: Release
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -22,17 +21,36 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Validate tag and release configuration
+        run: npm run release:preflight
+
+      - name: Require macOS signing and notarization credentials
+        shell: bash
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          for name in MAC_CSC_LINK MAC_CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            if [ -z "${!name}" ]; then echo "Missing required release secret: $name" >&2; exit 1; fi
+          done
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      - name: Typecheck and complete test suite
+        run: npm run typecheck && npm test && npm run test:renderer && npm run test:db
 
-      - name: DB-layer tests (Electron-as-Node)
-        run: npm run test:db
+      - name: One-million-line performance and query-plan gate
+        run: npm run test:large
 
-      - name: Build
+      - name: Build application
         run: npm run build
+
+      - name: Renderer bundle budget
+        run: npm run perf:bundle
 
       - name: Hermetic IPC smoke test against the build
         run: npm run smoke
@@ -40,27 +58,57 @@ jobs:
           TOTAL_DATA_DIR: ${{ runner.temp }}/total-data
           SMOKE_OUT: ${{ runner.temp }}/smoke
 
-      - name: Ensure the release exists (one per tag)
-        # electron-builder's parallel asset uploads race to CREATE the release and can end up
-        # with two releases on one tag (observed on v0.3.0) — pre-creating makes it only upload.
-        run: gh release create "$GITHUB_REF_NAME" --title "Total ${GITHUB_REF_NAME#v}" --notes "Release notes to follow." --repo "$GITHUB_REPOSITORY" || true
+      - name: Production startup budget
+        run: npm run perf:startup
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SMOKE_OUT: ${{ runner.temp }}/performance
 
-      - name: Publish DMG + ZIP to the release
-        run: npx electron-builder --mac --publish always
+      - name: Large-workflow memory budget
+        run: npm run perf:memory
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Unsigned beta builds: users right-click → Open on first launch, and the
-          # in-app updater falls back to a "download the new version" prompt.
-          # When you have an Apple Developer ID, add CSC_LINK + CSC_KEY_PASSWORD
-          # secrets here and auto-update becomes fully silent.
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          SMOKE_OUT: ${{ runner.temp }}/performance
+
+      - name: Build, sign and notarize universal DMG + ZIP
+        run: npx electron-builder --mac --universal --publish never --config.forceCodeSigning=true
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Verify signature, notarization, archives and packaged launch
+        run: npm run release:artifact -- mac
+
+      - name: Install from DMG, post, backup, restore and uninstall
+        run: npm run release:install-smoke -- mac
+
+      - name: Publication scorecard
+        run: npm run release:scorecard
+        env:
+          SMOKE_OUT: ${{ runner.temp }}/release-scorecard
+          RELEASE_SCORECARD_PLATFORM: mac
+          RELEASE_SCORECARD_NAME: release-scorecard-mac.json
+
+      - name: Record reproducible macOS build evidence
+        run: npm run release:evidence
+        env:
+          RELEASE_EVIDENCE_NAME: build-evidence-mac.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-mac
+          if-no-files-found: error
+          path: |
+            dist/*.dmg
+            dist/*.dmg.blockmap
+            dist/*.zip
+            dist/*.zip.blockmap
+            dist/latest-mac.yml
+            dist/build-evidence-mac.json
+            dist/release-scorecard-mac.json
 
   release-win:
-    # Runs after the mac job so both publish into the SAME release —
-    # parallel jobs each create their own release for the tag (learned the hard way).
-    needs: release-mac
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,22 +118,95 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Validate tag and release configuration
+        run: npm run release:preflight
+
+      - name: Require Windows signing credentials
+        shell: bash
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          for name in WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then echo "Missing required release secret: $name" >&2; exit 1; fi
+          done
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      - name: Build and sign NSIS installer
+        run: npm run build && npx electron-builder --win --publish never --config.forceCodeSigning=true
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
-      - name: DB-layer tests (Electron-as-Node)
-        run: npm run test:db
-
-      - name: Build NSIS installer (no publish — electron-builder creates a DUPLICATE
-          release for the tag even when one exists; observed on v0.2.0)
-        run: npm run build && npx electron-builder --win --publish never
-
-      - name: Upload installer to the existing release
-        shell: bash
+      - name: Verify Authenticode signatures
+        shell: pwsh
         run: |
-          gh release upload "${GITHUB_REF_NAME}" dist/*.exe dist/*.exe.blockmap dist/latest.yml --clobber --repo "${GITHUB_REPOSITORY}"
+          $targets = @(Get-ChildItem dist -Filter *.exe)
+          $targets += Get-Item dist/win-unpacked/Total.exe
+          foreach ($target in $targets) {
+            $signature = Get-AuthenticodeSignature $target.FullName
+            if ($signature.Status -ne 'Valid') { throw "Invalid signature on $($target.FullName): $($signature.Status)" }
+          }
+
+      - name: Verify packaged launch
+        run: npm run release:artifact -- win
+
+      - name: Install NSIS, post, backup, restore and uninstall
+        run: npm run release:install-smoke -- win
+
+      - name: Publication scorecard
+        run: npm run release:scorecard
+        env:
+          SMOKE_OUT: ${{ runner.temp }}/release-scorecard
+          RELEASE_SCORECARD_PLATFORM: win
+          RELEASE_SCORECARD_NAME: release-scorecard-win.json
+
+      - name: Record reproducible Windows build evidence
+        run: npm run release:evidence
+        env:
+          RELEASE_EVIDENCE_NAME: build-evidence-win.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-win
+          if-no-files-found: error
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+            dist/build-evidence-win.json
+            dist/release-scorecard-win.json
+
+  publish:
+    needs: [release-mac, release-win]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Validate cross-platform updater contract
+        run: npm run release:contract
+
+      - name: Create one complete public release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          mapfile -d '' assets < <(find release -type f -print0)
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" --verify-tag --generate-notes --latest \
+            --title "Total ${GITHUB_REF_NAME#v}" --repo "$GITHUB_REPOSITORY"

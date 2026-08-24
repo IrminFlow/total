@@ -49,6 +49,20 @@ await scenario('09-backup-restore', async (h) => {
   // Restore the exact backup we just took.
   const base = path.basename(backup.path)
   const entry = backups.find((b) => b.file === base) ?? backups[0]
+  const preview = await h.invoke('backup:preview', { file: entry.file })
+  assert(preview.valid && preview.integrity === 'ok', 'restore preview verifies backup integrity')
+  assertEq(preview.company.name, 'Backup Co', 'restore preview identifies company')
+  assertEq(preview.voucherCount, 1, 'restore preview reports source voucher count')
+
+  await h.goto('settings')
+  await h.page.getByRole('button', { name: 'Restore…', exact: true }).first().waitFor()
+  await h.page.getByRole('button', { name: 'Restore…', exact: true }).first().click()
+  await h.page.waitForFunction(() => document.body.innerText.includes('Integrity verified'))
+  const modalText = await h.page.locator('[role="dialog"]').innerText()
+  assert(modalText.includes('Backup Co') && /voucher period/i.test(modalText), 'restore modal shows identity, period and integrity')
+  await h.shot('01-restore-preview')
+  await h.clickText('Cancel')
+
   const restored = await h.invoke('backup:restore', { file: entry.file })
   assert(restored !== undefined, 'backup:restore answered')
 
@@ -58,5 +72,5 @@ await scenario('09-backup-restore', async (h) => {
 
   // The UI survives a restore: navigate + render the backups tab.
   await h.goto('settings')
-  await h.shot('01-settings-after-restore')
+  await h.shot('02-settings-after-restore')
 })

@@ -1,0 +1,25 @@
+{
+  "source": "shopify",
+  "orderId": "#FIXTURE-1001",
+  "orderDate": "2026-08-24",
+  "status": "partially_returned",
+  "currency": "INR",
+  "customerName": "Mira Stores",
+  "customerGstin": null,
+  "placeOfSupply": "27",
+  "settlementReference": "setl_fixture_1",
+  "shippingPaise": 5000,
+  "returnPaise": 10000,
+  "totalPaise": 105000,
+  "lines": [
+    {
+      "sku": "SKU-1",
+      "name": "Fixture item",
+      "quantityMilli": 1000,
+      "unitPricePaise": 100000,
+      "discountPaise": 0,
+      "taxPaise": 10000
+    }
+  ]
+}
+

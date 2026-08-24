@@ -11,6 +11,7 @@ import * as os from 'node:os'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron')
+const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...desktopEnv } = process.env
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'total-shots-site-'))
 const outDir = path.join(process.cwd(), 'site', 'public')
@@ -23,7 +24,7 @@ async function launchApp() {
     executablePath: electronPath,
     args: [process.cwd()],
     timeout: 60000,
-    env: { ...process.env, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
+    env: { ...desktopEnv, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
   })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')

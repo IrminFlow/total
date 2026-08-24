@@ -24,6 +24,7 @@ import * as os from 'node:os'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron')
+const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...desktopEnv } = process.env
 
 /** Console noise that is not the app's fault — never fails a scenario. */
 const CONSOLE_IGNORE = [
@@ -55,15 +56,20 @@ export class Harness {
     const attempt = async () => {
       const app = await electron.launch({
         executablePath: electronPath,
-        args: [this.appDir],
+        // A per-scenario Electron profile keeps requestSingleInstanceLock, Chromium state and
+        // safeStorage tests hermetic even when another worktree is running E2E concurrently.
+        args: [`--user-data-dir=${path.join(this.dataDir, '.electron-profile')}`, this.appDir],
         timeout: 60000,
         env: {
-          ...process.env,
+          ...desktopEnv,
           TOTAL_DATA_DIR: this.dataDir,
           TOTAL_SUPPRESS_SYNC_WARNING: '1'
         }
       })
       const page = await app.firstWindow()
+      // Attach before waiting for DOM readiness: module-initialization failures can fire during
+      // the first script turn and would otherwise leave only a blank window with no diagnostic.
+      this._collectConsole(page)
       await page.setViewportSize({ width: 1440, height: 900 })
       await page.waitForLoadState('domcontentloaded')
       await page.waitForFunction(() => Boolean(window.total), null, { timeout: 30000 })
@@ -80,12 +86,11 @@ export class Harness {
       }
       ;({ app: this.app, page: this.page } = await attempt())
     }
-    this._collectConsole()
     return this
   }
 
-  _collectConsole() {
-    this.page.on('console', (msg) => {
+  _collectConsole(page = this.page) {
+    page.on('console', (msg) => {
       const text = msg.text()
       if (/unique "?key"? prop|Each child in a list should have a unique/i.test(text)) {
         this.keyWarnings.push(text)
@@ -95,7 +100,7 @@ export class Harness {
         this.consoleErrors.push({ kind: 'console-error', text })
       }
     })
-    this.page.on('pageerror', (err) => {
+    page.on('pageerror', (err) => {
       this.consoleErrors.push({ kind: 'page-error', text: err.message })
     })
   }
@@ -123,6 +128,20 @@ export class Harness {
 
   /** Wait until a SPECIFIC screen is visible and idle. */
   async waitScreen(name, timeout = 15000) {
+    await this.page.waitForSelector(`[data-screen="${name}"][data-loading="false"]`, {
+      state: 'attached',
+      timeout
+    })
+    // The Shell marker changes before a lazy route chunk has necessarily mounted. Wait for the
+    // shared Suspense status to leave, then re-check query idleness.
+    await this.page.waitForFunction(
+      (screen) => {
+        const main = document.querySelector(`[data-screen="${screen}"]`)
+        return main && !main.querySelector('[role="status"]')
+      },
+      name,
+      { timeout }
+    )
     await this.page.waitForSelector(`[data-screen="${name}"][data-loading="false"]`, {
       state: 'attached',
       timeout
@@ -178,6 +197,7 @@ export class Harness {
     await this.fill('input-company-name', name)
     await this.click('btn-company-save')
     await this.waitScreen('gateway', timeout)
+    await this.page.waitForSelector('[data-testid="card-voucher-entry"]', { state: 'visible', timeout })
   }
 
   /** From company-select: build the Demo Traders sample company and land on the Gateway. */
@@ -185,6 +205,7 @@ export class Harness {
     await this.waitScreen('company-select')
     await this.clickText('Explore with sample data')
     await this.waitScreen('gateway', timeout)
+    await this.page.waitForSelector('[data-testid="card-voucher-entry"]', { state: 'visible', timeout })
   }
 
   /** Screenshot into the out dir; auto-numbered unless a name is given. */
@@ -272,6 +293,9 @@ export async function scenario(name, fn, opts = {}) {
     ok = true
   } catch (err) {
     error = err instanceof Error ? (err.stack ?? err.message) : String(err)
+    if (h.consoleErrors.length > 0) {
+      error += `\nRenderer diagnostics:\n${h.consoleErrors.map((entry) => `  [${entry.kind}] ${entry.text}`).join('\n')}`
+    }
     console.error(`[${name}] FAILED:`, error)
     try {
       if (h.page) await h.shot('99-failure')

@@ -11,6 +11,15 @@ CSV/JSON **mirrors** and write through two validated surfaces (CLI, inbox). Ever
 exact same zod schema + posting validation + period lock as the app's UI and is audit-logged as
 `agent-cli` / `agent-inbox`.
 
+For MCP-capable clients, prefer `npm run mcp` from a source checkout, or run the installed
+`/Applications/Total.app/Contents/Resources/total-mcp.mjs` with Node on macOS. First issue a
+company-bound, expiring token in Total → Settings → Agent access and supply it as
+`TOTAL_MCP_TOKEN`; set `TOTAL_MCP_CLIENT` to a descriptive client name. The server exposes a
+versioned capability contract and separately scoped mirror, attachment, refresh-request and
+proposal tools. Proposals land in `companies/<slug>/proposals/` and cannot affect the books until a
+signed-in accountant approves the exact JSON in Total. A refresh request is likewise inert until
+an owner approves it in the app.
+
 ## Non-negotiables
 
 1. **Amounts are integer paise** (₹1 = 100 paise): `150000` = ₹1,500.00. Never floats, never rupees.

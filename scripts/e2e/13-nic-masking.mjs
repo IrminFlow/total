@@ -3,6 +3,8 @@
 // credential pair — v0.3 review F3), and re-saving the masked sentinels keeps the real values
 // (configured stays true) instead of clobbering them.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 const CREDS = {
   baseUrlEinvoice: 'https://einv-apisandbox.nic.in',
@@ -17,11 +19,38 @@ const CREDS = {
 await scenario('13-nic-masking', async (h) => {
   await h.createCompanyUI('NIC Co')
 
+  // Unsigned automation binaries can trigger a macOS Keychain prompt that Playwright cannot
+  // operate. Replace only the test process's safeStorage methods with a reversible byte cipher;
+  // production continues to use Electron's OS-backed safeStorage implementation.
+  await h.app.evaluate(({ safeStorage }) => {
+    const key = Buffer.from('total-e2e-credential-envelope')
+    safeStorage.isEncryptionAvailable = () => true
+    safeStorage.encryptString = (plain) => {
+      const bytes = Buffer.from(plain, 'utf8')
+      for (let i = 0; i < bytes.length; i++) bytes[i] ^= key[i % key.length]
+      return bytes
+    }
+    safeStorage.decryptString = (encrypted) => {
+      const bytes = Buffer.from(encrypted)
+      for (let i = 0; i < bytes.length; i++) bytes[i] ^= key[i % key.length]
+      return bytes.toString('utf8')
+    }
+  })
+
   const st0 = await h.invoke('nic:status')
   assertEq(st0.configured, false, 'fresh company has no NIC credentials')
 
   const saved = await h.invoke('nic:save', CREDS)
   assertEq(saved.configured, true, 'nic:save reports configured')
+
+  // Secrets are not merely hidden from the renderer; the on-disk SQLite database and WAL do
+  // not contain their plaintext bytes either. They hold an OS-protected encrypted envelope.
+  const companyDir = path.join(h.dataDir, 'companies', 'nic-co')
+  const diskBytes = fs.readdirSync(companyDir)
+    .filter((file) => file.startsWith('company.db'))
+    .map((file) => fs.readFileSync(path.join(companyDir, file)))
+  assert(!diskBytes.some((bytes) => bytes.includes(Buffer.from(CREDS.password))), 'NIC password is encrypted at rest')
+  assert(!diskBytes.some((bytes) => bytes.includes(Buffer.from(CREDS.clientSecret))), 'NIC client secret is encrypted at rest')
 
   // The renderer NEVER sees the real password or clientSecret.
   const got = await h.invoke('nic:get')
