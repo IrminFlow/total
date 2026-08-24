@@ -39,11 +39,25 @@ export function Accel({
 }): React.JSX.Element {
   const { before, hit, after } = splitAccel(label, accel, at)
   if (!hit) {
-    // The accelerator isn't a letter of the label (only TDS today) — show it as a trailing key.
+    // The accelerator isn't a letter of the label — show it as a key badge.
+    //
+    // Drawn as a key, not as coloured text. Rendered the same way as an in-label letter, a
+    // trailing "5" beside "Fixed assets" reads as a count of five things needing attention; a
+    // digit next to "Disclosure" reads as six unread items. A bordered key cap cannot be
+    // mistaken for a number about the data.
     return (
       <span>
         {label}
-        {accel ? <span className={`ml-1.5 ${muted ? 'accel-muted' : 'accel'}`}>{accel}</span> : null}
+        {accel ? (
+          <span
+            className={`ml-1.5 rounded-md border px-1 font-mono text-micro leading-none ${
+              muted ? 'border-line text-muted' : 'border-accel/40 text-accel'
+            }`}
+            aria-hidden="true"
+          >
+            {accel}
+          </span>
+        ) : null}
       </span>
     )
   }

@@ -122,7 +122,7 @@ export function RecurringScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <Button data-testid="btn-recurring-new" variant="primary" onClick={newTemplate}>

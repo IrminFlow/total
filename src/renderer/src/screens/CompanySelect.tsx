@@ -241,15 +241,16 @@ function StartRow({
   disabled?: boolean
   testId?: string
 }): React.JSX.Element {
+  // Deliberately not amber-filled: on this screen the amber bar means "the row you are on", and
+  // a second amber block beside it would blunt the one signal the keyboard depends on. Weight
+  // and the arrow carry the emphasis instead.
   return (
     <button
       type="button"
       data-testid={testId}
       disabled={disabled}
       onClick={onClick}
-      className={`flex w-full items-center justify-between gap-4 border-t border-line px-5 py-3 text-left transition-colors disabled:opacity-60 ${
-        accent ? 'bg-amberbar/15 hover:bg-amberbar/25' : 'hover:bg-panel2'
-      }`}
+      className="flex w-full items-center justify-between gap-4 border-t border-line bg-panel2/60 px-5 py-3 text-left transition-colors hover:bg-panel2 disabled:opacity-60"
     >
       <span>
         <span className={`block text-lead ${accent ? 'font-semibold' : 'font-medium'}`}>{title}</span>

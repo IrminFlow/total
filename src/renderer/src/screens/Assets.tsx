@@ -36,7 +36,7 @@ type Tab = 'register' | 'schedule'
 export function AssetsScreen(): React.JSX.Element {
   const [tab, setTab] = useStickyTab<Tab>('assets-tab', ['register', 'schedule'], 'register')
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex gap-1" role="group" aria-label="Assets view">

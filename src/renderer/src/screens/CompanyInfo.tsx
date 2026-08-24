@@ -93,7 +93,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[760px]">
       <SectionTitle>Company details</SectionTitle>
       <button
         data-testid="btn-company-info-invoice-layout"

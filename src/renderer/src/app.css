@@ -340,11 +340,69 @@ select:not([multiple]):not([size]):hover {
     linear-gradient(135deg, var(--t-ink) 50%, transparent 50%);
 }
 
-/* Checkboxes and radios follow the selection amber. Without this the OS paints them its own
-   blue in light mode and a stark white square on near-black in dark mode. */
+/* Checkboxes and radios, drawn rather than borrowed from the OS.
+
+   `accent-color` alone is not enough: it tints a box that is already ticked, and leaves the
+   UNTICKED state to the platform — which on macOS is a near-white square. Down the left edge of a
+   dark table that is the loudest thing on the screen, and it is the state most boxes are in.
+
+   So: `appearance: none` and paint both states from tokens. The tick is a CSS mask rather than a
+   background image so it inherits `--t-on-amber` and stays legible in either theme; a hardcoded
+   SVG fill would be wrong in one of them. */
 input[type='checkbox'],
 input[type='radio'] {
-  accent-color: var(--t-amber-bar);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 1px solid var(--t-line);
+  background: var(--t-panel);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+input[type='checkbox'] {
+  border-radius: 3px;
+}
+
+input[type='radio'] {
+  border-radius: 50%;
+}
+
+input[type='checkbox']:hover:not(:disabled),
+input[type='radio']:hover:not(:disabled) {
+  border-color: var(--t-amber);
+}
+
+input[type='checkbox']:checked,
+input[type='radio']:checked {
+  background: var(--t-amber-bar);
+  border-color: var(--t-amber-bar);
+}
+
+input[type='checkbox']:checked::after {
+  content: '';
+  width: 9px;
+  height: 9px;
+  background: var(--t-on-amber);
+  clip-path: polygon(14% 46%, 0 60%, 39% 100%, 100% 22%, 86% 8%, 39% 71%);
+}
+
+input[type='radio']:checked::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t-on-amber);
+}
+
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ---------- warnings ---------- */

@@ -60,7 +60,7 @@ export function ExceptionsScreen(): React.JSX.Element {
   const total = data?.sections.reduce((s, x) => s + x.count, 0) ?? 0
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={<span className="num text-small text-muted">{toDisplayDate(from)} → {toDisplayDate(to)}</span>}
       >

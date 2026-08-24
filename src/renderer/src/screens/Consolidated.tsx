@@ -61,7 +61,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-3">

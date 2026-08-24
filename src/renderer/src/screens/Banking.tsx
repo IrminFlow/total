@@ -158,7 +158,7 @@ export function BankingScreen(): React.JSX.Element {
 
   if (ledgers && ledgers.length === 0) {
     return (
-      <div className="mx-auto max-w-4xl">
+      <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
         <SectionTitle>Banking</SectionTitle>
         <Panel>
           <EmptyState title="No bank ledgers yet" hint="Create a ledger under Bank Accounts in Masters, then reconcile it here" />
@@ -168,7 +168,7 @@ export function BankingScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">

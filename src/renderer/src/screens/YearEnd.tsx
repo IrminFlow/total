@@ -80,7 +80,7 @@ export function YearEndScreen(): React.JSX.Element {
 
   if (noCompletedFy) {
     return (
-      <div className="mx-auto max-w-2xl">
+      <div className="flex h-full min-h-0 w-full flex-col max-w-[760px]">
         <SectionTitle>Year-end close</SectionTitle>
         <Panel>
           <EmptyState
@@ -94,7 +94,7 @@ export function YearEndScreen(): React.JSX.Element {
 
   if (result) {
     return (
-      <div className="mx-auto max-w-2xl">
+      <div className="flex h-full min-h-0 w-full flex-col max-w-[760px]">
         <SectionTitle>Year-end close</SectionTitle>
         <Panel className="p-6 text-center">
           <p className="text-lead font-medium">FY {fy.label} closed</p>
@@ -121,7 +121,7 @@ export function YearEndScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[760px]">
       <SectionTitle
         right={
           <Select value={fyStartYear} onChange={(e) => changeYear(Number(e.target.value))} className="w-36">

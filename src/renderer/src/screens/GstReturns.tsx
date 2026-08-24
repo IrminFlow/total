@@ -197,7 +197,7 @@ export function Gstr1Screen(): React.JSX.Element {
 
   if (!month) {
     return (
-      <div className="mx-auto max-w-4xl">
+      <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
         <SectionTitle>GSTR-1 · Outward supplies</SectionTitle>
         <NoMonths />
       </div>
@@ -205,7 +205,7 @@ export function Gstr1Screen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
@@ -475,7 +475,7 @@ export function Gstr3bScreen(): React.JSX.Element {
 
   if (!month) {
     return (
-      <div className="mx-auto max-w-4xl">
+      <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
         <SectionTitle>GSTR-3B · Summary return</SectionTitle>
         <NoMonths />
       </div>
@@ -483,7 +483,7 @@ export function Gstr3bScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">

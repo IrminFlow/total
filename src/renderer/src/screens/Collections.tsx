@@ -48,7 +48,7 @@ export function CollectionsScreen(): React.JSX.Element {
   const active = TABS.find((t) => t.id === tab) ?? TABS[0]!
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex flex-wrap gap-1" role="group" aria-label="Collections view">

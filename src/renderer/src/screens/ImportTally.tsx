@@ -103,7 +103,7 @@ export function ImportTallyScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[760px]">
       <SectionTitle>Import from Tally</SectionTitle>
       {step.kind === 'pick' && <PickStep busy={busy} onPick={() => void pickFile()} />}
       {step.kind === 'preview' && (
