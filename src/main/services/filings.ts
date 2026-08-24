@@ -2,8 +2,10 @@ import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { filingSchedule } from '@shared/compliance'
 import { lateCharge } from '@shared/gst/lateFee'
-import { periodBounds, type Period } from '@shared/period'
-import type { FilingRecord, FilingRow, FilingUpsert } from '@shared/gst/filings'
+import { periodBounds, periodKey, type Period } from '@shared/period'
+import type { FilingLiability, FilingRecord, FilingRow, FilingUpsert } from '@shared/gst/filings'
+import { IN_BOOKS } from './vouchers'
+import { cmp08, gstr3b } from './gst'
 import { writeAudit } from './audit'
 
 /**
@@ -27,6 +29,34 @@ function periodKindOf(key: string): Period {
 /** ISO date bounds of a filing's period, so the UI can drill into the books behind it. */
 export function filingPeriodBounds(period: string): { from: string; to: string } {
   return periodBounds(period, periodKindOf(period))
+}
+
+/**
+ * Which of these periods have any entry at all, in one query rather than one per row.
+ *
+ * Counts vouchers in books (not the bin) by the period key their date falls in. Quarters and
+ * years are answered by summing the months they contain, so one month's activity is enough to
+ * make its quarter non-nil -- which is the right reading: a quarterly return covering one busy
+ * month is not a nil return.
+ */
+function periodsWithEntries(db: DB, from: string, to: string): Set<string> {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT substr(v.date, 1, 7) AS month
+       FROM vouchers v
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+    )
+    .all(from, to) as { month: string }[]
+
+  const out = new Set<string>()
+  for (const { month } of rows) {
+    const iso = `${month}-01`
+    out.add(month)
+    out.add(periodKey(iso, 'quarter'))
+    out.add(periodKey(iso, 'half'))
+    out.add(periodKey(iso, 'year'))
+  }
+  return out
 }
 
 function readRecords(db: DB, periods: string[]): Map<string, FilingRecord> {
@@ -62,6 +92,7 @@ export function filingRegister(
     company.stateCode
   )
   const records = readRecords(db, [...new Set(schedule.map((d) => d.period))])
+  const active = periodsWithEntries(db, `${fyStartYear}-04-01`, `${fyStartYear + 1}-03-31`)
 
   return schedule.map((d) => {
     const record = records.get(`${d.form}/${d.period}`) ?? null
@@ -85,7 +116,7 @@ export function filingRegister(
       taxPaise: record?.taxPaid ?? 0
     })
 
-    return { ...d, record, status, charge, projected: !filed }
+    return { ...d, record, status, charge, projected: !filed, hasEntries: active.has(d.period) }
   })
 }
 
@@ -139,4 +170,44 @@ export function recordFiling(db: DB, input: FilingUpsert): FilingRecord {
 
   writeAudit(db, 'gst_filing', 0, before ? 'update' : 'create', before ?? null, after)
   return after
+}
+
+/**
+ * What the books say is payable for one filing period.
+ *
+ * Run on demand for a single row rather than for the whole year: this calls the real return
+ * builder, and twelve of those to draw a table would be twelve extractions for a number nobody
+ * has looked at yet. The one row a filer opens is the one row worth computing.
+ *
+ * GSTR-1 and IFF carry no payment, so they answer null rather than zero -- "nothing is payable"
+ * and "this form does not take a payment" are different facts, and prefilling zero into a tax
+ * field would quietly assert the first.
+ */
+export function filingLiability(
+  db: DB,
+  company: CompanyInfo,
+  form: string,
+  period: string
+): FilingLiability {
+  const { from, to } = filingPeriodBounds(period)
+
+  if (form === 'CMP-08' || form === 'GSTR-4') {
+    // The composition category lives with the filer, not the books; 'trader' is the common case
+    // and the register's own field stays editable, so this is a starting figure and not a claim.
+    const c = cmp08(db, company, from, to, 'trader')
+    return { form, period, taxPayable: c.totalPayable, source: 'CMP-08' }
+  }
+
+  if (form === 'GSTR-3B' || form === 'PMT-06') {
+    // PMT-06 is the challan for a QRMP month; the liability behind it is the same 3B computation
+    // over that month, which is exactly what a filer is trying to work out when they open it.
+    const r = gstr3b(db, company, from, to, period.replace('-', ''))
+    const net = r.netPayable
+    const rcm = r.rcmPayable
+    const total =
+      net.igst + net.cgst + net.sgst + net.cess + rcm.igst + rcm.cgst + rcm.sgst + rcm.cess
+    return { form, period, taxPayable: total, source: 'GSTR-3B' }
+  }
+
+  return { form, period, taxPayable: null, source: null }
 }

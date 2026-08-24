@@ -33,7 +33,7 @@ import type { Period } from '@shared/period'
 import type { AiConfigView, AiSettings } from '@shared/ai/config'
 import type { LicenseState } from '@shared/license'
 import type { Cmp08, CompositionCategory, Gstr4 } from '@shared/gst/composition'
-import type { FilingRecord, FilingRow } from '@shared/gst/filings'
+import type { FilingLiability, FilingRecord, FilingRow } from '@shared/gst/filings'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -700,7 +700,9 @@ export const api = {
       arn: string | null
       taxPaid: number
       notes: string | null
-    }) => call<FilingRecord>('filings:record', input)
+    }) => call<FilingRecord>('filings:record', input),
+    liability: (form: string, period: string) =>
+      call<FilingLiability>('filings:liability', { form, period })
   },
   mcp: {
     snippet: (client: 'claude-desktop' | 'claude-code' | 'codex', allowWrites: boolean) =>

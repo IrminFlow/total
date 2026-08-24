@@ -688,7 +688,7 @@ export function useTableNav<T>(
     'data-row-id'?: string | number
     className: string
     onMouseEnter: () => void
-    onClick?: () => void
+    onClick?: (e: React.MouseEvent) => void
   }
 } {
   const { onEnter, rowId, enabled = true } = opts
@@ -714,7 +714,15 @@ export function useTableNav<T>(
       'data-row-id': rowId ? rowId(row, index) : undefined,
       className: `kbar-row${onEnter ? ' cursor-pointer' : ''}`,
       onMouseEnter: () => setActive(index),
-      onClick: onEnter ? () => onEnter(row, index) : undefined
+      // A click on a control inside the row is that control's click, not the row's. Without this
+      // an action button in the last cell fires its own handler AND the row's, which on a screen
+      // where both open a dialog means two dialogs stacked on top of each other.
+      onClick: onEnter
+        ? (e: React.MouseEvent) => {
+            if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return
+            onEnter(row, index)
+          }
+        : undefined
     })
   }
 }

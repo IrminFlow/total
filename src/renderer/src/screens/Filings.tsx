@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
@@ -76,6 +76,7 @@ export function FilingsScreen(): React.JSX.Element {
   const queryClient = useQueryClient()
   const [fyStartYear, setFyStartYear] = useState(fyOf(from).startYear)
   const [editing, setEditing] = useState<FilingRow | null>(null)
+  const [nilling, setNilling] = useState<FilingRow | null>(null)
 
   const registered = info?.gstRegistrationType !== 'unregistered'
 
@@ -246,7 +247,7 @@ export function FilingsScreen(): React.JSX.Element {
                   <td className="r">
                     <Money paise={r.charge.interestPaise} />
                   </td>
-                  <td>
+                  <td className="whitespace-nowrap">
                     <Button
                       variant="ghost"
                       className="whitespace-nowrap"
@@ -255,6 +256,20 @@ export function FilingsScreen(): React.JSX.Element {
                     >
                       {r.record?.filedAt ? 'Edit' : 'Mark filed'}
                     </Button>
+                    {/* A period with nothing in it still owes a return -- a nil return is a
+                        return -- so offer it directly rather than walking a filer through a form
+                        whose every field is zero. */}
+                    {!r.record?.filedAt && !r.hasEntries && r.status !== 'upcoming' && (
+                      <Button
+                        variant="ghost"
+                        className="whitespace-nowrap"
+                        data-testid={`btn-filing-nil-${r.form}-${r.period}`}
+                        title="No entries in this period — file it nil"
+                        onClick={() => setNilling(r)}
+                      >
+                        Nil
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -267,6 +282,17 @@ export function FilingsScreen(): React.JSX.Element {
         Late fee and interest are estimates computed from the dates. The portal is authoritative
         and applies caps and waivers this cannot know about.
       </p>
+
+      {nilling && (
+        <NilFilingModal
+          row={nilling}
+          onClose={() => setNilling(null)}
+          onSaved={() => {
+            void queryClient.invalidateQueries({ queryKey: ['filings'] })
+            setNilling(null)
+          }}
+        />
+      )}
 
       {editing && (
         <FilingModal
@@ -311,6 +337,21 @@ function FilingModal({
   const [arn, setArn] = useState(row.record?.arn ?? '')
   const [taxPaid, setTaxPaid] = useState<number | null>(row.record?.taxPaid ?? 0)
   const [notes, setNotes] = useState(row.record?.notes ?? '')
+  const [touchedTax, setTouchedTax] = useState(false)
+
+  // What the books say is payable, fetched for this one row: the register would otherwise run
+  // twelve return builds to draw a table nobody has drilled into yet.
+  const { data: liability } = useQuery({
+    queryKey: ['filingLiability', row.form, row.period],
+    queryFn: () => api.filings.liability(row.form, row.period)
+  })
+
+  // Prefill from the books once, and only into an untouched field on an unrecorded filing --
+  // never over a figure the filer typed, and never over what was actually paid.
+  useEffect(() => {
+    if (touchedTax || row.record?.filedAt || liability?.taxPayable == null) return
+    setTaxPaid(liability.taxPayable)
+  }, [liability, touchedTax, row.record?.filedAt])
 
   const save = useMutation({
     mutationFn: (input: Parameters<typeof api.filings.record>[0]) => api.filings.record(input),
@@ -362,8 +403,22 @@ function FilingModal({
           <Field label="Filed on">
             <DateInput value={filedAt} context={row.date} onChange={setFiledAt} testId="input-filing-date" />
           </Field>
-          <Field label="Tax paid" hint="Drives the interest, and the nil-return fee rate">
-            <AmountInput paise={taxPaid} onPaise={setTaxPaid} testId="input-filing-tax" />
+          <Field
+            label="Tax paid"
+            hint={
+              liability?.taxPayable == null
+                ? 'Drives the interest, and the nil-return fee rate'
+                : `Books say ${formatPaise(liability.taxPayable)} is payable, per ${liability.source}`
+            }
+          >
+            <AmountInput
+              paise={taxPaid}
+              onPaise={(v) => {
+                setTouchedTax(true)
+                setTaxPaid(v)
+              }}
+              testId="input-filing-tax"
+            />
           </Field>
         </div>
 
@@ -380,6 +435,14 @@ function FilingModal({
         <Field label="Notes">
           <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
+
+        {liability?.taxPayable != null && (taxPaid ?? 0) !== liability.taxPayable && (
+          <div className="rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm" data-testid="filing-liability-gap">
+            This differs from the books by <b><Money paise={Math.abs((taxPaid ?? 0) - liability.taxPayable)} /></b>
+            {(taxPaid ?? 0) < liability.taxPayable ? ' short' : ' over'}. Worth a look before you
+            record it — though a genuine difference (a set-off, a carried-forward credit) is normal.
+          </div>
+        )}
 
         <LiveCharge form={row.form} dueDate={row.date} filedAt={filedAt} taxPaid={taxPaid ?? 0} />
 
@@ -436,5 +499,95 @@ function LiveCharge({
         <span className="text-hint text-muted"> · no interest, since no tax was paid late</span>
       )}
     </div>
+  )
+}
+
+/**
+ * File a nil return.
+ *
+ * The whole form is a single ARN box, because that is genuinely all a nil return needs: no tax,
+ * so no interest, and the late fee (if any) follows from the dates. Offered only when the books
+ * hold nothing in the period, so it can never quietly record a nil return over real entries.
+ */
+function NilFilingModal({
+  row,
+  onClose,
+  onSaved
+}: {
+  row: FilingRow
+  onClose: () => void
+  onSaved: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const [arn, setArn] = useState('')
+  const [filedAt, setFiledAt] = useState(todayISO())
+
+  const save = useMutation({
+    mutationFn: (input: Parameters<typeof api.filings.record>[0]) => api.filings.record(input),
+    onSuccess: () => {
+      toast.push('success', `${row.form} ${shortPeriod(row.period)} filed nil`)
+      onSaved()
+    },
+    onError: (err: Error) => toast.push('error', err.message)
+  })
+
+  const charge = lateCharge({ form: row.form, dueDate: row.date, filedDate: filedAt, taxPaise: 0 })
+
+  return (
+    <Modal title={`Nil ${row.form} — ${shortPeriod(row.period)}`} onClose={onClose} dirty={arn.length > 0}>
+      <div className="flex flex-col gap-4">
+        <p className="text-body-sm text-muted">
+          No entries in this period, so the return is nil. Nothing is payable, and no interest can
+          arise — only the late fee, if it is past due.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Filed on">
+            <DateInput value={filedAt} context={row.date} onChange={setFiledAt} testId="input-nil-date" />
+          </Field>
+          <Field label="ARN">
+            <TextInput
+              data-testid="input-nil-arn"
+              value={arn}
+              onChange={(e) => setArn(e.target.value.toUpperCase())}
+              className="num"
+              placeholder="AA270526000001X"
+              autoFocus
+            />
+          </Field>
+        </div>
+
+        {charge.daysLate > 0 && (
+          <div className="rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm" data-testid="nil-charge">
+            <b>{charge.daysLate} days late.</b> Nil returns carry the lower fee:{' '}
+            <b><Money paise={charge.lateFeePaise} /></b>
+            {charge.feeCapped && <span className="text-hint text-muted"> (at the cap)</span>}.
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            data-testid="btn-nil-save"
+            disabled={!arn.trim()}
+            disabledTitle="Enter the ARN the portal returned"
+            onClick={() =>
+              save.mutate({
+                form: row.form,
+                period: row.period,
+                dueDate: row.date,
+                filedAt,
+                arn: arn.trim(),
+                taxPaid: 0,
+                notes: 'Nil return'
+              })
+            }
+          >
+            File nil
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }

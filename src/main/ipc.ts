@@ -867,6 +867,17 @@ export function registerIpc(): void {
     return filings.recordFiling(requireCompany().db, input)
   }, 'owner')
 
+  handle('filings:liability', (p) => {
+    const { form, period } = z
+      .object({
+        form: z.string().trim().min(1).max(20),
+        period: z.string().trim().regex(/^\d{4}-(\d{2}|Q[1-4]|H[12]|FY)$/, 'Not a period key')
+      })
+      .parse(p)
+    const c = requireCompany()
+    return filings.filingLiability(c.db, c.info, form, period)
+  }, 'viewer')
+
   // ---------- analysis ----------
   handle('analysis:register', (p) => {
     const { kind, from, to, groupBy } = periodSchema

@@ -107,6 +107,49 @@ await scenario('20-filings', async (h) => {
   )
   await h.shot('03-filed')
 
+  // ---- the nil shortcut, and what the books say is payable ----
+  // A period with nothing in it still owes a return; the register offers it in one action rather
+  // than walking a filer through a form whose every field is zero.
+  const nilRow = after.find((r) => !r.hasEntries && r.status !== 'upcoming' && !r.record)
+  assert(nilRow, 'the demo books have at least one empty closed period')
+  const withEntries = after.find((r) => r.hasEntries)
+  assert(withEntries, 'and at least one period that is not empty')
+  // The shortcut must never be offered on a period that has real entries in it.
+  const nilButtons = await h.page.$$eval('[data-testid^="btn-filing-nil-"]', (els) =>
+    els.map((el) => el.dataset.testid)
+  )
+  assert(
+    !nilButtons.includes(`btn-filing-nil-${withEntries.form}-${withEntries.period}`),
+    'no nil shortcut on a period that has entries'
+  )
+
+  await h.page.click(`[data-testid="btn-filing-nil-${nilRow.form}-${nilRow.period}"]`)
+  await h.page.waitForSelector('[data-testid="input-nil-arn"]', { timeout: 10000 })
+  await h.page.fill('[data-testid="input-nil-arn"]', 'AA270526000011X')
+  await h.shot('04-nil')
+  await h.click('btn-nil-save')
+  await h.page.waitForFunction(
+    () => /AA270526000011X/.test(document.querySelector('[data-testid="rows-filings"]')?.textContent ?? ''),
+    null,
+    { timeout: 15000 }
+  )
+  const nilRecord = (await h.invoke('filings:register', { fyStartYear })).find(
+    (r) => r.form === nilRow.form && r.period === nilRow.period
+  )
+  assert(nilRecord.record.taxPaid === 0, 'a nil return records no tax')
+  assert(nilRecord.charge.interestPaise === 0, 'and can never carry interest')
+
+  // The liability behind a payment form comes from the real return builder.
+  const liability = await h.invoke('filings:liability', {
+    form: 'GSTR-3B',
+    period: withEntries.period
+  })
+  assert(liability.source === 'GSTR-3B', 'the figure says where it came from')
+  assert(typeof liability.taxPayable === 'number', 'and is a number for a payment form')
+  // GSTR-1 takes no payment, so it answers null rather than a misleading zero.
+  const noPayment = await h.invoke('filings:liability', { form: 'GSTR-1', period: withEntries.period })
+  assert(noPayment.taxPayable === null, 'GSTR-1 carries no payment')
+
   // The ARN is the point of the record — saving without one must be refused.
   const other = after.find((r) => r.period !== target.period && r.status !== 'upcoming' && !r.record)
   await h.page.click(`[data-testid="btn-filing-edit-${other.form}-${other.period}"]`)

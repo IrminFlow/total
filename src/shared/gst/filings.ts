@@ -43,6 +43,30 @@ export interface FilingRow extends Deadline {
   charge: LateCharge
   /** True when `charge` is a projection rather than what a filing actually cost. */
   projected: boolean
+  /**
+   * Whether the books hold any entry in this period.
+   *
+   * A period with nothing in it still has a return due -- a nil return is a return -- and this
+   * is what lets the register offer it in one action instead of walking a filer through a form
+   * whose every field is zero.
+   */
+  hasEntries: boolean
+}
+
+/**
+ * What the books say is payable for a period, for the forms that carry a payment.
+ *
+ * Computed with the real return builder rather than a shortcut aggregate: this number prefills
+ * the tax field on a filing record, so an approximation here would be an approximation in the
+ * register.
+ */
+export interface FilingLiability {
+  form: string
+  period: string
+  /** Net cash payable in paise, or null for a form that carries no payment (GSTR-1, IFF). */
+  taxPayable: number | null
+  /** Which return the figure came out of, so the UI can say where it got the number. */
+  source: 'GSTR-3B' | 'CMP-08' | null
 }
 
 export interface FilingUpsert {
