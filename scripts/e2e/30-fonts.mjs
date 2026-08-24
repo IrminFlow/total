@@ -1,0 +1,76 @@
+// Scenario 30 — the webfonts actually cover the characters this app prints.
+//
+// The renderer imports latin-only, woff2-only subsets. That took 76 font files down to 14 and
+// the bundle down by 640 KB, but a subset is a bet: any glyph the subset omits falls back to a
+// system font, and one character in a different typeface in the middle of an invoice total is
+// exactly the kind of thing nobody notices in review and everybody notices in print.
+//
+// The rupee sign is the one that matters — it is on every amount the app formats with a symbol,
+// and it sits at U+20B9, outside the range most "latin" subsets cover. This measures it rather
+// than trusting the subset's name.
+import { scenario, assert } from '../lib/harness.mjs'
+
+// Characters the app genuinely prints, and where.
+const REQUIRED = [
+  ['₹', 'the rupee sign — every amount formatted with a symbol'],
+  ['—', 'em dash — used throughout the interface copy'],
+  ['·', 'middot — the separator in every summary line'],
+  ['↑', 'arrow — sort indicators and drill-through links'],
+  ['₹1,23,456.00', 'a full Indian-grouped amount']
+]
+
+await scenario('30-fonts', async (h) => {
+  // Weight matters: only the weights app.css imports exist as webfonts. The serif is 500/600
+  // only, so measuring it at the default 400 measures the fallback and proves nothing.
+  const faces = [
+    { family: 'IBM Plex Sans', weight: 400 },
+    { family: 'IBM Plex Serif', weight: 600 },
+    { family: 'IBM Plex Mono', weight: 400 }
+  ]
+
+  const result = await h.page.evaluate(
+    async ({ faces, chars }) => {
+      await document.fonts.ready
+      const measure = (text, family, weight) => {
+        const s = document.createElement('span')
+        s.textContent = text
+        s.style.cssText = `position:absolute;left:-9999px;font-size:100px;font-weight:${weight};font-family:${family}`
+        document.body.appendChild(s)
+        const w = s.getBoundingClientRect().width
+        s.remove()
+        return w
+      }
+      const out = {}
+      for (const { family, weight } of faces) {
+        out[family] = {
+          // Control: a character every font has. If this does not differ from the fallback, the
+          // webfont never loaded and every other measurement below is meaningless.
+          control: [measure('A', `'${family}','NoFallbackXYZ'`, weight), measure('A', "'NoFallbackXYZ'", weight)],
+          chars: chars.map((c) => [
+            c,
+            measure(c, `'${family}','NoFallbackXYZ'`, weight),
+            measure(c, "'NoFallbackXYZ'", weight)
+          ])
+        }
+      }
+      return out
+    },
+    { faces, chars: REQUIRED.map(([c]) => c) }
+  )
+
+  for (const { family, weight } of faces) {
+    const r = result[family]
+    assert(r.control[0] !== r.control[1], `${family} ${weight} is loaded (control glyph differs from the fallback)`)
+    for (const [char, withFace, fallback] of r.chars) {
+      const why = REQUIRED.find(([c]) => c === char)[1]
+      assert(withFace !== fallback, `${family} has ${JSON.stringify(char)} — ${why}`)
+    }
+  }
+
+  // And the trim itself: no legacy woff should reach the bundle. Chromium has supported woff2
+  // since 2014, so a woff beside every woff2 is a file that is shipped and never once requested.
+  const loaded = await h.page.evaluate(() =>
+    [...document.fonts].map((f) => f.family).filter((v, i, a) => a.indexOf(v) === i)
+  )
+  assert(loaded.some((f) => f.includes('IBM Plex')), `the Plex faces are registered (${loaded.join(', ')})`)
+})

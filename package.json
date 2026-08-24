@@ -20,7 +20,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "postinstall": "electron-builder install-app-deps",
     "build:mac": "electron-vite build && electron-builder --mac",
-    "icon": "node scripts/run-icon.mjs"
+    "icon": "node scripts/run-icon.mjs",
+    "verify": "node scripts/verify.mjs",
+    "bundle:budget": "node scripts/bundle-budget.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
