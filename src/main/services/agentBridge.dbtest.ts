@@ -11,6 +11,9 @@ import { getAgentBridgeEnabled, setAgentBridgeEnabled } from './config'
 import { approveProposal, createProposal, discardProposal, inboxDir, listProposals, processInboxFile, scanInbox } from './agentBridge'
 import { cmdCreateCompany, openCompany } from '../cli/commands'
 import type { DB } from '../db/connection'
+import { saveDiscountPolicy } from './discountAuthority'
+import { listApprovalRequests, setApprovalPolicy } from './approvals'
+import { saveUser } from './users'
 
 let dataDir: string
 let prevDataDir: string | undefined
@@ -213,7 +216,9 @@ describe('agent proposal review queue', () => {
     const proposal = createProposal(slug, 'mcp', '₹77 cash receipt', draft())
     expect(voucherCount()).toBe(before)
     expect(listProposals(slug).map((p) => p.id)).toContain(proposal.id)
-    const saved = approveProposal(db, slug, proposal.id)
+    const saved = approveProposal(db, slug, proposal.id, null)
+    expect(saved.approvalRequired).toBe(false)
+    if (saved.approvalRequired) throw new Error('Unexpected approval request')
     expect(saved.id).toBeGreaterThan(0)
     expect(voucherCount()).toBe(before + 1)
     expect(listProposals(slug).map((p) => p.id)).not.toContain(proposal.id)
@@ -227,5 +232,81 @@ describe('agent proposal review queue', () => {
     discardProposal(slug, proposal.id)
     expect(voucherCount()).toBe(before)
     expect(listProposals(slug).map((p) => p.id)).not.toContain(proposal.id)
+  })
+
+  it('refuses an excessive sales discount and leaves the proposal pending', () => {
+    const before = voucherCount()
+    const unitId = (db.prepare('SELECT id FROM units ORDER BY id LIMIT 1').get() as { id: number }).id
+    const itemId = Number(
+      db.prepare("INSERT INTO stock_items(name,unit_id,gst_rate) VALUES('Protected proposal item',?,0)")
+        .run(unitId).lastInsertRowid
+    )
+    saveDiscountPolicy(db, {
+      name: 'Agent proposal ceiling',
+      scopeKind: 'role',
+      role: 'accountant',
+      stockItemId: null,
+      customerLedgerId: null,
+      maxDiscountBps: 500,
+      active: true
+    }, 'Owner')
+    const salesTypeId = (db.prepare("SELECT id FROM voucher_types WHERE kind='sales' LIMIT 1").get() as { id: number }).id
+    const proposal = createProposal(slug, 'mcp', 'Discount outside authority', {
+      voucherTypeId: salesTypeId,
+      date: '2025-09-02',
+      lines: [
+        { ledgerId: ledgerId('Cash'), drCr: 'dr', amount: 90_000 },
+        { ledgerId: ledgerId('Inbox Sales'), drCr: 'cr', amount: 90_000 }
+      ],
+      inventory: [{
+        stockItemId: itemId,
+        godownId: null,
+        qtyMilli: 2_000,
+        ratePaise: 50_000,
+        discountPaise: 10_000,
+        amount: 90_000,
+        direction: 'out'
+      }]
+    })
+
+    expect(() => approveProposal(db, slug, proposal.id, {
+      id: 999,
+      name: 'Restricted accountant',
+      role: 'accountant'
+    })).toThrow('exceeds the 5% authority limit')
+    expect(voucherCount()).toBe(before)
+    expect(listProposals(slug).map((row) => row.id)).toContain(proposal.id)
+    expect(db.prepare(
+      "SELECT actor_role AS actorRole, actor_name AS actorName, outcome FROM sales_discount_events ORDER BY id DESC LIMIT 1"
+    ).get()).toEqual({ actorRole: 'accountant', actorName: 'Restricted accountant', outcome: 'blocked' })
+  })
+
+  it('routes a controlled proposal into maker-checker without posting a voucher', () => {
+    const owner = saveUser(db, { name: 'Proposal owner', role: 'owner', pin: '1357' })
+    const maker = saveUser(db, { name: 'Proposal maker', role: 'accountant', pin: '2468' })
+    setApprovalPolicy(db, {
+      enabled: true,
+      thresholdPaise: 1,
+      voucherTypeIds: [],
+      expenseEnabled: false,
+      expenseThresholdPaise: null
+    })
+    const before = voucherCount()
+    const proposal = createProposal(slug, 'ai', 'Controlled receipt', draft())
+
+    const result = approveProposal(db, slug, proposal.id, maker)
+
+    expect(result.approvalRequired).toBe(true)
+    if (!result.approvalRequired) throw new Error('Expected maker-checker handoff')
+    expect(voucherCount()).toBe(before)
+    expect(result.request).toMatchObject({
+      status: 'pending',
+      makerUserId: maker.id,
+      makerName: maker.name,
+      postedVoucherId: null
+    })
+    expect(listApprovalRequests(db)).toHaveLength(1)
+    expect(listProposals(slug).map((row) => row.id)).not.toContain(proposal.id)
+    expect(owner.role).toBe('owner')
   })
 })

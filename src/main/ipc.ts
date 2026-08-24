@@ -165,6 +165,7 @@ import * as entryTemplateService from "./services/entryTemplates";
 import * as salesDocumentService from "./services/salesDocuments";
 import * as salesRecurringService from "./services/salesRecurring";
 import * as discountAuthorityService from "./services/discountAuthority";
+import * as voucherPostingControls from "./services/voucherPostingControls";
 import * as customerOperations from "./services/customerOperations";
 import * as internalControls from "./services/internalControls";
 import * as procurementService from "./services/procurement";
@@ -178,6 +179,7 @@ import * as integrations from "./services/integrations";
 import * as partnerAdapters from "./services/partnerAdapters";
 import * as resilience from "./services/resilience";
 import * as attachmentVault from "./services/attachmentVault";
+import { permissionActionForChannel as permissionActionFor } from "./ipcPermissions";
 import * as privacyControls from "./services/privacyControls";
 import * as exportSigning from "./services/exportSigning";
 import { backgroundWork } from "./services/workloadGovernor";
@@ -316,52 +318,6 @@ const UNGATED_CHANNELS = new Set([
   "support:bundleOffline",
   "support:submit",
 ]);
-
-function permissionActionFor(
-  channel: string,
-  payload: unknown,
-  minRole: Role,
-): permissions.PermissionAction {
-  if (channel === "approval:list") return "view";
-  if (
-    channel.startsWith("approval:approve") ||
-    channel.startsWith("approval:reject")
-  )
-    return "approve";
-  if (channel.startsWith("backup:") || channel === "company:backup")
-    return "backup";
-  if (
-    channel.startsWith("export:") ||
-    channel === "report:pdf" ||
-    channel.endsWith(":pdf") ||
-    channel.endsWith(":csv")
-  )
-    return "export";
-  if (
-    channel.startsWith("config:") ||
-    channel.startsWith("users:") ||
-    channel.endsWith(":setConfig") ||
-    channel === "company:updateInfo" ||
-    channel.startsWith("company:lock:")
-  )
-    return "settings";
-  if (minRole === "viewer") return "view";
-  if (minRole === "owner") return "settings";
-  const hasId =
-    !!payload &&
-    typeof payload === "object" &&
-    "id" in payload &&
-    typeof (payload as { id?: unknown }).id === "number";
-  if (
-    hasId ||
-    /:(update|delete|remove|restore|purge|set|deactivate|mature|commit|resolve)$/.test(
-      channel,
-    ) ||
-    channel.endsWith("Resolve")
-  )
-    return "edit";
-  return "create";
-}
 
 function exportFormatFor(channel: string): ExportFormat {
   if (channel === "agent:exportMirror") return "json_mirror";
@@ -1760,25 +1716,11 @@ export function registerIpc(): void {
       })
       .parse(p);
     const c = requireCompany();
-    const voucherKind = c.db
-      .prepare("SELECT kind FROM voucher_types WHERE id=?")
-      .get(data.voucherTypeId) as { kind: string } | undefined;
-    if (voucherKind?.kind === "sales") {
-      discountAuthorityService.assertDiscountAuthority(c.db, {
-        role: sessionUser?.role ?? "owner",
-        actorName: sessionUser?.name ?? "Local user",
-        customerLedgerId: data.partyLedgerId ?? null,
-        contextKind: "sales_invoice",
-        lines: data.inventory.map((line) => ({
-          stockItemId: line.stockItemId,
-          requestedDiscountBps: discountAuthorityService.invoiceDiscountBps(
-            line.qtyMilli,
-            line.ratePaise,
-            line.discountPaise ?? 0,
-          ),
-        })),
-      });
-    }
+    voucherPostingControls.assertVoucherDiscountAuthority(
+      c.db,
+      data,
+      sessionUser,
+    );
     const workDraft = draftId
       ? voucherDraftService.getVoucherDraft(c.db, draftId)
       : null;
@@ -1787,20 +1729,24 @@ export function registerIpc(): void {
       if (
         c.usersExist &&
         sessionUser &&
-        approvals.requiresApproval(c.db, data)
+        approvals.requiresApproval(c.db, data) &&
+        (procurementMatch || procurementClaimKey)
       ) {
-        if (procurementMatch || procurementClaimKey)
-          throw new Error(
-            "An owner must post a procurement-linked invoice directly; approval handoff is not available for linked invoices yet",
-          );
-        const approvalResult = {
-          approvalRequired: true as const,
-          request: approvals.createApprovalRequest(c.db, data, sessionUser, id),
-        };
-        if (draftId) voucherDraftService.deleteVoucherDraft(c.db, draftId);
-        return approvalResult;
+        throw new Error(
+          "An owner must post a procurement-linked invoice directly; approval handoff is not available for linked invoices yet",
+        );
       }
-      const saved = vouchers.saveVoucher(c.db, data, id, { creditOverrideReason });
+      const saved = voucherPostingControls.postVoucherWithApprovalControl(
+        c.db,
+        data,
+        c.usersExist ? sessionUser : null,
+        id,
+        { creditOverrideReason },
+      );
+      if (saved.approvalRequired) {
+        if (draftId) voucherDraftService.deleteVoucherDraft(c.db, draftId);
+        return saved;
+      }
       if (creditOverrideReason) writeAudit(c.db, 'voucher', saved.id, 'update', null, { creditLimitOverride: creditOverrideReason, actor: sessionUser?.name ?? 'Local user' });
       if (procurementMatch)
         procurementService.recordInvoiceMatch(
@@ -1836,7 +1782,7 @@ export function registerIpc(): void {
         );
       }
       if (draftId) voucherDraftService.deleteVoucherDraft(c.db, draftId);
-      return { ...saved, approvalRequired: false as const };
+      return saved;
     })();
     // Agent mirror stays fresh while the flag is on — debounced so entry bursts export once.
     if (configSvc.getAgentBridgeEnabled(c.db))
@@ -6599,7 +6545,7 @@ export function registerIpc(): void {
     (p) => {
       const { file } = z.object({ file: z.string().min(1).max(240) }).parse(p);
       const c = requireCompany();
-      return agentBridge.approveProposal(c.db, c.slug, file);
+      return agentBridge.approveProposal(c.db, c.slug, file, sessionUser);
     },
     "accountant",
   );

@@ -20,7 +20,6 @@ import { companyDir } from '../paths'
 import { rowsToCsv } from '@shared/csv'
 import { fyOf, todayISO } from '@shared/dates'
 import { voucherInputSchema } from '@shared/schemas'
-import type { Voucher } from '@shared/domain'
 import * as masters from './masters'
 import { trialBalance } from './reports'
 import { outstandings } from './analysis'
@@ -28,6 +27,12 @@ import { getVoucher, saveVoucher, NOT_DELETED } from './vouchers'
 import { applyImport, type ImportKind, type ImportResult } from './importers'
 import { runAsAuditUser } from './audit'
 import { log } from '../log'
+import {
+  assertVoucherDiscountAuthority,
+  postVoucherWithApprovalControl,
+  type ControlledVoucherPostResult,
+  type VoucherPostingActor
+} from './voucherPostingControls'
 
 /** Bumped whenever the mirror file shapes change incompatibly; stamped into meta.json. */
 export const MIRROR_SCHEMA_VERSION = 1
@@ -107,8 +112,17 @@ export function listProposals(slug: string): AgentProposal[] {
     })
 }
 
-/** Human approval is the only proposal-to-ledger path: full voucher validation + period lock. */
-export function approveProposal(db: DB, slug: string, file: string): Voucher {
+/**
+ * A proposal review is still subject to the company's posting controls. An approval click can
+ * therefore be refused by discount authority or routed into maker-checker instead of silently
+ * becoming a back door around the ordinary voucher screen.
+ */
+export function approveProposal(
+  db: DB,
+  slug: string,
+  file: string,
+  actor: VoucherPostingActor | null
+): ControlledVoucherPostResult {
   const name = safeProposalName(file)
   const dir = proposalsDir(slug)
   const path = join(dir, name)
@@ -117,7 +131,10 @@ export function approveProposal(db: DB, slug: string, file: string): Voucher {
   const proposal = JSON.parse(readFileSync(path, 'utf8')) as AgentProposal
   if (proposal.version !== 1 || proposal.status !== 'pending') throw new Error('Invalid proposal')
   const input = voucherInputSchema.parse(proposal.voucher)
-  const saved = runAsAuditUser(`agent-${proposal.source}`, () => saveVoucher(db, input))
+  assertVoucherDiscountAuthority(db, input, actor)
+  const saved = runAsAuditUser(`agent-${proposal.source}`, () =>
+    db.transaction(() => postVoucherWithApprovalControl(db, input, actor))()
+  )
   const reviewed = join(dir, 'reviewed')
   mkdirSync(reviewed, { recursive: true })
   renameSync(path, join(reviewed, `${stamp()}-${name}`))
