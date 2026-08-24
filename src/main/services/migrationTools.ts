@@ -1,6 +1,6 @@
 import { basename, extname, join } from "path";
 import { createReadStream, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import ExcelJS from "exceljs";
 import type { DB } from "../db/connection";
 import type { CompanyInfo } from "@shared/domain";
@@ -652,7 +652,9 @@ export async function linkImportAttachments(
       continue;
     }
     const source = join(folder, name);
-    const stored = join(destination, name);
+    const extension = extname(name).toLowerCase();
+    const portableExtension = /^\.[a-z0-9]{1,12}$/.test(extension) ? extension : "";
+    const stored = join(destination, `${randomUUID()}${portableExtension}`);
     let managedPath: string;
     try {
       managedPath = storeManagedAttachment(db, slug, source, stored);

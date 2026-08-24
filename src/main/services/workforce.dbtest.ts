@@ -151,7 +151,6 @@ describe("employee reimbursements", () => {
       amount: 1_250_00,
       taxable: false,
       description: "Client-site taxi",
-      attachmentPath: "/evidence/taxi.pdf",
     });
     expect(claim.status).toBe("submitted");
     expect(

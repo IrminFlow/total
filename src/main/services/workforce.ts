@@ -1,5 +1,8 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
+import { lstatSync, mkdirSync } from "fs";
+import { extname, join } from "path";
 import type { DB } from "../db/connection";
+import { companyDir } from "../paths";
 import { parseCsv } from "@shared/csv";
 import type {
   AttendanceImportPreview,
@@ -23,6 +26,7 @@ import { writeAudit } from "./audit";
 import { findOrCreateLedger } from "./masters";
 import { saveVoucher } from "./vouchers";
 import { tdsSuggestion } from "./tds";
+import { removeManagedAttachment, storeManagedAttachment } from "./attachmentVault";
 
 type AttendanceRow = Omit<AttendanceRecord, "employeeName" | "employeeCode"> & {
   employee_name: string;
@@ -790,6 +794,7 @@ export function submitReimbursement(
     description: string;
     attachmentPath?: string | null;
   },
+  companySlug?: string,
 ): EmployeeReimbursement {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.claimDate))
     throw new Error("Claim date must be YYYY-MM-DD");
@@ -797,21 +802,44 @@ export function submitReimbursement(
     throw new Error("Claim amount must be positive integer paise");
   if (!input.category.trim() || !input.description.trim())
     throw new Error("Claim category and description are required");
-  const id = Number(
-    db
-      .prepare(
-        "INSERT INTO employee_reimbursements(employee_id,claim_date,category,amount,taxable,description,attachment_path) VALUES(?,?,?,?,?,?,?)",
-      )
-      .run(
-        input.employeeId,
-        input.claimDate,
-        input.category.trim(),
-        input.amount,
-        +input.taxable,
-        input.description.trim(),
-        input.attachmentPath ?? null,
-      ).lastInsertRowid,
-  );
+  let managedAttachment: string | null = null;
+  if (input.attachmentPath) {
+    if (!companySlug) throw new Error("Company identifier is required to attach reimbursement evidence");
+    const source = lstatSync(input.attachmentPath);
+    if (source.isSymbolicLink() || !source.isFile() || source.size > 25 * 1024 * 1024)
+      throw new Error("Reimbursement evidence must be a regular file no larger than 25 MB");
+    const extension = extname(input.attachmentPath).toLowerCase();
+    const portableExtension = /^\.[a-z0-9]{1,12}$/.test(extension) ? extension : "";
+    const destinationDirectory = join(companyDir(companySlug), "attachments", "payroll", "reimbursements");
+    mkdirSync(destinationDirectory, { recursive: true, mode: 0o700 });
+    managedAttachment = storeManagedAttachment(
+      db,
+      companySlug,
+      input.attachmentPath,
+      join(destinationDirectory, `${randomUUID()}${portableExtension}`),
+    );
+  }
+  let id: number;
+  try {
+    id = Number(
+      db
+        .prepare(
+          "INSERT INTO employee_reimbursements(employee_id,claim_date,category,amount,taxable,description,attachment_path) VALUES(?,?,?,?,?,?,?)",
+        )
+        .run(
+          input.employeeId,
+          input.claimDate,
+          input.category.trim(),
+          input.amount,
+          +input.taxable,
+          input.description.trim(),
+          managedAttachment,
+        ).lastInsertRowid,
+    );
+  } catch (error) {
+    if (managedAttachment && companySlug) removeManagedAttachment(companySlug, managedAttachment);
+    throw error;
+  }
   const after = listReimbursements(db).find((row) => row.id === id)!;
   writeAudit(db, "employee_reimbursement", id, "create", null, after);
   return after;

@@ -14,6 +14,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
@@ -65,6 +66,8 @@ describe("platform-protected attachment vault", () => {
     ).run(stored, "a".repeat(64));
     const importedPlain = join(assist, "legacy-import.pdf");
     writeFileSync(importedPlain, Buffer.from("legacy imported evidence"));
+    const voucherPlain = join(assist, "posted-voucher-receipt.jpg");
+    writeFileSync(voucherPlain, Buffer.from("posted voucher evidence"));
     db.prepare(
       "INSERT INTO import_batches(kind,source_hash,source_bytes,source_rows,accepted_rows,rejected_rows,summary_json) VALUES('generic_journal',?,1,1,1,0,'{}')",
     ).run("b".repeat(64));
@@ -81,8 +84,12 @@ describe("platform-protected attachment vault", () => {
       `INSERT INTO import_voucher_attachments(import_batch_id,voucher_id,source_filename,stored_path,sha256,linked_by)
        VALUES(? ,?,'legacy-import.pdf',?,?,'Owner')`,
     ).run(batchId, voucher.id, importedPlain, "c".repeat(64));
+    db.prepare(
+      `INSERT INTO voucher_attachments(voucher_id,original_name,stored_path,kind,size_bytes,added_by)
+       VALUES(?,'posted-voucher-receipt.jpg',?,'receipt',?, 'Owner')`,
+    ).run(voucher.id, voucherPlain, Buffer.byteLength("posted voucher evidence"));
     const encrypted = setAttachmentEncryption(db, slug, true, "Owner");
-    expect(encrypted.migratedFiles).toBe(1);
+    expect(encrypted.migratedFiles).toBe(2);
     const encryptedImport = (
       db
         .prepare("SELECT stored_path AS path FROM import_voucher_attachments")
@@ -92,8 +99,17 @@ describe("platform-protected attachment vault", () => {
     expect(readManagedAttachment(db, slug, encryptedImport).toString()).toBe(
       "legacy imported evidence",
     );
+    const encryptedVoucher = (
+      db.prepare("SELECT stored_path AS path FROM voucher_attachments").get() as {
+        path: string;
+      }
+    ).path;
+    expect(encryptedVoucher).toMatch(/\.totalatt$/);
+    expect(readManagedAttachment(db, slug, encryptedVoucher).toString()).toBe(
+      "posted voucher evidence",
+    );
     const result = setAttachmentEncryption(db, slug, false, "Owner");
-    expect(result).toMatchObject({ enabled: false, migratedFiles: 2 });
+    expect(result).toMatchObject({ enabled: false, migratedFiles: 3 });
     expect(attachmentEncryptionEnabled(db)).toBe(false);
     const path = (
       db.prepare("SELECT source_path AS path FROM ai_document_inbox").get() as {
@@ -109,5 +125,34 @@ describe("platform-protected attachment vault", () => {
     expect(readFileSync(importedPath).toString()).toBe(
       "legacy imported evidence",
     );
+    const voucherPath = (
+      db.prepare("SELECT stored_path AS path FROM voucher_attachments").get() as {
+        path: string;
+      }
+    ).path;
+    expect(voucherPath).not.toMatch(/\.totalatt$/);
+    expect(readFileSync(voucherPath).toString()).toBe(
+      "posted voucher evidence",
+    );
+  });
+
+  it("rejects a managed-looking destination whose parent escapes through a symlink", () => {
+    root = mkdtempSync(join(tmpdir(), "total-attachments-symlink-"));
+    process.env.TOTAL_DATA_DIR = root;
+    const slug = "vault-symlink-books";
+    ensureCompanyTree(slug);
+    const db = seededDb();
+    const attachments = join(companyDir(slug), "attachments");
+    const outside = join(root, "outside");
+    mkdirSync(attachments, { recursive: true });
+    mkdirSync(outside);
+    symlinkSync(outside, join(attachments, "escape"), "dir");
+    const source = join(root, "receipt.pdf");
+    writeFileSync(source, "private evidence");
+
+    expect(() =>
+      storeManagedAttachment(db, slug, source, join(attachments, "escape", "receipt.pdf")),
+    ).toThrow(/outside|symbolic/i);
+    expect(() => readFileSync(join(outside, "receipt.pdf"))).toThrow();
   });
 });
