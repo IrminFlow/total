@@ -22,10 +22,39 @@ export async function readJson<T>(pathname: string): Promise<T | null> {
   return await new Response(result.stream).json() as T;
 }
 
-export async function listJson<T>(prefix: string, limit = 1_000): Promise<T[]> {
+export async function listJson<T>(prefix: string, maxItems = Number.POSITIVE_INFINITY): Promise<T[]> {
+  const rows: T[] = [];
+  let cursor: string | undefined;
+  do {
+    const remaining = Number.isFinite(maxItems) ? Math.max(0, maxItems - rows.length) : 1_000;
+    if (remaining === 0) break;
+    const result = await list({
+      prefix,
+      limit: Math.min(1_000, remaining),
+      ...(cursor ? { cursor } : {}),
+    });
+    const page = await Promise.all(result.blobs.map((blob) => readJson<T>(blob.pathname)));
+    rows.push(...page.flatMap((row) => row === null ? [] : [row]));
+    if (!result.hasMore) break;
+    if (!result.cursor) throw new Error("Blob listing reported another page without a cursor");
+    cursor = result.cursor;
+  } while (true);
+  return rows;
+}
+
+export interface JsonEntry<T> {
+  pathname: string;
+  value: T;
+}
+
+export async function listJsonEntries<T>(prefix: string, maxItems: number): Promise<JsonEntry<T>[]> {
+  const limit = Math.max(1, Math.min(1_000, Math.floor(maxItems)));
   const result = await list({ prefix, limit });
-  const rows = await Promise.all(result.blobs.map((blob) => readJson<T>(blob.pathname)));
-  return rows.flatMap((row) => row === null ? [] : [row as T]);
+  const rows = await Promise.all(result.blobs.map(async (blob) => ({
+    pathname: blob.pathname,
+    value: await readJson<T>(blob.pathname),
+  })));
+  return rows.flatMap((row) => row.value === null ? [] : [{ pathname: row.pathname, value: row.value }]);
 }
 
 export async function deleteJson(pathname: string): Promise<void> {

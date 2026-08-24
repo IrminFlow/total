@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/maintenance/intake?limit=100",
+      "schedule": "17 3 * * *"
+    }
+  ]
+}

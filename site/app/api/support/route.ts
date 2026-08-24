@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
-import { createHash, timingSafeEqual } from "node:crypto";
-import { deleteJson, deleteJsonPrefix, intakeStoreConfigured, jsonExists, listJson, readJson, storeJson } from "@/lib/intakeStore";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { intakeStoreConfigured, jsonExists, listJson, readJson, storeJson } from "@/lib/intakeStore";
+import { protectIntake } from "@/lib/intakeProtection";
+import { deleteSupportCase, indexForRetention, removeRetentionIndex, retentionHoldFor, supportDeleteAfter } from "@/lib/intakeRetention";
 
 export const runtime = "nodejs";
 
 const WINDOW_MS = 10 * 60_000;
 const MAX_REQUESTS = 8;
-const attempts = new Map<string, { count: number; resetAt: number }>();
 
 interface StoredCase {
   caseId: string;
@@ -18,6 +18,7 @@ interface StoredCase {
   status: "submitted" | "in_review" | "waiting_for_customer" | "resolved";
   receivedAt: string;
   updatedAt: string;
+  resolvedAt: string | null;
   diagnostics: unknown;
   logs: unknown;
   companyMetadata: unknown;
@@ -71,34 +72,12 @@ function fallback(caseId: string, category: string, email: string, message: stri
   );
 }
 
-function allowed(ip: string): boolean {
-  const now = Date.now();
-  const current = attempts.get(ip);
-  if (!current || current.resetAt <= now) {
-    attempts.set(ip, { count: 1, resetAt: now + WINDOW_MS });
-    return true;
-  }
-  current.count += 1;
-  if (attempts.size > 10_000) {
-    for (const [key, value] of attempts)
-      if (value.resetAt <= now) attempts.delete(key);
-  }
-  return current.count <= MAX_REQUESTS;
-}
-
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > 850_000)
     return NextResponse.json(
       { error: "Request is too large" },
       { status: 413 },
-    );
-  const ip =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (!allowed(ip))
-    return NextResponse.json(
-      { error: "Please wait before sending more feedback" },
-      { status: 429 },
     );
   let body: Record<string, unknown>;
   try {
@@ -222,14 +201,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     message.length < 10 ||
     message.length > 5000 ||
     email.length > 200 ||
-    (email !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    (!(crashEnvelope?.id && crashEnvelope.fingerprint) &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
   ) {
     return NextResponse.json(
-      { error: "Check the feedback fields" },
+      { error: "Enter a valid email and a message between 10 and 5,000 characters" },
       { status: 400 },
     );
   }
   const receivedAt = new Date().toISOString();
+  const protection = await protectIntake({
+    request,
+    scope: "support",
+    dedupeMaterial: JSON.stringify({
+      category,
+      email: email.toLowerCase(),
+      message,
+      source: body.source === "app" ? "app" : "website",
+      crash: crashEnvelope?.fingerprint ?? "",
+    }),
+    receipt: { id: caseId, receivedAt },
+    maxRequests: MAX_REQUESTS,
+    windowMs: WINDOW_MS,
+  });
+  if (!protection.allowed)
+    return NextResponse.json({ error: "Please wait before sending another support case" }, { status: 429 });
+  if (protection.duplicate)
+    return NextResponse.json({
+      ok: true,
+      caseId: protection.receipt?.id ?? caseId,
+      status: "submitted",
+      duplicate: true,
+    });
   const storedCase: StoredCase = {
     caseId,
     category,
@@ -239,6 +242,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     status: "submitted",
     receivedAt,
     updatedAt: receivedAt,
+    resolvedAt: null,
     diagnostics,
     logs,
     companyMetadata,
@@ -317,9 +321,23 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid status update" }, { status: 400 });
   const pathname = casePath(body.caseId);
   if (!await jsonExists(pathname)) return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  const stored = await readJson<StoredCase>(pathname);
+  if (!stored) return NextResponse.json({ error: "Case not found" }, { status: 404 });
   const updatedAt = new Date().toISOString();
   const event: CaseStatusEvent = { caseId: body.caseId, status: body.status!, updatedAt };
   await storeJson(`${caseStatusPrefix(body.caseId)}${updatedAt.replace(/[:.]/g, "-")}-${randomUUID()}.json`, event);
+  const resolvedAt = body.status === "resolved" ? updatedAt : null;
+  await storeJson(pathname, { ...stored, status: body.status!, updatedAt, resolvedAt }, true);
+  if (resolvedAt) {
+    await indexForRetention({
+      entity: "support",
+      id: body.caseId,
+      objectPath: pathname,
+      deleteAfter: supportDeleteAfter(resolvedAt),
+    });
+  } else {
+    await removeRetentionIndex("support", body.caseId);
+  }
   return NextResponse.json({ ok: true, caseId: body.caseId, status: body.status, updatedAt });
 }
 
@@ -328,9 +346,9 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   const caseId = request.nextUrl.searchParams.get("caseId") ?? "";
   if (!/^TOT-\d{8}-[A-F0-9]{6}$/.test(caseId))
     return NextResponse.json({ error: "Invalid case ID" }, { status: 400 });
+  if (await retentionHoldFor("support", caseId))
+    return NextResponse.json({ error: "This case is subject to a temporary legal or security hold" }, { status: 423 });
   const pathname = casePath(caseId);
-  const existed = await jsonExists(pathname);
-  if (existed) await deleteJson(pathname);
-  const statusEventsDeleted = await deleteJsonPrefix(caseStatusPrefix(caseId));
-  return NextResponse.json({ ok: true, caseId, deleted: existed, statusEventsDeleted });
+  const result = await deleteSupportCase(caseId, pathname);
+  return NextResponse.json({ ok: true, caseId, deleted: result.deleted, statusEventsDeleted: result.statusEventsDeleted });
 }

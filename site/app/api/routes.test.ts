@@ -37,12 +37,42 @@ function post(path: string, body: Record<string, unknown>): NextRequest {
   });
 }
 
+function installBlobStore(seed: Record<string, unknown> = {}): Map<string, string> {
+  const objects = new Map(Object.entries(seed).map(([key, value]) => [key, JSON.stringify(value)]));
+  blobMocks.put.mockImplementation(async (pathname: string, value: string, options: { allowOverwrite?: boolean }) => {
+    if (objects.has(pathname) && !options.allowOverwrite) throw new Error("already exists");
+    objects.set(pathname, value);
+    return {};
+  });
+  blobMocks.get.mockImplementation(async (pathname: string) => {
+    const value = objects.get(pathname);
+    return value === undefined ? null : { statusCode: 200, stream: new Blob([value]).stream() };
+  });
+  blobMocks.list.mockImplementation(async ({ prefix, limit = 1_000 }: { prefix: string; limit?: number }) => ({
+    blobs: [...objects.keys()].filter((key) => key.startsWith(prefix)).sort().slice(0, limit).map((pathname) => ({
+      pathname,
+      url: `https://blob.example/${pathname}`,
+    })),
+    hasMore: false,
+    cursor: undefined,
+  }));
+  blobMocks.del.mockImplementation(async (target: string | string[]) => {
+    for (const item of Array.isArray(target) ? target : [target]) {
+      const pathname = item.startsWith("https://blob.example/") ? item.slice("https://blob.example/".length) : item;
+      objects.delete(pathname);
+    }
+  });
+  return objects;
+}
+
 beforeEach(() => {
   process.env = { ...originalEnv };
   delete process.env.CONVEX_SUPPORT_URL;
   delete process.env.SUPPORT_WEBHOOK_URL;
   delete process.env.CONVEX_FEEDBACK_URL;
   delete process.env.SUPPORT_WEBHOOK_SECRET;
+  delete process.env.INTAKE_SECURITY_SECRET;
+  delete process.env.CRON_SECRET;
   delete process.env.SUPPORT_FALLBACK_EMAIL;
   delete process.env.BLOB_READ_WRITE_TOKEN;
   delete process.env.VERCEL_OIDC_TOKEN;
@@ -107,6 +137,15 @@ describe("support intake", () => {
     const { POST } = await import("./support/route");
     const response = await POST(post("/api/support", { message: "short", email: "not-an-email" }));
     expect(response.status).toBe(400);
+    const missingEmail = await POST(post("/api/support", {
+      message: "Please help me reconcile this opening balance.",
+    }));
+    expect(missingEmail.status).toBe(400);
+    const fakeAnonymousCrash = await POST(post("/api/support", {
+      message: "Anonymous crash report",
+      crashEnvelope: {},
+    }));
+    expect(fakeAnonymousCrash.status).toBe(400);
   });
 
   it("persists a private case and allows email-bound status tracking", async () => {
@@ -138,6 +177,43 @@ describe("support intake", () => {
     expect(await tracked.json()).toMatchObject({ caseId: receipt.caseId, status: "submitted" });
     const hidden = await GET(new NextRequest(`https://total.example/api/support?caseId=${receipt.caseId}&email=wrong%40example.com`));
     expect(hidden.status).toBe(404);
+  });
+
+  it("deduplicates retries across instances without storing a raw client address", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.INTAKE_SECURITY_SECRET = "a-separate-test-secret-with-32-bytes";
+    const objects = installBlobStore();
+    const { POST } = await import("./support/route");
+    const request = () => new NextRequest("https://total.example/api/support", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.77", "user-agent": "test-browser" },
+      body: JSON.stringify({ category: "bug", email: "owner@example.com", message: "The same retry should create only one support case." }),
+    });
+
+    const first = await POST(request());
+    const second = await POST(request());
+    const firstReceipt = await first.json() as { caseId: string };
+    const secondReceipt = await second.json() as { caseId: string; duplicate: boolean };
+
+    expect(secondReceipt).toMatchObject({ caseId: firstReceipt.caseId, duplicate: true });
+    expect([...objects.keys()].filter((key) => /^support\/.*\.json$/.test(key))).toHaveLength(1);
+    expect([...objects.values()].join("\n")).not.toContain("203.0.113.77");
+    expect([...objects.keys()].some((key) => key.startsWith("intake-security/rate/support/"))).toBe(true);
+  });
+
+  it("enforces the shared Blob-backed request limit", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.INTAKE_SECURITY_SECRET = "a-separate-test-secret-with-32-bytes";
+    installBlobStore();
+    const { POST } = await import("./support/route");
+    const submit = (number: number) => POST(new NextRequest("https://total.example/api/support", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.22", "user-agent": "test-browser" },
+      body: JSON.stringify({ email: "owner@example.com", message: `Support request number ${number} has enough detail to be valid.` }),
+    }));
+
+    for (let number = 1; number <= 8; number += 1) expect((await submit(number)).status).toBe(200);
+    expect((await submit(9)).status).toBe(429);
   });
 });
 
@@ -221,5 +297,40 @@ describe("download redirect", () => {
 
     await expect(GET(request)).rejects.toThrow("redirect:https://downloads.example/Total-0.5.0.exe");
     expect(releaseModule.resolveDownloadUrl).toHaveBeenCalledWith(expect.objectContaining({ version: "0.5.0" }), "win");
+  });
+});
+
+describe("intake retention maintenance", () => {
+  it("requires cron authentication and deletes expired case and feedback payloads", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.CRON_SECRET = "cron-test-secret";
+    const caseId = "TOT-20200101-ABCDEF";
+    const feedbackId = "09a74630-4f8b-46dd-81fe-be117cb06484";
+    const casePath = `support/2020/01/${caseId}.json`;
+    const feedbackPath = `feedback/events/2020-01/${feedbackId}.json`;
+    const supportIndex = `retention-index/support/2020-04/${caseId}.json`;
+    const feedbackIndex = `retention-index/feedback/2022-01/${feedbackId}.json`;
+    const objects = installBlobStore({
+      [casePath]: { caseId, status: "resolved" },
+      [`support-status/2020/01/${caseId}/resolved.json`]: { caseId, status: "resolved" },
+      [supportIndex]: { entity: "support", id: caseId, objectPath: casePath, deleteAfter: "2020-04-01T00:00:00.000Z" },
+      [`retention-pointers/support/${caseId}.json`]: { indexPath: supportIndex },
+      [feedbackPath]: { id: feedbackId, action: "follow" },
+      [feedbackIndex]: { entity: "feedback", id: feedbackId, objectPath: feedbackPath, deleteAfter: "2022-01-01T00:00:00.000Z" },
+      [`retention-pointers/feedback/${feedbackId}.json`]: { indexPath: feedbackIndex },
+    });
+    const { GET } = await import("./maintenance/intake/route");
+
+    const denied = await GET(new NextRequest("https://total.example/api/maintenance/intake"));
+    expect(denied.status).toBe(401);
+    const response = await GET(new NextRequest("https://total.example/api/maintenance/intake?limit=10", {
+      headers: { authorization: "Bearer cron-test-secret" },
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ support: { deleted: 1 }, feedback: { deleted: 1 } });
+    expect(objects.has(casePath)).toBe(false);
+    expect(objects.has(feedbackPath)).toBe(false);
+    expect([...objects.keys()].some((key) => key.includes(caseId) || key.includes(feedbackId))).toBe(false);
   });
 });

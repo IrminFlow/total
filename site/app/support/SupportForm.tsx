@@ -30,10 +30,10 @@ export default function SupportForm(): React.JSX.Element {
     <input name="website" tabIndex={-1} autoComplete="off" className="honeypot" aria-hidden="true" />
     <div className="support-fields">
       <label>Type<select name="category"><option value="question">Question</option><option value="bug">Something is broken</option><option value="accessibility">Accessibility issue</option><option value="idea">Product idea</option></select></label>
-      <label>Email<input name="email" type="email" placeholder="you@business.com" /></label>
+      <label>Email<input name="email" type="email" required placeholder="you@business.com" /></label>
     </div>
     <label>What can we help with?<textarea name="message" required minLength={10} maxLength={5000} /></label>
-    <p className="support-privacy">Your note goes to the Total support queue. We do not ask for passwords, API keys, bank credentials, or full accounting exports.</p>
+    <p className="support-privacy">Your email lets you track the case and receive a reply. We do not ask for passwords, API keys, bank credentials, or full accounting exports.</p>
     {state === 'error' && <p className="form-error">Couldn’t send that. Email total@irminflow.com instead.</p>}
     <button className="btn" disabled={state === 'sending'}>{state === 'sending' ? 'Sending…' : 'Send to Total support'}</button>
   </form>

@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { deleteJson, intakeStoreConfigured, listJson, storeJson } from "@/lib/intakeStore";
+import { protectIntake } from "@/lib/intakeProtection";
+import { deleteFeedbackEvent, feedbackDeleteAfter, indexForRetention, retentionHoldFor } from "@/lib/intakeRetention";
 
 export const runtime = "nodejs";
+
+const WINDOW_MS = 10 * 60_000;
+const MAX_REQUESTS = 20;
 
 const SHIPPED_IDEAS = [
   { id: "mobile-companion", title: "Read-only mobile companion", detail: "View key balances, invoices and reminders without moving the writable books off the desktop.", status: "considering", votes: 0, releaseVersion: null },
@@ -71,8 +76,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if ((action === "follow" || (action === "submit" && email)) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     return NextResponse.json({ error: "A valid email is required for updates" }, { status: 400 });
   const event = { id: randomUUID(), action, ideaId, title, detail, email, source: body.source === "app" ? "app" : "website", receivedAt: new Date().toISOString() };
+  const protection = await protectIntake({
+    request,
+    scope: "feedback",
+    dedupeMaterial: JSON.stringify({ action, ideaId, title, detail, email: email.toLowerCase() }),
+    receipt: { id: event.id, receivedAt: event.receivedAt },
+    maxRequests: MAX_REQUESTS,
+    windowMs: WINDOW_MS,
+  });
+  if (!protection.allowed)
+    return NextResponse.json({ error: "Please wait before sending more feedback" }, { status: 429 });
+  if (protection.duplicate)
+    return NextResponse.json({
+      ok: true,
+      id: protection.receipt?.id ?? event.id,
+      receivedAt: protection.receipt?.receivedAt ?? event.receivedAt,
+      status: action === "submit" ? "awaiting_review" : "recorded",
+      duplicate: true,
+    });
   if (!target && intakeStoreConfigured()) {
-    await storeJson(`feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`, event);
+    const objectPath = `feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`;
+    await storeJson(objectPath, event);
+    try {
+      await indexForRetention({
+        entity: "feedback",
+        id: event.id,
+        objectPath,
+        deleteAfter: feedbackDeleteAfter(event.receivedAt),
+      });
+    } catch {
+      await deleteJson(objectPath).catch(() => undefined);
+      return NextResponse.json({ error: "Feedback storage is unavailable" }, { status: 503 });
+    }
     return NextResponse.json({ ok: true, id: event.id, receivedAt: event.receivedAt, status: action === "submit" ? "awaiting_review" : "recorded" });
   }
   if (!target)
@@ -104,6 +139,9 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   });
   if (events.length !== body.events.length)
     return NextResponse.json({ error: "Invalid feedback event reference" }, { status: 400 });
-  await Promise.all(events.map((event) => deleteJson(`feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`)));
+  const held = (await Promise.all(events.map(async (event) => await retentionHoldFor("feedback", event.id) ? event.id : null))).filter(Boolean);
+  if (held.length)
+    return NextResponse.json({ error: "One or more feedback events are subject to a temporary legal or security hold", held }, { status: 423 });
+  await Promise.all(events.map((event) => deleteFeedbackEvent(event.id, `feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`)));
   return NextResponse.json({ ok: true, deleted: events.length });
 }
