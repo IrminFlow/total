@@ -8,7 +8,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -19,11 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: production-release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -63,7 +63,7 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.VERCEL_GITHUB_TOKEN }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-production-services
           if-no-files-found: error
@@ -73,9 +73,9 @@ jobs:
     needs: release-gate
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -172,7 +172,7 @@ jobs:
         env:
           RELEASE_EVIDENCE_NAME: build-evidence-mac.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-mac
           if-no-files-found: error
@@ -190,9 +190,9 @@ jobs:
     needs: release-gate
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -273,7 +273,7 @@ jobs:
         env:
           RELEASE_EVIDENCE_NAME: build-evidence-win.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-win
           if-no-files-found: error
@@ -289,14 +289,16 @@ jobs:
     needs: [release-mac, release-win]
     runs-on: ubuntu-latest
     environment: production-release
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: release

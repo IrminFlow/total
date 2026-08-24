@@ -13,6 +13,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   site-build:
     runs-on: ubuntu-latest
@@ -20,9 +23,9 @@ jobs:
       run:
         working-directory: site
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -40,9 +43,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -71,9 +74,9 @@ jobs:
   smoke-mac:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -100,7 +103,7 @@ jobs:
 
       - name: Upload smoke screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: smoke-shots
           path: ${{ runner.temp }}/smoke
@@ -114,9 +117,9 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -130,17 +133,17 @@ jobs:
       - name: E2E scenarios (shard ${{ matrix.shard }})
         shell: bash
         run: |
-          scenarios=$(find scripts/e2e -maxdepth 1 -name '[0-9][0-9]-*.mjs' -print \
+          mapfile -t scenarios < <(find scripts/e2e -maxdepth 1 -name '[0-9][0-9]-*.mjs' -print \
             | sort \
-            | awk -F/ -v shard='${{ matrix.shard }}' 'substr($NF,1,2) % 4 == shard { sub(/\.mjs$/, "", $NF); printf "%s ", $NF }')
-          test -n "$scenarios"
-          node scripts/run-e2e.mjs $scenarios
+            | awk -F/ -v shard='${{ matrix.shard }}' 'substr($NF,1,2) % 4 == shard { sub(/\.mjs$/, "", $NF); print $NF }')
+          test "${#scenarios[@]}" -gt 0
+          node scripts/run-e2e.mjs "${scenarios[@]}"
         env:
           SMOKE_OUT: ${{ runner.temp }}/e2e
 
       - name: Upload E2E screenshots + results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-shots-${{ matrix.shard }}
           path: ${{ runner.temp }}/e2e
@@ -150,9 +153,9 @@ jobs:
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: e2e-shots-*
           path: smoke-out/e2e
@@ -164,9 +167,9 @@ jobs:
   build-win:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
