@@ -229,6 +229,14 @@ describe("employee loans", () => {
     const ordinary = previewRun(db, "2026-07", [])[0]!;
     const withLoan = previewRun(db, "2026-08", [])[0]!;
     expect(ordinary.net - withLoan.net).toBe(2_100_00);
+    const partialAttendance = previewRun(db, "2026-08", [
+      { employeeId: asha.id, payableDays: 15 },
+    ])[0]!;
+    expect(partialAttendance.headAmounts).toContainEqual({
+      name: "Employee loan instalment",
+      kind: "deduction",
+      amount: 2_100_00,
+    });
     const run = commitRun(db, "2026-08", []);
     expect(listEmployeeLoans(db, asha.id)[0]!.installments[0]).toMatchObject({
       status: "deducted",
@@ -265,6 +273,50 @@ describe("employee loans", () => {
       setLoanInstallmentStatus(db, loan.installments[0]!.id, "waived", "Owner"),
     ).toThrow(/cannot be changed/);
     expect(run.lines[0]!.otherDeductions).toBe(2_000_00);
+  });
+
+  it("deducts only instalments for employees included in the payroll run", () => {
+    const db = seededDb();
+    const included = saveEmployee(db, employee("E001", "Asha"));
+    const excluded = saveEmployee(db, employee("E002", "Ravi"));
+    const includedLoan = createEmployeeLoan(
+      db,
+      {
+        employeeId: included.id,
+        disbursedDate: "2026-07-01",
+        principal: 2_000_00,
+        annualInterestBps: 0,
+        installmentAmount: 2_000_00,
+        firstDeductionMonth: "2026-08",
+      },
+      "Owner",
+    );
+    const excludedLoan = createEmployeeLoan(
+      db,
+      {
+        employeeId: excluded.id,
+        disbursedDate: "2026-07-01",
+        principal: 2_000_00,
+        annualInterestBps: 0,
+        installmentAmount: 2_000_00,
+        firstDeductionMonth: "2026-08",
+      },
+      "Owner",
+    );
+    saveEmployee(db, { ...employee("E002", "Ravi"), active: false }, excluded.id);
+
+    const run = commitRun(db, "2026-08", []);
+
+    expect(listEmployeeLoans(db, included.id)[0]!.installments[0]).toMatchObject({
+      id: includedLoan.installments[0]!.id,
+      status: "deducted",
+      payrollRunId: run.id,
+    });
+    expect(listEmployeeLoans(db, excluded.id)[0]!.installments[0]).toMatchObject({
+      id: excludedLoan.installments[0]!.id,
+      status: "scheduled",
+      payrollRunId: null,
+    });
   });
 });
 

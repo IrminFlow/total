@@ -84,6 +84,14 @@ describe("IPC permission contracts", () => {
       "bank:chequeStatus",
       { voucherId: 7, status: "cleared", statusDate: "2026-08-24" },
     ],
+    [
+      "payroll:loans:setInstallment",
+      { installmentId: 12, status: "paused" },
+    ],
+    [
+      "tds:returnStatusSet",
+      { fyStartYear: 2026, quarter: 1, status: "prepared" },
+    ],
   ])(
     "classifies %s as an edit even without a top-level id",
     (channel, payload) => {
@@ -195,6 +203,8 @@ describe("IPC permission contracts", () => {
       "controls:exceptions:decide": "approve",
       "payroll:attendance:approveMonth": "approve",
       "payroll:reimbursements:decide": "approve",
+      "payroll:loans:setInstallment": "edit",
+      "tds:returnStatusSet": "edit",
       "agent:approveProposal": "approve",
       "agent:discardProposal": "approve",
       "mcp:refresh:decide": "settings",

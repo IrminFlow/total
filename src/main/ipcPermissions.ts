@@ -321,6 +321,8 @@ export const EXPLICIT_PERMISSION_ACTIONS = {
   "controls:exceptions:decide": "approve",
   "payroll:attendance:approveMonth": "approve",
   "payroll:reimbursements:decide": "approve",
+  "payroll:loans:setInstallment": "edit",
+  "tds:returnStatusSet": "edit",
   "agent:approveProposal": "approve",
   "agent:discardProposal": "approve",
   "mcp:refresh:decide": "settings",

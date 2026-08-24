@@ -439,6 +439,7 @@ export function previewRun(
           kind: "deduction",
           calc: "flat",
           value: loanDue,
+          prorate: false,
         });
       const overtime = db
         .prepare(
@@ -607,8 +608,16 @@ export function commitRun(
       );
     }
     db.prepare(
-      `UPDATE employee_loan_installments SET status='deducted',payroll_run_id=? WHERE month=? AND status='scheduled' AND loan_id IN (SELECT id FROM employee_loans WHERE status='active')`,
-    ).run(runId, month);
+      `UPDATE employee_loan_installments
+       SET status='deducted',payroll_run_id=?
+       WHERE month=? AND status='scheduled'
+         AND EXISTS (
+           SELECT 1 FROM employee_loans l
+           JOIN payroll_lines pl ON pl.employee_id=l.employee_id
+           WHERE l.id=employee_loan_installments.loan_id
+             AND l.status='active' AND pl.run_id=?
+         )`,
+    ).run(runId, month, runId);
     return runId;
   });
   const runId = commit();
