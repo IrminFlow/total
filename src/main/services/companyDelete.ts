@@ -3,6 +3,7 @@ import { existsSync } from 'fs'
 import { log } from '../log'
 import { AUTH_THROTTLE_MESSAGE, clearAuthFailures, isAuthThrottled, recordAuthFailure, usersExist } from './users'
 import { verifyPin } from './authcrypt'
+import { runAsAuditUser, writeAudit } from './audit'
 
 /**
  * Authorizes deleting the company database at `dbPath`, called from company:delete (ipc.ts)
@@ -88,10 +89,7 @@ export function auditCompanyDeletion(dbPath: string, slug: string, userName: str
   let db: Database.Database | null = null
   try {
     db = new Database(dbPath)
-    db.prepare(
-      `INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
-       VALUES ('company', 0, 'delete', ?, NULL, ?, NULL)`
-    ).run(JSON.stringify({ slug }), userName)
+    runAsAuditUser(userName ?? 'company-picker', () => writeAudit(db!, 'company', 0, 'delete', { slug }, null))
   } catch (err) {
     log('warn', 'company-delete-audit-write-failed', {
       dbPath,

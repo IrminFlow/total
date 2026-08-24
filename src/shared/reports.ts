@@ -19,6 +19,12 @@ export interface DayBookRow {
   isOptional: boolean
   /** Post-dated and not yet matured — kept out of the books until its date arrives (v0.3 S5). */
   postDated: boolean
+  /** Day Book workflow metadata; omitted by compact consumers such as Dashboard recent rows. */
+  tags?: string[]
+  reviewedAt?: string | null
+  reviewedBy?: string | null
+  reversalOfId?: number | null
+  reversedById?: number | null
 }
 
 export interface LedgerStatementRow {
@@ -260,6 +266,20 @@ export interface VoucherDetailLine {
 export interface RegisterMonthRow {
   /** 'YYYY-MM' */
   month: string
+  vouchers: number
+  taxable: number
+  tax: number
+  total: number
+}
+
+export type RegisterGranularity = 'month' | 'quarter'
+
+export interface RegisterPeriodRow {
+  /** YYYY-MM for a month, or FY-label-Qn for an Indian financial quarter. */
+  key: string
+  label: string
+  from: string
+  to: string
   vouchers: number
   taxable: number
   tax: number

@@ -5,6 +5,7 @@
  * stays fully functional offline — this is the optional online path.
  */
 import crypto from 'crypto'
+import { safeStorage } from 'electron'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { nicCredentialsSchema, type NicCredentials } from '@shared/schemas'
@@ -14,11 +15,48 @@ import { writeAudit } from './audit'
 
 // ---------- credential storage ----------
 
+interface StoredNicEnvelope {
+  version: 1
+  encrypted: string
+}
+
+function isEnvelope(value: unknown): value is StoredNicEnvelope {
+  return !!value && typeof value === 'object' && (value as StoredNicEnvelope).version === 1 && typeof (value as StoredNicEnvelope).encrypted === 'string'
+}
+
+function encryptedEnvelope(creds: NicCredentials): StoredNicEnvelope {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Secure credential storage is unavailable on this computer')
+  }
+  return { version: 1, encrypted: safeStorage.encryptString(JSON.stringify(creds)).toString('base64') }
+}
+
 export function readNicCredentials(db: DB): NicCredentials {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'nic'").get() as { value: string } | undefined
   if (!row) return nicCredentialsSchema.parse({})
+  let stored: unknown
   try {
-    return nicCredentialsSchema.parse(JSON.parse(row.value))
+    stored = JSON.parse(row.value)
+  } catch {
+    return nicCredentialsSchema.parse({})
+  }
+  if (isEnvelope(stored)) {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable')
+    try {
+      const plain = safeStorage.decryptString(Buffer.from(stored.encrypted, 'base64'))
+      return nicCredentialsSchema.parse(JSON.parse(plain))
+    } catch {
+      throw new Error('NIC credentials could not be decrypted on this computer — re-enter them in Settings')
+    }
+  }
+  try {
+    // Legacy v0.4 databases stored this object in plain JSON. Read it so the owner can retain
+    // access, then upgrade it in-place as soon as OS credential encryption is available.
+    const legacy = nicCredentialsSchema.parse(stored)
+    if (safeStorage.isEncryptionAvailable()) {
+      db.prepare("UPDATE meta SET value = ? WHERE key = 'nic'").run(JSON.stringify(encryptedEnvelope(legacy)))
+    }
+    return legacy
   } catch {
     return nicCredentialsSchema.parse({})
   }
@@ -26,7 +64,7 @@ export function readNicCredentials(db: DB): NicCredentials {
 
 export function writeNicCredentials(db: DB, creds: NicCredentials): void {
   db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-    .run('nic', JSON.stringify(creds))
+    .run('nic', JSON.stringify(encryptedEnvelope(creds)))
   // Credentials (incl. password) never go into the audit trail — before/after are always null.
   writeAudit(db, 'nic_credentials', 0, 'update', null, null)
 }

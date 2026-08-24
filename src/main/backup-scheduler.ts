@@ -6,6 +6,7 @@ import { backupCompany } from './db/connection'
 import { backupStamp, snapshotSync } from './db/backup'
 import { companyBackupsDir } from './paths'
 import { log } from './log'
+import { applyRotationPolicy, replicateBackup } from './services/resilience'
 
 export interface CurrentCompanyLike {
   slug: string
@@ -23,7 +24,9 @@ export function startBackupScheduler(
         try {
           const current = getCurrent()
           if (!current) return
-          await backupCompany(current.db, current.slug, 'auto')
+          const path = await backupCompany(current.db, current.slug, 'auto')
+          replicateBackup(current.db, current.slug, path)
+          applyRotationPolicy(current.db, current.slug)
           log('info', 'backup-auto', { slug: current.slug })
         } catch (err) {
           log('error', 'backup-auto-failed', { error: err instanceof Error ? err.message : String(err) })

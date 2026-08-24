@@ -15,6 +15,22 @@ const mv = (
 ): StockMovement => ({ direction, qtyMilli, amount, isAbsolute })
 
 describe('valueStock — perpetual moving average', () => {
+  it('emits one deterministic running valuation step per movement', () => {
+    const steps: { qty: number; value: number; consumed: number }[] = []
+    const result = valueStock(
+      'weighted_avg',
+      10000,
+      100000,
+      [mv('in', 10000, 200000), mv('out', 5000)],
+      (step) => steps.push({ qty: step.closingQtyMilli, value: step.closingValue, consumed: step.consumedValue })
+    )
+    expect(steps).toEqual([
+      { qty: 20000, value: 300000, consumed: 0 },
+      { qty: 15000, value: 225000, consumed: 75000 }
+    ])
+    expect(steps.at(-1)).toEqual({ qty: result.closingQtyMilli, value: result.closingValue, consumed: result.consumedValue })
+  })
+
   it('values a simple in/out sequence at moving average cost', () => {
     // Opening 10 @ ₹10 (100000p total), buy 10 @ ₹20 (200000p), sell 10.
     // Avg after purchase = 300000/20000milli = 15p/milli-unit → sell 10 removes 150000p.

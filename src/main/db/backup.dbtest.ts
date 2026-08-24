@@ -7,7 +7,7 @@ import { migrate } from './migrate'
 import { seedCompany } from './seed'
 import { TEST_INFO, postSimpleVoucher } from './testdb'
 import {
-  snapshotTo, listBackupsIn, pruneBackupsIn, tagOf, backupStamp, restoreCompanyDb, rollbackRestore
+  inspectBackup, snapshotTo, listBackupsIn, pruneBackupsIn, tagOf, backupStamp, restoreCompanyDb, rollbackRestore
 } from './backup'
 
 function tmpDir(): string {
@@ -129,6 +129,37 @@ function voucherCountOf(path: string): number {
   db.close()
   return n
 }
+
+describe('inspectBackup', () => {
+  it('returns verified company, schema, period, count, and size without modifying the file', () => {
+    const dir = tmpDir()
+    const path = join(dir, 'preview.db')
+    makeCompanyDbFile(path, 3)
+    const bytesBefore = readFileSync(path)
+
+    const preview = inspectBackup(path)
+
+    expect(preview).toMatchObject({
+      valid: true,
+      integrity: 'ok',
+      company: { name: TEST_INFO.name, booksFrom: TEST_INFO.booksFrom, stateCode: TEST_INFO.stateCode },
+      firstVoucherDate: '2025-04-10',
+      lastVoucherDate: '2025-04-10',
+      voucherCount: 3
+    })
+    expect(preview.schemaVersion).toBeGreaterThan(0)
+    expect(preview.sizeBytes).toBeGreaterThan(0)
+    expect(readFileSync(path).equals(bytesBefore)).toBe(true)
+  })
+
+  it('returns a safe blocked preview for corrupted and missing files', () => {
+    const dir = tmpDir()
+    const corrupt = join(dir, 'corrupt.db')
+    writeFileSync(corrupt, 'not sqlite')
+    expect(inspectBackup(corrupt)).toMatchObject({ valid: false, integrity: 'failed', company: null })
+    expect(inspectBackup(join(dir, 'missing.db'))).toMatchObject({ valid: false, integrity: 'failed', sizeBytes: 0 })
+  })
+})
 
 describe('restoreCompanyDb', () => {
   it('happy path: swaps the backup into place, and reopening dbPath afterwards has the restored data', () => {

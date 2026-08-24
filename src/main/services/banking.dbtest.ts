@@ -4,7 +4,10 @@ import { createLedger } from './masters'
 import { setAuditContext, listAudit } from './audit'
 import {
   listRules, saveRule, deleteRule, recordRuleHit, suggestVouchers, importStatement,
-  matchSuggestions, brs, bankRecon
+  matchSuggestions, brs, bankRecon, reconciliationWorkspace, classifyStatementRow,
+  rejectRuleSuggestion, rollbackRule, transferSuggestions, postTransfer,
+  chargeExtractionSuggestions, postChargeExtraction, chequeLifecycle, updateChequeStatus,
+  cashLedgers, cashCountPreview, saveCashCount, postCashCount
 } from './banking'
 
 function bankLedger(db: ReturnType<typeof seededDb>, name = 'HDFC Bank') {
@@ -69,6 +72,150 @@ describe('bank rules CRUD', () => {
     expect(listRules(db)[0]!.hits).toBe(2)
 
     expect(() => recordRuleHit(db, 999999)).toThrow('not found')
+  })
+
+  it('scores reviewed mappings and supports rejection plus one-click rollback', () => {
+    const db = seededDb()
+    const office = expenseLedger(db, 'Courier charges')
+    const rule = saveRule(db, { pattern: 'BLUE DART', ledgerId: office.id, kind: 'payment', active: true, source: 'learned' })
+    expect(rule).toMatchObject({ source: 'learned', confidenceBp: 6000, reviewedHits: 0, rejectedHits: 0 })
+
+    recordRuleHit(db, rule.id)
+    expect(listRules(db)[0]).toMatchObject({ confidenceBp: 6500, reviewedHits: 1 })
+    rejectRuleSuggestion(db, rule.id)
+    expect(listRules(db)[0]).toMatchObject({ confidenceBp: 5000, rejectedHits: 1 })
+    const rolledBack = rollbackRule(db, rule.id)
+    expect(rolledBack.active).toBe(false)
+    expect(rolledBack.rolledBackAt).not.toBeNull()
+  })
+})
+
+describe('durable reconciliation workspace', () => {
+  it('retains statement evidence, separates all five states, and explains opening difference', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Banking workspace expense')
+    db.prepare('UPDATE ledgers SET opening_balance = 100000 WHERE id = ?').run(bank.id)
+    bookBankEntry(db, bank.id, office.id, '2026-07-31', 20000, 'dr', { kind: 'receipt', number: 'PRE/1' })
+    bookBankEntry(db, bank.id, office.id, '2026-08-03', 50000, 'dr', { kind: 'receipt', number: 'REC/1' })
+    bookBankEntry(db, bank.id, office.id, '2026-08-04', 70000, 'cr', { kind: 'payment', number: 'PAY/1' })
+
+    const csv = [
+      'Date,Description,Debit,Credit,Balance',
+      '2026-08-03,Customer receipt,,500.00,1750.00',
+      '2026-08-04,Unbooked bank fee,250.00,,1500.00'
+    ].join('\n')
+    const result = importStatement(db, bank.id, csv, { actor: 'Asha', fileName: 'aug.csv' })
+    expect(result).toMatchObject({ openingBalance: 125000, closingBalance: 150000, matched: 1 })
+    expect(result.importId).not.toBeNull()
+
+    let workspace = reconciliationWorkspace(db, bank.id)
+    expect(workspace.latestImport).toMatchObject({ fileName: 'aug.csv', importedBy: 'Asha' })
+    expect(workspace).toMatchObject({ bookOpeningBalance: 120000, statementOpeningBalance: 125000, openingDifference: 5000 })
+    expect(workspace.counts).toMatchObject({ matched: 1, bankOnly: 1, bookOnly: 1, ignored: 0, timingDifference: 0 })
+    expect(workspace.bookOnlyRows[0]).toMatchObject({ number: 'PAY/1', amount: 70000 })
+
+    const bankOnly = workspace.statementRows.find((row) => row.status === 'bank_only')!
+    classifyStatementRow(db, bankOnly.id, 'timing_difference', 'Settles next period', 'Asha')
+    workspace = reconciliationWorkspace(db, bank.id)
+    expect(workspace.counts).toMatchObject({ bankOnly: 0, timingDifference: 1 })
+    expect(workspace.statementRows.find((row) => row.id === bankOnly.id)).toMatchObject({ reviewedBy: 'Asha', note: 'Settles next period' })
+
+    // The exact same bytes return the existing import instead of duplicating evidence.
+    expect(importStatement(db, bank.id, csv).importId).toBe(result.importId)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bank_statement_imports').get()).toEqual({ n: 1 })
+  })
+})
+
+describe('inter-bank transfer matching', () => {
+  it('pairs opposite statement sides and posts one linked Contra voucher after review', () => {
+    const db = seededDb()
+    const hdfc = bankLedger(db, 'HDFC Transfer')
+    const icici = bankLedger(db, 'ICICI Transfer')
+    importStatement(db, hdfc.id, [CSV_HEADER, '2026-08-10,SELF TRANSFER,2500.00,'].join('\n'), { actor: 'Asha' })
+    importStatement(db, icici.id, [CSV_HEADER, '2026-08-11,SELF TRANSFER,,2500.00'].join('\n'), { actor: 'Asha' })
+
+    const suggestions = transferSuggestions(db)
+    expect(suggestions).toHaveLength(1)
+    expect(suggestions[0]).toMatchObject({ fromLedgerId: hdfc.id, toLedgerId: icici.id, amount: 250000 })
+    const posted = postTransfer(db, suggestions[0]!.withdrawalRowId, suggestions[0]!.depositRowId, 'Asha')
+    const voucher = db.prepare(`SELECT vt.kind FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = ?`).get(posted.voucherId)
+    expect(voucher).toEqual({ kind: 'contra' })
+    expect(db.prepare('SELECT status, matched_line_id AS matchedLineId FROM bank_statement_rows ORDER BY id').all())
+      .toEqual([{ status: 'matched', matchedLineId: expect.any(Number) }, { status: 'matched', matchedLineId: expect.any(Number) }])
+    expect(transferSuggestions(db)).toHaveLength(0)
+    expect(() => postTransfer(db, suggestions[0]!.withdrawalRowId, suggestions[0]!.depositRowId, 'Asha')).toThrow(/bank-only/)
+  })
+})
+
+describe('bank-charge extraction', () => {
+  it('explains a net settlement with a linked fee/tax payment voucher', () => {
+    const db = seededDb()
+    const bank = bankLedger(db, 'Gateway Bank')
+    const clearing = expenseLedger(db, 'Gateway clearing')
+    const fee = expenseLedger(db, 'Gateway fees')
+    const tax = expenseLedger(db, 'Input GST on fees')
+    const settlementLineId = bookBankEntry(db, bank.id, clearing.id, '2026-08-10', 118000, 'dr', { kind: 'receipt', number: 'SET/1' })
+    const imported = importStatement(db, bank.id, [CSV_HEADER, '2026-08-10,GATEWAY NET SETTLEMENT,,1000.00'].join('\n'), { actor: 'Asha' })
+    expect(imported.unmatched).toHaveLength(1)
+    const suggestions = chargeExtractionSuggestions(db)
+    expect(suggestions).toHaveLength(1)
+    expect(suggestions[0]).toMatchObject({ settlementLineId, grossBookAmount: 118000, netAmount: 100000, deductionAmount: 18000 })
+
+    const posted = postChargeExtraction(db, {
+      statementRowId: suggestions[0]!.statementRowId, settlementLineId,
+      feeLedgerId: fee.id, taxLedgerId: tax.id, feeAmount: 15000, taxAmount: 3000
+    }, 'Asha')
+    const lines = db.prepare('SELECT ledger_id AS ledgerId, dr_cr AS drCr, amount, bank_date AS bankDate FROM voucher_lines WHERE voucher_id = ? ORDER BY id').all(posted.voucherId)
+    expect(lines).toEqual([
+      { ledgerId: fee.id, drCr: 'dr', amount: 15000, bankDate: null },
+      { ledgerId: tax.id, drCr: 'dr', amount: 3000, bankDate: null },
+      { ledgerId: bank.id, drCr: 'cr', amount: 18000, bankDate: '2026-08-10' }
+    ])
+    expect(db.prepare('SELECT status, matched_line_id AS matchedLineId, created_voucher_id AS createdVoucherId FROM bank_statement_rows').get())
+      .toEqual({ status: 'matched', matchedLineId: settlementLineId, createdVoucherId: posted.voucherId })
+    expect(chargeExtractionSuggestions(db)).toHaveLength(0)
+  })
+})
+
+describe('cheque lifecycle', () => {
+  it('derives issued/stale states and synchronizes cleared/bounced with the bank date', () => {
+    const db = seededDb()
+    const bank = bankLedger(db, 'Cheque Bank')
+    const office = expenseLedger(db, 'Cheque supplier')
+    const bankLineId = bookBankEntry(db, bank.id, office.id, '2026-01-01', 50000, 'cr', { kind: 'payment', number: 'CHQ/1' })
+    const voucherId = (db.prepare("SELECT id FROM vouchers WHERE number = 'CHQ/1'").get() as { id: number }).id
+    db.prepare("UPDATE vouchers SET instrument_no = '001122', instrument_date = '2026-01-02' WHERE id = ?").run(voucherId)
+    expect(chequeLifecycle(db, '2026-02-01')[0]).toMatchObject({ status: 'issued', instrumentNo: '001122' })
+    expect(chequeLifecycle(db, '2026-05-01')[0]).toMatchObject({ status: 'stale' })
+
+    updateChequeStatus(db, voucherId, 'cleared', '2026-02-03', 'Presented', 'Asha')
+    expect(chequeLifecycle(db, '2026-05-01')[0]).toMatchObject({ status: 'cleared', statusDate: '2026-02-03', updatedBy: 'Asha' })
+    expect(db.prepare('SELECT bank_date AS bankDate FROM voucher_lines WHERE id = ?').get(bankLineId)).toEqual({ bankDate: '2026-02-03' })
+    updateChequeStatus(db, voucherId, 'bounced', '2026-02-05', 'Funds insufficient', 'Asha')
+    expect(chequeLifecycle(db, '2026-05-01')[0]).toMatchObject({ status: 'bounced' })
+    expect(db.prepare('SELECT bank_date AS bankDate FROM voucher_lines WHERE id = ?').get(bankLineId)).toEqual({ bankDate: null })
+  })
+})
+
+describe('cash denomination counts', () => {
+  it('captures the physical count and posts only an owner-approved difference journal', () => {
+    const db = seededDb()
+    const cash = cashLedgers(db)[0]!
+    const adjustment = expenseLedger(db, 'Cash Short and Over')
+    db.prepare('UPDATE ledgers SET opening_balance = 100000 WHERE id = ?').run(cash.id)
+    const lines = [{ denominationPaise: 50000, count: 3 }, { denominationPaise: 10000, count: 0 }]
+    expect(cashCountPreview(db, cash.id, '2026-08-10', lines)).toMatchObject({ physicalTotal: 150000, bookBalance: 100000, difference: 50000 })
+    const saved = saveCashCount(db, cash.id, '2026-08-10', lines, 'Front counter', 'Asha')
+    expect(saved).toMatchObject({ status: 'draft', countedBy: 'Asha', difference: 50000 })
+    const posted = postCashCount(db, saved.id, adjustment.id, 'Owner')
+    expect(posted).toMatchObject({ status: 'posted', postedBy: 'Owner', adjustmentVoucherId: expect.any(Number) })
+    const voucherLines = db.prepare('SELECT ledger_id AS ledgerId, dr_cr AS drCr, amount FROM voucher_lines WHERE voucher_id = ? ORDER BY id').all(posted.adjustmentVoucherId)
+    expect(voucherLines).toEqual([
+      { ledgerId: cash.id, drCr: 'dr', amount: 50000 },
+      { ledgerId: adjustment.id, drCr: 'cr', amount: 50000 }
+    ])
+    expect(() => postCashCount(db, saved.id, adjustment.id, 'Owner')).toThrow(/draft/)
   })
 })
 

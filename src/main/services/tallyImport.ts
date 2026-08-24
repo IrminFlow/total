@@ -4,6 +4,7 @@ import { GST_STATES } from '@shared/gst/states'
 import { saveVoucher } from './vouchers'
 import { writeAudit } from './audit'
 import type { VoucherKind } from '@shared/domain'
+import { assertImportNotApplied, importSourceHash, recordImportBatch } from './importBatches'
 
 export interface ImportSummary {
   groups: number
@@ -13,6 +14,9 @@ export interface ImportSummary {
   vouchers: number
   skipped: number
   warnings: string[]
+  batchId?: number
+  sourceHash?: string
+  alreadyImported?: { id: number; appliedAt: string } | null
 }
 
 /** Map a Tally voucher-type name to one of our kinds. */
@@ -62,17 +66,26 @@ export function importTallyXml(db: DB, xml: string): ImportSummary {
   // Parse outside the transaction — a malformed file fails before any write is attempted.
   const data: TallyImport = parseTallyExport(xml)
   const run = db.transaction((): ImportSummary => {
+    assertImportNotApplied(db, 'tally', xml)
     const summary = applyParsedTallyImport(db, data)
-    writeAudit(db, 'tally_import', 0, 'import', null, {
+    const sourceRows = data.groups.length + data.ledgers.length + data.units.length + data.items.length + data.vouchers.length
+    const batch = recordImportBatch(db, 'tally', xml, {
+      sourceRows,
+      acceptedRows: sourceRows - summary.skipped,
+      rejectedRows: summary.skipped,
+      summary
+    })
+    writeAudit(db, 'tally_import', batch.id, 'import', null, {
       groups: summary.groups,
       ledgers: summary.ledgers,
       units: summary.units,
       items: summary.items,
       vouchers: summary.vouchers,
       skipped: summary.skipped,
-      warnings: summary.warnings.length
+      warnings: summary.warnings.length,
+      sourceHash: batch.sourceHash
     })
-    return summary
+    return { ...summary, batchId: batch.id, sourceHash: batch.sourceHash }
   })
   return run()
 }
@@ -106,7 +119,10 @@ function applyParsedTallyImport(db: DB, data: TallyImport): ImportSummary {
     }
     pending = next
   }
-  for (const g of pending) warnings.push(`Group "${g.name}" skipped: parent "${g.parent}" not found`)
+  for (const g of pending) {
+    warnings.push(`Group "${g.name}" skipped: parent "${g.parent}" not found`)
+    counts.skipped++
+  }
 
   // Units
   for (const u of data.units) {
@@ -137,6 +153,7 @@ function applyParsedTallyImport(db: DB, data: TallyImport): ImportSummary {
     const unit = db.prepare('SELECT id FROM units WHERE name = ? COLLATE NOCASE OR symbol = ? COLLATE NOCASE').get(item.unit, item.unit) as { id: number } | undefined
     if (!unit && !defaultUnit) {
       warnings.push(`Item "${item.name}" skipped: no unit`)
+      counts.skipped++
       continue
     }
     db.prepare(

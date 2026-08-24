@@ -34,7 +34,11 @@ export interface ConsolidatedResult {
   columns: string[]
   rows: ConsolidatedRow[]
   warnings: string[]
+  translationRates?: Record<string,number>
+  eliminationCount?: number
 }
+
+export interface ConsolidationOptions { translationRates:Record<string,number>;eliminations:{name:string;group:string;amount:number;reason:string}[] }
 
 const normalize = (s: string): string => s.trim().toLowerCase()
 

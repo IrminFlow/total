@@ -32,6 +32,7 @@ type JsonSchema = {
  *  the shared schema) so the shared schema stays exactly as the app uses it. */
 const FIELD_DOCS: Record<string, string> = {
   voucherTypeId: 'Voucher type id — see voucherTypes in <company>/agent/meta.json.',
+  gstRegistrationId: 'GST registration identity for this voucher in a multi-GSTIN company; null uses the company primary registration.',
   date: 'Voucher date, YYYY-MM-DD. Must be after the period lock date if one is set.',
   number: 'Voucher number. Omit for auto-numbered types (the app assigns the next number); required for manual-numbered types.',
   partyLedgerId: 'Party ledger id (Sundry Debtor/Creditor) for sales/purchase/receipt/payment; null otherwise.',

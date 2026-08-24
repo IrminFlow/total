@@ -3,6 +3,7 @@ import { seededDb } from '../db/testdb'
 import { createGroup, createLedger } from './masters'
 import { saveVoucher } from './vouchers'
 import { listBudgets, saveBudget, deleteBudget, budgetVarianceReport } from './budgets'
+import { saveCostCentre } from './costCentres'
 import type { VoucherInputParsed } from '@shared/schemas'
 
 function expenseLedger(db: ReturnType<typeof seededDb>, name: string, groupId: number) {
@@ -169,5 +170,12 @@ describe('budgets', () => {
     })
     const report = budgetVarianceReport(db, budget.id, '2025-04')
     expect(report[0]).toMatchObject({ actual: 0, variance: -100000, pct: 0 })
+  })
+
+  it('budgets a parent operational dimension and rolls up project or branch children',()=>{
+    const db=seededDb();const directExpenses=db.prepare("SELECT id FROM groups WHERE name='Direct Expenses'").get() as {id:number};const cash=db.prepare("SELECT id FROM ledgers WHERE name='Cash'").get() as {id:number};const travel=expenseLedger(db,'Project travel',directExpenses.id);const branch=saveCostCentre(db,{name:'West region',parentId:null,active:true});const project=saveCostCentre(db,{name:'Pune launch',parentId:branch.id,active:true})
+    journalVoucher(db,'2025-04-10',[{ledgerId:travel.id,drCr:'dr',amount:125000,costAllocations:[{costCentreId:project.id,amount:125000}]},{ledgerId:cash.id,drCr:'cr',amount:125000,costAllocations:[]}])
+    const budget=saveBudget(db,{name:'Branch budget',fyStartYear:2025,lines:[{ledgerId:null,groupId:null,costCentreId:branch.id,month:'2025-04',amount:150000}]})
+    expect(budgetVarianceReport(db,budget.id,'2025-04')[0]).toMatchObject({targetName:'West region',actual:125000,variance:-25000})
   })
 })

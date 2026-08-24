@@ -3,11 +3,61 @@ import { rmSync } from 'fs'
 import { join } from 'path'
 import { companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
 import { migrate } from './migrate'
-import { backupStamp, pruneBackupsIn, quickCheckOk, snapshotTo } from './backup'
+import { backupStamp, pruneBackupsIn, quickCheckOk, rollbackRestore, snapshotSync, snapshotTo } from './backup'
+import { MIGRATIONS } from './migrations'
 
 export type DB = Database.Database
 
 export { migrate }
+
+function appliedMigrationVersion(db: DB): number {
+  const table = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'migrations'").get()
+  if (!table) return 0
+  return (db.prepare('SELECT MAX(id) AS version FROM migrations').get() as { version: number | null }).version ?? 0
+}
+
+/** Migrate an existing database behind a verified pre-upgrade snapshot. Any thrown migration or
+ *  failed quick_check closes the mutated handle and atomically restores the exact old file. */
+export function runMigrationsWithRecovery(
+  db: DB,
+  dbPath: string,
+  backupsDir: string,
+  migrateFn: (database: DB) => void = migrate,
+  targetVersion = MIGRATIONS.length
+): string | null {
+  const hasSchema = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1").get()
+  const applied = appliedMigrationVersion(db)
+  if (!hasSchema || applied >= targetVersion) {
+    migrateFn(db)
+    return null
+  }
+
+  // backupStamp is second-granular. Include an epoch suffix so a crash/retry in the same
+  // second cannot collide with the first recovery point and prevent the retry from opening.
+  const snapshotPath = join(backupsDir, `${backupStamp()}-${Date.now()}-pre-upgrade-v${applied}-to-v${targetVersion}.db`)
+  snapshotSync(db, snapshotPath)
+  if (!quickCheckOk(snapshotPath)) {
+    throw new Error('Pre-upgrade backup verification failed — migration was not started')
+  }
+  try {
+    migrateFn(db)
+    const check = db.pragma('quick_check') as Array<{ quick_check: string }>
+    if (check[0]?.quick_check !== 'ok') throw new Error(`post-migration quick_check: ${check[0]?.quick_check ?? 'no result'}`)
+    return snapshotPath
+  } catch (error) {
+    if (db.open) db.close()
+    try {
+      rollbackRestore(dbPath, snapshotPath)
+    } catch (rollbackError) {
+      throw new Error(
+        `Migration failed and automatic rollback also failed. Recovery snapshot: ${snapshotPath}. ` +
+        `Migration error: ${error instanceof Error ? error.message : String(error)}. ` +
+        `Rollback error: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
+      )
+    }
+    throw new Error(`Migration failed; the company was restored from its pre-upgrade snapshot: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
 
 export function openCompanyDb(slug: string): DB {
   ensureCompanyTree(slug)
@@ -20,12 +70,12 @@ export function openCompanyDb(slug: string): DB {
   db.pragma('cache_size = -64000')
   db.pragma('mmap_size = 268435456')
   try {
-    migrate(db)
+    runMigrationsWithRecovery(db, companyDbPath(slug), companyBackupsDir(slug))
     db.exec('ANALYZE')
   } catch (err) {
     // Never leak an open handle on a failed open — on Windows it would also block any
     // later restore/rollback rename of this file (EPERM on open files).
-    db.close()
+    if (db.open) db.close()
     throw err
   }
   return db

@@ -10,6 +10,7 @@ import { IN_BOOKS, saveVoucher } from './vouchers'
 import { writeAudit } from './audit'
 import { findSumCombos, matchRules, type RuleRow } from '@shared/bankRules'
 import type { BankRuleInput } from '@shared/schemas'
+import { createHash } from 'node:crypto'
 
 export function bankLedgers(db: DB): { id: number; name: string }[] {
   const ids = descendantIdsByName(db, ['Bank Accounts', 'Bank OD A/c'])
@@ -92,6 +93,7 @@ export function setBankDate(db: DB, lineId: number, bankDate: string | null): vo
 // ---------- statement CSV import ----------
 
 interface StatementRow {
+  rowNo: number
   date: string
   description: string
   /** Cheque/UTR/reference cell, '' when the CSV has no such column. */
@@ -100,6 +102,8 @@ interface StatementRow {
   deposit: number
   /** Positive paise: money out. */
   withdrawal: number
+  /** Balance after this transaction, when supplied by the statement. */
+  balance: number | null
 }
 
 const MONTH_NAMES: Record<string, string> = {
@@ -150,10 +154,11 @@ export function parseStatementCsv(csv: string): StatementRow[] {
   const amountIdx = header.findIndex((h) => h === 'amount' || h.includes('amount'))
   const descIdx = header.findIndex((h) => h.includes('desc') || h.includes('narrat') || h.includes('particular') || h.includes('remark'))
   const refIdx = header.findIndex((h) => h.includes('ref') || h.includes('chq') || h.includes('cheque') || h.includes('utr'))
+  const balanceIdx = header.findIndex((h) => h.includes('balance') || h === 'bal')
   if (dateIdx < 0) throw new Error('No date column found in the CSV header')
 
   const rows: StatementRow[] = []
-  for (const record of records.slice(1)) {
+  for (const [index, record] of records.slice(1).entries()) {
     const cells = record.cells
     const date = parseDateCell(cells[dateIdx] ?? '')
     if (!date) continue
@@ -169,17 +174,20 @@ export function parseStatementCsv(csv: string): StatementRow[] {
     }
     if (deposit === 0 && withdrawal === 0) continue
     rows.push({
+      rowNo: index + 1,
       date,
       description: (cells[descIdx] ?? '').trim(),
       reference: refIdx >= 0 ? (cells[refIdx] ?? '').trim() : '',
       deposit,
-      withdrawal
+      withdrawal,
+      balance: balanceIdx >= 0 ? parseAmountCell(cells[balanceIdx] ?? '') : null
     })
   }
   return rows
 }
 
 export interface UnmatchedRow {
+  rowNo: number
   date: string
   description: string
   reference: string
@@ -188,6 +196,9 @@ export interface UnmatchedRow {
 }
 
 export interface ImportResult {
+  importId: number | null
+  openingBalance: number | null
+  closingBalance: number | null
   statementRows: number
   matched: number
   alreadyReconciled: number
@@ -213,7 +224,7 @@ function matchStatement(
 ): {
   statement: StatementRow[]
   matches: { row: StatementRow; lineId: number }[]
-  alreadyReconciled: StatementRow[]
+  alreadyReconciled: { row: StatementRow; lineId: number }[]
   unmatched: UnmatchedRow[]
   usedLineIds: Set<number>
 } {
@@ -236,7 +247,7 @@ function matchStatement(
   const used = new Set<number>()
   const usedReconciled = new Set<number>()
   const matches: { row: StatementRow; lineId: number }[] = []
-  const alreadyReconciled: StatementRow[] = []
+  const alreadyReconciled: { row: StatementRow; lineId: number }[] = []
   const unmatched: UnmatchedRow[] = []
 
   const closest = (
@@ -264,10 +275,11 @@ function matchStatement(
     const done = closest(reconciled, usedReconciled, row, amount, wantSide)
     if (done) {
       usedReconciled.add(done.lineId)
-      alreadyReconciled.push(row)
+      alreadyReconciled.push({ row, lineId: done.lineId })
       continue
     }
     unmatched.push({
+      rowNo: row.rowNo,
       date: row.date,
       description: row.description,
       reference: row.reference,
@@ -290,7 +302,7 @@ export function importStatement(
   db: DB,
   ledgerId: number,
   csv: string,
-  opts: { apply?: boolean } = {}
+  opts: { apply?: boolean; actor?: string; fileName?: string; format?: 'csv' | 'xlsx' | 'ofx' | 'qif' | 'mt940' } = {}
 ): ImportResult {
   const apply = opts.apply !== false
   const { statement, matches, alreadyReconciled, unmatched } = matchStatement(db, ledgerId, csv)
@@ -312,17 +324,19 @@ export function importStatement(
 
       // Opt-in auto-apply: rules flagged auto_apply create the voucher outright (same draft
       // shape suggestVouchers offers) and reconcile its bank line against the statement row.
-      const autoRules: RuleRow[] = listRules(db)
-        .filter((r) => r.active && r.autoApply)
+      const autoRuleRecords = listRules(db)
+      const autoRules: RuleRow[] = autoRuleRecords
+        .filter((r) => r.active && r.autoApply && (r.bankLedgerId == null || r.bankLedgerId === ledgerId))
         .map((r) => ({
           id: r.id, pattern: r.pattern, ledgerId: r.ledgerId, kind: r.kind,
           matchField: r.matchField === 'reference' ? 'reference' : 'description',
-          minAmount: r.minAmount, maxAmount: r.maxAmount
+          minAmount: r.minAmount, maxAmount: r.maxAmount, dateFrom: r.dateFrom, dateTo: r.dateTo
         }))
       if (autoRules.length > 0) {
         const stillUnmatched: UnmatchedRow[] = []
         for (const u of unmatched) {
           const like = {
+            date: u.date,
             description: u.description,
             reference: u.reference,
             deposit: u.kind === 'deposit' ? u.amount : 0,
@@ -347,7 +361,7 @@ export function importStatement(
             date: u.date,
             number: undefined,
             partyLedgerId: null,
-            narration: `${u.description} (auto-created by bank rule)`,
+            narration: renderRuleNarration(autoRuleRecords.find((candidate) => candidate.id === rule.id)?.narrationTemplate ?? null, u.description, u.reference, true),
             reference: u.reference || null,
             instrumentNo: null,
             instrumentDate: null,
@@ -375,6 +389,52 @@ export function importStatement(
     run()
   }
 
+  const firstWithBalance = statement.find((row) => row.balance != null)
+  const lastWithBalance = [...statement].reverse().find((row) => row.balance != null)
+  const openingBalance = firstWithBalance?.balance == null
+    ? null
+    : firstWithBalance.balance - firstWithBalance.deposit + firstWithBalance.withdrawal
+  const closingBalance = lastWithBalance?.balance ?? null
+  let importId: number | null = null
+
+  // Applying an import persists its evidence. A byte-identical re-import is idempotent: the
+  // existing workspace is returned instead of producing duplicate statement lines.
+  if (apply && statement.length > 0) {
+    const sourceHash = createHash('sha256').update(csv).digest('hex')
+    const dates = statement.map((row) => row.date).sort()
+    const inserted = db.prepare(
+      `INSERT OR IGNORE INTO bank_statement_imports
+       (ledger_id, format, file_name, period_from, period_to, opening_balance, closing_balance, source_hash, row_count, imported_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      ledgerId, opts.format ?? 'csv', opts.fileName ?? null, dates[0], dates[dates.length - 1],
+      openingBalance, closingBalance, sourceHash, statement.length, opts.actor ?? 'Local user'
+    )
+    if (inserted.changes > 0) {
+      importId = Number(inserted.lastInsertRowid)
+      const exact = new Map(matches.map((match) => [match.row.rowNo, match.lineId]))
+      const already = new Map(alreadyReconciled.map((match) => [match.row.rowNo, match.lineId]))
+      const created = new Map(autoCreated.map((row) => [`${row.date}|${row.description}|${row.amount}|${row.kind}`, row.voucherId]))
+      const insertRow = db.prepare(
+        `INSERT INTO bank_statement_rows
+         (import_id, row_no, date, description, reference, direction, amount, running_balance, status, matched_line_id, created_voucher_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      for (const row of statement) {
+        const direction = row.deposit > 0 ? 'deposit' : 'withdrawal'
+        const amount = row.deposit || row.withdrawal
+        const createdVoucherId = created.get(`${row.date}|${row.description}|${amount}|${direction}`) ?? null
+        const matchedLineId = exact.get(row.rowNo) ?? already.get(row.rowNo) ?? null
+        insertRow.run(
+          importId, row.rowNo, row.date, row.description, row.reference, direction, amount, row.balance,
+          matchedLineId != null || createdVoucherId != null ? 'matched' : 'bank_only', matchedLineId, createdVoucherId
+        )
+      }
+    } else {
+      importId = (db.prepare('SELECT id FROM bank_statement_imports WHERE ledger_id = ? AND source_hash = ?').get(ledgerId, sourceHash) as { id: number }).id
+    }
+  }
+
   // [lane-Q audit block — keep as one unit when merging] statement-import summary audit row.
   // Not written for dry runs (lane Y's preview-confirm flow) — only an applied import is an event.
   if (apply) {
@@ -383,6 +443,9 @@ export function importStatement(
   }
 
   return {
+    importId,
+    openingBalance,
+    closingBalance,
     statementRows: statement.length,
     matched: matches.length,
     alreadyReconciled: alreadyReconciled.length,
@@ -390,6 +453,547 @@ export function importStatement(
     matches: matchDetail,
     autoCreated
   }
+}
+
+export type ReconciliationStatus = 'bank_only' | 'matched' | 'ignored' | 'timing_difference'
+
+export interface ReconciliationWorkspace {
+  ledgerId: number
+  ledgerName: string
+  latestImport: null | {
+    id: number
+    format: 'csv' | 'xlsx' | 'ofx' | 'qif' | 'mt940'
+    fileName: string | null
+    periodFrom: string
+    periodTo: string
+    importedBy: string
+    importedAt: string
+    openingBalance: number | null
+    closingBalance: number | null
+  }
+  statementOpeningBalance: number | null
+  bookOpeningBalance: number
+  openingDifference: number | null
+  counts: { matched: number; bankOnly: number; bookOnly: number; ignored: number; timingDifference: number }
+  statementRows: {
+    id: number; rowNo: number; date: string; description: string; reference: string
+    direction: 'deposit' | 'withdrawal'; amount: number; runningBalance: number | null
+    status: ReconciliationStatus; matchedLineId: number | null; createdVoucherId: number | null
+    note: string | null; reviewedBy: string | null; reviewedAt: string | null
+  }[]
+  bookOnlyRows: {
+    lineId: number; voucherId: number; date: string; number: string; particulars: string
+    direction: 'deposit' | 'withdrawal'; amount: number
+  }[]
+}
+
+/** The latest durable statement import plus every unresolved item on both sides of the books. */
+export function reconciliationWorkspace(db: DB, ledgerId: number): ReconciliationWorkspace {
+  const ledger = db.prepare('SELECT id, name, opening_balance AS openingBalance FROM ledgers WHERE id = ?').get(ledgerId) as
+    | { id: number; name: string; openingBalance: number }
+    | undefined
+  if (!ledger) throw new Error('Bank ledger not found')
+  const latest = db.prepare(
+    `SELECT id, format, file_name AS fileName, period_from AS periodFrom, period_to AS periodTo,
+            imported_by AS importedBy, imported_at AS importedAt,
+            opening_balance AS openingBalance, closing_balance AS closingBalance
+     FROM bank_statement_imports WHERE ledger_id = ? ORDER BY imported_at DESC, id DESC LIMIT 1`
+  ).get(ledgerId) as ReconciliationWorkspace['latestImport']
+
+  if (!latest) {
+    return {
+      ledgerId, ledgerName: ledger.name, latestImport: null, statementOpeningBalance: null,
+      bookOpeningBalance: ledger.openingBalance, openingDifference: null,
+      counts: { matched: 0, bankOnly: 0, bookOnly: 0, ignored: 0, timingDifference: 0 },
+      statementRows: [], bookOnlyRows: []
+    }
+  }
+
+  const statementRows = db.prepare(
+    `SELECT id, row_no AS rowNo, date, description, reference, direction, amount,
+            running_balance AS runningBalance, status, matched_line_id AS matchedLineId,
+            created_voucher_id AS createdVoucherId, note, reviewed_by AS reviewedBy, reviewed_at AS reviewedAt
+     FROM bank_statement_rows WHERE import_id = ? ORDER BY row_no`
+  ).all(latest.id) as ReconciliationWorkspace['statementRows']
+  const matchedLineIds = statementRows.flatMap((row) => row.matchedLineId == null ? [] : [row.matchedLineId])
+  const bookRows = db.prepare(
+    `SELECT vl.id AS lineId, v.id AS voucherId, v.date, v.number,
+            CASE WHEN vl.dr_cr = 'dr' THEN 'deposit' ELSE 'withdrawal' END AS direction,
+            vl.amount,
+            COALESCE((SELECT GROUP_CONCAT(DISTINCT l2.name) FROM voucher_lines vl2
+                      JOIN ledgers l2 ON l2.id = vl2.ledger_id
+                      WHERE vl2.voucher_id = v.id AND vl2.ledger_id <> vl.ledger_id), '') AS particulars
+     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+     WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+     ORDER BY v.date, v.id`
+  ).all(ledgerId, latest.periodFrom, latest.periodTo) as ReconciliationWorkspace['bookOnlyRows']
+  const matchedSet = new Set(matchedLineIds)
+  const bookOnlyRows = bookRows.filter((row) => !matchedSet.has(row.lineId))
+  const movement = db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS amount
+     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+     WHERE vl.ledger_id = ? AND v.date < ? AND ${IN_BOOKS}`
+  ).get(ledgerId, latest.periodFrom) as { amount: number }
+  const bookOpeningBalance = ledger.openingBalance + movement.amount
+  const count = (status: ReconciliationStatus): number => statementRows.filter((row) => row.status === status).length
+
+  return {
+    ledgerId, ledgerName: ledger.name, latestImport: latest,
+    statementOpeningBalance: latest.openingBalance,
+    bookOpeningBalance,
+    openingDifference: latest.openingBalance == null ? null : latest.openingBalance - bookOpeningBalance,
+    counts: {
+      matched: count('matched'), bankOnly: count('bank_only'), bookOnly: bookOnlyRows.length,
+      ignored: count('ignored'), timingDifference: count('timing_difference')
+    },
+    statementRows,
+    bookOnlyRows
+  }
+}
+
+export function classifyStatementRow(
+  db: DB,
+  rowId: number,
+  status: 'bank_only' | 'ignored' | 'timing_difference',
+  note: string | null,
+  actor: string
+): void {
+  const before = db.prepare('SELECT * FROM bank_statement_rows WHERE id = ?').get(rowId) as Record<string, unknown> | undefined
+  if (!before) throw new Error('Statement row not found')
+  db.prepare(
+    `UPDATE bank_statement_rows SET status = ?, note = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?`
+  ).run(status, note, actor, rowId)
+  writeAudit(db, 'bank_statement_row', rowId, 'update', before, { status, note, actor })
+}
+
+export interface BankTransferSuggestion {
+  withdrawalRowId: number
+  depositRowId: number
+  amount: number
+  withdrawalDate: string
+  depositDate: string
+  fromLedgerId: number
+  fromLedgerName: string
+  toLedgerId: number
+  toLedgerName: string
+  reference: string
+  description: string
+  confidence: number
+}
+
+/** Opposite bank-only lines of the same amount across two accounts, ranked for user review. */
+export function transferSuggestions(db: DB): BankTransferSuggestion[] {
+  const rows = db.prepare(
+    `SELECT sr.id, sr.date, sr.description, sr.reference, sr.direction, sr.amount,
+            si.ledger_id AS ledgerId, l.name AS ledgerName
+     FROM bank_statement_rows sr
+     JOIN bank_statement_imports si ON si.id = sr.import_id
+     JOIN ledgers l ON l.id = si.ledger_id
+     WHERE sr.status = 'bank_only'
+       AND si.id = (SELECT MAX(si2.id) FROM bank_statement_imports si2 WHERE si2.ledger_id = si.ledger_id)
+     ORDER BY sr.date, sr.id`
+  ).all() as { id: number; date: string; description: string; reference: string; direction: 'deposit' | 'withdrawal'; amount: number; ledgerId: number; ledgerName: string }[]
+  const withdrawals = rows.filter((row) => row.direction === 'withdrawal')
+  const deposits = rows.filter((row) => row.direction === 'deposit')
+  const usedDeposits = new Set<number>()
+  const suggestions: BankTransferSuggestion[] = []
+  const transferText = /\b(self|transfer|trf|neft|imps|upi|sweep)\b/i
+
+  for (const withdrawal of withdrawals) {
+    const candidates = deposits
+      .filter((deposit) => !usedDeposits.has(deposit.id) && deposit.ledgerId !== withdrawal.ledgerId && deposit.amount === withdrawal.amount)
+      .map((deposit) => {
+        const gap = Math.abs(Date.parse(deposit.date) - Date.parse(withdrawal.date)) / 86_400_000
+        const sameReference = !!withdrawal.reference && withdrawal.reference.toLowerCase() === deposit.reference.toLowerCase()
+        const textSignal = transferText.test(withdrawal.description) || transferText.test(deposit.description)
+        const confidence = Math.min(99, 55 + (gap === 0 ? 20 : gap <= 1 ? 12 : 0) + (sameReference ? 20 : 0) + (textSignal ? 10 : 0))
+        return { deposit, gap, confidence, sameReference, textSignal }
+      })
+      .filter((candidate) => candidate.gap <= 3 && (candidate.sameReference || candidate.textSignal || candidate.gap <= 1))
+      .sort((a, b) => b.confidence - a.confidence || a.gap - b.gap)
+    const best = candidates[0]
+    if (!best) continue
+    usedDeposits.add(best.deposit.id)
+    suggestions.push({
+      withdrawalRowId: withdrawal.id,
+      depositRowId: best.deposit.id,
+      amount: withdrawal.amount,
+      withdrawalDate: withdrawal.date,
+      depositDate: best.deposit.date,
+      fromLedgerId: withdrawal.ledgerId,
+      fromLedgerName: withdrawal.ledgerName,
+      toLedgerId: best.deposit.ledgerId,
+      toLedgerName: best.deposit.ledgerName,
+      reference: withdrawal.reference || best.deposit.reference,
+      description: withdrawal.description || best.deposit.description,
+      confidence: best.confidence
+    })
+  }
+  return suggestions
+}
+
+/** Post one reviewed Contra voucher and bind each statement side to the exact generated line. */
+export function postTransfer(
+  db: DB,
+  withdrawalRowId: number,
+  depositRowId: number,
+  actor: string
+): { voucherId: number } {
+  const load = db.prepare(
+    `SELECT sr.id, sr.date, sr.description, sr.reference, sr.direction, sr.amount, sr.status,
+            si.ledger_id AS ledgerId
+     FROM bank_statement_rows sr JOIN bank_statement_imports si ON si.id = sr.import_id
+     WHERE sr.id = ?`
+  )
+  const withdrawal = load.get(withdrawalRowId) as { id: number; date: string; description: string; reference: string; direction: string; amount: number; status: string; ledgerId: number } | undefined
+  const deposit = load.get(depositRowId) as typeof withdrawal
+  if (!withdrawal || !deposit) throw new Error('Transfer statement row not found')
+  if (withdrawal.status !== 'bank_only' || deposit.status !== 'bank_only') throw new Error('Both transfer sides must still be bank-only')
+  if (withdrawal.direction !== 'withdrawal' || deposit.direction !== 'deposit') throw new Error('Choose a withdrawal and its matching deposit')
+  if (withdrawal.amount !== deposit.amount) throw new Error('Transfer amounts do not agree')
+  if (withdrawal.ledgerId === deposit.ledgerId) throw new Error('A transfer must move between two bank accounts')
+  const voucherType = db.prepare("SELECT id FROM voucher_types WHERE kind = 'contra' AND is_system = 1").get() as { id: number } | undefined
+  if (!voucherType) throw new Error('Contra voucher type not found')
+
+  let voucherId = 0
+  db.transaction(() => {
+    const voucher = saveVoucher(db, {
+      voucherTypeId: voucherType.id,
+      date: withdrawal.date > deposit.date ? withdrawal.date : deposit.date,
+      number: undefined,
+      partyLedgerId: null,
+      narration: `Inter-bank transfer · ${withdrawal.description || deposit.description}`,
+      reference: withdrawal.reference || deposit.reference || null,
+      instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
+      transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+      lines: [
+        { ledgerId: deposit.ledgerId, drCr: 'dr', amount: deposit.amount, costAllocations: [] },
+        { ledgerId: withdrawal.ledgerId, drCr: 'cr', amount: withdrawal.amount, costAllocations: [] }
+      ],
+      inventory: [], billRefs: [], tds: null
+    })
+    voucherId = voucher.id
+    const depositLine = voucher.lines.find((line) => line.ledgerId === deposit.ledgerId)!
+    const withdrawalLine = voucher.lines.find((line) => line.ledgerId === withdrawal.ledgerId)!
+    db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(deposit.date, depositLine.id)
+    db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(withdrawal.date, withdrawalLine.id)
+    db.prepare("UPDATE bank_statement_rows SET status = 'matched', matched_line_id = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?")
+      .run(withdrawalLine.id, actor, withdrawal.id)
+    db.prepare("UPDATE bank_statement_rows SET status = 'matched', matched_line_id = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?")
+      .run(depositLine.id, actor, deposit.id)
+    db.prepare('INSERT INTO bank_transfer_matches (withdrawal_row_id, deposit_row_id, voucher_id, linked_by) VALUES (?, ?, ?, ?)')
+      .run(withdrawal.id, deposit.id, voucher.id, actor)
+  })()
+  writeAudit(db, 'bank_transfer', voucherId, 'create', null, { withdrawalRowId, depositRowId, actor })
+  return { voucherId }
+}
+
+export interface BankChargeSuggestion {
+  statementRowId: number
+  settlementLineId: number
+  bankLedgerId: number
+  bankLedgerName: string
+  date: string
+  description: string
+  netAmount: number
+  grossBookAmount: number
+  deductionAmount: number
+  suggestedFeeAmount: number
+  suggestedTaxAmount: number
+  voucherId: number
+  voucherNumber: string
+  confidence: number
+}
+
+/** Find net deposits that plausibly correspond to a larger gross receipt in the books. */
+export function chargeExtractionSuggestions(db: DB): BankChargeSuggestion[] {
+  const bankRows = db.prepare(
+    `SELECT sr.id, sr.date, sr.description, sr.amount, si.ledger_id AS bankLedgerId, l.name AS bankLedgerName
+     FROM bank_statement_rows sr
+     JOIN bank_statement_imports si ON si.id = sr.import_id
+     JOIN ledgers l ON l.id = si.ledger_id
+     WHERE sr.status = 'bank_only' AND sr.direction = 'deposit'
+       AND si.id = (SELECT MAX(si2.id) FROM bank_statement_imports si2 WHERE si2.ledger_id = si.ledger_id)
+     ORDER BY sr.date, sr.id`
+  ).all() as { id: number; date: string; description: string; amount: number; bankLedgerId: number; bankLedgerName: string }[]
+  const suggestions: BankChargeSuggestion[] = []
+  const usedLines = new Set<number>()
+  for (const row of bankRows) {
+    const candidates = db.prepare(
+      `SELECT vl.id AS lineId, vl.amount, v.id AS voucherId, v.number, v.date,
+              COALESCE(v.narration, '') AS narration
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.ledger_id = ? AND vl.dr_cr = 'dr' AND vl.bank_date IS NULL AND vl.amount > ? AND ${IN_BOOKS}
+         AND NOT EXISTS (SELECT 1 FROM bank_charge_extractions bce WHERE bce.settlement_line_id = vl.id)
+       ORDER BY ABS(julianday(v.date) - julianday(?)), vl.amount`
+    ).all(row.bankLedgerId, row.amount, row.date) as { lineId: number; amount: number; voucherId: number; number: string; date: string; narration: string }[]
+    const candidate = candidates.find((book) => {
+      const difference = book.amount - row.amount
+      const days = Math.abs(Date.parse(book.date) - Date.parse(row.date)) / 86_400_000
+      return !usedLines.has(book.lineId) && days <= 5 && difference <= 5_000_000 && difference <= Math.round(book.amount * 0.2)
+    })
+    if (!candidate) continue
+    usedLines.add(candidate.lineId)
+    const deduction = candidate.amount - row.amount
+    const suggestedTax = Math.round((deduction * 18) / 118)
+    const days = Math.abs(Date.parse(candidate.date) - Date.parse(row.date)) / 86_400_000
+    suggestions.push({
+      statementRowId: row.id, settlementLineId: candidate.lineId, bankLedgerId: row.bankLedgerId,
+      bankLedgerName: row.bankLedgerName, date: row.date, description: row.description,
+      netAmount: row.amount, grossBookAmount: candidate.amount, deductionAmount: deduction,
+      suggestedFeeAmount: deduction - suggestedTax, suggestedTaxAmount: suggestedTax,
+      voucherId: candidate.voucherId, voucherNumber: candidate.number,
+      confidence: Math.max(55, 92 - Math.round(days * 7))
+    })
+  }
+  return suggestions
+}
+
+export function postChargeExtraction(
+  db: DB,
+  input: { statementRowId: number; settlementLineId: number; feeLedgerId: number; taxLedgerId: number | null; feeAmount: number; taxAmount: number },
+  actor: string
+): { voucherId: number } {
+  const row = db.prepare(
+    `SELECT sr.id, sr.date, sr.description, sr.reference, sr.amount, sr.direction, sr.status,
+            si.ledger_id AS bankLedgerId
+     FROM bank_statement_rows sr JOIN bank_statement_imports si ON si.id = sr.import_id WHERE sr.id = ?`
+  ).get(input.statementRowId) as { id: number; date: string; description: string; reference: string; amount: number; direction: string; status: string; bankLedgerId: number } | undefined
+  const settlement = db.prepare(
+    `SELECT vl.id, vl.amount, vl.dr_cr AS drCr, vl.ledger_id AS ledgerId, v.id AS voucherId
+     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id WHERE vl.id = ? AND ${IN_BOOKS}`
+  ).get(input.settlementLineId) as { id: number; amount: number; drCr: string; ledgerId: number; voucherId: number } | undefined
+  if (!row || !settlement) throw new Error('Settlement evidence not found')
+  if (row.status !== 'bank_only' || row.direction !== 'deposit') throw new Error('Statement line is no longer an unresolved deposit')
+  if (settlement.ledgerId !== row.bankLedgerId || settlement.drCr !== 'dr') throw new Error('Gross receipt must debit the same bank account')
+  const deduction = settlement.amount - row.amount
+  if (deduction <= 0 || input.feeAmount <= 0 || input.taxAmount < 0 || input.feeAmount + input.taxAmount !== deduction) {
+    throw new Error('Fee and tax must exactly explain the gross-to-net deduction')
+  }
+  if (input.taxAmount > 0 && input.taxLedgerId == null) throw new Error('Choose a tax ledger for the tax amount')
+  const voucherType = db.prepare("SELECT id FROM voucher_types WHERE kind = 'payment' AND is_system = 1").get() as { id: number } | undefined
+  if (!voucherType) throw new Error('Payment voucher type not found')
+  let voucherId = 0
+  db.transaction(() => {
+    const lines = [
+      { ledgerId: input.feeLedgerId, drCr: 'dr' as const, amount: input.feeAmount, costAllocations: [] as never[] },
+      ...(input.taxAmount > 0 ? [{ ledgerId: input.taxLedgerId!, drCr: 'dr' as const, amount: input.taxAmount, costAllocations: [] as never[] }] : []),
+      { ledgerId: row.bankLedgerId, drCr: 'cr' as const, amount: deduction, costAllocations: [] as never[] }
+    ]
+    const voucher = saveVoucher(db, {
+      voucherTypeId: voucherType.id, date: row.date, number: undefined, partyLedgerId: null,
+      narration: `Settlement charges · ${row.description}`, reference: row.reference || null,
+      instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
+      transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+      lines, inventory: [], billRefs: [], tds: null
+    })
+    voucherId = voucher.id
+    const bankLine = voucher.lines.find((line) => line.ledgerId === row.bankLedgerId)!
+    db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id IN (?, ?)').run(row.date, settlement.id, bankLine.id)
+    db.prepare("UPDATE bank_statement_rows SET status = 'matched', matched_line_id = ?, created_voucher_id = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?")
+      .run(settlement.id, voucher.id, actor, row.id)
+    db.prepare(
+      `INSERT INTO bank_charge_extractions
+       (statement_row_id, settlement_line_id, charge_voucher_id, fee_ledger_id, tax_ledger_id, fee_amount, tax_amount, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(row.id, settlement.id, voucher.id, input.feeLedgerId, input.taxLedgerId, input.feeAmount, input.taxAmount, actor)
+  })()
+  writeAudit(db, 'bank_charge_extraction', voucherId, 'create', null, { ...input, actor })
+  return { voucherId }
+}
+
+export type ChequeStatus = 'issued' | 'deposited' | 'cleared' | 'bounced' | 'cancelled' | 'stale'
+
+export interface ChequeLifecycleRow {
+  voucherId: number
+  date: string
+  number: string
+  voucherKind: 'payment' | 'receipt'
+  instrumentNo: string
+  instrumentDate: string | null
+  bankLedgerId: number
+  bankLedgerName: string
+  partyName: string
+  amount: number
+  status: ChequeStatus
+  statusDate: string
+  note: string | null
+  updatedBy: string | null
+}
+
+export function chequeLifecycle(db: DB, asOn: string): ChequeLifecycleRow[] {
+  const bankIds = new Set(bankLedgers(db).map((ledger) => ledger.id))
+  const raw = db.prepare(
+    `SELECT v.id AS voucherId, v.date, v.number, vt.kind AS voucherKind,
+            v.instrument_no AS instrumentNo, v.instrument_date AS instrumentDate,
+            vl.ledger_id AS bankLedgerId, bl.name AS bankLedgerName, vl.amount,
+            COALESCE(pl.name, (SELECT GROUP_CONCAT(DISTINCT ol.name) FROM voucher_lines ovl
+              JOIN ledgers ol ON ol.id = ovl.ledger_id WHERE ovl.voucher_id = v.id AND ovl.ledger_id <> vl.ledger_id), '') AS partyName,
+            cl.status, cl.status_date AS statusDate, cl.note, cl.updated_by AS updatedBy
+     FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+     JOIN voucher_lines vl ON vl.voucher_id = v.id JOIN ledgers bl ON bl.id = vl.ledger_id
+     LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
+     LEFT JOIN cheque_lifecycle cl ON cl.voucher_id = v.id
+     WHERE vt.kind IN ('payment','receipt') AND v.instrument_no IS NOT NULL AND trim(v.instrument_no) <> '' AND ${IN_BOOKS}
+     ORDER BY COALESCE(v.instrument_date, v.date), v.id`
+  ).all() as (Omit<ChequeLifecycleRow, 'status' | 'statusDate'> & { status: Exclude<ChequeStatus, 'stale'> | null; statusDate: string | null })[]
+  return raw.filter((row) => bankIds.has(row.bankLedgerId)).map((row) => {
+    const base: 'issued' | 'deposited' = row.voucherKind === 'payment' ? 'issued' : 'deposited'
+    const effectiveDate = row.instrumentDate ?? row.date
+    const staleAt = new Date(`${effectiveDate}T00:00:00Z`).getTime() + 90 * 86_400_000
+    const stale = !row.status && staleAt < new Date(`${asOn}T00:00:00Z`).getTime()
+    return { ...row, status: stale ? 'stale' : row.status ?? base, statusDate: row.statusDate ?? effectiveDate }
+  })
+}
+
+export function updateChequeStatus(
+  db: DB,
+  voucherId: number,
+  status: Exclude<ChequeStatus, 'stale'>,
+  statusDate: string,
+  note: string | null,
+  actor: string
+): void {
+  if (!isValidISODate(statusDate)) throw new Error('Invalid cheque status date')
+  const current = chequeLifecycle(db, statusDate).find((row) => row.voucherId === voucherId)
+  if (!current) throw new Error('Cheque voucher not found')
+  const transition: Record<ChequeStatus, Exclude<ChequeStatus, 'stale'>[]> = {
+    issued: ['issued', 'cleared', 'bounced', 'cancelled'],
+    deposited: ['deposited', 'cleared', 'bounced', 'cancelled'],
+    stale: ['issued', 'deposited', 'cleared', 'bounced', 'cancelled'],
+    bounced: ['deposited', 'cleared', 'cancelled'],
+    cleared: ['bounced'],
+    cancelled: []
+  }
+  if (!transition[current.status].includes(status)) throw new Error(`Cannot change a ${current.status} cheque to ${status}`)
+  const bankIds = new Set(bankLedgers(db).map((ledger) => ledger.id))
+  const bankLines = (db.prepare('SELECT id, ledger_id AS ledgerId FROM voucher_lines WHERE voucher_id = ?').all(voucherId) as { id: number; ledgerId: number }[])
+    .filter((line) => bankIds.has(line.ledgerId))
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO cheque_lifecycle (voucher_id, status, status_date, note, updated_by)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(voucher_id) DO UPDATE SET status = excluded.status, status_date = excluded.status_date,
+         note = excluded.note, updated_by = excluded.updated_by, updated_at = datetime('now')`
+    ).run(voucherId, status, statusDate, note, actor)
+    if (status === 'cleared') {
+      const set = db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?')
+      for (const line of bankLines) set.run(statusDate, line.id)
+    } else if (status === 'bounced' || status === 'issued' || status === 'deposited') {
+      const clear = db.prepare('UPDATE voucher_lines SET bank_date = NULL WHERE id = ?')
+      for (const line of bankLines) clear.run(line.id)
+    }
+  })()
+  writeAudit(db, 'cheque_lifecycle', voucherId, 'update', current, { status, statusDate, note, actor })
+}
+
+export interface CashDenomination { denominationPaise: number; count: number }
+export interface CashCountSession {
+  id: number; date: string; cashLedgerId: number; cashLedgerName: string
+  denominations: CashDenomination[]; physicalTotal: number; bookBalance: number; difference: number
+  status: 'draft' | 'posted' | 'cancelled'; note: string | null; countedBy: string; countedAt: string
+  postedBy: string | null; postedAt: string | null; adjustmentVoucherId: number | null
+}
+
+export function cashLedgers(db: DB): { id: number; name: string }[] {
+  const ids = descendantIdsByName(db, ['Cash-in-Hand'])
+  return (db.prepare('SELECT id, name, group_id AS groupId FROM ledgers ORDER BY name').all() as { id: number; name: string; groupId: number }[])
+    .filter((ledger) => ids.has(ledger.groupId)).map(({ id, name }) => ({ id, name }))
+}
+
+function cashBookBalance(db: DB, ledgerId: number, asOn: string): number {
+  const ledger = db.prepare('SELECT opening_balance AS openingBalance FROM ledgers WHERE id = ?').get(ledgerId) as { openingBalance: number } | undefined
+  if (!ledger || !cashLedgers(db).some((cash) => cash.id === ledgerId)) throw new Error('Cash ledger not found')
+  const movement = db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS amount
+     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+     WHERE vl.ledger_id = ? AND v.date <= ? AND ${IN_BOOKS}`
+  ).get(ledgerId, asOn) as { amount: number }
+  return ledger.openingBalance + movement.amount
+}
+
+function normalizeDenominations(lines: CashDenomination[]): CashDenomination[] {
+  const seen = new Set<number>()
+  return lines.filter((line) => line.count > 0).map((line) => {
+    if (!Number.isInteger(line.denominationPaise) || line.denominationPaise <= 0 || !Number.isInteger(line.count) || line.count < 0 || line.count > 1_000_000) throw new Error('Invalid denomination count')
+    if (seen.has(line.denominationPaise)) throw new Error('Duplicate cash denomination')
+    seen.add(line.denominationPaise)
+    return line
+  }).sort((a, b) => b.denominationPaise - a.denominationPaise)
+}
+
+export function cashCountPreview(db: DB, ledgerId: number, date: string, lines: CashDenomination[]): Omit<CashCountSession, 'id' | 'cashLedgerName' | 'status' | 'note' | 'countedBy' | 'countedAt' | 'postedBy' | 'postedAt' | 'adjustmentVoucherId'> {
+  if (!isValidISODate(date)) throw new Error('Invalid count date')
+  const denominations = normalizeDenominations(lines)
+  const physicalTotal = denominations.reduce((sum, line) => sum + line.denominationPaise * line.count, 0)
+  if (!Number.isSafeInteger(physicalTotal)) throw new Error('Cash count is too large')
+  const bookBalance = cashBookBalance(db, ledgerId, date)
+  return { date, cashLedgerId: ledgerId, denominations, physicalTotal, bookBalance, difference: physicalTotal - bookBalance }
+}
+
+function mapCashCount(row: Record<string, unknown>): CashCountSession {
+  return {
+    id: Number(row.id), date: String(row.date), cashLedgerId: Number(row.cashLedgerId), cashLedgerName: String(row.cashLedgerName),
+    denominations: JSON.parse(String(row.denominationsJson)) as CashDenomination[], physicalTotal: Number(row.physicalTotal),
+    bookBalance: Number(row.bookBalance), difference: Number(row.difference), status: row.status as CashCountSession['status'],
+    note: row.note == null ? null : String(row.note), countedBy: String(row.countedBy), countedAt: String(row.countedAt),
+    postedBy: row.postedBy == null ? null : String(row.postedBy), postedAt: row.postedAt == null ? null : String(row.postedAt),
+    adjustmentVoucherId: row.adjustmentVoucherId == null ? null : Number(row.adjustmentVoucherId)
+  }
+}
+
+export function listCashCounts(db: DB): CashCountSession[] {
+  return (db.prepare(
+    `SELECT cc.*, cc.cash_ledger_id AS cashLedgerId, l.name AS cashLedgerName,
+            cc.denominations_json AS denominationsJson, cc.physical_total AS physicalTotal,
+            cc.book_balance AS bookBalance, cc.counted_by AS countedBy, cc.counted_at AS countedAt,
+            cc.posted_by AS postedBy, cc.posted_at AS postedAt, cc.adjustment_voucher_id AS adjustmentVoucherId
+     FROM cash_count_sessions cc JOIN ledgers l ON l.id = cc.cash_ledger_id ORDER BY cc.date DESC, cc.id DESC`
+  ).all() as Record<string, unknown>[]).map(mapCashCount)
+}
+
+export function saveCashCount(db: DB, ledgerId: number, date: string, lines: CashDenomination[], note: string | null, actor: string): CashCountSession {
+  const preview = cashCountPreview(db, ledgerId, date, lines)
+  const result = db.prepare(
+    `INSERT INTO cash_count_sessions
+     (date, cash_ledger_id, denominations_json, physical_total, book_balance, difference, note, counted_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(date, ledgerId, JSON.stringify(preview.denominations), preview.physicalTotal, preview.bookBalance, preview.difference, note, actor)
+  const id = Number(result.lastInsertRowid)
+  writeAudit(db, 'cash_count', id, 'create', null, preview)
+  return listCashCounts(db).find((row) => row.id === id)!
+}
+
+export function postCashCount(db: DB, id: number, adjustmentLedgerId: number | null, actor: string): CashCountSession {
+  const count = listCashCounts(db).find((row) => row.id === id)
+  if (!count) throw new Error('Cash count not found')
+  if (count.status !== 'draft') throw new Error('Only a draft cash count can be posted')
+  if (count.difference !== 0 && adjustmentLedgerId == null) throw new Error('Choose an adjustment ledger for the difference')
+  if (adjustmentLedgerId === count.cashLedgerId) throw new Error('Adjustment ledger must differ from the cash ledger')
+  let voucherId: number | null = null
+  db.transaction(() => {
+    if (count.difference !== 0) {
+      const voucherType = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal' AND is_system = 1").get() as { id: number } | undefined
+      if (!voucherType) throw new Error('Journal voucher type not found')
+      const amount = Math.abs(count.difference)
+      const cashSide = count.difference > 0 ? 'dr' : 'cr'
+      const voucher = saveVoucher(db, {
+        voucherTypeId: voucherType.id, date: count.date, number: undefined, partyLedgerId: null,
+        narration: `Approved physical cash count difference · session #${count.id}`, reference: null,
+        instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
+        transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+        lines: [
+          { ledgerId: count.cashLedgerId, drCr: cashSide, amount, costAllocations: [] },
+          { ledgerId: adjustmentLedgerId!, drCr: cashSide === 'dr' ? 'cr' : 'dr', amount, costAllocations: [] }
+        ], inventory: [], billRefs: [], tds: null
+      })
+      voucherId = voucher.id
+    }
+    db.prepare("UPDATE cash_count_sessions SET status = 'posted', posted_by = ?, posted_at = datetime('now'), adjustment_voucher_id = ? WHERE id = ?")
+      .run(actor, voucherId, id)
+  })()
+  writeAudit(db, 'cash_count', id, 'update', count, { status: 'posted', adjustmentVoucherId: voucherId, actor })
+  return listCashCounts(db).find((row) => row.id === id)!
 }
 
 // ---------- bank rules (auto-categorization) ----------
@@ -408,6 +1012,16 @@ export interface BankRuleRecord {
   autoApply: boolean
   active: boolean
   hits: number
+  confidenceBp: number
+  reviewedHits: number
+  rejectedHits: number
+  source: 'manual' | 'learned'
+  rolledBackAt: string | null
+  bankLedgerId: number | null
+  bankLedgerName: string | null
+  dateFrom: string | null
+  dateTo: string | null
+  narrationTemplate: string | null
 }
 
 export function listRules(db: DB): BankRuleRecord[] {
@@ -416,8 +1030,13 @@ export function listRules(db: DB): BankRuleRecord[] {
       .prepare(
         `SELECT r.id, r.pattern, r.match_field AS matchField, r.ledger_id AS ledgerId,
                 l.name AS ledgerName, r.kind, r.min_amount AS minAmount, r.max_amount AS maxAmount,
-                r.auto_apply AS autoApply, r.active, r.hits
+                r.auto_apply AS autoApply, r.active, r.hits,
+                r.confidence_bp AS confidenceBp, r.reviewed_hits AS reviewedHits,
+                r.rejected_hits AS rejectedHits, r.source, r.rolled_back_at AS rolledBackAt,
+                r.bank_ledger_id AS bankLedgerId, bl.name AS bankLedgerName,
+                r.date_from AS dateFrom, r.date_to AS dateTo, r.narration_template AS narrationTemplate
          FROM bank_rules r JOIN ledgers l ON l.id = r.ledger_id
+         LEFT JOIN ledgers bl ON bl.id = r.bank_ledger_id
          ORDER BY r.pattern COLLATE NOCASE`
       )
       .all() as (Omit<BankRuleRecord, 'active' | 'autoApply'> & { active: number; autoApply: number })[]
@@ -437,16 +1056,30 @@ export function saveRule(db: DB, input: BankRuleInput, id?: number): BankRuleRec
     if (!before) throw new Error('Bank rule not found')
     db.prepare(
       `UPDATE bank_rules SET pattern = ?, match_field = ?, ledger_id = ?, kind = ?,
-       min_amount = ?, max_amount = ?, auto_apply = ?, active = ? WHERE id = ?`
-    ).run(input.pattern, matchField, input.ledgerId, input.kind, minAmount, maxAmount, autoApply, input.active ? 1 : 0, id)
+       min_amount = ?, max_amount = ?, auto_apply = ?, active = ?, bank_ledger_id = ?,
+       date_from = ?, date_to = ?, narration_template = ?, rolled_back_at = CASE WHEN ? THEN NULL ELSE rolled_back_at END
+       WHERE id = ?`
+    ).run(
+      input.pattern, matchField, input.ledgerId, input.kind, minAmount, maxAmount, autoApply, input.active ? 1 : 0,
+      input.bankLedgerId ?? null, input.dateFrom ?? null, input.dateTo ?? null, input.narrationTemplate ?? null,
+      input.active ? 1 : 0, id
+    )
     writeAudit(db, 'bank_rule', id, 'update', before, input)
   } else {
+    const source = input.source ?? 'manual'
+    const confidence = source === 'learned' ? 6000 : 9000
     const res = db
       .prepare(
-        `INSERT INTO bank_rules (pattern, match_field, ledger_id, kind, min_amount, max_amount, auto_apply, active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO bank_rules
+         (pattern, match_field, ledger_id, kind, min_amount, max_amount, auto_apply, active, source, confidence_bp,
+          bank_ledger_id, date_from, date_to, narration_template)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(input.pattern, matchField, input.ledgerId, input.kind, minAmount, maxAmount, autoApply, input.active ? 1 : 0)
+      .run(
+        input.pattern, matchField, input.ledgerId, input.kind, minAmount, maxAmount, autoApply,
+        input.active ? 1 : 0, source, confidence, input.bankLedgerId ?? null, input.dateFrom ?? null,
+        input.dateTo ?? null, input.narrationTemplate ?? null
+      )
     id = Number(res.lastInsertRowid)
     writeAudit(db, 'bank_rule', id, 'create', null, input)
   }
@@ -465,8 +1098,35 @@ export function deleteRule(db: DB, id: number): void {
 /** Increments a rule's hit counter — called when the user files a voucher built from one of its
  *  suggestions (see suggestVouchers), so "Rules…" can show how often each rule actually fires. */
 export function recordRuleHit(db: DB, ruleId: number): void {
-  const res = db.prepare('UPDATE bank_rules SET hits = hits + 1 WHERE id = ?').run(ruleId)
+  const res = db.prepare(
+    `UPDATE bank_rules SET hits = hits + 1, reviewed_hits = reviewed_hits + 1,
+     confidence_bp = MIN(10000, confidence_bp + 500), rolled_back_at = NULL WHERE id = ?`
+  ).run(ruleId)
   if (res.changes === 0) throw new Error('Bank rule not found')
+}
+
+/** Reject a proposed categorisation without deleting its learning history. */
+export function rejectRuleSuggestion(db: DB, ruleId: number): BankRuleRecord {
+  const before = listRules(db).find((rule) => rule.id === ruleId)
+  if (!before) throw new Error('Bank rule not found')
+  db.prepare(
+    `UPDATE bank_rules SET rejected_hits = rejected_hits + 1,
+     confidence_bp = MAX(0, confidence_bp - 1500), active = CASE WHEN confidence_bp <= 1500 THEN 0 ELSE active END
+     WHERE id = ?`
+  ).run(ruleId)
+  const after = listRules(db).find((rule) => rule.id === ruleId)!
+  writeAudit(db, 'bank_rule', ruleId, 'update', before, after)
+  return after
+}
+
+/** One-click rollback for a learned mapping. It remains inspectable and can be re-enabled. */
+export function rollbackRule(db: DB, ruleId: number): BankRuleRecord {
+  const before = listRules(db).find((rule) => rule.id === ruleId)
+  if (!before) throw new Error('Bank rule not found')
+  db.prepare("UPDATE bank_rules SET active = 0, rolled_back_at = datetime('now') WHERE id = ?").run(ruleId)
+  const after = listRules(db).find((rule) => rule.id === ruleId)!
+  writeAudit(db, 'bank_rule', ruleId, 'update', before, after)
+  return after
 }
 
 /** Neutral voucher-draft shape consumed by the renderer's voucher-entry nav draft
@@ -488,15 +1148,22 @@ export interface BankSuggestionRow {
   } | null
 }
 
+function renderRuleNarration(template: string | null, description: string, reference: string, autoCreated: boolean): string {
+  const rendered = template
+    ? template.replaceAll('{description}', description).replaceAll('{reference}', reference)
+    : description
+  return autoCreated ? `${rendered} (auto-created by bank rule)` : rendered
+}
+
 /** Active bank rules in the shared matcher's RuleRow shape (matchField/amount bounds included). */
-function activeRuleRows(db: DB): { rules: RuleRow[]; ruleNames: Map<number, string> } {
+function activeRuleRows(db: DB, bankLedgerId: number): { rules: RuleRow[]; ruleNames: Map<number, string> } {
   const allRules = listRules(db)
   const rules: RuleRow[] = allRules
-    .filter((r) => r.active)
+    .filter((r) => r.active && (r.bankLedgerId == null || r.bankLedgerId === bankLedgerId))
     .map((r) => ({
       id: r.id, pattern: r.pattern, ledgerId: r.ledgerId, kind: r.kind,
       matchField: r.matchField === 'reference' ? 'reference' : 'description',
-      minAmount: r.minAmount, maxAmount: r.maxAmount
+      minAmount: r.minAmount, maxAmount: r.maxAmount, dateFrom: r.dateFrom, dateTo: r.dateTo
     }))
   return { rules, ruleNames: new Map(allRules.map((r) => [r.id, r.ledgerName])) }
 }
@@ -509,10 +1176,11 @@ function activeRuleRows(db: DB): { rules: RuleRow[]; ruleNames: Map<number, stri
  */
 export function suggestVouchers(db: DB, ledgerId: number, csv: string): BankSuggestionRow[] {
   const { unmatched } = matchStatement(db, ledgerId, csv)
-  const { rules, ruleNames } = activeRuleRows(db)
+  const { rules, ruleNames } = activeRuleRows(db, ledgerId)
+  const ruleRecords = new Map(listRules(db).map((rule) => [rule.id, rule]))
 
   return unmatched.map((u) => {
-    const statementLike = { description: u.description, reference: u.reference, deposit: u.kind === 'deposit' ? u.amount : 0, withdrawal: u.kind === 'withdrawal' ? u.amount : 0 }
+    const statementLike = { date: u.date, description: u.description, reference: u.reference, deposit: u.kind === 'deposit' ? u.amount : 0, withdrawal: u.kind === 'withdrawal' ? u.amount : 0 }
     const match = matchRules([statementLike], rules)[0]
     if (!match) return { statementRow: u, suggestion: null }
 
@@ -520,7 +1188,7 @@ export function suggestVouchers(db: DB, ledgerId: number, csv: string): BankSugg
     const isPayment = rule.kind === 'payment'
     const voucherDraft: BankVoucherDraft = {
       date: u.date,
-      narration: u.description,
+      narration: renderRuleNarration(ruleRecords.get(rule.id)?.narrationTemplate ?? null, u.description, u.reference, false),
       lines: [
         { ledgerId: rule.ledgerId, drCr: isPayment ? 'dr' : 'cr', amount: u.amount },
         { ledgerId, drCr: isPayment ? 'cr' : 'dr', amount: u.amount }

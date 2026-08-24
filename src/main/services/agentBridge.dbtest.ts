@@ -8,7 +8,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { setAuditContext } from './audit'
 import { getAgentBridgeEnabled, setAgentBridgeEnabled } from './config'
-import { inboxDir, processInboxFile, scanInbox } from './agentBridge'
+import { approveProposal, createProposal, discardProposal, inboxDir, listProposals, processInboxFile, scanInbox } from './agentBridge'
 import { cmdCreateCompany, openCompany } from '../cli/commands'
 import type { DB } from '../db/connection'
 
@@ -195,5 +195,37 @@ describe('inbox drop processing', () => {
     // processed/, failed/ and the leftovers from previous tests must not be re-processed.
     const outcomes = scanInbox(db, slug)
     expect(outcomes).toEqual([])
+  })
+})
+
+describe('agent proposal review queue', () => {
+  const draft = () => ({
+    voucherTypeId: receiptTypeId(),
+    date: '2025-09-01',
+    lines: [
+      { ledgerId: ledgerId('Cash'), drCr: 'dr' as const, amount: 7700 },
+      { ledgerId: ledgerId('Inbox Sales'), drCr: 'cr' as const, amount: 7700 }
+    ]
+  })
+
+  it('keeps a draft inert until an accountant explicitly approves it', () => {
+    const before = voucherCount()
+    const proposal = createProposal(slug, 'mcp', '₹77 cash receipt', draft())
+    expect(voucherCount()).toBe(before)
+    expect(listProposals(slug).map((p) => p.id)).toContain(proposal.id)
+    const saved = approveProposal(db, slug, proposal.id)
+    expect(saved.id).toBeGreaterThan(0)
+    expect(voucherCount()).toBe(before + 1)
+    expect(listProposals(slug).map((p) => p.id)).not.toContain(proposal.id)
+    const audit = db.prepare("SELECT user_name FROM audit_log WHERE entity = 'voucher' ORDER BY id DESC LIMIT 1").get() as { user_name: string }
+    expect(audit.user_name).toBe('agent-mcp')
+  })
+
+  it('discards a draft without changing the books', () => {
+    const before = voucherCount()
+    const proposal = createProposal(slug, 'ai', 'discard me', draft())
+    discardProposal(slug, proposal.id)
+    expect(voucherCount()).toBe(before)
+    expect(listProposals(slug).map((p) => p.id)).not.toContain(proposal.id)
   })
 })

@@ -29,7 +29,8 @@ describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
       copyLabels: ['Original for Recipient', 'Duplicate for Transporter', 'Triplicate for Supplier'],
       showQr: false,
       showItemBarcode: true,
-      showEnteredBy: true
+      showEnteredBy: true,
+      labelLanguage: 'mr'
     }
     expect(invoiceConfigSchema.parse(input)).toEqual(input)
   })

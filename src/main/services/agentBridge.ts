@@ -11,8 +11,9 @@
  * Concurrency: the app and the CLI may have the same company.db open at once — WAL journal mode
  * + busy_timeout (set in db/connection.ts) make that safe; nothing here takes exclusive locks.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, watch, writeFileSync, type FSWatcher } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, watch, writeFileSync, type FSWatcher } from 'fs'
 import { basename, extname, join } from 'path'
+import { randomUUID } from 'crypto'
 import { Notification } from 'electron'
 import type { DB } from '../db/connection'
 import { companyDir } from '../paths'
@@ -53,6 +54,81 @@ export function agentDir(slug: string): string {
 
 export function inboxDir(slug: string): string {
   return join(companyDir(slug), 'inbox')
+}
+
+export interface AgentProposal {
+  version: 1
+  id: string
+  createdAt: string
+  source: 'mcp' | 'ai' | 'external'
+  status: 'pending'
+  summary: string
+  voucher: unknown
+}
+
+function proposalsDir(slug: string): string {
+  return join(companyDir(slug), 'proposals')
+}
+
+export function createProposal(slug: string, source: AgentProposal['source'], summary: string, voucher: unknown): AgentProposal {
+  const dir = proposalsDir(slug)
+  mkdirSync(dir, { recursive: true })
+  const createdAt = new Date().toISOString()
+  const id = `${createdAt.replace(/[:.]/g, '-')}-${randomUUID()}.json`
+  const proposal: AgentProposal = { version: 1, id, createdAt, source, status: 'pending', summary: summary.slice(0, 240), voucher }
+  writeFileSync(join(dir, id), JSON.stringify(proposal, null, 2), { flag: 'wx', mode: 0o600 })
+  return proposal
+}
+
+function safeProposalName(file: string): string {
+  const name = basename(file)
+  if (name !== file || !/^[a-zA-Z0-9._-]+\.json$/.test(name)) throw new Error('Invalid proposal name')
+  return name
+}
+
+/** Read-only listing of reviewable agent drafts. Nothing in proposals/ affects the books. */
+export function listProposals(slug: string): AgentProposal[] {
+  const dir = proposalsDir(slug)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((name) => name.endsWith('.json'))
+    .sort()
+    .reverse()
+    .slice(0, 200)
+    .flatMap((name) => {
+      try {
+        if (statSync(join(dir, name)).size > 512 * 1024) return []
+        const parsed = JSON.parse(readFileSync(join(dir, name), 'utf8')) as AgentProposal
+        if (parsed.version !== 1 || parsed.status !== 'pending' || !parsed.id || !parsed.voucher) return []
+        return [{ ...parsed, id: name }]
+      } catch {
+        return []
+      }
+    })
+}
+
+/** Human approval is the only proposal-to-ledger path: full voucher validation + period lock. */
+export function approveProposal(db: DB, slug: string, file: string): Voucher {
+  const name = safeProposalName(file)
+  const dir = proposalsDir(slug)
+  const path = join(dir, name)
+  if (!existsSync(path)) throw new Error('Proposal no longer exists')
+  if (statSync(path).size > 512 * 1024) throw new Error('Proposal is too large')
+  const proposal = JSON.parse(readFileSync(path, 'utf8')) as AgentProposal
+  if (proposal.version !== 1 || proposal.status !== 'pending') throw new Error('Invalid proposal')
+  const input = voucherInputSchema.parse(proposal.voucher)
+  const saved = runAsAuditUser(`agent-${proposal.source}`, () => saveVoucher(db, input))
+  const reviewed = join(dir, 'reviewed')
+  mkdirSync(reviewed, { recursive: true })
+  renameSync(path, join(reviewed, `${stamp()}-${name}`))
+  return saved
+}
+
+export function discardProposal(slug: string, file: string): void {
+  const name = safeProposalName(file)
+  const path = join(proposalsDir(slug), name)
+  if (!existsSync(path)) throw new Error('Proposal no longer exists')
+  rmSync(path)
 }
 
 /** FY label for a voucher date, e.g. '2025-26' for anything in FY 2025-04-01..2026-03-31. */

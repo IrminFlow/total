@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import type { ProfitAndLoss, StatementNode } from '@shared/reports'
 import {
-  mergeByName, type ConsolidateCompanyInput, type ConsolidateInputRow, type ConsolidatedResult
+  mergeByName, type ConsolidateCompanyInput, type ConsolidateInputRow, type ConsolidatedResult, type ConsolidationOptions
 } from '@shared/consolidate'
 import { companyDbPath } from '../paths'
 import { MIGRATIONS } from '../db/migrations'
@@ -49,7 +49,7 @@ function flattenPnl(pnl: ProfitAndLoss): ConsolidateInputRow[] {
  * predates the current migrations is skipped with a warning — a readonly connection
  * cannot run migrations to catch it up.
  */
-export function consolidated(slugs: string[], kind: ConsolidatedKind, from: string, to: string): ConsolidatedResult {
+export function consolidated(slugs: string[], kind: ConsolidatedKind, from: string, to: string, options:ConsolidationOptions={translationRates:{},eliminations:[]}): ConsolidatedResult {
   const registry = readRegistry()
   const nameOf = (slug: string): string => registry.companies.find((c) => c.slug === slug)?.name ?? slug
 
@@ -76,12 +76,17 @@ export function consolidated(slugs: string[], kind: ConsolidatedKind, from: stri
     } finally {
       db?.close()
     }
-    perCompany.push({ company: label, rows })
+    const rate=options.translationRates[slug]??1
+    perCompany.push({ company: label, rows:rows.map((row)=>({...row,dr:Math.round(row.dr*rate),cr:Math.round(row.cr*rate)})) })
   }
+
+  if(options.eliminations.length)perCompany.push({company:'Eliminations',rows:options.eliminations.map((row)=>({group:row.group,name:row.name,dr:row.amount>=0?row.amount:0,cr:row.amount<0?-row.amount:0}))})
 
   return {
     columns: perCompany.map((c) => c.company),
     rows: mergeByName(perCompany),
-    warnings
+    warnings,
+    translationRates:Object.fromEntries(slugs.map((slug)=>[slug,options.translationRates[slug]??1])),
+    eliminationCount:options.eliminations.length
   }
 }

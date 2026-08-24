@@ -56,7 +56,8 @@ export function valueStock(
   method: ValuationMethod,
   openingQtyMilli: number,
   openingValue: number,
-  movements: StockMovement[]
+  movements: StockMovement[],
+  onStep?: (result: ValuationResult, movement: StockMovement, index: number) => void
 ): ValuationResult {
   let inwardQtyMilli = 0
   let outwardQtyMilli = 0
@@ -79,7 +80,7 @@ export function valueStock(
       inwardQtyMilli += q
     }
 
-    for (const m of movements) {
+    for (const [index, m] of movements.entries()) {
       if (m.isAbsolute) {
         const delta = m.qtyMilli - qty
         if (delta > 0) {
@@ -94,6 +95,7 @@ export function valueStock(
       } else {
         outward(m.qtyMilli)
       }
+      onStep?.({ closingQtyMilli: qty, closingValue: value, inwardQtyMilli, outwardQtyMilli, consumedValue }, m, index)
     }
     return { closingQtyMilli: qty, closingValue: value, inwardQtyMilli, outwardQtyMilli, consumedValue }
   }
@@ -142,7 +144,7 @@ export function valueStock(
     if (qty > 0 || value !== 0) layers.push({ qtyMilli: qty, value })
   }
 
-  for (const m of movements) {
+  for (const [index, m] of movements.entries()) {
     if (m.isAbsolute) {
       const cur = totalQty()
       const delta = m.qtyMilli - cur
@@ -159,6 +161,7 @@ export function valueStock(
     } else {
       outward(m.qtyMilli)
     }
+    onStep?.({ closingQtyMilli: totalQty(), closingValue: totalValue(), inwardQtyMilli, outwardQtyMilli, consumedValue }, m, index)
   }
 
   return {

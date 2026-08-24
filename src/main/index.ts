@@ -8,7 +8,9 @@ import { ensureDataTree, dataRoot } from './paths'
 import { initUpdater } from './updater'
 import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
+import { deliverDueWebhooks, runDueAutomations } from './services/integrations'
 import { syncFolderWarning } from '@shared/syncpath'
+import { writeCrashEnvelope } from './services/crashReports'
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 
@@ -70,18 +72,48 @@ function createWindow(): void {
     backgroundColor: '#f4f4ef',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
   })
 
   win.on('ready-to-show', () => win.show())
+  win.webContents.on('render-process-gone', (_event, details) => {
+    try {
+      writeCrashEnvelope({
+        kind: 'renderer_gone',
+        appVersion: app.getVersion(),
+        platform: process.platform,
+        arch: process.arch,
+        message: `Renderer process ended: ${details.reason} (${details.exitCode})`
+      })
+    } catch {
+      log('warn', 'crash-envelope-write-failed', { kind: 'renderer_gone' })
+    }
+  })
+
+  const openAllowedExternal = (raw: string): void => {
+    try {
+      const url = new URL(raw)
+      if (url.protocol === 'https:' || url.protocol === 'mailto:') void shell.openExternal(url.toString())
+    } catch {
+      log('warn', 'blocked-external-url', { url: raw.slice(0, 200) })
+    }
+  }
 
   win.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openAllowedExternal(details.url)
     return { action: 'deny' }
   })
+  win.webContents.on('will-navigate', (event, url) => {
+    const current = win.webContents.getURL()
+    if (url !== current) {
+      event.preventDefault()
+      openAllowedExternal(url)
+    }
+  })
+  win.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -107,6 +139,19 @@ if (gotSingleInstanceLock) {
     ensureDataTree()
     registerIpc()
     startBackupScheduler(getCurrentCompany)
+    const integrationTimer = setInterval(() => {
+      const current = getCurrentCompany()
+      if (!current) return
+      void Promise.all([
+        deliverDueWebhooks(current.db),
+        runDueAutomations(current.db, current.info, current.slug)
+      ]).catch((error) => {
+        log('error', 'integration-scheduler-failed', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      })
+    }, 60_000)
+    integrationTimer.unref?.()
     createWindow()
     warnIfSyncedFolder()
     initUpdater()

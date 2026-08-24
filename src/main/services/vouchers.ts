@@ -6,13 +6,15 @@ import { voucherInputSchema } from '@shared/schemas'
 import type { VoucherInput, VoucherInputParsed } from '@shared/schemas'
 import type { VoucherListRow } from '@shared/reports'
 import { validateVoucher, type LedgerFacts } from '@shared/posting'
-import { fyOf } from '@shared/dates'
+import { fyOf, todayISO } from '@shared/dates'
 import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { writeAudit } from './audit'
+import { formatPaise } from '@shared/money'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
+  gst_registration_id: number | null
   party_ledger_id: number | null; narration: string | null; reference: string | null
   instrument_no: string | null; instrument_date: string | null
   transporter_id: string | null; vehicle_no: string | null; transport_distance: number | null
@@ -21,6 +23,7 @@ interface VoucherRow {
   irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null
   ewb_no: string | null; ewb_valid_upto: string | null
   post_dated: number; is_optional: number
+  reversal_of_id: number | null; reversal_reason: string | null; reversal_author: string | null
   deleted_at: string | null
   created_at: string; updated_at: string
 }
@@ -60,13 +63,13 @@ function getVoucherType(db: DB, id: number): VoucherType {
   const row = db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as
     | {
         id: number; name: string; kind: VoucherType['kind']; numbering: 'auto' | 'manual'; prefix: string
-        suffix: string; pad_width: number; restart_fy: number; is_system: number
+        suffix: string; pad_width: number; restart_fy: number; is_system: number; gst_registration_id: number | null
       }
     | undefined
   if (!row) throw new Error('Voucher type not found')
   return {
     id: row.id, name: row.name, kind: row.kind, numbering: row.numbering, prefix: row.prefix,
-    suffix: row.suffix, padWidth: row.pad_width, restartFy: !!row.restart_fy, isSystem: !!row.is_system
+    suffix: row.suffix, padWidth: row.pad_width, restartFy: !!row.restart_fy, isSystem: !!row.is_system, gstRegistrationId: row.gst_registration_id
   }
 }
 
@@ -105,10 +108,12 @@ export function getVoucher(db: DB, id: number): Voucher | null {
   const tdsRow = db
     .prepare('SELECT section_id, base_amount, tds_amount FROM tds_entries WHERE voucher_id = ?')
     .get(id) as { section_id: number; base_amount: number; tds_amount: number } | undefined
+  const reversed = db.prepare('SELECT id FROM vouchers WHERE reversal_of_id = ?').get(id) as { id: number } | undefined
 
   return {
     id: v.id,
     voucherTypeId: v.voucher_type_id,
+    gstRegistrationId: v.gst_registration_id,
     date: v.date,
     number: v.number,
     partyLedgerId: v.party_ledger_id,
@@ -129,6 +134,10 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     ewbValidUpto: v.ewb_valid_upto,
     postDated: !!v.post_dated,
     isOptional: !!v.is_optional,
+    reversalOfId: v.reversal_of_id,
+    reversalReason: v.reversal_reason,
+    reversalAuthor: v.reversal_author,
+    reversedById: reversed?.id ?? null,
     deletedAt: v.deleted_at,
     createdAt: v.created_at,
     updatedAt: v.updated_at,
@@ -158,12 +167,17 @@ export function getVoucher(db: DB, id: number): Voucher | null {
  * running sequence across FYs). Either way, binned (soft-deleted) vouchers still count toward the
  * max — same as before this task, deliberately: a deleted number must never be reissued.
  */
-export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, excludeVoucherId?: number): string {
+export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, excludeVoucherId?: number, requestedRegistrationId?: number | null): string {
   const vt = getVoucherType(db, voucherTypeId)
+  const registrationId = requestedRegistrationId ?? vt.gstRegistrationId
+  const scoped = registrationId == null ? undefined : db.prepare(
+    'SELECT prefix,suffix,pad_width AS padWidth,restart_fy AS restartFy FROM gst_registration_series WHERE registration_id=? AND voucher_type_id=?'
+  ).get(registrationId, voucherTypeId) as {prefix:string;suffix:string;padWidth:number;restartFy:number}|undefined
+  const config = scoped ? { prefix:scoped.prefix,suffix:scoped.suffix,padWidth:scoped.padWidth,restartFy:!!scoped.restartFy } : vt
   // Strip the suffix then the prefix in SQL (so e.g. "INV-007/24-25" with prefix "INV-" and
   // suffix "/24-25" reads as 7) and take a single MAX — no more loading every number into JS.
   // CAST mirrors the old parseInt(..., 10): leading digits parse, anything else reads as 0.
-  const fyClause = vt.restartFy ? 'AND date BETWEEN :from AND :to' : ''
+  const fyClause = config.restartFy ? 'AND date BETWEEN :from AND :to' : ''
   const row = db
     .prepare(
       `SELECT COALESCE(MAX(CAST(
@@ -173,21 +187,23 @@ export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, e
          SELECT CASE WHEN :slen > 0 AND substr(number, -:slen) = :suffix
                      THEN substr(number, 1, length(number) - :slen) ELSE number END AS stripped
          FROM vouchers
-         WHERE voucher_type_id = :vtId AND id IS NOT :excludeId ${fyClause}
+         WHERE voucher_type_id = :vtId AND id IS NOT :excludeId
+           AND COALESCE(gst_registration_id, 0) = COALESCE(:registrationId, 0) ${fyClause}
        )`
     )
     .get({
       vtId: vt.id,
       excludeId: excludeVoucherId ?? -1,
-      plen: vt.prefix.length,
-      prefix: vt.prefix,
-      slen: vt.suffix.length,
-      suffix: vt.suffix,
-      ...(vt.restartFy ? { from: fyOf(date).from, to: fyOf(date).to } : {})
+      registrationId: registrationId ?? null,
+      plen: config.prefix.length,
+      prefix: config.prefix,
+      slen: config.suffix.length,
+      suffix: config.suffix,
+      ...(config.restartFy ? { from: fyOf(date).from, to: fyOf(date).to } : {})
     }) as { maxn: number }
   const seq = Math.max(0, row.maxn) + 1
-  const padded = vt.padWidth > 0 ? String(seq).padStart(vt.padWidth, '0') : String(seq)
-  return `${vt.prefix}${padded}${vt.suffix}`
+  const padded = config.padWidth > 0 ? String(seq).padStart(config.padWidth, '0') : String(seq)
+  return `${config.prefix}${padded}${config.suffix}`
 }
 
 /** True when another live voucher of this type already carries `number` — the renderer's
@@ -195,11 +211,13 @@ export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, e
  *  SavedVoucher stays as the belt-and-braces warning for races). Binned vouchers don't
  *  count: restoring one back into a clash is already the restore flow's problem. */
 export function voucherNumberExists(db: DB, voucherTypeId: number, number: string, excludeId?: number): boolean {
+  const registrationId = getVoucherType(db, voucherTypeId).gstRegistrationId
   const row = db
     .prepare(
-      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id IS NOT ? AND ${NOT_DELETED} LIMIT 1`
+      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id IS NOT ?
+       AND COALESCE(v.gst_registration_id,0)=COALESCE(?,0) AND ${NOT_DELETED} LIMIT 1`
     )
-    .get(voucherTypeId, number, excludeId ?? -1)
+    .get(voucherTypeId, number, excludeId ?? -1, registrationId)
   return !!row
 }
 
@@ -207,15 +225,76 @@ export interface DuplicateWarning {
   voucherId: number
   number: string
   date: string
+  reasons: ('same_party_amount' | 'same_reference' | 'same_bill_reference')[]
 }
 
-/** Same type + same total + same party within ±3 days — probable double entry. */
+export interface SuspiciousEntryWarning {
+  code: 'future_date' | 'round_amount' | 'party_direction' | 'tax_asymmetry'
+  message: string
+}
+
+/** Deterministic, explainable pre-posting checks. These never bypass normal validation and the
+ * renderer requires an explicit confirmation; imports and automations can inspect the same API. */
+export function findSuspiciousEntry(db: DB, input: VoucherInputParsed): SuspiciousEntryWarning[] {
+  const warnings: SuspiciousEntryWarning[] = []
+  const kind = getVoucherType(db, input.voucherTypeId).kind
+  const total = input.lines.filter((line) => line.drCr === 'dr').reduce((sum, line) => sum + line.amount, 0)
+  if (input.date > todayISO() && !input.postDated) {
+    warnings.push({ code: 'future_date', message: 'The voucher date is in the future but the entry is not marked post-dated.' })
+  }
+  if (total >= 10_000_000 && total % 100_000 === 0) {
+    warnings.push({ code: 'round_amount', message: `The total is a large round amount (${plainAmount(total)}). Check it against the source document.` })
+  }
+  if (input.partyLedgerId !== null) {
+    const partyLine = input.lines.find((line) => line.ledgerId === input.partyLedgerId)
+    const expected = kind === 'sales' || kind === 'debit_note' || kind === 'payment'
+      ? 'dr'
+      : kind === 'purchase' || kind === 'credit_note' || kind === 'receipt'
+        ? 'cr'
+        : null
+    if (partyLine && expected && partyLine.drCr !== expected) {
+      warnings.push({ code: 'party_direction', message: `The party is ${partyLine.drCr === 'dr' ? 'debited' : 'credited'}, opposite to a typical ${kind.replace('_', ' ')} entry.` })
+    }
+  }
+  const taxRows = input.lines.length
+    ? db.prepare(`SELECT id, tax_type AS taxType FROM ledgers WHERE id IN (${input.lines.map(() => '?').join(',')})`).all(...input.lines.map((line) => line.ledgerId)) as { id: number; taxType: string | null }[]
+    : []
+  const taxType = new Map(taxRows.map((row) => [row.id, row.taxType]))
+  const taxTotal = (type: string): number => input.lines.filter((line) => taxType.get(line.ledgerId) === type).reduce((sum, line) => sum + line.amount, 0)
+  const cgst = taxTotal('cgst')
+  const sgst = taxTotal('sgst')
+  if ((cgst > 0 || sgst > 0) && Math.abs(cgst - sgst) > 1) {
+    warnings.push({ code: 'tax_asymmetry', message: `CGST and SGST differ by ${plainAmount(Math.abs(cgst - sgst))}. Verify the tax ledgers and place of supply.` })
+  }
+  return warnings
+}
+
+function plainAmount(paise: number): string {
+  return formatPaise(paise, { symbol: true })
+}
+
+/**
+ * Probable duplicate detection for every entry surface. It combines three independent signals:
+ * same type/party/amount in a short date window, an exact external reference, and a repeated
+ * new-bill reference for the same party. The caller presents the evidence and keeps the user in
+ * control; this is deliberately a warning rather than a posting rule.
+ */
 export function findDuplicates(db: DB, input: VoucherInputParsed, excludeId?: number): DuplicateWarning[] {
   const total = input.lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
-  if (total === 0) return []
-  // Narrow by type + party + date window FIRST (all indexed voucher columns); only the few
-  // surviving candidates pay for the line-total subquery — not every voucher in the book.
-  const rows = db
+  const matches = new Map<number, DuplicateWarning>()
+  const add = (row: Omit<DuplicateWarning, 'reasons'>, reason: DuplicateWarning['reasons'][number]): void => {
+    const current = matches.get(row.voucherId)
+    if (current) {
+      if (!current.reasons.includes(reason)) current.reasons.push(reason)
+    } else {
+      matches.set(row.voucherId, { ...row, reasons: [reason] })
+    }
+  }
+
+  if (total > 0) {
+    // Narrow by type + party + date window FIRST (all indexed voucher columns); only the few
+    // surviving candidates pay for the line-total subquery — not every voucher in the book.
+    const rows = db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date
        FROM vouchers v
@@ -226,7 +305,33 @@ export function findDuplicates(db: DB, input: VoucherInputParsed, excludeId?: nu
        ORDER BY v.id`
     )
     .all(input.voucherTypeId, input.partyLedgerId, excludeId ?? -1, input.date, input.date, total) as DuplicateWarning[]
-  return rows
+    for (const row of rows) add(row, 'same_party_amount')
+  }
+
+  const reference = input.reference?.trim()
+  if (reference) {
+    const rows = db.prepare(
+      `SELECT v.id AS voucherId, v.number, v.date FROM vouchers v
+       WHERE v.party_ledger_id IS ? AND v.id IS NOT ? AND lower(trim(v.reference)) = lower(?)
+         AND ${NOT_DELETED} ORDER BY v.date, v.id LIMIT 20`
+    ).all(input.partyLedgerId, excludeId ?? -1, reference) as Omit<DuplicateWarning, 'reasons'>[]
+    for (const row of rows) add(row, 'same_reference')
+  }
+
+  const billNames = [...new Set(input.billRefs.filter((ref) => ref.kind === 'new').map((ref) => ref.name.trim().toLowerCase()).filter(Boolean))]
+  if (input.partyLedgerId !== null && billNames.length > 0) {
+    const placeholders = billNames.map(() => '?').join(',')
+    const rows = db.prepare(
+      `SELECT DISTINCT v.id AS voucherId, v.number, v.date FROM vouchers v
+       JOIN bill_refs br ON br.voucher_id = v.id
+       WHERE v.party_ledger_id = ? AND v.id IS NOT ? AND br.kind = 'new'
+         AND lower(trim(br.name)) IN (${placeholders}) AND ${NOT_DELETED}
+       ORDER BY v.date, v.id LIMIT 20`
+    ).all(input.partyLedgerId, excludeId ?? -1, ...billNames) as Omit<DuplicateWarning, 'reasons'>[]
+    for (const row of rows) add(row, 'same_bill_reference')
+  }
+
+  return [...matches.values()].sort((a, b) => b.date.localeCompare(a.date) || b.voucherId - a.voucherId)
 }
 
 function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
@@ -289,7 +394,7 @@ export function checkStock(db: DB, stockItemIds: number[], date: string): Negati
  *  duplicate-number guard (SavedVoucher). */
 export type SaveVoucherResult = SavedVoucher & { warnings: SaveVoucherWarnings }
 
-export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): SaveVoucherResult {
+export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, options: { creditOverrideReason?: string | null } = {}): SaveVoucherResult {
   // Parse here as well as at the IPC boundary so direct callers (tests, recurring, importers)
   // get defaults for later-added fields (posOverride) applied consistently.
   const input: VoucherInputParsed = voucherInputSchema.parse(raw)
@@ -302,11 +407,14 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
   const number =
     vt.numbering === 'manual'
       ? (input.number ?? '').trim() || (() => { throw new Error('Voucher number is required') })()
-      : input.number?.trim() || nextVoucherNumber(db, vt.id, input.date, existingId)
+      : input.number?.trim() || nextVoucherNumber(db, vt.id, input.date, existingId, input.gstRegistrationId ?? vt.gstRegistrationId)
 
   const before = existingId ? getVoucher(db, existingId) : null
   if (existingId && !before) throw new Error('Voucher not found')
   if (before?.deletedAt) throw new Error('Voucher is in the bin; restore it first')
+  if (before?.reversalOfId || before?.reversedById) {
+    throw new Error('Linked reversal entries are immutable; create a fresh adjustment instead')
+  }
 
   const lock = getLockDate(db)
   if (lock && (input.date <= lock || (before && before.date <= lock))) {
@@ -319,6 +427,16 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
   // (an edit that doesn't mention them mustn't silently mature a PDC).
   const postDated = input.postDated ?? before?.postDated ?? false
   const isOptional = input.isOptional ?? before?.isOptional ?? false
+  const gstRegistrationId = input.gstRegistrationId ?? vt.gstRegistrationId ?? before?.gstRegistrationId ?? null
+  if (gstRegistrationId != null && !db.prepare('SELECT 1 FROM gst_registrations WHERE id=? AND active=1').get(gstRegistrationId)) throw new Error('Choose an active GST registration')
+  const godownIds = [...new Set(input.inventory.map((line) => line.godownId).filter((id): id is number => id != null))]
+  if (gstRegistrationId != null && godownIds.length) {
+    const mismatch = db.prepare(
+      `SELECT name FROM godowns WHERE id IN (${godownIds.map(() => '?').join(',')})
+       AND gst_registration_id IS NOT NULL AND gst_registration_id <> ? LIMIT 1`
+    ).get(...godownIds, gstRegistrationId) as { name: string } | undefined
+    if (mismatch) throw new Error(`Stock location ${mismatch.name} belongs to a different GST registration`)
+  }
 
   const run = db.transaction((): number => {
     let voucherId: number
@@ -327,11 +445,11 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
         `UPDATE vouchers SET voucher_type_id = ?, date = ?, number = ?, party_ledger_id = ?,
          narration = ?, reference = ?, instrument_no = ?, instrument_date = ?,
          transporter_id = ?, vehicle_no = ?, transport_distance = ?, pos_override = ?,
-         currency_code = ?, exchange_rate = ?, post_dated = ?, is_optional = ?,
+         currency_code = ?, exchange_rate = ?, post_dated = ?, is_optional = ?, gst_registration_id = ?,
          updated_at = datetime('now') WHERE id = ?`
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
-        input.posOverride, input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0, existingId)
+        input.posOverride, input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0, gstRegistrationId, existingId)
       db.prepare('DELETE FROM voucher_lines WHERE voucher_id = ?').run(existingId)
       db.prepare('DELETE FROM inventory_lines WHERE voucher_id = ?').run(existingId)
       voucherId = existingId
@@ -339,11 +457,11 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
       const res = db.prepare(
         `INSERT INTO vouchers (voucher_type_id, date, number, party_ledger_id, narration, reference,
           instrument_no, instrument_date, transporter_id, vehicle_no, transport_distance, pos_override,
-          currency_code, exchange_rate, post_dated, is_optional)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          currency_code, exchange_rate, post_dated, is_optional, gst_registration_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
-        input.posOverride, input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0)
+        input.posOverride, input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0, gstRegistrationId)
       voucherId = Number(res.lastInsertRowid)
     }
 
@@ -460,7 +578,7 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
             creditLimit: party.credit_limit,
             outstanding
           }
-          if (features.enforceCreditLimit) {
+          if (features.enforceCreditLimit && !options.creditOverrideReason?.trim()) {
             throw new Error(
               `Credit limit exceeded for ${party.name}: outstanding ${outstanding} > limit ${party.credit_limit} paise`
             )
@@ -477,9 +595,10 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
   writeAudit(db, 'voucher', voucherId, existingId ? 'update' : 'create', before, after)
   const duplicate = db
     .prepare(
-      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id <> ? AND ${NOT_DELETED} LIMIT 1`
+      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id <> ?
+       AND COALESCE(v.gst_registration_id,0)=COALESCE(?,0) AND ${NOT_DELETED} LIMIT 1`
     )
-    .get(vt.id, number, voucherId)
+    .get(vt.id, number, voucherId, gstRegistrationId)
   return duplicate ? { ...after, warnings, duplicateNumber: true } : { ...after, warnings }
 }
 
@@ -487,6 +606,9 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
 export function deleteVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
+  if (before.reversalOfId || before.reversedById) {
+    throw new Error('Linked reversal entries cannot be deleted; create a fresh adjustment instead')
+  }
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
   db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(id)

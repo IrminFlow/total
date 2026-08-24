@@ -129,6 +129,13 @@ describe('consolidated()', () => {
     expect(byName.get('Rent')).toEqual({ name: 'Rent', group: 'Indirect Expenses', perCompany: [20000, 5000], total: 25000 })
   })
 
+  it('applies reviewed currency translation and keeps eliminations in an explicit column',()=>{
+    const alpha=makeCompany('alpha','Alpha Traders',100000,20000);alpha.close()
+    const result=consolidated(['alpha'],'tb',FROM,TO,{translationRates:{alpha:2},eliminations:[{name:'Cash',group:'Cash-in-Hand',amount:-10000,reason:'Inter-company settlement'}]})
+    expect(result.columns).toEqual(['Alpha Traders','Eliminations']);expect(result.translationRates).toEqual({alpha:2});expect(result.eliminationCount).toBe(1)
+    expect(result.rows.find((row)=>row.name==='Cash')).toMatchObject({perCompany:[160000,-10000],total:150000})
+  })
+
   it('leaves a null column and a warning for a company with a stale (unmigrated) schema', () => {
     const alpha = makeCompany('alpha', 'Alpha Traders', 100000, 20000)
     const stale = makeCompany('stale', 'Stale Co', 1000, 100)

@@ -1,6 +1,7 @@
-import { readFileSync, writeFileSync, existsSync, renameSync, rmSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, rmSync, statSync } from 'fs'
 import type { CompanySummary } from '@shared/domain'
 import { registryPath, ensureDataTree } from './paths'
+import { atomicWriteFile } from './atomicFile'
 
 export interface Registry {
   version: 1
@@ -31,9 +32,7 @@ export function readRegistry(): Registry {
 export function writeRegistry(registry: Registry): void {
   ensureDataTree()
   const path = registryPath()
-  const tmpPath = `${path}.tmp`
-  writeFileSync(tmpPath, JSON.stringify(registry, null, 2))
-  renameSync(tmpPath, path)
+  atomicWriteFile(path, JSON.stringify(registry, null, 2))
 }
 
 // ---------- write lock (task Q3 #99) ----------

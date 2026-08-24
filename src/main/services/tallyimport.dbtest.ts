@@ -89,4 +89,13 @@ describe('importTallyXml (contrast case)', () => {
     expect(after.ledgers).toBe(before.ledgers + 1)
     expect(after.vouchers).toBe(before.vouchers + 1)
   })
+
+  it('records an immutable batch fingerprint and refuses an exact replay', () => {
+    const db = seededDb()
+    const first = importTallyXml(db, SAMPLE_XML)
+    expect(first.batchId).toBeGreaterThan(0)
+    expect(first.sourceHash).toMatch(/^[a-f0-9]{64}$/)
+    expect(() => importTallyXml(db, SAMPLE_XML)).toThrow(/already imported/i)
+    expect(db.prepare("SELECT COUNT(*) AS n FROM import_batches WHERE kind = 'tally'").get()).toMatchObject({ n: 1 })
+  })
 })

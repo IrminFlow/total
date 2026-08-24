@@ -13,6 +13,7 @@ import { app, dialog, shell } from 'electron'
 import electronUpdater from 'electron-updater'
 import { log } from './log'
 import { GITHUB_REPO, SITE_URL } from '@shared/product'
+import { parseUpdateFeed } from '@shared/updateFeed'
 
 const { autoUpdater } = electronUpdater
 
@@ -41,8 +42,8 @@ async function fetchLatest(): Promise<LatestInfo | null> {
   try {
     const res = await fetch(SITE_LATEST_URL)
     if (res.ok) {
-      const data = (await res.json()) as { version?: string; downloadUrl?: string }
-      if (data.version) return { version: data.version, downloadUrl: data.downloadUrl ?? SITE_LATEST_URL.replace('/api/latest', '/api/download') }
+      const data = parseUpdateFeed(await res.json())
+      if (data) return data
     }
   } catch (err) {
     // Site unreachable — try GitHub directly.

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
@@ -15,6 +15,7 @@ import { getVoucher, IN_BOOKS } from './vouchers'
 import { balanceSheet, dayBook, ledgerStatement, profitAndLoss, trialBalance } from './reports'
 import { outstandings } from './analysis'
 import { gstr1 } from './gst'
+import { signExportIfEnabled } from './exportSigning'
 
 // ---------- neutral Tally masters/vouchers, mapped from our schema ----------
 
@@ -265,7 +266,7 @@ export function exportTallyXml(db: DB, _company: CompanyInfo, slug: string, from
 }
 
 /** The full CA handover pack: Tally XML + every standard report as CSV, for the period. */
-export function exportCaPack(db: DB, company: CompanyInfo, slug: string, from: string, to: string): { path: string } {
+export function exportCaPack(db: DB, company: CompanyInfo, slug: string, from: string, to: string): { path: string; signaturePath?: string } {
   const dir = join(companyExportsDir(slug), `ca-pack-${from}_${to}`)
   mkdirSync(dir, { recursive: true })
 
@@ -289,6 +290,18 @@ export function exportCaPack(db: DB, company: CompanyInfo, slug: string, from: s
   const tds = tdsCsv(db, from, to)
   if (tds) writeFileSync(join(dir, 'tds-26q.csv'), tds)
 
+  const annotations=db.prepare(`SELECT report_key AS reportKey,row_key AS rowKey,note,author,updated_at AS updatedAt FROM report_annotations WHERE from_date>=? AND to_date<=? AND include_in_export=1 ORDER BY report_key,row_key`).all(from,to) as {reportKey:string;rowKey:string;note:string;author:string;updatedAt:string}[]
+  if(annotations.length){writeFileSync(join(dir,'report-annotations.json'),JSON.stringify(annotations,null,2));writeFileSync(join(dir,'report-annotations.csv'),rowsToCsv(['Report','Row','Explanation','Author','Updated'],annotations.map((row)=>[row.reportKey,row.rowKey,row.note,row.author,row.updatedAt])))}
+
+  const files=readdirSync(dir,{recursive:true}).map(String).filter((name)=>!name.endsWith('.DS_Store')).sort()
+  const manifest={schema:'total.portable-report-pack.v1',company:company.name,period:{from,to},generatedAt:new Date().toISOString(),files}
+  const manifestPath=join(dir,'manifest.json')
+  writeFileSync(manifestPath,JSON.stringify(manifest,null,2))
+  const signed=signExportIfEnabled(slug,manifestPath)
+  const esc=(value:string):string=>value.replace(/[&<>"']/g,(char)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[char]!)
+  const index=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(company.name)} report pack</title><style>body{font:14px system-ui;color:#1f2937;max-width:760px;margin:48px auto;padding:0 24px}h1{font:600 30px Georgia,serif}p{color:#64748b}li{padding:5px 0}code{font-size:12px}</style></head><body><h1>${esc(company.name)} · portable report pack</h1><p>${esc(from)} to ${esc(to)} · generated ${esc(manifest.generatedAt)}</p><ol>${files.map((file)=>`<li><code>${esc(file)}</code></li>`).join('')}</ol><p>Figures are derived from posted voucher lines. Open manifest.json for machine-readable provenance.</p></body></html>`
+  writeFileSync(join(dir,'index.html'),index)
+
   if (!existsSync(dir)) throw new Error('CA pack export failed')
-  return { path: dir }
+  return { path: dir, ...(signed ? { signaturePath: signed.signaturePath } : {}) }
 }
