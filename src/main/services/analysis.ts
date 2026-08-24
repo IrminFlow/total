@@ -1,5 +1,6 @@
 import type { DB } from '../db/connection'
-import type { OutstandingBill, OutstandingParty, RegisterPeriodRow } from '@shared/reports'
+import type { OutstandingBill, OutstandingParty, PartyShareRow, RegisterPeriodRow } from '@shared/reports'
+import { concentration, type Concentration } from '@shared/concentration'
 import { allocateBills, type BillEvent, type BillRef } from '@shared/outstanding'
 import { fyOf } from '@shared/dates'
 import { periodKey, periodLabel, type Period } from '@shared/period'
@@ -188,4 +189,66 @@ export function openBills(db: DB, partyLedgerId: number, asOn: string): Outstand
   const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)
   const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(eventsByParty.get(partyLedgerId) ?? [])]
   return allocateBills(events, asOn, ledger.credit_days).bills
+}
+
+/**
+ * Who the period's sales (or purchases) actually came from, largest first.
+ *
+ * Netted per party across the period, including credit and debit notes: a customer who bought
+ * a crore and returned half of it is a fifty-lakh customer, and ranking them by gross would put
+ * the wrong name at the top of a report whose whole purpose is to name the right one.
+ *
+ * Value is the document total (the party-side debit on a sale), not the taxable value — this is
+ * "how much business does this customer represent", and the tax is part of what they owe.
+ */
+export function partyShares(
+  db: DB,
+  kind: 'sales' | 'purchase',
+  from: string,
+  to: string
+): { rows: PartyShareRow[]; total: number; concentration: Concentration } {
+  // The note that reverses a sale is a credit note; the one that reverses a purchase is a debit
+  // note. Each carries the opposite sign to the document it corrects.
+  const noteKind = kind === 'sales' ? 'credit_note' : 'debit_note'
+  // On a sale the party is debited; on a purchase, credited. The correcting note is the reverse.
+  const partySide = kind === 'sales' ? 'dr' : 'cr'
+
+  const rows = db
+    .prepare(
+      `SELECT v.party_ledger_id AS ledgerId, l.name AS name, vt.kind AS kind, v.id AS voucherId,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = ? THEN vl.amount ELSE -vl.amount END), 0) AS amount
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN ledgers l ON l.id = v.party_ledger_id
+       JOIN voucher_lines vl ON vl.voucher_id = v.id AND vl.ledger_id = v.party_ledger_id
+       WHERE vt.kind IN (?, ?) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+         AND v.party_ledger_id IS NOT NULL
+       GROUP BY v.id`
+    )
+    .all(partySide, kind, noteKind, from, to) as {
+      ledgerId: number; name: string; kind: string; voucherId: number; amount: number
+    }[]
+
+  const byParty = new Map<number, { ledgerId: number; name: string; amount: number; documents: number }>()
+  for (const r of rows) {
+    const entry = byParty.get(r.ledgerId) ?? { ledgerId: r.ledgerId, name: r.name, amount: 0, documents: 0 }
+    entry.amount += r.amount
+    entry.documents += 1
+    byParty.set(r.ledgerId, entry)
+  }
+
+  const ranked = [...byParty.values()].sort((a, b) => b.amount - a.amount)
+  // The denominator is the positive business only, matching how `concentration` reads the list:
+  // a net-negative party cannot be a share of turnover, and including them in the total would
+  // inflate everyone else's share.
+  const total = ranked.reduce((sum, r) => sum + Math.max(0, r.amount), 0)
+
+  let running = 0
+  const out: PartyShareRow[] = ranked.map((r) => {
+    const share = total === 0 ? 0 : Math.max(0, r.amount) / total
+    running += share
+    return { ...r, share, cumulativeShare: running }
+  })
+
+  return { rows: out, total, concentration: concentration(ranked.map((r) => r.amount)) }
 }

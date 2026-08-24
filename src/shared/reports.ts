@@ -195,6 +195,20 @@ export interface ExceptionsReport {
   sections: ExceptionSection[]
 }
 
+/** One party's contribution to a period's sales or purchases. */
+export interface PartyShareRow {
+  ledgerId: number
+  name: string
+  /** Invoice value in paise, net of credit/debit notes on the same party. */
+  amount: number
+  /** Number of documents behind the figure. */
+  documents: number
+  /** Share of the period's total, 0–1. */
+  share: number
+  /** Running share including every party above this one — the "top N account for X%" reading. */
+  cumulativeShare: number
+}
+
 export interface TopLedgerRow {
   ledgerId: number
   name: string

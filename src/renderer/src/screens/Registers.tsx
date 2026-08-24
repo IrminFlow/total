@@ -46,21 +46,27 @@ function fmtQty(qtyMilli: number, decimals: number): string {
   return (qtyMilli / 1000).toFixed(decimals)
 }
 
-type Tab = 'sales' | 'purchase' | 'items'
+type Tab = 'sales' | 'purchase' | 'items' | 'parties'
 
-const TAB_LABELS: Record<Tab, string> = { sales: 'Sales', purchase: 'Purchase', items: 'Item profit' }
+const TAB_LABELS: Record<Tab, string> = {
+  sales: 'Sales',
+  purchase: 'Purchase',
+  items: 'Item profit',
+  parties: 'By party'
+}
 
 export function RegistersScreen(): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
-  const [tab, setTab] = useStickyTab<Tab>('registers', ['sales', 'purchase', 'items'], 'sales')
+  const [tab, setTab] = useStickyTab<Tab>('registers', ['sales', 'purchase', 'items', 'parties'], 'sales')
   const [granularity, setGranularity] = useState<Period>('month')
   const [busy, setBusy] = useState<'caPack' | 'tallyXml' | null>(null)
-  const kind = tab === 'items' ? 'sales' : tab
+  // The party view ranks sales by default; the register tabs it sits beside decide the rest.
+  const kind: 'sales' | 'purchase' = tab === 'items' || tab === 'parties' ? 'sales' : tab
   const { data, isLoading } = useQuery({
     queryKey: ['register', kind, from, to, granularity],
     queryFn: () => api.analysis.register(kind, from, to, granularity),
-    enabled: tab !== 'items'
+    enabled: tab === 'sales' || tab === 'purchase'
   })
   const rows = data ?? []
   const heading = GRANULARITIES.find((g) => g.period === granularity)?.heading ?? 'Period'
@@ -68,7 +74,7 @@ export function RegistersScreen(): React.JSX.Element {
   const nav = useNav()
   const table = useTableNav(rows, {
     rowId: (r) => r.period,
-    enabled: tab !== 'items',
+    enabled: tab === 'sales' || tab === 'purchase',
     onEnter: (r) =>
       nav.go({ name: 'daybook', span: { ...periodBounds(r.period, granularity), label: r.label }, kind })
   })
@@ -109,7 +115,14 @@ export function RegistersScreen(): React.JSX.Element {
     }
   }
 
-  const title = tab === 'items' ? 'Item profitability' : tab === 'sales' ? 'Sales register' : 'Purchase register'
+  const title =
+    tab === 'items'
+      ? 'Item profitability'
+      : tab === 'parties'
+        ? 'Sales by party'
+        : tab === 'sales'
+          ? 'Sales register'
+          : 'Purchase register'
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -118,11 +131,11 @@ export function RegistersScreen(): React.JSX.Element {
           <div className="flex items-center gap-2">
             <TabBar
               screen="registers"
-              tabs={(['sales', 'purchase', 'items'] as const).map((k) => ({ id: k, label: TAB_LABELS[k] }))}
+              tabs={(['sales', 'purchase', 'items', 'parties'] as const).map((k) => ({ id: k, label: TAB_LABELS[k] }))}
               active={tab}
               onSelect={setTab}
             />
-            {tab !== 'items' && (
+            {(tab === 'sales' || tab === 'purchase') && (
               <div className="flex gap-1" role="group" aria-label="Register period">
                 {GRANULARITIES.map((g) => (
                   <button
@@ -138,7 +151,7 @@ export function RegistersScreen(): React.JSX.Element {
                 ))}
               </div>
             )}
-            {tab !== 'items' && (
+            {(tab === 'sales' || tab === 'purchase') && (
               <>
                 <Button
                   variant="ghost"
@@ -171,6 +184,8 @@ export function RegistersScreen(): React.JSX.Element {
       </SectionTitle>
       {tab === 'items' ? (
         <ItemProfitPanel from={from} to={to} periodLabel={periodLabel} />
+      ) : tab === 'parties' ? (
+        <PartySharePanel from={from} to={to} periodLabel={periodLabel} />
       ) : (
         <>
           <Panel scroll={{ maxH: '70vh' }}>
@@ -332,6 +347,167 @@ function ItemProfitPanel({ from, to, periodLabel }: { from: string; to: string; 
       </Panel>
       <p className="mt-2 text-hint text-muted">
         COGS is valued by each item&apos;s valuation method (FIFO / weighted average) over the period&apos;s movements.
+      </p>
+    </>
+  )
+}
+
+const PARTY_COLUMNS: PdfColumn[] = [
+  { label: 'Party', align: 'l' },
+  { label: 'Documents', align: 'r' },
+  { label: 'Value', align: 'r' },
+  { label: 'Share', align: 'r' },
+  { label: 'Cumulative', align: 'r' }
+]
+
+/**
+ * Who the period's sales actually came from, and how much of the business rests on how few of
+ * them.
+ *
+ * A business with one customer at 60% of turnover is a materially different business from one
+ * with forty at 2.5% each, and the P&L looks identical either way. The cumulative column is the
+ * point of the table: it answers "how many names do I have to read before I have half my
+ * turnover", which is a question a register cannot answer at all.
+ */
+function PartySharePanel({
+  from,
+  to,
+  periodLabel
+}: {
+  from: string
+  to: string
+  periodLabel: string
+}): React.JSX.Element {
+  const toast = useToasts()
+  const nav = useNav()
+  const [side, setSide] = useStickyTab<'sales' | 'purchase'>(
+    'registers-party-side',
+    ['sales', 'purchase'],
+    'sales'
+  )
+  const { data, isLoading } = useQuery({
+    queryKey: ['partyShares', side, from, to],
+    queryFn: () => api.analysis.partyShares(side, from, to)
+  })
+  const rows = data?.rows ?? []
+  const table = useTableNav(rows, {
+    rowId: (r) => r.ledgerId,
+    onEnter: (r) => nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })
+  })
+
+  const pct = (x: number): string => `${(x * 100).toFixed(1)}%`
+  const exportRows: PdfRow[] = rows.map((r) => ({
+    cells: [r.name, String(r.documents), formatPaise(r.amount), pct(r.share), pct(r.cumulativeShare)]
+  }))
+
+  return (
+    <>
+      <div className="mb-3 flex items-center gap-2">
+        <div className="flex gap-1" role="group" aria-label="Party side">
+          {(['sales', 'purchase'] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              data-testid={`tab-parties-${k}`}
+              aria-pressed={side === k}
+              onClick={() => setSide(k)}
+              className={`rounded-md px-2.5 py-1 text-small ${side === k ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+            >
+              {k === 'sales' ? 'Customers' : 'Suppliers'}
+            </button>
+          ))}
+        </div>
+        <span className="flex-1" />
+        <Button
+          variant="ghost"
+          disabled={!rows.length}
+          onClick={() =>
+            void printReport(
+              {
+                title: side === 'sales' ? 'Sales by party' : 'Purchases by party',
+                periodLabel,
+                columns: PARTY_COLUMNS,
+                rows: exportRows,
+                filename: `${side}-by-party`
+              },
+              toast
+            )
+          }
+        >
+          PDF
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={!rows.length}
+          onClick={() =>
+            void csvReport(
+              PARTY_COLUMNS.map((c) => c.label),
+              exportRows.map((r) => r.cells),
+              `${side}-by-party`,
+              toast
+            )
+          }
+        >
+          CSV
+        </Button>
+      </div>
+
+      {data?.concentration.warning && (
+        <div
+          className={`mb-3 rounded-md border px-3.5 py-2.5 text-body-sm ${
+            data.concentration.level === 'concentrated'
+              ? 'border-cr/40 bg-cr/5 text-cr'
+              : 'border-amber/50 bg-amber/10 text-amber'
+          }`}
+          data-testid="party-concentration"
+        >
+          {data.concentration.warning}{' '}
+          <span className="text-muted">
+            {data.concentration.partyCount} part{data.concentration.partyCount === 1 ? 'y' : 'ies'} · top three{' '}
+            {pct(data.concentration.top3)}
+          </span>
+        </div>
+      )}
+
+      <Panel scroll={{ maxH: '70vh' }}>
+        {isLoading ? (
+          <SkeletonRows />
+        ) : rows.length === 0 ? (
+          <EmptyState title={`No ${side} vouchers with a party in this period`} />
+        ) : (
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th>Party</th>
+                <th className="r w-24">Documents</th>
+                <th className="r w-40">Value</th>
+                <th className="r w-24">Share</th>
+                <th className="r w-28">Cumulative</th>
+              </tr>
+            </thead>
+            <tbody data-testid="rows-parties">
+              {rows.map((r, i) => (
+                <tr key={r.ledgerId} {...table.rowProps(i, r)}>
+                  <td>{r.name}</td>
+                  <td className="r num">{r.documents}</td>
+                  <td className="r"><Money paise={r.amount} /></td>
+                  <td className="r num">{pct(r.share)}</td>
+                  <td className="r num text-muted">{pct(r.cumulativeShare)}</td>
+                </tr>
+              ))}
+              <tr className="total-row">
+                <td>Total</td>
+                <td className="r num">{rows.reduce((s, r) => s + r.documents, 0)}</td>
+                <td className="r"><Money paise={data?.total ?? 0} /></td>
+                <td className="r num">100.0%</td>
+                <td />
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </Panel>
+      <p className="mt-2 text-hint text-muted">
+        Netted across the period, credit and debit notes included. Click a party to open its ledger.
       </p>
     </>
   )

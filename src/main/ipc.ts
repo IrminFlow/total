@@ -881,6 +881,13 @@ export function registerIpc(): void {
   }, 'viewer')
 
   // ---------- analysis ----------
+  handle('analysis:partyShares', (p) => {
+    const { kind, from, to } = periodSchema
+      .extend({ kind: z.enum(['sales', 'purchase']) })
+      .parse(p)
+    return analysis.partyShares(requireCompany().db, kind, from, to)
+  }, 'viewer')
+
   handle('analysis:register', (p) => {
     const { kind, from, to, groupBy } = periodSchema
       .extend({ kind: z.enum(['sales', 'purchase']), groupBy: z.enum(PERIODS).optional() })

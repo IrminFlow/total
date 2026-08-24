@@ -94,7 +94,7 @@ Ordering within a section is roughly by value.
 70. A CA-facing summary pack: TB, P&L, BS, ageing in one PDF (M)
 71. Cost-centre profitability report (M)
 72. Item-wise gross margin by period (M)
-73. Party-wise sales ranking with concentration warning (S)
+73. ✓ Party-wise sales ranking with concentration warning (S)
 74. Day Book grouped by voucher type with subtotals (S)
 75. An audit-trail report of who changed what, per voucher (S)
 76. Reconciliation status column on the Day Book for bank vouchers (S)

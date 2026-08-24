@@ -111,4 +111,43 @@ await scenario('22-report-toggles', async (h) => {
     'showing last year does not change this year’s totals'
   )
   await h.shot('05-bs-compare')
+
+  // ---- Registers: who the business actually came from ----
+  await h.goto('registers')
+  await h.page.click('[data-testid="tab-registers-parties"]')
+  await h.page.waitForSelector('[data-testid="rows-parties"] tr', { timeout: 15000 })
+
+  const shares = await h.page.$$eval('[data-testid="rows-parties"] tr', (els) =>
+    els.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent.trim()))
+  )
+  assert(shares.length > 1, 'the demo books have parties to rank')
+  // The last row is the total; it must read 100%.
+  assert(shares[shares.length - 1][3] === '100.0%', 'the shares add up to the whole')
+
+  // Ranked largest first — the whole point of the table.
+  const values = shares
+    .slice(0, -1)
+    .map((cells) => Number(cells[2].replace(/[^0-9.]/g, '')))
+  for (let i = 1; i < values.length; i++) {
+    assert(values[i] <= values[i - 1], `parties are ranked largest first (${values[i - 1]} then ${values[i]})`)
+  }
+  // Cumulative share is monotonic and ends at the whole.
+  const cumulative = shares.slice(0, -1).map((cells) => parseFloat(cells[4]))
+  for (let i = 1; i < cumulative.length; i++) {
+    assert(cumulative[i] >= cumulative[i - 1], 'cumulative share never goes down')
+  }
+  assert(Math.abs(cumulative[cumulative.length - 1] - 100) < 0.2, 'and reaches 100%')
+  await h.shot('06-parties')
+
+  // Switching to suppliers asks a different question of the same books.
+  await h.page.click('[data-testid="tab-parties-purchase"]')
+  await h.page.waitForFunction(
+    (before) => {
+      const rows = document.querySelectorAll('[data-testid="rows-parties"] tr')
+      return rows.length > 0 && rows[0].textContent !== before
+    },
+    shares[0].join(''),
+    { timeout: 15000 }
+  )
+  await h.shot('07-suppliers')
 })

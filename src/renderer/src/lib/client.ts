@@ -6,12 +6,13 @@ import type {
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, ExceptionsReport, GroupTreeNode,
-  ItemProfitRow, LedgerBalanceRow,
+  ItemProfitRow, LedgerBalanceRow, PartyShareRow,
   LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterPeriodRow, StockAgeingRow,
   StockSummaryRow, TrialBalance,
   VoucherListRow
 } from '@shared/reports'
 import type { CashFlowStatement } from '@shared/reportMath'
+import type { Concentration } from '@shared/concentration'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult } from '@shared/gst/recon2b'
@@ -511,7 +512,13 @@ export const api = {
     register: (kind: 'sales' | 'purchase', from: string, to: string, groupBy?: Period) =>
       call<RegisterPeriodRow[]>('analysis:register', { kind, from, to, groupBy }),
     outstandings: (side: 'receivable' | 'payable', asOn: string, includeBills = true) =>
-      call<OutstandingParty[]>('analysis:outstandings', { side, asOn, includeBills })
+      call<OutstandingParty[]>('analysis:outstandings', { side, asOn, includeBills }),
+    partyShares: (kind: 'sales' | 'purchase', from: string, to: string) =>
+      call<{ rows: PartyShareRow[]; total: number; concentration: Concentration }>('analysis:partyShares', {
+        kind,
+        from,
+        to
+      })
   },
   bills: {
     open: (partyLedgerId: number, asOn: string) => call<OutstandingBill[]>('bills:open', { partyLedgerId, asOn })
