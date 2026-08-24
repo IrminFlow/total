@@ -30,4 +30,3 @@ const checks = [
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
 console.log(JSON.stringify({ ok: failed.length === 0, checks: checks.length, failed }, null, 2));
 if (failed.length) process.exit(1);
-

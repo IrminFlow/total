@@ -15,4 +15,3 @@ declaration IDs, unsupported report primitives and permissions that do not match
 capabilities. Use the fixtures in `fixtures/` to test integer-paise settlement, ecommerce and
 shipment payloads. Full semantics and security boundaries are documented in
 `docs/INTEGRATION_SDK_V1.md`.
-

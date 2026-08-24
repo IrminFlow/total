@@ -38,4 +38,3 @@ describe("declarative integration manifest", () => {
     ).toThrow(/network:declared_hosts/);
   });
 });
-

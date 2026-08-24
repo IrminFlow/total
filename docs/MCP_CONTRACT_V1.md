@@ -89,4 +89,3 @@ Each scoped call appends a JSON Lines event under the company MCP directory. Eve
 timestamp, bounded client name, tool, company, outcome, proposal ID when applicable, and an error
 code. Arguments, attachment contents, local paths and token values are never logged. The active log
 rotates after 5 MB and the Settings screen exposes recent evidence to the signed-in user.
-

@@ -17,4 +17,3 @@ export interface PayrollPreflight {
 }
 export interface PayrollTieOutRow { key: string; label: string; expected: number; posted: number; difference: number }
 export interface PayrollTieOut { runId: number; month: string; voucherId: number | null; rows: PayrollTieOutRow[]; totalDifference: number; reconciled: boolean }
-

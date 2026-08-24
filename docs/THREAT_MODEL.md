@@ -49,4 +49,3 @@ Run `npm run security:threat-model`. Any boundary change must update this docume
 inventory, relevant tests and the automated gate before release. Reviewers must inspect new IPC
 channels, new URL/file operations, credential storage, network destinations, MCP tools, plugin
 permissions and updater configuration. Security-sensitive exceptions are release blockers.
-
