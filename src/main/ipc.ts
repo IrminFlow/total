@@ -666,6 +666,14 @@ export function registerIpc(): void {
       .parse(p)
     return vouchers.voucherNumberExists(requireCompany().db, voucherTypeId, number, excludeId)
   })
+  handle('voucher:draftFrom', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    return vouchers.draftFromVoucher(requireCompany().db, voucherId)
+  }, 'viewer')
+  handle('voucher:latestOfType', (p) => {
+    const { voucherTypeId } = z.object({ voucherTypeId: z.number().int().positive() }).parse(p)
+    return { voucherId: vouchers.latestVoucherOfType(requireCompany().db, voucherTypeId) }
+  }, 'viewer')
   handle('voucher:duplicates', (p) => {
     const { data, excludeId } = z.object({ data: voucherInputSchema, excludeId: z.number().int().positive().optional() }).parse(p)
     return vouchers.findDuplicates(requireCompany().db, data, excludeId)

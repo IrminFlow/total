@@ -1,7 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useNav, useSession, useToasts } from '../state/stores'
+import { nextDraftId, useNav, useSession, useToasts } from '../state/stores'
+import { useKeyLayer } from '../lib/keyboard'
+import type { VoucherKind } from '@shared/domain'
 import { Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput, useKeyNav, useTableNav } from '../components/ui'
 import { useStickyFlag } from '../lib/useStickyTab'
 import { ReportConfigButton } from '../components/ReportConfigButton'
@@ -207,6 +209,41 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
     },
     [nav]
   )
+
+  /**
+   * ⌘D starts a new voucher shaped like the selected one.
+   *
+   * "Same as last time, different amount" is most of the data entry in a small business. The
+   * date is deliberately not copied — a new voucher dated a month ago is a mistake — so this
+   * lands on the entry screen with everything that identifies the transaction and today's date.
+   */
+  const duplicateRow = useCallback(
+    async (voucherId: number): Promise<void> => {
+      try {
+        const draft = await api.vouchers.draftFrom(voucherId)
+        if (!draft) return void toast.push('error', 'That voucher is no longer in the books')
+        const row = displayRows.find((r) => r.voucherId === voucherId)
+        nav.go({
+          name: 'voucher-entry',
+          kindHint: row?.kind as VoucherKind | undefined,
+          draft,
+          draftId: nextDraftId()
+        })
+      } catch (err) {
+        toast.push('error', (err as Error).message)
+      }
+    },
+    [displayRows, nav, toast]
+  )
+
+  useKeyLayer('screen', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'd') return false
+    const row = displayRows[active]
+    if (!row) return false
+    e.preventDefault()
+    void duplicateRow(row.voucherId)
+    return true
+  })
 
   const openPdf = useCallback(
     (voucherId: number, e: React.MouseEvent) => {

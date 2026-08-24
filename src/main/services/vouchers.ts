@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type {
-  Voucher, VoucherLine, InventoryLine, VoucherType, NegativeStockWarning, SaveVoucherWarnings
+  Voucher, VoucherLine, InventoryLine, VoucherType, NegativeStockWarning, SaveVoucherWarnings, DrCr
 } from '@shared/domain'
 import { voucherInputSchema } from '@shared/schemas'
 import type { VoucherInput, VoucherInputParsed } from '@shared/schemas'
@@ -695,4 +695,46 @@ export function listVouchers(db: DB, from: string, to: string, voucherTypeId?: n
       postDated: number
     })[]
   return rows.map((r) => ({ ...r, isOptional: !!r.isOptional, postDated: !!r.postDated }))
+}
+
+/**
+ * The most recent voucher of a type, as a draft to start a new one from.
+ *
+ * "Same as last time, different amount" is most of the data entry in a small business: the rent
+ * cheque, the monthly retainer, the standing purchase from one supplier. Recurring templates
+ * cover the ones that repeat on a schedule; this covers the far commoner case of one that repeats
+ * whenever it happens to.
+ *
+ * The date is deliberately NOT copied — a new voucher dated a month ago is a mistake, and the
+ * entry screen's own working date is the right default. Everything that identifies the
+ * transaction (party, ledgers, amounts, narration) is copied, because those are what make it
+ * "the same as last time".
+ */
+export interface VoucherDraftSource {
+  date?: string
+  partyLedgerId?: number
+  narration?: string
+  lines?: { ledgerId: number; drCr: DrCr; amount: number }[]
+}
+
+export function draftFromVoucher(db: DB, voucherId: number): VoucherDraftSource | null {
+  const v = getVoucher(db, voucherId)
+  if (!v) return null
+  return {
+    partyLedgerId: v.partyLedgerId ?? undefined,
+    narration: v.narration ?? undefined,
+    lines: v.lines.map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount }))
+  }
+}
+
+/** Id of the newest voucher of a type that is still in the books, or null if there is none. */
+export function latestVoucherOfType(db: DB, voucherTypeId: number): number | null {
+  const row = db
+    .prepare(
+      `SELECT id FROM vouchers v
+       WHERE voucher_type_id = ? AND ${IN_BOOKS}
+       ORDER BY date DESC, id DESC LIMIT 1`
+    )
+    .get(voucherTypeId) as { id: number } | undefined
+  return row?.id ?? null
 }

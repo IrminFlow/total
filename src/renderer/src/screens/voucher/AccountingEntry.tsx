@@ -772,7 +772,12 @@ export function AccountingEntry({
       <div className={`mt-4 ${kind === 'payment' || kind === 'receipt' ? 'grid grid-cols-3 gap-3' : ''}`}>
         <div className={kind === 'payment' || kind === 'receipt' ? 'col-span-2' : ''}>
           <Field label="Narration">
-            <TextInput value={narration} onChange={(e) => setNarration(e.target.value)} placeholder="Being amount paid…" />
+            <TextInput
+              data-testid="input-narration"
+              value={narration}
+              onChange={(e) => setNarration(e.target.value)}
+              placeholder="Being amount paid…"
+            />
           </Field>
         </div>
         {(kind === 'payment' || kind === 'receipt') && (

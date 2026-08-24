@@ -26,7 +26,7 @@ Ordering within a section is roughly by value.
 12. A "recent screens" ring on `⌘\`` for alt-tab style switching (S)
 13. Keyboard-driven date-range picker on the period pill (S)
 14. `Alt+↑/↓` moves a voucher line up or down in the grid (S)
-15. `⌘D` duplicates the selected voucher into a new draft (S)
+15. ✓ `⌘D` duplicates the selected voucher into a new draft (S)
 16. `⌘⌫` deletes the selected row with an undo toast (S)
 17. Space toggles the expand/collapse state of a tree row (S)
 18. `⌘⇧F` opens global search scoped to the current screen (S)
@@ -44,14 +44,14 @@ Ordering within a section is roughly by value.
 
 26. ✓ Undo for voucher delete, offered on the toast (M)
 27. Voucher templates beyond recurring: save any voucher as a named template (M)
-28. Copy the previous voucher of the same type with one key (S)
+28. ✓ Copy the previous voucher of the same type with one key (S)
 29. Auto-fill the narration from the party and item names (S)
 30. Inline ledger creation without leaving the picker (already partly there) (S)
 31. Paste a table of lines from a spreadsheet directly into the voucher grid (M)
 32. ✓ Amount field accepts arithmetic: `1200*3` yields 3,600 (S)
 33. ✓ Amount field accepts `k`, `L` and `cr` suffixes (S)
 34. Quantity field accepts a unit-conversion expression (`2 box` → 24 pcs) (M)
-35. Remember the last-used voucher type per session (S)
+35. ✓ Remember the last-used voucher type, across sessions rather than just within one (S)
 36. ✓ Warn before saving a voucher dated outside the open period (S)
 37. ✓ Duplicate-number detection extended to duplicate amount+party+date (S) — already
     shipped: `findDuplicates` matches type + party + total within a ±3-day window, pre-save.

@@ -13,6 +13,7 @@ import type {
 } from '@shared/reports'
 import type { CashFlowStatement } from '@shared/reportMath'
 import type { Concentration } from '@shared/concentration'
+import type { VoucherDraft } from '../state/stores'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult } from '@shared/gst/recon2b'
@@ -458,6 +459,11 @@ export const api = {
       call<boolean>('voucher:numberExists', { voucherTypeId, number, excludeId }),
     duplicates: (data: VoucherInputParsed, excludeId?: number) =>
       call<{ voucherId: number; number: string; date: string }[]>('voucher:duplicates', { data, excludeId }),
+    /** The voucher's own shape as a starting point for a new one — party, ledgers, amounts and
+     *  narration, but never its date. */
+    draftFrom: (voucherId: number) => call<VoucherDraft | null>('voucher:draftFrom', { voucherId }),
+    latestOfType: (voucherTypeId: number) =>
+      call<{ voucherId: number | null }>('voucher:latestOfType', { voucherTypeId }),
     bin: () => call<BinRow[]>('voucher:bin'),
     restore: (id: number) => call<null>('voucher:restore', { id }),
     purge: (id: number) => call<null>('voucher:purge', { id })

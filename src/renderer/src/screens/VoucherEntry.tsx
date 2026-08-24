@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { VoucherKind } from '@shared/domain'
+import { VOUCHER_KINDS, type VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import { api } from '../lib/client'
-import { useSession, type VoucherDraft } from '../state/stores'
+import { nextDraftId, useNav, useSession, useToasts, type VoucherDraft } from '../state/stores'
 import { Kbd, Panel } from '../components/ui'
 import { auditFieldChanges, fieldLabel } from '@shared/auditDiff'
 import { formatPaise } from '@shared/money'
@@ -14,6 +14,7 @@ import { AccountingEntry } from './voucher/AccountingEntry'
 import { ManufactureEntry } from './voucher/ManufactureEntry'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
 import { useScreenAccels } from '../lib/screenAccels'
+import { useStickyTab } from '../lib/useStickyTab'
 
 /**
  * Voucher types reachable by keyboard, each with BOTH a Tally function key and a bare letter.
@@ -63,6 +64,7 @@ export function VoucherEntry({
   })
   const features = useFeatures()
   const [typeId, setTypeId] = useState<number | null>(null)
+  const [lastKind, setLastKind] = useStickyTab<VoucherKind>('voucher-entry-kind', VOUCHER_KINDS, 'journal')
   const [hintDismissed, setHintDismissed] = useState(false)
 
   // Same queryKey Gateway uses for report:dashboard — a brand-new company (no vouchers yet) gets a
@@ -75,10 +77,21 @@ export function VoucherEntry({
   useEffect(() => {
     if (!types || typeId != null) return
     if (voucherId) return
-    const wanted = kindHint ?? 'journal'
-    const t = types.find((t) => t.kind === wanted) ?? types[0]
+    // An explicit hint (a drill from GSTR-2B, a ⌘D duplicate) wins; failing that, the type this
+    // user last entered, because a business enters the same kind of voucher over and over and
+    // landing on Journal every time is a tab press paid on every visit.
+    const wanted = kindHint ?? lastKind
+    const t = types.find((t) => t.kind === wanted) ?? types.find((t) => t.kind === 'journal') ?? types[0]
     if (t) setTypeId(t.id)
-  }, [types, typeId, kindHint, voucherId])
+  }, [types, typeId, kindHint, voucherId, lastKind])
+
+  // Remember it for next time, but only while creating — the type of a voucher being altered is
+  // the voucher's, not a choice the user just made.
+  useEffect(() => {
+    if (voucherId || !types || typeId == null) return
+    const kind = types.find((t) => t.id === typeId)?.kind
+    if (kind) setLastKind(kind)
+  }, [typeId, types, voucherId, setLastKind])
 
   useEffect(() => {
     if (existing) setTypeId(existing.voucherTypeId)
@@ -144,6 +157,7 @@ export function VoucherEntry({
               {t.name}
             </button>
           ))}
+        {!voucherId && currentType && <SameAsLast typeId={currentType.id} kind={currentType.kind} />}
       </div>
       {invoiceMode ? (
         <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
@@ -167,6 +181,48 @@ export function VoucherEntry({
         bar below and under <Kbd>?</Kbd>
       </p>
     </div>
+  )
+}
+
+/**
+ * Start this voucher from the last one of the same type.
+ *
+ * "Same as last time, different amount" is most of the data entry in a small business: the rent
+ * cheque, the monthly retainer, the standing purchase from one supplier. Recurring templates
+ * cover the ones that repeat on a schedule; this covers the far commoner case of one that repeats
+ * whenever it happens to.
+ *
+ * Hidden rather than disabled when there is no previous voucher of the type — a control that can
+ * never do anything on a brand-new book is noise on the screen where noise costs most.
+ */
+function SameAsLast({ typeId, kind }: { typeId: number; kind: VoucherKind }): React.JSX.Element | null {
+  const nav = useNav()
+  const toast = useToasts()
+  const { data } = useQuery({
+    queryKey: ['latestOfType', typeId],
+    queryFn: () => api.vouchers.latestOfType(typeId)
+  })
+  if (!data?.voucherId) return null
+
+  const start = async (): Promise<void> => {
+    try {
+      const draft = await api.vouchers.draftFrom(data.voucherId!)
+      if (!draft) return void toast.push('error', 'That voucher is no longer in the books')
+      nav.go({ name: 'voucher-entry', kindHint: kind, draft, draftId: nextDraftId() })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <button
+      data-testid="btn-same-as-last"
+      onClick={() => void start()}
+      title="Start from the last voucher of this type — everything but its date"
+      className="ml-2 rounded-md border border-line px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
+    >
+      Same as last
+    </button>
   )
 }
 

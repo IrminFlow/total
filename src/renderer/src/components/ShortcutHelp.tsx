@@ -27,6 +27,7 @@ const GLOBAL_ROWS: ShortcutRow[] = [
   { keys: ['⌘]'], label: 'Forward again, after going back' },
   { keys: ['⌘1', '…', '⌘9'], label: 'Jump to the first nine sidebar entries' },
   { keys: ['⌘F'], label: 'Focus the filter box, on screens that have one' },
+  { keys: ['⌘D'], label: 'On a list: start a new voucher shaped like the selected one' },
   { keys: ['?'], label: 'Show this shortcut reference' }
 ]
 

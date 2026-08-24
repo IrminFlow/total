@@ -115,17 +115,22 @@ export interface RecurringTemplate {
   voucherKind: VoucherKind | null
 }
 
-export type VoucherKind =
-  | 'contra'
-  | 'payment'
-  | 'receipt'
-  | 'journal'
-  | 'sales'
-  | 'purchase'
-  | 'credit_note'
-  | 'debit_note'
-  | 'stock_journal'
-  | 'physical_stock'
+/** Every voucher kind, as a value — so a caller can validate a stored one without restating the
+ *  list and letting the two drift. */
+export const VOUCHER_KINDS = [
+  'contra',
+  'payment',
+  'receipt',
+  'journal',
+  'sales',
+  'purchase',
+  'credit_note',
+  'debit_note',
+  'stock_journal',
+  'physical_stock'
+] as const
+
+export type VoucherKind = (typeof VOUCHER_KINDS)[number]
 
 export interface VoucherType {
   id: number
