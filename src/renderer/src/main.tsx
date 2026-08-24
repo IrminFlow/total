@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
-import { applyMotion, applyTextSize, applyTheme, initialMotion, initialTextSize, initialTheme } from './state/stores'
+import { applyKeyboardOnly, applyMotion, applyTextSize, applyTheme, initialKeyboardOnly, initialMotion, initialTextSize, initialTheme } from './state/stores'
 import './app.css'
 
 // Before the first render, not in an effect: a user who chose Largest must not watch the app
@@ -10,6 +10,7 @@ import './app.css'
 applyTheme(initialTheme())
 applyTextSize(initialTextSize())
 applyMotion(initialMotion())
+applyKeyboardOnly(initialKeyboardOnly())
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -1353,5 +1353,18 @@ export const MIGRATIONS: string[] = [
     app_version TEXT,
     payload_json TEXT NOT NULL
   );
+  `,
+
+  // 38 — the cost centre a party's transactions belong to by default.
+  //
+  // Credit days and price level already prefill from the party ledger the moment it is picked.
+  // Cost centre was the one party default still typed by hand on every voucher, and it is the
+  // one that is invisible when forgotten: a missing due date shows up in the ageing report the
+  // same day, whereas an unallocated line just quietly never appears in the branch's P&L.
+  //
+  // ON DELETE SET NULL, not CASCADE: deleting a cost centre must not delete the party. NULL is
+  // the correct residue — "this party no longer has a default", which is exactly true.
+  `
+  ALTER TABLE ledgers ADD COLUMN default_cost_centre_id INTEGER REFERENCES cost_centres(id) ON DELETE SET NULL;
   `
 ]

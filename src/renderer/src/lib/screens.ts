@@ -78,7 +78,7 @@ export const SCREENS: ScreenDef[] = [
     invalidates: [
       'voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes',
       // The entry somebody was halfway through when the app died (roadmap #250).
-      'voucherDraft'
+      
     ]
   },
   {

@@ -7,6 +7,7 @@ import type { VoucherInput, VoucherInputParsed } from '@shared/schemas'
 import type { VoucherListRow } from '@shared/reports'
 import { validateVoucher, type LedgerFacts } from '@shared/posting'
 import { fyOf } from '@shared/dates'
+import { expandSeriesPattern, seriesHasFyToken } from '@shared/numberSeries'
 import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { writeAudit } from './audit'
@@ -157,13 +158,36 @@ export function getVoucher(db: DB, id: number): Voucher | null {
  * that resets to 1 each financial year), or every voucher of this type ever (restartFy false — one
  * running sequence across FYs). Either way, binned (soft-deleted) vouchers still count toward the
  * max — same as before this task, deliberately: a deleted number must never be reissued.
+ *
+ * The prefix and suffix may carry financial-year tokens ({FY}, {YY}, {YYYY}); they are expanded
+ * against THIS voucher's date, so `INV/{FY}/` gives `INV/2024-25/0007` and — because last year's
+ * numbers no longer share the prefix — the sequence restarts each April whatever `restartFy`
+ * says. The scan still narrows by prefix, so the two mechanisms compose rather than fight.
  */
 export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, excludeVoucherId?: number): string {
-  const vt = getVoucherType(db, voucherTypeId)
+  const stored = getVoucherType(db, voucherTypeId)
+  const vt = {
+    ...stored,
+    prefix: expandSeriesPattern(stored.prefix, date),
+    suffix: expandSeriesPattern(stored.suffix, date)
+  }
   // Strip the suffix then the prefix in SQL (so e.g. "INV-007/24-25" with prefix "INV-" and
   // suffix "/24-25" reads as 7) and take a single MAX — no more loading every number into JS.
   // CAST mirrors the old parseInt(..., 10): leading digits parse, anything else reads as 0.
   const fyClause = vt.restartFy ? 'AND date BETWEEN :from AND :to' : ''
+  /**
+   * A per-FY series scans only the numbers that belong to THIS year's series.
+   *
+   * Without it the scan reads every number of the type and strips a prefix that no longer
+   * matches, so last year's `1/24` and `2/24` count toward this year's `/25` series and it
+   * starts at 3. Restricted to token series on purpose: applying it to every type would mean
+   * that editing a prefix mid-year silently restarted the numbering, which is a far worse
+   * surprise than the one it fixes.
+   */
+  const seriesClause =
+    seriesHasFyToken(stored.prefix) || seriesHasFyToken(stored.suffix)
+      ? 'AND (:plen = 0 OR substr(number, 1, :plen) = :prefix) AND (:slen = 0 OR substr(number, -:slen) = :suffix)'
+      : ''
   const row = db
     .prepare(
       `SELECT COALESCE(MAX(CAST(
@@ -173,7 +197,7 @@ export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, e
          SELECT CASE WHEN :slen > 0 AND substr(number, -:slen) = :suffix
                      THEN substr(number, 1, length(number) - :slen) ELSE number END AS stripped
          FROM vouchers
-         WHERE voucher_type_id = :vtId AND id IS NOT :excludeId ${fyClause}
+         WHERE voucher_type_id = :vtId AND id IS NOT :excludeId ${fyClause} ${seriesClause}
        )`
     )
     .get({

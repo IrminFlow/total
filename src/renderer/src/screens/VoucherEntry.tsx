@@ -8,7 +8,6 @@ import { Kbd, Panel, SectionTitle } from '../components/ui'
 import { auditFieldChanges, fieldLabel } from '@shared/auditDiff'
 import { formatPaise } from '@shared/money'
 import { useFeatures } from '../lib/useFeatures'
-import { RecoveredDraft } from './voucher/RecoveredDraft'
 import { TRADING_KINDS } from './voucher/hooks'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
 import { AccountingEntry } from './voucher/AccountingEntry'
@@ -126,7 +125,6 @@ export function VoucherEntry({
     <div className="mx-auto max-w-4xl">
       {/* Crash-safe recovery (roadmap #250) — suppressed while altering an existing voucher, and
           while a draft has just been handed in by a nudge or a duplicate. */}
-      <RecoveredDraft suppressed={!!voucherId || !!draft} />
       {showFirstVoucherHint && (
         <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5">
           <p className="text-body-sm text-ink">
@@ -182,10 +180,17 @@ export function VoucherEntry({
         />
       )}
       {voucherId && <VoucherHistory voucherId={voucherId} />}
+      {/* The grid chords live here rather than in the footer strip: the bar is one line wide and
+          already carries the ten type keys, and pushing one of those off the edge to make room
+          would cost more than it gains. Under `?` too, which now has a search box. */}
       <p className="mt-3 text-hint text-muted">
         <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>,{' '}
         <span className="num">7/4</span>, <span className="num">y</span> · the type keys are in the
         bar below and under <Kbd>?</Kbd>
+      </p>
+      <p className="mt-1 text-hint text-muted">
+        In the lines: <Kbd>⌥↑</Kbd> <Kbd>⌥↓</Kbd> move · <Kbd>⌘⌫</Kbd> delete · <Kbd>⌥R</Kbd> repeat
+        the last line · <Kbd>⌥O</Kbd> round off · paste a table from a spreadsheet straight in
       </p>
     </div>
   )

@@ -79,6 +79,10 @@ export const ledgerInputSchema = z.object({
   itcEligibility: z.enum(['eligible', 'blocked', 'capital_goods', 'input_services']).default('eligible'),
   /** Price level whose rates prefill this party's invoice lines; absent/null = item base rate. */
   priceLevelId: id.nullable().optional(),
+  /** Cost centre prefilled on lines posted against this party; absent = leave it as it is, which
+   *  is what lets a partial update (an importer, the agent bridge) rename a ledger without
+   *  silently clearing a default nobody mentioned. */
+  defaultCostCentreId: id.nullable().optional(),
   /** Credit limit in paise; absent/null = no limit. */
   creditLimit: paise.min(0).nullable().optional(),
   /** Overdue interest in basis points (1800 = 18% p.a.); absent/null = no interest charged.

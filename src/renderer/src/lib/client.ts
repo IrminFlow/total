@@ -1731,12 +1731,6 @@ export const api = {
   },
 
   /** The entry somebody was halfway through when the app died (roadmap #250). */
-  drafts: {
-    get: () => call<{ savedAt: string; payload: unknown } | null>('draft:get'),
-    save: (payload: unknown) => call<null>('draft:save', { payload }),
-    clear: () => call<null>('draft:clear')
-  },
-
   /** Where the books live, and moving them out of a synced folder (roadmap #244). */
   dataFolder: {
     get: () =>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNav, useScreen, useSession } from './state/stores'
+import { useNav, useRecentScreens, useScreen, useSession } from './state/stores'
 import { isPlainKey, isTypingTarget, useKeyLayer } from './lib/keyboard'
 import { NAV_ACCEL, NAV_ORDER } from './lib/accel'
 import { api } from './lib/client'
@@ -45,18 +45,22 @@ import { CostCentresScreen } from './screens/CostCentres'
 import { BudgetsScreen } from './screens/Budgets'
 import { YearEndScreen } from './screens/YearEnd'
 import { Settings } from './screens/Settings'
-import { CommandPalette } from './components/CommandPalette'
+import { CommandPalette, SCREEN_SEARCH_SCOPE } from './components/CommandPalette'
 import { ShortcutHelp } from './components/ShortcutHelp'
+import { RecentRing } from './components/RecentRing'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LockScreen } from './components/LockScreen'
 import { DialogHost } from './components/dialogs'
 import { invalidationFamilies } from './lib/screens'
+import type { SearchHit } from '@shared/search'
 
 export default function App(): React.JSX.Element {
   const { slug, locked, integrityWarning, setIntegrityWarning } = useSession()
   const screen = useScreen()
   const nav = useNav()
   const [paletteOpen, setPaletteOpen] = useState(false)
+  /** Non-null while the palette is open in ⌘⇧F "search this screen" mode. */
+  const [paletteScope, setPaletteScope] = useState<SearchHit['kind'][] | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
   const features = useFeatures()
   const queryClient = useQueryClient()
@@ -65,7 +69,10 @@ export default function App(): React.JSX.Element {
   // menu and the keyboard run the same actions. Navigation ids are handled inside the hook.
   useMenuCommands({
     palette: () => {
-      if (!integrityWarning) setPaletteOpen(true)
+      if (!integrityWarning) {
+        setPaletteScope(null)
+        setPaletteOpen(true)
+      }
     },
     shortcuts: () => setHelpOpen(true)
   })
@@ -81,7 +88,17 @@ export default function App(): React.JSX.Element {
       // A blocking integrity warning must be resolved (or dismissed) before anything else is
       // reachable — opening the palette over it would let the user navigate around it.
       if (integrityWarning) return true
+      setPaletteScope(null)
       setPaletteOpen((v) => !v)
+      return true
+    }
+    // ⌘⇧F — the same palette, narrowed to what this screen is about. Checked before ⌘F below,
+    // which explicitly declines when Shift is held.
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+      e.preventDefault()
+      if (integrityWarning) return true
+      setPaletteScope(SCREEN_SEARCH_SCOPE[screen.name] ?? null)
+      setPaletteOpen(true)
       return true
     }
     // ⌘F focuses this screen's filter box, wherever it happens to be. Screens opt in with
@@ -124,6 +141,10 @@ export default function App(): React.JSX.Element {
     }
     if (e.key === '?') {
       if (isTypingTarget(e)) return false
+      // Without this the '?' lands in the overlay's own search box: the keydown opens the modal
+      // synchronously, React focuses the search input before the browser inserts the character,
+      // and the reference opens filtered to the one shortcut that IS '?'.
+      e.preventDefault()
       setHelpOpen(true)
       // One of the two checklist steps that is a preference rather than a book fact: whether the
       // user has seen what the red letters are. Fire-and-forget — a failed write costs a tick on
@@ -141,6 +162,13 @@ export default function App(): React.JSX.Element {
     else nav.go(target.screen)
     return true
   })
+
+  // The MRU ring behind ⌘` (see RecentRing). Fed from the same place the invalidation is, so a
+  // screen cannot appear in the ring without having actually been rendered.
+  const visit = useRecentScreens((s) => s.visit)
+  useEffect(() => {
+    visit(screen)
+  }, [screen, visit])
 
   // Fresh data whenever the visible screen changes — scoped to that screen's query-key
   // families (see the registry) instead of nuking the whole cache on every navigation.
@@ -179,7 +207,12 @@ export default function App(): React.JSX.Element {
 
   return (
     <>
-      <Shell onOpenPalette={() => setPaletteOpen(true)}>
+      <Shell
+        onOpenPalette={() => {
+          setPaletteScope(null)
+          setPaletteOpen(true)
+        }}
+      >
         <ErrorBoundary key={screen.name} screen={screen.name}>
           {screen.name === 'gateway' && <Gateway />}
           {screen.name === 'daybook' && <DayBook span={screen.span} kind={screen.kind} />}
@@ -227,8 +260,9 @@ export default function App(): React.JSX.Element {
           {screen.name === 'settings' && <Settings key={screen.tab ?? 'backups'} tab={screen.tab} />}
         </ErrorBoundary>
       </Shell>
-      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      {paletteOpen && <CommandPalette scope={paletteScope ?? undefined} onClose={() => setPaletteOpen(false)} />}
       {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
+      <RecentRing />
       {integrityModal}
       <DialogHost />
       <Toasts />

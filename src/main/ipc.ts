@@ -89,7 +89,6 @@ import { globalSearch } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { setAuditContext, writeAudit, listAudit, pruneAudit, verifyAuditChain } from './services/audit'
 import * as externalBackup from './services/externalBackup'
-import * as drafts from './services/drafts'
 import { exportPortable, importPortable } from './services/portable'
 import * as users from './services/users'
 import { assertDeleteAuthorized, auditCompanyDeletion } from './services/companyDelete'
@@ -99,7 +98,7 @@ import { recoveryGuidance } from '@shared/recovery'
 import { lockMessage } from '@shared/deviceLock'
 import { duplicateWarning, findDuplicateCompanies } from '@shared/companyIdentity'
 import { externalDestinationVerdict, describeExternalSchedule } from '@shared/backupSchedule'
-import { externalBackupSchema, draftSaveSchema } from '@shared/schemas'
+import { externalBackupSchema, } from '@shared/schemas'
 import { PORTABLE_FORMAT } from '@shared/portable'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
@@ -2998,19 +2997,6 @@ export function registerIpc(): void {
     } finally {
       if (db.open) db.close()
     }
-  })
-
-  // ---------- the entry that was half typed (roadmap #250) ----------
-  handle('draft:get', () => drafts.getDraft(requireCompany().db, sessionUser?.name ?? null), 'viewer')
-  handle('draft:save', (p) => {
-    const { payload } = draftSaveSchema.parse(p)
-    const c = requireCompany()
-    drafts.saveDraft(c.db, sessionUser?.name ?? null, payload, app.getVersion())
-    return null
-  })
-  handle('draft:clear', () => {
-    drafts.clearDraft(requireCompany().db, sessionUser?.name ?? null)
-    return null
   })
 
   handle('export:csv', (p) => {

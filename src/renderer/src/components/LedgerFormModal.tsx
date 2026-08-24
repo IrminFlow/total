@@ -81,6 +81,8 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [phone, setPhone] = useState(ledger?.phone ?? '')
   const [email, setEmail] = useState(ledger?.email ?? '')
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
+  const [defaultCostCentreId, setDefaultCostCentreId] = useState<number | ''>(ledger?.defaultCostCentreId ?? '')
+  const { data: costCentres } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
 
   const ancestry = useMemo(() => groupAncestryNames(groupId, groups), [groupId, groups])
   const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
@@ -125,7 +127,8 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         territory: territory.trim() || null,
         phone: phone.trim() || null,
         email: email.trim() || null,
-        exportType: exportType || null
+        exportType: exportType || null,
+        defaultCostCentreId: defaultCostCentreId === '' ? null : defaultCostCentreId
       }
       if (ledger) await api.ledgers.update(ledger.id, data)
       else await api.ledgers.create(data)
@@ -232,6 +235,22 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
               <Field label="Credit days" hint="Default due date for bills">
                 <TextInput value={creditDays} onChange={(e) => setCreditDays(e.target.value)} className="num text-right" placeholder="0" />
               </Field>
+              {(costCentres?.length ?? 0) > 0 && (
+                <Field label="Cost centre" hint="Prefilled on every line posted to this party">
+                  <Select
+                    data-testid="input-ledger-cost-centre"
+                    value={defaultCostCentreId}
+                    onChange={(e) => setDefaultCostCentreId(e.target.value ? Number(e.target.value) : '')}
+                  >
+                    <option value="">None</option>
+                    {(costCentres ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
               <Field label="Phone" hint="Used to send payment reminders on WhatsApp">
                 <TextInput
                   data-testid="input-ledger-phone"

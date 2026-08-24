@@ -279,13 +279,56 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
     [displayRows, nav, toast]
   )
 
+  /**
+   * ⌘⌫ moves the selected voucher to the bin, with the undo on the toast.
+   *
+   * No confirm dialog, unlike the tick-box bulk delete above: one voucher removed by a keystroke
+   * is undone by one click on the toast that appears in the same instant, and a modal between
+   * the key and the deletion turns a keyboard action back into a mouse one. The bulk path keeps
+   * its dialog because ticking nine rows and pressing a button is a different kind of mistake —
+   * there the question is "did you mean all nine", which no undo answers as clearly.
+   */
+  const deleteRow = useCallback(
+    async (voucherId: number, label: string): Promise<void> => {
+      try {
+        await api.vouchers.remove(voucherId)
+        await queryClient.invalidateQueries()
+        toast.push('success', `${label} moved to the bin`, {
+          label: 'Undo',
+          run: async () => {
+            try {
+              await api.vouchers.restore(voucherId)
+              await queryClient.invalidateQueries()
+              toast.push('success', `${label} restored`)
+            } catch (err) {
+              toast.push('error', `Could not restore: ${(err as Error).message}`)
+            }
+          }
+        })
+      } catch (err) {
+        toast.push('error', (err as Error).message)
+      }
+    },
+    [queryClient, toast]
+  )
+
   useKeyLayer('screen', (e) => {
-    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'd') return false
-    const row = displayRows[active]
-    if (!row) return false
-    e.preventDefault()
-    void duplicateRow(row.voucherId)
-    return true
+    if (e.metaKey || e.ctrlKey) {
+      const row = displayRows[active]
+      if (e.key.toLowerCase() === 'd') {
+        if (!row) return false
+        e.preventDefault()
+        void duplicateRow(row.voucherId)
+        return true
+      }
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        if (!row) return false
+        e.preventDefault()
+        void deleteRow(row.voucherId, `${row.voucherType} ${row.number}`)
+        return true
+      }
+    }
+    return false
   })
 
   useEffect(() => {

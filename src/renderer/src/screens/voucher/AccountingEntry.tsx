@@ -7,10 +7,14 @@ import { formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api, type TdsSuggestion } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
+import { matchByName, parseAcctPaste } from '@shared/gridPaste'
+import { roundOffLine } from '@shared/roundOff'
+import { describeAge, useVoucherDraft } from '../../lib/voucherDraft'
+import { useScreenAccels } from '../../lib/screenAccels'
 import { AmountInput, Button, DateInput, Field, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
 import { useKeyLayer } from '../../lib/keyboard'
 import { useFieldChain } from '../../lib/useFieldChain'
-import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
+import { LedgerPicker, useGroups, useLedgers, useTaxLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
@@ -19,7 +23,6 @@ import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
 import { CostAllocModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
 import { TransportModal } from './TransportModal'
-import { clearCrashDraft, useCrashDraft } from '../../lib/useCrashDraft'
 
 // ---------- accounting mode (payment / receipt / contra / journal + alteration) ----------
 
@@ -30,9 +33,22 @@ interface AcctRow {
   ledgerId: number | null
   amount: number | null
   costAllocations: { costCentreId: number; amount: number }[]
+  /** Account name from a pasted spreadsheet row that matched no ledger. Kept so the amount is not
+   *  thrown away with the name: the row stays, unresolved, with the name offered for creation. */
+  pastedName?: string
 }
 
 const blankAcctRow = (drCr: 'dr' | 'cr'): AcctRow => ({ key: nextLineKey(), drCr, ledgerId: null, amount: null, costAllocations: [] })
+
+/** Everything about a half-entered accounting voucher that is worth surviving a crash. React keys
+ *  are deliberately absent — they are regenerated on restore, and a stale one would collide. */
+interface AcctDraftState {
+  date: string
+  number: string
+  narration: string
+  instrumentNo: string
+  rows: { drCr: 'dr' | 'cr'; ledgerId: number | null; amount: number | null; pastedName?: string }[]
+}
 
 export function AccountingEntry({
   typeId,
@@ -51,6 +67,7 @@ export function AccountingEntry({
   const queryClient = useQueryClient()
   const features = useFeatures()
   const ledgers = useLedgers()
+  const { ensureRoundOff } = useTaxLedgers()
   const groups = useGroups()
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups])
   const [date, setDate] = useState(draft?.date ?? workingDate)
@@ -128,12 +145,51 @@ export function AccountingEntry({
   const totalCr = rows.reduce((s, r) => s + (r.drCr === 'cr' ? (r.amount ?? 0) : 0), 0)
   const balanced = totalDr === totalCr && totalDr > 0
 
+  /** The paise-sized plug this voucher needs, or null when it balances or is out by real money. */
+  const roundOff = roundOffLine(totalDr, totalCr)
+
   // Unsaved-entry guard for NEW vouchers only (save resets the form). Alterations are exempt:
   // rows are seeded from the stored voucher, so content alone can't distinguish edited from
   // pristine — guarding them would also fire on the programmatic nav.back() after save.
-  useUnsavedGuard(
-    !voucherId && (rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== '')
-  )
+  const dirty = rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== ''
+  useUnsavedGuard(!voucherId && dirty)
+
+  /**
+   * Crash recovery for a half-typed voucher.
+   *
+   * New vouchers only. An alteration's fields are seeded from a voucher that is already on the
+   * books, so a "restore" there would offer back an edit the operator may have deliberately
+   * abandoned — and the stored voucher, not the draft, is the truth.
+   *
+   * The state is serialised through a string so the effect fires on a real change rather than on
+   * every render's fresh object identity.
+   */
+  const { slug } = useSession()
+  const draftState: AcctDraftState = {
+    date,
+    number: voucherId ? alterNumber : numberField.forPayload,
+    narration,
+    instrumentNo,
+    rows: rows.map((r) => ({ drCr: r.drCr, ledgerId: r.ledgerId, amount: r.amount, pastedName: r.pastedName }))
+  }
+  const draftSignature = JSON.stringify(draftState)
+  const recovery = useVoucherDraft<AcctDraftState>(slug, `acct-${kind}`, draftState, draftSignature, {
+    enabled: !voucherId,
+    isEmpty: !dirty
+  })
+  const restoreDraft = (): void => {
+    const d = recovery.offered?.state
+    if (!d) return
+    setDate(d.date)
+    setNarration(d.narration)
+    setInstrumentNo(d.instrumentNo)
+    if (d.number) numberField.onChange(d.number)
+    setRows([
+      ...d.rows.map((r) => ({ ...r, key: nextLineKey(), costAllocations: [] as AcctRow['costAllocations'] })),
+      blankAcctRow('cr')
+    ])
+    recovery.dismiss()
+  }
 
 
   const setRow = (i: number, patch: Partial<AcctRow>): void => {
@@ -143,6 +199,139 @@ export function AccountingEntry({
       if (last.ledgerId != null) next.push(blankAcctRow('cr'))
       return next
     })
+  }
+
+  // ---------- keyboard editing of the grid (⌥↑/↓, ⌘⌫, ⌥R) ----------
+
+  /**
+   * Which line the cursor is in.
+   *
+   * Read off the DOM rather than tracked in state on purpose: focus already moves between the
+   * Dr/Cr button, the ledger picker and the amount field by half a dozen routes (Enter-chaining,
+   * Tab, a click, a dropdown closing), and a second copy of "where the cursor is" would be wrong
+   * every time one of them changed without telling us.
+   */
+  const focusedRow = (): number => {
+    const el = document.activeElement as HTMLElement | null
+    const tr = el?.closest?.('tr[data-line-index]') as HTMLElement | null
+    const n = tr ? Number(tr.dataset.lineIndex) : NaN
+    return Number.isInteger(n) ? n : -1
+  }
+
+  /** Put the cursor back in the same COLUMN of a (possibly moved) row, after React repaints. */
+  const refocus = (rowIndex: number, cellIndex: number): void => {
+    requestAnimationFrame(() => {
+      const tr = formRef.current?.querySelector<HTMLElement>(`tr[data-line-index="${rowIndex}"]`)
+      const cell = tr?.children[cellIndex] as HTMLElement | undefined
+      cell?.querySelector<HTMLElement>('input, button, select')?.focus()
+    })
+  }
+
+  /**
+   * ⌥↑ / ⌥↓ — move this line up or down.
+   *
+   * Order is not arithmetic: a voucher reads as a document, and "Dr Expense / Cr Bank" in the
+   * wrong order is the same posting printed wrongly. Until now the only way to reorder was to
+   * retype both lines.
+   */
+  const moveRow = (delta: -1 | 1): void => {
+    const i = focusedRow()
+    const j = i + delta
+    const el = document.activeElement as HTMLElement | null
+    const cellIndex = el?.closest('td') ? Array.prototype.indexOf.call(el.closest('tr')!.children, el.closest('td')) : 0
+    setRows((rs) => {
+      if (i < 0 || j < 0 || j >= rs.length) return rs
+      const next = [...rs]
+      ;[next[i], next[j]] = [next[j]!, next[i]!]
+      return next
+    })
+    if (i >= 0 && j >= 0) refocus(j, cellIndex)
+  }
+
+  /**
+   * ⌘⌫ — delete this line, offering it straight back.
+   *
+   * No confirm: the undo IS the confirm, and a dialog for removing one line of a voucher that is
+   * not saved yet is friction on the commonest correction there is. Restoring puts the line back
+   * where it was rather than at the end — a line that reappears somewhere else has not been
+   * undone.
+   */
+  const deleteRow = (): void => {
+    const i = focusedRow()
+    const removed = rows[i]
+    // The trailing blank is scaffolding, not a line; and a voucher needs somewhere to type.
+    if (!removed || rows.length <= 2 || (removed.ledgerId == null && removed.amount == null)) return
+    setRows((rs) => rs.filter((_, j) => j !== i))
+    const name = ledgers.find((l) => l.id === removed.ledgerId)?.name ?? 'Line'
+    toast.push('info', `${name} removed`, {
+      label: 'Undo',
+      run: () => setRows((rs) => [...rs.slice(0, i), removed, ...rs.slice(i)])
+    })
+    refocus(Math.max(0, i - 1), 1)
+  }
+
+  /**
+   * ⌥R — repeat the last filled line.
+   *
+   * Entering twenty branch expenses against the same ledger, or twenty receipts of the same
+   * amount, is the shape of a day's work in a small business. Copying the whole line (side,
+   * ledger, amount) rather than just the ledger is deliberate: the amount is the field most
+   * likely to be right already, and it is one keystroke to change if it is not.
+   */
+  const repeatLastLine = (): void => {
+    const source = [...rows].reverse().find((r) => r.ledgerId != null)
+    if (!source) return
+    setRows((rs) => {
+      const insertAt = rs[rs.length - 1]!.ledgerId == null ? rs.length - 1 : rs.length
+      const copy: AcctRow = { ...source, key: nextLineKey(), costAllocations: [...source.costAllocations] }
+      const next = [...rs.slice(0, insertAt), copy, ...rs.slice(insertAt)]
+      if (next[next.length - 1]!.ledgerId != null) next.push(blankAcctRow('cr'))
+      return next
+    })
+  }
+
+  /**
+   * Paste a block of lines from a spreadsheet.
+   *
+   * Only intercepted when the clipboard actually holds a TABLE — a tab or a line break. Pasting
+   * a single ledger name or an amount into a field has to keep working exactly as it does, and it
+   * is by far the commoner paste.
+   *
+   * Names are matched exactly (see matchByName); anything unmatched keeps its amount and its
+   * name, and shows an inline offer to create the ledger. Dropping those rows would be worse
+   * than useless: the operator would have to find which of forty lines went missing.
+   */
+  const onGridPaste = (e: React.ClipboardEvent): void => {
+    const text = e.clipboardData.getData('text/plain')
+    if (!text || (!text.includes('\t') && !text.includes('\n'))) return
+    e.preventDefault()
+    const { lines, skipped } = parseAcctPaste(text)
+    if (lines.length === 0) {
+      return void toast.push('error', skipped.length ? `Nothing to paste — ${skipped[0]!.reason}` : 'Nothing to paste')
+    }
+    let unmatched = 0
+    const pasted: AcctRow[] = lines.map((l) => {
+      const ledger = matchByName(l.name, ledgers)
+      if (!ledger) unmatched++
+      return {
+        key: nextLineKey(),
+        // A sheet with one money column says nothing about the side; a debit is the safer
+        // default to land on because it is what the first line of a voucher usually is.
+        drCr: l.drCr ?? 'dr',
+        ledgerId: ledger?.id ?? null,
+        amount: l.amount,
+        costAllocations: [],
+        pastedName: ledger ? undefined : l.name
+      }
+    })
+    setRows((rs) => {
+      const kept = rs.filter((r) => r.ledgerId != null || (r.amount ?? 0) !== 0)
+      return [...kept, ...pasted, blankAcctRow('cr')]
+    })
+    const parts = [`${pasted.length} line${pasted.length === 1 ? '' : 's'} pasted`]
+    if (unmatched) parts.push(`${unmatched} account${unmatched === 1 ? '' : 's'} not found`)
+    if (skipped.length) parts.push(`${skipped.length} row${skipped.length === 1 ? '' : 's'} skipped (${skipped[0]!.reason})`)
+    toast.push(unmatched || skipped.length ? 'warning' : 'success', parts.join(' · '))
   }
 
   // A voucher's "party" for TDS/bill-allocation purposes: whichever posted ledger is a Sundry
@@ -162,14 +351,6 @@ export function AccountingEntry({
   // The same content, kept on disk so a crash does not take it (roadmap #250). New vouchers only,
   // for the same reason the guard above skips alterations: an altered voucher is already in the
   // books, and offering to "recover" it later would offer to re-enter something that exists.
-  useCrashDraft(!voucherId, {
-    date,
-    partyLedgerId: derivedPartyId ?? undefined,
-    narration,
-    lines: rows
-      .filter((r) => r.ledgerId != null && (r.amount ?? 0) > 0)
-      .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount! }))
-  })
 
   /**
    * A narration written from what the voucher already says.
@@ -364,12 +545,65 @@ export function AccountingEntry({
     setBillRefs((refs) => refs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const removeManualBillRef = (i: number): void => setBillRefs((refs) => refs.filter((_, j) => j !== i))
 
+  /**
+   * Add the round-off line.
+   *
+   * Offered, never automatic. A voucher that silently gains a line the operator did not type is
+   * a voucher they cannot check, and the whole reason this is safe is that the difference is
+   * visibly a few paise — which they can only see if we show it to them first.
+   */
+  const addRoundOff = async (): Promise<void> => {
+    if (!roundOff) return
+    try {
+      const ledgerId = await ensureRoundOff()
+      setRows((rs) => {
+        const insertAt = rs[rs.length - 1]!.ledgerId == null ? rs.length - 1 : rs.length
+        const line: AcctRow = { key: nextLineKey(), drCr: roundOff.drCr, ledgerId, amount: roundOff.amount, costAllocations: [] }
+        const next = [...rs.slice(0, insertAt), line, ...rs.slice(insertAt)]
+        if (next[next.length - 1]!.ledgerId != null) next.push(blankAcctRow('cr'))
+        return next
+      })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  /**
+   * The cost centre this party's lines belong to, from the party ledger's own default.
+   *
+   * Applied at build time rather than written into each row as it is typed: an allocation stored
+   * on the row would have to be kept in step with every amount edit, and the first time it fell
+   * behind the voucher would post a cost allocation that no longer matched its own line.
+   *
+   * Excluded: the party line itself (a receivable is not a cost), tax ledgers (bookkeeping), and
+   * cash/bank (how it was paid, not what it was for) — the same three exclusions the narration
+   * suggestion makes, for the same reason.
+   */
+  const partyDefaultCc = useMemo(() => {
+    if (!features.costCentres || derivedPartyId == null) return null
+    const party = ledgers.find((l) => l.id === derivedPartyId)
+    const ccId = party?.defaultCostCentreId ?? null
+    if (ccId == null || !(ccList ?? []).some((c) => c.id === ccId)) return null
+    return { id: ccId, name: (ccList ?? []).find((c) => c.id === ccId)!.name, partyName: party!.name }
+  }, [features.costCentres, derivedPartyId, ledgers, ccList])
+
+  const allocationsFor = useCallback(
+    (r: AcctRow): AcctRow['costAllocations'] => {
+      if (r.costAllocations.length > 0) return r.costAllocations
+      if (!partyDefaultCc || r.ledgerId == null || r.ledgerId === derivedPartyId || !r.amount) return r.costAllocations
+      const ledger = ledgers.find((l) => l.id === r.ledgerId)
+      if (!ledger || ledger.taxType != null || isCashOrBankLedger(ledger, groupMap)) return r.costAllocations
+      return [{ costCentreId: partyDefaultCc.id, amount: r.amount }]
+    },
+    [partyDefaultCc, derivedPartyId, ledgers, groupMap]
+  )
+
   // Builds the exact VoucherInputParsed shape `save` posts — factored out so "Save as
   // recurring…" can serialize the current form state without also saving the voucher itself.
   const buildPayload = useCallback((): VoucherInputParsed | null => {
     const lines = rows
       .filter((r) => r.ledgerId != null && r.amount != null && r.amount > 0)
-      .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount!, costAllocations: r.costAllocations }))
+      .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount!, costAllocations: allocationsFor(r) }))
     if (lines.length < 2) return null
     const effectivePartyId = derivedPartyId ?? existing?.partyLedgerId ?? null
     const refs = effectivePartyId != null ? [...billRefs] : []
@@ -409,7 +643,7 @@ export function AccountingEntry({
       billRefs: refs,
       tds: tds && effectivePartyId != null ? tds : null
     }
-  }, [rows, derivedPartyId, existing, kind, typeId, date, voucherId, alterNumber, numberField.forPayload, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, partyLineTotal, tds])
+  }, [rows, derivedPartyId, existing, kind, typeId, date, voucherId, alterNumber, numberField.forPayload, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, partyLineTotal, tds, allocationsFor])
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
@@ -450,8 +684,8 @@ export function AccountingEntry({
       }
       const saved = await api.vouchers.save(input, voucherId)
       // In the books now, so the crash-safe copy of it must go — a draft that outlives its entry
-      // is a prompt to re-type something already saved (roadmap #250).
-      clearCrashDraft()
+      // is a prompt to re-type something already saved (roadmap #45 / #250).
+      recovery.clear()
       toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
       setWorkingDate(date)
       await queryClient.invalidateQueries()
@@ -472,6 +706,7 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset])
 
   // ⌘↵ = save now, skipping the Accept bar. A modal pushes an opaque layer above this one, so
@@ -482,6 +717,59 @@ export function AccountingEntry({
     void save()
     return true
   })
+
+  /**
+   * The grid's own editing keys, declared through the accelerator registry so the hint bar and
+   * the `?` overlay describe exactly what is bound.
+   *
+   * ⌥ rather than ⌘ for the move keys: ⌘↑/↓ is "top and bottom of the document" everywhere else
+   * on macOS, and ⌥↑/↓ is what every editor uses to move a line. ⌘⌫ is the system's delete.
+   */
+  useScreenAccels('voucher-entry', [
+    {
+      match: (e) => e.altKey && !e.metaKey && !e.ctrlKey && e.key === 'ArrowUp',
+      display: ['⌥↑'],
+      hintHidden: true,
+      label: 'Move this line up',
+      when: () => focusedRow() > 0,
+      run: () => moveRow(-1)
+    },
+    {
+      match: (e) => e.altKey && !e.metaKey && !e.ctrlKey && e.key === 'ArrowDown',
+      display: ['⌥↓'],
+      hintHidden: true,
+      label: 'Move this line down',
+      when: () => focusedRow() >= 0 && focusedRow() < rows.length - 1,
+      run: () => moveRow(1)
+    },
+    {
+      match: (e) => (e.metaKey || e.ctrlKey) && (e.key === 'Backspace' || e.key === 'Delete'),
+      display: ['⌘⌫'],
+      hintHidden: true,
+      label: 'Delete this line',
+      run: deleteRow
+    },
+    {
+      // `code`, not `key` — the one place in this app where that is right. Holding Option on
+      // macOS makes the browser report ⌥R as `®` and ⌥O as `ø`, so a `key` comparison would
+      // never fire on the platform the app is built for. Physical keys are what ⌥ chords mean.
+      match: (e) => e.altKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyR',
+      display: ['⌥R'],
+      hintHidden: true,
+      label: 'Repeat the last line',
+      when: () => rows.some((r) => r.ledgerId != null),
+      run: repeatLastLine
+    },
+    {
+      // See the ⌥R note above: `code` because macOS rewrites the character under Option.
+      match: (e) => e.altKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyO',
+      display: ['⌥O'],
+      hintHidden: true,
+      label: 'Add round-off',
+      when: () => roundOff != null,
+      run: () => void addRoundOff()
+    }
+  ])
 
   // Tally Enter-chaining: Enter walks the fields, and Enter past the last one raises the
   // "Accept?" bar rather than saving outright — the operator still confirms, as in Tally.
@@ -591,20 +879,55 @@ export function AccountingEntry({
         <Field label="Date">
           <DateInput value={date} context={workingDate} onChange={setDate} />
         </Field>
-        <div className="col-span-2 flex items-end justify-end">
+        <div className="col-span-2 flex items-end justify-end gap-3">
           <p className={`num text-body-sm ${balanced ? 'text-dr' : 'text-muted'}`}>
             Dr {formatPaise(totalDr)} · Cr {formatPaise(totalCr)}
             {!balanced && totalDr + totalCr > 0 && (
               <span className="text-cr"> · off by {formatPaise(Math.abs(totalDr - totalCr))}</span>
             )}
           </p>
+          {roundOff && (
+            <Button data-testid="btn-round-off" onClick={() => void addRoundOff()}>
+              Round off {formatPaise(roundOff.amount)} ⌥O
+            </Button>
+          )}
         </div>
       </div>
 
+      {/* Offered above the form, not applied to it: a voucher that fills itself in from a week-old
+          draft without asking is indistinguishable, to the person looking at it, from one that
+          has invented its own contents. */}
+      {recovery.offered && (
+        <div
+          data-testid="draft-restore-bar"
+          className="mt-3 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5"
+        >
+          <p className="text-body-sm text-ink">
+            An unsaved {kind} voucher from {describeAge(recovery.offered.savedAt)} is still here —{' '}
+            {recovery.offered.state.rows.filter((r) => r.ledgerId != null).length} line(s).
+          </p>
+          <span className="flex shrink-0 gap-2">
+            <Button data-testid="btn-draft-restore" variant="primary" onClick={restoreDraft}>
+              Restore it
+            </Button>
+            <Button onClick={recovery.clear}>Discard</Button>
+          </span>
+        </div>
+      )}
+
+      {partyDefaultCc && (
+        <p className="mt-2 text-hint text-muted" data-testid="hint-party-cc">
+          Lines with no allocation of their own go to <b>{partyDefaultCc.name}</b> — {partyDefaultCc.partyName}&rsquo;s
+          default cost centre.
+        </p>
+      )}
+
       {/* Long journals scroll inside a capped container; short ones stay unwrapped so the
           absolutely-positioned LedgerPicker dropdowns are never clipped. */}
-      <LineTableScroller active={rows.length > 8} className="mt-4">
-      <table className="ledger-table">
+      {/* onPaste on the wrapper, not on each field: the event bubbles from whichever cell has
+          focus, and a table paste is about the grid rather than about one input. */}
+      <LineTableScroller active={rows.length > 8} className="mt-4" onPaste={onGridPaste}>
+      <table className="ledger-table" data-testid="voucher-grid">
         <thead>
           <tr>
             <th scope="col" className="w-20">Dr / Cr</th>
@@ -615,7 +938,7 @@ export function AccountingEntry({
         </thead>
         <tbody data-testid="rows-voucher-lines">
           {rows.map((r, i) => (
-            <tr key={r.key}>
+            <tr key={r.key} data-line-index={i}>
               <td>
                 <button
                   data-chain="drcr"
@@ -660,6 +983,16 @@ export function AccountingEntry({
                     onCreateRequest={(name) => setQuickLedger({ name, row: i })}
                     className="flex-1"
                   />
+                  {r.pastedName && r.ledgerId == null && (
+                    <button
+                      data-testid="btn-create-pasted-ledger"
+                      className="shrink-0 rounded-md border border-amber/50 px-2 py-1 text-caption text-amber"
+                      onClick={() => setQuickLedger({ name: r.pastedName!, row: i })}
+                      title="Pasted from a spreadsheet — no ledger of this name exists yet"
+                    >
+                      Create “{r.pastedName}”
+                    </button>
+                  )}
                   {(() => {
                     const rowLedger = r.ledgerId != null ? ledgers.find((l) => l.id === r.ledgerId) : null
                     return rowLedger && isPartyLedger(rowLedger, groupMap) ? (
@@ -679,8 +1012,18 @@ export function AccountingEntry({
               {hasCc && (
                 <td className="r">
                   {r.ledgerId != null && (
-                    <button className="text-caption text-blue hover:underline" onClick={() => setCcModalRow(i)}>
-                      CC{r.costAllocations.length ? ` (${r.costAllocations.length})` : ''}
+                    <button
+                      className={`text-caption hover:underline ${
+                        r.costAllocations.length === 0 && allocationsFor(r).length > 0 ? 'text-muted' : 'text-blue'
+                      }`}
+                      onClick={() => setCcModalRow(i)}
+                      title={
+                        r.costAllocations.length === 0 && allocationsFor(r).length > 0
+                          ? `Inherited from the party — ${partyDefaultCc?.name}`
+                          : 'Allocate this line across cost centres'
+                      }
+                    >
+                      CC{r.costAllocations.length ? ` (${r.costAllocations.length})` : allocationsFor(r).length ? ' ·' : ''}
                     </button>
                   )}
                 </td>

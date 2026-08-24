@@ -19,6 +19,7 @@ import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
+import { matchByName, parseItemPaste } from '@shared/gridPaste'
 import { nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
 
@@ -436,6 +437,46 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     })
   }
 
+  /**
+   * Paste a block of item lines from a spreadsheet — `Item, Qty, Rate[, Discount]`.
+   *
+   * The commonest source is a picking list or an order confirmation with no prices in it at all,
+   * so a missing rate is not an error: the row lands with the quantity filled and the rate left
+   * for the item master or the party's price level, which is where a price should come from.
+   *
+   * Only a table (a tab or a line break) is intercepted; pasting one item name into one cell has
+   * to keep working, and it is the commoner paste by far.
+   */
+  const onGridPaste = (e: React.ClipboardEvent): void => {
+    const text = e.clipboardData.getData('text/plain')
+    if (!text || (!text.includes('\t') && !text.includes('\n'))) return
+    e.preventDefault()
+    const { lines, skipped } = parseItemPaste(text)
+    if (lines.length === 0) {
+      return void toast.push('error', skipped.length ? `Nothing to paste — ${skipped[0]!.reason}` : 'Nothing to paste')
+    }
+    let unmatched = 0
+    const pasted: ItemRow[] = []
+    for (const l of lines) {
+      const item = matchByName(l.name, items)
+      // An item line with no item is not a line — there is nothing to value, tax or deliver. So
+      // unlike the accounting grid, an unmatched name is reported rather than kept as a shell.
+      if (!item) {
+        unmatched++
+        continue
+      }
+      pasted.push({ key: nextLineKey(), itemId: item.id, qtyText: l.qtyText, rate: l.rate, discount: l.discount })
+    }
+    if (pasted.length === 0) {
+      return void toast.push('error', `No item matched — ${lines.map((l) => l.name).slice(0, 3).join(', ')}`)
+    }
+    setRows((rs) => [...rs.filter((r) => r.itemId != null), ...pasted, blankItemRow()])
+    const parts = [`${pasted.length} line${pasted.length === 1 ? '' : 's'} pasted`]
+    if (unmatched) parts.push(`${unmatched} item${unmatched === 1 ? '' : 's'} not found`)
+    if (skipped.length) parts.push(`${skipped.length} row${skipped.length === 1 ? '' : 's'} skipped (${skipped[0]!.reason})`)
+    toast.push(unmatched || skipped.length ? 'warning' : 'success', parts.join(' · '))
+  }
+
   const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
   const unitOf = (itemId: number | null): string => {
     if (!itemId || !units) return ''
@@ -590,8 +631,8 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       {/* Long invoices scroll inside a capped container instead of pushing the totals
           off-screen. Short ones stay unwrapped: any overflow container would clip the
           absolutely-positioned TypeAhead dropdowns. */}
-      <LineTableScroller active={rows.length > 8} className="mt-4">
-      <table className="ledger-table">
+      <LineTableScroller active={rows.length > 8} className="mt-4" onPaste={onGridPaste}>
+      <table className="ledger-table" data-testid="invoice-grid">
         <thead>
           <tr>
             <th scope="col">Item</th>

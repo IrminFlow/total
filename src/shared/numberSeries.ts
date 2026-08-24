@@ -1,3 +1,5 @@
+import { fyOf, type FinancialYear } from './dates'
+
 /**
  * Gaps in a voucher-numbering series.
  *
@@ -51,4 +53,46 @@ export function gapSize(gap: NumberGap): number {
 /** "Invoice 7 is missing" / "Invoices 7 to 19 are missing" — one gap, in words. */
 export function describeGap(gap: NumberGap): string {
   return gap.from === gap.to ? `${gap.from}` : `${gap.from} to ${gap.to}`
+}
+
+// ---------- per-financial-year series patterns ----------
+
+/**
+ * Financial-year tokens in a voucher type's prefix or suffix.
+ *
+ * A voucher type has always had a prefix, a suffix, a pad width and a "restart each financial
+ * year" flag — which restarts the COUNT but leaves the printed number identical to last year's.
+ * `INV-0007` in 2024-25 and `INV-0007` in 2025-26 are two different invoices carrying the same
+ * number, which is exactly what an auditor asks about and what rule 46(b) forbids: an invoice
+ * number must be unique for the financial year.
+ *
+ * Putting the year in the number is how every business already solves this by hand. These tokens
+ * make it a property of the series rather than something retyped every April.
+ *
+ *   {FY}    2024-25   the label Total prints everywhere else
+ *   {YY}    24        the year the FY starts in, two digits
+ *   {YYYY}  2024      the year the FY starts in, four digits
+ *
+ * Expansion is by the VOUCHER'S DATE, not by today: altering a voucher dated last March must
+ * reproduce last year's series, not this year's.
+ */
+export const SERIES_TOKENS: { token: string; describe: (fy: FinancialYear) => string; help: string }[] = [
+  { token: '{FY}', describe: (fy) => fy.label, help: 'financial year, e.g. 2024-25' },
+  { token: '{YY}', describe: (fy) => String(fy.startYear % 100).padStart(2, '0'), help: 'start year, 2 digits' },
+  { token: '{YYYY}', describe: (fy) => String(fy.startYear), help: 'start year, 4 digits' }
+]
+
+/** Replace the financial-year tokens in a prefix or suffix for a voucher dated `date`. */
+export function expandSeriesPattern(pattern: string, date: string): string {
+  if (!seriesHasFyToken(pattern)) return pattern
+  const fy = fyOf(date)
+  let out = pattern
+  for (const t of SERIES_TOKENS) out = out.split(t.token).join(t.describe(fy))
+  return out
+}
+
+/** True when the pattern varies by financial year — the numbering then restarts by construction,
+ *  because last year's numbers no longer share this year's prefix. */
+export function seriesHasFyToken(pattern: string): boolean {
+  return SERIES_TOKENS.some((t) => pattern.includes(t.token))
 }

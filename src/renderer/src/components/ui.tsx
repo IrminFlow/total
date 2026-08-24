@@ -2,8 +2,8 @@ import { forwardRef, useCallback, useEffect, useId, useRef, useState, type React
 import { formatPaise, parseRupees } from '@shared/money'
 import { isExpression, parseAmountExpression } from '@shared/amountExpr'
 import { parseSmartDate, toDisplayDate } from '@shared/dates'
-import { useAnnouncer, useToasts } from '../state/stores'
-import { isBlocked, isTypingTarget, topLayer, useKeyLayer } from '../lib/keyboard'
+import { useAnnouncer, useKeyPrefs, useToasts } from '../state/stores'
+import { isBlocked, isPlainKey, isTypingTarget, topLayer, useKeyLayer } from '../lib/keyboard'
 import { splitAccel } from '../lib/accel'
 
 // ---------- text + labels ----------
@@ -397,14 +397,16 @@ export const Panel = forwardRef<
 export function ScrollList({
   maxH,
   children,
-  className = ''
+  className = '',
+  onPaste
 }: {
   maxH: string
   children: ReactNode
   className?: string
+  onPaste?: (e: React.ClipboardEvent) => void
 }): React.JSX.Element {
   return (
-    <div className={`overflow-y-auto ${className}`} style={{ maxHeight: maxH }}>
+    <div className={`overflow-y-auto ${className}`} style={{ maxHeight: maxH }} onPaste={onPaste}>
       {children}
     </div>
   )
@@ -417,19 +419,26 @@ export function LineTableScroller({
   active,
   children,
   className = '',
-  maxH = '340px'
+  maxH = '340px',
+  onPaste
 }: {
   active: boolean
   children: ReactNode
   className?: string
   maxH?: string
+  /** Paste handler for the whole grid — a pasted spreadsheet table belongs to the table, not to
+   *  whichever cell happened to have focus. Passed through both branches so the behaviour does
+   *  not change the moment a voucher grows past eight lines and starts scrolling. */
+  onPaste?: (e: React.ClipboardEvent) => void
 }): React.JSX.Element {
   return active ? (
-    <ScrollList maxH={maxH} className={className}>
+    <ScrollList maxH={maxH} className={className} onPaste={onPaste}>
       {children}
     </ScrollList>
   ) : (
-    <div className={className}>{children}</div>
+    <div className={className} onPaste={onPaste}>
+      {children}
+    </div>
   )
 }
 
@@ -764,12 +773,19 @@ export const LIST_SHORTCUTS: { keys: string[]; label: string }[] = [
   { keys: ['↑', '↓'], label: 'Move the selection' },
   { keys: ['↵'], label: 'Open the selected row' },
   { keys: ['Home', 'End'], label: 'Jump to the first or last row' },
-  { keys: ['PgUp', 'PgDn'], label: 'Move ten rows at a time' }
+  { keys: ['PgUp', 'PgDn'], label: 'Move ten rows at a time' },
+  { keys: ['⌘⌫'], label: 'Delete the selected row, with an undo on the toast' },
+  // Advertised whether or not the preference is on: a shortcut nobody can find out about is a
+  // shortcut nobody uses, and the row says where to turn it on.
+  { keys: ['gg', 'G'], label: 'First / last row — vim keys, off until Settings → Appearance' }
 ]
 
 /** Rows moved by PageUp/PageDown. Reports routinely run to hundreds of rows, so one screenful
  *  of arrow-key presses is not a realistic way to reach the bottom. */
 const PAGE_JUMP = 10
+
+/** How long a lone `g` waits for its partner before it stops meaning anything (vim keys). */
+const G_CHORD_MS = 800
 
 export function useKeyNav(count: number, onEnter: (index: number) => void, enabled = true): {
   active: number
@@ -786,6 +802,8 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
   // sweeping down a table moves the selection dozens of times a second, and a live region fed
   // from that is a stuck record. Screen-reader users are on the keyboard by definition.
   const fromKeyboard = useRef(false)
+  /** Timestamp of a lone `g` waiting for its partner; 0 when nothing is pending. */
+  const gPending = useRef(0)
   useEffect(() => {
     if (active >= count && count > 0) setActive(count - 1)
   }, [count, active])
@@ -817,6 +835,31 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
       if (e.key === 'End') {
         e.preventDefault()
         setActive(Math.max(0, countRef.current - 1))
+        return true
+      }
+      /**
+       * Vim's `gg` and `G`, only when the preference is on (Settings → Appearance).
+       *
+       * Off by default and it has to be: `G` is the Gateway accelerator, and this layer sits
+       * above the nav layer, so binding it here shadows the way home on every screen with a
+       * list. Behind the preference it is a trade the user has made knowingly.
+       *
+       * The `gg` timeout is what stops a stray `g` from arming forever — a `g` pressed now and
+       * another two minutes later is two separate keystrokes, not a jump to the top.
+       */
+      if (useKeyPrefs.getState().vimKeys && isPlainKey(e) && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault()
+        if (e.key === 'G') {
+          gPending.current = 0
+          setActive(Math.max(0, countRef.current - 1))
+          return true
+        }
+        if (Date.now() - gPending.current < G_CHORD_MS) {
+          gPending.current = 0
+          setActive(0)
+        } else {
+          gPending.current = Date.now()
+        }
         return true
       }
       if (e.key === 'PageDown') {

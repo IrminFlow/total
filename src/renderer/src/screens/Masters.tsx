@@ -9,6 +9,8 @@ import { TabBar } from '../components/TabBar'
 import { useGroups, useLedgers, useStockItems } from '../components/pickers'
 import { LedgerFormModal } from '../components/LedgerFormModal'
 import { validateHsn } from '@shared/gst/validate'
+import { expandSeriesPattern, seriesHasFyToken, SERIES_TOKENS } from '@shared/numberSeries'
+import { fyOf, todayISO } from '@shared/dates'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
@@ -981,7 +983,11 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
   const [restartFy, setRestartFy] = useState(vt?.restartFy ?? true)
 
   const pad = Math.min(8, Math.max(0, Number(padWidth) || 0))
-  const previewNumber = (seq: number): string => `${prefix}${String(seq).padStart(pad, '0')}${suffix}`
+  // Previewed against TODAY, because that is the series the next voucher will actually get. The
+  // number itself is expanded against each voucher's own date (see nextVoucherNumber).
+  const previewNumber = (seq: number, date = todayISO()): string =>
+    `${expandSeriesPattern(prefix, date)}${String(seq).padStart(pad, '0')}${expandSeriesPattern(suffix, date)}`
+  const perFy = seriesHasFyToken(prefix) || seriesHasFyToken(suffix)
   // The service keeps a system type's name/kind regardless of input — reflect that in the UI.
   const identityLocked = !!vt?.isSystem
 
@@ -1020,10 +1026,10 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
             <option value="manual">Manual</option>
           </Select>
         </Field>
-        <Field label="Prefix" hint="e.g. INV- gives INV-1, INV-2…">
-          <TextInput value={prefix} onChange={(e) => setPrefix(e.target.value)} />
+        <Field label="Prefix" hint="e.g. INV- gives INV-1 · {FY} becomes the financial year">
+          <TextInput data-testid="input-type-prefix" value={prefix} onChange={(e) => setPrefix(e.target.value)} />
         </Field>
-        <Field label="Suffix" hint="e.g. /24-25 gives INV-1/24-25">
+        <Field label="Suffix" hint="e.g. /{YY} gives INV-1/24">
           <TextInput value={suffix} onChange={(e) => setSuffix(e.target.value)} />
         </Field>
         <Field label="Zero-pad width" hint="3 gives 001, 002… — 0 for no padding">
@@ -1035,10 +1041,26 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
         Restart numbering at 1 each financial year
       </label>
       {numbering === 'auto' && (
-        <p className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2 text-small text-muted">
-          Preview: <span className="num text-ink">{previewNumber(1)}</span>, <span className="num text-ink">{previewNumber(2)}</span>
-          {!restartFy && <span> … continuing across financial years</span>}
-        </p>
+        <div className="mt-3 rounded-md border border-line bg-panel2 px-3 py-2 text-small text-muted">
+          <p data-testid="type-number-preview">
+            Preview: <span className="num text-ink">{previewNumber(1)}</span>,{' '}
+            <span className="num text-ink">{previewNumber(2)}</span>
+            {!restartFy && !perFy && <span> … continuing across financial years</span>}
+          </p>
+          {/* Rule 46(b) requires an invoice number to be unique for the financial year. Restarting
+              the count alone does not achieve that — it produces INV-0007 twice, a year apart. */}
+          <p className="mt-1.5">
+            {SERIES_TOKENS.map((t) => t.token).join(' · ')} put the year in the number itself:{' '}
+            <span className="num">{`{FY}`}</span> is {fyOf(todayISO()).label}.
+            {perFy && (
+              <span className="text-ink">
+                {' '}
+                This series restarts every April by construction — last year&rsquo;s numbers no longer
+                share the prefix.
+              </span>
+            )}
+          </p>
+        </div>
       )}
       <div className="mt-4 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
