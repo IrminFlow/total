@@ -7,7 +7,7 @@ await scenario("42-assist-workspace", async (h) => {
   // The Gateway mnemonic is intentionally a bare red U, matching the visible card.
   await h.page.keyboard.press("u");
   await h.waitScreen("assist");
-  await h.page.getByText("Human-controlled intelligence", { exact: true }).waitFor();
+  await h.page.getByText("AI assistance", { exact: true }).waitFor();
   assert(
     (await h.page.getByText("No silent postings.", { exact: false }).count()) > 0,
     "Assist states its proposal-only safety contract",

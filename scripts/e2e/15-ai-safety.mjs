@@ -32,10 +32,13 @@ await scenario('15-ai-safety', async (h) => {
 
   await h.click('btn-copilot')
   await h.page.waitForSelector('[data-modal="Total copilot"]')
-  await h.click('btn-ai-context-inspector')
+  const contextToggle = h.page.getByLabel('Share selected company context for this request')
+  assert(!(await contextToggle.isChecked()), 'book context sharing starts off for every request')
+  await contextToggle.check()
   await h.page.waitForSelector('[data-testid="ai-context-inspector"]')
   const inspector = h.page.locator('[data-testid="ai-context-inspector"]')
   assert(await inspector.locator('input[type="checkbox"]').count() === 7, 'every context field has its own consent control')
+  assert(await inspector.locator('input[type="checkbox"]:checked').count() === 2, 'only company and period are selected by default')
   assert((await inspector.innerText()).includes('Only checked fields are sent'), 'inspector states the exact sharing rule')
 
   await inspector.locator('summary').first().click()
@@ -43,7 +46,7 @@ await scenario('15-ai-safety', async (h) => {
   assert(companyJson.includes('Demo Traders') && companyJson.includes('stateCode'), 'exact field JSON is inspectable before sending')
 
   await inspector.locator('input[type="checkbox"]').first().uncheck()
-  await h.page.waitForFunction(() => document.body.innerText.includes('6 fields'))
+  await h.page.waitForFunction(() => document.body.innerText.includes('1 fields'))
   await h.shot('01-context-inspector')
 
   const proposals = await h.invoke('agent:listProposals')

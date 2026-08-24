@@ -150,8 +150,21 @@ export class Harness {
 
   /** Sidebar navigation: click nav-<name>, wait for the screen to render + go idle. */
   async goto(name, timeout = 15000) {
-    await this.page.click(`[data-testid="nav-${name}"]`, { timeout })
+    const target = this.page.locator(`[data-testid="nav-${name}"]`)
+    if ((await target.count()) === 0) {
+      // Report sections are collapsed by default in the production sidebar. Expand only the
+      // closed groups when a scenario asks for a destination that is not currently mounted.
+      const collapsed = this.page.locator('nav[aria-label="Application"] button[aria-expanded="false"]')
+      while ((await collapsed.count()) > 0) await collapsed.first().click()
+    }
+    await target.click({ timeout })
     await this.waitScreen(name, timeout)
+  }
+
+  /** Make every workspace section visible for assertions that inspect the available destinations. */
+  async expandNavigation() {
+    const collapsed = this.page.locator('nav[aria-label="Application"] button[aria-expanded="false"]')
+    while ((await collapsed.count()) > 0) await collapsed.first().click()
   }
 
   /** Click any control by data-testid. */
