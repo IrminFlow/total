@@ -2,7 +2,8 @@
 // scripts/shots-site.mjs. Wraps playwright-core's _electron with the launch/retry/idle/testid
 // conventions from src/renderer/src/lib/testids.ts:
 //
-//   launch()        Electron via require('electron'), args [cwd], mkdtemp TOTAL_DATA_DIR,
+//   launch()        Electron via require('electron'), args [cwd], mkdtemp TOTAL_DATA_DIR
+//                   and --user-data-dir (so localStorage is fresh per run),
 //                   TOTAL_SUPPRESS_SYNC_WARNING=1, one retry, viewport 1440x900, waits for
 //                   window.total.
 //   invoke(ch, p)   window.total.invoke — throws on { ok: false }.
@@ -38,6 +39,7 @@ export class Harness {
   constructor(opts = {}) {
     this.appDir = opts.appDir ?? process.cwd()
     this.dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-'))
+    this.userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-profile-'))
     this.outDir = opts.outDir ?? process.env.SMOKE_OUT ?? path.join(os.tmpdir(), 'total-e2e-out')
     fs.mkdirSync(this.dataDir, { recursive: true })
     fs.mkdirSync(this.outDir, { recursive: true })
@@ -55,7 +57,11 @@ export class Harness {
     const attempt = async () => {
       const app = await electron.launch({
         executablePath: electronPath,
-        args: [this.appDir],
+        // A scratch Chromium profile as well as a scratch data dir. Without this every run shares
+        // Electron's real userData directory, so localStorage — the theme, and each screen's
+        // remembered tab — leaks between scenarios AND into the developer's own installed app. A
+        // scenario that ends on a non-default tab then decides where the next run starts.
+        args: [this.appDir, `--user-data-dir=${this.userDataDir}`],
         timeout: 60000,
         env: {
           ...process.env,

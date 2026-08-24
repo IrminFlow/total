@@ -103,6 +103,10 @@ await scenario('18-composition', async (h) => {
   await h.page.keyboard.press('4')
   await h.waitScreen('composition')
 
+  // The screen remembers its last tab across sessions, so select the one under test rather than
+  // assuming a default — otherwise this scenario passes or fails depending on how it last ended.
+  await h.page.click('[data-testid="tab-composition-cmp08"]')
+  await h.page.waitForSelector('[data-testid="rows-cmp08"] tr', { timeout: 15000 })
   const rows = await h.page.$$eval('[data-testid="rows-cmp08"] tr', (els) => els.length)
   assert(rows >= 6, `CMP-08 renders its lines rather than the not-applicable notice (found ${rows})`)
   await h.shot('01-cmp08')

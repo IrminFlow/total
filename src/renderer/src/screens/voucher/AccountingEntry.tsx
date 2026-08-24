@@ -43,7 +43,7 @@ export function AccountingEntry({
   voucherId?: number
   draft?: VoucherDraft
 }): React.JSX.Element {
-  const { workingDate, setWorkingDate } = useSession()
+  const { workingDate, setWorkingDate, from: periodFrom, to: periodTo } = useSession()
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
@@ -397,6 +397,16 @@ export function AccountingEntry({
         if (!proceed) return
       }
       // Anomaly nudge on the largest line — a quiet second look, never a block.
+      // Dated outside the working period: it saves correctly, but every report on screen is
+      // scoped to that period, so it would look as though the voucher had vanished.
+      if (input.date < periodFrom || input.date > periodTo) {
+        const proceed = await confirmDialog({
+          title: 'Outside the open period',
+          message: `${toDisplayDate(input.date)} is outside the working period (${toDisplayDate(periodFrom)} to ${toDisplayDate(periodTo)}). It will save correctly, but will not show in reports until you change the period. Save it?`,
+          confirmLabel: 'Save anyway'
+        })
+        if (!proceed) return
+      }
       const largest = [...input.lines].sort((a, b) => b.amount - a.amount)[0]!
       const anomaly = await api.intel.anomaly(largest.ledgerId, largest.amount)
       if (anomaly.unusual && anomaly.typicalAmount != null) {

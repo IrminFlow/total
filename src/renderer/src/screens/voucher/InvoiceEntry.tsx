@@ -36,7 +36,7 @@ interface ItemRow {
 const blankItemRow = (): ItemRow => ({ key: nextLineKey(), itemId: null, qtyText: '', rate: null, discount: null })
 
 export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: VoucherKind; draft?: VoucherDraft }): React.JSX.Element {
-  const { info, workingDate, setWorkingDate } = useSession()
+  const { info, workingDate, setWorkingDate, from: periodFrom, to: periodTo } = useSession()
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
@@ -193,6 +193,15 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       invoiceValue: computed.rounded
     })
 
+  // One cached call for every ledger's balance, shared with any other screen that asks — cheaper
+  // and simpler than a per-party endpoint, and react-query keeps it warm across party changes.
+  const { data: balances } = useQuery({
+    queryKey: ['ledgerBalances', periodTo],
+    queryFn: () => api.ledgers.balances(periodTo),
+    enabled: !!partyId
+  })
+  const partyBalance = partyId ? (balances?.find((b) => b.ledgerId === partyId)?.balance ?? null) : null
+
   const noteAllocatedTotal = noteBillRefs.reduce((s, r) => s + r.amount, 0)
 
   const toggleNoteBill = (bill: OutstandingBill, checked: boolean): void => {
@@ -296,6 +305,17 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         })
         if (!proceed) return
       }
+      // Dated outside the working period. Not an error -- backdating an invoice is routine -- but
+      // it is the reason a voucher "vanishes" the moment it is saved, since every report on
+      // screen is scoped to that period.
+      if (input.date < periodFrom || input.date > periodTo) {
+        const proceed = await confirmDialog({
+          title: 'Outside the open period',
+          message: `${toDisplayDate(input.date)} is outside the working period (${toDisplayDate(periodFrom)} to ${toDisplayDate(periodTo)}). It will save correctly, but will not show in reports until you change the period. Save it?`,
+          confirmLabel: 'Save anyway'
+        })
+        if (!proceed) return
+      }
       const dupes = await api.vouchers.duplicates(input)
       if (dupes.length > 0) {
         const first = dupes[0]!
@@ -329,7 +349,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, toast, setWorkingDate, queryClient, numberField.reset])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, periodFrom, periodTo, toast, setWorkingDate, queryClient, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -441,9 +461,19 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
 
       <div className="mt-2 flex items-center justify-between">
         {party ? (
-          <p className="text-hint text-muted">
+          <p className="text-hint text-muted" data-testid="party-facts">
             {party.gstin ? <>GSTIN <span className="num">{party.gstin}</span> · </> : 'Unregistered · '}
             {supply === 'intra' ? 'Intra-state — CGST + SGST' : 'Inter-state — IGST'}
+            {/* The balance the party is on right now. "Does he already owe me?" is the question
+                being asked at exactly this moment, and it used to need a separate screen. */}
+            {partyBalance != null && (
+              <>
+                {' · '}
+                <span data-testid="party-balance">
+                  Balance <Money paise={partyBalance} signed />
+                </span>
+              </>
+            )}
           </p>
         ) : (
           <span />

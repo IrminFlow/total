@@ -52,8 +52,9 @@ Ordering within a section is roughly by value.
 33. ✓ Amount field accepts `k`, `L` and `cr` suffixes (S)
 34. Quantity field accepts a unit-conversion expression (`2 box` → 24 pcs) (M)
 35. Remember the last-used voucher type per session (S)
-36. Warn before saving a voucher dated outside the open period (S)
-37. Duplicate-number detection extended to duplicate amount+party+date (S)
+36. ✓ Warn before saving a voucher dated outside the open period (S)
+37. ✓ Duplicate-number detection extended to duplicate amount+party+date (S) — already
+    shipped: `findDuplicates` matches type + party + total within a ±3-day window, pre-save.
 38. A "post and new" button that keeps the party and date (S)
 39. Bulk edit: change the narration or cost centre on many vouchers at once (M)
 40. Bulk delete to the bin from the Day Book with a confirm (S)
@@ -66,7 +67,7 @@ Ordering within a section is roughly by value.
 47. Barcode scan jumps straight to quantity on the matched item line (S)
 48. Repeat-last-line key for entering many similar lines (S)
 49. Party defaults: credit days, price level and cost centre applied on selection (S)
-50. Show the party's current balance inline while entering a voucher (S)
+50. ✓ Show the party's current balance inline while entering a voucher (S)
 
 ## C. Reports and analysis
 
