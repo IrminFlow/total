@@ -53,6 +53,75 @@ await scenario('06-gst', async (h) => {
     assert(bill[field] !== undefined && bill[field] !== null && bill[field] !== '', `EWB mandatory field ${field} present (got ${JSON.stringify(bill[field])})`)
   }
 
+  // ---- GSTR-2B: a mistyped supplier GSTIN no longer loses the credit ----
+  // Every match pass used to key on GSTIN alone, so one wrong character put the invoice in BOTH
+  // "missing" buckets and the input credit looked lost. It now pairs on the supplier's trade name
+  // and reports the GSTIN disagreement as the finding it is.
+  // Start from what the books actually hold: an empty portal file returns every purchase as
+  // "missing in portal", which is a convenient way to enumerate them.
+  const purchaseDocs = await h.invoke('gst:recon2b', {
+    jsonText: JSON.stringify({ data: { docdata: { b2b: [] } } }),
+    from,
+    to
+  })
+  const inBooks = purchaseDocs.result.pairs.filter((x) => x.bucket === 'missingInPortal' && x.book)
+  assert(inBooks.length > 0, 'the demo books have purchases to reconcile')
+  const target = inBooks.find((x) => x.book.partyGstin && x.book.partyName) ?? inBooks[0]
+  assert(target.book.partyGstin, 'and at least one carries a supplier GSTIN')
+
+  const wrongGstin = target.book.partyGstin.slice(0, 14) + (target.book.partyGstin[14] === 'Z' ? 'A' : 'Z')
+  const [yy, mm, dd] = target.book.date.split('-')
+  const twoB = {
+    data: {
+      docdata: {
+        b2b: [
+          {
+            ctin: target.book.partyGstin,
+            trdnm: target.book.partyName,
+            inv: [
+              {
+                inum: 'PORTAL-1',
+                idt: `${dd}-${mm}-${yy}`,
+                val: target.book.invoiceValue / 100,
+                itms: [
+                  {
+                    itm_det: {
+                      txval: target.book.taxable / 100,
+                      iamt: target.book.igst / 100,
+                      camt: target.book.cgst / 100,
+                      samt: target.book.sgst / 100
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+
+  // Sanity, and it has to be a real one: with the right GSTIN the invoice must actually PAIR
+  // (on value and date, pass 2) rather than simply fail to reach the name pass — otherwise the
+  // assertion below would pass vacuously on a file that matches nothing at all.
+  const good = await h.invoke('gst:recon2b', { jsonText: JSON.stringify(twoB), from, to })
+  assert(good.result.buckets.gstinMismatch.count === 0, 'a correct GSTIN never reaches the name pass')
+  assert(
+    good.result.buckets.missingInBooks.count === 0,
+    'and the portal invoice is paired, not left unmatched'
+  )
+
+  // Now break the GSTIN in the BOOKS by pointing the portal file at a different one.
+  twoB.data.docdata.b2b[0].ctin = wrongGstin
+  const bad = await h.invoke('gst:recon2b', { jsonText: JSON.stringify(twoB), from, to })
+  assert(
+    bad.result.buckets.gstinMismatch.count === 1,
+    `a mistyped GSTIN pairs on the supplier name (got ${bad.result.buckets.gstinMismatch.count})`
+  )
+  const paired = bad.result.pairs.find((x) => x.bucket === 'gstinMismatch')
+  assert(paired.portal.gstin === wrongGstin, 'the pair keeps the portal GSTIN')
+  assert(paired.book.partyGstin === target.book.partyGstin, 'and the books GSTIN, so both can be shown')
+
   // ---- "show me exactly what would be sent" ----
   // The trust argument for an offline filing tool is that you can see what it is about to do, so
   // the preview has to be the file rather than a rendering of it.

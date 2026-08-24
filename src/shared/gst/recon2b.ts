@@ -20,6 +20,14 @@ export interface PortalInvoice {
   kind: 'b2b' | 'cdnr'
   /** Only set for cdnr entries: 'C' (credit note) or 'D' (debit note), as published by the portal. */
   noteType?: 'C' | 'D'
+  /**
+   * Supplier's trade name as the portal publishes it (`trdnm`), when present.
+   *
+   * The reason to keep it: every match pass keyed on GSTIN alone, so a supplier whose GSTIN was
+   * mistyped in the books fell straight into "missing in portal" and their input credit looked
+   * lost. The name is the only other identifying field both sides carry.
+   */
+  supplierName?: string | null
 }
 
 /** One purchase or debit-note voucher from the books, extracted for the same period. */
@@ -41,7 +49,20 @@ export interface PurchaseDoc {
   cess: number
 }
 
-export type Recon2bBucket = 'matched' | 'amountMismatch' | 'taxMismatch' | 'missingInBooks' | 'missingInPortal'
+export type Recon2bBucket =
+  | 'matched'
+  | 'amountMismatch'
+  | 'taxMismatch'
+  /**
+   * The invoice is in both, but the GSTIN in the books does not match the portal's.
+   *
+   * Its own bucket rather than 'matched', because the mismatch IS the finding: a wrong supplier
+   * GSTIN on a purchase voucher means the credit is claimed against the wrong registration, and
+   * nothing downstream will notice.
+   */
+  | 'gstinMismatch'
+  | 'missingInBooks'
+  | 'missingInPortal'
 
 export interface Recon2bPair {
   bucket: Recon2bBucket
@@ -180,6 +201,7 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
     const gstinRaw = typeof g.ctin === 'string' ? g.ctin : typeof g.gstin === 'string' ? g.gstin : null
     if (!gstinRaw) { errors.push('b2b: skipped a supplier group with no GSTIN (ctin)'); continue }
     const gstin = gstinRaw.toUpperCase()
+    const supplierName = typeof g.trdnm === 'string' && g.trdnm.trim() ? g.trdnm.trim() : null
     const invList = Array.isArray(g.inv) ? g.inv : []
     for (const inv of invList) {
       try {
@@ -195,6 +217,7 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
         const sums = sumItems(items)
         invoices.push({
           gstin,
+          supplierName,
           number,
           date,
           value: toPaise(iv.val),
@@ -218,6 +241,7 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
     const gstinRaw = typeof g.ctin === 'string' ? g.ctin : typeof g.gstin === 'string' ? g.gstin : null
     if (!gstinRaw) { errors.push('cdnr: skipped a supplier group with no GSTIN (ctin)'); continue }
     const gstin = gstinRaw.toUpperCase()
+    const supplierName = typeof g.trdnm === 'string' && g.trdnm.trim() ? g.trdnm.trim() : null
     const ntList = Array.isArray(g.nt) ? g.nt : []
     for (const nt of ntList) {
       try {
@@ -237,6 +261,7 @@ export function parseGstr2b(jsonText: string): ParseGstr2bResult {
         }
         invoices.push({
           gstin,
+          supplierName,
           number,
           date,
           value: toPaise(n.val),
@@ -290,6 +315,57 @@ const emptyTotals = (): Recon2bBucketTotals => ({ count: 0, taxable: 0, igst: 0,
  * Pass 1: exact normalized-number match. Pass 2: fuzzy match among what's left, greedily taking
  * the closest (smallest value diff, then smallest date diff) candidate pairs first.
  */
+/**
+ * Legal-form suffixes that carry no identifying information.
+ *
+ * "Sharma Traders Pvt Ltd" and "SHARMA TRADERS PRIVATE LIMITED" are the same supplier, and a
+ * comparison that counts the suffix as content scores them lower than two genuinely different
+ * businesses that happen to share one.
+ */
+const NAME_NOISE = new Set([
+  'PVT', 'PRIVATE', 'LTD', 'LIMITED', 'LLP', 'LLC', 'INC', 'CO', 'COMPANY', 'CORP', 'CORPORATION',
+  'AND', 'THE', 'M/S', 'MS', 'INDIA'
+])
+
+/** Uppercase, strip punctuation, drop legal-form noise, and collapse to identifying tokens. */
+export function nameTokens(raw: string | null | undefined): string[] {
+  return (raw ?? '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .split(' ')
+    .filter((t) => t.length > 1 && !NAME_NOISE.has(t))
+}
+
+/**
+ * How alike two supplier names are, 0 to 1.
+ *
+ * Token-set overlap over the smaller name (a containment ratio, not Jaccard): the portal's trade
+ * name is often longer than what someone typed into the books -- "SHARMA TRADERS AND SONS" versus
+ * "Sharma Traders" -- and Jaccard would punish that even though one name plainly contains the
+ * other. Containment is the right asymmetry here, and the value tolerance and date window are
+ * what stop it from being loose.
+ *
+ * Two names with no identifying tokens left after normalisation score 0 rather than 1: matching
+ * "Pvt Ltd" to "Private Limited" would pair unrelated suppliers.
+ */
+export function nameSimilarity(a: string | null | undefined, b: string | null | undefined): number {
+  const ta = new Set(nameTokens(a))
+  const tb = new Set(nameTokens(b))
+  if (ta.size === 0 || tb.size === 0) return 0
+  let shared = 0
+  for (const t of ta) if (tb.has(t)) shared++
+  return shared / Math.min(ta.size, tb.size)
+}
+
+/**
+ * How alike two names must be to pair on name alone.
+ *
+ * High on purpose. A false pair here does not merely mis-sort a row: it tells a user their credit
+ * is safe when it is claimed against the wrong GSTIN. A missed pair only leaves them where they
+ * already were, in the two "missing" buckets.
+ */
+export const NAME_MATCH_THRESHOLD = 0.8
+
 export function reconcile2b(portal: PortalInvoice[], books: PurchaseDoc[], opts: Recon2bOptions): Recon2bResult {
   const { amountTolerancePaise: tol, dateWindowDays } = opts
   const consumedPortal = new Set<PortalInvoice>()
@@ -332,6 +408,34 @@ export function reconcile2b(portal: PortalInvoice[], books: PurchaseDoc[], opts:
     pairs.push(makePair(classify(c.p, c.b, tol), c.p, c.b))
   }
 
+  // Pass 3: name match across a GSTIN disagreement.
+  //
+  // Both passes above key on GSTIN, so a supplier whose GSTIN was mistyped on the voucher fell
+  // into "missing in portal" and their credit looked lost. Here the GSTIN is deliberately NOT
+  // required to agree -- the disagreement is the finding -- but everything else has to: a high
+  // name similarity, the value within tolerance, and the date inside the window. Best-first and
+  // greedy, like pass 2.
+  const nameCandidates: { p: PortalInvoice; b: PurchaseDoc; score: number; valueDiff: number }[] = []
+  for (const p of portal) {
+    if (consumedPortal.has(p)) continue
+    for (const b of books) {
+      if (consumedBooks.has(b) || !kindsCompatible(p, b)) continue
+      const valueDiff = Math.abs(p.value - b.invoiceValue)
+      if (valueDiff > tol || daysBetween(p.date, b.date) > dateWindowDays) continue
+      const score = nameSimilarity(p.supplierName, b.partyName)
+      if (score >= NAME_MATCH_THRESHOLD) nameCandidates.push({ p, b, score, valueDiff })
+    }
+  }
+  nameCandidates.sort((x, y) => y.score - x.score || x.valueDiff - y.valueDiff)
+  for (const c of nameCandidates) {
+    if (consumedPortal.has(c.p) || consumedBooks.has(c.b)) continue
+    consumedPortal.add(c.p)
+    consumedBooks.add(c.b)
+    // If the GSTINs happen to agree the earlier passes would have caught it, so reaching here
+    // means either they disagree or one side has none -- both worth showing as the same finding.
+    pairs.push(makePair('gstinMismatch', c.p, c.b))
+  }
+
   // Leftovers.
   for (const p of portal) if (!consumedPortal.has(p)) pairs.push(makePair('missingInBooks', p, null))
   for (const b of books) if (!consumedBooks.has(b)) pairs.push(makePair('missingInPortal', null, b))
@@ -340,6 +444,7 @@ export function reconcile2b(portal: PortalInvoice[], books: PurchaseDoc[], opts:
     matched: emptyTotals(),
     amountMismatch: emptyTotals(),
     taxMismatch: emptyTotals(),
+    gstinMismatch: emptyTotals(),
     missingInBooks: emptyTotals(),
     missingInPortal: emptyTotals()
   }

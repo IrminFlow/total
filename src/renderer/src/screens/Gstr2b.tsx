@@ -11,6 +11,10 @@ const BUCKETS: { key: Recon2bBucket; label: string }[] = [
   { key: 'matched', label: 'Matched' },
   { key: 'amountMismatch', label: 'Amount mismatch' },
   { key: 'taxMismatch', label: 'Tax mismatch' },
+  // Paired on supplier name across a GSTIN disagreement. Its own tab because the mismatch is the
+  // finding: a wrong supplier GSTIN on a voucher means the credit is claimed against the wrong
+  // registration, and nothing downstream notices.
+  { key: 'gstinMismatch', label: 'GSTIN mismatch' },
   { key: 'missingInBooks', label: 'Missing in books' },
   { key: 'missingInPortal', label: 'Missing in portal' }
 ]
@@ -76,13 +80,24 @@ function PairRow({
       className={`${rowProps.className ?? ''}${clickable ? ' cursor-pointer' : ''}`}
       onClick={clickable ? () => onOpenVoucher(book!.voucherId) : undefined}
     >
-      <td>{portal ? portal.number : <span className="text-muted">—</span>}</td>
+      <td>
+        {portal ? portal.number : <span className="text-muted">—</span>}
+        {/* The two GSTINs are the whole point of this bucket — show them where each side is. */}
+        {pair.bucket === 'gstinMismatch' && portal && (
+          <span className="block text-hint num text-muted">{portal.gstin}</span>
+        )}
+      </td>
       <td className="num text-muted">{portal ? toDisplayDate(portal.date) : '—'}</td>
       <td className="r">{portal ? <Money paise={portal.value} /> : '—'}</td>
       <td className="r">{portal ? <Money paise={taxTotal(portal)} /> : '—'}</td>
       <td>
         {book ? (
-          book.supplierRef ?? book.number
+          <>
+            {book.supplierRef ?? book.number}
+            {pair.bucket === 'gstinMismatch' && (
+              <span className="block text-hint num text-cr">{book.partyGstin ?? 'no GSTIN'}</span>
+            )}
+          </>
         ) : pair.bucket === 'missingInBooks' && portal ? (
           <button
             className="text-small text-blue hover:underline"
@@ -236,6 +251,17 @@ export function Gstr2bScreen(): React.JSX.Element {
               )
             })}
           </div>
+
+          {bucket === 'gstinMismatch' && result.buckets.gstinMismatch.count > 0 && (
+            <div
+              className="mb-3 rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm"
+              data-testid="note-2b-gstin-mismatch"
+            >
+              These matched on supplier name, value and date, but the GSTIN on the voucher is not
+              the one the portal published. Until the voucher is corrected the credit is claimed
+              against the wrong registration — open each row and fix the party&rsquo;s GSTIN.
+            </div>
+          )}
 
           {imported.fileName && (
             <p className="mb-2 text-small text-muted">

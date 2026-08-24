@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { parseGstr2b, normalizeInvoiceNumber, reconcile2b, type PortalInvoice, type PurchaseDoc } from './recon2b'
+import {
+  NAME_MATCH_THRESHOLD,
+  nameSimilarity,
+  nameTokens,
+  normalizeInvoiceNumber,
+  parseGstr2b,
+  reconcile2b,
+  type PortalInvoice,
+  type PurchaseDoc
+} from './recon2b'
 
 const OPTS = { amountTolerancePaise: 100, dateWindowDays: 7 }
 
@@ -342,5 +351,172 @@ describe('reconcile2b', () => {
 
     expect(result.buckets.missingInPortal.count).toBe(1)
     expect(result.buckets.missingInPortal.taxable).toBe(onlyBook.taxable) // book side, since portal is absent
+  })
+})
+
+describe('supplier-name matching', () => {
+  const OPTS = { amountTolerancePaise: 100, dateWindowDays: 7 }
+
+  describe('nameTokens', () => {
+    it('drops legal-form noise, which carries no identifying information', () => {
+      // Counting "PVT LTD" as content scores two same-named suppliers lower than two genuinely
+      // different businesses that happen to share the suffix.
+      expect(nameTokens('Sharma Traders Pvt Ltd')).toEqual(['SHARMA', 'TRADERS'])
+      expect(nameTokens('SHARMA TRADERS PRIVATE LIMITED')).toEqual(['SHARMA', 'TRADERS'])
+      expect(nameTokens('M/s. Sharma & Co.')).toEqual(['SHARMA'])
+    })
+
+    it('drops single characters and punctuation', () => {
+      expect(nameTokens('A B Corp — Industries')).toEqual(['INDUSTRIES'])
+    })
+
+    it('answers empty for nothing at all', () => {
+      expect(nameTokens(null)).toEqual([])
+      expect(nameTokens('   ')).toEqual([])
+      expect(nameTokens('Pvt Ltd')).toEqual([])
+    })
+  })
+
+  describe('nameSimilarity', () => {
+    it('is 1 for the same name written differently', () => {
+      expect(nameSimilarity('Sharma Traders Pvt Ltd', 'SHARMA TRADERS PRIVATE LIMITED')).toBe(1)
+      expect(nameSimilarity('  sharma   traders  ', 'Sharma Traders')).toBe(1)
+    })
+
+    it('is 1 when one name contains the other, which is the common shape', () => {
+      // The portal trade name is often longer than what someone typed into the books; Jaccard
+      // would punish that even though one name plainly contains the other.
+      expect(nameSimilarity('SHARMA TRADERS AND SONS', 'Sharma Traders')).toBe(1)
+    })
+
+    it('is 0 for two names with nothing identifying left', () => {
+      // Matching "Pvt Ltd" to "Private Limited" would pair unrelated suppliers.
+      expect(nameSimilarity('Pvt Ltd', 'Private Limited')).toBe(0)
+      expect(nameSimilarity(null, 'Sharma Traders')).toBe(0)
+    })
+
+    it('is low for genuinely different suppliers', () => {
+      expect(nameSimilarity('Sharma Traders', 'Verma Enterprises')).toBeLessThan(NAME_MATCH_THRESHOLD)
+      expect(nameSimilarity('Acme Steel', 'Acme Textiles')).toBeLessThan(1)
+    })
+  })
+
+  describe('reconcile2b pass 3', () => {
+    it('pairs an invoice whose GSTIN was mistyped in the books', () => {
+      // Before this, the GSTIN was the only key, so the invoice landed in BOTH "missing"
+      // buckets and the credit looked lost.
+      const portal = [portalInv({ gstin: '27ABCDE1234F1Z5', supplierName: 'Sharma Traders Pvt Ltd', number: 'S-77' })]
+      const books = [
+        bookDoc({
+          partyGstin: '27ABCDE1234F1Z9', // one wrong check character
+          partyName: 'Sharma Traders',
+          supplierRef: 'DIFFERENT-REF'
+        })
+      ]
+      const { pairs, buckets } = reconcile2b(portal, books, OPTS)
+      expect(buckets.gstinMismatch.count).toBe(1)
+      expect(buckets.missingInBooks.count).toBe(0)
+      expect(buckets.missingInPortal.count).toBe(0)
+      const pair = pairs.find((x) => x.bucket === 'gstinMismatch')!
+      expect(pair.portal?.number).toBe('S-77')
+      expect(pair.book?.voucherId).toBe(1)
+    })
+
+    it('pairs when the books have no GSTIN for the supplier at all', () => {
+      const portal = [portalInv({ supplierName: 'Sharma Traders Pvt Ltd', number: 'S-77' })]
+      const books = [bookDoc({ partyGstin: null, partyName: 'SHARMA TRADERS', supplierRef: 'X' })]
+      expect(reconcile2b(portal, books, OPTS).buckets.gstinMismatch.count).toBe(1)
+    })
+
+    it('will not pair two different suppliers that happen to agree on value and date', () => {
+      // A false pair tells a user their credit is safe when it is claimed against the wrong
+      // registration. A missed pair only leaves them where they already were.
+      const portal = [portalInv({ gstin: '27AAAAA0000A1Z5', supplierName: 'Verma Enterprises', number: 'V-1' })]
+      const books = [bookDoc({ partyGstin: '27BBBBB0000B1Z5', partyName: 'Sharma Traders', supplierRef: 'X' })]
+      const { buckets } = reconcile2b(portal, books, OPTS)
+      expect(buckets.gstinMismatch.count).toBe(0)
+      expect(buckets.missingInBooks.count).toBe(1)
+      expect(buckets.missingInPortal.count).toBe(1)
+    })
+
+    it('will not pair on name alone when the value is outside tolerance', () => {
+      const portal = [portalInv({ gstin: '27AAAAA0000A1Z5', supplierName: 'Sharma Traders', number: 'S-1' })]
+      const books = [
+        bookDoc({ partyGstin: '27BBBBB0000B1Z5', partyName: 'Sharma Traders', supplierRef: 'X', invoiceValue: 500000 })
+      ]
+      expect(reconcile2b(portal, books, OPTS).buckets.gstinMismatch.count).toBe(0)
+    })
+
+    it('will not pair on name alone when the dates are far apart', () => {
+      const portal = [portalInv({ gstin: '27AAAAA0000A1Z5', supplierName: 'Sharma Traders', number: 'S-1' })]
+      const books = [
+        bookDoc({ partyGstin: '27BBBBB0000B1Z5', partyName: 'Sharma Traders', supplierRef: 'X', date: '2026-09-05' })
+      ]
+      expect(reconcile2b(portal, books, OPTS).buckets.gstinMismatch.count).toBe(0)
+    })
+
+    it('leaves the GSTIN-keyed passes in charge when the GSTIN does agree', () => {
+      // Pass 1 must still win: a name pass that could outrank an exact number match on the
+      // right GSTIN would be a regression.
+      const portal = [portalInv({ supplierName: 'Sharma Traders' })]
+      const books = [bookDoc({ partyName: 'Sharma Traders' })]
+      const { buckets } = reconcile2b(portal, books, OPTS)
+      expect(buckets.matched.count).toBe(1)
+      expect(buckets.gstinMismatch.count).toBe(0)
+    })
+
+    it('is greedy and one-to-one: one portal invoice cannot pair with two vouchers', () => {
+      const portal = [portalInv({ gstin: '27AAAAA0000A1Z5', supplierName: 'Sharma Traders', number: 'S-1' })]
+      const books = [
+        bookDoc({ voucherId: 1, partyGstin: '27BBBBB0000B1Z5', partyName: 'Sharma Traders', supplierRef: 'X' }),
+        bookDoc({ voucherId: 2, partyGstin: '27BBBBB0000B1Z5', partyName: 'Sharma Traders', supplierRef: 'Y' })
+      ]
+      const { buckets } = reconcile2b(portal, books, OPTS)
+      expect(buckets.gstinMismatch.count).toBe(1)
+      expect(buckets.missingInPortal.count).toBe(1)
+    })
+
+    it('does nothing when the portal file carries no trade names', () => {
+      // trdnm is optional in the JSON; without it there is nothing to compare and the old
+      // behaviour must be exactly preserved.
+      const portal = [portalInv({ gstin: '27AAAAA0000A1Z5', number: 'S-1' })]
+      const books = [bookDoc({ partyGstin: '27BBBBB0000B1Z5', partyName: 'Sharma Traders', supplierRef: 'X' })]
+      const { buckets } = reconcile2b(portal, books, OPTS)
+      expect(buckets.gstinMismatch.count).toBe(0)
+      expect(buckets.missingInBooks.count).toBe(1)
+    })
+  })
+
+  describe('parseGstr2b', () => {
+    it('reads the supplier trade name off the group', () => {
+      const json = JSON.stringify({
+        data: {
+          docdata: {
+            b2b: [
+              {
+                ctin: '27ABCDE1234F1Z5',
+                trdnm: '  Sharma Traders Pvt Ltd  ',
+                inv: [{ inum: 'S-1', idt: '05-06-2026', val: 1180, itms: [{ itm_det: { txval: 1000, camt: 90, samt: 90 } }] }]
+              }
+            ]
+          }
+        }
+      })
+      const parsed = parseGstr2b(json)
+      expect(parsed.invoices[0]!.supplierName).toBe('Sharma Traders Pvt Ltd')
+    })
+
+    it('leaves it null when the group has none', () => {
+      const json = JSON.stringify({
+        data: {
+          docdata: {
+            b2b: [
+              { ctin: '27ABCDE1234F1Z5', inv: [{ inum: 'S-1', idt: '05-06-2026', val: 1180, itms: [] }] }
+            ]
+          }
+        }
+      })
+      expect(parseGstr2b(json).invoices[0]!.supplierName).toBeNull()
+    })
   })
 })
