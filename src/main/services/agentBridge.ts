@@ -12,8 +12,11 @@
  * Concurrency: the app and the CLI may have the same company.db open at once — WAL journal mode
  * + busy_timeout (set in db/connection.ts) make that safe; nothing here takes exclusive locks.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, watch, writeFileSync, type FSWatcher } from 'fs'
-import { basename, extname, join } from 'path'
+import {
+  existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, readdirSync, realpathSync,
+  renameSync, rmSync, statSync, watch, writeFileSync, type Dirent, type FSWatcher
+} from 'fs'
+import { basename, extname, isAbsolute, join, relative, sep } from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { Notification } from 'electron'
 import type { DB } from '../db/connection'
@@ -81,22 +84,87 @@ function proposalsDir(slug: string): string {
 
 const INBOX_BATCH_ID = /^inbox-[a-f0-9]{64}$/
 const INBOX_PROPOSAL_ID = /^(inbox-[a-f0-9]{64})--(\d{4})\.json$/
+const MAX_LISTED_PROPOSALS = 200
+const MAX_BATCH_DIRECTORIES_SCANNED = 200
+const MAX_STAGING_DIRECTORIES_SCANNED = 200
+const MAX_LIST_DIRECTORY_ENTRIES_SCANNED = 400
+const STALE_STAGING_MS = 24 * 60 * 60 * 1000
 
-function proposalPath(slug: string, file: string): string {
+function assertPathContained(root: string, target: string): void {
+  const rel = relative(root, target)
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error('Proposal path escapes company storage')
+  }
+}
+
+function secureProposalRoot(slug: string, create = false): { path: string; real: string } {
+  const company = companyDir(slug)
+  const companyEntry = lstatSync(company)
+  if (companyEntry.isSymbolicLink() || !companyEntry.isDirectory()) {
+    throw new Error('Company storage is not a regular directory')
+  }
+  const companyReal = realpathSync(company)
+  const root = proposalsDir(slug)
+  if (!existsSync(root)) {
+    if (!create) throw new Error('Proposal storage does not exist')
+    mkdirSync(root, { mode: 0o700 })
+  }
+  const rootEntry = lstatSync(root)
+  if (rootEntry.isSymbolicLink() || !rootEntry.isDirectory()) {
+    throw new Error('Proposal storage is not a regular directory')
+  }
+  const rootReal = realpathSync(root)
+  assertPathContained(companyReal, rootReal)
+  return { path: root, real: rootReal }
+}
+
+function secureProposalDirectory(
+  slug: string,
+  segments: string[],
+  create = false
+): { path: string; rootReal: string } {
+  const root = secureProposalRoot(slug, create)
+  let current = root.path
+  for (const segment of segments) {
+    if (!/^[a-zA-Z0-9._-]+$/.test(segment)) throw new Error('Invalid proposal directory')
+    current = join(current, segment)
+    assertPathContained(root.path, current)
+    if (!existsSync(current)) {
+      if (!create) throw new Error('Proposal directory does not exist')
+      mkdirSync(current, { mode: 0o700 })
+    }
+    const entry = lstatSync(current)
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
+      throw new Error('Proposal directory is not a regular directory')
+    }
+    assertPathContained(root.real, realpathSync(current))
+  }
+  return { path: current, rootReal: root.real }
+}
+
+function assertSecureProposalFile(path: string, rootReal: string): void {
+  const entry = lstatSync(path)
+  if (entry.isSymbolicLink() || !entry.isFile()) throw new Error('Proposal is not a regular file')
+  assertPathContained(rootReal, realpathSync(path))
+}
+
+function proposalLocation(slug: string, file: string): { path: string; rootReal: string } {
   const name = safeProposalName(file)
   const batch = INBOX_PROPOSAL_ID.exec(name)
-  return batch
-    ? join(proposalsDir(slug), 'queued', batch[1]!, `${batch[2]}.json`)
-    : join(proposalsDir(slug), name)
+  if (batch) {
+    const parent = secureProposalDirectory(slug, ['queued', batch[1]!])
+    return { path: join(parent.path, `${batch[2]}.json`), rootReal: parent.rootReal }
+  }
+  const root = secureProposalRoot(slug)
+  return { path: join(root.path, name), rootReal: root.real }
 }
 
 export function createProposal(slug: string, source: AgentProposal['source'], summary: string, voucher: unknown): AgentProposal {
-  const dir = proposalsDir(slug)
-  mkdirSync(dir, { recursive: true })
+  const dir = secureProposalRoot(slug, true)
   const createdAt = new Date().toISOString()
   const id = `${createdAt.replace(/[:.]/g, '-')}-${randomUUID()}.json`
   const proposal: AgentProposal = { version: 1, id, createdAt, source, status: 'pending', summary: summary.slice(0, 240), voucher }
-  writeFileSync(join(dir, id), JSON.stringify(proposal, null, 2), { flag: 'wx', mode: 0o600 })
+  writeFileSync(join(dir.path, id), JSON.stringify(proposal, null, 2), { flag: 'wx', mode: 0o600 })
   return proposal
 }
 
@@ -108,8 +176,10 @@ function safeProposalName(file: string): string {
 
 function readProposal(slug: string, file: string): { proposal: AgentProposal; sha256: string } {
   const name = safeProposalName(file)
-  const path = proposalPath(slug, name)
+  const location = proposalLocation(slug, name)
+  const path = location.path
   if (!existsSync(path)) throw new Error('Proposal no longer exists')
+  assertSecureProposalFile(path, location.rootReal)
   if (statSync(path).size > 512 * 1024) throw new Error('Proposal is too large')
   const text = readFileSync(path, 'utf8')
   const parsed = JSON.parse(text) as AgentProposal
@@ -124,33 +194,102 @@ export function getProposal(slug: string, file: string): AgentProposal {
   return readProposal(slug, file).proposal
 }
 
+function isIsoInstant(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const parsed = new Date(value)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value
+}
+
+function boundedDirectoryEntries(path: string, limit: number): Dirent[] {
+  const entries: Dirent[] = []
+  const directory = opendirSync(path)
+  try {
+    while (entries.length < limit) {
+      const entry = directory.readSync()
+      if (!entry) break
+      entries.push(entry)
+    }
+  } finally {
+    directory.closeSync()
+  }
+  return entries
+}
+
+function pruneStaleProposalStages(slug: string, now = Date.now()): void {
+  const root = secureProposalRoot(slug)
+  const stagingPath = join(root.path, '.staging')
+  if (!existsSync(stagingPath)) return
+  const staging = secureProposalDirectory(slug, ['.staging'])
+  for (const entry of boundedDirectoryEntries(staging.path, MAX_STAGING_DIRECTORIES_SCANNED)) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue
+    const path = join(staging.path, entry.name)
+    const first = lstatSync(path)
+    if (first.isSymbolicLink() || !first.isDirectory() || now - first.mtimeMs < STALE_STAGING_MS) continue
+    const secured = secureProposalDirectory(slug, ['.staging', entry.name])
+    const latest = lstatSync(secured.path)
+    if (latest.isSymbolicLink() || !latest.isDirectory() || now - latest.mtimeMs < STALE_STAGING_MS) continue
+    rmSync(secured.path, { recursive: true })
+  }
+}
+
 /** Read-only listing of reviewable agent drafts. Nothing in proposals/ affects the books. */
 export function listProposals(slug: string): AgentProposal[] {
-  const dir = proposalsDir(slug)
-  if (!existsSync(dir)) return []
-  const candidates = readdirSync(dir)
-    .filter((name) => name.endsWith('.json'))
-    .map((name) => ({ path: join(dir, name), id: name }))
-  const queued = join(dir, 'queued')
-  if (existsSync(queued)) {
-    for (const batchId of readdirSync(queued).filter((name) => INBOX_BATCH_ID.test(name))) {
-      const batchDir = join(queued, batchId)
-      try {
-        if (!statSync(batchDir).isDirectory()) continue
-        for (const file of readdirSync(batchDir).filter((name) => /^\d{4}\.json$/.test(name))) {
-          candidates.push({ path: join(batchDir, file), id: `${batchId}--${file}` })
-        }
-      } catch {
-        // A concurrently archived batch entry is simply absent from this listing.
+  const rootPath = proposalsDir(slug)
+  if (!existsSync(rootPath)) return []
+  const root = secureProposalRoot(slug)
+  pruneStaleProposalStages(slug)
+  const candidates: { path: string; id: string; rootReal: string }[] = []
+  let entryBudget = MAX_LIST_DIRECTORY_ENTRIES_SCANNED
+  const rootEntries = boundedDirectoryEntries(root.path, Math.min(entryBudget, MAX_LISTED_PROPOSALS * 2))
+  entryBudget -= rootEntries.length
+  for (const entry of rootEntries) {
+    if (candidates.length >= Math.floor(MAX_LISTED_PROPOSALS / 2)) break
+    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith('.json')) continue
+    candidates.push({ path: join(root.path, entry.name), id: entry.name, rootReal: root.real })
+  }
+  const queuedPath = join(root.path, 'queued')
+  if (existsSync(queuedPath) && candidates.length < MAX_LISTED_PROPOSALS && entryBudget > 0) {
+    const queued = secureProposalDirectory(slug, ['queued'])
+    let batchesScanned = 0
+    const batchEntries = boundedDirectoryEntries(
+      queued.path,
+      Math.min(entryBudget, MAX_BATCH_DIRECTORIES_SCANNED)
+    )
+    entryBudget -= batchEntries.length
+    for (const batchEntry of batchEntries) {
+      if (candidates.length >= MAX_LISTED_PROPOSALS) break
+      if (!batchEntry.isDirectory() || batchEntry.isSymbolicLink() || !INBOX_BATCH_ID.test(batchEntry.name)) continue
+      batchesScanned++
+      if (batchesScanned > MAX_BATCH_DIRECTORIES_SCANNED) break
+      const batch = secureProposalDirectory(slug, ['queued', batchEntry.name])
+      const remaining = MAX_LISTED_PROPOSALS - candidates.length
+      if (entryBudget <= 0) break
+      const files = boundedDirectoryEntries(
+        batch.path,
+        Math.min(entryBudget, remaining * 2, MAX_LISTED_PROPOSALS)
+      )
+      entryBudget -= files.length
+      for (const file of files) {
+        if (candidates.length >= MAX_LISTED_PROPOSALS) break
+        if (!file.isFile() || file.isSymbolicLink() || !/^\d{4}\.json$/.test(file.name)) continue
+        candidates.push({
+          path: join(batch.path, file.name),
+          id: `${batchEntry.name}--${file.name}`,
+          rootReal: batch.rootReal
+        })
       }
     }
   }
   return candidates
-    .flatMap(({ path, id }) => {
+    .flatMap(({ path, id, rootReal }) => {
       try {
+        assertSecureProposalFile(path, rootReal)
         if (statSync(path).size > 512 * 1024) return []
         const parsed = JSON.parse(readFileSync(path, 'utf8')) as AgentProposal
-        if (parsed.version !== 1 || parsed.status !== 'pending' || !parsed.id || !parsed.voucher) return []
+        if (
+          parsed.version !== 1 || parsed.status !== 'pending' || !parsed.id || !parsed.voucher ||
+          !isIsoInstant(parsed.createdAt)
+        ) return []
         return [{ ...parsed, id }]
       } catch {
         return []
@@ -170,11 +309,15 @@ export function approveProposal(
   slug: string,
   file: string,
   actor: VoucherPostingActor | null,
-  authorize?: (input: VoucherInputParsed) => void
+  authorize?: (input: VoucherInputParsed) => void,
+  hooks: { beforeArchiveMove?: () => void } = {}
 ): ControlledVoucherPostResult {
   const name = safeProposalName(file)
-  const dir = proposalsDir(slug)
-  const path = proposalPath(slug, name)
+  const location = proposalLocation(slug, name)
+  const path = location.path
+  // Validate/create the archive destination before any accounting write. A symlink here must
+  // never turn a successful review into an external move after the DB transaction commits.
+  const reviewed = secureProposalDirectory(slug, ['reviewed'], true)
   const resultRow = db.prepare(
     `SELECT proposal_sha256 AS proposalSha256,proposal_json AS proposalJson,result_kind AS resultKind,
             result_id AS resultId,result_json AS resultJson
@@ -198,9 +341,11 @@ export function approveProposal(
   }
   const archive = (): void => {
     if (!existsSync(path)) return
-    const reviewed = join(dir, 'reviewed')
-    mkdirSync(reviewed, { recursive: true })
-    renameSync(path, join(reviewed, `${stamp()}-${name}`))
+    assertSecureProposalFile(path, location.rootReal)
+    const destination = join(reviewed.path, `${stamp()}-${randomUUID()}-${name}`)
+    hooks.beforeArchiveMove?.()
+    renameSync(path, destination)
+    assertSecureProposalFile(destination, reviewed.rootReal)
   }
 
   const previous = resultRow.get(name) as ResultRow | undefined
@@ -265,8 +410,9 @@ export function discardProposal(
   const proposal = getProposal(slug, file)
   authorize?.(proposal)
   const name = proposal.id
-  const path = proposalPath(slug, name)
-  rmSync(path)
+  const location = proposalLocation(slug, name)
+  assertSecureProposalFile(location.path, location.rootReal)
+  rmSync(location.path)
 }
 
 /** FY label for a voucher date, e.g. '2025-26' for anything in FY 2025-04-01..2026-03-31. */
@@ -490,12 +636,14 @@ function validateInertVoucher(db: DB, input: VoucherInputParsed): void {
 interface InboxProposalBatchHooks {
   /** @internal Deterministic filesystem-failure injection used by DB tests. */
   beforeStageWrite?: (index: number) => void
+  /** @internal Simulates a source-file move failure after a batch is durably promoted. */
+  beforeSourceMove?: () => void
 }
 
 /**
- * Materialise one JSON drop as a content-and-file-identity-addressed proposal batch. Files are invisible under a
- * hidden staging directory until one atomic directory rename exposes the complete batch. The
- * deterministic destination doubles as a durable completion marker: a retry after promotion
+ * Materialise one JSON drop as a content-and-file-identity-addressed proposal batch. Files are
+ * invisible under a hidden staging directory until one atomic directory rename exposes the
+ * complete batch. The deterministic destination doubles as a durable completion marker: a retry after promotion
  * reuses the batch even if the source drop could not yet be moved to processed/.
  */
 function createInboxProposalBatch(
@@ -515,13 +663,16 @@ function createInboxProposalBatch(
     .update(`:${sourceStat.dev}:${sourceStat.ino}:${sourceStat.birthtimeMs}:${sourceStat.size}`)
     .digest('hex')
   const batchId = `inbox-${dropFingerprint}`
-  const root = proposalsDir(slug)
-  const queuedRoot = join(root, 'queued')
-  const destination = join(queuedRoot, batchId)
+  secureProposalRoot(slug, true)
+  const queued = secureProposalDirectory(slug, ['queued'], true)
+  const destination = join(queued.path, batchId)
   const manifestName = '.manifest.json'
   const expectedManifest = { version: 1, sourceSha256, count: inputs.length }
   const verifyExisting = (): number => {
-    const parsed = JSON.parse(readFileSync(join(destination, manifestName), 'utf8')) as typeof expectedManifest
+    const batch = secureProposalDirectory(slug, ['queued', batchId])
+    const manifest = join(batch.path, manifestName)
+    assertSecureProposalFile(manifest, batch.rootReal)
+    const parsed = JSON.parse(readFileSync(manifest, 'utf8')) as typeof expectedManifest
     if (parsed.version !== 1 || parsed.sourceSha256 !== sourceSha256 || parsed.count !== inputs.length) {
       throw new Error('Existing inbox proposal batch is inconsistent')
     }
@@ -530,9 +681,16 @@ function createInboxProposalBatch(
 
   if (existsSync(destination)) return verifyExisting()
 
-  const stagingRoot = join(root, '.staging')
-  const staging = join(stagingRoot, `${batchId}-${randomUUID()}`)
-  mkdirSync(staging, { recursive: true, mode: 0o700 })
+  const stagingRoot = secureProposalDirectory(slug, ['.staging'], true)
+  const stagingName = `${batchId}-${randomUUID()}`
+  const staging = join(stagingRoot.path, stagingName)
+  mkdirSync(staging, { mode: 0o700 })
+  secureProposalDirectory(slug, ['.staging', stagingName])
+  const removeOwnStaging = (): void => {
+    if (!existsSync(staging)) return
+    const secured = secureProposalDirectory(slug, ['.staging', stagingName])
+    rmSync(secured.path, { recursive: true })
+  }
   try {
     const createdAt = new Date().toISOString()
     for (let index = 0; index < inputs.length; index++) {
@@ -551,14 +709,14 @@ function createInboxProposalBatch(
       writeFileSync(join(staging, file), JSON.stringify(proposal, null, 2), { flag: 'wx', mode: 0o600 })
     }
     writeFileSync(join(staging, manifestName), JSON.stringify(expectedManifest), { flag: 'wx', mode: 0o600 })
-    mkdirSync(queuedRoot, { recursive: true, mode: 0o700 })
     try {
       renameSync(staging, destination)
+      secureProposalDirectory(slug, ['queued', batchId])
     } catch (error) {
       // Another process may have promoted the same drop batch first. Its manifest
       // is authoritative; otherwise preserve the original promotion failure.
       if (existsSync(destination)) {
-        rmSync(staging, { recursive: true, force: true })
+        removeOwnStaging()
         return verifyExisting()
       }
       throw error
@@ -567,7 +725,7 @@ function createInboxProposalBatch(
   } catch (error) {
     // Only this invocation's UUID-scoped staging tree is removed. No earlier or unrelated
     // proposal can be touched, and a partially written batch was never visible to reviewers.
-    rmSync(staging, { recursive: true, force: true })
+    removeOwnStaging()
     throw error
   }
 }
@@ -604,6 +762,7 @@ export function processInboxFile(
   }
   const succeed = (detail: string): InboxOutcome => {
     const dest = join(processedDir, `${stamp()}-${name}`)
+    proposalBatchHooks.beforeSourceMove?.()
     renameSync(filePath, dest)
     notify('Total — inbox file processed', `${name}: ${detail.slice(0, 180)}`)
     return { file: name, ok: true, detail, movedTo: dest }
