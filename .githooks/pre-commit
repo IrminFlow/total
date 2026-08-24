@@ -6,4 +6,7 @@
 #
 # Install:  git config core.hooksPath .githooks
 # Skip once (you know why):  git commit --no-verify
-exec npm run verify --silent -- --fast
+#
+# Invoked as `node` rather than `npm run`: npm swallows the flag after `--silent` and the hook
+# silently ran the full suite instead of the fast one.
+exec node scripts/verify.mjs --fast
