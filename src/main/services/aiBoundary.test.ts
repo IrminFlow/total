@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AI_MAX_RESPONSE_BYTES, AI_TIMEOUT_MS, boundedProviderFetch, normalizeBaseUrl } from './ai'
+import { AI_MAX_RESPONSE_BYTES, AI_TIMEOUT_MS, boundedProviderFetch, draftVoucher, normalizeBaseUrl } from './ai'
 
 describe('AI provider boundary', () => {
   it('requires TLS except for exact loopback hosts and rejects URL-embedded secrets', () => {
@@ -34,5 +34,11 @@ describe('AI provider boundary', () => {
     const response = await boundedProviderFetch('https://provider.example', undefined, fetchImpl)
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
+  })
+
+  it('refuses to expose ledger masters without per-request approval', async () => {
+    await expect(
+      draftVoucher({} as never, 'books', 'Record a cash sale', false),
+    ).rejects.toThrow(/Approve sharing ledger and voucher-type names/i)
   })
 })

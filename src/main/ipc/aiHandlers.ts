@@ -46,11 +46,11 @@ export function registerAiHandlers({ handle, requireCompany, actor }: AiHandlerC
       ? ai.selectedContext(company.db, company.info, input.from, input.to, input.contextFields)
       : null;
     return ai.ask(input.prompt, context);
-  }, "viewer");
+  }, "accountant");
   handle("ai:draftVoucher", async (payload) => {
-    const { prompt } = aiDraftVoucherSchema.parse(payload);
+    const { prompt, shareMasterData } = aiDraftVoucherSchema.parse(payload);
     const company = requireCompany();
-    return ai.draftVoucher(company.db, company.slug, prompt);
+    return ai.draftVoucher(company.db, company.slug, prompt, shareMasterData);
   }, "accountant");
   handle("ai:documents:list", () => assistiveAutomation.listDocumentInbox(requireCompany().db), "viewer");
   handle("ai:documents:capture", async (payload) => {

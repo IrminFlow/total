@@ -8,7 +8,7 @@ import { CaretDown, CaretRight, LinkSimple, ShieldCheck } from '@phosphor-icons/
 
 interface Message { role: 'user' | 'assistant'; text: string; citations?: AiCitation[] }
 
-const DEFAULT_CONTEXT_FIELDS: AiContextFieldId[] = ['company', 'period', 'dashboard', 'trial_balance', 'receivables', 'payables', 'units']
+const DEFAULT_CONTEXT_FIELDS: AiContextFieldId[] = ['company', 'period']
 
 export function CopilotPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
   const { from, to } = useSession()
@@ -16,14 +16,14 @@ export function CopilotPanel({ onClose }: { onClose: () => void }): React.JSX.El
   const nav = useNav()
   const { data: config } = useQuery({ queryKey: ['aiConfig'], queryFn: api.ai.getConfig })
   const [contextFields, setContextFields] = useState<AiContextFieldId[]>(DEFAULT_CONTEXT_FIELDS)
-  const [showInspector, setShowInspector] = useState(false)
+  const [showInspector, setShowInspector] = useState(true)
   const { data: preview } = useQuery({
     queryKey: ['aiContextPreview', from, to, contextFields],
     queryFn: () => api.ai.contextPreview(from, to, contextFields),
     enabled: config?.enabled === true
   })
   const [prompt, setPrompt] = useState('')
-  const [includeContext, setIncludeContext] = useState(true)
+  const [includeContext, setIncludeContext] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -60,7 +60,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }): React.JSX.El
     setError(null)
     setBusy(true)
     try {
-      await api.ai.draftVoucher(text)
+      await api.ai.draftVoucher(text, includeContext)
       setPrompt('')
       toast.push('success', 'Voucher draft saved — review it in Settings > Agent access')
       setMessages((rows) => [...rows, { role: 'user', text }, { role: 'assistant', text: 'Draft created. Nothing has been posted; review the exact entry in the Agent access queue.' }])
@@ -109,6 +109,11 @@ export function CopilotPanel({ onClose }: { onClose: () => void }): React.JSX.El
                 })}
               </div>
             )}
+            {includeContext && (
+              <p className="border-t border-line px-3 py-2 text-[10.5px] leading-4 text-muted">
+                Voucher drafting also shares ledger and voucher-type names so the provider can use valid account IDs.
+              </p>
+            )}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-line bg-bg p-3">
             {messages.length === 0 && (
@@ -142,7 +147,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }): React.JSX.El
               onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send() } }} />
             <div className="flex flex-col gap-2">
               <Button variant="primary" disabled={busy || !prompt.trim() || (includeContext && contextFields.length === 0)} onClick={() => void send()}>Ask</Button>
-              <Button disabled={busy || prompt.trim().length < 8} onClick={() => void draft()}>Draft voucher</Button>
+              <Button disabled={busy || prompt.trim().length < 8 || !includeContext} onClick={() => void draft()}>Draft voucher</Button>
             </div>
           </div>
           <p className="mt-1.5 text-[11px] text-muted">Copilot can analyze and propose. It cannot post changes without your review.</p>

@@ -30,12 +30,13 @@ export const aiAskSchema = z.object({
   prompt: z.string().trim().min(1).max(8_000),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  includeContext: z.boolean().default(true),
+  includeContext: z.boolean().default(false),
   contextFields: z.array(z.enum(['company', 'period', 'dashboard', 'trial_balance', 'receivables', 'payables', 'units'])).max(7).optional()
 })
 
 export const aiDraftVoucherSchema = z.object({
-  prompt: z.string().trim().min(8).max(4_000)
+  prompt: z.string().trim().min(8).max(4_000),
+  shareMasterData: z.boolean().default(false)
 })
 
 export type AiContextFieldId = 'company' | 'period' | 'dashboard' | 'trial_balance' | 'receivables' | 'payables' | 'units'

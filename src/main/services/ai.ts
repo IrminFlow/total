@@ -574,7 +574,11 @@ export async function draftVoucher(
   db: DB,
   slug: string,
   prompt: string,
+  shareMasterData: boolean,
 ): Promise<AgentProposal> {
+  if (!shareMasterData) {
+    throw new Error("Approve sharing ledger and voucher-type names before creating an AI draft");
+  }
   const stored = readStored();
   if (!stored.enabled) throw new Error("AI is turned off in Settings");
   const reference = {

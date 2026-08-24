@@ -1,9 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
+  aiAskSchema,
+  aiDraftVoucherSchema,
   aiGroundedAnswerSchema,
   extractedDocumentSchema,
   validateAiCitations,
 } from "./ai";
+
+describe("AI sharing consent", () => {
+  it("defaults all external book-data sharing to off", () => {
+    expect(
+      aiAskSchema.parse({
+        prompt: "Explain this",
+        from: "2026-04-01",
+        to: "2027-03-31",
+      }).includeContext,
+    ).toBe(false);
+    expect(
+      aiDraftVoucherSchema.parse({ prompt: "Record a cash sale" })
+        .shareMasterData,
+    ).toBe(false);
+  });
+});
 
 const allowed = [
   {

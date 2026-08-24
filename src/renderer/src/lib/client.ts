@@ -3241,8 +3241,8 @@ export const api = {
         includeContext,
         contextFields,
       }),
-    draftVoucher: (prompt: string) =>
-      call<AgentProposal>("ai:draftVoucher", { prompt }),
+    draftVoucher: (prompt: string, shareMasterData: boolean) =>
+      call<AgentProposal>("ai:draftVoucher", { prompt, shareMasterData }),
     documents: () => call<DocumentInboxRow[]>("ai:documents:list"),
     captureDocument: (kind: "supplier_invoice" | "receipt") =>
       call<DocumentInboxRow | null>("ai:documents:capture", { kind }),
