@@ -72,7 +72,7 @@ async function runBookWorkflow(path) {
     await invoke('backup:restore', { file: manual.file })
     const vouchers = await invoke('voucher:list', { from: '2026-08-01', to: '2026-08-31' })
     if (vouchers.length !== 1) throw new Error(`Restore returned ${vouchers.length} vouchers instead of 1`)
-    return { ...identity, voucherId: posted.id, backup: manual.file }
+    return { ...identity, slug: created.slug, voucherId: posted.id, backup: manual.file }
   } finally {
     await app.close()
   }
@@ -101,7 +101,17 @@ try {
   }
   if (!executable || !existsSync(executable)) throw new Error(`Installed executable missing: ${executable}`)
   const result = await runBookWorkflow(executable)
-  console.log(JSON.stringify({ ok: true, platform, executable: basename(executable), ...result }))
+  const executableName = basename(executable)
+  if (platform === 'mac' || platform === 'darwin') {
+    rmSync(join(installRoot, 'Total.app'), { recursive: true, force: false })
+  } else if (uninstaller && existsSync(uninstaller)) {
+    execFileSync(uninstaller, ['/S'], { stdio: 'inherit' })
+    uninstaller = null
+  }
+  if (existsSync(executable)) throw new Error(`Uninstall left the application executable behind: ${executable}`)
+  const preservedDb = join(scratch, 'data', 'companies', result.slug, 'company.db')
+  if (!existsSync(preservedDb)) throw new Error('Uninstall deleted the company database')
+  console.log(JSON.stringify({ ok: true, platform, executable: executableName, ...result, dataPreservedAfterUninstall: true }))
 } finally {
   if (uninstaller && existsSync(uninstaller)) {
     try { execFileSync(uninstaller, ['/S'], { stdio: 'inherit' }) } catch (error) { console.warn('Uninstaller cleanup failed:', String(error)) }

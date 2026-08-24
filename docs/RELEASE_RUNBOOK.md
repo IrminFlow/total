@@ -40,5 +40,9 @@ existing release because partial or mixed-version assets would break auto-update
 - The macOS signature, Gatekeeper assessment and stapled notarization ticket are valid.
 - The Windows application and NSIS installer have valid Authenticode signatures.
 - Both packaged applications launch with `app.isPackaged === true`.
+- The actual public v0.4 packaged app creates a company which the candidate opens twice without
+  changing its registry entry, voucher count, reference or trial-balance totals; the migrated
+  company also produces a verified backup.
+- Uninstall removes the installed application while leaving the company database intact.
 - Update manifests match the tag, include SHA-512 integrity metadata, and reference assets in the
   same release.

@@ -83,6 +83,22 @@ jobs:
       - name: Install from DMG, post, backup, restore and uninstall
         run: npm run release:install-smoke -- mac
 
+      - name: Download the actual public v0.4 macOS build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/total-v04"
+          gh release download v0.4.0 --repo "${GITHUB_REPOSITORY}" --pattern 'Total-0.4.0-arm64-mac.zip' --dir "${RUNNER_TEMP}/total-v04"
+          ditto -x -k "${RUNNER_TEMP}/total-v04/Total-0.4.0-arm64-mac.zip" "${RUNNER_TEMP}/total-v04/app"
+
+      - name: Upgrade real public v0.4 books to the candidate
+        run: npm run release:upgrade-smoke
+        env:
+          OLD_TOTAL_EXECUTABLE: ${{ runner.temp }}/total-v04/app/Total.app/Contents/MacOS/Total
+          CURRENT_TOTAL_EXECUTABLE: ${{ github.workspace }}/dist/mac-universal/Total.app/Contents/MacOS/Total
+          UPGRADE_EVIDENCE: ${{ github.workspace }}/dist/upgrade-evidence-mac.json
+
       - name: Publication scorecard
         run: npm run release:scorecard
         env:
@@ -107,6 +123,7 @@ jobs:
             dist/latest-mac.yml
             dist/build-evidence-mac.json
             dist/release-scorecard-mac.json
+            dist/upgrade-evidence-mac.json
 
   release-win:
     runs-on: windows-latest
@@ -156,6 +173,30 @@ jobs:
       - name: Install NSIS, post, backup, restore and uninstall
         run: npm run release:install-smoke -- win
 
+      - name: Download and install the actual public v0.4 Windows build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\total-v04" | Out-Null
+          gh release download v0.4.0 --repo "$env:GITHUB_REPOSITORY" --pattern 'Total.Setup.0.4.0.exe' --dir "$env:RUNNER_TEMP\total-v04"
+          & "$env:RUNNER_TEMP\total-v04\Total.Setup.0.4.0.exe" /S "/D=$env:RUNNER_TEMP\total-v04\app"
+          if (-not (Test-Path "$env:RUNNER_TEMP\total-v04\app\Total.exe")) { throw 'Public v0.4 executable was not installed' }
+
+      - name: Upgrade real public v0.4 books to the candidate
+        run: npm run release:upgrade-smoke
+        env:
+          OLD_TOTAL_EXECUTABLE: ${{ runner.temp }}\total-v04\app\Total.exe
+          CURRENT_TOTAL_EXECUTABLE: ${{ github.workspace }}\dist\win-unpacked\Total.exe
+          UPGRADE_EVIDENCE: ${{ github.workspace }}\dist\upgrade-evidence-win.json
+
+      - name: Uninstall the public v0.4 test copy without touching its books
+        if: always()
+        shell: pwsh
+        run: |
+          $uninstaller = "$env:RUNNER_TEMP\total-v04\app\Uninstall Total.exe"
+          if (Test-Path $uninstaller) { & $uninstaller /S }
+
       - name: Publication scorecard
         run: npm run release:scorecard
         env:
@@ -178,6 +219,7 @@ jobs:
             dist/latest.yml
             dist/build-evidence-win.json
             dist/release-scorecard-win.json
+            dist/upgrade-evidence-win.json
 
   publish:
     needs: [release-mac, release-win]

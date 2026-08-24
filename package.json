@@ -29,6 +29,7 @@
     "release:contract": "node scripts/release-contract.mjs",
     "release:artifact": "node scripts/artifact-gate.mjs",
     "release:install-smoke": "node scripts/install-smoke.mjs",
+    "release:upgrade-smoke": "node scripts/upgrade-smoke.mjs",
     "release:evidence": "node scripts/build-evidence.mjs",
     "release:scorecard": "node scripts/release-scorecard.mjs",
     "release:readiness": "node scripts/production-readiness.mjs",

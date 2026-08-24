@@ -43,7 +43,8 @@ Never place these values in source, local evidence, screenshots or support cases
 2. Run `npm version patch`; review the generated version commit and tag.
 3. Push the branch and tag with `git push --follow-tags`.
 4. Watch both signed platform jobs and the final publish job. A release is complete only when DMG,
-   ZIP, NSIS, updater manifests, scorecards and build evidence are present in one public release.
+   ZIP, NSIS, updater manifests, scorecards, public-v0.4 upgrade evidence and build evidence are
+   present in one public release.
 5. Install from the public download page on clean macOS and Windows profiles. Post a voucher, back up,
    restore, relaunch and confirm update checks.
 6. Roll back by withdrawing the affected release and publishing a fixed higher version. Never replace

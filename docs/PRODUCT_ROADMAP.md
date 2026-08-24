@@ -35,16 +35,18 @@ items in [BACKLOG_300.md](BACKLOG_300.md).
 1. Run the full release scorecard on the final clean commit.
 2. Reconcile representative Tally, Busy, Marg, Zoho and spreadsheet migrations using consented or
    synthetic production-scale data: openings, vouchers, tax totals, outstandings and stock value.
-3. Complete bookkeeper, owner, accountant, payroll and inventory acceptance on clean macOS and Windows,
-   including upgrade from v0.4 and verified restore.
+3. Complete bookkeeper, owner, accountant, payroll and inventory acceptance on clean macOS and Windows.
+   Automated acceptance now covers the real public v0.4-to-v0.5 migration, repeated reopen, verified
+   restore and uninstall-with-data-preservation; the remaining gate is clean-device human use.
 4. Exercise phone capture on current iOS and Android, then confirm desktop import and duplicate review.
 5. Run an invited cohort, triage blockers and publish an owned support/response SLA.
 
 ## Remaining external release operations
 
 - Configure Apple Developer ID/notarization and Windows Authenticode secrets in GitHub Actions.
-- Configure Vercel’s private-release token, canonical domain, support backend and feedback backend.
-- Exercise synthetic support and feedback requests end-to-end, including retention/deletion operations.
+- Re-run the configured Vercel support, feedback, download and security-header checks on the final
+  release deployment. The 24 August production exercise and exact cleanup are recorded under
+  `docs/evidence/`.
 - Obtain legal review of the versioned privacy policy and terms for intended selling jurisdictions.
 - Tag only after the final commit is clean and green, then verify installers and updater metadata from
   the public release. See [PRODUCTION_CUTOVER.md](PRODUCTION_CUTOVER.md).
