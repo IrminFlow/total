@@ -10,6 +10,7 @@ const COMPANY: CompanyInfo = {
   gstin: '27AAAAA0000A1Z5',
   gstRegistrationType: 'regular',
   gstFilingFrequency: 'monthly',
+  turnoverBand: null,
   address: '1 Market Road, Mumbai',
   booksFrom: 2025,
   email: null,

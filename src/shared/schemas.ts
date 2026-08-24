@@ -40,6 +40,8 @@ export const companyCreateSchema = z.object({
   gstRegistrationType: z.enum(['regular', 'composition', 'unregistered']),
   gstFilingFrequency: z.enum(['monthly', 'quarterly']).default('monthly'),
   address: z.string().trim().max(500).default(''),
+  // .default(null) so companies created before turnover was asked for still parse.
+  turnoverBand: z.enum(['upto-50L', '50L-1.5Cr', '1.5Cr-5Cr', '5Cr-plus']).nullable().default(null),
   booksFrom: z.number().int().min(1990).max(2100),
   email: z.string().trim().email().nullable(),
   phone: z.string().trim().max(20).nullable(),

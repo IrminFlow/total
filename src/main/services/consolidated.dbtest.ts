@@ -37,6 +37,7 @@ function makeInfo(name: string): CompanyInfo {
     gstin: null,
     gstRegistrationType: 'unregistered',
   gstFilingFrequency: 'monthly',
+  turnoverBand: null,
     address: '',
     booksFrom: 2025,
     email: null,

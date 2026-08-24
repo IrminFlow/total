@@ -4,6 +4,7 @@ import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../components/ui'
 import { GST_STATES } from '@shared/gst/states'
+import { qrmpEligible, TURNOVER_BANDS, turnoverObligations, type TurnoverBand } from '@shared/gst/turnover'
 import { gstinErrorMessage } from '../lib/gstinError'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
@@ -19,6 +20,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
   const [gstin, setGstin] = useState(info?.gstin ?? '')
   const [regType, setRegType] = useState(info?.gstRegistrationType ?? 'unregistered')
   const [filing, setFiling] = useState(info?.gstFilingFrequency ?? 'monthly')
+  const [turnoverBand, setTurnoverBand] = useState<TurnoverBand | ''>(info?.turnoverBand ?? '')
   const [address, setAddress] = useState(info?.address ?? '')
   const [email, setEmail] = useState(info?.email ?? '')
   const [phone, setPhone] = useState(info?.phone ?? '')
@@ -33,6 +35,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
     setGstin(info?.gstin ?? '')
     setRegType(info?.gstRegistrationType ?? 'unregistered')
     setFiling(info?.gstFilingFrequency ?? 'monthly')
+    setTurnoverBand(info?.turnoverBand ?? '')
     setAddress(info?.address ?? '')
     setEmail(info?.email ?? '')
     setPhone(info?.phone ?? '')
@@ -47,12 +50,17 @@ export function CompanyInfoScreen(): React.JSX.Element {
     gstin !== (info?.gstin ?? '') ||
     regType !== (info?.gstRegistrationType ?? 'unregistered') ||
     filing !== (info?.gstFilingFrequency ?? 'monthly') ||
+    turnoverBand !== (info?.turnoverBand ?? '') ||
     address !== (info?.address ?? '') ||
     email !== (info?.email ?? '') ||
     phone !== (info?.phone ?? '') ||
     pan !== (info?.pan ?? '') ||
     tan !== (info?.tan ?? '')
   useUnsavedGuard(dirty)
+
+  // QRMP is capped at Rs 5 crore. Picking it above that produces a calendar of dates the filer
+  // does not actually file on, which is worse than not offering it.
+  const qrmpAvailable = qrmpEligible(turnoverBand === '' ? null : turnoverBand)
 
   const gstinError = gstinErrorMessage(gstin, stateCode)
   const panError = pan.trim() && !PAN_RE.test(pan.trim()) ? 'Invalid PAN (e.g. ABCDE1234F)' : null
@@ -69,6 +77,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
         gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
         gstRegistrationType: gstin.trim() ? (regType === 'unregistered' ? 'regular' : regType) : 'unregistered',
         gstFilingFrequency: filing,
+        turnoverBand: turnoverBand === '' ? null : turnoverBand,
         address,
         booksFrom: info?.booksFrom ?? 2025,
         email: email.trim() || null,
@@ -131,10 +140,32 @@ export function CompanyInfoScreen(): React.JSX.Element {
               disabled={!gstin.trim() || regType !== 'regular'}
             >
               <option value="monthly">Monthly</option>
-              <option value="quarterly">Quarterly (QRMP)</option>
+              {/* Kept selectable when already chosen, so a mis-declared band does not trap the
+                  form in an unsaveable state — the obligations panel says it in red instead. */}
+              <option value="quarterly" disabled={!qrmpAvailable && filing !== 'quarterly'}>
+                Quarterly (QRMP)
+              </option>
             </Select>
           </Field>
         </div>
+        <Field
+          label="Aggregate annual turnover"
+          hint="Across every GSTIN on this PAN, including exempt supplies. Sets the thresholds below."
+        >
+          <Select
+            data-testid="select-turnover-band"
+            value={turnoverBand}
+            onChange={(e) => setTurnoverBand(e.target.value as TurnoverBand | '')}
+          >
+            <option value="">Not declared</option>
+            {TURNOVER_BANDS.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {turnoverBand !== '' && <Obligations band={turnoverBand} filing={filing} regType={regType} />}
         <Field label="GSTIN" error={gstinError} hint="Needed for GSTR exports">
           <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} className="num" />
         </Field>
@@ -353,5 +384,56 @@ function CsvImportCard(): React.JSX.Element {
         </>
       )}
     </Panel>
+  )
+}
+
+/**
+ * What the declared band obliges, stated where it is declared.
+ *
+ * A threshold nobody told you about is a threshold you cross by accident. e-invoicing above
+ * ₹5 crore is the expensive one: a business over the line can issue B2B invoices for a year
+ * without an IRN and only find out when its buyers' input credit is denied.
+ */
+function Obligations({
+  band,
+  filing,
+  regType
+}: {
+  band: TurnoverBand
+  filing: 'monthly' | 'quarterly'
+  regType: 'regular' | 'composition' | 'unregistered'
+}): React.JSX.Element {
+  const o = turnoverObligations(band)
+  const conflict = filing === 'quarterly' && !o.qrmp
+  return (
+    <div className="rounded-md border border-line bg-panel2 px-3.5 py-2.5 text-body-sm" data-testid="turnover-obligations">
+      <ul className="flex flex-col gap-1">
+        <li>
+          {o.eInvoice ? (
+            <span>
+              <b className="text-amber">e-Invoicing is mandatory</b> at this turnover — every B2B invoice needs an
+              IRN before it is issued.
+            </span>
+          ) : (
+            <span className="text-muted">e-Invoicing is optional below ₹5 crore.</span>
+          )}
+        </li>
+        <li className={o.minHsnDigits === 6 ? '' : 'text-muted'}>
+          Invoice lines need at least <b>{o.minHsnDigits} HSN digits</b> under rule 46.
+        </li>
+        <li className={conflict ? 'text-cr' : 'text-muted'}>
+          {conflict
+            ? 'QRMP is capped at ₹5 crore — quarterly filing above that is not available. Set filing frequency back to monthly.'
+            : o.qrmp
+              ? 'QRMP (quarterly filing) is available at this turnover.'
+              : 'QRMP is not available above ₹5 crore.'}
+        </li>
+        {regType === 'composition' && (
+          <li className="text-muted">
+            Composition ceilings are ₹1.5 crore for goods and restaurants, ₹50 lakh for services.
+          </li>
+        )}
+      </ul>
+    </div>
   )
 }

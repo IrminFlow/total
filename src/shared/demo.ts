@@ -16,6 +16,8 @@ export const DEMO_COMPANY: CompanyInfo = {
   gstin: '27AAPFU0939F1ZV',
   gstRegistrationType: 'regular',
   gstFilingFrequency: 'monthly',
+  // Under the e-invoice and QRMP lines, so the demo exercises the ordinary small-business path.
+  turnoverBand: '1.5Cr-5Cr',
   address: '12 MG Road, Pune 411001',
   booksFrom: fyOf(todayISO()).startYear,
   email: 'accounts@demotraders.test',

@@ -14,7 +14,8 @@ import { companyExportsDir, ensureCompanyTree } from '../paths'
 
 const INFO: CompanyInfo = {
   name: 'Test Co', stateCode: '27', gstin: null, gstRegistrationType: 'regular',
-  gstFilingFrequency: 'monthly', address: '',
+  gstFilingFrequency: 'monthly',
+  turnoverBand: null, address: '',
   booksFrom: 2025, email: null, phone: null, pan: null, tan: null
 }
 

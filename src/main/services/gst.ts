@@ -34,6 +34,7 @@ interface DocVoucherRow {
   partyExportType: 'sez_wp' | 'sez_wop' | 'exp_wp' | 'exp_wop' | null
   partyRcm: number
   transDocNo: string | null; transDocDate: string | null
+  irn: string | null
 }
 
 const INCOME_GROUPS = ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes']
@@ -90,7 +91,8 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
       `SELECT v.id, v.date, v.number, vt.kind, v.pos_override AS posOverride,
               p.name AS partyName, p.gstin AS partyGstin, p.state_code AS partyState,
               p.export_type AS partyExportType, COALESCE(p.rcm, 0) AS partyRcm,
-              t.trans_doc_no AS transDocNo, t.trans_doc_date AS transDocDate
+              t.trans_doc_no AS transDocNo, t.trans_doc_date AS transDocDate,
+              v.irn
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
@@ -219,6 +221,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         invTyp,
         rchrg: !!v.partyRcm,
         shippingBill: isExport ? { num: v.transDocNo, date: v.transDocDate } : null,
+        irn: v.irn ?? null,
         validation: {
           valDiff: invoiceValue - computedTotal,
           missingHsnCount,
@@ -713,7 +716,8 @@ export function gstValidate(db: DB, company: CompanyInfo, from: string, to: stri
   return validateGstr1(docs, {
     stateCode: company.stateCode,
     gstin: company.gstin,
-    gstRegistrationType: company.gstRegistrationType
+    gstRegistrationType: company.gstRegistrationType,
+    turnoverBand: company.turnoverBand
   })
 }
 

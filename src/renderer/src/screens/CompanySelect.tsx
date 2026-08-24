@@ -410,6 +410,9 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
         gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
         gstRegistrationType: gstin.trim() ? regType : 'unregistered',
         gstFilingFrequency: filing,
+        // Not asked at creation: this form is deliberately the shortest path into the books.
+        // Declared in Company details, where the obligations it implies are shown next to it.
+        turnoverBand: null,
         address,
         booksFrom,
         email: null,

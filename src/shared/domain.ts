@@ -1,5 +1,7 @@
 /** Core domain types shared by main (SQL) and renderer (UI). */
 
+import type { TurnoverBand } from './gst/turnover'
+
 export type Nature = 'asset' | 'liability' | 'income' | 'expense'
 export type DrCr = 'dr' | 'cr'
 
@@ -369,6 +371,15 @@ export interface CompanyInfo {
    */
   gstFilingFrequency: 'monthly' | 'quarterly'
   address: string
+  /**
+   * Declared aggregate annual turnover band, or null if never declared.
+   *
+   * Declared rather than computed: the statutory figure is aggregate turnover across every GSTIN
+   * on the same PAN, including exempt supplies and the part of the year before these books
+   * begin. Nearly every GST threshold keys off it -- e-invoicing, QRMP, HSN digit count,
+   * composition ceilings. See src/shared/gst/turnover.ts.
+   */
+  turnoverBand: TurnoverBand | null
   /** FY start year of the earliest books, e.g. 2025. */
   booksFrom: number
   email: string | null

@@ -1,4 +1,5 @@
 import { GST_STATES } from './states'
+import { eInvoiceMandatory, minHsnDigits, type TurnoverBand } from './turnover'
 import { B2CL_THRESHOLD_PAISE, isZeroRatedTyp, type GstDoc } from './returns'
 import { isUqc } from './uqc'
 
@@ -48,7 +49,10 @@ export function validateGstin(raw: string): GstinValidation {
 
 /**
  * HSN/SAC codes are 4, 6, or 8 digits (2-digit chapters exist but returns require ≥4).
- * Businesses over ₹5 crore turnover must use 6+ digits; we surface that as advice, not an error.
+ *
+ * The turnover-dependent part of rule 46 -- 6 digits over ₹5 crore -- is not checked here,
+ * because a master's HSN is valid or not on its own; whether it is *long enough* depends on the
+ * company. `validateGstr1` checks that against the declared band.
  */
 export function validateHsn(raw: string): { valid: boolean; error: string | null } {
   const hsn = raw.trim()
@@ -73,6 +77,8 @@ export interface GstIssue {
     | 'rate_zero_untyped'
     | 'b2cl_edge'
     | 'zero_rated_intra_tax'
+    | 'hsn_too_short'
+    | 'missing_irn'
   severity: 'blocking' | 'warning'
   message: string
   /** Vouchers to drill into from the issues panel (empty for company-level issues). */
@@ -83,6 +89,9 @@ export interface Gstr1ValidationCompany {
   stateCode: string
   gstin: string | null
   gstRegistrationType: 'regular' | 'composition' | 'unregistered'
+  /** Declared aggregate turnover band. Null = undeclared, and the threshold checks below stay
+   *  quiet rather than guessing: see src/shared/gst/turnover.ts. */
+  turnoverBand?: TurnoverBand | null
 }
 
 /** Booked-vs-computed invoice value differences within ±₹1 are treated as legitimate round-off. */
@@ -216,6 +225,40 @@ export function validateGstr1(docs: GstDoc[], company: Gstr1ValidationCompany): 
       message: `${edge.length} inter-state unregistered invoice${edge.length === 1 ? '' : 's'} within ₹1,000 of the ₹1,00,000 B2CL threshold — reported in B2CS; double-check the value.`,
       voucherIds: edge.map((d) => d.voucherId)
     })
+  }
+
+  // Rule 46: at least 6 HSN digits over ₹5 crore turnover, 4 below. Only checked when the band
+  // has actually been declared -- an unprompted warning about a threshold the user never
+  // mentioned is noise, and guessing the band from these books would be wrong for exactly the
+  // multi-registration businesses the rule is aimed at.
+  const required = minHsnDigits(company.turnoverBand ?? null)
+  const shortHsn = docs.filter((d) => d.hsnLines.some((h) => h.hsn.trim().length < required))
+  if (shortHsn.length) {
+    const lines = shortHsn.reduce(
+      (n, d) => n + d.hsnLines.filter((h) => h.hsn.trim().length < required).length,
+      0
+    )
+    issues.push({
+      code: 'hsn_too_short',
+      severity: 'warning',
+      message: `${lines} line${lines === 1 ? '' : 's'} carry an HSN shorter than the ${required} digits rule 46 requires at this turnover — fix the HSN on the stock item or ledger.`,
+      voucherIds: shortHsn.map((d) => d.voucherId)
+    })
+  }
+
+  // e-Invoicing above ₹5 crore: a B2B invoice issued without an IRN is not a valid invoice, and
+  // the buyer's input credit can be denied on it. A warning rather than a block, because holding
+  // the GSTR-1 export hostage does not fix the invoices and the return is still due.
+  if (eInvoiceMandatory(company.turnoverBand ?? null)) {
+    const noIrn = docs.filter((d) => d.partyGstin && !d.irn)
+    if (noIrn.length) {
+      issues.push({
+        code: 'missing_irn',
+        severity: 'warning',
+        message: `${noIrn.length} B2B document${noIrn.length === 1 ? '' : 's'} have no IRN, and e-invoicing is mandatory at this turnover — the buyer's input credit can be denied on an invoice without one.`,
+        voucherIds: noIrn.map((d) => d.voucherId)
+      })
+    }
   }
 
   return issues

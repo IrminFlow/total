@@ -73,6 +73,9 @@ export interface GstDoc {
   rchrg?: boolean
   /** Shipping bill (exports, Table 6A) — from voucher_transport trans_doc_no/date. */
   shippingBill?: { num: string | null; date: string | null } | null
+  /** NIC Invoice Reference Number, once e-invoiced. Absent on a B2B invoice from a business
+   *  over the e-invoice threshold is a real problem — see validate.ts. */
+  irn?: string | null
   validation?: GstDocValidation
 }
 

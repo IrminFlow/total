@@ -16,6 +16,7 @@ export const TEST_INFO: CompanyInfo = {
   gstin: null,
   gstRegistrationType: 'regular',
   gstFilingFrequency: 'monthly',
+  turnoverBand: null,
   address: '',
   booksFrom: 2025,
   email: null,

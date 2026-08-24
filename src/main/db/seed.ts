@@ -44,7 +44,9 @@ export function readCompanyInfo(db: DB): CompanyInfo {
     ...parsed,
     pan: parsed.pan ?? null,
     tan: parsed.tan ?? null,
-    gstFilingFrequency: parsed.gstFilingFrequency ?? 'monthly'
+    gstFilingFrequency: parsed.gstFilingFrequency ?? 'monthly',
+    // Null, not a guess: an undeclared band must not silently impose or waive an obligation.
+    turnoverBand: parsed.turnoverBand ?? null
   }
 }
 

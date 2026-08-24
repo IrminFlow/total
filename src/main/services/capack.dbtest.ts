@@ -32,6 +32,7 @@ function freshCompany(): { db: ReturnType<typeof openCompanyDb>; slug: string; i
     gstin: '27AAAAA0000A1Z5',
     gstRegistrationType: 'regular',
   gstFilingFrequency: 'monthly',
+  turnoverBand: null,
     address: 'Mumbai, Maharashtra',
     booksFrom: 2026,
     email: null,
