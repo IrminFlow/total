@@ -9,7 +9,7 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
     .copy { padding: 28px; page-break-after: always; }
     .copy:last-child { page-break-after: auto; }
     .copy-label { text-align: right; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #555; margin-bottom: 6px; }
-    .sheet { border: 1.5px solid #16181f; }
+    .sheet { border: 1.5px solid #16181f; position: relative; }
     .head { display: flex; justify-content: space-between; border-bottom: 1.5px solid #16181f; padding: 14px 16px; }
     h1 { font-size: 20px; letter-spacing: 0.02em; }
     .tag { text-align: right; font-size: 11px; }
@@ -39,6 +39,14 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
     /* The payment QR sits beside the totals, not next to the verification QR in the header:
        one says the document is genuine, the other collects money, and putting them together
        invites scanning the wrong one. */
+    /* Behind the content, not over it: a watermark that obscures the figures makes the document
+       unreadable, and the point is that it cannot be mistaken for the real thing — not that it
+       cannot be read. Anchored by the position: relative on .sheet above. */
+    .watermark {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 96px; font-weight: 700; letter-spacing: 0.2em; color: rgba(187, 68, 51, 0.08);
+      transform: rotate(-24deg); pointer-events: none; z-index: 0;
+    }
     .tot-wrap { display: flex; align-items: flex-start; gap: 14px; }
     .upi { text-align: center; }
     .upi-cap { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.06em; color: #555; margin-top: 2px; }
@@ -53,6 +61,7 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
         <div class="copy-label">Original for Recipient</div>
         
     <div class="sheet">
+      
       <div class="head">
         <div>
           

@@ -154,6 +154,14 @@ export function buildInvoiceHtml(
   // Tax invoice, bill of supply, or a plain invoice from an unregistered business. A composition
   // dealer may not issue a tax invoice at all, and a regular dealer's wholly-exempt supply owes a
   // bill of supply -- both of which the print used to label TAX INVOICE regardless.
+  /**
+   * A memorandum sales voucher is a proforma: a document sent to agree a price before anything is
+   * owed. It must not look like a tax invoice — one that does is a document a customer may pay
+   * against and an auditor will ask about — so it takes its own heading, a watermark, and no
+   * payment QR.
+   */
+  const isProforma = !!inv.isOptional && inv.docType !== 'CRN' && inv.docType !== 'DBN'
+
   const docKind = supplyDocumentKind({
     gstRegistrationType: company.gstRegistrationType,
     taxPaise: inv.cgst + inv.sgst + inv.igst + inv.cess,
@@ -306,7 +314,9 @@ export function buildInvoiceHtml(
    * Never on a credit note — a document that reduces what is owed must not offer to collect it.
    */
   const upiUrl =
-    config.upiVpa && inv.docType !== 'CRN'
+    // Never on a proforma: nothing is owed yet, and a QR on it invites payment against a document
+    // that is not a demand for money.
+    config.upiVpa && inv.docType !== 'CRN' && !isProforma
       ? upiIntentUrl({
           vpa: config.upiVpa,
           payeeName: company.name,
@@ -324,6 +334,7 @@ export function buildInvoiceHtml(
 
   const sheet = `
     <div class="sheet">
+      ${isProforma ? '<div class="watermark" aria-hidden="true">PROFORMA</div>' : ''}
       <div class="head">
         <div>
           ${logoBlock}
@@ -332,7 +343,7 @@ export function buildInvoiceHtml(
           <div class="num">GSTIN: ${esc(company.gstin ?? 'Unregistered')} · ${esc(GST_STATES[company.stateCode] ?? company.stateCode)}</div>
         </div>
         <div class="tag">
-          <b>${esc(supplyDocumentTitle(docKind, config.title))}</b>
+          <b>${esc(isProforma ? 'PROFORMA INVOICE' : supplyDocumentTitle(docKind, config.title))}</b>
           ${qrBlock}
         </div>
       </div>
@@ -410,7 +421,7 @@ export function buildInvoiceHtml(
     .copy { padding: 28px; page-break-after: always; }
     .copy:last-child { page-break-after: auto; }
     .copy-label { text-align: right; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #555; margin-bottom: 6px; }
-    .sheet { border: 1.5px solid #16181f; }
+    .sheet { border: 1.5px solid #16181f; position: relative; }
     .head { display: flex; justify-content: space-between; border-bottom: 1.5px solid #16181f; padding: 14px 16px; }
     h1 { font-size: 20px; letter-spacing: 0.02em; }
     .tag { text-align: right; font-size: 11px; }
@@ -440,6 +451,14 @@ export function buildInvoiceHtml(
     /* The payment QR sits beside the totals, not next to the verification QR in the header:
        one says the document is genuine, the other collects money, and putting them together
        invites scanning the wrong one. */
+    /* Behind the content, not over it: a watermark that obscures the figures makes the document
+       unreadable, and the point is that it cannot be mistaken for the real thing — not that it
+       cannot be read. Anchored by the position: relative on .sheet above. */
+    .watermark {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 96px; font-weight: 700; letter-spacing: 0.2em; color: rgba(187, 68, 51, 0.08);
+      transform: rotate(-24deg); pointer-events: none; z-index: 0;
+    }
     .tot-wrap { display: flex; align-items: flex-start; gap: 14px; }
     .upi { text-align: center; }
     .upi-cap { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.06em; color: #555; margin-top: 2px; }

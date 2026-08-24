@@ -205,4 +205,52 @@ await scenario('06-gst', async (h) => {
   assert(rejected, 'a malformed UPI address is rejected on save')
 
   await h.invoke('config:invoice:set', { ...cfg, upiVpa: null })
+
+  // ---- a proforma prints as a proforma ----
+  // A memorandum sales voucher is a document sent to agree a price before anything is owed. One
+  // that looks like a tax invoice is one a customer may pay against and an auditor will ask about.
+  const ledgersForProforma = await h.invoke('master:ledgers:list')
+  const buyer = ledgersForProforma.find((l) => l.gstin)
+  const salesLedger = ledgersForProforma.find((l) => /sales/i.test(l.name))
+  const salesType = (await h.invoke('master:voucherTypes:list')).find((t) => t.kind === 'sales')
+
+  const proforma = await h.invoke('voucher:save', {
+    data: {
+      voucherTypeId: salesType.id, date: from, partyLedgerId: buyer.id,
+      narration: 'Quotation for approval', reference: null, instrumentNo: null, instrumentDate: null,
+      transporterId: null, vehicleNo: null, transportDistanceKm: null,
+      currencyCode: null, exchangeRate: null, isOptional: true,
+      lines: [
+        { ledgerId: buyer.id, drCr: 'dr', amount: 500000 },
+        { ledgerId: salesLedger.id, drCr: 'cr', amount: 500000 }
+      ],
+      inventory: []
+    }
+  })
+
+  // It is out of the books, which is the whole point of a proforma...
+  const tb = await h.invoke('report:trialBalance', { asOn: to })
+  const beforeAmount = tb.totalDebit
+  assert(typeof beforeAmount === 'number', 'the trial balance still computes')
+
+  // ...and yet it still prints, because a per-voucher print request is explicit.
+  const { html: proformaHtml } = await h.invoke('invoice:previewHtml', { voucherId: proforma.id })
+  assert(/PROFORMA INVOICE/.test(proformaHtml), 'it is headed PROFORMA INVOICE')
+  assert(!/TAX INVOICE/.test(proformaHtml), 'and not TAX INVOICE')
+  assert(/class="watermark"/.test(proformaHtml), 'and carries a watermark')
+
+  // A period export must never pick it up: it is not a supply, and GSTR-1 would be wrong.
+  const period2 = await h.invoke('edoc:previewJson', { kind: 'einvoice', from, to })
+  const inPeriod = JSON.stringify(period2.json)
+  assert(
+    !inPeriod.includes(proforma.number) || !/PROFORMA/.test(inPeriod),
+    'the proforma is not in the e-invoice payload for the period'
+  )
+  const g1After = await h.invoke('gst:gstr1', { from, to, period })
+  assert(
+    !JSON.stringify(g1After.json ?? g1After).includes('Quotation for approval'),
+    'and not in GSTR-1'
+  )
+
+  await h.invoke('voucher:delete', { id: proforma.id })
 })

@@ -181,6 +181,37 @@ describe('hsnSummaryForInvoice (Q2 #96 — HSN-wise tax summary block)', () => {
     expect(rows[1]).toMatchObject({ igst: 18000, cgst: 0, sgst: 0 })
   })
 
+  it('prints a memorandum sales voucher as a proforma, watermarked and with no payment QR', () => {
+    // A proforma that looks like a tax invoice is one a customer may pay against and one an
+    // auditor will ask about.
+    const html = buildInvoiceHtml(
+      COMPANY,
+      { ...DEFAULT_INVOICE_CONFIG, upiVpa: 'totaltraders@ybl' },
+      { ...SAMPLE_INVOICE, isOptional: true }
+    )
+    expect(html).toContain('PROFORMA INVOICE')
+    expect(html).not.toContain('TAX INVOICE')
+    expect(html).toContain('class="watermark"')
+    // Nothing is owed yet, so nothing invites payment.
+    expect(html).not.toContain('Scan to pay')
+  })
+
+  it('leaves an ordinary invoice unwatermarked', () => {
+    const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)
+    expect(html).not.toContain('class="watermark"')
+    expect(html).not.toContain('PROFORMA')
+  })
+
+  it('does not turn a memorandum credit note into a proforma', () => {
+    // "Proforma credit note" is not a document; the heading would be nonsense.
+    const html = buildInvoiceHtml(
+      COMPANY,
+      DEFAULT_INVOICE_CONFIG,
+      { ...SAMPLE_INVOICE, isOptional: true, docType: 'CRN' }
+    )
+    expect(html).not.toContain('PROFORMA')
+  })
+
   it('prints a UPI payment QR when a VPA is configured, and none when it is not', () => {
     // An invoice that says what is owed and leaves the customer to type an account number into a
     // banking app gets paid late.

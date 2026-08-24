@@ -68,6 +68,15 @@ export interface EdocInvoice {
   pos: string
   /** Reverse charge applies (party ledger rcm flag) — drives TranDtls.RegRev. Defaults false. */
   rchrg?: boolean
+  /**
+   * A memorandum voucher, out of the books.
+   *
+   * On a sales voucher this is a proforma: a document sent to a customer to agree a price before
+   * anything is owed. It prints as one — different heading, watermarked, no payment QR — because
+   * a proforma that looks like a tax invoice is one a customer may pay against and one an auditor
+   * will ask about.
+   */
+  isOptional?: boolean
   items: EdocItem[]
   taxable: number
   cgst: number

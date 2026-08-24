@@ -236,7 +236,8 @@ Ordering within a section is roughly by value.
 184. Bilingual invoice printing: Devanagari alongside English (M)
 185. Signature and stamp images on the invoice (S)
 186. Live invoice preview while editing the layout (M)
-187. Proforma invoice and quotation (M)
+187. ✓ Proforma invoice (M) — a memorandum sales voucher, which the books already model as
+     out-of-books, printed as a proforma rather than as a tax invoice.
 188. Sales order and purchase order with fulfilment tracking (L)
 189. Delivery note and receipt note (M)
 190. Terms and conditions block, per voucher type (S)
@@ -254,7 +255,8 @@ Ordering within a section is roughly by value.
 200. ✓ Company logo, letterhead and footer configuration (S) — already shipped: logo, title,
      declaration, bank block, terms, signatory and an entered-by footer.
 201. Export invoices as a zip of PDFs for the CA (S)
-202. Watermark for drafts and cancelled documents (S)
+202. ✓ Watermark for proforma documents (S) — cancelled documents live in the bin and are not
+     printable, so there is nothing there to watermark.
 203. Invoice-level discount in addition to line discounts (S)
 
 ## J. AI and agents

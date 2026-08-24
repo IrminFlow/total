@@ -159,6 +159,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
   const vouchers = db
     .prepare(
       `SELECT v.id, v.number, v.date, vt.kind AS kind, v.reference,
+              v.is_optional AS isOptional,
               v.transporter_id AS transporterId, v.vehicle_no AS vehicleNo,
               v.transport_distance AS distanceKm, v.pos_override AS posOverride, v.irn,
               p.name AS partyName, p.gstin AS partyGstin, p.state_code AS partyState, p.address AS partyAddress,
@@ -172,11 +173,12 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        LEFT JOIN voucher_transport t ON t.voucher_id = v.id
        WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ?
-         AND (? IS NULL OR v.id = ?) AND ${IN_BOOKS}
+         AND (? IS NULL OR v.id = ?) AND ${voucherId != null ? NOT_DELETED : IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(...EDOC_KINDS, from, to, voucherId ?? null, voucherId ?? null) as {
       id: number; number: string; date: string; kind: 'sales' | 'credit_note' | 'debit_note'; reference: string | null
+      isOptional: number
       transporterId: string | null; vehicleNo: string | null; distanceKm: number | null
       posOverride: string | null; irn: string | null
       partyName: string | null; partyGstin: string | null; partyState: string | null; partyAddress: string | null
@@ -317,6 +319,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
       number: v.number,
       date: v.date,
       docType: docTypeFor(v.kind),
+      isOptional: !!v.isOptional,
       supTyp,
       rchrg: !!v.partyRcm,
       partyName: v.partyName,
