@@ -82,7 +82,6 @@ import {
   periodSchema,
   priceLevelInputSchema,
   priceRateInputSchema,
-  rendererLogSchema,
   reportPdfSchema,
   stockGroupInputSchema,
   stockItemInputSchema,
@@ -194,6 +193,8 @@ import { registerYearEndHandlers } from "./ipc/yearEndHandlers";
 import { registerBackupHandlers } from "./ipc/backupHandlers";
 import { registerAnalysisHandlers } from "./ipc/analysisHandlers";
 import { registerAuditHandlers } from "./ipc/auditHandlers";
+import { registerAuthHandlers } from "./ipc/authHandlers";
+import { registerApplicationHandlers } from "./ipc/applicationHandlers";
 import { registerIntelligenceHandlers } from "./ipc/intelligenceHandlers";
 import { registerSearchHandlers } from "./ipc/searchHandlers";
 import { registerConfigHandlers } from "./ipc/configHandlers";
@@ -221,8 +222,6 @@ import type { Role } from "./services/roles";
 import {
   employeeInputSchema,
   nicCredentialsSchema,
-  userInputSchema,
-  authLoginSchema,
   payHeadInputSchema,
   employeeHeadsSetSchema,
   payrollRunIdSchema,
@@ -6384,106 +6383,29 @@ export function registerIpc(): void {
   registerAuditHandlers({ handle, requireCompany });
 
   // ---------- auth + users ----------
-  // auth:* itself is in UNGATED_CHANNELS (see `handle`) — you have to be able to call
-  // auth:login before you're "in". users:list/save/deactivate are owner-only, *except* that
-  // users:save is reachable with no session at all while the company has zero users: that's
-  // how the first (forced-owner) account gets created without a chicken-and-egg deadlock —
-  // see the UNGATED_CHANNELS / `current.usersExist` gate in `handle`.
-  handle("auth:users", () => users.listLoginNames(requireCompany().db));
-  handle("auth:login", (p) => {
-    const { userId, pin } = authLoginSchema.parse(p);
-    const c = requireCompany();
-    const result = users.login(c.db, userId, pin);
-    if (sessionToken)
-      internalControls.closeSession(c.db, sessionToken, "locked");
-    sessionUser = result;
-    sessionToken = randomUUID();
-    internalControls.openSession(c.db, result.id, sessionToken);
-    return result;
-  });
-  handle("auth:logout", () => {
-    // [lane-Q audit] logout audit row (task Q1 #90) — only meaningful with a live session.
-    if (current && sessionUser) {
-      writeAudit(current.db, "user", sessionUser.id, "logout", null, null);
-      if (sessionToken)
-        internalControls.closeSession(current.db, sessionToken, "signed_out");
-    }
-    sessionUser = null;
-    sessionToken = null;
-    return null;
-  });
-  handle("auth:current", () => sessionUser);
-
-  handle("users:list", () => users.listUsers(requireCompany().db), "owner");
-  handle(
-    "users:save",
-    (p) => {
-      const { data, id } = z
-        .object({
-          data: userInputSchema,
-          id: z.number().int().positive().optional(),
-        })
-        .parse(p);
-      const c = requireCompany();
-      const bootstrap = id === undefined && !c.usersExist;
-      const before = id ? users.getUser(c.db, id) : null;
-      const saved = users.saveUser(c.db, data, id);
-      c.usersExist = users.usersExist(c.db);
-      // The bootstrap owner (the very first user of a fresh company) is auto-authenticated as
-      // themselves — they just proved they're standing at the machine by creating the account,
-      // and forcing them to immediately re-enter the PIN they picked a second ago would be theatre.
-      if (bootstrap) {
-        sessionUser = { id: saved.id, name: saved.name, role: saved.role };
-        sessionToken = randomUUID();
-        internalControls.openSession(c.db, saved.id, sessionToken);
-      }
-      writeAudit(
-        c.db,
-        "user",
-        saved.id,
-        id ? "update" : "create",
-        before,
-        saved,
-      );
-      return { ...saved, locked: c.usersExist && !sessionUser };
+  registerAuthHandlers({
+    handle,
+    requireCompany,
+    getCurrentCompany: () => current,
+    getSessionUser: () => sessionUser,
+    getSessionToken: () => sessionToken,
+    setSessionUser: (user) => {
+      sessionUser = user;
     },
-    "owner",
-  );
-  handle(
-    "users:deactivate",
-    (p) => {
-      const { id } = idSchema.parse(p);
-      const c = requireCompany();
-      const before = users.getUser(c.db, id);
-      users.deactivateUser(c.db, id);
-      c.usersExist = users.usersExist(c.db);
-      writeAudit(c.db, "user", id, "update", before, {
-        ...before,
-        active: false,
-      });
-      return null;
+    setSessionToken: (token) => {
+      sessionToken = token;
     },
-    "owner",
-  );
-
-  // ---------- logging ----------
-  handle("log:renderer", (p) => {
-    const { message, stack, componentStack, screen } =
-      rendererLogSchema.parse(p);
-    log("error", "renderer-error", { message, stack, componentStack, screen });
-    return null;
-  });
-  handle("log:reveal", () => {
-    revealLogs();
-    return null;
   });
 
-  // ---------- app info + updates ----------
-  handle("app:info", () => ({
-    version: app.getVersion(),
+  // ---------- logging + app info + updates ----------
+  registerApplicationHandlers({
+    handle,
+    writeRendererError: (detail) => log("error", "renderer-error", detail),
+    revealLogs,
+    getVersion: () => app.getVersion(),
     platform: process.platform,
-  }));
-  handle("app:checkUpdates", () => checkForUpdatesInteractive(), "viewer");
+    checkForUpdates: checkForUpdatesInteractive,
+  });
   registerSupportHandlers(handle, {
     getCurrentCompany: () => current,
     hasSession: () => sessionUser !== null,

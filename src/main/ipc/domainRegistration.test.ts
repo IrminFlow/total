@@ -4,6 +4,8 @@ import { registerYearEndHandlers } from "./yearEndHandlers";
 import { registerBackupHandlers } from "./backupHandlers";
 import { registerAnalysisHandlers } from "./analysisHandlers";
 import { registerAuditHandlers } from "./auditHandlers";
+import { registerAuthHandlers } from "./authHandlers";
+import { registerApplicationHandlers } from "./applicationHandlers";
 import { registerConfigHandlers } from "./configHandlers";
 import { registerIntelligenceHandlers } from "./intelligenceHandlers";
 import { registerSearchHandlers } from "./searchHandlers";
@@ -58,6 +60,23 @@ describe("extracted IPC domain registration", () => {
     });
     registerAnalysisHandlers({ handle, requireCompany });
     registerAuditHandlers({ handle, requireCompany });
+    registerAuthHandlers({
+      handle,
+      requireCompany: requireCompany as never,
+      getCurrentCompany: () => null,
+      getSessionUser: () => null,
+      getSessionToken: () => null,
+      setSessionUser: () => undefined,
+      setSessionToken: () => undefined,
+    });
+    registerApplicationHandlers({
+      handle,
+      writeRendererError: () => undefined,
+      revealLogs: () => undefined,
+      getVersion: () => "0.5.0",
+      platform: "darwin",
+      checkForUpdates: () => undefined,
+    });
     registerConfigHandlers({ handle, requireCompany });
     registerIntelligenceHandlers({ handle, requireCompany });
     registerSearchHandlers({ handle, requireCompany });
@@ -98,6 +117,17 @@ describe("extracted IPC domain registration", () => {
       ["audit:verify", "viewer"],
       ["config:audit:get", "viewer"],
       ["config:audit:set", "owner"],
+      ["auth:users", undefined],
+      ["auth:login", undefined],
+      ["auth:logout", undefined],
+      ["auth:current", undefined],
+      ["users:list", "owner"],
+      ["users:save", "owner"],
+      ["users:deactivate", "owner"],
+      ["log:renderer", undefined],
+      ["log:reveal", undefined],
+      ["app:info", undefined],
+      ["app:checkUpdates", "viewer"],
       ["config:features:get", "viewer"],
       ["config:features:set", "owner"],
       ["config:invoice:get", "viewer"],
