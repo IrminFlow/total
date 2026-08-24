@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { registerConsolidatedHandlers } from "./consolidatedHandlers";
 import { registerYearEndHandlers } from "./yearEndHandlers";
+import { registerBackupHandlers } from "./backupHandlers";
 import { registerAnalysisHandlers } from "./analysisHandlers";
 import { registerAuditHandlers } from "./auditHandlers";
 import { registerConfigHandlers } from "./configHandlers";
@@ -25,7 +26,36 @@ describe("extracted IPC domain registration", () => {
     };
 
     registerConsolidatedHandlers({ handle, requireCompany });
-    registerYearEndHandlers({ handle, requireCompany });
+    registerYearEndHandlers({
+      handle,
+      requireCompany,
+      prepareClose: () => {
+        throw new Error("registration must not prepare a close");
+      },
+    });
+    registerBackupHandlers({
+      handle,
+      requireCompany,
+      actor: () => {
+        throw new Error("registration must not resolve an actor");
+      },
+      chooseDestination: async () => {
+        throw new Error("registration must not open a chooser");
+      },
+      backupCompany: (() => {
+        throw new Error("registration must not create a backup");
+      }) as never,
+      companyBackupsDir: (() => {
+        throw new Error("registration must not resolve paths");
+      }) as never,
+      inspectBackup: (() => {
+        throw new Error("registration must not inspect backups");
+      }) as never,
+      listBackupsIn: (() => {
+        throw new Error("registration must not list backups");
+      }) as never,
+      resilience: {} as never,
+    });
     registerAnalysisHandlers({ handle, requireCompany });
     registerAuditHandlers({ handle, requireCompany });
     registerConfigHandlers({ handle, requireCompany });
@@ -51,6 +81,17 @@ describe("extracted IPC domain registration", () => {
       ["consol:run", "viewer"],
       ["yearend:preview", "viewer"],
       ["yearend:close", "owner"],
+      ["company:backup", undefined],
+      ["backup:run", undefined],
+      ["backup:list", "viewer"],
+      ["backup:destinations:list", "viewer"],
+      ["backup:destinations:add", "owner"],
+      ["backup:destinations:setActive", "owner"],
+      ["backup:drills:list", "viewer"],
+      ["backup:drills:run", "owner"],
+      ["backup:rotation:get", "viewer"],
+      ["backup:rotation:set", "owner"],
+      ["backup:preview", "owner"],
       ["analysis:register", "viewer"],
       ["analysis:outstandings", "viewer"],
       ["audit:list", "viewer"],

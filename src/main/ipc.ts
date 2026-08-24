@@ -36,7 +36,6 @@ import {
   rollbackRestore,
   backupStamp,
   runWeeklyIntegrityCheck,
-  type BackupInfo,
 } from "./db/backup";
 import {
   createCompleteBackup,
@@ -192,6 +191,7 @@ import { registerSupportHandlers } from "./ipc/supportHandlers";
 import { registerReportHandlers } from "./ipc/reportHandlers";
 import { registerConsolidatedHandlers } from "./ipc/consolidatedHandlers";
 import { registerYearEndHandlers } from "./ipc/yearEndHandlers";
+import { registerBackupHandlers } from "./ipc/backupHandlers";
 import { registerAnalysisHandlers } from "./ipc/analysisHandlers";
 import { registerAuditHandlers } from "./ipc/auditHandlers";
 import { registerIntelligenceHandlers } from "./ipc/intelligenceHandlers";
@@ -851,17 +851,6 @@ export function registerIpc(): void {
     "owner",
   );
 
-  const runManualBackup = async (): Promise<{
-    path: string;
-    copies: ReturnType<typeof resilience.replicateBackup>;
-  }> => {
-    const c = requireCompany();
-    const path = await backupCompany(c.db, c.slug, "manual");
-    return { path, copies: resilience.replicateBackup(c.db, c.slug, path) };
-  };
-  // 'company:backup' is kept as an alias of 'backup:run' for existing callers.
-  handle("company:backup", runManualBackup);
-
   handle("company:revealExports", () => {
     const c = requireCompany();
     shell.openPath(companyExportsDir(c.slug));
@@ -915,129 +904,38 @@ export function registerIpc(): void {
   );
 
   // ---------- year-end close ----------
-  registerYearEndHandlers({ handle, requireCompany });
+  registerYearEndHandlers({
+    handle,
+    requireCompany,
+    prepareClose: (company, fyStartYear) => {
+      const restorePoint = resilience.createYearEndRestorePoint(
+        company.db,
+        company.slug,
+        fyStartYear,
+      );
+      resilience.replicateBackup(company.db, company.slug, restorePoint);
+      resilience.applyRotationPolicy(company.db, company.slug);
+    },
+  });
 
   // ---------- backups: list/run/restore + encrypted export/import ----------
-  handle(
-    "backup:list",
-    (): BackupInfo[] => {
-      const c = requireCompany();
-      return listBackupsIn(companyBackupsDir(c.slug));
-    },
-    "viewer",
-  );
-
-  handle("backup:run", runManualBackup);
-  handle(
-    "backup:destinations:list",
-    () => resilience.listBackupDestinations(requireCompany().db),
-    "viewer",
-  );
-  handle(
-    "backup:destinations:add",
-    async (p) => {
-      const { name } = z
-        .object({ name: z.string().trim().min(2).max(80) })
-        .parse(p);
+  registerBackupHandlers({
+    handle,
+    requireCompany,
+    actor: () => sessionUser?.name ?? "Local owner",
+    chooseDestination: async () => {
       const picked = await dialog.showOpenDialog({
         title: "Choose a backup destination",
         properties: ["openDirectory", "createDirectory"],
       });
-      if (picked.canceled || !picked.filePaths[0]) return null;
-      return resilience.addBackupDestination(
-        requireCompany().db,
-        name,
-        picked.filePaths[0],
-        sessionUser?.name ?? "Local owner",
-      );
+      return picked.canceled ? null : picked.filePaths[0] ?? null;
     },
-    "owner",
-  );
-  handle(
-    "backup:destinations:setActive",
-    (p) => {
-      const { id, active } = z
-        .object({ id: z.number().int().positive(), active: z.boolean() })
-        .parse(p);
-      return resilience.setBackupDestinationActive(
-        requireCompany().db,
-        id,
-        active,
-      );
-    },
-    "owner",
-  );
-  handle(
-    "backup:drills:list",
-    () => ({
-      due: resilience.recoveryDrillDue(requireCompany().db),
-      rows: resilience.listRecoveryDrills(requireCompany().db),
-    }),
-    "viewer",
-  );
-  handle(
-    "backup:drills:run",
-    (p) => {
-      const { destinationId } = z
-        .object({
-          destinationId: z.number().int().positive().nullable().optional(),
-        })
-        .parse(p ?? {});
-      const company = requireCompany();
-      return resilience.runRecoveryDrill(
-        company.db,
-        company.slug,
-        sessionUser?.name ?? "Local owner",
-        destinationId,
-      );
-    },
-    "owner",
-  );
-  handle(
-    "backup:rotation:get",
-    () => ({
-      policy: resilience.getRotationPolicy(requireCompany().db),
-      forecast: resilience.backupSpaceForecast(
-        requireCompany().db,
-        requireCompany().slug,
-      ),
-    }),
-    "viewer",
-  );
-  handle(
-    "backup:rotation:set",
-    (p) => {
-      const input = z
-        .object({
-          dailyCount: z.number().int().min(1).max(365),
-          weeklyCount: z.number().int().min(0).max(104),
-          monthlyCount: z.number().int().min(0).max(120),
-          yearEndCount: z.number().int().min(0).max(25),
-        })
-        .parse(p);
-      const company = requireCompany();
-      const policy = resilience.setRotationPolicy(
-        company.db,
-        input,
-        sessionUser?.name ?? "Local owner",
-      );
-      return {
-        policy,
-        forecast: resilience.backupSpaceForecast(company.db, company.slug),
-      };
-    },
-    "owner",
-  );
-
-  handle(
-    "backup:preview",
-    (payload) => {
-      const { file } = z.object({ file: backupFileSchema }).parse(payload);
-      const c = requireCompany();
-      return inspectBackup(join(companyBackupsDir(c.slug), file));
-    },
-    "owner",
-  );
+    backupCompany,
+    companyBackupsDir,
+    inspectBackup,
+    listBackupsIn,
+    resilience,
+  });
 
   handle(
     "backup:restore",

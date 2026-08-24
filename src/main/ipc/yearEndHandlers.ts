@@ -1,11 +1,11 @@
 import { z } from "zod";
 import * as yearEnd from "../services/yearEnd";
-import * as resilience from "../services/resilience";
 import type { CompanyContext, IpcHandle } from "./types";
 
 interface YearEndHandlerContext {
   handle: IpcHandle;
   requireCompany: () => CompanyContext;
+  prepareClose: (company: CompanyContext, fyStartYear: number) => void;
 }
 
 const fyStartYearSchema = z.object({
@@ -15,6 +15,7 @@ const fyStartYearSchema = z.object({
 export function registerYearEndHandlers({
   handle,
   requireCompany,
+  prepareClose,
 }: YearEndHandlerContext): void {
   handle(
     "yearend:preview",
@@ -33,15 +34,7 @@ export function registerYearEndHandlers({
         company.db,
         company.info,
         fyStartYear,
-        () => {
-          const restorePoint = resilience.createYearEndRestorePoint(
-            company.db,
-            company.slug,
-            fyStartYear,
-          );
-          resilience.replicateBackup(company.db, company.slug, restorePoint);
-          resilience.applyRotationPolicy(company.db, company.slug);
-        },
+        () => prepareClose(company, fyStartYear),
       );
     },
     "owner",
