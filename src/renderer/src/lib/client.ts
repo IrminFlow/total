@@ -572,6 +572,13 @@ export const api = {
         { from, to, period, ...opts }
       ),
     ewbJson: (voucherId: number) => call<{ path: string }>('edoc:ewbJson', { voucherId }),
+    /** The exact JSON an export would write, without writing it. */
+    previewJson: (
+      kind: 'einvoice' | 'ewb',
+      from: string,
+      to: string,
+      opts?: { voucherId?: number; includeBelowThreshold?: boolean }
+    ) => call<{ json: unknown; count: number; issues: string[] }>('edoc:previewJson', { kind, from, to, ...opts }),
     transportGet: (voucherId: number) => call<VoucherTransport | null>('edoc:transportGet', { voucherId }),
     transportSet: (voucherId: number, data: VoucherTransportInput) =>
       call<VoucherTransport>('edoc:transportSet', { voucherId, data })

@@ -53,6 +53,42 @@ await scenario('06-gst', async (h) => {
     assert(bill[field] !== undefined && bill[field] !== null && bill[field] !== '', `EWB mandatory field ${field} present (got ${JSON.stringify(bill[field])})`)
   }
 
+  // ---- "show me exactly what would be sent" ----
+  // The trust argument for an offline filing tool is that you can see what it is about to do, so
+  // the preview has to be the file rather than a rendering of it.
+  const previewEinv = await h.invoke('edoc:previewJson', { kind: 'einvoice', from, to })
+  assert(previewEinv.json, 'the e-invoice preview builds a payload')
+  const einvExport = await h.invoke('edoc:exportEInvoice', { from, to, period })
+  assert(
+    JSON.stringify(previewEinv.json, null, 2) === fs.readFileSync(einvExport.path, 'utf8'),
+    'the e-invoice preview is byte for byte the exported file'
+  )
+  const previewEwb = await h.invoke('edoc:previewJson', { kind: 'ewb', from, to })
+  assert(Array.isArray(previewEwb.issues), 'the e-way preview names what it excluded')
+
+  // On screen: the button opens the payload, and what it shows parses as the same JSON.
+  await h.page.keyboard.press('Escape')
+  await h.page.keyboard.press('g')
+  await h.waitScreen('gateway')
+  await h.page.keyboard.press('w')
+  await h.waitScreen('edocs')
+  await h.page.click('[data-testid="btn-json-einvoice"]')
+  await h.page.waitForSelector('[data-testid="json-einvoice"]', { timeout: 15000 })
+  const shownJson = await h.page.textContent('[data-testid="json-einvoice"]')
+  // The screen works over the session period (the whole FY), not the single month used above.
+  const bf = (await h.invoke('company:current')).info.booksFrom
+  const fyPreview = await h.invoke('edoc:previewJson', {
+    kind: 'einvoice',
+    from: `${bf}-04-01`,
+    to: `${bf + 1}-03-31`
+  })
+  assert(
+    JSON.stringify(JSON.parse(shownJson)) === JSON.stringify(fyPreview.json),
+    'the JSON on screen is the payload, not a summary of it'
+  )
+  await h.shot('01-json-preview')
+  await h.page.keyboard.press('Escape')
+
   // Bulk export also writes one single-bill file per voucher under exports/ewb/<period>/.
   const bulk = await h.invoke('edoc:exportEwb', { from, to, period, includeBelowThreshold: true })
   assert(bulk.count > 0, 'bulk EWB export found eligible bills')

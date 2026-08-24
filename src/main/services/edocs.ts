@@ -480,6 +480,55 @@ export function ewbJsonForVoucher(db: DB, company: CompanyInfo, slug: string, vo
   return { path }
 }
 
+/**
+ * The exact JSON an export would write, without writing anything.
+ *
+ * Deliberately built by calling the same builders the export paths call, rather than by reading
+ * a file back: a preview that reads the last export shows the last export, which is precisely
+ * the wrong thing when someone is checking what is about to happen.
+ *
+ * Nothing here throws for an ineligible bill the way `ewbJsonForVoucher` does -- the point of
+ * looking is often to find out why a payload is not what you expected, and refusing to show it
+ * defeats that. The blocking issues are returned alongside instead.
+ */
+export function previewJson(
+  db: DB,
+  company: CompanyInfo,
+  kind: 'einvoice' | 'ewb',
+  from: string,
+  to: string,
+  opts: { voucherId?: number; includeBelowThreshold?: boolean } = {}
+): { json: unknown; count: number; issues: string[] } {
+  const comp = edocCompany(company)
+
+  if (kind === 'einvoice') {
+    const outwardDbn = outwardDebitNoteIds(db, from, to)
+    const invoices = extractEdocInvoices(db, company, from, to, opts.voucherId).filter(
+      (i) =>
+        (i.docType !== 'DBN' || (i.voucherId != null && outwardDbn.has(i.voucherId))) &&
+        (i.partyGstin || i.supTyp === 'EXPWP' || i.supTyp === 'EXPWOP')
+    )
+    return { json: buildEInvoiceJson(invoices, comp), count: invoices.length, issues: [] }
+  }
+
+  if (opts.voucherId != null) {
+    const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', opts.voucherId)
+    if (!inv) return { json: null, count: 0, issues: ['Voucher not found'] }
+    const elig = ewbEligibility(inv, true)
+    const issues = [...(elig.eligible ? [] : [elig.reason!]), ...ewbIssues(inv, comp)]
+    return { json: buildEwbJson([inv], comp), count: 1, issues }
+  }
+
+  const { eligible, skipped } = ewbInvoicesFor(db, company, from, to, {
+    includeBelowThreshold: opts.includeBelowThreshold
+  })
+  return {
+    json: buildEwbJson(eligible, comp),
+    count: eligible.length,
+    issues: skipped.map((s) => `${s.number}: ${s.reason}`)
+  }
+}
+
 // ---------- e-invoice round-off validation (G6 #33) ----------
 
 export interface RoundOffIssue {

@@ -112,18 +112,18 @@ Ordering within a section is roughly by value.
 92. GST rate-change handling: rate history per item with effective dates (L)
 93. ✓ HSN summary validation against the GSTR-1 schema before export (S)
 94. B2C large invoice threshold flagged automatically (S)
-95. Place-of-supply auto-derivation from the party's state code (S)
+95. ✓ Place-of-supply auto-derivation from the party's state code (S) — already shipped
 96. E-way bill distance auto-lookup from pin codes (M)
 97. ✓ A filing calendar that marks a return as filed with its ARN (M)
 98. ✓ Late-fee and interest calculator for delayed filing (M)
 99. ✓ GST payment challan (PMT-06) tracking against liability (M)
 100. ✓ Nil-return shortcut when a period has no transactions (S)
 101. Amendment tables (B2BA, CDNRA) in GSTR-1 (L)
-102. Export invoices with and without payment of tax, split correctly (M)
-103. SEZ supplies with and without payment, split correctly (M)
-104. Advance receipt and adjustment tables (11A, 11B) (M)
-105. A validation gate that blocks export until every error clears (already there) (S)
-106. Show the exact JSON that will be uploaded, before uploading (S)
+102. ✓ Export invoices with and without payment of tax, split correctly (M) — already shipped
+103. ✓ SEZ supplies with and without payment, split correctly (M) — already shipped
+104. ✓ Advance receipt and adjustment tables (11A, 11B) (M) — already shipped
+105. ✓ A validation gate that blocks export until every error clears (S) — already shipped
+106. ✓ Show the exact JSON that will be uploaded, before uploading (S)
 107. NIC sandbox validation of the live-filing client (M)
 108. Multi-GSTIN companies: one book, several registrations (L)
 109. TDS lower-deduction certificate handling (M)

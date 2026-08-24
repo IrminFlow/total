@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { JsonPreview } from '../components/JsonPreview'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { AmountInput, Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner, useTableNav } from '../components/ui'
 import { todayISO } from '@shared/dates'
@@ -209,6 +210,12 @@ export function Gstr1Screen(): React.JSX.Element {
         right={
           <div className="flex items-center gap-2">
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr1-month" />
+            <JsonPreview
+              value={data?.json}
+              title={`GSTR-1 portal JSON — ${month.period}`}
+              filename={`gstr1-${month.period}.json`}
+              testId="json-gstr1"
+            />
             <Button
               variant="primary"
               data-testid="btn-gstr1-export"
@@ -481,6 +488,12 @@ export function Gstr3bScreen(): React.JSX.Element {
         right={
           <div className="flex items-center gap-2">
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr3b-month" />
+            <JsonPreview
+              value={data?.json}
+              title={`GSTR-3B portal JSON — ${month.period}`}
+              filename={`gstr3b-${month.period}.json`}
+              testId="json-gstr3b"
+            />
             <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!info?.gstin}>
               Export JSON
             </Button>

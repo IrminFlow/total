@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { JsonPreview } from '../components/JsonPreview'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, useTableNav } from '../components/ui'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
@@ -141,6 +142,8 @@ export function EdocsScreen(): React.JSX.Element {
             <Button onClick={() => nav.go({ name: 'settings', tab: 'nic' })}>
               {live ? 'Live filing ✓ · Configure in Settings →' : 'Configure in Settings →'}
             </Button>
+            <PreviewButton kind="einvoice" from={from} to={to} label="View e-invoice JSON" testId="json-einvoice" />
+            <PreviewButton kind="ewb" from={from} to={to} label="View e-way JSON" testId="json-ewb" />
             <Button variant="primary" data-testid="btn-edocs-export-einvoice" onClick={() => void exportEinv()} disabled={!info?.gstin}>
               Export e-invoice JSON
             </Button>
@@ -335,5 +338,42 @@ function LiveApiConfirmModal({
         </Button>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Show the payload before it goes anywhere.
+ *
+ * This is the highest-stakes JSON the app produces -- the one that would be handed to a
+ * government portal -- so it is built fresh by the same builders the export uses rather than read
+ * back off the last export, and any blocking issue is listed alongside instead of hiding the
+ * payload. The reason to look is often to find out why it is not what you expected.
+ */
+function PreviewButton({
+  kind,
+  from,
+  to,
+  label,
+  testId
+}: {
+  kind: 'einvoice' | 'ewb'
+  from: string
+  to: string
+  label: string
+  testId: string
+}): React.JSX.Element {
+  const { data } = useQuery({
+    queryKey: ['edocPreview', kind, from, to],
+    queryFn: () => api.edoc.previewJson(kind, from, to)
+  })
+  return (
+    <JsonPreview
+      value={data?.json}
+      title={`${label.replace('View ', '')} — ${data?.count ?? 0} document${data?.count === 1 ? '' : 's'}${
+        data?.issues.length ? ` · ${data.issues.length} excluded` : ''
+      }`}
+      label={label}
+      testId={testId}
+    />
   )
 }

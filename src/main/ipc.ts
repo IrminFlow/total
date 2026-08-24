@@ -1104,6 +1104,20 @@ export function registerIpc(): void {
     shell.showItemInFolder(r.path)
     return r
   })
+  handle('edoc:previewJson', (p) => {
+    const { kind, from, to, voucherId, includeBelowThreshold } = z
+      .object({
+        kind: z.enum(['einvoice', 'ewb']),
+        from: isoDate,
+        to: isoDate,
+        voucherId: z.number().int().positive().optional(),
+        includeBelowThreshold: z.boolean().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return edocs.previewJson(c.db, c.info, kind, from, to, { voucherId, includeBelowThreshold })
+  }, 'viewer')
+
   handle('edoc:transportGet', (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     return edocs.getTransport(requireCompany().db, voucherId)
