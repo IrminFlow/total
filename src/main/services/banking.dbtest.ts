@@ -174,6 +174,16 @@ describe('bank-charge extraction', () => {
     ])
     expect(db.prepare('SELECT status, matched_line_id AS matchedLineId, created_voucher_id AS createdVoucherId FROM bank_statement_rows').get())
       .toEqual({ status: 'matched', matchedLineId: settlementLineId, createdVoucherId: posted.voucherId })
+    const workspace = reconciliationWorkspace(db, bank.id)
+    expect(workspace.counts).toMatchObject({ matched: 1, bankOnly: 0, bookOnly: 0 })
+    expect(workspace.bookOnlyRows).toEqual([])
+    const reconciliation = bankRecon(db, bank.id, '2026-08-01', '2026-08-31')
+    expect(reconciliation).toMatchObject({
+      bookBalance: 100000,
+      bankBalance: 100000,
+      unreconciledDeposits: 0,
+      unreconciledWithdrawals: 0
+    })
     expect(chargeExtractionSuggestions(db)).toHaveLength(0)
   })
 })

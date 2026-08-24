@@ -529,7 +529,19 @@ export function reconciliationWorkspace(db: DB, ledgerId: number): Reconciliatio
             created_voucher_id AS createdVoucherId, note, reviewed_by AS reviewedBy, reviewed_at AS reviewedAt
      FROM bank_statement_rows WHERE import_id = ? ORDER BY row_no`
   ).all(latest.id) as ReconciliationWorkspace['statementRows']
-  const matchedLineIds = statementRows.flatMap((row) => row.matchedLineId == null ? [] : [row.matchedLineId])
+  // A matched statement row can reconcile a compound book movement: charge extraction, for
+  // example, links the gross receipt line plus the bank-credit line of its generated fee voucher.
+  // `created_voucher_id` is durable statement evidence for that second leg (and for auto-created
+  // vouchers), so every bank line on that linked voucher belongs to the same reconciliation.
+  const reconciledLineIds = db.prepare(
+    `SELECT DISTINCT vl.id AS lineId
+     FROM bank_statement_rows sr
+     JOIN voucher_lines vl ON (
+       vl.id = sr.matched_line_id
+       OR (sr.created_voucher_id IS NOT NULL AND vl.voucher_id = sr.created_voucher_id AND vl.ledger_id = ?)
+     )
+     WHERE sr.import_id = ? AND sr.status = 'matched'`
+  ).all(ledgerId, latest.id) as { lineId: number }[]
   const bookRows = db.prepare(
     `SELECT vl.id AS lineId, v.id AS voucherId, v.date, v.number,
             CASE WHEN vl.dr_cr = 'dr' THEN 'deposit' ELSE 'withdrawal' END AS direction,
@@ -541,7 +553,7 @@ export function reconciliationWorkspace(db: DB, ledgerId: number): Reconciliatio
      WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
      ORDER BY v.date, v.id`
   ).all(ledgerId, latest.periodFrom, latest.periodTo) as ReconciliationWorkspace['bookOnlyRows']
-  const matchedSet = new Set(matchedLineIds)
+  const matchedSet = new Set(reconciledLineIds.map((row) => row.lineId))
   const bookOnlyRows = bookRows.filter((row) => !matchedSet.has(row.lineId))
   const movement = db.prepare(
     `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS amount

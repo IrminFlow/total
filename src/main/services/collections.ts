@@ -3,6 +3,7 @@ import type { CollectionCustomerSettings, CollectionCustomerWorkspace, Collectio
 import { outstandings } from './analysis'
 import { writeAudit } from './audit'
 import { descendantIdsByName } from './masters'
+import { inBooksPredicate } from './vouchers'
 
 interface PromiseRow {
   id: number; ledger_id: number; amount: number; promised_date: string; owner: string; note: string | null
@@ -140,7 +141,15 @@ export function customerWorkspace(db: DB, ledgerId: number, asOn: string): Colle
   const band = score >= 50 ? 'high' : score >= 20 ? 'medium' : 'low'
   const discountAmount = settings.earlyDiscountBps ? Math.round(customerReceivable * settings.earlyDiscountBps / 10_000) : 0
   const annualizedCostBps = settings.earlyDiscountBps > 0 && settings.earlyDays > 0 && settings.earlyDiscountBps < 10_000 ? Math.round(settings.earlyDiscountBps * 365 * 10_000 / ((10_000 - settings.earlyDiscountBps) * settings.earlyDays)) : null
-  const observed = db.prepare(`SELECT CAST(ROUND(AVG(MAX(0,julianday(pay.date)-julianday(COALESCE(orig.due_date,inv.date))))) AS INTEGER) AS days FROM bill_refs payref JOIN vouchers pay ON pay.id=payref.voucher_id JOIN bill_refs orig ON orig.party_ledger_id=payref.party_ledger_id AND orig.name=payref.name AND orig.kind='new' JOIN vouchers inv ON inv.id=orig.voucher_id WHERE payref.party_ledger_id=? AND payref.kind='against' AND pay.date<=?`).get(ledgerId, asOn) as { days: number | null }
+  const observed = db.prepare(
+    `SELECT CAST(ROUND(AVG(MAX(0,julianday(pay.date)-julianday(COALESCE(orig.due_date,inv.date))))) AS INTEGER) AS days
+     FROM bill_refs payref
+     JOIN vouchers pay ON pay.id=payref.voucher_id
+     JOIN bill_refs orig ON orig.party_ledger_id=payref.party_ledger_id AND orig.name=payref.name AND orig.kind='new'
+     JOIN vouchers inv ON inv.id=orig.voucher_id
+     WHERE payref.party_ledger_id=? AND payref.kind='against' AND pay.date<=?
+       AND ${inBooksPredicate('pay')} AND ${inBooksPredicate('inv')}`
+  ).get(ledgerId, asOn) as { days: number | null }
   const behaviorDays = Math.max(0, Math.min(90, observed.days ?? 0))
   const pendingPromise = listPromises(db, ledgerId).find((row) => row.status === 'pending')
   let promisedRemaining = Math.min(current?.pending ?? 0, pendingPromise?.amount ?? 0)
