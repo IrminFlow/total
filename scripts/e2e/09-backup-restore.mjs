@@ -59,4 +59,39 @@ await scenario('09-backup-restore', async (h) => {
   // The UI survives a restore: navigate + render the backups tab.
   await h.goto('settings')
   await h.shot('01-settings-after-restore')
+
+  // ---- proving a backup, rather than promising one ----
+  // A backup button that has never been proved is a promise, and a business finds out whether it
+  // was true on the worst day of its year. Checking quick_check is not proof: a structurally
+  // valid SQLite file can still hold books that do not add up.
+  const toVerify = await h.invoke('backup:list')
+  assert(toVerify.length > 0, 'there is a backup to verify')
+
+  const verified = await h.invoke('backup:verify', { file: toVerify[0].file })
+  assert(verified.integrityOk, 'the backup is structurally sound')
+  assert(verified.opensAsCompany, 'and is a Total company database')
+  assert(verified.balanced, 'and the books inside it balance')
+  assert(verified.totalDebit === verified.totalCredit, 'debits equal credits in the backup')
+  assert(verified.problem === null, 'with nothing to report')
+
+  // The count is the backup's own, not the live books' — that is what makes it a check.
+  assert(typeof verified.voucherCount === 'number', 'it counts the vouchers it found')
+
+  // On screen, verification is on demand: opening twenty databases to answer a question nobody
+  // asked would be worse than not offering it.
+  await h.goto('settings')
+  await h.page.click('[data-testid="tab-settings-backups"]')
+  await h.page.waitForSelector(`[data-testid="btn-verify-${toVerify[0].file}"]`, { timeout: 15000 })
+  await h.page.click(`[data-testid="btn-verify-${toVerify[0].file}"]`)
+  await h.page.waitForSelector(`[data-testid="verify-result-${toVerify[0].file}"]`, { timeout: 15000 })
+  const resultText = await h.page.textContent(`[data-testid="verify-result-${toVerify[0].file}"]`)
+  assert(/books balance/.test(resultText), `the result says the books balance (got ${resultText})`)
+  await h.shot('05-verified')
+
+  // ---- the Gateway says when the books were last backed up ----
+  await h.goto('gateway')
+  await h.page.waitForSelector('[data-testid="gateway-last-backup"]', { timeout: 15000 })
+  const line = await h.page.textContent('[data-testid="gateway-last-backup"]')
+  assert(/Last backup/.test(line), `the Gateway states the last backup (got ${line})`)
+  assert(new RegExp(`${toVerify.length} kept`).test(line), 'and how many are kept')
 })

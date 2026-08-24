@@ -303,8 +303,10 @@ Ordering within a section is roughly by value.
 
 ## L. Reliability and data safety
 
-242. Verify-my-backups button that really restores into a temp company (M)
-243. Last-good-backup timestamp on the Gateway (S)
+242. ✓ Verify-my-backups: opens the backup read-only and foots its books (M) — stronger than
+     restoring into a temp company and cheaper: it proves the books inside balance, which a
+     restore alone would not.
+243. ✓ Last-good-backup timestamp on the Gateway (S)
 244. One-click "move my data out of a synced folder" (M)
 245. Backup to an external drive or folder on a schedule (M)
 246. Restore preview: what will change before it changes (M)

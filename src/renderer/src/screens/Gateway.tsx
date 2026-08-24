@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { Accel, Button, Money, Panel, ScrollList, Skeleton } from '../components/ui'
-import { toDisplayDate, todayISO } from '@shared/dates'
+import { toDisplayDate, toDisplayDateTime, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { buildReminder } from '@shared/outstanding'
 import { useFeatures } from '../lib/useFeatures'
@@ -98,6 +98,8 @@ export function Gateway(): React.JSX.Element {
       {/* Fixed row height: long receivable/payable lists scroll inside their panels instead of
           stretching the row — which would also stretch the sparkline opposite and make its
           aspect depend on how many debtors the company has. */}
+      <LastBackupLine />
+
       <div className="mt-6 grid h-[420px] grid-cols-2 gap-3">
         <div className="flex min-h-0 flex-col gap-3">
           {/* Who to chase today comes before who owes the most: the largest debtor is usually
@@ -538,5 +540,46 @@ function ChaseTodayPanel(): React.JSX.Element {
         )}
       </div>
     </Panel>
+  )
+}
+
+/** A backup older than this is worth mentioning rather than leaving to be noticed. */
+const STALE_BACKUP_HOURS = 48
+
+/**
+ * When the books were last backed up.
+ *
+ * Backups happen automatically on open and before anything risky, and until now the only way to
+ * know they had was to open Settings. A one-line statement is enough: it is reassurance most
+ * days and a warning on the day it matters, which is exactly the day nobody thinks to check.
+ */
+function LastBackupLine(): React.JSX.Element | null {
+  const nav = useNav()
+  const { data } = useQuery({ queryKey: ['backups'], queryFn: api.backups.list })
+  if (!data) return null
+
+  const latest = data.reduce<{ mtime: number } | null>((best, b) => (!best || b.mtime > best.mtime ? b : best), null)
+  const hours = latest ? (Date.now() - latest.mtime) / 3_600_000 : Infinity
+  const stale = hours > STALE_BACKUP_HOURS
+
+  return (
+    <p className={`mt-3 text-hint ${stale ? 'text-amber' : 'text-muted'}`} data-testid="gateway-last-backup">
+      {latest ? (
+        <>
+          Last backup {toDisplayDateTime(new Date(latest.mtime))}
+          {stale && ' — over two days ago'}
+        </>
+      ) : (
+        'No backup yet'
+      )}
+      {' · '}
+      <button
+        className="text-blue hover:underline"
+        data-testid="btn-gateway-backups"
+        onClick={() => nav.go({ name: 'settings', tab: 'backups' })}
+      >
+        {data.length} kept
+      </button>
+    </p>
   )
 }

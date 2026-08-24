@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type BackupInfo, type IntegrityResult } from '../../lib/client'
+import { api, type BackupInfo, type BackupVerification, type IntegrityResult } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
 import { Button, EmptyState, Field, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
 import { toDisplayDateTime } from '@shared/dates'
@@ -95,6 +95,7 @@ export function BackupsSection(): React.JSX.Element {
                 <th scope="col" className="w-40">Date</th>
                 <th scope="col" className="w-24">Size</th>
                 <th scope="col" className="w-28">Tag</th>
+                <th scope="col" className="w-52">Verified</th>
                 {isOwner && <th scope="col" className="r w-24"></th>}
               </tr>
             </thead>
@@ -108,6 +109,9 @@ export function BackupsSection(): React.JSX.Element {
                     <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-caption text-muted capitalize">
                       {b.tag.replace(/-/g, ' ')}
                     </span>
+                  </td>
+                  <td>
+                    <VerifyCell file={b.file} />
                   </td>
                   {isOwner && (
                     <td className="r">
@@ -242,5 +246,58 @@ function ExportEncryptedModal({ onClose }: { onClose: () => void }): React.JSX.E
         </Button>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Prove one backup, on demand.
+ *
+ * A backup button that has never been proved is a promise, and a business finds out whether it
+ * was true on the worst day of its year. Checking the file size is not proof; neither is
+ * quick_check, because a structurally valid SQLite file can still hold books that do not add up.
+ *
+ * On demand rather than automatically: verifying every backup on every visit to this screen
+ * would open twenty databases to answer a question nobody asked.
+ */
+function VerifyCell({ file }: { file: string }): React.JSX.Element {
+  const [result, setResult] = useState<BackupVerification | null>(null)
+  const [busy, setBusy] = useState(false)
+  const toast = useToasts()
+
+  const verify = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      setResult(await api.backups.verify(file))
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (busy) return <span className="text-hint text-muted">Checking…</span>
+  if (!result) {
+    return (
+      <button
+        className="text-small text-blue hover:underline"
+        data-testid={`btn-verify-${file}`}
+        onClick={() => void verify()}
+      >
+        Verify
+      </button>
+    )
+  }
+
+  const good = result.integrityOk && result.opensAsCompany && result.balanced
+  return (
+    <span className={`text-hint ${good ? 'text-dr' : 'text-cr'}`} data-testid={`verify-result-${file}`}>
+      {good ? (
+        <>
+          ✓ {result.voucherCount.toLocaleString('en-IN')} vouchers, books balance
+        </>
+      ) : (
+        result.problem ?? 'Failed'
+      )}
+    </span>
   )
 }

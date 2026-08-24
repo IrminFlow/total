@@ -6,7 +6,7 @@ import { z } from 'zod'
 import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
 import { backupCompany, closeCompanyDb, openCompanyDb } from './db/connection'
-import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheck, type BackupInfo } from './db/backup'
+import { verifyBackup, listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheck, type BackupInfo } from './db/backup'
 import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
@@ -405,6 +405,12 @@ export function registerIpc(): void {
   }, 'viewer')
 
   handle('backup:run', runManualBackup)
+
+  handle('backup:verify', (payload) => {
+    const { file } = z.object({ file: backupFileSchema }).parse(payload)
+    const c = requireCompany()
+    return verifyBackup(join(companyBackupsDir(c.slug), file))
+  }, 'viewer')
 
   handle('backup:restore', async (payload) => {
     const { file } = z.object({ file: backupFileSchema }).parse(payload)

@@ -60,6 +60,18 @@ export interface BackupInfo {
   tag: string
 }
 
+/** Mirrors src/main/db/backup.ts's BackupVerification (kept local — main-process only). */
+export interface BackupVerification {
+  file: string
+  integrityOk: boolean
+  opensAsCompany: boolean
+  voucherCount: number
+  balanced: boolean
+  totalDebit: number
+  totalCredit: number
+  problem: string | null
+}
+
 /** Mirrors src/main/db/integrity.ts's IntegrityResult shape (kept local — main-process only). */
 export interface IntegrityResult {
   ok: boolean
@@ -373,6 +385,8 @@ export const api = {
   backups: {
     list: () => call<BackupInfo[]>('backup:list'),
     run: () => call<{ path: string }>('backup:run'),
+    /** Opens the backup and foots its books — the only claim worth making about a backup. */
+    verify: (file: string) => call<BackupVerification>('backup:verify', { file }),
     restore: (file: string) =>
       call<{ info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('backup:restore', { file }),
     exportEncrypted: (passphrase: string) => call<{ path: string }>('backup:exportEncrypted', { passphrase }),

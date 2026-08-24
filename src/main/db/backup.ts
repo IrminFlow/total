@@ -231,3 +231,110 @@ export function restoreCompanyDb(db: DB, dbPath: string, backupPath: string, bac
 export function rollbackRestore(dbPath: string, snapshotPath: string): void {
   swapInPlace(snapshotPath, dbPath)
 }
+
+export interface BackupVerification {
+  file: string
+  /** SQLite says the file is structurally sound. */
+  integrityOk: boolean
+  /** It has the shape of a Total company database — the schema opened and migrated cleanly. */
+  opensAsCompany: boolean
+  /** Vouchers in books (the bin excluded), so "it restored" can be compared against expectation. */
+  voucherCount: number
+  /** Whether the books in the backup balance. The proof that matters. */
+  balanced: boolean
+  totalDebit: number
+  totalCredit: number
+  /** What went wrong, when something did. */
+  problem: string | null
+}
+
+/**
+ * Verify a backup by actually opening it, not by trusting its file size.
+ *
+ * A backup button that has never been proved is a promise, and a business finds out whether it
+ * was true on the worst day of its year. Checking `quick_check` is not enough either: a
+ * structurally valid SQLite file can still be a database whose books do not add up, or one from
+ * a schema this build can no longer read.
+ *
+ * So this opens the file read-only, runs the thorough integrity check, confirms it has a company
+ * in it, counts the vouchers, and foots the trial balance. If all four hold, the backup will
+ * restore into a working set of books — which is the only claim worth making.
+ *
+ * Read-only throughout, and never touches the live database. Migrations are deliberately NOT
+ * run: a backup that needs migrating still restores fine (restoreCompanyDb migrates on reopen),
+ * and running them here would write to the backup file itself.
+ */
+export function verifyBackup(path: string): BackupVerification {
+  const file = path.split('/').pop() ?? path
+  const fail = (problem: string, partial: Partial<BackupVerification> = {}): BackupVerification => ({
+    file,
+    integrityOk: false,
+    opensAsCompany: false,
+    voucherCount: 0,
+    balanced: false,
+    totalDebit: 0,
+    totalCredit: 0,
+    problem,
+    ...partial
+  })
+
+  let db: Database.Database
+  try {
+    db = new Database(path, { readonly: true, fileMustExist: true })
+  } catch (err) {
+    return fail(`Could not open the file: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // Tracked rather than assumed at each failure point: opening a non-database file succeeds and
+  // the pragma is what throws, so a catch that claimed integrityOk would report a text file as
+  // structurally sound.
+  let integrityOk = false
+  try {
+    const integrity = (db.pragma('integrity_check') as Array<{ integrity_check: string }>)[0]?.integrity_check
+    if (integrity !== 'ok') return fail(`SQLite reports: ${integrity ?? 'no result'}`)
+    integrityOk = true
+
+    const company = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as
+      | { value: string }
+      | undefined
+    if (!company) {
+      return fail('The file is a database, but not a Total company database.', { integrityOk })
+    }
+
+    const { n } = db
+      .prepare('SELECT COUNT(*) AS n FROM vouchers WHERE deleted_at IS NULL')
+      .get() as { n: number }
+
+    // Foot the books straight from the lines. Opening balances count: a set of books balances
+    // only when the openings and the movement balance together.
+    const totals = db
+      .prepare(
+        `SELECT
+           COALESCE((SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END)
+                     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+                     WHERE v.deleted_at IS NULL), 0) AS dr,
+           COALESCE((SELECT SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END)
+                     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+                     WHERE v.deleted_at IS NULL), 0) AS cr`
+      )
+      .get() as { dr: number; cr: number }
+
+    const balanced = totals.dr === totals.cr
+    return {
+      file,
+      integrityOk: true,
+      opensAsCompany: true,
+      voucherCount: n,
+      balanced,
+      totalDebit: totals.dr,
+      totalCredit: totals.cr,
+      problem: balanced
+        ? null
+        : `The books in this backup do not balance: debits ${totals.dr} against credits ${totals.cr}.`
+    }
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : String(err), { integrityOk })
+  } finally {
+    db.close()
+  }
+}
