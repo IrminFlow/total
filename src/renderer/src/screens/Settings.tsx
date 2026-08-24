@@ -1,24 +1,26 @@
+import { lazy, Suspense } from "react";
 import type { Screen } from "../state/stores";
 import { useNav } from "../state/stores";
 import { TabBar } from "../components/TabBar";
-import { BackupsSection } from "./settings/BackupsSection";
-import { BinSection } from "./settings/BinSection";
-import { UsersSection } from "./settings/UsersSection";
-import { AuditSection } from "./settings/AuditSection";
-import { NicSection } from "./settings/NicSection";
-import { FeaturesSection } from "./settings/FeaturesSection";
-import { InvoiceConfigSection } from "./settings/InvoiceConfigSection";
-import { AgentBridgeSection } from "./settings/AgentBridgeSection";
-import { AiSection } from "./settings/AiSection";
-import { AboutSection } from "./settings/AboutSection";
-import { ControlsSection } from "./settings/ControlsSection";
-import { IntegrationsSection } from "./settings/IntegrationsSection";
-import { PrivacySection } from "./settings/PrivacySection";
-import { DataHealthSection } from "./settings/DataHealthSection";
-import { AccessibilitySection } from "./settings/AccessibilitySection";
-import { CommunitySection } from "./settings/CommunitySection";
 import { useAccessibilityPreferences } from "../lib/accessibilityPrefs";
 import { localizedLabel } from "../lib/localization";
+
+const BackupsSection = lazy(async () => ({ default: (await import("./settings/BackupsSection")).BackupsSection }));
+const BinSection = lazy(async () => ({ default: (await import("./settings/BinSection")).BinSection }));
+const UsersSection = lazy(async () => ({ default: (await import("./settings/UsersSection")).UsersSection }));
+const AuditSection = lazy(async () => ({ default: (await import("./settings/AuditSection")).AuditSection }));
+const NicSection = lazy(async () => ({ default: (await import("./settings/NicSection")).NicSection }));
+const FeaturesSection = lazy(async () => ({ default: (await import("./settings/FeaturesSection")).FeaturesSection }));
+const InvoiceConfigSection = lazy(async () => ({ default: (await import("./settings/InvoiceConfigSection")).InvoiceConfigSection }));
+const AgentBridgeSection = lazy(async () => ({ default: (await import("./settings/AgentBridgeSection")).AgentBridgeSection }));
+const AiSection = lazy(async () => ({ default: (await import("./settings/AiSection")).AiSection }));
+const AboutSection = lazy(async () => ({ default: (await import("./settings/AboutSection")).AboutSection }));
+const ControlsSection = lazy(async () => ({ default: (await import("./settings/ControlsSection")).ControlsSection }));
+const IntegrationsSection = lazy(async () => ({ default: (await import("./settings/IntegrationsSection")).IntegrationsSection }));
+const PrivacySection = lazy(async () => ({ default: (await import("./settings/PrivacySection")).PrivacySection }));
+const DataHealthSection = lazy(async () => ({ default: (await import("./settings/DataHealthSection")).DataHealthSection }));
+const AccessibilitySection = lazy(async () => ({ default: (await import("./settings/AccessibilitySection")).AccessibilitySection }));
+const CommunitySection = lazy(async () => ({ default: (await import("./settings/CommunitySection")).CommunitySection }));
 
 export type SettingsTab = NonNullable<
   Extract<Screen, { name: "settings" }>["tab"]
@@ -70,22 +72,24 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
         />
       </aside>
       <div className="min-w-0 flex-1">
-        {active === "backups" && <BackupsSection />}
-        {active === "bin" && <BinSection />}
-        {active === "users" && <UsersSection />}
-        {active === "controls" && <ControlsSection />}
-        {active === "audit" && <AuditSection />}
-        {active === "nic" && <NicSection />}
-        {active === "features" && <FeaturesSection />}
-        {active === "invoice" && <InvoiceConfigSection />}
-        {active === "ai" && <AiSection />}
-        {active === "agents" && <AgentBridgeSection />}
-        {active === "integrations" && <IntegrationsSection />}
-        {active === "privacy" && <PrivacySection />}
-        {active === "health" && <DataHealthSection />}
-        {active === "accessibility" && <AccessibilitySection />}
-        {active === "community" && <CommunitySection />}
-        {active === "about" && <AboutSection />}
+        <Suspense fallback={<div className="rounded-lg border border-line bg-panel p-5 text-[13px] text-muted" role="status">Loading settings…</div>}>
+          {active === "backups" && <BackupsSection />}
+          {active === "bin" && <BinSection />}
+          {active === "users" && <UsersSection />}
+          {active === "controls" && <ControlsSection />}
+          {active === "audit" && <AuditSection />}
+          {active === "nic" && <NicSection />}
+          {active === "features" && <FeaturesSection />}
+          {active === "invoice" && <InvoiceConfigSection />}
+          {active === "ai" && <AiSection />}
+          {active === "agents" && <AgentBridgeSection />}
+          {active === "integrations" && <IntegrationsSection />}
+          {active === "privacy" && <PrivacySection />}
+          {active === "health" && <DataHealthSection />}
+          {active === "accessibility" && <AccessibilitySection />}
+          {active === "community" && <CommunitySection />}
+          {active === "about" && <AboutSection />}
+        </Suspense>
       </div>
     </div>
   );
