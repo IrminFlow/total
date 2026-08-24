@@ -44,6 +44,29 @@ await scenario('21-entry-guidance', async (h) => {
   assert(/Dr|Cr/.test(balanceText), 'and says which side it is on, which is the whole point')
   await h.shot('02-party-chosen')
 
+  // ---- the narration writes itself from what the voucher already says ----
+  // Narration is the field most often left blank and most often wanted a year later. The
+  // suggestion is a placeholder until the field is reached, and never overwrites typed text.
+  const placeholder = await h.page.getAttribute('[data-testid="input-narration"]', 'placeholder')
+  assert(
+    new RegExp(withBalance.name.slice(0, 8), 'i').test(placeholder ?? ''),
+    `the placeholder names the party (got ${JSON.stringify(placeholder)})`
+  )
+  assert(/^Sold /.test(placeholder ?? ''), 'and reads as a sentence about a sale')
+
+  await h.page.focus('[data-testid="input-narration"]')
+  const filled = await h.page.inputValue('[data-testid="input-narration"]')
+  assert(filled === placeholder, 'focusing an empty narration accepts the suggestion')
+
+  // Typing over it, then leaving and returning, must not restore the suggestion.
+  await h.page.fill('[data-testid="input-narration"]', 'My own words')
+  await h.page.focus('[data-testid="picker-party"]')
+  await h.page.focus('[data-testid="input-narration"]')
+  assert(
+    (await h.page.inputValue('[data-testid="input-narration"]')) === 'My own words',
+    'a narration already written is never overwritten'
+  )
+
   // Leave the form clean before the scenario ends: an unsaved voucher arms the beforeunload
   // guard, and the native dialog that fires on teardown races the harness's own shutdown.
   // Escape in a field means "leave the field", so the first press blurs and the second leaves

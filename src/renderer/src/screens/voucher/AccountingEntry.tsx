@@ -14,6 +14,7 @@ import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
+import { suggestNarration } from '@shared/autoNarration'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
 import { CostAllocModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
@@ -156,6 +157,23 @@ export function AccountingEntry({
     if (candidates.size === 1) return [...candidates][0]!
     return draftPartyId
   }, [rows, ledgers, groupMap, draftPartyId])
+
+  /**
+   * A narration written from what the voucher already says.
+   *
+   * The party is named separately from the rest, so "Paid Office Rent to Landlord" reads the way
+   * a person would say it rather than listing the party among the accounts.
+   */
+  const suggestedNarration = useMemo(() => {
+    const party = ledgers.find((l) => l.id === derivedPartyId)
+    const accountNames = rows
+      .map((r) => ledgers.find((l) => l.id === r.ledgerId))
+      .filter((l): l is NonNullable<typeof l> => !!l)
+      // Cash and bank are how it was paid, not what it was for; tax ledgers are bookkeeping.
+      .filter((l) => l.id !== derivedPartyId && l.taxType == null && !isCashOrBankLedger(l, groupMap))
+      .map((l) => l.name)
+    return suggestNarration({ kind, partyName: party?.name ?? null, accountNames })
+  }, [rows, ledgers, derivedPartyId, groupMap, kind])
 
   // How much of a prior Apply is already sitting in the TDS payable line — i.e. how much the
   // target line has already been reduced (the cumulative reduction on the target always equals
@@ -776,7 +794,11 @@ export function AccountingEntry({
               data-testid="input-narration"
               value={narration}
               onChange={(e) => setNarration(e.target.value)}
-              placeholder="Being amount paid…"
+              onFocus={() => {
+                // Offered when the field is reached, never over something already typed.
+                if (!narration && suggestedNarration) setNarration(suggestedNarration)
+              }}
+              placeholder={suggestedNarration ?? 'Being amount paid…'}
             />
           </Field>
         </div>

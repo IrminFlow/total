@@ -5,6 +5,7 @@ import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
 import { isB2cLarge } from '@shared/gst/returns'
 import { rcmAdvice } from '@shared/gst/reverseCharge'
+import { suggestNarration } from '@shared/autoNarration'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
 import { GST_STATES } from '@shared/gst/states'
 import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
@@ -201,6 +202,20 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     enabled: !!partyId
   })
   const partyBalance = partyId ? (balances?.find((b) => b.ledgerId === partyId)?.balance ?? null) : null
+
+  // A narration written from what the voucher already says. Narration is the field most often
+  // left blank and most often wanted a year later, and asking for it every time is how it ends
+  // up blank.
+  const suggestedNarration = useMemo(
+    () =>
+      suggestNarration({
+        kind,
+        partyName: party?.name ?? null,
+        itemNames: computed.detail.map((d) => d.item.name),
+        accountNames: account ? [account.name] : []
+      }),
+    [kind, party?.name, computed.detail, account]
+  )
 
   const noteAllocatedTotal = noteBillRefs.reduce((s, r) => s + r.amount, 0)
 
@@ -590,7 +605,18 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       <div className="mt-4 flex items-start justify-between gap-6">
         <div className="flex-1">
           <Field label="Narration">
-            <TextInput value={narration} onChange={(e) => setNarration(e.target.value)} placeholder="Being goods sold…" />
+            <TextInput
+              data-testid="input-narration"
+              value={narration}
+              onChange={(e) => setNarration(e.target.value)}
+              onFocus={() => {
+                // Filled on focus, not on every keystroke of the lines above: the suggestion is
+                // offered at the moment the field is reached and can be typed straight over.
+                // Never over something already typed.
+                if (!narration && suggestedNarration) setNarration(suggestedNarration)
+              }}
+              placeholder={suggestedNarration ?? 'Being goods sold…'}
+            />
           </Field>
           {isSalesSide && kind === 'sales' && (
             <div className="mt-3 grid grid-cols-3 gap-3">

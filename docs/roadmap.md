@@ -45,7 +45,7 @@ Ordering within a section is roughly by value.
 26. ✓ Undo for voucher delete, offered on the toast (M)
 27. Voucher templates beyond recurring: save any voucher as a named template (M)
 28. ✓ Copy the previous voucher of the same type with one key (S)
-29. Auto-fill the narration from the party and item names (S)
+29. ✓ Auto-fill the narration from the party and item names (S)
 30. Inline ledger creation without leaving the picker (already partly there) (S)
 31. Paste a table of lines from a spreadsheet directly into the voucher grid (M)
 32. ✓ Amount field accepts arithmetic: `1200*3` yields 3,600 (S)
