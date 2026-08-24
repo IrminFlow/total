@@ -13,7 +13,7 @@ const TOUR = [
   ['registers'], ['outstandings'], ['consolidated'], ['cost-centres', 'costCentres'],
   ['budgets'], ['exceptions'], ['banking'], ['payroll', 'payroll'],
   ['gstr1'], ['gstr3b'], ['gstr2b'], ['edocs'], ['tds', 'tds'],
-  ['settings'], ['gateway']
+  ['settings'], ['filings'], ['composition'], ['gateway']
 ]
 
 await scenario('02-demo-tour', async (h) => {

@@ -44,3 +44,36 @@ export function useStickyTab<T extends string>(
 
   return [tab, select]
 }
+
+/**
+ * A boolean preference that survives a restart — a report toggle, a hide/show switch.
+ *
+ * Same storage and same failure behaviour as `useStickyTab`: anything unreadable falls back to
+ * the default, and a localStorage that throws costs the preference rather than the click.
+ */
+export function useStickyFlag(key: string, defaultValue: boolean): [boolean, (v: boolean) => void] {
+  const storageKey = `total-flag-${key}`
+
+  const [value, setValue] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem(storageKey)
+      return stored === null ? defaultValue : stored === '1'
+    } catch {
+      return defaultValue
+    }
+  })
+
+  const set = useCallback(
+    (next: boolean) => {
+      setValue(next)
+      try {
+        localStorage.setItem(storageKey, next ? '1' : '0')
+      } catch {
+        // Preference lost, switch still flipped.
+      }
+    },
+    [storageKey]
+  )
+
+  return [value, set]
+}

@@ -471,7 +471,8 @@ export const api = {
       }),
     ledger: (ledgerId: number, from: string, to: string, groupBy?: Period, page?: { limit: number; offset?: number }) =>
       call<LedgerStatement>('report:ledger', { ledgerId, from, to, groupBy, ...page }),
-    trialBalance: (asOn: string) => call<TrialBalance>('report:trialBalance', { asOn }),
+    trialBalance: (asOn: string, includeZeroBalances = false) =>
+      call<TrialBalance>('report:trialBalance', { asOn, includeZeroBalances }),
     profitLoss: (from: string, to: string, comparePrior?: boolean) =>
       call<ProfitAndLoss>('report:profitLoss', { from, to, comparePrior }),
     balanceSheet: (asOn: string, comparePrior?: boolean) =>

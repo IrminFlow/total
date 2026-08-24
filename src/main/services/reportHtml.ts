@@ -83,6 +83,7 @@ export function reportHtml(opts: ReportHtmlOptions): string {
     tr.rule td { border-top: 1px solid #16181f; }
     tr.bold.rule td { border-top: 1px solid #16181f; border-bottom: 3px double #16181f; }
     .foot { margin-top: 14px; font-size: 11px; color: #555; }
+    .foot .provenance { margin-top: 4px; padding-top: 4px; border-top: 1px dotted #999; font-size: 9.5px; }
   </style></head><body>
     <div class="sheet">
       <div class="head">
@@ -100,7 +101,14 @@ export function reportHtml(opts: ReportHtmlOptions): string {
         <thead><tr>${headRow}</tr></thead>
         <tbody>${bodyRows}</tbody>
       </table>
-      ${footNote ? `<div class="foot">${esc(footNote)}</div>` : ''}
+      <div class="foot">
+        ${footNote ? `<div>${esc(footNote)}</div>` : ''}
+        <!-- Always stated, never optional: a screenshot or a photocopy of a report is worthless
+             evidence if the range it covers has to be taken on trust. -->
+        <div class="provenance">${esc(title)} · ${esc(periodLabel)} · ${esc(company.name)}${
+          company.gstin ? ' · GSTIN ' + esc(company.gstin) : ''
+        }</div>
+      </div>
     </div>
   </body></html>`
 }

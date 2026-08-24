@@ -595,7 +595,16 @@ export function ledgerStatement(
   return result
 }
 
-export function trialBalance(db: DB, asOn: string): TrialBalance {
+/**
+ * @param includeZeroBalances Keep ledgers with no balance and no movement in the result.
+ *
+ * They are dropped by default and always have been: a chart of accounts collects ledgers that
+ * were used once, and a trial balance three screens long, mostly zeroes, hides the numbers that
+ * matter. But "never" is the wrong answer too -- a ledger you expected to see and cannot is
+ * indistinguishable from one that does not exist -- so the choice belongs to the caller. Hiding
+ * them can never change a total, which is what makes it safe.
+ */
+export function trialBalance(db: DB, asOn: string, includeZeroBalances = false): TrialBalance {
   // Opening + gross Dr/Cr movement per ledger in one grouped pass; closing derives from them.
   const rows = db
     .prepare(
@@ -633,7 +642,14 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
         movementCredit: r.movementCredit
       }
     })
-    .filter((r) => r.debit !== 0 || r.credit !== 0 || r.movementDebit !== 0 || r.movementCredit !== 0)
+    .filter(
+      (r) =>
+        includeZeroBalances ||
+        r.debit !== 0 ||
+        r.credit !== 0 ||
+        r.movementDebit !== 0 ||
+        r.movementCredit !== 0
+    )
 
   // Opening stock joins the debit side so a stock-carrying book still balances — but only when
   // no ledger actually lives under Stock-in-Hand (or any of its descendant groups); if one does,

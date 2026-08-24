@@ -19,7 +19,21 @@ export interface HtmlToPdfOptions {
   /** "Page N of M" centered in the footer of every page. Chromium ignores CSS @page margin-box
    *  counters, so page numbers ride on printToPDF's native footerTemplate instead. */
   pageNumbers?: boolean
+  /**
+   * A running head and foot repeated on every page.
+   *
+   * The in-document header block only appears on page one, so page four of a printed ledger used
+   * to identify neither the company nor the period it covered — and page four is exactly the
+   * page that ends up photocopied, emailed, or handed to an auditor on its own. Chromium's
+   * header/footer templates are the only way to repeat content per page.
+   */
+  runningHead?: { company: string; gstin: string | null; title: string; periodLabel: string }
 }
+
+/** Chromium's header/footer templates render in an isolated document with no access to the page's
+ *  CSS, so every style has to be inline. Escaped here because a company name is user input. */
+const escHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 /** One hidden render window shared by every PDF job (task Q2 #98). Recreated lazily after any
  *  failure/timeout — a wedged renderer must not poison every subsequent print. */
@@ -54,12 +68,27 @@ async function renderPdf(html: string, opts: HtmlToPdfOptions): Promise<Buffer> 
   if (opts.pageSize) printOpts.pageSize = opts.pageSize as Electron.PrintToPDFOptions['pageSize']
   if (opts.margins === 'none') printOpts.margins = { marginType: 'none' }
   if (opts.landscape) printOpts.landscape = true
-  if (opts.pageNumbers) {
+  if (opts.pageNumbers || opts.runningHead) {
     printOpts.displayHeaderFooter = true
-    printOpts.headerTemplate = '<span></span>'
+    const head = opts.runningHead
+    const font = 'font-size:8.5px;font-family:Helvetica,Arial,sans-serif;color:#555'
+    printOpts.headerTemplate = head
+      ? `<div style="width:100%;padding:0 12mm;display:flex;justify-content:space-between;${font}">` +
+        `<span>${escHtml(head.company)}${head.gstin ? ' · ' + escHtml(head.gstin) : ''}</span>` +
+        `<span>${escHtml(head.title)}</span>` +
+        '</div>'
+      : '<span></span>'
+    // The period goes in the footer rather than the header so a page cannot be read as covering
+    // a range it does not — it sits right under the last row on the page.
+    const periodPart = head ? `<span>${escHtml(head.periodLabel)}</span>` : '<span></span>'
+    const pagePart = opts.pageNumbers
+      ? '<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>'
+      : '<span></span>'
     printOpts.footerTemplate =
-      '<div style="width:100%;text-align:center;font-size:9px;font-family:Helvetica,Arial,sans-serif;color:#555">' +
-      'Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>'
+      `<div style="width:100%;padding:0 12mm;display:flex;justify-content:space-between;${font}">` +
+      periodPart +
+      pagePart +
+      '</div>'
   }
   return await win.webContents.printToPDF(printOpts)
 }

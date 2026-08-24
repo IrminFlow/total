@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import { useStickyTab } from '../lib/useStickyTab'
+import { useStickyFlag, useStickyTab } from '../lib/useStickyTab'
 
 const TABS = ['one', 'two', 'three'] as const
 
@@ -53,5 +53,35 @@ describe('useStickyTab', () => {
       getItem.mockRestore()
       setItem.mockRestore()
     }
+  })
+})
+
+describe('useStickyFlag', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('starts at the default when nothing is stored', () => {
+    expect(renderHook(() => useStickyFlag('hide-zeros', true)).result.current[0]).toBe(true)
+    expect(renderHook(() => useStickyFlag('other', false)).result.current[0]).toBe(false)
+  })
+
+  it('remembers false, which is distinct from unset', () => {
+    // Storing a boolean as a string makes "off" and "never chosen" easy to conflate; they are
+    // different, because the default can be true.
+    const first = renderHook(() => useStickyFlag('hide-zeros', true))
+    act(() => first.result.current[1](false))
+    const second = renderHook(() => useStickyFlag('hide-zeros', true))
+    expect(second.result.current[0]).toBe(false)
+  })
+
+  it('remembers true against a false default', () => {
+    const first = renderHook(() => useStickyFlag('show-extra', false))
+    act(() => first.result.current[1](true))
+    expect(renderHook(() => useStickyFlag('show-extra', false)).result.current[0]).toBe(true)
+  })
+
+  it('does not collide with a tab of the same name', () => {
+    const tab = renderHook(() => useStickyTab('thing', ['one', 'two'] as const, 'one'))
+    act(() => tab.result.current[1]('two'))
+    expect(renderHook(() => useStickyFlag('thing', false)).result.current[0]).toBe(false)
   })
 })

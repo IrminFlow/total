@@ -6,6 +6,7 @@ import { Button, DateInput, Money, Panel, SectionTitle } from '../components/ui'
 import { StatementTree } from '../components/StatementTree'
 import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
+import { useStickyFlag } from '../lib/useStickyTab'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 
@@ -33,9 +34,21 @@ export function ProfitLossScreen(): React.JSX.Element {
     queryFn: () => api.reports.profitLoss(from, to),
     placeholderData: keepPreviousData
   })
+  // Above the early return: every hook this component calls has to run on every render, and the
+  // first render happens before `data` arrives.
+  const [showPct, setShowPct] = useStickyFlag('pnl-show-pct', false)
   if (!data) return <p className="text-muted">Loading…</p>
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
+
+  // Percentages are of turnover, not of each section's own subtotal: that is the only base that
+  // lets two lines on the statement be compared.
+  //
+  // Turnover is trading income alone. Closing stock sits on the income side of a trading account
+  // as a balancing entry, not as a sale, and including it made Sales read as 60% of turnover
+  // instead of 100% — which is the tell that the base was wrong.
+  const turnover = data.tradingIncomes.reduce((sum, n) => sum + n.amount, 0)
+  const pctBase = showPct ? turnover : 0
   const flat = (label: string, paise: number): PdfRow => ({ cells: [label, formatPaise(paise, { zeroDash: true })], bold: true })
   const exportRows: PdfRow[] = [
     { cells: ['Expenses', ''], bold: true },
@@ -76,6 +89,15 @@ export function ProfitLossScreen(): React.JSX.Element {
             <DateInput value={to} context={to} onChange={setTo} className="w-28" testId="input-pnl-to" />
             <Button
               variant="ghost"
+              data-testid="btn-pnl-pct"
+              disabled={turnover === 0}
+              disabledTitle="No turnover in this period to take a percentage of"
+              onClick={() => setShowPct(!showPct)}
+            >
+              {showPct ? 'Hide %' : '% of turnover'}
+            </Button>
+            <Button
+              variant="ghost"
               onClick={() => void printReport({ title: 'Profit & Loss', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
             >
               PDF
@@ -98,20 +120,20 @@ export function ProfitLossScreen(): React.JSX.Element {
         <Panel className="p-4">
           <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Expenses</p>
           {data.openingStock !== 0 && <FlatRow name="Opening stock" paise={data.openingStock} />}
-          <StatementTree nodes={data.tradingExpenses} />
+          <StatementTree nodes={data.tradingExpenses} percentOf={pctBase} />
           {data.grossProfit > 0 && <FlatRow name="Gross profit c/o" paise={data.grossProfit} strong />}
           <div className="my-2 border-t border-line" />
-          <StatementTree nodes={data.indirectExpenses} />
+          <StatementTree nodes={data.indirectExpenses} percentOf={pctBase} />
           {data.netProfit > 0 && <FlatRow name="Net profit" paise={data.netProfit} strong tone="dr" />}
         </Panel>
 
         <Panel className="p-4">
           <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Incomes</p>
-          <StatementTree nodes={data.tradingIncomes} />
+          <StatementTree nodes={data.tradingIncomes} percentOf={pctBase} />
           {data.closingStock !== 0 && <FlatRow name="Closing stock" paise={data.closingStock} />}
           {data.grossProfit < 0 && <FlatRow name="Gross loss c/o" paise={-data.grossProfit} strong />}
           <div className="my-2 border-t border-line" />
-          <StatementTree nodes={data.indirectIncomes} />
+          <StatementTree nodes={data.indirectIncomes} percentOf={pctBase} />
           {data.grossProfit > 0 && <FlatRow name="Gross profit b/f" paise={data.grossProfit} />}
           {data.netProfit < 0 && <FlatRow name="Net loss" paise={-data.netProfit} strong tone="cr" />}
         </Panel>

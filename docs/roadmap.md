@@ -84,12 +84,12 @@ Ordering within a section is roughly by value.
 61. Cash flow forecast from open bills, PDCs and recurring templates (L)
 62. Monthly trend sparklines on every Gateway tile (S)
 63. Group-wise summary rows in the Trial Balance, collapsible (M)
-64. Multi-column Trial Balance: opening, movement, closing (already partly there) (S)
+64. ✓ Multi-column Trial Balance: opening, movement, closing (S) — already shipped
 65. Negative-balance highlighting on ledgers that should never be negative (S)
 66. A "what changed" report between two dates for any ledger (M)
 67. Export any report to XLSX rather than only CSV (M)
 68. Print layouts that fit A4 without cutting columns (M)
-69. Report headers carrying the company name, GSTIN and period on every page (S)
+69. ✓ Report headers carrying the company name, GSTIN and period on every page (S)
 70. A CA-facing summary pack: TB, P&L, BS, ageing in one PDF (M)
 71. Cost-centre profitability report (M)
 72. Item-wise gross margin by period (M)
@@ -98,9 +98,9 @@ Ordering within a section is roughly by value.
 75. An audit-trail report of who changed what, per voucher (S)
 76. Reconciliation status column on the Day Book for bank vouchers (S)
 77. Exception report: vouchers with no narration, over a threshold (S)
-78. Report footers stating the exact query period, so a screenshot is unambiguous (S)
-79. Zero-balance ledgers hidden by default with a toggle (S)
-80. Percentage-of-total column on P&L lines (S)
+78. ✓ Report footers stating the exact query period, so a screenshot is unambiguous (S)
+79. ✓ Zero-balance ledgers hidden by default with a toggle (S)
+80. ✓ Percentage-of-total column on P&L lines (S)
 
 ## D. GST and statutory
 

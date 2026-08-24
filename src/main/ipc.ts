@@ -707,8 +707,10 @@ export function registerIpc(): void {
     )
   }, 'viewer')
   handle('report:trialBalance', (p) => {
-    const { asOn } = z.object({ asOn: z.string() }).parse(p)
-    return reports.trialBalance(requireCompany().db, asOn)
+    const { asOn, includeZeroBalances } = z
+      .object({ asOn: z.string(), includeZeroBalances: z.boolean().optional() })
+      .parse(p)
+    return reports.trialBalance(requireCompany().db, asOn, includeZeroBalances)
   }, 'viewer')
   handle('report:profitLoss', (p) => {
     const { from, to, comparePrior } = periodSchema.extend({ comparePrior: z.boolean().optional() }).parse(p)
@@ -1066,7 +1068,16 @@ export function registerIpc(): void {
       ],
       rows
     })
-    const path = await writeExportPdf(c.slug, `brs-${slugify(r.ledgerName)}-${asOn}.pdf`, html, { pageSize: 'A4' })
+    const path = await writeExportPdf(c.slug, `brs-${slugify(r.ledgerName)}-${asOn}.pdf`, html, {
+      pageSize: 'A4',
+      pageNumbers: true,
+      runningHead: {
+        company: c.info.name,
+        gstin: c.info.gstin,
+        title: 'Bank Reconciliation Statement',
+        periodLabel: `${r.ledgerName} · as on ${asOn}`
+      }
+    })
     return { path }
   }, 'viewer')
 
@@ -1333,7 +1344,15 @@ export function registerIpc(): void {
     const { title, periodLabel, columns, rows, footNote, filename, landscape } = reportPdfSchema.parse(p)
     const c = requireCompany()
     const html = reportHtml({ title, company: c.info, periodLabel, columns, rows, footNote })
-    const path = await writeExportPdf(c.slug, `${filename}.pdf`, html, { pageSize: 'A4', landscape, pageNumbers: true })
+    // A running head and foot on every page: page four of a printed ledger is exactly the page
+    // that gets photocopied or emailed on its own, and it used to identify neither the company
+    // nor the period it covered.
+    const path = await writeExportPdf(c.slug, `${filename}.pdf`, html, {
+      pageSize: 'A4',
+      landscape,
+      pageNumbers: true,
+      runningHead: { company: c.info.name, gstin: c.info.gstin, title, periodLabel }
+    })
     auditExport(c.db, 'report_pdf', { filename, path })
     return { path }
   }, 'viewer')

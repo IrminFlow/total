@@ -4,17 +4,49 @@ import { useNav } from '../state/stores'
 import { Money } from './ui'
 
 /** Drill-down tree used by P&L and Balance Sheet: groups expand, ledgers open their statement. */
-export function StatementTree({ nodes, depth = 0 }: { nodes: StatementNode[]; depth?: number }): React.JSX.Element {
+export function StatementTree({
+  nodes,
+  depth = 0,
+  percentOf
+}: {
+  nodes: StatementNode[]
+  depth?: number
+  /**
+   * Base for a percentage column, in paise. Omitted, or zero, means no column.
+   *
+   * The base is passed down rather than computed per level on purpose: every line on a P&L should
+   * be a percentage of the same thing (turnover), which is the only reading that lets two lines
+   * be compared. A percentage of the parent subtotal would make "8%" mean something different on
+   * every row.
+   */
+  percentOf?: number
+}): React.JSX.Element {
   return (
     <div>
       {nodes.map((n) => (
-        <StatementRow key={`${n.kind}-${n.id}-${n.name}`} node={n} depth={depth} />
+        <StatementRow key={`${n.kind}-${n.id}-${n.name}`} node={n} depth={depth} percentOf={percentOf} />
       ))}
     </div>
   )
 }
 
-function StatementRow({ node, depth }: { node: StatementNode; depth: number }): React.JSX.Element {
+/** One decimal, and a dash rather than "0.0%" for a line that rounds away to nothing. */
+function pctText(amount: number, base: number): string {
+  if (!base) return ''
+  const pct = (Math.abs(amount) * 1000) / Math.abs(base) // tenths of a percent, integer maths
+  const rounded = Math.round(pct) / 10
+  return rounded === 0 ? '–' : `${rounded.toFixed(1)}%`
+}
+
+function StatementRow({
+  node,
+  depth,
+  percentOf
+}: {
+  node: StatementNode
+  depth: number
+  percentOf?: number
+}): React.JSX.Element {
   const [open, setOpen] = useState(depth === 0)
   const nav = useNav()
   const isLeafLedger = node.kind === 'ledger'
@@ -32,9 +64,18 @@ function StatementRow({ node, depth }: { node: StatementNode; depth: number }): 
           {node.children.length > 0 && <span className="mr-1.5 inline-block w-3 text-label text-muted">{open ? '▾' : '▸'}</span>}
           {node.name}
         </span>
-        <Money paise={node.amount} className="text-detail" />
+        <span className="flex items-baseline gap-3">
+          <Money paise={node.amount} className="text-detail" />
+          {percentOf ? (
+            <span className="num w-14 text-right text-hint text-muted" data-testid="statement-pct">
+              {pctText(node.amount, percentOf)}
+            </span>
+          ) : null}
+        </span>
       </button>
-      {open && node.children.length > 0 && <StatementTree nodes={node.children} depth={depth + 1} />}
+      {open && node.children.length > 0 && (
+        <StatementTree nodes={node.children} depth={depth + 1} percentOf={percentOf} />
+      )}
     </>
   )
 }

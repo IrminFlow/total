@@ -6,6 +6,7 @@ import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
+import { useStickyFlag } from '../lib/useStickyTab'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 
@@ -20,7 +21,16 @@ export function TrialBalanceScreen(): React.JSX.Element {
   const { to } = useSession()
   const nav = useNav()
   const toast = useToasts()
-  const { data, isLoading } = useQuery({ queryKey: ['trialBalance', to], queryFn: () => api.reports.trialBalance(to) })
+  // Hidden by default: a chart of accounts collects ledgers that were used once, and a trial
+  // balance three screens long, mostly zeroes, hides the numbers that matter. But "never" is the
+  // wrong answer too — a ledger you expected to see and cannot is indistinguishable from one that
+  // does not exist — so the report itself takes the flag. A hidden zero cannot change a total,
+  // which is what makes this safe and would not make hiding anything else safe.
+  const [hideZeros, setHideZeros] = useStickyFlag('tb-hide-zeros', true)
+  const { data, isLoading } = useQuery({
+    queryKey: ['trialBalance', to, hideZeros],
+    queryFn: () => api.reports.trialBalance(to, !hideZeros)
+  })
   const rows = data?.rows ?? []
   const { active, setActive } = useKeyNav(rows.length, (i) => {
     const r = rows[i]
@@ -82,6 +92,14 @@ export function TrialBalanceScreen(): React.JSX.Element {
         right={
           <div className="flex items-center gap-2">
             <span className="num text-small text-muted">as on {toDisplayDate(to)}</span>
+            <Button
+              variant="ghost"
+              data-testid="btn-tb-hide-zeros"
+              onClick={() => setHideZeros(!hideZeros)}
+              title={hideZeros ? 'Show ledgers with no balance and no movement' : 'Hide them again'}
+            >
+              {hideZeros ? 'Show empty ledgers' : 'Hide empty ledgers'}
+            </Button>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
             <Button
               variant="ghost"
