@@ -20,10 +20,17 @@ export interface InterestTerms {
 
 export const DEFAULT_INTEREST_TERMS: InterestTerms = { rateBp: 1800, graceDays: 0 }
 
-/** Simple interest, actual days over a 365-day year, in integer paise (floored). */
+/**
+ * Simple interest, actual days over a 365-day year, in integer paise (floored).
+ *
+ * The rate is divided out before the day count is applied. Multiplying all three first overflows
+ * the 53-bit integer range at about ₹13.7 crore of principal over a year, which is a plausible
+ * enough bill for a business at the top of this app's market — and a silent loss of paise in an
+ * interest figure is exactly the sort of thing a customer disputes.
+ */
 export function simpleInterest(principalPaise: number, rateBp: number, days: number): number {
   if (principalPaise <= 0 || rateBp <= 0 || days <= 0) return 0
-  return Math.floor((principalPaise * rateBp * days) / (10_000 * 365))
+  return Math.floor(((principalPaise * rateBp) / 10_000) * (days / 365))
 }
 
 export interface InterestLine {

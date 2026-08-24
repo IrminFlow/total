@@ -10,7 +10,7 @@ import { splitAccel } from '../lib/accel'
 
 export function Kbd({ children }: { children: ReactNode }): React.JSX.Element {
   return (
-    <kbd className="rounded-md border border-line bg-panel2 px-1.5 py-0.5 font-mono text-label text-muted">
+    <kbd className="rounded-md border border-line bg-panel2 px-1.5 py-0.5 font-mono text-micro text-muted">
       {children}
     </kbd>
   )
@@ -59,9 +59,78 @@ export function Accel({
 export function SectionTitle({ children, right }: { children: ReactNode; right?: ReactNode }): React.JSX.Element {
   return (
     <div className="mb-3 flex items-baseline justify-between">
-      <h2 className="font-serif text-heading font-semibold tracking-tight whitespace-nowrap">{children}</h2>
+      <h2 className="font-serif text-section font-semibold tracking-tight whitespace-nowrap">{children}</h2>
       {right}
     </div>
+  )
+}
+
+// ---------- page layout ----------
+
+/**
+ * The outer wrapper for a screen's content.
+ *
+ * Two things it deliberately does NOT do:
+ *
+ *  - It never centres. `mx-auto` was the reason the content column jumped left and right on
+ *    every navigation: a narrow form centred itself in the window while the wide table beside it
+ *    in the nav order started at the gutter. Left-aligned, the first column of every screen lands
+ *    in the same place and the eye stops re-finding it.
+ *  - It never sizes to its content. `h-full flex flex-col min-h-0` lets a table or a report fill
+ *    the window and scroll inside itself, instead of ending halfway down and leaving the bottom
+ *    half of the screen as empty cream. Children that should absorb the slack take `flex-1
+ *    min-h-0 overflow-auto`.
+ *
+ * `wide` is for tables and reports, `narrow` for forms and prose — a form measured against the
+ * full width of a 1600px window is unreadable and its fields end up a foot apart.
+ */
+export function PageFrame({
+  width = 'wide',
+  children,
+  className = ''
+}: {
+  width?: 'wide' | 'narrow'
+  children: ReactNode
+  className?: string
+}): React.JSX.Element {
+  return (
+    <div
+      data-frame={width}
+      className={`flex h-full min-h-0 w-full flex-col ${width === 'narrow' ? 'max-w-[760px]' : 'max-w-[1440px]'} ${className}`}
+    >
+      {children}
+    </div>
+  )
+}
+
+/**
+ * Title, tabs and toolbar for a screen — the one place a page speaks above a whisper.
+ *
+ * The title is `text-page` (24px) and `whitespace-nowrap`: hand-rolled copies of this header sized
+ * the title at 19px and let it wrap, so "Voucher entry" arrived broken across two lines while the
+ * toolbar beside it had room to spare.
+ *
+ * `children` is the toolbar slot — buttons, period pickers, export actions — and sits on the
+ * title's baseline, right-aligned. `tabs` goes underneath, against the rule, so switching tabs
+ * never moves the title.
+ */
+export function ScreenHeader({
+  title,
+  tabs,
+  children
+}: {
+  title: ReactNode
+  tabs?: ReactNode
+  children?: ReactNode
+}): React.JSX.Element {
+  return (
+    <header className="mb-3 shrink-0">
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="font-serif text-page font-semibold tracking-tight whitespace-nowrap">{title}</h1>
+        {children ? <div className="flex flex-wrap items-center justify-end gap-2">{children}</div> : null}
+      </div>
+      {tabs ? <div className="mt-2.5 border-b border-line pb-2">{tabs}</div> : null}
+    </header>
   )
 }
 
@@ -97,16 +166,16 @@ export function mergeInputCls(className?: string): string {
 export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string | null }): React.JSX.Element {
   return (
     <label className="block">
-      <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">{label}</span>
+      <span className="mb-1 block text-micro font-semibold tracking-[0.08em] text-muted uppercase">{label}</span>
       {children}
       {error ? (
         // role="alert" so the message is announced when it appears. A validation error the user
         // has to act on is exactly the case a polite region is allowed to sit on indefinitely.
-        <span role="alert" className="mt-1 block text-hint text-cr">
+        <span role="alert" className="mt-1 block text-micro text-cr">
           {error}
         </span>
       ) : hint ? (
-        <span className="mt-1 block text-hint text-muted/80">{hint}</span>
+        <span className="mt-1 block text-micro text-muted/80">{hint}</span>
       ) : null}
     </label>
   )
@@ -118,8 +187,14 @@ export const TextInput = forwardRef<HTMLInputElement, React.InputHTMLAttributes<
   }
 )
 
+/**
+ * The app's only <select>. `appearance-none` is what stops macOS painting its own double-chevron
+ * in its own blue-grey — the loudest off-brand element on any screen with a filter bar. The
+ * replacement caret and the room made for it live on the element rule in app.css, so a select
+ * that ever gets hand-written elsewhere still looks like this one.
+ */
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>): React.JSX.Element {
-  return <select {...props} className={mergeInputCls(props.className)} />
+  return <select {...props} className={`appearance-none ${mergeInputCls(props.className)}`} />
 }
 
 export function Button({
@@ -142,7 +217,7 @@ export function Button({
     <button
       type="button"
       {...props}
-      className={`rounded-md px-3 py-1.5 text-detail transition-colors disabled:opacity-40 disabled:pointer-events-none ${styles} ${props.className ?? ''}`}
+      className={`rounded-md px-3 py-1.5 text-body transition-colors disabled:opacity-40 disabled:pointer-events-none ${styles} ${props.className ?? ''}`}
     />
   )
   if (props.disabled && disabledTitle) {
@@ -209,9 +284,9 @@ export function AmountInput({
           if (e.key === 'Enter' && onEnter) onEnter()
         }}
       />
-      {invalid && <span className="mt-0.5 block text-hint text-cr">Not an amount</span>}
+      {invalid && <span className="mt-0.5 block text-micro text-cr">Not an amount</span>}
       {preview && (
-        <span className="mt-0.5 block text-right text-hint text-muted" data-testid={`${testId}-preview`}>
+        <span className="mt-0.5 block text-right text-micro text-muted" data-testid={`${testId}-preview`}>
           = {preview}
         </span>
       )}
@@ -264,7 +339,7 @@ export function DateInput({
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
         }}
       />
-      {bad && <span className="mt-0.5 block text-hint text-cr">Try 7, 7/4, t, y or 15-08-2026</span>}
+      {bad && <span className="mt-0.5 block text-micro text-cr">Try 7, 7/4, t, y or 15-08-2026</span>}
     </span>
   )
 }
@@ -476,7 +551,7 @@ export function Modal({
         className={`max-h-[75vh] w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-lg border border-line bg-panel shadow-2xl outline-none`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
-          <h3 id={titleId} className="font-serif text-title font-semibold">
+          <h3 id={titleId} className="font-serif text-section font-semibold">
             {title}
           </h3>
           <div className="flex items-center gap-2">
@@ -494,8 +569,8 @@ export function Modal({
         </div>
         <div className="p-5">{children}</div>
         {confirmDiscard && (
-          <div className="flex items-center justify-between gap-3 border-t border-amber/60 bg-amber/10 px-5 py-3">
-            <p className="text-detail text-ink">Discard unsaved changes?</p>
+          <div className="flex items-center justify-between gap-3 border-t border-warnline bg-warnsoft px-5 py-3">
+            <p className="text-body text-ink">Discard unsaved changes?</p>
             <div className="flex shrink-0 gap-2">
               <Button data-testid="modal-keep-editing" onClick={() => setConfirmDiscard(false)}>
                 Keep editing
@@ -517,7 +592,9 @@ export function Toasts(): React.JSX.Element {
     info: 'border-blue/50 text-blue',
     success: 'border-dr/50 text-dr',
     error: 'border-cr/60 text-cr',
-    warning: 'border-amber/60 text-amber'
+    // Warnings use the ochre, not the amber: the amber is the selection bar and the primary
+    // button, and a toast wearing it reads as something to click rather than something to read.
+    warning: 'border-warnline text-warn'
   }
   return (
     // Pause/resume live on the container, not the toast: React still fires the container's
@@ -537,7 +614,7 @@ export function Toasts(): React.JSX.Element {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`pointer-events-auto flex items-center gap-3 rounded-lg border bg-panel px-4 py-2.5 text-left text-detail shadow-xl ${tones[t.kind]}`}
+          className={`pointer-events-auto flex items-center gap-3 rounded-lg border bg-panel px-4 py-2.5 text-left text-body shadow-xl ${tones[t.kind]}`}
         >
           {/* The message dismisses on click, as it always has. The action is a separate target
               so reaching for Undo can never dismiss the toast by missing it. */}
@@ -547,7 +624,7 @@ export function Toasts(): React.JSX.Element {
           {t.action && (
             <button
               data-testid="toast-action"
-              className="shrink-0 rounded-md border border-current px-2 py-0.5 text-caption font-medium"
+              className="shrink-0 rounded-md border border-current px-2 py-0.5 text-micro font-medium"
               onClick={() => {
                 dismiss(t.id)
                 void t.action!.run()
@@ -754,7 +831,7 @@ export function EmptyState({
     <div className="flex flex-col items-center justify-center py-16 text-center">
       {icon && <div className="mb-3 text-muted/50">{icon}</div>}
       <p className="text-lead text-muted">{title}</p>
-      {hint && <p className="mt-1 text-body-sm text-muted/70">{hint}</p>}
+      {hint && <p className="mt-1 text-body text-muted/70">{hint}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   )

@@ -229,7 +229,13 @@ export function previewRun(db: DB, month: string, days: { employeeId: number; pa
   const rates = ratesForMonth(month)
   const byId = new Map(days.map((d) => [d.employeeId, d.payableDays]))
   const fromRegister = new Map(payableDaysFor(db, month).map((a) => [a.employeeId, a.payableDays]))
-  const recoveries = new Map(dueRecoveries(db, month).map((r) => [r.employeeId, r]))
+  // Grouped, not keyed: an employee can owe on two advances at once, and a Map keyed by employee
+  // silently kept only the last one — deducting a single instalment and quietly stretching the
+  // other loan by a month every month.
+  const recoveries = new Map<number, number>()
+  for (const r of dueRecoveries(db, month)) {
+    recoveries.set(r.employeeId, (recoveries.get(r.employeeId) ?? 0) + r.amount)
+  }
   const tdsByEmployee = tdsForMonth(db, month)
   const headsByEmployee = loadEmployeeHeadSpecs(db)
   return listEmployees(db)
@@ -237,7 +243,7 @@ export function previewRun(db: DB, month: string, days: { employeeId: number; pa
     .map((e) => {
       const payableDays = byId.get(e.id) ?? fromRegister.get(e.id) ?? monthDays
       const heads = headsByEmployee.get(e.id)
-      const advanceRecovery = recoveries.get(e.id)?.amount ?? 0
+      const advanceRecovery = recoveries.get(e.id) ?? 0
       const tds = tdsByEmployee.get(e.id)?.thisMonth ?? 0
       // The rates in force for THIS month, not today's. A run recomputed after a rate change
       // must still answer what it answered when it was posted and filed.
@@ -319,7 +325,7 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
   push('Salary Advances', 'Loans & Advances (Asset)', 'cr', advanceRecovery)
   push('Salaries Payable', 'Provisions', 'cr', net)
 
-  const recoveryLoanIds = new Map(dueRecoveries(db, month).map((r) => [r.employeeId, r.loanId]))
+  const dueThisMonth = dueRecoveries(db, month)
   const lastDay = `${month}-${String(daysInMonth(month)).padStart(2, '0')}`
   const commit = db.transaction((): number => {
     const voucher = saveVoucher(db, {
@@ -358,12 +364,24 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
     }
     // Inside the run's transaction: a payslip that shows a recovery and a loan balance that does
     // not know about it are the two halves of the same fact, and they commit together or not at all.
-    recordRecoveries(
-      db,
-      runId,
-      month,
-      lines.filter((l) => l.advanceRecovery > 0).map((l) => ({ loanId: recoveryLoanIds.get(l.employeeId)!, amount: l.advanceRecovery }))
-    )
+    // Spread what was actually recovered back over that employee's open advances, oldest first.
+    // The line carries one number because the payslip shows one; the register needs it split.
+    //
+    // Sorted here rather than trusted from the caller: dueRecoveries reads listLoans, which is
+    // ordered newest-first for the screen, and inheriting that would quietly settle the newest
+    // advance ahead of the oldest whenever the pay could not cover both.
+    const recovered: { loanId: number; amount: number }[] = []
+    const byAge = [...dueThisMonth].sort((a, b) => a.loanId - b.loanId)
+    for (const l of lines.filter((x) => x.advanceRecovery > 0)) {
+      let left = l.advanceRecovery
+      for (const due of byAge.filter((d) => d.employeeId === l.employeeId)) {
+        if (left <= 0) break
+        const take = Math.min(left, due.amount)
+        recovered.push({ loanId: due.loanId, amount: take })
+        left -= take
+      }
+    }
+    recordRecoveries(db, runId, month, recovered)
     return runId
   })
   const runId = commit()

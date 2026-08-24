@@ -78,15 +78,27 @@ export interface FixedAsset {
   notes: string | null
   disposedOn: string | null
   disposalProceeds: number | null
-  /** Accumulated Companies Act depreciation from every posted run. */
+  /** Accumulated Companies Act depreciation: posted runs plus whatever was charged before the
+   *  register existed. */
   accumulated: number
-  /** Cost less accumulated depreciation. */
+  /** Companies Act depreciation charged before this app started keeping the register. */
+  openingAccumulated: number
+  /** The asset's share of its block's written-down value when it came on to the register.
+   *  Null means cost, which is right for anything bought after the app was installed. */
+  openingTaxWdv: number | null
+  /** Accumulated income-tax depreciation from posted runs. */
+  taxAccumulated: number
+  /** Written-down value under the Income-tax Act. Different from `bookValue` by design. */
+  taxWdv: number
+  /** Cost less accumulated depreciation, under the Companies Act. */
   bookValue: number
 }
 
 const ASSET_SELECT = `
   SELECT fa.*, ab.name AS blockName, ab.it_rate AS itRate, l.name AS ledgerName,
-         COALESCE((SELECT SUM(dl.depreciation) FROM depreciation_lines dl WHERE dl.asset_id = fa.id), 0) AS accumulated
+                COALESCE((SELECT SUM(dl.depreciation) FROM depreciation_lines dl WHERE dl.asset_id = fa.id), 0)
+           + fa.opening_accumulated AS accumulated,
+         COALESCE((SELECT SUM(dl.tax_depreciation) FROM depreciation_lines dl WHERE dl.asset_id = fa.id), 0) AS taxAccumulated
   FROM fixed_assets fa
   LEFT JOIN asset_blocks ab ON ab.id = fa.block_id
   LEFT JOIN ledgers l ON l.id = fa.ledger_id`
@@ -97,6 +109,7 @@ interface AssetRow {
   purchase_date: string; put_to_use_date: string | null; cost: number; residual_value: number
   useful_life_months: number; method: DepreciationMethod; location: string | null; notes: string | null
   disposed_on: string | null; disposal_proceeds: number | null; accumulated: number
+  opening_accumulated: number; opening_tax_wdv: number | null; taxAccumulated: number
 }
 
 const mapAsset = (r: AssetRow): FixedAsset => ({
@@ -119,6 +132,11 @@ const mapAsset = (r: AssetRow): FixedAsset => ({
   disposedOn: r.disposed_on,
   disposalProceeds: r.disposal_proceeds,
   accumulated: r.accumulated,
+  openingAccumulated: r.opening_accumulated,
+  openingTaxWdv: r.opening_tax_wdv,
+  taxAccumulated: r.taxAccumulated,
+  // The tax written-down value rolls forward on the block's own rate, never on the books'.
+  taxWdv: Math.max(0, (r.opening_tax_wdv ?? r.cost) - r.taxAccumulated),
   bookValue: r.cost - r.accumulated
 })
 
@@ -145,6 +163,10 @@ export interface AssetInput {
   method?: DepreciationMethod
   location?: string | null
   notes?: string | null
+  /** Companies Act depreciation already charged elsewhere, for an asset older than the register. */
+  openingAccumulated?: number
+  /** Its share of the block's tax written-down value on the day it came on to the register. */
+  openingTaxWdv?: number | null
 }
 
 /**
@@ -159,30 +181,35 @@ export function saveAsset(db: DB, input: AssetInput, id?: number): FixedAsset {
   if (input.usefulLifeMonths <= 0) throw new Error('An asset needs a useful life')
   const residual = Math.min(input.residualValue ?? 0, Math.floor((input.cost * MAX_RESIDUAL_PERCENT) / 100))
   const code = input.code?.trim() ? input.code.trim() : null
+  // Cannot have been depreciated below its own residual before it arrived here either.
+  const openingAccumulated = Math.max(0, Math.min(input.openingAccumulated ?? 0, input.cost - residual))
   const before = id ? getAsset(db, id) : null
 
   if (id) {
     db.prepare(
       `UPDATE fixed_assets SET name = ?, code = ?, block_id = ?, ledger_id = ?, purchase_date = ?,
        put_to_use_date = ?, cost = ?, residual_value = ?, useful_life_months = ?, method = ?,
-       location = ?, notes = ? WHERE id = ?`
+       location = ?, notes = ?, opening_accumulated = ?, opening_tax_wdv = ? WHERE id = ?`
     ).run(
       input.name, code, input.blockId ?? null, input.ledgerId ?? null, input.purchaseDate,
       input.putToUseDate ?? input.purchaseDate, input.cost, residual, input.usefulLifeMonths,
-      input.method ?? 'slm', input.location ?? null, input.notes ?? null, id
+      input.method ?? 'slm', input.location ?? null, input.notes ?? null,
+      openingAccumulated, input.openingTaxWdv ?? null, id
     )
   } else {
     id = Number(
       db
         .prepare(
           `INSERT INTO fixed_assets (name, code, block_id, ledger_id, purchase_date, put_to_use_date,
-            cost, residual_value, useful_life_months, method, location, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            cost, residual_value, useful_life_months, method, location, notes,
+            opening_accumulated, opening_tax_wdv)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           input.name, code, input.blockId ?? null, input.ledgerId ?? null, input.purchaseDate,
           input.putToUseDate ?? input.purchaseDate, input.cost, residual, input.usefulLifeMonths,
-          input.method ?? 'slm', input.location ?? null, input.notes ?? null
+          input.method ?? 'slm', input.location ?? null, input.notes ?? null,
+          openingAccumulated, input.openingTaxWdv ?? null
         ).lastInsertRowid
     )
   }
@@ -279,6 +306,12 @@ export interface AssetScheduleRow {
   closingWdv: number
   heldFraction: number
   cappedAtResidual: boolean
+  /** This asset's share of its block's charge under the Income-tax Act. Zero for an asset with
+   *  no block. Allocated pro-rata by its share of the block, because section 32 depreciates the
+   *  pool rather than the asset — the split exists only so the block can roll forward per asset. */
+  taxDepreciation: number
+  /** Written-down value under the Income-tax Act, after this year's share. */
+  taxClosingWdv: number
   /** Disposed during the year — depreciated up to the disposal, then out. */
   disposedOn: string | null
 }
@@ -317,22 +350,24 @@ export function depreciationSchedule(db: DB, fyStartYear: number): DepreciationS
     (a) => a.purchaseDate <= fy.to && (a.disposedOn === null || a.disposedOn >= fy.from)
   )
 
-  // Accumulated depreciation from runs BEFORE this year — the opening written-down value.
-  const priorByAsset = new Map(
-    (
-      db
-        .prepare(
-          `SELECT dl.asset_id AS assetId, COALESCE(SUM(dl.depreciation), 0) AS prior
-           FROM depreciation_lines dl JOIN depreciation_runs dr ON dr.id = dl.run_id
-           WHERE dr.fy_start_year < ? GROUP BY dl.asset_id`
-        )
-        .all(fyStartYear) as { assetId: number; prior: number }[]
-    ).map((r) => [r.assetId, r.prior])
-  )
+  // Depreciation from runs BEFORE this year. Both schedules are read, because they roll forward
+  // at different rates and using one for the other is wrong from the second year onward.
+  const prior = db
+    .prepare(
+      `SELECT dl.asset_id AS assetId, COALESCE(SUM(dl.depreciation), 0) AS book,
+              COALESCE(SUM(dl.tax_depreciation), 0) AS tax
+       FROM depreciation_lines dl JOIN depreciation_runs dr ON dr.id = dl.run_id
+       WHERE dr.fy_start_year < ? GROUP BY dl.asset_id`
+    )
+    .all(fyStartYear) as { assetId: number; book: number; tax: number }[]
+  const priorByAsset = new Map(prior.map((r) => [r.assetId, r.book]))
+  const priorTaxByAsset = new Map(prior.map((r) => [r.assetId, r.tax]))
 
   const companiesAct: AssetScheduleRow[] = assets.map((a) => {
-    const prior = priorByAsset.get(a.id) ?? 0
-    const openingWdv = a.cost - prior
+    // Includes whatever was charged before the register existed, so an asset older than this
+    // app does not start depreciating from full cost again.
+    const priorBook = (priorByAsset.get(a.id) ?? 0) + a.openingAccumulated
+    const openingWdv = a.cost - priorBook
     const r = depreciateCompaniesAct(
       {
         cost: a.cost,
@@ -341,7 +376,7 @@ export function depreciationSchedule(db: DB, fyStartYear: number): DepreciationS
         method: a.method,
         putToUseDate: a.putToUseDate ?? a.purchaseDate,
         openingWdv,
-        accumulated: prior
+        accumulated: priorBook
       },
       fy.from,
       fy.to,
@@ -363,6 +398,8 @@ export function depreciationSchedule(db: DB, fyStartYear: number): DepreciationS
       closingWdv: r.closingWdv,
       heldFraction: r.heldFraction,
       cappedAtResidual: r.cappedAtResidual,
+      taxDepreciation: 0,
+      taxClosingWdv: 0,
       disposedOn: a.disposedOn
     }
   })
@@ -382,6 +419,9 @@ export function depreciationSchedule(db: DB, fyStartYear: number): DepreciationS
           putToUseDate: a.putToUseDate ?? a.purchaseDate,
           daysInUse: daysInUseDuring(a.putToUseDate ?? a.purchaseDate, fy.from, fy.to)
         }))
+        // Section 32 allows nothing at all on an asset that was never put to use. Left in, a
+        // crate that arrived in March and was opened in April would earn the half rate.
+        .filter((a) => a.daysInUse > 0)
       const deletions = inBlock
         .filter((a) => a.disposedOn && a.disposedOn >= fy.from && a.disposedOn <= fy.to)
         .reduce((s, a) => s + (a.disposalProceeds ?? 0), 0)
@@ -389,12 +429,40 @@ export function depreciationSchedule(db: DB, fyStartYear: number): DepreciationS
       return depreciateBlock({
         blockName: block.name,
         rate: block.itRate,
-        openingWdv: broughtForward.reduce((s, a) => s + (a.cost - (priorByAsset.get(a.id) ?? 0)), 0),
+        // The block's own written-down value: its opening figure (cost, unless the asset was
+        // brought on to the register mid-life) less the TAX depreciation charged on it.
+        openingWdv: broughtForward.reduce(
+          (s, a) => s + Math.max(0, (a.openingTaxWdv ?? a.cost) - (priorTaxByAsset.get(a.id) ?? 0)),
+          0
+        ),
         additions,
         deletions
       })
     })
     .filter((b): b is BlockResult => b !== null)
+
+  // Push each block's charge back on to its assets, pro-rata by their share of the block. The
+  // Act depreciates the pool, so this split has no statutory meaning of its own — it exists only
+  // so next year's opening tax value can be carried per asset without re-deriving the whole pool.
+  const rowByAsset = new Map(companiesAct.map((r) => [r.assetId, r]))
+  for (const block of incomeTax) {
+    const inBlock = assets.filter((a) => a.blockName === block.blockName && rowByAsset.has(a.id))
+    const shares = inBlock.map((a) => ({
+      asset: a,
+      value: Math.max(0, (a.openingTaxWdv ?? a.cost) - (priorTaxByAsset.get(a.id) ?? 0))
+    }))
+    const pool = shares.reduce((s, x) => s + x.value, 0)
+    let remaining = block.depreciation
+    shares.forEach((x, i) => {
+      const row = rowByAsset.get(x.asset.id)!
+      // The last asset takes whatever is left, so the parts always sum to the block's charge
+      // rather than losing a paisa to rounding.
+      const share = i === shares.length - 1 || pool === 0 ? remaining : Math.floor((block.depreciation * x.value) / pool)
+      remaining -= share
+      row.taxDepreciation = share
+      row.taxClosingWdv = Math.max(0, x.value - share)
+    })
+  }
 
   const companiesActTotal = companiesAct.reduce((s, r) => s + r.depreciation, 0)
   const incomeTaxTotal = incomeTax.reduce((s, b) => s + b.depreciation, 0)
@@ -458,10 +526,15 @@ export function recordDepreciationRun(db: DB, fyStartYear: number, voucherId: nu
       db.prepare('INSERT INTO depreciation_runs (fy_start_year, voucher_id) VALUES (?, ?)').run(fyStartYear, voucherId).lastInsertRowid
     )
     const insert = db.prepare(
-      'INSERT INTO depreciation_lines (run_id, asset_id, opening_wdv, depreciation, closing_wdv) VALUES (?, ?, ?, ?, ?)'
+      `INSERT INTO depreciation_lines (run_id, asset_id, opening_wdv, depreciation, closing_wdv, tax_depreciation)
+       VALUES (?, ?, ?, ?, ?, ?)`
     )
+    // Both charges are stored, never one derived from the other: the two schedules roll forward
+    // at different rates by design, and deriving either from the other is wrong from year two.
     for (const r of schedule.companiesAct) {
-      if (r.depreciation > 0) insert.run(runId, r.assetId, r.openingWdv, r.depreciation, r.closingWdv)
+      if (r.depreciation > 0 || r.taxDepreciation > 0) {
+        insert.run(runId, r.assetId, r.openingWdv, r.depreciation, r.closingWdv, r.taxDepreciation)
+      }
     }
     return runId
   })()

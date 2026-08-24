@@ -32,11 +32,19 @@ export interface RegimeRates {
   standardDeduction: number
   /**
    * Section 87A: taxable income at or below this gets a rebate wiping the tax out entirely.
-   * Above it, marginal relief caps the tax at the excess over the threshold.
    */
   rebateLimit: number
   /** Maximum rebate, which is what caps it when income is just under the limit. */
   rebateMax: number
+  /**
+   * Whether marginal relief applies just past the rebate limit.
+   *
+   * Only under the new regime. The proviso to section 87A that caps the tax at the income
+   * exceeding the threshold was introduced with section 115BAC and has no equivalent in the old
+   * regime, where crossing ₹5,00,000 by a rupee genuinely costs the whole rebate. Applying it to
+   * both is a pleasant fiction that under-deducts TDS by about ₹13,000 an employee.
+   */
+  rebateMarginalRelief: boolean
   /** Health and education cess, whole percent, applied after surcharge. */
   cessRate: number
   /** Surcharge rate caps out here under the new regime. */
@@ -72,6 +80,7 @@ export const TAX_HISTORY: RegimeRates[] = [
     standardDeduction: 75_000_00,
     rebateLimit: 7_00_000_00,
     rebateMax: 25_000_00,
+    rebateMarginalRelief: true,
     cessRate: 4,
     maxSurchargeRate: 25,
     note: 'FY 2024-25 new regime (Finance (No. 2) Act 2024).'
@@ -88,6 +97,8 @@ export const TAX_HISTORY: RegimeRates[] = [
     standardDeduction: 50_000_00,
     rebateLimit: 5_00_000_00,
     rebateMax: 12_500_00,
+    // No marginal relief in the old regime: a rupee over ₹5,00,000 costs the whole rebate.
+    rebateMarginalRelief: false,
     cessRate: 4,
     maxSurchargeRate: 37,
     note: 'FY 2024-25 old regime — slabs unchanged since FY 2014-15.'
@@ -107,6 +118,7 @@ export const TAX_HISTORY: RegimeRates[] = [
     standardDeduction: 75_000_00,
     rebateLimit: 12_00_000_00,
     rebateMax: 60_000_00,
+    rebateMarginalRelief: true,
     cessRate: 4,
     maxSurchargeRate: 25,
     note: 'FY 2025-26 new regime (Finance Act 2025) — rebate up to ₹12,00,000 taxable income.'
@@ -123,6 +135,8 @@ export const TAX_HISTORY: RegimeRates[] = [
     standardDeduction: 50_000_00,
     rebateLimit: 5_00_000_00,
     rebateMax: 12_500_00,
+    // No marginal relief in the old regime: a rupee over ₹5,00,000 costs the whole rebate.
+    rebateMarginalRelief: false,
     cessRate: 4,
     maxSurchargeRate: 37,
     note: 'FY 2025-26 old regime.'
@@ -233,9 +247,10 @@ export function computeAnnualTax(input: TaxInput): TaxComputation {
   let rebate = 0
   if (taxableIncome <= rates.rebateLimit) {
     rebate = Math.min(taxBeforeRebate, rates.rebateMax)
-  } else {
+  } else if (rates.rebateMarginalRelief) {
     // Marginal relief on the rebate: just past the limit, the tax cannot exceed the income that
     // took you past it. Without this, ₹12,00,001 of income costs far more tax than ₹12,00,000.
+    // New regime only — see `rebateMarginalRelief`.
     const excess = taxableIncome - rates.rebateLimit
     if (taxBeforeRebate > excess) rebate = taxBeforeRebate - excess
   }

@@ -25,7 +25,7 @@ type Db = ReturnType<typeof seededDb>
 function machine(db: Db, over: Record<string, unknown> = {}) {
   const block = listBlocks(db).find((b) => b.name === 'Plant and machinery — general')!
   return saveAsset(db, {
-    name: 'Lathe',
+    name: (over.name as string) ?? 'Lathe',
     blockId: block.id,
     purchaseDate: '2026-04-01',
     putToUseDate: '2026-04-01',
@@ -223,5 +223,97 @@ describe('disposal', () => {
     const a = machine(db)
     recordDepreciationRun(db, 2026, null)
     expect(() => deleteAsset(db, a.id)).toThrow('dispose of it instead')
+  })
+})
+
+describe('assets older than the register', () => {
+  it('starts from what was already depreciated, not from full cost', () => {
+    const db = seededDb()
+    ensureBlocks(db)
+    // A 2018 machine, half written off by the time this app was installed.
+    const old = machine(db, { purchaseDate: '2018-04-01', putToUseDate: '2018-04-01', openingAccumulated: 5_00_000_00 })
+    expect(old.accumulated).toBe(5_00_000_00)
+    expect(old.bookValue).toBe(5_00_000_00)
+
+    const s = depreciationSchedule(db, 2026)
+    const row = s.companiesAct.find((r) => r.assetId === old.id)!
+    expect(row.openingWdv).toBe(5_00_000_00)
+    // Straight line is still on cost less residual, but it stops at the residual sooner.
+    expect(row.closingWdv).toBe(row.openingWdv - row.depreciation)
+  })
+
+  it('cannot be given more opening depreciation than it has value to lose', () => {
+    const db = seededDb()
+    ensureBlocks(db)
+    const a = machine(db, { openingAccumulated: 99_00_000_00 })
+    expect(a.accumulated).toBe(10_00_000_00 - 50_000_00)
+  })
+
+  it('takes a tax written-down value that is not its book value', () => {
+    const db = seededDb()
+    ensureBlocks(db)
+    // The books say five lakh is left; the block says three, because they depreciate differently.
+    const a = machine(db, {
+      purchaseDate: '2018-04-01', putToUseDate: '2018-04-01',
+      openingAccumulated: 5_00_000_00, openingTaxWdv: 3_00_000_00
+    })
+    expect(a.bookValue).toBe(5_00_000_00)
+    expect(a.taxWdv).toBe(3_00_000_00)
+
+    const s = depreciationSchedule(db, 2026)
+    const block = s.incomeTax.find((b) => b.blockName === 'Plant and machinery — general')!
+    // 15% of the TAX value, not of the book value.
+    expect(block.openingWdv).toBe(3_00_000_00)
+    expect(block.depreciation).toBe(45_000_00)
+  })
+})
+
+describe('the tax block rolls forward on its own rate', () => {
+  it('does not derive next year from the Companies Act charge', () => {
+    const db = seededDb()
+    ensureBlocks(db)
+    const computers = listBlocks(db).find((b) => b.name === 'Computers and software')!
+    // A computer: three-year straight line in the books, 40% written-down value in the return.
+    const pc = saveAsset(db, {
+      name: 'Workstation', blockId: computers.id,
+      purchaseDate: '2026-04-01', putToUseDate: '2026-04-01',
+      cost: 90_000_00, residualValue: 0, usefulLifeMonths: 36, method: 'slm'
+    } as never)
+
+    const y1 = depreciationSchedule(db, 2026)
+    const y1row = y1.companiesAct.find((r) => r.assetId === pc.id)!
+    expect(y1.incomeTaxTotal).toBe(36_000_00) // 40% of 90,000
+    expect(y1row.taxDepreciation).toBe(36_000_00)
+    expect(y1row.depreciation).not.toBe(y1row.taxDepreciation)
+
+    recordDepreciationRun(db, 2026, null)
+
+    const y2 = depreciationSchedule(db, 2027)
+    const block = y2.incomeTax.find((b) => b.blockName === computers.name)!
+    // 90,000 − 36,000 = 54,000 at 40% = 21,600. Deriving it from the books' charge would have
+    // opened at 60,000 and given 24,000.
+    expect(block.openingWdv).toBe(54_000_00)
+    expect(block.depreciation).toBe(21_600_00)
+  })
+
+  it('splits a block charge across its assets so the parts sum to the whole', () => {
+    const db = seededDb()
+    ensureBlocks(db)
+    machine(db, { name: 'Lathe A', cost: 6_00_000_00 })
+    machine(db, { name: 'Lathe B', cost: 4_00_000_00 })
+    const s = depreciationSchedule(db, 2026)
+    const block = s.incomeTax.find((b) => b.blockName === 'Plant and machinery — general')!
+    const parts = s.companiesAct.reduce((t, r) => t + r.taxDepreciation, 0)
+    expect(parts).toBe(block.depreciation)
+  })
+
+  it('allows nothing on an asset bought in-year but never put to use', () => {
+    const db = seededDb()
+    ensureBlocks(db)
+    machine(db, { purchaseDate: '2027-03-01', putToUseDate: '2027-06-01' })
+    const s = depreciationSchedule(db, 2026)
+    // Not even the half rate: section 32 needs the asset in use.
+    expect(s.incomeTaxTotal).toBe(0)
+    expect(s.companiesActTotal).toBe(0)
   })
 })

@@ -50,85 +50,115 @@ export function CompanySelect(): React.JSX.Element {
     <div
       data-screen="company-select"
       data-loading={fetching > 0 ? 'true' : 'false'}
-      className="drag-region flex h-full flex-col items-center justify-center"
+      className="drag-region flex h-full items-center justify-center px-10 py-10"
     >
-      <div className="w-full max-w-lg">
-        <h1 className="text-center font-serif text-display font-semibold tracking-tight">Total</h1>
-        <p className="mt-1 mb-8 text-center text-detail text-muted">
-          Your books, on this Mac, nowhere else · ~/Documents/total
-        </p>
+      {/* The first screen anyone sees, so it is composed rather than centred-and-hoped-for: a
+          masthead on the left that says what this program is, and one panel on the right that
+          holds everything you can do about it. The surround stays draggable (frameless window);
+          the content does not, or the rows below would not take a click. */}
+      <div
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        className="grid w-full max-w-4xl grid-cols-1 items-center gap-10 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]"
+      >
+        <div>
+          <h1 className="font-serif text-display font-semibold tracking-tight">Total</h1>
+          <div className="mt-3 h-0.5 w-14 bg-amberbar" />
+          <p className="mt-4 text-detail text-muted">Your books, on this Mac, nowhere else.</p>
+          <p className="num mt-1 text-caption text-muted">~/Documents/total</p>
+          <div className="mt-8">
+            <SupportLink />
+          </div>
+        </div>
 
-        <div className="overflow-hidden rounded-lg border border-line bg-panel">
-          <ScrollList maxH="50vh">
-          {companies.length === 0 && (
-            <p className="px-6 py-10 text-center text-body text-muted">
-              No companies yet. Create your first — books open in seconds.
+        <div className="overflow-hidden rounded-lg border border-line bg-panel panel-shadow">
+          <div className="flex items-baseline justify-between border-b border-line bg-panel2 px-5 py-2.5">
+            <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Companies</p>
+            {companies.length > 0 && (
+              <p className="num text-hint text-muted">
+                {companies.length} on this Mac · ↑↓ then ↵
+              </p>
+            )}
+          </div>
+
+          {companies.length === 0 ? (
+            // An empty screen is an invitation to act, not a grey sentence in a white box.
+            <p className="px-5 py-6 text-body-sm text-muted">
+              No books here yet. Start a set below, or open the sample company and look around first.
             </p>
-          )}
-          {companies.map((c, i) => (
-            <div
-              key={c.slug}
-              data-active={i === active}
-              className="kbar-row group flex cursor-pointer items-center justify-between border-b border-line/50 px-5 py-3.5 last:border-b-0"
-              onMouseEnter={() => setActive(i)}
-              onClick={() => void open(c.slug)}
-            >
-              <div>
-                <p className="text-lead font-medium">{c.name}</p>
-                <p className="num mt-0.5 text-caption text-muted">
-                  {GST_STATES[c.stateCode] ?? c.stateCode}
-                  {c.gstin ? ` · ${c.gstin}` : ' · Unregistered'}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-hint text-muted">Enter ↵</span>
-                <button
-                  type="button"
-                  data-testid={`btn-company-delete-${c.slug}`}
-                  title={`Delete ${c.name}`}
-                  className="rounded-md px-1.5 py-0.5 text-detail text-muted opacity-0 transition-opacity hover:border hover:border-cr/50 hover:text-cr group-hover:opacity-100 focus-visible:opacity-100 focus-visible:text-cr focus-visible:outline-2 focus-visible:outline-cr/60"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setDeleting(c)
-                  }}
+          ) : (
+            <ScrollList maxH="42vh">
+              {companies.map((c, i) => (
+                <div
+                  key={c.slug}
+                  data-active={i === active}
+                  className="kbar-row group flex cursor-pointer items-center justify-between border-b border-line/50 px-5 py-3.5 last:border-b-0"
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => void open(c.slug)}
                 >
-                  ×
-                </button>
-              </div>
-            </div>
-          ))}
-          </ScrollList>
-        </div>
+                  <div>
+                    <p className="text-lead font-medium">{c.name}</p>
+                    <p className="num mt-0.5 text-caption text-muted">
+                      {GST_STATES[c.stateCode] ?? c.stateCode}
+                      {c.gstin ? ` · ${c.gstin}` : ' · Unregistered'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-hint text-muted opacity-0 group-hover:opacity-100 group-data-[active=true]:opacity-100">
+                      Enter ↵
+                    </span>
+                    <button
+                      type="button"
+                      data-testid={`btn-company-delete-${c.slug}`}
+                      title={`Delete ${c.name}`}
+                      className="rounded-md px-1.5 py-0.5 text-detail text-muted opacity-0 transition-opacity hover:border hover:border-cr/50 hover:text-cr group-hover:opacity-100 focus-visible:opacity-100 focus-visible:text-cr focus-visible:outline-2 focus-visible:outline-cr/60"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDeleting(c)
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </ScrollList>
+          )}
 
-        <div className="mt-4 flex justify-center gap-2">
-          <Button variant="primary" data-testid="btn-company-create" onClick={() => setCreating(true)}>
-            Create company
-          </Button>
-          <Button variant="ghost" onClick={() => setImporting(true)}>
-            Import encrypted backup…
-          </Button>
-          <Button
-            variant="ghost"
+          {/* One idiom, three instances — the three ways in used to be a filled button, a link
+              and a second link sitting in a row, which read as three unrelated things. They are
+              the same kind of choice, so they get the same shape; only the amber says which one
+              most people want. */}
+          <StartRow
+            testId="btn-company-create"
+            title="Create company"
+            sub="Name, state, GSTIN — books open in seconds"
+            accent
+            onClick={() => setCreating(true)}
+          />
+          <StartRow
+            title="Import encrypted backup…"
+            sub="Restore a .totalbak file from another Mac"
+            onClick={() => setImporting(true)}
+          />
+          <StartRow
+            title={demoLoading ? 'Setting up sample data…' : 'Explore with sample data'}
+            sub="Demo Traders — a year of vouchers, returns and stock"
             disabled={demoLoading}
-            onClick={async () => {
-              setDemoLoading(true)
-              try {
-                const r = await api.company.createDemo()
-                await queryClient.invalidateQueries({ queryKey: ['registry'] })
-                await open(r.slug)
-              } catch (err) {
-                toast.push('error', (err as Error).message)
-              } finally {
-                setDemoLoading(false)
-              }
+            onClick={() => {
+              void (async () => {
+                setDemoLoading(true)
+                try {
+                  const r = await api.company.createDemo()
+                  await queryClient.invalidateQueries({ queryKey: ['registry'] })
+                  await open(r.slug)
+                } catch (err) {
+                  toast.push('error', (err as Error).message)
+                } finally {
+                  setDemoLoading(false)
+                }
+              })()
             }}
-          >
-            {demoLoading ? 'Setting up sample data…' : 'Explore with sample data'}
-          </Button>
-        </div>
-
-        <div className="mt-8 text-center">
-          <SupportLink />
+          />
         </div>
       </div>
 
@@ -192,6 +222,41 @@ export function CompanySelect(): React.JSX.Element {
         />
       )}
     </div>
+  )
+}
+
+/** One of the three ways into the app: a full-width ruled row, the same shape each time. */
+function StartRow({
+  title,
+  sub,
+  onClick,
+  accent = false,
+  disabled = false,
+  testId
+}: {
+  title: string
+  sub: string
+  onClick: () => void
+  accent?: boolean
+  disabled?: boolean
+  testId?: string
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex w-full items-center justify-between gap-4 border-t border-line px-5 py-3 text-left transition-colors disabled:opacity-60 ${
+        accent ? 'bg-amberbar/15 hover:bg-amberbar/25' : 'hover:bg-panel2'
+      }`}
+    >
+      <span>
+        <span className={`block text-lead ${accent ? 'font-semibold' : 'font-medium'}`}>{title}</span>
+        <span className="mt-0.5 block text-caption text-muted">{sub}</span>
+      </span>
+      <span className={accent ? 'text-amber' : 'text-muted'}>→</span>
+    </button>
   )
 }
 

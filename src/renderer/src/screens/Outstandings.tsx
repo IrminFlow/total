@@ -166,8 +166,10 @@ export function OutstandingsScreen(): React.JSX.Element {
           <table className="ledger-table">
             <thead>
               <tr>
+                {/* No "Due date" column: a due date belongs to a bill, not to a party, so the
+                    summary row had nothing to put under it. Each bill carries its own due date
+                    inline in the expanded rows below. */}
                 <th scope="col">Party</th>
-                <th scope="col" className="w-32">Due date</th>
                 <th scope="col" className="r w-32">0–30 d</th>
                 <th scope="col" className="r w-32">31–60 d</th>
                 <th scope="col" className="r w-32">61–90 d</th>
@@ -184,7 +186,6 @@ export function OutstandingsScreen(): React.JSX.Element {
                       <span className="mr-1.5 inline-block w-3 text-label text-muted">{openParty === p.ledgerId ? '▾' : '▸'}</span>
                       {p.name}
                     </td>
-                    <td></td>
                     <td className="r"><Money paise={p.buckets[0]} /></td>
                     <td className="r"><Money paise={p.buckets[1]} /></td>
                     <td className="r"><Money paise={p.buckets[2]} /></td>
@@ -227,10 +228,10 @@ export function OutstandingsScreen(): React.JSX.Element {
                             {b.number}
                           </button>
                           <span className="num ml-3 text-hint">{toDisplayDate(b.date)} · {b.ageDays} days</span>
-                        </td>
-                        <td className="num text-hint">
-                          {b.dueDate ? toDisplayDate(b.dueDate) : ''}
-                          {b.overdueDays > 0 && <span className="ml-1.5">· {b.overdueDays}d overdue</span>}
+                          <span className="num ml-3 text-hint">
+                            {b.dueDate ? `due ${toDisplayDate(b.dueDate)}` : 'no due date'}
+                            {b.overdueDays > 0 && ` · ${b.overdueDays}d overdue`}
+                          </span>
                         </td>
                         <td colSpan={4}></td>
                         <td className="r"><Money paise={b.pending} /></td>
@@ -241,7 +242,6 @@ export function OutstandingsScreen(): React.JSX.Element {
               ))}
               <tr className="total-row">
                 <td>Total</td>
-                <td></td>
                 <td className="r"><Money paise={bucketTotals[0]!} /></td>
                 <td className="r"><Money paise={bucketTotals[1]!} /></td>
                 <td className="r"><Money paise={bucketTotals[2]!} /></td>

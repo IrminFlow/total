@@ -220,3 +220,13 @@ describe('an asset that leaves mid-year', () => {
     expect(r.heldFraction).toBe(1)
   })
 })
+
+describe('assets never put to use', () => {
+  it('earn nothing under either Act', () => {
+    // Bought in March, opened in April: the crate sat in a corner all year.
+    const books = depreciateCompaniesAct(asset({ putToUseDate: '2027-04-15' }), '2026-04-01', '2027-03-31')
+    expect(books.depreciation).toBe(0)
+    // Section 32 allows nothing on an asset not put to use — not even the half rate.
+    expect(daysInUseDuring('2027-04-15', '2026-04-01', '2027-03-31')).toBe(0)
+  })
+})

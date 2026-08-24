@@ -95,17 +95,22 @@ export function BalanceSheetScreen(): React.JSX.Element {
           isPlaceholderData ? 'opacity-60' : ''
         }`}
       >
-        <Panel className="p-4">
+        {/* The two sides carry different numbers of lines, and a balance sheet whose two totals
+            sit on different baselines is unreadable. Each panel is a full-height flex column with
+            a growing spacer, so both totals land on the panel foot — and on one shared line. */}
+        <Panel className="flex h-full flex-col p-4">
           <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Liabilities</p>
           <Section nodes={data.liabilities} prior={prior?.liabilities} headers={priorHeaders} />
+          <div className="grow" aria-hidden />
           <div className="total-row mt-2 flex justify-between px-2 pt-1.5 pb-0.5">
             <span>Total</span>
             <Money paise={data.totalLiabilities} />
           </div>
         </Panel>
-        <Panel className="p-4">
+        <Panel className="flex h-full flex-col p-4">
           <p className="mb-2 text-caption font-semibold tracking-[0.08em] text-muted uppercase">Assets</p>
           <Section nodes={data.assets} prior={prior?.assets} headers={priorHeaders} />
+          <div className="grow" aria-hidden />
           <div className="total-row mt-2 flex justify-between px-2 pt-1.5 pb-0.5">
             <span>Total</span>
             <Money paise={data.totalAssets} />

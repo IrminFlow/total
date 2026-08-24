@@ -872,5 +872,29 @@ export const MIGRATIONS: string[] = [
     fy_start_year INTEGER NOT NULL UNIQUE,
     filed_on TEXT NOT NULL
   );
+  `,
+
+  // 30 — assets that existed before this app did, and the tax written-down value.
+  //
+  // Two gaps found in review, both of which make the register wrong for every real adopter.
+  //
+  // A business installing this in 2026 owns a machine bought in 2018. Without an opening
+  // accumulated figure the first schedule computes depreciation off full cost and reports a book
+  // value years out of date — wrong on day one for exactly the users a launch targets.
+  //
+  // And the income-tax block has its own written-down value, which rolls forward at the block's
+  // own rate. Deriving it from the Companies Act charge (the only depreciation stored until now)
+  // is wrong from the second year and compounds annually, because the two schedules depreciate at
+  // different rates by design.
+  `
+  -- Companies Act depreciation charged before this app started keeping the register.
+  ALTER TABLE fixed_assets ADD COLUMN opening_accumulated INTEGER NOT NULL DEFAULT 0;
+  -- The asset's share of its block's written-down value when it was brought on to the register.
+  -- NULL means "cost", which is right for an asset bought after the app was installed.
+  ALTER TABLE fixed_assets ADD COLUMN opening_tax_wdv INTEGER;
+
+  -- The income-tax charge per asset per year, so the block rolls forward on its own rate rather
+  -- than on the books'. Stored beside the Companies Act charge, never derived from it.
+  ALTER TABLE depreciation_lines ADD COLUMN tax_depreciation INTEGER NOT NULL DEFAULT 0;
   `
 ]

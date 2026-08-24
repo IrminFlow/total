@@ -2,26 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
-import { Accel, Button, Money, Panel, ScrollList, Skeleton } from '../components/ui'
+import { Button, Money, Panel, ScrollList, Skeleton } from '../components/ui'
 import { toDisplayDate, toDisplayDateTime, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
 import { buildReminder } from '@shared/outstanding'
-import { useFeatures } from '../lib/useFeatures'
 import type { RecurringTemplate } from '@shared/domain'
 import type { CashSparkPoint, TopLedgerRow } from '@shared/reports'
 import { templateOpenTarget } from './Recurring'
-import { CARD_SCREENS } from '../lib/screens'
-
-/** Cards derived from the single screen registry (lib/screens.ts). */
-const CARDS: { name: string; label: string; sub: string; screen: Screen; accel?: string; feature?: (typeof CARD_SCREENS)[number]['feature'] }[] =
-  CARD_SCREENS.map((s) => ({ name: s.name, label: s.title, sub: s.card.sub, screen: s.screen, accel: s.accel, feature: s.feature }))
 
 export function Gateway(): React.JSX.Element {
   const nav = useNav()
-  const { from, info } = useSession()
+  const { from } = useSession()
   const today = todayISO()
-  const features = useFeatures()
-  const cards = useMemo(() => CARDS.filter((c) => !c.feature || features[c.feature]), [features])
   const { data } = useQuery({
     queryKey: ['dashboard', today, from],
     queryFn: () => api.reports.dashboard(today, from)
@@ -30,20 +22,15 @@ export function Gateway(): React.JSX.Element {
   // Card letters are not handled here any more: they are registry accelerators bound by App's
   // `nav` keyboard layer, so they work from every screen rather than only this one.
 
-  const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
-  const filingFrequency = info?.gstFilingFrequency ?? 'monthly'
-  const stateCode = info?.stateCode ?? ''
-
-  // hasPayroll doesn't matter for a 'gst'-kind deadline, so `false` is fine here.
-  const nearestGst = useMemo(
-    () =>
-      gstRegistrationType === 'unregistered'
-        ? null
-        : (upcomingDeadlines(today, gstRegistrationType, false, 30, filingFrequency, stateCode).find((d) => d.kind === 'gst') ?? null),
-    [today, gstRegistrationType]
-  )
-
-  const tiles: { label: string; value?: number; text?: string }[] = [
+  /**
+   * Exactly six, and every one of them a figure.
+   *
+   * The row is six columns wide, so a seventh tile orphans onto a second row on its own. The
+   * next GST deadline used to be that seventh: a sentence rather than an amount, wrapping to two
+   * lines and standing a head taller than its neighbours. A due date is not a balance — it now
+   * reads as a countdown on the compliance calendar, which is the panel that owns dates.
+   */
+  const tiles: { label: string; value: number }[] = [
     { label: 'Cash in hand', value: data?.cashBalance ?? 0 },
     { label: 'Bank balance', value: data?.bankBalance ?? 0 },
     { label: 'Receivables', value: data?.receivables ?? 0 },
@@ -51,20 +38,19 @@ export function Gateway(): React.JSX.Element {
     { label: 'Sales this month', value: data?.monthSales ?? 0 },
     { label: 'GST payable', value: data?.gstPayable ?? 0 }
   ]
-  if (nearestGst) tiles.push({ label: 'Next GST due', text: deadlineCountdown(nearestGst, today) })
 
   return (
     <div className="mx-auto max-w-5xl">
-      <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((t) => (
           <Panel key={t.label} className="px-4 py-3">
             <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">{t.label}</p>
-            {data === undefined && t.text === undefined ? (
+            {data === undefined ? (
               // Loading — a skeleton, not a misleading ₹0.00.
               <Skeleton className="mt-2.5 h-4 w-20" />
             ) : (
-              <p className={`mt-1.5 text-title font-medium ${t.text ? '' : 'num'}`}>
-                {t.text ?? <Money paise={t.value ?? 0} />}
+              <p className="num mt-1.5 text-title font-medium">
+                <Money paise={t.value} />
               </p>
             )}
           </Panel>
@@ -74,26 +60,10 @@ export function Gateway(): React.JSX.Element {
       <DueTodayPanel />
       <CompliancePanel hasEmployees={data?.hasEmployees ?? false} dashboardLoaded={data !== undefined} />
 
-      <div className="mt-6 grid grid-cols-3 gap-3">
-        {cards.map((c) => (
-          <button
-            key={c.label}
-            data-testid={`card-${c.name}`}
-            onClick={() => nav.go(c.screen)}
-            className="group rounded-lg border border-line bg-panel px-5 py-4 text-left transition-colors hover:border-amber/50"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-lead font-medium">
-                <Accel label={c.label} accel={c.accel} />
-              </span>
-              <span className="rounded-md border border-line px-1.5 text-label text-muted group-hover:border-amber/50 group-hover:text-amber">
-                {c.accel}
-              </span>
-            </div>
-            <p className="mt-1 text-small text-muted">{c.sub}</p>
-          </button>
-        ))}
-      </div>
+      {/* The nine navigation cards that used to sit here were the sidebar again, in a second
+          typeface size: the same nine destinations, the same accelerator letters, ~280px of the
+          most valuable space on the screen, and nothing the rail on the left does not already
+          say. The books' own numbers get that space instead. */}
 
       {/* Fixed row height: long receivable/payable lists scroll inside their panels instead of
           stretching the row — which would also stretch the sparkline opposite and make its
@@ -223,10 +193,13 @@ function DueTodayPanel(): React.JSX.Element | null {
 }
 
 /** "GSTR-3B in 5 days" / "GSTR-1 tomorrow" / "GSTR-3B due today". Exported for renderer tests. */
+/** Whole days from `today` to an ISO date — negative once the date is behind us. */
+function daysUntil(date: string, today: string): number {
+  return Math.round((new Date(date + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000)
+}
+
 export function deadlineCountdown(d: Deadline, today: string): string {
-  const days = Math.round(
-    (new Date(d.date + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000
-  )
+  const days = daysUntil(d.date, today)
   if (days <= 0) return `${d.form} due today`
   if (days === 1) return `${d.form} tomorrow`
   return `${d.form} in ${days} days`
@@ -256,6 +229,7 @@ function CompliancePanel({
     () => upcomingDeadlines(today, gstRegistrationType, hasEmployees, 30, filingFrequency, stateCode),
     [today, gstRegistrationType, hasEmployees]
   )
+  const nearestGst = deadlines.find((d) => d.kind === 'gst') ?? null
 
   useEffect(() => {
     // Wait for the dashboard query to actually resolve, so `hasEmployees` (and hence PF/ESI
@@ -280,7 +254,20 @@ function CompliancePanel({
   return (
     <Panel className="mt-6">
       <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
-        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Compliance calendar</p>
+        <div className="flex items-baseline gap-3">
+          <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Compliance calendar</p>
+          {/* The nearest GST return, read as a countdown rather than as a balance. */}
+          {nearestGst && (
+            <span
+              data-testid="gateway-next-gst"
+              className={`rounded-md px-1.5 py-0.5 text-hint font-medium whitespace-nowrap ${
+                daysUntil(nearestGst.date, today) <= 3 ? 'bg-cr/10 text-cr' : 'bg-amber/15 text-amber'
+              }`}
+            >
+              {deadlineCountdown(nearestGst, today)}
+            </span>
+          )}
+        </div>
         <button className="text-hint text-blue hover:underline" onClick={() => nav.go({ name: 'gstr3b' })}>
           GSTR-3B
         </button>

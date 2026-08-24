@@ -79,7 +79,7 @@ const DayBookRowView = memo(function DayBookRowView({
     <tr
       data-active={isActive}
       data-row-id={row.voucherId}
-      className="kbar-row cursor-pointer"
+      className="kbar-row group cursor-pointer"
       onMouseEnter={() => onHover(index)}
       onClick={() => onOpen(row.voucherId)}
     >
@@ -110,15 +110,6 @@ const DayBookRowView = memo(function DayBookRowView({
       {visible.debit && (
         <td className="r">
           <Money paise={row.debit} />
-          {row.kind === 'sales' && (
-            <button
-              className="ml-2 text-hint text-blue hover:underline"
-              onClick={(e) => onPdf(row.voucherId, e)}
-              title="Invoice PDF"
-            >
-              PDF
-            </button>
-          )}
         </td>
       )}
       {visible.credit && (
@@ -141,6 +132,20 @@ const DayBookRowView = memo(function DayBookRowView({
           )}
         </td>
       )}
+      {/* The invoice affordance lives in its own trailing column, never inside a numeric cell:
+          a button sharing the Debit cell shortens the amount and leaves the column's right edge
+          ragged from row to row. It stays quiet until the row is hovered, active or focused. */}
+      <td className="r" onClick={(e) => e.stopPropagation()}>
+        {row.kind === 'sales' && (
+          <button
+            className="text-hint text-blue opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 group-data-[active=true]:opacity-100 hover:underline"
+            onClick={(e) => onPdf(row.voucherId, e)}
+            title={`Invoice PDF — ${row.voucherType} ${row.number}`}
+          >
+            PDF
+          </button>
+        )}
+      </td>
     </tr>
   )
 })
@@ -328,10 +333,10 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
     [toast]
   )
 
-  // Date and Narration always show; the rest follow the F12 column config.
   const colCount =
-    // Date, Narration and the select checkbox always show; the rest follow the column config.
-    3 +
+    // Date, Narration, the select checkbox and the trailing invoice-action column always show;
+    // the rest follow the F12 column config.
+    4 +
     (visible.type ? 1 : 0) +
     (visible.number ? 1 : 0) +
     (visible.account ? 1 : 0) +
@@ -516,6 +521,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                 {visible.debit && <th scope="col" className="r w-36">Debit</th>}
                 {visible.credit && <th scope="col" className="r w-36">Credit</th>}
                 {visible.reconciled && <th scope="col" className="w-28">Reconciled</th>}
+                <th scope="col" className="w-12" aria-label="Invoice" />
               </tr>
             </thead>
             <tbody data-testid="rows-daybook">
@@ -551,7 +557,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
               <tr className="total-row">
                 <td
                   colSpan={
-                    colCount - (visible.debit ? 1 : 0) - (visible.credit ? 1 : 0) - (visible.reconciled ? 1 : 0)
+                    colCount - 1 - (visible.debit ? 1 : 0) - (visible.credit ? 1 : 0) - (visible.reconciled ? 1 : 0)
                   }
                 >
                   Total{hasOutOfBooks ? ' (in books)' : ''} · {bookRows.length} vouchers
@@ -567,6 +573,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                   </td>
                 )}
                 {visible.reconciled && <td />}
+                <td />
               </tr>
             </tbody>
           </table>

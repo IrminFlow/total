@@ -166,3 +166,33 @@ describe('spreading TDS across the year', () => {
     expect(monthlyTds(1_00_000_00, 90_000_00, 0)).toBe(10_000_00)
   })
 })
+
+describe('section 87A marginal relief belongs to the new regime only', () => {
+  it('cushions the new regime just past the rebate limit', () => {
+    const at = computeAnnualTax({ grossSalary: 12_75_000_00, regime: 'new', fyStartYear: 2025 })
+    const over = computeAnnualTax({ grossSalary: 12_75_100_00, regime: 'new', fyStartYear: 2025 })
+    expect(at.totalTax).toBe(0)
+    expect(over.totalTax).toBeLessThan(1_000_00)
+  })
+
+  it('does not cushion the old regime, where the rebate is genuinely all-or-nothing', () => {
+    // ₹5,50,000 gross − ₹50,000 standard = ₹5,00,000 taxable: rebate wipes it out.
+    const at = computeAnnualTax({ grossSalary: 5_50_000_00, regime: 'old', fyStartYear: 2025 })
+    expect(at.totalTax).toBe(0)
+    expect(at.rebate).toBeGreaterThan(0)
+
+    // ₹100 more income costs the whole rebate. That is the law, not a bug.
+    const over = computeAnnualTax({ grossSalary: 5_50_100_00, regime: 'old', fyStartYear: 2025 })
+    expect(over.rebate).toBe(0)
+    // Taxable ₹5,00,100: 5% of the ₹2,50,000 slab = 12,500, plus 20% of the ₹100 above
+    // ₹5,00,000 = 20. Then 4% cess. A hundred rupees of income costs about ₹13,000 of tax,
+    // which is exactly the cliff the new regime's proviso removed and the old one still has.
+    expect(over.taxBeforeRebate).toBe(12_520_00)
+    expect(over.totalTax).toBe(12_520_00 + Math.floor((12_520_00 * 4) / 100))
+  })
+
+  it('says which regimes cushion and which do not', () => {
+    expect(ratesForFy(2025, 'new').rebateMarginalRelief).toBe(true)
+    expect(ratesForFy(2025, 'old').rebateMarginalRelief).toBe(false)
+  })
+})

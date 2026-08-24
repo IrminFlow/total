@@ -33,28 +33,49 @@
   --t-margin: color-mix(in oklab, #bb4433 34%, transparent);
   --t-shadow: 0 1px 2px rgba(30, 35, 60, 0.06), 0 4px 16px rgba(30, 35, 60, 0.05);
   --t-rule: #3a4053;
+  /* Warnings. Amber already carries four jobs — row selection, active tab, active nav item and
+     the primary button — so a caution box that borrows it competes with the signature instead of
+     reading as a caution. This is a deliberately desaturated ochre: same family, clearly duller,
+     never mistaken for the selection bar sitting eight pixels away. */
+  --t-warn: #8a6512;
+  --t-warn-soft: rgba(138, 101, 18, 0.1);
+  --t-warn-line: color-mix(in oklab, #8a6512 38%, transparent);
 }
 
 [data-theme='dark'] {
-  --t-bg: #0e1220;
-  --t-panel: #151b2c;
-  --t-panel2: #1b2338;
-  --t-line: #273049;
+  /* Dark is an elevation model, not a colour swap. The ground is pushed down and the panel up,
+     so a panel reads as a sheet lying on the desk rather than dissolving into it; the top-edge
+     highlight in --t-shadow is the light catching the near edge of that sheet. */
+  --t-bg: #0a0e1a;
+  --t-panel: #1a2136;
+  --t-panel2: #232c45;
+  --t-line: #2f3a58;
   --t-ink: #e9e9e2;
-  --t-muted: #8c94ab;
+  --t-muted: #939bb2;
   --t-amber: #f0b429;
   --t-amber-bar: #f0b429;
   --t-amber-soft: rgba(240, 180, 41, 0.14);
   --t-dr: #6ec6a0;
   --t-cr: #e4796b;
   --t-blue: #6e8ef5;
-  --t-accel: #ff8a75;
+  /* Hotter and more saturated than the light theme's vermilion: on a near-black ground the old
+     #ff8a75 washed out to pink and stopped separating from --t-cr. */
+  --t-accel: #ff5f45;
   --t-on-amber: #2b2000;
   /* The margin rule down the left of a ledger page. Muted well below --t-cr so it reads as
      ruling, not as a credit figure. */
   --t-margin: color-mix(in oklab, #e4796b 26%, transparent);
-  --t-shadow: none;
+  /* Inset first: a 1px top-edge highlight inside the panel's own border. Then a cast shadow that
+     is real (dark had none, which is why every panel floated flush with the background). */
+  --t-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.5),
+    0 8px 24px rgba(0, 0, 0, 0.38);
   --t-rule: #e9e9e2;
+  /* Tan rather than gold — at this brightness a saturated ochre is indistinguishable from the
+     selection amber. */
+  --t-warn: #d1a86a;
+  --t-warn-soft: rgba(209, 168, 106, 0.16);
+  --t-warn-line: color-mix(in oklab, #d1a86a 46%, transparent);
 }
 
 @theme inline {
@@ -75,27 +96,58 @@
   --color-rule: var(--t-rule);
   --color-accel: var(--t-accel);
   --color-onamber: var(--t-on-amber);
+  --color-warn: var(--t-warn);
+  --color-warnsoft: var(--t-warn-soft);
+  --color-warnline: var(--t-warn-line);
 
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-serif: 'IBM Plex Serif', Georgia, serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
-  /* Type scale — use these (text-label, text-hint, …) in kit components instead of raw
-     bracket sizes; screens converge opportunistically. */
-  --text-label: 10.5px; /* uppercase micro-labels, Kbd */
-  --text-caption: 11px; /* field labels */
-  --text-hint: 11.5px; /* hints + inline errors */
-  --text-small: 12px; /* small links/actions */
-  --text-body-sm: 12.5px; /* secondary body */
-  --text-detail: 13px; /* buttons, dense rows */
-  --text-body: 13.5px; /* inputs + default body */
-  --text-lead: 14.5px; /* emphasized row titles */
-  --text-title: 16px; /* modal titles, headline figures */
-  --text-heading: 19px; /* section titles */
-  /* Two display steps, for the three places the app speaks above a whisper: the wordmark on
-     company select, the lock screen, and import result counts. */
+  /* ---- Type scale ----
+     Seven steps, and each one is a different size on screen. The old scale had six steps inside
+     a three-pixel band (10.5 / 11 / 11.5 / 12 / 12.5 / 13) which no reader could tell apart, and
+     nothing above 19px — so a page of dense figures had no top note at all. The band is now two
+     steps, and the room that freed up went to the top, where hierarchy is actually read.
+
+       micro   11.5  uppercase micro-labels, field labels, hints, inline errors, Kbd
+       body    13     everything else: rows, buttons, inputs, links, secondary text
+       lead    15     emphasized row titles, the company name in the header
+       section 18     modal titles, panel and section headings
+       figure  21     KPI values and key figures — the number a screen exists to show
+       page    24     the screen title, once per screen
+       display 28/34  wordmark, lock screen, import result counts
+
+     The old names are kept as aliases so no screen breaks: they map onto the two band steps and
+     onto `section`. New code should use micro / body / lead / section / figure / page. */
+  --text-micro: 11.5px;
+  --text-body: 13px;
+  --text-lead: 15px;
+  --text-section: 18px;
+  --text-figure: 21px;
+  --text-page: 24px;
   --text-display-sm: 28px;
   --text-display: 34px;
+  /* The three big steps set tight, so a title reads as one object rather than a line of prose.
+     (`@theme inline` inlines these, so the aliases below must repeat the literal value — a
+     var() reference there would point at a custom property that is never emitted.) */
+  --text-section--line-height: 1.25;
+  --text-figure--line-height: 1.15;
+  --text-page--line-height: 1.1;
+  --text-display-sm--line-height: 1.1;
+  --text-display--line-height: 1.05;
+
+  /* Aliases — deprecated names, live sizes. Kept so existing screens keep compiling. */
+  --text-label: 11.5px;
+  --text-caption: 11.5px;
+  --text-hint: 11.5px;
+  --text-small: 13px;
+  --text-body-sm: 13px;
+  --text-detail: 13px;
+  --text-title: 18px;
+  --text-title--line-height: 1.25;
+  --text-heading: 18px;
+  --text-heading--line-height: 1.25;
 }
 
 html,
@@ -108,7 +160,7 @@ body {
   background: var(--t-bg);
   color: var(--t-ink);
   font-family: var(--font-sans);
-  font-size: 13.5px;
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
@@ -190,7 +242,9 @@ tr.kbar-row[data-active='true'] td:first-child {
      widening it here was enough to wrap the date column onto two lines. */
 }
 .ledger-table th {
-  font-size: 10.5px;
+  /* The micro step, written out: `@theme inline` inlines the scale into utilities rather than
+     emitting custom properties, so plain CSS cannot reference it by name. */
+  font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -203,7 +257,31 @@ tr.kbar-row[data-active='true'] td:first-child {
 .ledger-table td {
   padding: 6px 12px;
   border-bottom: 1px solid color-mix(in oklab, var(--t-line) 60%, transparent);
+  /* One row, one height. A long party name used to wrap to two lines and break the rhythm of
+     every table it appeared in, so text cells are clipped to a single line instead. `height` on
+     a td is a minimum, so a row holding an input is still allowed to be taller. */
+  height: 30px;
+  line-height: 1.3;
 }
+/* Truncation needs a width to truncate against: add Tailwind's `table-fixed` plus a <colgroup>
+   to the table and long text ellipsises. Without them the cell simply widens instead of
+   wrapping, which is already the better of the two failures.
+
+   Cells holding a control are exempt — `overflow: hidden` on them would clip the absolutely
+   positioned TypeAhead menus that open inside voucher-entry line grids. `.wrap` opts a cell out
+   by hand for the rare column that genuinely wants two lines. */
+.ledger-table td:not(.wrap):not(.num):not(:has(input, select, textarea, button, [data-typeahead], .num)) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ledger-table th:not(.wrap) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* `.num` cells are untouched by the rule above — they already carry `white-space: nowrap` and
+   are sized by their tabular figures, not by the column. */
 .ledger-table tr.total-row td {
   border-top: 1px solid var(--t-rule);
   border-bottom: 3px double var(--t-rule);
@@ -228,6 +306,54 @@ input,
 select,
 textarea {
   user-select: text;
+}
+
+/* ---------- form controls: ours, not the OS's ---------- */
+
+/* macOS draws a double-chevron in its own blue-grey on every unstyled <select>. There are
+   eighty-odd selects in this app and that control was the loudest off-brand thing on screen, so
+   the element itself is restyled rather than the kit wrapper — a hand-written <select> on a
+   screen gets the same treatment as <Select>.
+
+   The caret is two gradients rather than an SVG data URI on purpose: a data URI cannot read a
+   custom property, so an inline chevron would have to hardcode a hex and would then be the wrong
+   colour in the other theme. Utilities still win on specificity (0,1,0 beats 0,0,1), so a screen
+   that wants its own padding or appearance keeps it. */
+select:not([multiple]):not([size]) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--t-muted) 50%),
+    linear-gradient(135deg, var(--t-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) calc(50% + 1px),
+    calc(100% - 10px) calc(50% + 1px);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+}
+select:not([multiple]):not([size]):hover {
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--t-ink) 50%),
+    linear-gradient(135deg, var(--t-ink) 50%, transparent 50%);
+}
+
+/* Checkboxes and radios follow the selection amber. Without this the OS paints them its own
+   blue in light mode and a stark white square on near-black in dark mode. */
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--t-amber-bar);
+}
+
+/* ---------- warnings ---------- */
+
+/* A caution box. Uses --t-warn, never the amber: see the token comment. */
+.callout-warn {
+  border: 1px solid var(--t-warn-line);
+  background: var(--t-warn-soft);
+  color: var(--t-ink);
 }
 
 :focus-visible {

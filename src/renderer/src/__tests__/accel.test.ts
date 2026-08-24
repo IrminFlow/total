@@ -19,7 +19,10 @@ const BADGE_ACCELS = new Set([
   'collections',
   // Fixed assets: F cash flow, I import, X exceptions, E settings, D day book, A year-end,
   // S stock summary, T trial balance. Nothing in the label is free, so 5 rides as a badge.
-  'assets'
+  'assets',
+  // Disclosure: D day book, I import, S stock summary, C cost centres, L consolidated,
+  // O outstandings, U budgets, R registers, E settings. Nothing free; 6 rides as a badge.
+  'disclosure'
 ])
 
 /**

@@ -167,12 +167,14 @@ function SortTh({
   className?: string
 }): React.JSX.Element {
   const active = sort.key === k
+  // `uppercase` explicitly: the UA stylesheet resets text-transform inside a <button>, so
+  // `.ledger-table th`'s micro-caps never reach a sortable label without it.
   return (
     <th scope="col" className={className} aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
       <button
         type="button"
         data-testid={`sort-masters-ledgers-${k}`}
-        className={`inline-flex items-center gap-1 hover:text-ink ${active ? 'text-ink' : ''}`}
+        className={`inline-flex items-center gap-1 uppercase hover:text-ink ${active ? 'text-ink' : ''}`}
         onClick={() => onSort(k)}
       >
         {label}
@@ -207,6 +209,8 @@ function LedgersTab(): React.JSX.Element {
     })
   }, [ledgers, filter, sort, groupMap])
 
+  const anyOpening = useMemo(() => ledgers.some((l) => l.openingBalance !== 0), [ledgers])
+
   const onSort = (k: LedgerSortKey): void => setSort((s) => (s.key === k ? { key: k, dir: s.dir === 1 ? -1 : 1 } : { key: k, dir: 1 }))
 
   const open = (l: Ledger | undefined): void => {
@@ -232,8 +236,10 @@ function LedgersTab(): React.JSX.Element {
                 <SortTh label="Name" k="name" sort={sort} onSort={onSort} />
                 <SortTh label="Group" k="group" sort={sort} onSort={onSort} />
                 <SortTh label="GSTIN" k="gstin" sort={sort} onSort={onSort} />
-                <SortTh label="Opening" k="opening" sort={sort} onSort={onSort} className="r w-40" />
-                <th scope="col" className="w-24"></th>
+                {/* Only when some ledger actually carries one. A column of nothing but dashes
+                    costs width on every row to say nothing on any of them. */}
+                {anyOpening && <SortTh label="Opening" k="opening" sort={sort} onSort={onSort} className="r w-40" />}
+                <th scope="col" className="w-16" aria-label="Edit" />
               </tr>
             </thead>
             <tbody data-testid="rows-masters-ledgers">
@@ -242,20 +248,24 @@ function LedgersTab(): React.JSX.Element {
                   key={l.id}
                   data-row-id={l.id}
                   data-active={i === active}
-                  className="kbar-row cursor-pointer"
+                  className="kbar-row group cursor-pointer"
                   onMouseEnter={() => setActive(i)}
                   onClick={() => open(l)}
                 >
                   <td>{l.name}</td>
                   <td className="text-muted">{groupMap.get(l.groupId)}</td>
                   <td className="num text-muted">{l.gstin ?? ''}</td>
-                  <td className="r">
-                    <Money paise={l.openingBalance} signed />
-                  </td>
-                  <td className="r">
+                  {anyOpening && (
+                    <td className="r">
+                      <Money paise={l.openingBalance} signed />
+                    </td>
+                  )}
+                  <td className="r" onClick={(e) => e.stopPropagation()}>
+                    {/* One quiet action per row instead of fifteen identical blue links stacked
+                        down the page — it surfaces on the row the pointer or keyboard is on. */}
                     <button
                       data-testid="btn-masters-edit-ledger"
-                      className="text-small text-blue hover:underline"
+                      className="text-small text-blue opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 group-data-[active=true]:opacity-100 hover:underline"
                       onClick={(e) => {
                         e.stopPropagation()
                         setEditing(l)

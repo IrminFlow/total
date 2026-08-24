@@ -83,11 +83,17 @@ export const MSME_INTEREST_MULTIPLE = 3
 export function msmeInterest(principalPaise: number, bankRatePercent: number, days: number): number {
   if (principalPaise <= 0 || bankRatePercent <= 0 || days <= 0) return 0
   const annualRate = (bankRatePercent * MSME_INTEREST_MULTIPLE) / 100
-  const months = days / 30
-  // Monthly rests, so compound rather than simple. Floored: never charge a paisa that cannot be
-  // justified from the formula.
-  const amount = principalPaise * Math.pow(1 + annualRate / 12, months)
-  return Math.max(0, Math.floor(amount - principalPaise))
+  const monthly = annualRate / 12
+  // "Monthly rests" means interest is added to the principal at the end of each completed month
+  // and the part-month that follows earns simple interest on the balance so far. Compounding a
+  // fractional month instead — (1 + r/12)^(days/30) — is continuous compounding wearing monthly
+  // clothes, and drifts a few rupees per lakh over a long overdue period.
+  const wholeMonths = Math.floor(days / 30)
+  const oddDays = days - wholeMonths * 30
+  const compounded = principalPaise * Math.pow(1 + monthly, wholeMonths)
+  const partMonth = compounded * monthly * (oddDays / 30)
+  // Floored: never charge a paisa that cannot be justified from the formula.
+  return Math.max(0, Math.floor(compounded + partMonth - principalPaise))
 }
 
 // ---------- the report ----------

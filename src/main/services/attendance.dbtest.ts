@@ -391,3 +391,41 @@ describe('TDS on salary and Form 16', () => {
     expect(() => form16(db, e.id, 2026)).toThrow('No pay runs')
   })
 })
+
+describe('an employee with two advances at once', () => {
+  it('recovers an instalment on each, not just the last one', () => {
+    const db = seededDb()
+    const e = saveEmployee(db, emp())
+    const medical = createLoan(db, { employeeId: e.id, grantedOn: '2026-05-01', principal: 10_000_00, instalment: 2_000_00 })
+    const festival = createLoan(db, { employeeId: e.id, grantedOn: '2026-05-15', principal: 6_000_00, instalment: 1_000_00 })
+
+    const line = previewRun(db, '2026-06', [])[0]!
+    // Both instalments come off the payslip, as one figure.
+    expect(line.advanceRecovery).toBe(3_000_00)
+
+    commitRun(db, '2026-06', [])
+    const loans = listLoans(db)
+    expect(loans.find((l) => l.id === medical.id)!.recovered).toBe(2_000_00)
+    expect(loans.find((l) => l.id === festival.id)!.recovered).toBe(1_000_00)
+  })
+
+  it('splits a clamped recovery across the advances rather than losing the remainder', () => {
+    const db = seededDb()
+    // Net pay is too small to cover both instalments in full.
+    const e = saveEmployee(db, emp({ basic: 3_000_00, hra: 0, special: 0, pfEnabled: false, esiEnabled: false, ptEnabled: false }))
+    const first = createLoan(db, { employeeId: e.id, grantedOn: '2026-05-01', principal: 10_000_00, instalment: 2_000_00 })
+    const second = createLoan(db, { employeeId: e.id, grantedOn: '2026-05-15', principal: 10_000_00, instalment: 2_000_00 })
+
+    const line = previewRun(db, '2026-06', [])[0]!
+    expect(line.advanceRecovery).toBe(3_000_00)
+    expect(line.net).toBe(0)
+
+    commitRun(db, '2026-06', [])
+    const loans = listLoans(db)
+    // Oldest first: the first advance takes its full instalment, the second takes what is left.
+    expect(loans.find((l) => l.id === first.id)!.recovered).toBe(2_000_00)
+    expect(loans.find((l) => l.id === second.id)!.recovered).toBe(1_000_00)
+    // Nothing vanished: the parts sum to what the payslip deducted.
+    expect(loans.reduce((s, l) => s + l.recovered, 0)).toBe(line.advanceRecovery)
+  })
+})

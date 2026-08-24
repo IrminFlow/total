@@ -565,6 +565,85 @@ export interface DisposalDraft {
   date: string
 }
 
+export interface RelatedPartyTxn {
+  voucherId: number
+  date: string
+  number: string
+  kind: string
+  amount: number
+}
+
+export interface RelatedPartyRow {
+  ledgerId: number
+  name: string
+  relationship: string | null
+  closingBalance: number
+  debits: number
+  credits: number
+  transactions: RelatedPartyTxn[]
+}
+
+export interface RelatedPartyReport {
+  from: string
+  to: string
+  rows: RelatedPartyRow[]
+  totalDebits: number
+  totalCredits: number
+  dormant: number
+}
+
+export interface AuditTrailStatement {
+  from: string
+  to: string
+  entries: number
+  firstEntry: string | null
+  lastEntry: string | null
+  entities: { entity: string; entries: number }[]
+  users: { userName: string; entries: number }[]
+  canBeDisabled: boolean
+  retentionDays: number | null
+  retentionAffectsPeriod: boolean
+}
+
+export interface Lut {
+  arn: string
+  fyStartYear: number
+  filedOn: string
+}
+
+export interface LutStatus {
+  state: 'valid' | 'expiring' | 'expired' | 'missing'
+  lut: Lut | null
+  validFrom: string | null
+  validTo: string | null
+  daysLeft: number | null
+  message: string
+}
+
+export type ReportingUrgency = 'reported' | 'expired' | 'critical' | 'due' | 'fine'
+
+export interface EInvoiceWindowRow {
+  voucherId: number
+  number: string
+  date: string
+  party: string
+  value: number
+  irn: string | null
+  urgency: ReportingUrgency
+  daysLeft: number
+  deadline: string
+  label: string
+}
+
+export interface EInvoiceWindowReport {
+  today: string
+  applies: boolean
+  rows: EInvoiceWindowRow[]
+  expired: number
+  expiredValue: number
+  critical: number
+}
+
 export interface CreditStatus {
   ledgerId: number
   name: string
@@ -1197,6 +1276,17 @@ export const api = {
       call<DisposalDraft>('assets:disposalDraft', { assetId, on, proceeds }),
     dispose: (assetId: number, on: string, proceeds: number, voucherId?: number) =>
       call<FixedAsset>('assets:dispose', { assetId, on, proceeds, voucherId })
+  },
+  /** Disclosure: related parties, the audit trail about itself, the LUT, the IRP window. */
+  disclosure: {
+    relatedParties: (from: string, to: string) => call<RelatedPartyReport>('disclosure:relatedParties', { from, to }),
+    auditStatement: (from: string, to: string) => call<AuditTrailStatement>('disclosure:auditStatement', { from, to }),
+    luts: () => call<Lut[]>('disclosure:luts'),
+    lutStatus: () => call<LutStatus>('disclosure:lutStatus'),
+    saveLut: (input: Lut) => call<Lut[]>('disclosure:saveLut', input),
+    deleteLut: (fyStartYear: number) => call<Lut[]>('disclosure:deleteLut', { fyStartYear }),
+    eInvoiceWindow: (from: string, to: string) =>
+      call<EInvoiceWindowReport>('disclosure:eInvoiceWindow', { from, to })
   },
   bills: {
     open: (partyLedgerId: number, asOn: string) => call<OutstandingBill[]>('bills:open', { partyLedgerId, asOn })

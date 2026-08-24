@@ -331,6 +331,22 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['assets', 'assetBlocks', 'assetSchedule', 'disposalDraft']
   },
   {
+    name: 'disclosure',
+    title: 'Disclosure',
+    screen: { name: 'disclosure' },
+    navSection: 'analysis',
+    navLabel: 'Disclosure',
+    // Every letter of "Disclosure" is claimed (D day book, I import, S stock summary, C cost
+    // centres, L consolidated, O outstandings, U budgets, R registers, E settings), so 6 rides
+    // as a badge. See __tests__/accel.test.ts.
+    accel: '6',
+    keywords: [
+      'disclosure', 'related party', 'audit trail', 'rule 3(1)', 'lut', 'letter of undertaking',
+      'e-invoice', 'irp', 'reporting window', 'auditor'
+    ],
+    invalidates: ['relatedParties', 'auditStatement', 'luts', 'lutStatus', 'eInvoiceWindow']
+  },
+  {
     name: 'filings',
     title: 'Filing register',
     screen: { name: 'filings' },

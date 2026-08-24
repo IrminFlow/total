@@ -4,7 +4,7 @@ import { VOUCHER_KINDS, type VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import { api } from '../lib/client'
 import { nextDraftId, useNav, useSession, useToasts, type VoucherDraft } from '../state/stores'
-import { Kbd, Panel } from '../components/ui'
+import { Kbd, Panel, SectionTitle } from '../components/ui'
 import { auditFieldChanges, fieldLabel } from '@shared/auditDiff'
 import { formatPaise } from '@shared/money'
 import { useFeatures } from '../lib/useFeatures'
@@ -138,27 +138,30 @@ export function VoucherEntry({
           </button>
         </div>
       )}
-      <div className="mb-4 flex items-center gap-2">
-        <h2 className="mr-3 font-serif text-heading font-semibold tracking-tight">
-          {voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
-        </h2>
-        {!voucherId &&
-          types
-            .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
-            .map((t) => (
-            <button
-              key={t.id}
-              data-testid={`tab-voucher-entry-${t.kind}`}
-              onClick={() => setTypeId(t.id)}
-              className={`rounded-md px-2.5 py-1 text-small transition-colors ${
-                t.id === currentType.id ? 'bg-amber/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
-              }`}
-            >
-              {t.name}
-            </button>
-          ))}
-        {!voucherId && currentType && <SameAsLast typeId={currentType.id} kind={currentType.kind} />}
-      </div>
+      <SectionTitle
+        right={
+          <div className="flex items-center gap-1">
+            {!voucherId &&
+              types
+                .filter((t) => features.inventory || (t.kind !== 'stock_journal' && t.kind !== 'physical_stock'))
+                .map((t) => (
+                  <button
+                    key={t.id}
+                    data-testid={`tab-voucher-entry-${t.kind}`}
+                    onClick={() => setTypeId(t.id)}
+                    className={`rounded-md px-2.5 py-1 text-small whitespace-nowrap transition-colors ${
+                      t.id === currentType.id ? 'bg-amber/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
+                    }`}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+            {!voucherId && currentType && <SameAsLast typeId={currentType.id} kind={currentType.kind} />}
+          </div>
+        }
+      >
+        {voucherId ? `Alter voucher ${existing?.number}` : 'Voucher entry'}
+      </SectionTitle>
       {invoiceMode ? (
         <InvoiceEntry key={currentType.id} typeId={currentType.id} kind={currentType.kind} draft={draft} />
       ) : manufactureMode ? (
@@ -219,7 +222,7 @@ function SameAsLast({ typeId, kind }: { typeId: number; kind: VoucherKind }): Re
       data-testid="btn-same-as-last"
       onClick={() => void start()}
       title="Start from the last voucher of this type — everything but its date"
-      className="ml-2 rounded-md border border-line px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
+      className="ml-2 rounded-md border border-line px-2.5 py-1 text-small whitespace-nowrap text-muted hover:border-amber/60 hover:text-ink"
     >
       Same as last
     </button>
