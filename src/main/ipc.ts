@@ -32,6 +32,7 @@ import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
 import * as reports from './services/reports'
 import * as gst from './services/gst'
+import * as filings from './services/filings'
 import * as intel from './services/intel'
 import * as analysis from './services/analysis'
 import * as banking from './services/banking'
@@ -840,6 +841,31 @@ export function registerIpc(): void {
     const c = requireCompany()
     return gst.gstr4(c.db, c.info, fyStartYear, category)
   }, 'viewer')
+
+  // ---------- filing register ----------
+  handle('filings:register', (p) => {
+    const { fyStartYear } = z.object({ fyStartYear: z.number().int().min(1990).max(2100) }).parse(p)
+    const c = requireCompany()
+    return filings.filingRegister(c.db, c.info, fyStartYear, todayISO())
+  }, 'viewer')
+
+  handle('filings:record', (p) => {
+    const input = z
+      .object({
+        form: z.string().trim().min(1).max(20),
+        period: z.string().trim().regex(/^\d{4}-(\d{2}|Q[1-4]|H[12]|FY)$/, 'Not a period key'),
+        dueDate: isoDate,
+        // Null clears the filing, returning the row to unfiled.
+        filedAt: isoDate.nullable(),
+        // 15 characters on the portal today, but it has been longer before — accept a range
+        // rather than pinning a length that would reject a valid ARN.
+        arn: z.string().trim().min(1).max(64).nullable(),
+        taxPaid: z.number().int().min(0),
+        notes: z.string().trim().max(500).nullable()
+      })
+      .parse(p)
+    return filings.recordFiling(requireCompany().db, input)
+  }, 'owner')
 
   // ---------- analysis ----------
   handle('analysis:register', (p) => {

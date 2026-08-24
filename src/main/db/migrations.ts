@@ -560,5 +560,33 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE ledgers ADD COLUMN phone TEXT;
   ALTER TABLE ledgers ADD COLUMN email TEXT;
+  `,
+
+  // 19 — the filing register.
+  //
+  // The app showed due dates and then had nowhere to record that a return was actually filed, so
+  // "did we file August?" was answered by looking at the portal. One row per (form, period): the
+  // ARN, when it was filed, the tax paid, and the late fee and interest that came with it.
+  //
+  // Deliberately NOT derived from vouchers: filing is an act performed on the portal, not
+  // something the books can infer. The schedule of what is owed is computed (filingSchedule);
+  // only what happened is stored.
   `
+  CREATE TABLE gst_filings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    form TEXT NOT NULL,
+    -- 'YYYY-MM', 'YYYY-Qn' or 'YYYY-FY', as src/shared/period.ts keys them.
+    period TEXT NOT NULL,
+    due_date TEXT NOT NULL,
+    filed_at TEXT,
+    -- Acknowledgement Reference Number from the portal. The proof a return was filed.
+    arn TEXT,
+    tax_paid INTEGER NOT NULL DEFAULT 0,
+    late_fee INTEGER NOT NULL DEFAULT 0,
+    interest INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
+    UNIQUE (form, period)
+  );
+  CREATE INDEX idx_gst_filings_period ON gst_filings(period);
+  `,
 ]

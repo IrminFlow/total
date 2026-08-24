@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type Deadline, upcomingDeadlines } from './compliance'
+import { filingSchedule, type Deadline, upcomingDeadlines } from './compliance'
 
 describe('upcomingDeadlines', () => {
   it('rolls a December period over into January GSTR-1/3B deadlines', () => {
@@ -204,5 +204,87 @@ describe('composition scheme', () => {
   it('still tracks the non-GST deadlines every business has', () => {
     // TDS and advance tax are not scheme-dependent.
     expect(comp('2026-07-01').map((d) => d.form)).toContain('TDS Challan')
+  })
+})
+
+describe('filingSchedule', () => {
+  // upcomingDeadlines answers "what is coming"; filingSchedule answers "what does this year
+  // consist of", which is what a filing register needs — an unfiled return in month two has to be
+  // visibly missing rather than simply absent.
+  const forms = (ds: Deadline[]): string[] => [...new Set(ds.map((d) => d.form))].sort()
+
+  it('lists twelve GSTR-1s and twelve GSTR-3Bs for a monthly filer, and nothing else', () => {
+    const s = filingSchedule(2026, 'regular', 'monthly', '27')
+    expect(forms(s)).toEqual(['GSTR-1', 'GSTR-3B'])
+    expect(s.filter((d) => d.form === 'GSTR-1')).toHaveLength(12)
+    expect(s.filter((d) => d.form === 'GSTR-3B')).toHaveLength(12)
+  })
+
+  it('covers exactly April through March, with no month from a neighbouring year', () => {
+    const periods = filingSchedule(2026, 'regular', 'monthly', '27')
+      .filter((d) => d.form === 'GSTR-1')
+      .map((d) => d.period)
+    expect(periods).toEqual([
+      '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09',
+      '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03'
+    ])
+  })
+
+  it('files March in April of the next calendar year', () => {
+    const march = filingSchedule(2026, 'regular', 'monthly', '27').find(
+      (d) => d.form === 'GSTR-1' && d.period === '2027-03'
+    )!
+    expect(march.date).toBe('2027-04-11')
+  })
+
+  it('gives a QRMP filer four of each return plus eight challans and eight IFFs', () => {
+    const s = filingSchedule(2026, 'regular', 'quarterly', '27')
+    expect(forms(s)).toEqual(['GSTR-1', 'GSTR-3B', 'IFF', 'PMT-06'])
+    expect(s.filter((d) => d.form === 'GSTR-1')).toHaveLength(4)
+    expect(s.filter((d) => d.form === 'GSTR-3B')).toHaveLength(4)
+    expect(s.filter((d) => d.form === 'PMT-06')).toHaveLength(8)
+    expect(s.filter((d) => d.form === 'IFF')).toHaveLength(8)
+  })
+
+  it('keys a quarterly return by its FY quarter, not by the month it is filed in', () => {
+    const quarters = filingSchedule(2026, 'regular', 'quarterly', '27')
+      .filter((d) => d.form === 'GSTR-3B')
+      .map((d) => d.period)
+    expect(quarters).toEqual(['2026-Q1', '2026-Q2', '2026-Q3', '2026-Q4'])
+  })
+
+  it('gives a composition dealer four CMP-08s and one GSTR-4', () => {
+    const s = filingSchedule(2026, 'composition')
+    expect(forms(s)).toEqual(['CMP-08', 'GSTR-4'])
+    expect(s.filter((d) => d.form === 'CMP-08')).toHaveLength(4)
+    const annual = s.filter((d) => d.form === 'GSTR-4')
+    expect(annual).toHaveLength(1)
+    expect(annual[0]!.period).toBe('2026-FY')
+    expect(annual[0]!.date).toBe('2027-06-30')
+  })
+
+  it('gives an unregistered business nothing to file', () => {
+    expect(filingSchedule(2026, 'unregistered')).toEqual([])
+  })
+
+  it('respects the QRMP state stagger', () => {
+    const q1of = (stateCode: string) =>
+      filingSchedule(2026, 'regular', 'quarterly', stateCode).find(
+        (d) => d.form === 'GSTR-3B' && d.period === '2026-Q1'
+      )!.date
+    expect(q1of('27')).toBe('2026-07-22')
+    expect(q1of('09')).toBe('2026-07-24')
+  })
+
+  it('gives every obligation a unique (form, period) pair', () => {
+    // The register is keyed by it, so a collision would silently merge two returns into one row.
+    for (const args of [
+      ['monthly', 'regular'],
+      ['quarterly', 'regular']
+    ] as const) {
+      const s = filingSchedule(2026, args[1], args[0], '27')
+      const keys = s.map((d) => `${d.form}/${d.period}`)
+      expect(new Set(keys).size).toBe(keys.length)
+    }
   })
 })

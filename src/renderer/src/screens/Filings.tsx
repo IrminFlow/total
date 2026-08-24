@@ -1,0 +1,440 @@
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '../lib/client'
+import { useNav, useSession, useToasts } from '../state/stores'
+import {
+  AmountInput,
+  Button,
+  DateInput,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  TextInput,
+  useTableNav
+} from '../components/ui'
+import { fyFromStartYear, fyOf, toDisplayDate, todayISO } from '@shared/dates'
+import { formatPaise } from '@shared/money'
+import { periodBounds, periodLabel, type Period } from '@shared/period'
+import type { FilingRow } from '@shared/gst/filings'
+import { lateCharge } from '@shared/gst/lateFee'
+import { csvReport, printReport } from '../lib/reportExport'
+import type { ReportColumn as PdfColumn } from '../lib/client'
+
+/**
+ * The filing register.
+ *
+ * The app knew every due date and had nowhere to record that a return was actually filed, so
+ * "did we file August?" was a question you answered by logging into the portal. This is the year
+ * laid out one row per obligation, with the ARN against each and — for anything overdue — what it
+ * costs to file today, because a deadline without a rupee figure attached is abstract.
+ */
+const STATUS_LABEL: Record<FilingRow['status'], string> = {
+  filed: 'Filed',
+  due: 'Due',
+  overdue: 'Overdue',
+  upcoming: 'Not yet'
+}
+
+const STATUS_CLASS: Record<FilingRow['status'], string> = {
+  filed: 'text-dr',
+  due: 'text-amber',
+  overdue: 'text-cr font-semibold',
+  upcoming: 'text-muted'
+}
+
+const COLUMNS: PdfColumn[] = [
+  { label: 'Form', align: 'l' },
+  { label: 'Period', align: 'l' },
+  { label: 'Due', align: 'l' },
+  { label: 'Status', align: 'l' },
+  { label: 'Filed on', align: 'l' },
+  { label: 'ARN', align: 'l' },
+  { label: 'Tax paid', align: 'r' },
+  { label: 'Late fee', align: 'r' },
+  { label: 'Interest', align: 'r' }
+]
+
+function periodKindOf(key: string): Period {
+  const marker = key.slice(5)
+  if (marker === 'FY') return 'year'
+  if (marker.startsWith('Q')) return 'quarter'
+  if (marker.startsWith('H')) return 'half'
+  return 'month'
+}
+
+const shortPeriod = (key: string): string => periodLabel(key, periodKindOf(key))
+
+export function FilingsScreen(): React.JSX.Element {
+  const { info, from, setPeriod } = useSession()
+  const toast = useToasts()
+  const nav = useNav()
+  const queryClient = useQueryClient()
+  const [fyStartYear, setFyStartYear] = useState(fyOf(from).startYear)
+  const [editing, setEditing] = useState<FilingRow | null>(null)
+
+  const registered = info?.gstRegistrationType !== 'unregistered'
+
+  const { data: rows, isLoading } = useQuery({
+    queryKey: ['filings', fyStartYear],
+    queryFn: () => api.filings.register(fyStartYear),
+    enabled: registered
+  })
+
+  const table = useTableNav(rows ?? [], {
+    rowId: (r) => `${r.form}/${r.period}`,
+    onEnter: (r) => setEditing(r)
+  })
+
+  const outstanding = useMemo(
+    () => (rows ?? []).filter((r) => r.status === 'overdue' || r.status === 'due'),
+    [rows]
+  )
+  const exposure = outstanding.reduce((sum, r) => sum + r.charge.totalPaise, 0)
+
+  const years = useMemo(() => {
+    const first = info?.booksFrom ?? fyStartYear
+    const last = fyOf(todayISO()).startYear
+    const out: number[] = []
+    for (let y = Math.min(first, fyStartYear); y <= Math.max(last, fyStartYear); y++) out.push(y)
+    return out
+  }, [info?.booksFrom, fyStartYear])
+
+  const csvRows = (rows ?? []).map((r) => [
+    r.form,
+    shortPeriod(r.period),
+    toDisplayDate(r.date),
+    STATUS_LABEL[r.status],
+    r.record?.filedAt ? toDisplayDate(r.record.filedAt) : '',
+    r.record?.arn ?? '',
+    formatPaise(r.record?.taxPaid ?? 0),
+    formatPaise(r.charge.lateFeePaise),
+    formatPaise(r.charge.interestPaise)
+  ])
+
+  if (!registered) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <SectionTitle>Filing register</SectionTitle>
+        <Panel className="p-6">
+          <EmptyState
+            title="This company is not registered under GST"
+            hint="An unregistered business files no GST returns. Add a GSTIN in Company details to track filings here."
+          />
+        </Panel>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <SectionTitle
+        right={
+          <div className="flex items-center gap-2">
+            <Select
+              data-testid="select-filings-year"
+              className="w-40"
+              value={fyStartYear}
+              onChange={(e) => setFyStartYear(Number(e.target.value))}
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  FY {fyFromStartYear(y).label}
+                </option>
+              ))}
+            </Select>
+            <Button
+              variant="ghost"
+              disabled={!rows?.length}
+              onClick={() =>
+                void printReport(
+                  {
+                    title: `Filing register · FY ${fyFromStartYear(fyStartYear).label}`,
+                    periodLabel: `as on ${toDisplayDate(todayISO())}`,
+                    columns: COLUMNS,
+                    rows: csvRows.map((cells) => ({ cells })),
+                    filename: `filings-${fyFromStartYear(fyStartYear).label}`
+                  },
+                  toast
+                )
+              }
+            >
+              PDF
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={!rows?.length}
+              onClick={() =>
+                void csvReport(
+                  COLUMNS.map((c) => c.label),
+                  csvRows,
+                  `filings-${fyFromStartYear(fyStartYear).label}`,
+                  toast
+                )
+              }
+            >
+              CSV
+            </Button>
+          </div>
+        }
+      >
+        Filing register
+      </SectionTitle>
+
+      {outstanding.length > 0 && (
+        <div
+          className="mb-4 flex items-baseline gap-3 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm"
+          data-testid="filings-exposure"
+        >
+          <span>
+            <b>{outstanding.length}</b> return{outstanding.length === 1 ? '' : 's'} outstanding.
+          </span>
+          {exposure > 0 && (
+            <span>
+              Filing all of them today would cost <b><Money paise={exposure} /></b> in late fee and interest.
+            </span>
+          )}
+        </div>
+      )}
+
+      <Panel>
+        {isLoading || !rows ? (
+          <SkeletonRows rows={10} />
+        ) : rows.length === 0 ? (
+          <EmptyState title="Nothing to file this year" />
+        ) : (
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th>Form</th>
+                <th>Period</th>
+                <th className="w-28">Due</th>
+                <th className="w-24">Status</th>
+                <th className="w-28">Filed on</th>
+                <th>ARN</th>
+                <th className="r w-28">Late fee</th>
+                <th className="r w-28">Interest</th>
+                <th className="w-28" />
+              </tr>
+            </thead>
+            <tbody data-testid="rows-filings">
+              {rows.map((r, i) => (
+                <tr key={`${r.form}/${r.period}`} {...table.rowProps(i, r)}>
+                  <td>{r.form}</td>
+                  <td>{shortPeriod(r.period)}</td>
+                  <td className="num">{toDisplayDate(r.date)}</td>
+                  <td className={STATUS_CLASS[r.status]}>
+                    {STATUS_LABEL[r.status]}
+                    {r.status === 'overdue' && (
+                      <span className="ml-1 text-hint font-normal">{r.charge.daysLate}d</span>
+                    )}
+                  </td>
+                  <td className="num">{r.record?.filedAt ? toDisplayDate(r.record.filedAt) : '–'}</td>
+                  <td className="num text-hint">{r.record?.arn ?? '–'}</td>
+                  <td className="r">
+                    <Money paise={r.charge.lateFeePaise} />
+                    {r.projected && r.charge.lateFeePaise > 0 && (
+                      <span className="ml-1 text-hint text-muted" title="If filed today">
+                        est
+                      </span>
+                    )}
+                  </td>
+                  <td className="r">
+                    <Money paise={r.charge.interestPaise} />
+                  </td>
+                  <td>
+                    <Button
+                      variant="ghost"
+                      className="whitespace-nowrap"
+                      data-testid={`btn-filing-edit-${r.form}-${r.period}`}
+                      onClick={() => setEditing(r)}
+                    >
+                      {r.record?.filedAt ? 'Edit' : 'Mark filed'}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      <p className="mt-3 text-hint text-muted">
+        Late fee and interest are estimates computed from the dates. The portal is authoritative
+        and applies caps and waivers this cannot know about.
+      </p>
+
+      {editing && (
+        <FilingModal
+          row={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            void queryClient.invalidateQueries({ queryKey: ['filings'] })
+            setEditing(null)
+          }}
+          onOpenPeriod={(period) => {
+            // The GSTR-1 screen reads the session period, so set it and go — the filing row and
+            // the return it belongs to then agree about which dates are in scope.
+            const { from: f, to } = periodBounds(period, periodKindOf(period))
+            setPeriod(f, to)
+            nav.go({ name: 'gstr1' })
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Record a filing.
+ *
+ * Late fee and interest are shown live as the filed date changes, because that number is the
+ * reason anyone opens this dialog: it is the difference between filing today and next week.
+ */
+function FilingModal({
+  row,
+  onClose,
+  onSaved,
+  onOpenPeriod
+}: {
+  row: FilingRow
+  onClose: () => void
+  onSaved: () => void
+  onOpenPeriod: (period: string) => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const [filedAt, setFiledAt] = useState(row.record?.filedAt ?? todayISO())
+  const [arn, setArn] = useState(row.record?.arn ?? '')
+  const [taxPaid, setTaxPaid] = useState<number | null>(row.record?.taxPaid ?? 0)
+  const [notes, setNotes] = useState(row.record?.notes ?? '')
+
+  const save = useMutation({
+    mutationFn: (input: Parameters<typeof api.filings.record>[0]) => api.filings.record(input),
+    onSuccess: () => {
+      toast.push('success', `${row.form} ${shortPeriod(row.period)} recorded`)
+      onSaved()
+    },
+    onError: (err: Error) => toast.push('error', err.message)
+  })
+
+  const dirty =
+    filedAt !== (row.record?.filedAt ?? todayISO()) ||
+    arn !== (row.record?.arn ?? '') ||
+    (taxPaid ?? 0) !== (row.record?.taxPaid ?? 0) ||
+    notes !== (row.record?.notes ?? '')
+
+  const submit = (clear: boolean): void => {
+    if (!clear && !arn.trim()) {
+      // The ARN is the whole point of the record: without it "filed" is just a checkbox.
+      toast.push('error', 'Enter the ARN the portal returned')
+      return
+    }
+    save.mutate({
+      form: row.form,
+      period: row.period,
+      dueDate: row.date,
+      filedAt: clear ? null : filedAt,
+      arn: clear ? null : arn.trim(),
+      taxPaid: clear ? 0 : (taxPaid ?? 0),
+      notes: notes.trim() || null
+    })
+  }
+
+  return (
+    <Modal title={`${row.form} — ${shortPeriod(row.period)}`} onClose={onClose} dirty={dirty}>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-baseline justify-between text-body-sm">
+          <span className="text-muted">Due {toDisplayDate(row.date)}</span>
+          <button
+            className="text-small text-blue hover:underline"
+            data-testid="btn-filing-open-period"
+            onClick={() => onOpenPeriod(row.period)}
+          >
+            Open GSTR-1 for this period →
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Filed on">
+            <DateInput value={filedAt} context={row.date} onChange={setFiledAt} testId="input-filing-date" />
+          </Field>
+          <Field label="Tax paid" hint="Drives the interest, and the nil-return fee rate">
+            <AmountInput paise={taxPaid} onPaise={setTaxPaid} testId="input-filing-tax" />
+          </Field>
+        </div>
+
+        <Field label="ARN" hint="The acknowledgement number the portal returns">
+          <TextInput
+            data-testid="input-filing-arn"
+            value={arn}
+            onChange={(e) => setArn(e.target.value.toUpperCase())}
+            className="num"
+            placeholder="AA270526000001X"
+          />
+        </Field>
+
+        <Field label="Notes">
+          <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </Field>
+
+        <LiveCharge form={row.form} dueDate={row.date} filedAt={filedAt} taxPaid={taxPaid ?? 0} />
+
+        <div className="flex justify-between">
+          {row.record?.filedAt ? (
+            <Button variant="danger" data-testid="btn-filing-clear" onClick={() => submit(true)}>
+              Not filed after all
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" data-testid="btn-filing-save" onClick={() => submit(false)}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/** What this filing date costs, recomputed as the form is edited. */
+function LiveCharge({
+  form,
+  dueDate,
+  filedAt,
+  taxPaid
+}: {
+  form: string
+  dueDate: string
+  filedAt: string
+  taxPaid: number
+}): React.JSX.Element | null {
+  // Pure integer maths in shared — no round trip to main, and the same function the register
+  // itself uses, so the dialog can never quote a figure the row disagrees with.
+  const data = lateCharge({ form, dueDate, filedDate: filedAt, taxPaise: taxPaid })
+  if (data.daysLate === 0) return null
+  return (
+    <div className="rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm" data-testid="filing-live-charge">
+      <b>
+        {data.daysLate} day{data.daysLate === 1 ? '' : 's'} late.
+      </b>{' '}
+      Total <b><Money paise={data.totalPaise} /></b> — late fee <Money paise={data.lateFeePaise} />
+      {data.feeCapped && <span className="text-hint text-muted"> (at the cap)</span>}
+      {data.interestPaise > 0 ? (
+        <>
+          {' '}
+          plus <Money paise={data.interestPaise} /> interest.
+        </>
+      ) : (
+        // No tax paid, so no interest arises — say so rather than printing a dash beside a label.
+        <span className="text-hint text-muted"> · no interest, since no tax was paid late</span>
+      )}
+    </div>
+  )
+}

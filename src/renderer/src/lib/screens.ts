@@ -284,6 +284,18 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['edocList', 'nicStatus', 'nicCreds']
   },
   {
+    name: 'filings',
+    title: 'Filing register',
+    screen: { name: 'filings' },
+    navSection: 'gst',
+    navLabel: 'Filing register',
+    // A badge rather than a highlighted letter: every letter of "Filing register" is already
+    // claimed, so Q rides on the end the way TDS's K does. See __tests__/accel.test.ts.
+    accel: 'Q',
+    keywords: ['filing', 'filed', 'arn', 'late fee', 'interest', 'due', 'overdue', 'calendar'],
+    invalidates: ['filings']
+  },
+  {
     name: 'composition',
     title: 'Composition — CMP-08 & GSTR-4',
     screen: { name: 'composition' },

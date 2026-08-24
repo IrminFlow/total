@@ -37,6 +37,7 @@ const EXPECTED_TABLES = [
   'price_list_rates',
   'pay_heads',
   'employee_pay_heads',
+  'gst_filings',
   'migrations'
 ]
 

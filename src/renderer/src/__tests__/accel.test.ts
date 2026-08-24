@@ -8,7 +8,13 @@ import { splitAccel, NAV_ACCEL } from '../lib/accel'
  * Adding to this set should be a conscious, reviewed decision — that is the whole point of it
  * being an explicit allowlist rather than a lenient rule.
  */
-const BADGE_ACCELS = new Set(['tds'])
+const BADGE_ACCELS = new Set([
+  'tds',
+  // Filing register: every letter of the label is claimed (F cash flow, I import, L consolidated,
+  // N reconciliation, R registers, S stock summary, T trial balance, E settings, G gateway).
+  // Q is the only unclaimed letter that reads as anything at all next to a returns screen.
+  'filings'
+])
 
 /**
  * Screens that intentionally have no bare-letter accelerator. Empty on purpose: every sidebar

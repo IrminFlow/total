@@ -38,6 +38,11 @@ function fyQuarterOfMonth(month: number): 1 | 2 | 3 | 4 {
   return (Math.floor(((month - 4 + 12) % 12) / 3) + 1) as 1 | 2 | 3 | 4
 }
 
+/** FY start year a calendar month belongs to: Jan-Mar belong to the FY that started last April. */
+function fyStartYearOfMonth(year: number, month: number): number {
+  return month >= 4 ? year : year - 1
+}
+
 /** Position of a month within its FY quarter: 1, 2 or 3. */
 function monthInQuarter(month: number): 1 | 2 | 3 {
   return (((month - 4 + 12) % 12) % 3 + 1) as 1 | 2 | 3
@@ -50,6 +55,15 @@ export interface Deadline {
   /** ISO 'YYYY-MM-DD'. */
   date: string
   kind: DeadlineKind
+  /**
+   * The period this obligation covers, keyed as `src/shared/period.ts` keys them: 'YYYY-MM' for
+   * a month, 'YYYY-Qn' for an FY quarter, 'YYYY-FY' for a whole financial year.
+   *
+   * Distinct from `date`, which is when it is due. A filing register is keyed by (form, period)
+   * -- the return for April is one obligation whether it is filed on the 11th of May or the 3rd
+   * of August -- so the period has to be a field rather than something parsed back out of `id`.
+   */
+  period: string
 }
 
 const MONTH_NAMES = [
@@ -125,11 +139,11 @@ export function upcomingDeadlines(
     if (gstRegistrationType === 'regular' && gstFilingFrequency === 'monthly') {
       const gstr1Date = ymd(filingY, filingM, 11)
       if (inRange(gstr1Date)) {
-        out.push({ id: `gstr1-${period.y}-${pad2(period.m)}`, form: 'GSTR-1', title: `GSTR-1 — outward supplies (${periodLabel})`, date: gstr1Date, kind: 'gst' })
+        out.push({ id: `gstr1-${period.y}-${pad2(period.m)}`, form: 'GSTR-1', title: `GSTR-1 — outward supplies (${periodLabel})`, date: gstr1Date, kind: 'gst', period: `${period.y}-${pad2(period.m)}` })
       }
       const gstr3bDate = ymd(filingY, filingM, 20)
       if (inRange(gstr3bDate)) {
-        out.push({ id: `gstr3b-${period.y}-${pad2(period.m)}`, form: 'GSTR-3B', title: `GSTR-3B — summary return (${periodLabel})`, date: gstr3bDate, kind: 'gst' })
+        out.push({ id: `gstr3b-${period.y}-${pad2(period.m)}`, form: 'GSTR-3B', title: `GSTR-3B — summary return (${periodLabel})`, date: gstr3bDate, kind: 'gst', period: `${period.y}-${pad2(period.m)}` })
       }
     }
 
@@ -145,7 +159,8 @@ export function upcomingDeadlines(
             form: 'CMP-08',
             title: `CMP-08 — self-assessed tax (Q${fyQuarterOfMonth(period.m)}, quarter ending ${periodLabel})`,
             date: cmp08Date,
-            kind: 'gst'
+            kind: 'gst',
+            period: `${fyStartYearOfMonth(period.y, period.m)}-Q${fyQuarterOfMonth(period.m)}`
           })
         }
       }
@@ -166,7 +181,8 @@ export function upcomingDeadlines(
             form: 'GSTR-1',
             title: `GSTR-1 — outward supplies (Q${quarter}, quarter ending ${periodLabel})`,
             date: gstr1Date,
-            kind: 'gst'
+            kind: 'gst',
+            period: `${fyStartYearOfMonth(period.y, period.m)}-Q${quarter}`
           })
         }
         const day3b = QRMP_22ND_STATE_CODES.has(stateCode) ? 22 : 24
@@ -177,7 +193,8 @@ export function upcomingDeadlines(
             form: 'GSTR-3B',
             title: `GSTR-3B — summary return (Q${quarter}, quarter ending ${periodLabel})`,
             date: gstr3bDate,
-            kind: 'gst'
+            kind: 'gst',
+            period: `${fyStartYearOfMonth(period.y, period.m)}-Q${quarter}`
           })
         }
       } else {
@@ -190,7 +207,8 @@ export function upcomingDeadlines(
             form: 'PMT-06',
             title: `PMT-06 — monthly tax payment (${periodLabel})`,
             date: pmt06Date,
-            kind: 'gst'
+            kind: 'gst',
+            period: `${period.y}-${pad2(period.m)}`
           })
         }
         const iffDate = ymd(filingY, filingM, 13)
@@ -200,7 +218,8 @@ export function upcomingDeadlines(
             form: 'IFF',
             title: `IFF — optional B2B upload (${periodLabel})`,
             date: iffDate,
-            kind: 'gst'
+            kind: 'gst',
+            period: `${period.y}-${pad2(period.m)}`
           })
         }
       }
@@ -208,17 +227,17 @@ export function upcomingDeadlines(
 
     const tdsDate = ymd(filingY, filingM, 7)
     if (inRange(tdsDate)) {
-      out.push({ id: `tds-${period.y}-${pad2(period.m)}`, form: 'TDS Challan', title: `TDS deposit — challan for ${periodLabel}`, date: tdsDate, kind: 'tds' })
+      out.push({ id: `tds-${period.y}-${pad2(period.m)}`, form: 'TDS Challan', title: `TDS deposit — challan for ${periodLabel}`, date: tdsDate, kind: 'tds', period: `${period.y}-${pad2(period.m)}` })
     }
 
     if (hasPayroll) {
       const pfDate = ymd(filingY, filingM, 15)
       if (inRange(pfDate)) {
-        out.push({ id: `pf-${period.y}-${pad2(period.m)}`, form: 'PF ECR', title: `PF contribution — ${periodLabel}`, date: pfDate, kind: 'pf' })
+        out.push({ id: `pf-${period.y}-${pad2(period.m)}`, form: 'PF ECR', title: `PF contribution — ${periodLabel}`, date: pfDate, kind: 'pf', period: `${period.y}-${pad2(period.m)}` })
       }
       const esiDate = ymd(filingY, filingM, 15)
       if (inRange(esiDate)) {
-        out.push({ id: `esi-${period.y}-${pad2(period.m)}`, form: 'ESI', title: `ESI contribution — ${periodLabel}`, date: esiDate, kind: 'esi' })
+        out.push({ id: `esi-${period.y}-${pad2(period.m)}`, form: 'ESI', title: `ESI contribution — ${periodLabel}`, date: esiDate, kind: 'esi', period: `${period.y}-${pad2(period.m)}` })
       }
     }
   }
@@ -235,7 +254,9 @@ export function upcomingDeadlines(
           form: 'GSTR-4',
           title: `GSTR-4 — annual return (FY ${fyLabel})`,
           date,
-          kind: 'gst'
+          kind: 'gst',
+          // Due 30 June, for the FY that started in April of the previous calendar year.
+          period: `${year - 1}-FY`
         })
       }
     }
@@ -258,7 +279,8 @@ export function upcomingDeadlines(
           form: 'Advance Tax',
           title: `Advance tax instalment (${inst.label}) due`,
           date,
-          kind: 'advance-tax'
+          kind: 'advance-tax',
+          period: `${fyStartYearOfMonth(year, inst.m)}-${inst.label}`
         })
       }
     }
@@ -266,4 +288,41 @@ export function upcomingDeadlines(
 
   out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1))
   return out
+}
+
+/**
+ * Every GST return obligation for one financial year, whether or not it is due yet.
+ *
+ * `upcomingDeadlines` answers "what is coming"; this answers "what does this year consist of",
+ * which is what a filing register needs — a row per obligation from the start, so an unfiled
+ * return in month two is visibly missing rather than absent.
+ *
+ * Built by running the same horizon scan over the whole year rather than re-deriving the dates,
+ * so the QRMP stagger, the composition schedule and the monthly rules cannot drift between the
+ * calendar and the register. The window runs from 1 April of the FY to mid-July of the next
+ * calendar year, which reaches the last obligation of the year (GSTR-4, due 30 June) with room
+ * to spare; the period filter then discards anything belonging to an adjacent FY.
+ */
+export function filingSchedule(
+  fyStartYear: number,
+  gstRegistrationType: 'regular' | 'composition' | 'unregistered',
+  gstFilingFrequency: 'monthly' | 'quarterly' = 'monthly',
+  stateCode = ''
+): Deadline[] {
+  const from = ymd(fyStartYear, 4, 1)
+  const to = ymd(fyStartYear + 1, 7, 15)
+  const horizon = Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86_400_000)
+
+  const all = upcomingDeadlines(from, gstRegistrationType, false, horizon, gstFilingFrequency, stateCode)
+  // A period belongs to this FY when its key starts with the FY's start year — which holds for
+  // all three key shapes ('2026-04', '2026-Q1', '2026-FY') because they are all FY-anchored.
+  // Except monthly keys, which are calendar-anchored: Jan-Mar of the FY read as the next year.
+  const prefix = `${fyStartYear}-`
+  const nextYearMonths = new Set(['01', '02', '03'].map((m) => `${fyStartYear + 1}-${m}`))
+  return all.filter(
+    (d) =>
+      d.kind === 'gst' &&
+      ((d.period.startsWith(prefix) && !['01', '02', '03'].includes(d.period.slice(5))) ||
+        nextYearMonths.has(d.period))
+  )
 }
