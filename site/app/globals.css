@@ -404,3 +404,22 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
 .plan ul { list-style: none; margin: 16px 0 0; display: grid; gap: 8px; }
 .plan li { position: relative; padding-left: 18px; font-size: 14px; color: var(--ink); }
 .plan li::before { content: ''; position: absolute; left: 0; top: 8px; width: 6px; height: 6px; border-radius: 2px; background: var(--amber); }
+
+/* A plain prose list — used on the privacy page, where each item is a sentence rather than a
+   feature. Deliberately not the ledger table: a list of things that never happen has no columns. */
+.plain-list { margin-top: 22px; max-width: 46em; }
+.plain-list li {
+  list-style: none;
+  position: relative;
+  padding-left: 22px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 15.5px;
+  line-height: 1.55;
+}
+.plain-list li::before {
+  content: '—';
+  position: absolute;
+  left: 0;
+  color: var(--rule);
+}

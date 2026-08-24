@@ -28,6 +28,8 @@ export interface ReleaseInfo {
   version: string
   htmlUrl: string
   assets: Partial<Record<Platform, AssetRef>>
+  /** The release body, so the app can show what changed before someone updates. */
+  notes: string
 }
 
 /** Latest release, or null when the repo has no releases yet / token is missing on a private repo. */
@@ -41,6 +43,7 @@ export async function latestRelease(): Promise<ReleaseInfo | null> {
     const data = (await res.json()) as {
       tag_name?: string
       html_url?: string
+      body?: string | null
       assets?: { id: number; name: string; browser_download_url: string }[]
     }
     if (!data.tag_name) return null
@@ -51,7 +54,8 @@ export async function latestRelease(): Promise<ReleaseInfo | null> {
     return {
       version: data.tag_name.replace(/^v/, ''),
       htmlUrl: data.html_url ?? RELEASES_PAGE,
-      assets: { mac: find('.dmg'), win: find('.exe') }
+      assets: { mac: find('.dmg'), win: find('.exe') },
+      notes: data.body ?? ''
     }
   } catch {
     return null

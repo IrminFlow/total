@@ -72,6 +72,7 @@ import type { CompanyInfo } from '@shared/domain'
 import { featuresSchema } from '@shared/features'
 import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig'
 import { PERIODS } from '@shared/period'
+import { GITHUB_REPO, SITE_URL } from '@shared/product'
 
 export interface OpenCompany {
   slug: string
@@ -1653,6 +1654,23 @@ export function registerIpc(): void {
   // ---------- app info + updates ----------
   handle('app:info', () => ({ version: app.getVersion(), platform: process.platform }))
   handle('app:checkUpdates', () => checkForUpdatesInteractive(), 'viewer')
+
+  /**
+   * Open a link in the user's browser.
+   *
+   * Restricted to this product's own site and its GitHub releases. A general "open any URL"
+   * channel reachable from the renderer is a way to launch anything the renderer can be talked
+   * into asking for, and the renderer renders remote text (release notes, AI answers).
+   */
+  handle('app:openExternal', async (p) => {
+    const { url } = z.object({ url: z.string().url().max(500) }).parse(p)
+    const allowed = [SITE_URL, `https://github.com/${GITHUB_REPO}`]
+    if (!allowed.some((prefix) => url.startsWith(prefix))) {
+      throw new Error('That link is not one this app opens')
+    }
+    await shell.openExternal(url)
+    return null
+  }, 'viewer')
 
   // ---------- agent bridge (CSV/JSON mirrors + inbox, lane A) ----------
   handle('agent:exportMirror', (p) => {

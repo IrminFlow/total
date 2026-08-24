@@ -794,10 +794,15 @@ export const api = {
   },
   app: {
     info: () => call<{ version: string; platform: string }>('app:info'),
+    openExternal: (url: string) => call<null>('app:openExternal', { url }),
     checkUpdates: () =>
-      call<{ status: 'dev' | 'available' | 'up-to-date' | 'error'; current: string; latest?: string }>(
-        'app:checkUpdates'
-      ),
+      call<{
+        status: 'dev' | 'available' | 'up-to-date' | 'error'
+        current: string
+        latest?: string
+        /** Release notes for the newer version, when the source supplied any. */
+        notes?: string | null
+      }>('app:checkUpdates'),
     notifyDeadlines: (items: { title: string; body: string }[]) =>
       call<null>('app:notifyDeadlines', { items })
   }

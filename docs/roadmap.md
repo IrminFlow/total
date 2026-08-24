@@ -339,7 +339,8 @@ Ordering within a section is roughly by value.
 269. Content-Security-Policy audit and tightening (S)
 270. Dependency vulnerability gate in CI (S)
 271. Signed releases and update verification (config done) (M)
-272. Privacy page documenting exactly what leaves the machine (S)
+272. ✓ Privacy page documenting exactly what leaves the machine (S) — written as a list of
+     network calls, not as a policy: that is the only form a reader can check against the app.
 273. ✓ A "panic" key that locks immediately — ⌘⇧L from any screen (S)
 
 ## N. Accessibility
@@ -386,12 +387,12 @@ Ordering within a section is roughly by value.
 306. CA referral programme with tracked coupons (M)
 307. Named beta users and testimonials on the site (S)
 308. A 90-second screen recording of a real GSTR-1 export (S)
-309. Contact page with a WhatsApp number (S)
+309. ✓ Contact page with a WhatsApp number (S)
 310. SEO pages for the real queries people type (M)
 311. Downloads page with checksums and signing language (S)
 312. In-app feedback form posting to a real endpoint (M)
-313. Changelog surfaced in-app, not only on the site (S)
-314. Update notes shown before an update is applied (S)
+313. ✓ Changelog surfaced in-app, not only on the site (S)
+314. ✓ Update notes shown before an update is applied (S)
 315. Referral or word-of-mouth tracking without telemetry (M)
 316. Comparison page kept honest and current (S)
 317. Trial-expiry email capture, opt-in only (S)

@@ -4,6 +4,7 @@ import { api } from '../../lib/client'
 import { useSession, useToasts, type Toast } from '../../state/stores'
 import { Button, DateInput, Field, Modal, Panel, SectionTitle } from '../../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
+import { SITE_URL } from '@shared/product'
 
 const PLATFORM_LABELS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }
 
@@ -27,6 +28,9 @@ export function AboutSection(): React.JSX.Element {
   const toast = useToasts()
   const { data: info } = useQuery({ queryKey: ['appInfo'], queryFn: api.app.info })
   const [checking, setChecking] = useState(false)
+  // Kept from the last check so "what changed" is readable after the native dialog is gone. Not
+  // fetched on mount: an offline app must not reach the network to draw a settings panel.
+  const [notes, setNotes] = useState<{ version: string; body: string } | null>(null)
 
   const checkUpdates = async (): Promise<void> => {
     setChecking(true)
@@ -34,6 +38,7 @@ export function AboutSection(): React.JSX.Element {
       const r = await api.app.checkUpdates()
       const t = statusToast(r)
       toast.push(t.kind, t.text)
+      setNotes(r.notes?.trim() ? { version: (r.latest ?? '').replace(/^v/, ''), body: r.notes } : null)
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
@@ -62,7 +67,31 @@ export function AboutSection(): React.JSX.Element {
             Reveal logs
           </Button>
         </div>
+        {notes && (
+          <div className="mt-4 rounded-md border border-line bg-panel2 p-3" data-testid="update-notes">
+            <p className="text-body-sm font-medium">What&rsquo;s new in {notes.version}</p>
+            {/* Rendered as plain text, not markdown: this is release-note prose from a remote
+                source, and an offline accounting app has no business interpreting markup that
+                arrived over the network. */}
+            <pre className="mt-1.5 max-h-64 overflow-auto text-hint whitespace-pre-wrap text-muted select-text">
+              {notes.body}
+            </pre>
+          </div>
+        )}
         <p className="mt-6 text-hint text-muted">
+          Every release&rsquo;s notes are on the{' '}
+          <button
+            className="text-blue hover:underline"
+            data-testid="btn-open-changelog"
+            onClick={() => {
+              void api.app.openExternal(`${SITE_URL}/changelog`)
+            }}
+          >
+            changelog
+          </button>
+          .
+        </p>
+        <p className="mt-2 text-hint text-muted">
           Your data lives at <span className="num">~/Documents/total</span> — fully offline, no cloud, no accounts.
         </p>
         <p className="mt-2 text-caption text-muted/70">© Irmin Labs — proprietary</p>
