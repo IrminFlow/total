@@ -128,4 +128,46 @@ await scenario('23-daybook-views', async (h) => {
     `deleting a voucher leaves exactly one new gap (${before.count} → ${after.count})`
   )
   assert(/missing from the series/.test(after.rows[after.rows.length - 1].detail), 'and says what it is')
+
+  // ---- bulk move to the bin ----
+  // Every report is computed from vouchers, so a bulk delete moves real money out of every
+  // figure at once. The confirm and the bin are what make that safe; the selection clearing when
+  // the view changes is what stops it acting on rows the user can no longer see.
+  await h.goto('daybook')
+  await h.page.waitForSelector('[data-testid="rows-daybook"] tr', { timeout: 15000 })
+  const tbBefore = await h.invoke('report:trialBalance', { asOn: today })
+
+  const targets = made.filter((v) => v.id !== made[1].id) // one was already deleted above
+  for (const v of targets) {
+    await h.page.check(`[data-testid="check-daybook-${v.id}"]`)
+  }
+  await h.page.waitForSelector('[data-testid="daybook-selection-bar"]', { timeout: 10000 })
+  const barText = await h.page.textContent('[data-testid="daybook-selection-bar"]')
+  assert(new RegExp(`${targets.length} selected`).test(barText), `the bar counts the selection (${barText})`)
+  await h.shot('04-selection')
+
+  await h.stubDialogs()
+  await h.click('btn-daybook-bulk-delete')
+  await h.page.waitForSelector('[data-testid="confirm-ok"]', { timeout: 10000 })
+  await h.page.click('[data-testid="confirm-ok"]')
+  await h.page.waitForSelector('[data-testid="daybook-selection-bar"]', { state: 'detached', timeout: 15000 })
+
+  const bin = await h.invoke('voucher:bin')
+  for (const v of targets) {
+    assert(bin.some((b) => b.id === v.id), `voucher ${v.id} is in the bin`)
+  }
+
+  // The books moved, and by exactly what those vouchers carried.
+  const tbAfter = await h.invoke('report:trialBalance', { asOn: today })
+  assert(
+    tbAfter.totalDebit === tbBefore.totalDebit - targets.length * 1000,
+    `the trial balance dropped by what was removed (${tbBefore.totalDebit} → ${tbAfter.totalDebit})`
+  )
+  // Both sides moved by the same amount. Not "the trial balance balances": this scenario
+  // deliberately seeded a ledger with a one-sided opening balance earlier, so the book is
+  // already out — what matters is that removing vouchers moves both sides equally.
+  assert(
+    tbBefore.totalDebit - tbAfter.totalDebit === tbBefore.totalCredit - tbAfter.totalCredit,
+    'and both sides moved by the same amount'
+  )
 })

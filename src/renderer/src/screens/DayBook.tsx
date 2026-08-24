@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { nextDraftId, useNav, useSession, useToasts } from '../state/stores'
 import { useKeyLayer } from '../lib/keyboard'
+import { confirmDialog } from '../lib/dialogs'
 import type { VoucherKind } from '@shared/domain'
 import { Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput, useKeyNav, useTableNav } from '../components/ui'
 import { useStickyFlag } from '../lib/useStickyTab'
@@ -57,18 +58,22 @@ const DayBookRowView = memo(function DayBookRowView({
   row,
   index,
   isActive,
+  isSelected,
   visible,
   onHover,
   onOpen,
-  onPdf
+  onPdf,
+  onToggleSelect
 }: {
   row: DayBookRow
   index: number
   isActive: boolean
+  isSelected: boolean
   visible: Record<string, boolean>
   onHover: (i: number) => void
   onOpen: (voucherId: number) => void
   onPdf: (voucherId: number, e: React.MouseEvent) => void
+  onToggleSelect: (voucherId: number) => void
 }): React.JSX.Element {
   return (
     <tr
@@ -78,6 +83,15 @@ const DayBookRowView = memo(function DayBookRowView({
       onMouseEnter={() => onHover(index)}
       onClick={() => onOpen(row.voucherId)}
     >
+      <td onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          data-testid={`check-daybook-${row.voucherId}`}
+          aria-label={`Select voucher ${row.number}`}
+          checked={isSelected}
+          onChange={() => onToggleSelect(row.voucherId)}
+        />
+      </td>
       <td className="num text-muted">{toDisplayDate(row.date)}</td>
       {visible.type && <td className="text-muted">{row.voucherType}</td>}
       {visible.number && <td className="num text-muted">{row.number}</td>}
@@ -134,7 +148,16 @@ const DayBookRowView = memo(function DayBookRowView({
 export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}): React.JSX.Element {
   const { from, to } = useSession()
   const nav = useNav()
+  const queryClient = useQueryClient()
   const [byType, setByType] = useStickyFlag('daybook-by-type', false)
+  /**
+   * Rows ticked for a bulk action.
+   *
+   * Deliberately NOT persisted and cleared whenever the period or filter changes: a selection
+   * that survives a change of what is on screen is a selection of rows the user can no longer
+   * see, and the only action offered here deletes things.
+   */
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const toast = useToasts()
   const [filter, setFilter] = useState('')
   const [scope, setScope] = useState<Scope>('books')
@@ -245,6 +268,58 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
     return true
   })
 
+  useEffect(() => {
+    setSelected(new Set())
+  }, [from, to, scope, filter])
+
+  const toggleSelected = useCallback((voucherId: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(voucherId)) next.delete(voucherId)
+      else next.add(voucherId)
+      return next
+    })
+  }, [])
+
+  /**
+   * Move every ticked voucher to the bin.
+   *
+   * One at a time rather than in a transaction: each delete runs its own period-lock check and
+   * writes its own audit entry, and a batch that half-succeeds is far better reported as "9 of 10
+   * moved, one is in a locked period" than rolled back wholesale. The bin makes every one of them
+   * undoable anyway.
+   */
+  const deleteSelected = useCallback(async (): Promise<void> => {
+    const ids = [...selected]
+    if (ids.length === 0) return
+    const ok = await confirmDialog({
+      title: `Move ${ids.length} voucher${ids.length === 1 ? '' : 's'} to the bin?`,
+      message: 'They stop counting in every report straight away. You can restore them from Settings → Bin.',
+      confirmLabel: `Move ${ids.length} to the bin`,
+      danger: true
+    })
+    if (!ok) return
+
+    const failures: string[] = []
+    for (const id of ids) {
+      try {
+        await api.vouchers.remove(id)
+      } catch (err) {
+        failures.push((err as Error).message)
+      }
+    }
+    setSelected(new Set())
+    await queryClient.invalidateQueries()
+    if (failures.length === 0) {
+      toast.push('success', `${ids.length} voucher${ids.length === 1 ? '' : 's'} moved to the bin`)
+    } else {
+      toast.push(
+        'warning',
+        `${ids.length - failures.length} of ${ids.length} moved — ${failures[0]}`
+      )
+    }
+  }, [selected, queryClient, toast])
+
   const openPdf = useCallback(
     (voucherId: number, e: React.MouseEvent) => {
       e.stopPropagation()
@@ -255,7 +330,8 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
 
   // Date and Narration always show; the rest follow the F12 column config.
   const colCount =
-    2 +
+    // Date, Narration and the select checkbox always show; the rest follow the column config.
+    3 +
     (visible.type ? 1 : 0) +
     (visible.number ? 1 : 0) +
     (visible.account ? 1 : 0) +
@@ -398,6 +474,24 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
           <span className="text-hint text-muted">Filtered from Registers</span>
         </div>
       )}
+      {selected.size > 0 && (
+        <div
+          className="mb-3 flex items-center gap-3 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm"
+          data-testid="daybook-selection-bar"
+        >
+          <span>
+            <b>{selected.size}</b> selected
+          </span>
+          <button className="text-small text-muted hover:text-ink" onClick={() => setSelected(new Set())}>
+            Clear
+          </button>
+          <span className="flex-1" />
+          <Button variant="danger" data-testid="btn-daybook-bulk-delete" onClick={() => void deleteSelected()}>
+            Move to bin
+          </Button>
+        </div>
+      )}
+
       {byType ? (
         <ByTypePanel from={from} to={to} includeOutOfBooks={scope !== 'books'} />
       ) : (
@@ -413,6 +507,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
           <table className="ledger-table">
             <thead>
               <tr>
+                <th className="w-8" aria-label="Select" />
                 <th className="w-24">Date</th>
                 {visible.type && <th className="w-28">Type</th>}
                 {visible.number && <th className="w-20">No.</th>}
@@ -430,10 +525,12 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                   row={r}
                   index={i}
                   isActive={i === active}
+                  isSelected={selected.has(r.voucherId)}
                   visible={visible}
                   onHover={setActive}
                   onOpen={openRow}
                   onPdf={openPdf}
+                  onToggleSelect={toggleSelected}
                 />
               ))}
               {!loadedAll && (

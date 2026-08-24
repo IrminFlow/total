@@ -6,6 +6,7 @@ import type { VoucherInputParsed } from '@shared/schemas'
 import { isB2cLarge } from '@shared/gst/returns'
 import { rcmAdvice } from '@shared/gst/reverseCharge'
 import { suggestNarration } from '@shared/autoNarration'
+import { useStickyFlag } from '../../lib/useStickyTab'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
 import { GST_STATES } from '@shared/gst/states'
 import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
@@ -66,6 +67,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   // ---------- GST details (place-of-supply override + memorandum flag) ----------
   const [gstOpen, setGstOpen] = useState(false)
   const [posOverride, setPosOverride] = useState<string | null>(null)
+  const [keepParty, setKeepParty] = useStickyFlag('invoice-keep-party', false)
   const [optionalVoucher, setOptionalVoucher] = useState(false)
 
   const numberField = useVoucherNumberField(typeId, date)
@@ -347,7 +349,11 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         await api.invoice.pdf(saved.id)
       }
       setWorkingDate(date)
-      setPartyId(null)
+      // The date always carries — it is already the working date — and the party carries only if
+      // asked. Entering ten invoices for one customer and re-picking them ten times is the tax;
+      // entering ten for ten customers and having the last one stick is the opposite mistake, so
+      // it is a choice rather than a default.
+      if (!keepParty) setPartyId(null)
       setRows([blankItemRow()])
       setNarration('')
       setVehicleNo('')
@@ -364,7 +370,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, periodFrom, periodTo, toast, setWorkingDate, queryClient, numberField.reset])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, periodFrom, periodTo, keepParty, toast, setWorkingDate, queryClient, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -792,6 +798,15 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
             Save + invoice PDF
           </Button>
         )}
+        <label className="mr-2 flex items-center gap-1.5 text-hint text-muted" title="Keep the party selected after saving, for the next voucher">
+          <input
+            type="checkbox"
+            data-testid="check-keep-party"
+            checked={keepParty}
+            onChange={(e) => setKeepParty(e.target.checked)}
+          />
+          Keep party
+        </label>
         <Button variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
           Save voucher ⌘↵
         </Button>

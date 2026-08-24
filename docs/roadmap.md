@@ -55,9 +55,9 @@ Ordering within a section is roughly by value.
 36. ✓ Warn before saving a voucher dated outside the open period (S)
 37. ✓ Duplicate-number detection extended to duplicate amount+party+date (S) — already
     shipped: `findDuplicates` matches type + party + total within a ±3-day window, pre-save.
-38. A "post and new" button that keeps the party and date (S)
+38. ✓ A "post and new" button that keeps the party and date (S)
 39. Bulk edit: change the narration or cost centre on many vouchers at once (M)
-40. Bulk delete to the bin from the Day Book with a confirm (S)
+40. ✓ Bulk delete to the bin from the Day Book with a confirm (S)
 41. Split a voucher line across cost centres by percentage rather than amount (S)
 42. Round-off line added automatically when a line is a paisa out (S)
 43. Voucher numbering series per type per financial year, configurable (M)
