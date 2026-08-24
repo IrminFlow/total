@@ -7,6 +7,7 @@ import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { useStickyFlag } from '../lib/useStickyTab'
+import { abnormalReason } from '@shared/abnormalBalance'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 
@@ -152,7 +153,21 @@ export function TrialBalanceScreen(): React.JSX.Element {
                   onMouseEnter={() => setActive(i)}
                   onClick={() => r.ledgerId > 0 && nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })}
                 >
-                  <td>{r.ledgerName}</td>
+                  <td>
+                    {r.ledgerName}
+                    {/* An asset in credit or a liability in debit is usually a mistake, and
+                        usually one nobody looks for — the number is perfectly normal on the next
+                        row. Flagged, not errored: a genuine overdraft looks exactly like this. */}
+                    {abnormalReason(r.nature, r.debit - r.credit) && (
+                      <span
+                        className="ml-2 rounded-md bg-cr/10 px-1.5 py-0.5 text-label font-medium text-cr"
+                        data-testid="tb-abnormal"
+                        title={abnormalReason(r.nature, r.debit - r.credit) ?? undefined}
+                      >
+                        {r.nature === 'asset' ? 'Cr' : 'Dr'}?
+                      </span>
+                    )}
+                  </td>
                   <td className="text-muted">{r.groupName}</td>
                   {visible.opening && (
                     <td className="r">

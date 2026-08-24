@@ -355,6 +355,36 @@ describe('exception reports (#60)', () => {
     expect(section.count).toBe(0)
   })
 
+  it('reports a gap left by a deleted voucher, and nothing on an unbroken series', () => {
+    // A missing invoice number is the first thing an auditor asks about. The bin is a soft
+    // delete, so the number is not reissued — which is correct, and is what leaves the hole.
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const sales = createLedger(db, {
+      ...LEDGER_DEFAULTS, name: 'Sales', groupId: groupId(db, 'Sales Accounts'), openingBalance: 0
+    }).id
+
+    const ids: number[] = []
+    for (let i = 0; i < 4; i++) {
+      ids.push(
+        postLines(db, 'receipt', '2026-05-01', [
+          { ledgerId: cash, drCr: 'dr', amount: 1000 },
+          { ledgerId: sales, drCr: 'cr', amount: 1000 }
+        ])
+      )
+    }
+
+    const clean = exceptions(db, '2026-04-01', '2027-03-31').sections.find((x) => x.key === 'numberGaps')!
+    expect(clean.count).toBe(0)
+
+    // Delete the second of four: 1, _, 3, 4.
+    db.prepare("UPDATE vouchers SET deleted_at = '2026-06-01T00:00:00Z' WHERE id = ?").run(ids[1])
+    const withGap = exceptions(db, '2026-04-01', '2027-03-31').sections.find((x) => x.key === 'numberGaps')!
+    expect(withGap.count).toBe(1)
+    expect(withGap.rows[0]!.label).toMatch(/2$/)
+    expect(withGap.rows[0]!.detail).toMatch(/1 number missing/)
+  })
+
   it('ignores a soft-deleted purchase', () => {
     const db = seededDb()
     const purchases = createLedger(db, {

@@ -65,4 +65,67 @@ await scenario('23-daybook-views', async (h) => {
   const rowsAfter = await h.page.$$eval('[data-testid="rows-daybook"] tr', (els) => els.length)
   assert(rowsAfter === rowsBefore, 'showing a column does not change the rows')
   await h.shot('02-reconciled-column')
+
+  // ---- Trial balance: a balance on the wrong side is flagged ----
+  // A bank account in credit and a customer in credit are both perfectly ordinary numbers on the
+  // trial balance; what makes them worth seeing is which row they are on.
+  const groups = await h.invoke('master:groups:list')
+  const debtors = groups.find((g) => g.name === 'Sundry Debtors')
+  const overpayer = await h.invoke('master:ledgers:create', {
+    name: 'Paid Twice Ltd', groupId: debtors.id, openingBalance: -50000,
+    gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null
+  })
+  assert(overpayer.id, 'created a debtor with a credit opening balance')
+
+  await h.goto('gateway')
+  await h.goto('trial-balance')
+  await h.page.waitForSelector('[data-testid="rows-trial-balance"] tr', { timeout: 15000 })
+  const flagged = await h.page.$$eval('[data-testid="tb-abnormal"]', (els) =>
+    els.map((e) => ({ text: e.textContent.trim(), title: e.getAttribute('title') }))
+  )
+  assert(flagged.length >= 1, 'the debtor in credit is flagged')
+  assert(
+    flagged.some((f) => f.text === 'Cr?' && /asset in credit/.test(f.title ?? '')),
+    `the flag says which way round the problem is (got ${JSON.stringify(flagged)})`
+  )
+
+  // Every other row must be unflagged — a flag on a normal balance would train the user to
+  // ignore all of them.
+  const rowCount = await h.page.$$eval('[data-testid="rows-trial-balance"] tr', (els) => els.length)
+  assert(flagged.length < rowCount, 'normal balances are not flagged')
+  await h.shot('03-abnormal-balance')
+
+  // ---- Exceptions: a gap in the numbering series ----
+  const receipts = (await h.invoke('master:voucherTypes:list')).find((t) => t.kind === 'receipt')
+  const ledgers = await h.invoke('master:ledgers:list')
+  const cash = ledgers.find((l) => l.name === 'Cash')
+  const today = new Date().toISOString().slice(0, 10)
+  const made = []
+  for (let i = 0; i < 3; i++) {
+    made.push(
+      await h.invoke('voucher:save', {
+        data: {
+          voucherTypeId: receipts.id, date: today, partyLedgerId: null,
+          narration: `gap test ${i}`, reference: null, instrumentNo: null, instrumentDate: null,
+          transporterId: null, vehicleNo: null, transportDistanceKm: null,
+          currencyCode: null, exchangeRate: null,
+          lines: [
+            { ledgerId: cash.id, drCr: 'dr', amount: 1000 },
+            { ledgerId: overpayer.id, drCr: 'cr', amount: 1000 }
+          ],
+          inventory: []
+        }
+      })
+    )
+  }
+  const gapSection = (report) => report.sections.find((x) => x.key === 'numberGaps')
+
+  const before = gapSection(await h.invoke('report:exceptions', { from: `${today.slice(0, 4)}-01-01`, to: today }))
+  await h.invoke('voucher:delete', { id: made[1].id })
+  const after = gapSection(await h.invoke('report:exceptions', { from: `${today.slice(0, 4)}-01-01`, to: today }))
+  assert(
+    after.count === before.count + 1,
+    `deleting a voucher leaves exactly one new gap (${before.count} → ${after.count})`
+  )
+  assert(/missing from the series/.test(after.rows[after.rows.length - 1].detail), 'and says what it is')
 })

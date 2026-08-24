@@ -11,6 +11,7 @@ import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type In
 import { periodKey, periodLabel, periodRange, type Period } from '@shared/period'
 import { todayISO } from '@shared/dates'
 import { itcRisk } from '@shared/gst/itcAgeing'
+import { describeGap, gapSize, numberGaps } from '@shared/numberSeries'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
 
@@ -360,6 +361,48 @@ export function exceptions(db: DB, from: string, to: string): ExceptionsReport {
     )
   section('itcAtRisk', 'Input credit about to lapse', itcRows)
 
+  // Gaps in an auto-numbered series. A missing invoice number is the first thing an auditor asks
+  // about, and the honest answer is usually dull — but the business should know before it is
+  // asked rather than finding out across a table.
+  //
+  // Only auto-numbered types: a manual series is the user's own, and reporting gaps in it would
+  // second-guess a numbering scheme the app does not own. Scoped to the working period, because
+  // a series that restarts each FY has a legitimate discontinuity at every year boundary.
+  const seriesRows = db
+    .prepare(
+      `SELECT vt.id AS typeId, vt.name AS voucherType, vt.prefix, vt.suffix, v.number
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND vt.numbering = 'auto'`
+    )
+    .all(from, to) as { typeId: number; voucherType: string; prefix: string; suffix: string; number: string }[]
+
+  const byType = new Map<number, { voucherType: string; numbers: number[] }>()
+  for (const r of seriesRows) {
+    let core = r.number
+    if (r.suffix && core.endsWith(r.suffix)) core = core.slice(0, -r.suffix.length)
+    if (r.prefix && core.startsWith(r.prefix)) core = core.slice(r.prefix.length)
+    const n = Number(core)
+    // A number that does not parse is not part of a sequence — someone typed over the auto value.
+    // Skipping it is right: treating it as 0 would report a gap from 1 to the next real number.
+    if (!Number.isInteger(n)) continue
+    const entry = byType.get(r.typeId) ?? { voucherType: r.voucherType, numbers: [] }
+    entry.numbers.push(n)
+    byType.set(r.typeId, entry)
+  }
+
+  const gapRows: ExceptionRow[] = []
+  for (const { voucherType, numbers } of byType.values()) {
+    for (const gap of numberGaps(numbers)) {
+      const size = gapSize(gap)
+      gapRows.push({
+        label: `${voucherType} ${describeGap(gap)}`,
+        detail: `${size} number${size === 1 ? '' : 's'} missing from the series — usually a deleted voucher`
+      })
+    }
+  }
+  section('numberGaps', 'Gaps in voucher numbering', gapRows)
+
   return { sections }
 }
 
@@ -656,7 +699,8 @@ export function trialBalance(db: DB, asOn: string, includeZeroBalances = false):
   // Opening + gross Dr/Cr movement per ledger in one grouped pass; closing derives from them.
   const rows = db
     .prepare(
-      `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName, l.group_id AS groupId,
+      `SELECT l.id AS ledgerId, l.name AS ledgerName, g.name AS groupName, g.nature AS nature,
+              l.group_id AS groupId,
               l.opening_balance AS opening,
               COALESCE(m.drTotal, 0) AS movementDebit,
               COALESCE(m.crTotal, 0) AS movementCredit
@@ -672,7 +716,7 @@ export function trialBalance(db: DB, asOn: string, includeZeroBalances = false):
        ) m ON m.ledger_id = l.id`
     )
     .all(asOn) as {
-      ledgerId: number; ledgerName: string; groupName: string; groupId: number
+      ledgerId: number; ledgerName: string; groupName: string; nature: Nature; groupId: number
       opening: number; movementDebit: number; movementCredit: number
     }[]
 
@@ -683,6 +727,7 @@ export function trialBalance(db: DB, asOn: string, includeZeroBalances = false):
         ledgerId: r.ledgerId,
         ledgerName: r.ledgerName,
         groupName: r.groupName,
+        nature: r.nature,
         debit: bal > 0 ? bal : 0,
         credit: bal < 0 ? -bal : 0,
         opening: r.opening,
@@ -709,7 +754,7 @@ export function trialBalance(db: DB, asOn: string, includeZeroBalances = false):
   )
   if (stockOpening !== 0 && !hasStockLedger) {
     result.push({
-      ledgerId: -1, ledgerName: 'Stock-in-Hand (opening)', groupName: 'Stock-in-Hand',
+      ledgerId: -1, ledgerName: 'Stock-in-Hand (opening)', groupName: 'Stock-in-Hand', nature: 'asset',
       debit: stockOpening, credit: 0, opening: stockOpening, movementDebit: 0, movementCredit: 0
     })
   }

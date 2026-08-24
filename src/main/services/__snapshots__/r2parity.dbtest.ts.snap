@@ -841,6 +841,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Capital",
       "movementCredit": 0,
       "movementDebit": 0,
+      "nature": "liability",
       "opening": -650000,
     },
     {
@@ -851,6 +852,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Cash",
       "movementCredit": 30000,
       "movementDebit": 40000,
+      "nature": "asset",
       "opening": 0,
     },
     {
@@ -861,6 +863,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Creditor X",
       "movementCredit": 82600,
       "movementDebit": 0,
+      "nature": "liability",
       "opening": -100000,
     },
     {
@@ -871,6 +874,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Debtor A",
       "movementCredit": 50000,
       "movementDebit": 118000,
+      "nature": "asset",
       "opening": 250000,
     },
     {
@@ -881,6 +885,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Debtor B",
       "movementCredit": 20000,
       "movementDebit": 59000,
+      "nature": "asset",
       "opening": 0,
     },
     {
@@ -891,6 +896,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "HDFC Bank",
       "movementCredit": 20000,
       "movementDebit": 50000,
+      "nature": "asset",
       "opening": 500000,
     },
     {
@@ -901,6 +907,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Purchases",
       "movementCredit": 0,
       "movementDebit": 82600,
+      "nature": "expense",
       "opening": 0,
     },
     {
@@ -911,6 +918,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Rent",
       "movementCredit": 0,
       "movementDebit": 30000,
+      "nature": "expense",
       "opening": 0,
     },
     {
@@ -921,6 +929,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Sales Local",
       "movementCredit": 177000,
       "movementDebit": 0,
+      "nature": "income",
       "opening": 0,
     },
     {
@@ -931,6 +940,7 @@ exports[`R2 parity — statements > trial balance / P&L / balance sheet / stock 
       "ledgerName": "Stock-in-Hand (opening)",
       "movementCredit": 0,
       "movementDebit": 0,
+      "nature": "asset",
       "opening": 500000,
     },
   ],

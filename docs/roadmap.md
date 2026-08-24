@@ -61,7 +61,10 @@ Ordering within a section is roughly by value.
 41. Split a voucher line across cost centres by percentage rather than amount (S)
 42. Round-off line added automatically when a line is a paisa out (S)
 43. Voucher numbering series per type per financial year, configurable (M)
-44. Prevent a gap in voucher numbering, or flag it in Exceptions (S)
+44. ✓ Flag a gap in voucher numbering in Exceptions (S) — detection, not prevention: refusing
+    to save a voucher that would leave a gap is worse than the gap. Numbers are allocated at
+    save time, two people entering at once legitimately leave one when either cancels, and a
+    business that has just voided an invoice must still be able to carry on.
 45. Auto-save an in-progress voucher as a draft, restored after a crash (M)
 46. A scratchpad ledger for entries the user has not decided how to classify (S)
 47. Barcode scan jumps straight to quantity on the matched item line (S)
@@ -86,7 +89,7 @@ Ordering within a section is roughly by value.
 62. Monthly trend sparklines on every Gateway tile (S)
 63. Group-wise summary rows in the Trial Balance, collapsible (M)
 64. ✓ Multi-column Trial Balance: opening, movement, closing (S) — already shipped
-65. Negative-balance highlighting on ledgers that should never be negative (S)
+65. ✓ Negative-balance highlighting on ledgers that should never be negative (S)
 66. A "what changed" report between two dates for any ledger (M)
 67. Export any report to XLSX rather than only CSV (M)
 68. Print layouts that fit A4 without cutting columns (M)

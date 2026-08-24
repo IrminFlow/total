@@ -85,6 +85,13 @@ export interface TrialBalanceRow {
   ledgerId: number
   ledgerName: string
   groupName: string
+  /**
+   * Nature of the group this ledger sits under.
+   *
+   * Carried so the screen can flag a balance on the wrong side — a bank account in credit, a
+   * customer with a credit balance — without a second query or a name-matching guess.
+   */
+  nature: Nature
   /** Closing balance split by side (paise). */
   debit: number
   credit: number
@@ -206,6 +213,8 @@ export interface ExceptionSection {
     | 'missingGst'
     /** Purchases whose section 16(4) credit window has shut or is about to. */
     | 'itcAtRisk'
+    /** Gaps in an auto-numbered voucher series — a missing invoice number an auditor will ask about. */
+    | 'numberGaps'
   label: string
   count: number
   /** Detail rows, capped at 200 per section (count is the true total). */
