@@ -44,7 +44,7 @@ jobs:
         run: npm run release:preflight
 
       - name: Require every public-release readiness gate
-        run: npm run release:readiness -- --strict
+        run: npm run release:readiness -- --strict --pre-artifact
         env:
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
@@ -146,6 +146,9 @@ jobs:
         env:
           OLD_TOTAL_EXECUTABLE: ${{ runner.temp }}/total-v04/app/Total.app/Contents/MacOS/Total
           CURRENT_TOTAL_EXECUTABLE: ${{ github.workspace }}/dist/mac-universal/Total.app/Contents/MacOS/Total
+          PUBLIC_TOTAL_ARTIFACT: ${{ runner.temp }}/total-v04/Total-0.4.0-arm64-mac.zip
+          CURRENT_TOTAL_ARTIFACT_DIR: ${{ github.workspace }}/dist
+          UPGRADE_PLATFORM: mac
           UPGRADE_EVIDENCE: ${{ github.workspace }}/dist/upgrade-evidence-mac.json
 
       - name: Publication scorecard
@@ -238,6 +241,9 @@ jobs:
         env:
           OLD_TOTAL_EXECUTABLE: ${{ runner.temp }}\total-v04\app\Total.exe
           CURRENT_TOTAL_EXECUTABLE: ${{ github.workspace }}\dist\win-unpacked\Total.exe
+          PUBLIC_TOTAL_ARTIFACT: ${{ runner.temp }}\total-v04\Total.Setup.0.4.0.exe
+          CURRENT_TOTAL_ARTIFACT_DIR: ${{ github.workspace }}\dist
+          UPGRADE_PLATFORM: win
           UPGRADE_EVIDENCE: ${{ github.workspace }}\dist\upgrade-evidence-win.json
 
       - name: Uninstall the public v0.4 test copy without touching its books
@@ -274,6 +280,7 @@ jobs:
   publish:
     needs: [release-mac, release-win]
     runs-on: ubuntu-latest
+    environment: production-release
     steps:
       - uses: actions/checkout@v4
 
@@ -286,6 +293,31 @@ jobs:
           pattern: release-*
           path: release
           merge-multiple: true
+
+      - name: Require artifact-linked executed candidate evidence
+        run: node scripts/release-candidate-evidence.mjs
+        env:
+          RELEASE_CANDIDATE_EVIDENCE_DIR: ${{ github.workspace }}/release
+          RELEASE_REVISION: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Require final public-release readiness
+        run: npm run release:readiness -- --strict
+        env:
+          RELEASE_CANDIDATE_EVIDENCE_DIR: ${{ github.workspace }}/release
+          RELEASE_REVISION: ${{ github.sha }}
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.VERCEL_GITHUB_TOKEN }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          CONVEX_SUPPORT_URL: ${{ secrets.CONVEX_SUPPORT_URL }}
+          SUPPORT_WEBHOOK_URL: ${{ secrets.SUPPORT_WEBHOOK_URL }}
+          CONVEX_FEEDBACK_URL: ${{ secrets.CONVEX_FEEDBACK_URL }}
 
       - name: Validate cross-platform updater contract
         run: npm run release:contract

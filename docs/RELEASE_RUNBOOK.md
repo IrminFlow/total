@@ -40,9 +40,30 @@ existing release because partial or mixed-version assets would break auto-update
 - The macOS signature, Gatekeeper assessment and stapled notarization ticket are valid.
 - The Windows application and NSIS installer have valid Authenticode signatures.
 - Both packaged applications launch with `app.isPackaged === true`.
-- The actual public v0.4 packaged app creates a company which the candidate opens twice without
-  changing its registry entry, voucher count, reference or trial-balance totals; the migrated
-  company also produces a verified backup.
+- The actual public v0.4 packaged app creates representative inventory and batch movements, a
+  reconciled bank receipt, a committed payroll run, GST and TDS transactions, and owner/viewer
+  access with a company lock. Each platform candidate opens the same books twice and preserves the
+  exact fixture digest, registry entry and lock; the first migrated open also produces a verified
+  backup. The evidence records that v0.4 has no managed voucher attachments, rather than pretending
+  an unsupported attachment migration was exercised.
+- The final publication job recalculates the DMG, ZIP and NSIS digests and requires them to match
+  both the executed platform-upgrade evidence and the clean-commit build evidence. It also requires
+  the platform scorecards and evidence files to be hashed by that build evidence. A copied label,
+  an existing script or stale evidence from another commit cannot satisfy the gate.
 - Uninstall removes the installed application while leaving the company database intact.
 - Update manifests match the tag, include SHA-512 integrity metadata, and reference assets in the
   same release.
+
+## Readiness before and after artifacts
+
+`npm run release:readiness` remains useful on a developer machine: before candidate artifacts exist,
+the public-v0.4 gate is reported as `external` and the command writes the other readiness findings to
+`dist/production-readiness.json`. The release workflow alone uses `--strict --pre-artifact` before
+building; this permits only the upgrade gate to remain pending while all other strict gates still
+apply.
+
+Publication runs readiness again without `--pre-artifact`, with
+`RELEASE_CANDIDATE_EVIDENCE_DIR` pointing at the downloaded macOS and Windows workflow artifacts and
+`RELEASE_REVISION` set to the tagged commit. Missing, modified, wrong-version or wrong-revision
+evidence is a release failure. Do not use `--pre-artifact` in the publication job or as a manual
+waiver.

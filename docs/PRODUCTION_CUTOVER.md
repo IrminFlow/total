@@ -5,7 +5,9 @@ GST portal connectivity are excluded. Offline GST calculations and reviewed expo
 
 ## 1. Internal acceptance
 
-1. Run `npm run release:readiness` and review `dist/production-readiness.json`.
+1. Run `npm run release:readiness` and review `dist/production-readiness.json`. A local result marks
+   the two-platform public-v0.4 upgrade as external until packaged-candidate evidence exists; it does
+   not infer readiness from the presence of the smoke script.
    After deployment, run `npm run release:live` and review `dist/production-live-readiness.json`.
 2. Run `npm run release:scorecard` on a clean checkout. Do not waive a failed category.
 3. Test a representative Tally, Busy, Marg, Zoho Books and spreadsheet migration. Reconcile opening
@@ -44,7 +46,10 @@ Never place these values in source, local evidence, screenshots or support cases
 3. Push `main` and the tag with `git push origin main --follow-tags`.
 4. Watch both signed platform jobs and the final publish job. A release is complete only when DMG,
    ZIP, NSIS, updater manifests, scorecards, public-v0.4 upgrade evidence and build evidence are
-   present in one public release.
+   present in one public release. The final job must report that both upgrade evidence sets were
+   executed for the exact tagged revision and that their candidate artifact sizes and SHA-256
+   digests match the downloaded DMG, ZIP and NSIS files. The build evidence must link those same
+   artifacts, each platform scorecard and each upgrade-evidence file.
 5. Install from the public download page on clean macOS and Windows profiles. Post a voucher, back up,
    restore, relaunch and confirm update checks.
 6. Roll back by withdrawing the affected release and publishing a fixed higher version. Never replace
@@ -52,6 +57,8 @@ Never place these values in source, local evidence, screenshots or support cases
 
 ## 4. Go/no-go authority
 
-The release owner makes the final decision. Any correctness, backup, migration, signing, update,
+The release owner makes the final decision. Missing, stale, wrong-revision or digest-mismatched
+candidate evidence is a no-go, even if the upgrade script exists or a workflow step has a passing
+name. Any correctness, backup, migration, signing, update,
 privacy, support-delivery or install failure is a no-go. NIC and online GST portal status must be
 described as experimental and outside the production claim everywhere it is mentioned.

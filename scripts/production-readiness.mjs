@@ -1,13 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
+import { validateReleaseCandidateEvidence } from "./lib/release-candidate-evidence.mjs";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const strict = process.argv.includes("--strict");
+const preArtifact = process.argv.includes("--pre-artifact");
 const env = process.env;
 const file = (path) => existsSync(resolve(root, path));
 const text = (path) => readFileSync(resolve(root, path), "utf8");
 const productVersion = JSON.parse(text("package.json")).version;
+const sourceRevision = env.RELEASE_REVISION?.trim() || env.GITHUB_SHA?.trim() || execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 const hasAll = (...names) => names.every((name) => Boolean(env[name]?.trim()));
 const serviceEvidencePath = "docs/evidence/production-services-2026-08-24.json";
 let serviceEvidence = null;
@@ -25,6 +28,16 @@ const approvedEvidence = (envName, fallback, kind) => {
     return true;
   } catch { return false; }
 };
+let candidateEvidence = null;
+let candidateEvidenceError = null;
+const candidateEvidenceDir = env.RELEASE_CANDIDATE_EVIDENCE_DIR?.trim();
+if (candidateEvidenceDir) {
+  try {
+    candidateEvidence = validateReleaseCandidateEvidence({ root: resolve(root, candidateEvidenceDir), revision: sourceRevision, version: productVersion });
+  } catch (error) {
+    candidateEvidenceError = error instanceof Error ? error.message : String(error);
+  }
+}
 const checks = [];
 const add = (id, status, detail, owner = "engineering") => checks.push({ id, status, detail, owner });
 
@@ -38,7 +51,18 @@ add("mac-signing", hasAll("MAC_CSC_LINK", "MAC_CSC_KEY_PASSWORD", "APPLE_API_KEY
 add("windows-signing", hasAll("WIN_CSC_LINK", "WIN_CSC_KEY_PASSWORD") ? "ready" : "external", "Configure an Authenticode certificate and password in GitHub Actions.", "release-owner");
 add("release-workflow", text(".github/workflows/release.yml").includes("Create one complete public release") ? "ready" : "blocked", "Cross-platform signed artifacts converge into one non-draft release.");
 add("quality-gates", text("package.json").includes('"release:scorecard"') ? "ready" : "blocked", "Correctness, type, renderer, DB, accessibility, restore, performance, security, dependency and chaos gates are scripted.");
-add("public-v04-upgrade", file("scripts/upgrade-smoke.mjs") && text(".github/workflows/release.yml").includes("Upgrade real public v0.4 books") ? "ready" : "blocked", "Release CI downloads the actual public v0.4 packages and verifies migration, repeated reopen, balances and backup integrity.");
+add(
+  "public-v04-upgrade",
+  candidateEvidence ? "ready" : candidateEvidenceDir ? "blocked" : preArtifact ? "pending" : "external",
+  candidateEvidence
+    ? `Executed macOS and Windows evidence for ${candidateEvidence.revision} matches the downloaded candidate artifacts.`
+    : candidateEvidenceError
+      ? `Candidate evidence failed validation: ${candidateEvidenceError}`
+      : preArtifact
+        ? "Candidate artifacts do not exist yet. Publication must validate both executed upgrade evidence sets against their installer digests."
+        : "Run the public-v0.4 upgrade against both packaged candidates and set RELEASE_CANDIDATE_EVIDENCE_DIR to the downloaded evidence directory.",
+  "release-owner",
+);
 add("real-migration-acceptance", approvedEvidence("MIGRATION_ACCEPTANCE_EVIDENCE", "docs/evidence/migration-acceptance-approved.json", "migration") ? "ready" : "external", "Reconcile representative consented Tally, Busy, Marg, Zoho and spreadsheet exports and approve the evidence.", "acceptance-owner");
 add("clean-device-acceptance", approvedEvidence("CLEAN_MACHINE_EVIDENCE", "docs/evidence/clean-machine-approved.json", "clean-machine") ? "ready" : "external", "Approve clean Apple Silicon, supported Intel macOS and Windows 11 installation, upgrade, backup, restore and uninstall evidence.", "acceptance-owner");
 add("human-acceptance", approvedEvidence("HUMAN_ACCEPTANCE_EVIDENCE", "docs/evidence/human-acceptance-approved.json", "human") ? "ready" : "external", "Approve structured bookkeeper, owner, CA, payroll and inventory/manufacturing sessions.", "product-owner");
@@ -48,13 +72,23 @@ add("qualified-legal-review", approvedEvidence("LEGAL_REVIEW_EVIDENCE", "docs/ev
 add("online-statutory", "excluded", "NIC and online GST portal connectivity are explicitly outside this production completion scope.", "product-owner");
 
 let dirty = false;
-try { dirty = execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).trim().length > 0; } catch { dirty = true; }
+try {
+  const evidenceRelative = candidateEvidenceDir ? relative(root, resolve(root, candidateEvidenceDir)).replaceAll("\\", "/") : null;
+  dirty = execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .some((line) => {
+      const path = line.slice(3).replaceAll("\\", "/");
+      return !evidenceRelative || (path !== evidenceRelative && !path.startsWith(`${evidenceRelative}/`));
+    });
+} catch { dirty = true; }
 add("source-state", dirty ? "worktree" : "ready", dirty ? "Commit and review the current implementation before tagging a release." : "Release source is committed.", "release-owner");
 
 const blockers = checks.filter((check) => check.status === "blocked");
 const external = checks.filter((check) => check.status === "external");
-const output = { schema: 1, generatedAt: new Date().toISOString(), scope: { excluded: ["NIC live filing", "online GST portal connectivity"] }, readyForInternalAcceptance: blockers.length === 0, readyForPublicRelease: blockers.length === 0 && external.length === 0 && !dirty, checks };
+const pending = checks.filter((check) => check.status === "pending");
+const output = { schema: 1, generatedAt: new Date().toISOString(), sourceRevision, scope: { excluded: ["NIC live filing", "online GST portal connectivity"] }, readyForInternalAcceptance: blockers.length === 0, readyForPublicRelease: blockers.length === 0 && external.length === 0 && pending.length === 0 && !dirty, checks };
 mkdirSync(resolve(root, "dist"), { recursive: true });
 writeFileSync(resolve(root, "dist/production-readiness.json"), `${JSON.stringify(output, null, 2)}\n`);
 console.log(JSON.stringify(output, null, 2));
-if (blockers.length || (strict && (!output.readyForPublicRelease))) process.exit(1);
+if (blockers.length || (strict && (external.length > 0 || dirty || (!preArtifact && pending.length > 0)))) process.exit(1);
