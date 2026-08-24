@@ -178,7 +178,7 @@ export function CompanySelect(): React.JSX.Element {
                     </span>
                     <p className="mt-4 text-[14px] font-medium">No companies found</p>
                     <p className="mt-1 max-w-sm text-[12px] leading-5 text-muted">
-                      Create a new company, restore an encrypted backup, or explore a sample company.
+                      Create a company, restore a complete backup, or explore a sample company.
                     </p>
                   </div>
                 )}
@@ -402,7 +402,8 @@ function ImportBackupModal({
         setBusy(false)
         return // dialog cancelled
       }
-      toast.push('success', `${result.name} imported`)
+      const evidence = result.attachmentsRestored === 1 ? '1 attachment' : `${result.attachmentsRestored} attachments`
+      toast.push('success', result.format === 'complete' ? `${result.name} restored with ${evidence}` : `${result.name} restored from a legacy database backup`)
       onImported(result.slug)
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -411,10 +412,11 @@ function ImportBackupModal({
   }
 
   return (
-    <Modal title="Import encrypted backup" onClose={onClose}>
+    <Modal title="Restore complete backup" onClose={onClose}>
       <div className="flex flex-col gap-4">
         <p className="text-[13px] text-muted">
-          Choose a <span className="num">.totalbak</span> file and enter the passphrase it was exported with.
+          Choose a <span className="num">.totalbak</span> file and enter its passphrase. Complete backups restore the
+          books and managed evidence into a separate company; older database-only backups remain supported.
         </p>
         <Field label="Passphrase">
           <TextInput

@@ -62,8 +62,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
   {
     id: "backups",
     title: "Back up and restore safely",
-    summary: "Create verified snapshots, replicate them to another folder and preview identity and integrity before restore.",
-    steps: ["Open Settings → Backups and run a backup.", "Add an external or mounted-cloud destination for a second copy.", "Use Restore preview before restoring; Total preserves a pre-restore recovery point."],
+    summary: "Use local snapshots for quick rollback and an encrypted complete backup for clean-machine recovery.",
+    steps: ["Open Settings → Backups and save a local snapshot.", "Create a complete backup and store its passphrase separately; it includes managed evidence and portable attachment keys.", "On another computer, choose Restore backup from the company launcher and verify the restored books and documents."],
     keywords: ["backup", "restore", "recovery", "external disk", "encrypted", "lost data"],
     screens: ["settings"],
   },

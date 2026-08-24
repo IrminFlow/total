@@ -13,17 +13,14 @@ import {
   copyFileSync,
   rmSync,
   unlinkSync,
-  mkdtempSync,
   existsSync,
   mkdirSync,
   statSync,
   statfsSync,
 } from "fs";
-import { tmpdir } from "os";
 import { join, basename, extname } from "path";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import Database from "better-sqlite3";
 import type { DB } from "./db/connection";
 import { atomicWriteFile } from "./atomicFile";
 import {
@@ -37,13 +34,16 @@ import {
   listBackupsIn,
   restoreCompanyDb,
   rollbackRestore,
-  snapshotSync,
   backupStamp,
   runWeeklyIntegrityCheck,
   type BackupInfo,
 } from "./db/backup";
+import {
+  createCompleteBackup,
+  inspectCompleteBackup,
+  restoreCompleteBackup,
+} from "./db/completeBackup";
 import { checkIntegrity } from "./db/integrity";
-import { encryptFile, decryptFile } from "./db/crypt";
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from "./db/seed";
 import {
   readRegistry,
@@ -122,6 +122,7 @@ import { todayISO } from "@shared/dates";
 import type { ExportFormat } from "@shared/internalControls";
 import { formatPaise } from "@shared/money";
 import * as configSvc from "./services/config";
+import { createBoundedTemporaryDirectory } from "./services/tempArtifacts";
 import * as masters from "./services/masters";
 import * as vouchers from "./services/vouchers";
 import * as voucherWorkflow from "./services/voucherWorkflow";
@@ -1084,23 +1085,34 @@ export function registerIpc(): void {
         .object({ passphrase: passphraseSchema })
         .parse(payload);
       const c = requireCompany();
-      const tempPath = join(
-        companyExportsDir(c.slug),
-        `.export-tmp-${backupStamp()}.db`,
-      );
-      snapshotSync(c.db, tempPath);
       const destPath = join(
         companyExportsDir(c.slug),
-        `total-${c.slug}-${backupStamp()}.totalbak`,
+        `total-${c.slug}-${backupStamp()}-${randomUUID().slice(0, 8)}.totalbak`,
       );
-      try {
-        await encryptFile(tempPath, destPath, passphrase);
-      } finally {
-        unlinkSync(tempPath);
-      }
-      auditExport(c.db, "encrypted_backup", { path: destPath });
+      const complete = await createCompleteBackup({
+        db: c.db,
+        companySlug: c.slug,
+        companyDirectory: companyDir(c.slug),
+        destinationPath: destPath,
+        passphrase,
+      });
+      auditExport(c.db, "complete_encrypted_backup", {
+        path: destPath,
+        entries: complete.manifest.entries.length,
+        attachments: complete.manifest.entries.filter(
+          (entry) => entry.role === "attachment",
+        ).length,
+        sizeBytes: complete.sizeBytes,
+      });
       shell.showItemInFolder(destPath);
-      return { path: destPath };
+      return {
+        path: destPath,
+        sizeBytes: complete.sizeBytes,
+        entries: complete.manifest.entries.length,
+        attachments: complete.manifest.entries.filter(
+          (entry) => entry.role === "attachment",
+        ).length,
+      };
     },
     "owner",
   );
@@ -1116,52 +1128,63 @@ export function registerIpc(): void {
       properties: ["openFile"],
     });
     if (picked.canceled || !picked.filePaths[0]) return null;
-
-    const tempDir = mkdtempSync(join(tmpdir(), "total-import-"));
-    const tempDbPath = join(tempDir, "restored.db");
+    const sourcePath = picked.filePaths[0];
+    let inspection;
     try {
-      await decryptFile(picked.filePaths[0], tempDbPath, passphrase);
-    } catch {
-      throw new Error("Wrong passphrase or corrupted file");
+      inspection = await inspectCompleteBackup(sourcePath, passphrase);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/passphrase|corrupt/i.test(message))
+        throw new Error("Wrong passphrase or corrupted file");
+      throw new Error(`This backup could not be verified: ${message}`);
     }
+    if (!inspection.database.valid || !inspection.database.company)
+      throw new Error(
+        inspection.database.detail ||
+          "This file doesn't look like a Total company backup",
+      );
 
-    let info: CompanyInfo;
-    try {
-      const check = new Database(tempDbPath, { readonly: true });
-      try {
-        const result = check.pragma("quick_check") as Array<{
-          quick_check: string;
-        }>;
-        if (result[0]?.quick_check !== "ok") throw new Error("bad");
-        info = readCompanyInfo(check);
-      } finally {
-        check.close();
-      }
-    } catch {
-      throw new Error("This file doesn't look like a Total company backup");
-    }
-
-    let slug = slugify(info.name);
+    const sourceName = inspection.database.company.name;
+    const registered = new Set(readRegistry().companies.map((row) => row.slug));
+    let slug = slugify(sourceName);
     let n = 2;
-    while (existsSync(companyDbPath(slug)))
-      slug = `${slugify(info.name)}-${n++}`;
-    ensureCompanyTree(slug);
-
-    const dbPath = companyDbPath(slug);
+    while (registered.has(slug) || existsSync(companyDir(slug)))
+      slug = `${slugify(sourceName)}-${n++}`;
+    const targetDirectory = companyDir(slug);
+    let installed = false;
     try {
-      renameFile(tempDbPath, dbPath);
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
+      const restored = await restoreCompleteBackup({
+        sourcePath,
+        passphrase,
+        targetCompanyDirectory: targetDirectory,
+        targetCompanySlug: slug,
+      });
+      installed = true;
+      const importedDb = openExistingCompanyDb(slug);
+      let info: CompanyInfo;
+      try {
+        info = readCompanyInfo(importedDb);
+      } finally {
+        closeCompanyDb(importedDb);
+      }
 
-    upsertCompany({
-      slug,
-      name: info.name,
-      stateCode: info.stateCode,
-      gstin: info.gstin,
-      lastOpenedAt: new Date().toISOString(),
-    });
-    return { slug, name: info.name };
+      upsertCompany({
+        slug,
+        name: info.name,
+        stateCode: info.stateCode,
+        gstin: info.gstin,
+        lastOpenedAt: new Date().toISOString(),
+      });
+      return {
+        slug,
+        name: info.name,
+        format: restored.format,
+        attachmentsRestored: restored.attachmentsRestored,
+      };
+    } catch (error) {
+      if (installed) rmSync(targetDirectory, { recursive: true, force: true });
+      throw error;
+    }
   });
 
   // ---------- masters ----------
@@ -1912,13 +1935,39 @@ export function registerIpc(): void {
     const attachment = c.db.prepare("SELECT stored_path AS storedPath,original_name AS originalName FROM voucher_attachments WHERE id=?").get(id) as { storedPath: string; originalName: string } | undefined;
     if (!attachment) throw new Error("Attachment was not found");
     let openPath = attachment.storedPath;
+    let temporaryPreview: ReturnType<typeof createBoundedTemporaryDirectory> | null = null;
     if (openPath.endsWith(".totalatt")) {
-      const tempDir = mkdtempSync(join(tmpdir(), "total-voucher-attachment-"));
-      openPath = join(tempDir, basename(attachment.originalName));
-      writeFileSync(openPath, attachmentVault.readManagedAttachment(c.db, c.slug, attachment.storedPath), { mode: 0o600 });
+      temporaryPreview = createBoundedTemporaryDirectory(
+        "total-voucher-attachment-",
+      );
+      try {
+        const candidateExtension = extname(attachment.originalName).toLowerCase();
+        const safeExtension = /^\.[a-z0-9]{1,10}$/.test(candidateExtension)
+          ? candidateExtension
+          : "";
+        openPath = join(
+          temporaryPreview.path,
+          `attachment-${randomUUID()}${safeExtension}`,
+        );
+        writeFileSync(
+          openPath,
+          attachmentVault.readManagedAttachment(
+            c.db,
+            c.slug,
+            attachment.storedPath,
+          ),
+          { mode: 0o600 },
+        );
+      } catch (error) {
+        temporaryPreview.dispose();
+        throw error;
+      }
     }
     const error = await shell.openPath(openPath);
-    if (error) throw new Error(error);
+    if (error) {
+      temporaryPreview?.dispose();
+      throw new Error(error);
+    }
     return null;
   }, "viewer");
   const voucherDraftInput = z.object({
@@ -5692,9 +5741,10 @@ export function registerIpc(): void {
       ),
     "viewer",
   );
-  handle("payroll:reimbursements:submit", (p) =>
-    workforce.submitReimbursement(
-      requireCompany().db,
+  handle("payroll:reimbursements:submit", (p) => {
+    const company = requireCompany();
+    return workforce.submitReimbursement(
+      company.db,
       z
         .object({
           employeeId: z.number().int().positive(),
@@ -5706,8 +5756,9 @@ export function registerIpc(): void {
           attachmentPath: z.string().max(1000).nullable().optional(),
         })
         .parse(p),
-    ),
-  );
+      company.slug,
+    );
+  });
   handle("payroll:reimbursements:decide", (p) => {
     const { id, decision } = z
       .object({

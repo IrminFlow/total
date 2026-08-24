@@ -531,13 +531,13 @@ export function Shell({
                 onClick={async () => {
                   try {
                     await api.company.backup();
-                    toast.push("success", "Backup saved");
+                    toast.push("success", "Local recovery snapshot saved");
                   } catch (err) {
                     toast.push("error", (err as Error).message);
                   }
                 }}
               >
-                Back up now
+                Save local snapshot
               </button>
               <button
                 data-testid="btn-switch-company"

@@ -70,7 +70,7 @@ export function BackupsSection(): React.JSX.Element {
       await api.backups.run()
       recordCohortEvent(localStorage, 'first_backup_verified')
       await queryClient.invalidateQueries({ queryKey: ['backups'] })
-      toast.push('success', 'Backup saved')
+      toast.push('success', 'Local recovery snapshot saved')
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
@@ -85,9 +85,9 @@ export function BackupsSection(): React.JSX.Element {
           canBackup ? (
             <div className="flex gap-2">
               <Button disabled={runningBackup} onClick={() => void backupNow()}>
-                {runningBackup ? 'Backing up…' : 'Back up now'}
+                {runningBackup ? 'Saving snapshot…' : 'Save local snapshot'}
               </Button>
-              {isOwner && <Button onClick={() => setExporting(true)}>Export encrypted…</Button>}
+              {isOwner && <Button variant="primary" onClick={() => setExporting(true)}>Create complete backup…</Button>}
             </div>
           ) : undefined
         }
@@ -133,8 +133,8 @@ export function BackupsSection(): React.JSX.Element {
         )}
       </Panel>
       <p className="mt-2 text-[11.5px] text-muted">
-        Backups live in this company's data folder. A snapshot is also taken automatically on open and before risky
-        operations (Tally imports, restores).
+        Local snapshots keep the books database for fast rollback. A complete backup also carries managed documents,
+        workflow files and encrypted attachment keys to another computer.
       </p>
       <div className="mt-5 grid gap-3 lg:grid-cols-2">
         <Panel className="px-4 py-4">
@@ -279,8 +279,9 @@ function ExportEncryptedModal({ onClose }: { onClose: () => void }): React.JSX.E
     if (pass1 !== pass2) return setError('Passphrases do not match')
     setBusy(true)
     try {
-      await api.backups.exportEncrypted(pass1)
-      toast.push('success', 'Encrypted backup saved — revealed in Finder. Keep the passphrase safe; it cannot be recovered.')
+      const result = await api.backups.exportEncrypted(pass1)
+      const evidence = result.attachments === 1 ? '1 attachment' : `${result.attachments} attachments`
+      toast.push('success', `Complete backup saved with ${evidence} — revealed in Finder. Keep the passphrase safe; it cannot be recovered.`)
       onClose()
     } catch (err) {
       setError((err as Error).message)
@@ -290,8 +291,12 @@ function ExportEncryptedModal({ onClose }: { onClose: () => void }): React.JSX.E
   }
 
   return (
-    <Modal title="Export encrypted backup" onClose={onClose}>
+    <Modal title="Create complete backup" onClose={onClose}>
       <div className="flex flex-col gap-3">
+        <div className="rounded-md border border-line bg-panel2 px-3 py-2.5 text-[11px] leading-4 text-muted">
+          Includes the verified books database, managed invoice and payroll evidence, document inbox, pending proposals,
+          and the portable key needed to open encrypted attachments on a clean computer.
+        </div>
         <Field label="Passphrase" error={error}>
           <TextInput
             type="password"
@@ -318,7 +323,7 @@ function ExportEncryptedModal({ onClose }: { onClose: () => void }): React.JSX.E
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={busy} onClick={() => void submit()}>
-          {busy ? 'Encrypting…' : 'Export'}
+          {busy ? 'Building backup…' : 'Create backup'}
         </Button>
       </div>
     </Modal>

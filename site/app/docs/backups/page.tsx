@@ -42,18 +42,19 @@ export default function BackupsPage(): React.JSX.Element {
         restored away from.
       </p>
 
-      <h2>Encrypted export, for off-machine backup</h2>
+      <h2>Complete backup for another computer</h2>
       <p>
         Automatic snapshots live next to your company file, which protects you from a bad voucher but not from a dead
-        disk. For that, export an <b>encrypted backup</b> — a single AES-256-GCM file locked with a passphrase you
-        choose — and copy it to a drive, another machine, or cloud storage of your choice. Total never uploads it
-        anywhere itself.
+        disk. For that, create a <b>complete encrypted backup</b>: one passphrase-protected file containing the verified
+        database, managed documents, workflow files, and a portable key for encrypted attachments. Copy it to a drive,
+        another machine, or storage you control. Total does not upload it for you.
       </p>
 
       <h2>Moving to a new machine</h2>
       <p>
-        Copy the whole <code>~/Documents/total/</code> folder to the new machine and open Total — every company,
-        with full history, comes across intact. There&rsquo;s no export/import step and nothing to re-enter.
+        From the company launcher, choose Restore backup and select the <code>.totalbak</code> file. Total verifies the
+        package before creating a separate restored company. Keep the passphrase outside the old computer; Total cannot
+        recover it.
       </p>
 
       <h2>Privacy</h2>
