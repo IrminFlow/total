@@ -51,6 +51,10 @@ export interface Ledger {
   /** Credit limit in paise; null = no limit. saveVoucher warns (or blocks, under F11
    *  enforceCreditLimit) when the party's outstanding would exceed it. */
   creditLimit: number | null
+  /** MSME classification under the MSMED Act. Null means nobody has asked — distinct from
+   *  'not_registered', because silence is not an exemption from section 43B(h). */
+  msmeStatus: 'micro' | 'small' | 'medium' | 'not_registered' | null
+  udyamNumber: string | null
   /** Overdue-interest terms. Basis points (1800 = 18% p.a.); null = charge nothing. Grace days
    *  are the week everybody forgives before a rate is worth applying. */
   interestRateBp: number | null

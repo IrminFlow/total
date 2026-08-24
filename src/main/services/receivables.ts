@@ -20,6 +20,7 @@ import { creditScore, type CreditScore } from '@shared/creditScore'
 import { describeTerms, interestOnBills, type InterestResult, type InterestTerms } from '@shared/interest'
 import { suggestAllocations, type AllocationSuggestion } from '@shared/allocationSuggest'
 import { computeProvision, DEFAULT_PROVISION_POLICY, describePolicy, type ProvisionResult, type ProvisionRule } from '@shared/badDebt'
+import { msmeReport, type MsmeReport, type MsmeStatus } from '@shared/msme'
 import { cashBankGroupIds, descendantIdsByName } from './masters'
 import { openingEvent, partyEventsBatch } from './analysis'
 import { IN_BOOKS } from './vouchers'
@@ -34,6 +35,8 @@ interface PartyRow {
   credit_limit: number | null
   interest_rate_bp: number | null
   interest_grace_days: number | null
+  msme_status: MsmeStatus | null
+  udyam_number: string | null
   salesperson: string | null
   territory: string | null
   phone: string | null
@@ -41,7 +44,8 @@ interface PartyRow {
 }
 
 const PARTY_COLUMNS =
-  'id, name, opening_balance, group_id, credit_days, credit_limit, interest_rate_bp, interest_grace_days, salesperson, territory, phone, email'
+  'id, name, opening_balance, group_id, credit_days, credit_limit, interest_rate_bp, interest_grace_days, ' +
+  'msme_status, udyam_number, salesperson, territory, phone, email'
 
 function partyRows(db: DB, side: 'receivable' | 'payable', ids?: number[]): PartyRow[] {
   const groupIds = descendantIdsByName(db, [side === 'receivable' ? 'Sundry Debtors' : 'Sundry Creditors'])
@@ -679,4 +683,33 @@ export function creditStatus(db: DB, ledgerId: number, addPaise = 0): CreditStat
     enforced: getFeatures(db).enforceCreditLimit,
     headroom: limit === null ? null : limit - after
   }
+}
+
+
+// ---------- section 43B(h): what a late payment to a small supplier costs (roadmap #351) ----------
+
+/**
+ * The MSME disallowance report.
+ *
+ * Built on the same FIFO allocation everything else here uses, so what it calls unpaid is exactly
+ * what the payables ageing calls unpaid. The only thing it needs that the books cannot infer is
+ * each supplier's MSME status, which is a fact about the supplier rather than about the invoice.
+ *
+ * Run as at 31 March, this is the number that changes the tax computation. Run in January, it is
+ * still a list of cheques somebody can write.
+ */
+export function msmeExposure(db: DB, asOn: string): MsmeReport {
+  const policy = getCollectionsPolicy(db)
+  return msmeReport(
+    allocateAll(db, 'payable', asOn).map(({ party, bills }) => ({
+      ledgerId: party.id,
+      name: party.name,
+      status: party.msme_status,
+      udyamNumber: party.udyam_number,
+      creditDays: party.credit_days,
+      bills: bills.map((b) => ({ number: b.number, date: b.date, pending: b.pending, creditDays: party.credit_days }))
+    })),
+    asOn,
+    policy.msmeBankRatePercent
+  )
 }

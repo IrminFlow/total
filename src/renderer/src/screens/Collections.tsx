@@ -30,7 +30,7 @@ import { csvReport, printReport } from '../lib/reportExport'
  * Nothing on this screen posts anything. The provisioning tab produces a draft journal that opens
  * in the voucher form; every other tab produces text or a report.
  */
-type Tab = 'reminders' | 'interest' | 'scores' | 'ageing' | 'advances' | 'schedule' | 'provision'
+type Tab = 'reminders' | 'interest' | 'scores' | 'ageing' | 'advances' | 'schedule' | 'provision' | 'msme'
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'reminders', label: 'Reminders', hint: 'One message per overdue party, ready to send' },
@@ -39,7 +39,8 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'ageing', label: 'Ageing by', hint: 'The same ageing, grouped by who owns the relationship' },
   { id: 'advances', label: 'Advances', hint: 'Money on account that no bill has claimed' },
   { id: 'schedule', label: 'Payment run', hint: 'What has to go out, when, and whether it is covered' },
-  { id: 'provision', label: 'Provision', hint: 'What the ageing says is doubtful' }
+  { id: 'provision', label: 'Provision', hint: 'What the ageing says is doubtful' },
+  { id: 'msme', label: 'MSME 43B(h)', hint: 'What paying a small supplier late costs in tax' }
 ]
 
 export function CollectionsScreen(): React.JSX.Element {
@@ -80,6 +81,7 @@ export function CollectionsScreen(): React.JSX.Element {
       {tab === 'advances' && <AdvancesTab />}
       {tab === 'schedule' && <ScheduleTab />}
       {tab === 'provision' && <ProvisionTab />}
+      {tab === 'msme' && <MsmeTab />}
     </div>
   )
 }
@@ -970,5 +972,193 @@ function StatementBody({ statement, side }: { statement: PartyStatement; side: '
         </div>
       )}
     </div>
+  )
+}
+
+
+// ---------- section 43B(h) (#351) ----------
+
+const MSME_LABEL: Record<string, string> = {
+  micro: 'Micro',
+  small: 'Small',
+  medium: 'Medium',
+  not_registered: 'Not registered'
+}
+
+/**
+ * What paying a small supplier late costs in tax.
+ *
+ * Since FY 2023-24, a sum payable to a micro or small enterprise beyond the section 15 limit is
+ * not deductible in that year at all — it is allowed only in the year it is actually paid. Run as
+ * at 31 March this changes the tax computation; run in January it is a list of cheques somebody
+ * can still write, which is the whole reason the date is a control rather than fixed.
+ *
+ * Unclassified suppliers are the loudest thing on the page at first run. An unclassified supplier
+ * is not one outside 43B(h); it is one nobody has asked yet.
+ */
+function MsmeTab(): React.JSX.Element {
+  const { to } = useSession()
+  const nav = useNav()
+  const toast = useToasts()
+  const [expanded, setExpanded] = useState<number | null>(null)
+  const { data, isLoading } = useQuery({ queryKey: ['msme', to], queryFn: () => api.receivables.msme(to) })
+
+  const exportRows = (data?.parties ?? []).map((p) => ({
+    cells: [
+      p.name,
+      MSME_LABEL[p.status] ?? p.status,
+      p.udyamNumber ?? '–',
+      formatPaise(p.pending),
+      formatPaise(p.disallowed),
+      formatPaise(p.interest)
+    ]
+  }))
+
+  return (
+    <>
+      {data && (
+        <div className="mb-3 grid grid-cols-4 gap-3">
+          <Stat label="Disallowed under 43B(h)" value={<Money paise={data.totalDisallowed} />} tone={data.totalDisallowed > 0 ? 'cr' : undefined} />
+          <Stat label="Owed to micro & small" value={<Money paise={data.totalPending} />} />
+          <Stat label="Section 16 interest" value={<Money paise={data.totalInterest} />} />
+          <Stat
+            label="Suppliers unclassified"
+            value={<span className="num">{data.unclassifiedParties}</span>}
+            tone={data.unclassifiedParties > 0 ? 'cr' : undefined}
+          />
+        </div>
+      )}
+
+      {data && data.unclassifiedParties > 0 && (
+        <div
+          className="mb-3 rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm text-cr"
+          data-testid="msme-unclassified"
+        >
+          <b>{data.unclassifiedParties}</b> supplier{data.unclassifiedParties === 1 ? '' : 's'} owed{' '}
+          <Money paise={data.unclassifiedPending} /> {data.unclassifiedParties === 1 ? 'has' : 'have'} no
+          MSME status recorded. That is not the same as being outside 43B(h) — set it on each party
+          in Masters, from their Udyam certificate.
+        </div>
+      )}
+
+      <div className="mb-3 flex justify-end gap-2">
+        <Button
+          variant="ghost"
+          disabled={!data?.parties.length}
+          onClick={() =>
+            void csvReport(
+              ['Supplier', 'Status', 'Udyam', 'Owed', 'Disallowed', 'Interest'],
+              exportRows.map((r) => r.cells),
+              'msme-43bh',
+              toast
+            )
+          }
+        >
+          CSV
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={!data?.parties.length}
+          onClick={() =>
+            void printReport(
+              {
+                title: 'MSME exposure under section 43B(h)',
+                periodLabel: `as on ${toDisplayDate(to)}`,
+                columns: [
+                  { label: 'Supplier', align: 'l' },
+                  { label: 'Status', align: 'l' },
+                  { label: 'Udyam', align: 'l' },
+                  { label: 'Owed', align: 'r' },
+                  { label: 'Disallowed', align: 'r' },
+                  { label: 'Interest', align: 'r' }
+                ],
+                rows: exportRows,
+                footNote:
+                  'Disallowed amounts are deductible only in the year of actual payment. Section 16 interest is not deductible at all. Prepared from the books; confirm with your accountant.',
+                filename: 'msme-43bh'
+              },
+              toast
+            )
+          }
+        >
+          PDF
+        </Button>
+      </div>
+
+      <Panel scroll={{ maxH: '58vh' }} data-testid="panel-msme">
+        {isLoading || !data ? (
+          <SkeletonRows rows={6} />
+        ) : data.parties.length === 0 ? (
+          <EmptyState
+            title="Nothing at risk"
+            hint="No micro or small supplier is owed anything past the section 15 limit."
+          />
+        ) : (
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th scope="col">Supplier</th>
+                <th scope="col" className="w-24">Status</th>
+                <th scope="col" className="r w-36">Owed</th>
+                <th scope="col" className="r w-36">Disallowed</th>
+                <th scope="col" className="r w-32">Interest</th>
+              </tr>
+            </thead>
+            <tbody data-testid="rows-msme">
+              {data.parties.map((p) => (
+                <Fragment key={p.ledgerId}>
+                  <tr className="cursor-pointer" onClick={() => setExpanded(expanded === p.ledgerId ? null : p.ledgerId)}>
+                    <td>
+                      <span className="mr-1.5 inline-block w-3 text-muted">{expanded === p.ledgerId ? '−' : '+'}</span>
+                      {p.name}
+                      {p.udyamNumber && <span className="ml-2 num text-hint text-muted">{p.udyamNumber}</span>}
+                    </td>
+                    <td className="capitalize">{MSME_LABEL[p.status] ?? p.status}</td>
+                    <td className="r"><Money paise={p.pending} /></td>
+                    <td className={`r ${p.disallowed > 0 ? 'text-cr font-semibold' : 'text-muted'}`}>
+                      {p.disallowed > 0 ? <Money paise={p.disallowed} /> : '–'}
+                    </td>
+                    <td className="r text-muted">{p.interest > 0 ? <Money paise={p.interest} /> : '–'}</td>
+                  </tr>
+                  {expanded === p.ledgerId &&
+                    p.bills.map((b) => (
+                      <tr key={`${p.ledgerId}-${b.number}`} className="text-small text-muted">
+                        <td className="pl-8">
+                          {b.number} · {toDisplayDate(b.date)} · due {toDisplayDate(b.dueDate)} · {b.limitLabel}
+                        </td>
+                        <td>{b.overdueDays > 0 ? <span className="text-cr num">{b.overdueDays}d late</span> : 'within limit'}</td>
+                        <td className="r"><Money paise={b.pending} /></td>
+                        <td className="r">{b.disallowed ? <Money paise={b.pending} /> : '–'}</td>
+                        <td className="r">{b.interest > 0 ? <Money paise={b.interest} /> : '–'}</td>
+                      </tr>
+                    ))}
+                </Fragment>
+              ))}
+              <tr className="total-row">
+                <td colSpan={2}>Total · {data.parties.length} suppliers</td>
+                <td className="r"><Money paise={data.totalPending} /></td>
+                <td className="r"><Money paise={data.totalDisallowed} /></td>
+                <td className="r"><Money paise={data.totalInterest} /></td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      <p className="mt-2 text-hint text-muted">
+        The limit is the agreed credit period capped at 45 days, or 15 days where no agreement is
+        on record — not a flat 45. Medium enterprises are outside 43B(h) entirely. Interest under
+        section 16 is three times the RBI bank rate ({data?.bankRatePercent ?? 0}%, set under
+        Settings → Collections), compounded monthly, and is itself not deductible. Prepared from
+        the books; confirm the treatment with your accountant.
+      </p>
+      <p className="mt-1 text-hint text-muted">
+        Set each supplier&rsquo;s status from their Udyam certificate on the party in{' '}
+        <button className="text-blue hover:underline" onClick={() => nav.go({ name: 'masters', tab: 'ledgers' })}>
+          Masters
+        </button>
+        .
+      </p>
+    </>
   )
 }

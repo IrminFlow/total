@@ -74,6 +74,10 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [interestGrace, setInterestGrace] = useState(ledger?.interestGraceDays?.toString() ?? '')
   const [salesperson, setSalesperson] = useState(ledger?.salesperson ?? '')
   const [territory, setTerritory] = useState(ledger?.territory ?? '')
+  const [msmeStatus, setMsmeStatus] = useState<'' | 'micro' | 'small' | 'medium' | 'not_registered'>(
+    ledger?.msmeStatus ?? ''
+  )
+  const [udyamNumber, setUdyamNumber] = useState(ledger?.udyamNumber ?? '')
   const [phone, setPhone] = useState(ledger?.phone ?? '')
   const [email, setEmail] = useState(ledger?.email ?? '')
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
@@ -113,6 +117,10 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         creditLimit,
         interestRateBp: interestPct.trim() ? Math.round(Number(interestPct) * 100) : null,
         interestGraceDays: interestGrace.trim() ? Number(interestGrace) : null,
+        // '' is stored as NULL, which means "nobody has asked" — deliberately not the same as
+        // 'not_registered', because silence is not an exemption from section 43B(h).
+        msmeStatus: msmeStatus === '' ? null : msmeStatus,
+        udyamNumber: udyamNumber.trim() || null,
         salesperson: salesperson.trim() || null,
         territory: territory.trim() || null,
         phone: phone.trim() || null,
@@ -263,6 +271,31 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
                   className="num text-right"
                   placeholder="0"
                   inputMode="numeric"
+                />
+              </Field>
+              <Field
+                label="MSME status"
+                hint="From their Udyam certificate. Micro and small bring section 43B(h) into play; blank means nobody has asked."
+              >
+                <Select
+                  data-testid="select-ledger-msme"
+                  value={msmeStatus}
+                  onChange={(e) => setMsmeStatus(e.target.value as typeof msmeStatus)}
+                >
+                  <option value="">Not asked</option>
+                  <option value="micro">Micro</option>
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                  <option value="not_registered">Not registered</option>
+                </Select>
+              </Field>
+              <Field label="Udyam number" hint="Printed on the certificate they gave you">
+                <TextInput
+                  data-testid="input-ledger-udyam"
+                  value={udyamNumber}
+                  onChange={(e) => setUdyamNumber(e.target.value.toUpperCase())}
+                  className="num"
+                  placeholder="UDYAM-XX-00-0000000"
                 />
               </Field>
               <Field label="Salesperson" hint="Groups the ageing report by who owns the relationship">

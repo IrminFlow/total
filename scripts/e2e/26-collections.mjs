@@ -169,7 +169,8 @@ await scenario('26-collections', async (h) => {
       bandCuts: [90, 30],
       provisionPolicy: [{ afterDays: 180, pct: 25 }],
       reminderMinOverdueDays: 1,
-      contact: null
+      contact: null,
+      msmeBankRatePercent: 6.5
     })
   } catch {
     refused = true
@@ -182,7 +183,8 @@ await scenario('26-collections', async (h) => {
     bandCuts: [45, 90, 180],
     provisionPolicy: [{ afterDays: 180, pct: 25 }, { afterDays: 365, pct: 50 }],
     reminderMinOverdueDays: 1,
-    contact: 'Accounts — 98765 43210'
+    contact: 'Accounts — 98765 43210',
+    msmeBankRatePercent: 6.5
   })
   assert(policy.bandCuts.join(',') === '45,90,180', 'the new bands are saved')
   const rebanded = await h.invoke('recv:ageingBy', { side: 'receivable', asOn, dimension: 'party' })
@@ -200,6 +202,68 @@ await scenario('26-collections', async (h) => {
   const withVoucher = await h.invoke('recv:creditCheck', { ledgerId: target.id, addPaise: 500_00 })
   assert(withVoucher.after === credit.outstanding + 500_00, 'the voucher on screen is included')
   assert(withVoucher.exceeds === withVoucher.after > 1000, 'the breach flag follows the arithmetic')
+
+  // ---- section 43B(h): what paying a small supplier late costs ----
+  // Chosen from the payables ageing rather than the ledger list: a supplier who is owed nothing
+  // is correctly absent from a 43B(h) report, and picking one would test nothing.
+  const owedSuppliers = await h.invoke('analysis:outstandings', { side: 'payable', asOn, includeBills: true })
+  assert(owedSuppliers.length > 0, 'the demo books owe somebody')
+  const allLedgers = await h.invoke('master:ledgers:list')
+  const creditors = owedSuppliers.map((o) => allLedgers.find((l) => l.id === o.ledgerId))
+
+  // Nobody classified yet: the report must say so rather than reporting nothing at risk.
+  const before43b = await h.invoke('recv:msme', { asOn })
+  assert(before43b.parties.length === 0, 'no supplier is classified yet, so none is covered')
+  assert(
+    before43b.unclassifiedParties > 0,
+    'but the unclassified ones are counted loudly — silence is not an exemption'
+  )
+  assert(before43b.unclassifiedPending > 0, 'with the money they are owed')
+
+  const small = creditors[0]
+  await h.invoke('master:ledgers:update', {
+    id: small.id,
+    data: { ...small, msmeStatus: 'small', udyamNumber: 'UDYAM-MH-01-0000001', creditDays: 30 }
+  })
+  const medium = creditors[1]
+  if (medium) {
+    await h.invoke('master:ledgers:update', { id: medium.id, data: { ...medium, msmeStatus: 'medium' } })
+  }
+
+  const after43b = await h.invoke('recv:msme', { asOn })
+  const mineMsme = after43b.parties.find((p) => p.ledgerId === small.id)
+  assert(mineMsme, 'a small supplier appears once classified')
+  assert(mineMsme.status === 'small' && mineMsme.udyamNumber === 'UDYAM-MH-01-0000001', 'with what was recorded')
+  if (medium) {
+    assert(
+      !after43b.parties.some((p) => p.ledgerId === medium.id),
+      'a medium enterprise stays out — section 43B(h) does not reach it'
+    )
+  }
+
+  // The bills agree with the payables ageing about what is open.
+  const payables = await h.invoke('analysis:outstandings', { side: 'payable', asOn, includeBills: true })
+  const fromAgeing = payables.find((p) => p.ledgerId === small.id)
+  assert(mineMsme.pending === fromAgeing.pending, 'the exposure is computed on the same pending total')
+
+  for (const b of mineMsme.bills) {
+    assert(b.limitLabel.includes('30 days'), `${b.number}: measured against the agreed period, capped at 45`)
+    assert(b.disallowed === b.overdueDays > 0, `${b.number}: disallowed exactly when past the limit`)
+    assert(Number.isInteger(b.interest), `${b.number}: interest is integer paise`)
+    if (!b.disallowed) assert(b.interest === 0, `${b.number}: nothing charged inside the limit`)
+  }
+  assert(
+    after43b.totalDisallowed === after43b.parties.reduce((s, p) => s + p.disallowed, 0),
+    'the party totals foot to the report total'
+  )
+  assert(
+    after43b.unclassifiedParties === before43b.unclassifiedParties - (medium ? 2 : 1),
+    'classifying removes them from the unclassified count'
+  )
+
+  // Asked earlier in the year, the same bills are not yet disallowed.
+  const early = await h.invoke('recv:msme', { asOn: from })
+  assert(early.totalDisallowed <= after43b.totalDisallowed, 'the exposure only grows with time')
 
   // ---- the screen ----
   await h.page.keyboard.press('Escape')
@@ -220,7 +284,8 @@ await scenario('26-collections', async (h) => {
     ['ageing', 'rows-ageing-by'],
     ['advances', 'panel-advances'],
     ['schedule', 'panel-schedule'],
-    ['provision', 'panel-provision']
+    ['provision', 'panel-provision'],
+    ['msme', 'panel-msme']
   ]) {
     await h.click(`tab-collections-${tab}`)
     await h.page.waitForSelector(`[data-testid="${rows}"]`, { timeout: 15000 })

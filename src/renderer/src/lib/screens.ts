@@ -312,7 +312,7 @@ export const SCREENS: ScreenDef[] = [
     ],
     invalidates: [
       'recvReminders', 'recvInterest', 'recvScores', 'recvAgeing', 'recvAdvances',
-      'recvSchedule', 'recvProvision', 'recvStatement'
+      'recvSchedule', 'recvProvision', 'recvStatement', 'msme'
     ]
   },
   {

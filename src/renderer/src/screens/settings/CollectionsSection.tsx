@@ -21,7 +21,8 @@ const DEFAULTS: CollectionsPolicy = {
     { afterDays: 730, pct: 100 }
   ],
   reminderMinOverdueDays: 1,
-  contact: null
+  contact: null,
+  msmeBankRatePercent: 6.5
 }
 
 export function CollectionsSection(): React.JSX.Element {
@@ -37,6 +38,7 @@ export function CollectionsSection(): React.JSX.Element {
   const [ladder, setLadder] = useState('')
   const [minOverdue, setMinOverdue] = useState('')
   const [contact, setContact] = useState('')
+  const [bankRate, setBankRate] = useState('')
 
   useEffect(() => {
     const p = data ?? DEFAULTS
@@ -46,6 +48,7 @@ export function CollectionsSection(): React.JSX.Element {
     setLadder(p.provisionPolicy.map((r) => `${r.afterDays}:${r.pct}`).join(', '))
     setMinOverdue(String(p.reminderMinOverdueDays))
     setContact(p.contact ?? '')
+    setBankRate(String(p.msmeBankRatePercent))
   }, [data])
 
   const save = useMutation({
@@ -79,7 +82,8 @@ export function CollectionsSection(): React.JSX.Element {
       bandCuts: cuts.map((n) => Math.round(n)),
       provisionPolicy: rules,
       reminderMinOverdueDays: minOverdue.trim() ? Math.round(Number(minOverdue)) : 1,
-      contact: contact.trim() || null
+      contact: contact.trim() || null,
+      msmeBankRatePercent: bankRate.trim() ? Number(bankRate) : DEFAULTS.msmeBankRatePercent
     })
   }
 
@@ -169,6 +173,19 @@ export function CollectionsSection(): React.JSX.Element {
               value={contact}
               onChange={(e) => setContact(e.target.value)}
               placeholder="Accounts — 98765 43210"
+            />
+          </Field>
+          <Field
+            label="RBI bank rate %"
+            hint="Section 16 MSMED interest is three times this, compounded monthly. It moves, so it is a setting rather than a constant."
+          >
+            <TextInput
+              data-testid="input-collections-bank-rate"
+              value={bankRate}
+              onChange={(e) => setBankRate(e.target.value)}
+              className="num text-right"
+              placeholder="6.5"
+              inputMode="decimal"
             />
           </Field>
         </div>

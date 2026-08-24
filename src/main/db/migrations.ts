@@ -768,5 +768,21 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE stock_groups ADD COLUMN gst_rate REAL;
   ALTER TABLE stock_groups ADD COLUMN cess_rate REAL;
   ALTER TABLE stock_groups ADD COLUMN hsn TEXT;
+  `,
+
+  // 27 — MSME classification, for section 43B(h).
+  //
+  // Since FY 2023-24 a sum payable to a micro or small enterprise beyond the section 15 limit is
+  // not deductible in that year at all — it is allowed only in the year it is actually paid. The
+  // books already know what is unpaid and for how long; what they could not know is which
+  // suppliers are covered, because that is a fact about the supplier, not about the invoice.
+  //
+  // NULL is deliberately distinct from 'not_registered'. An unclassified supplier is not a
+  // supplier outside 43B(h) — it is one nobody has asked yet, and the report says so rather than
+  // quietly treating silence as an exemption.
+  `
+  -- 'micro' | 'small' | 'medium' | 'not_registered'. NULL = never asked.
+  ALTER TABLE ledgers ADD COLUMN msme_status TEXT;
+  ALTER TABLE ledgers ADD COLUMN udyam_number TEXT;
   `
 ]

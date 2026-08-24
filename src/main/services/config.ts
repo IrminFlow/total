@@ -230,6 +230,12 @@ export interface CollectionsPolicy {
   reminderMinOverdueDays: number
   /** Contact line printed under the signature on reminders and statements. */
   contact: string | null
+  /**
+   * RBI bank rate, whole percent, for section 16 MSMED interest (three times it, compounded
+   * monthly). A parameter rather than a constant because it moves, and a number baked into the
+   * code would be quietly wrong within a year.
+   */
+  msmeBankRatePercent: number
 }
 
 export const DEFAULT_COLLECTIONS_POLICY: CollectionsPolicy = {
@@ -238,7 +244,8 @@ export const DEFAULT_COLLECTIONS_POLICY: CollectionsPolicy = {
   bandCuts: DEFAULT_BAND_CUTS,
   provisionPolicy: DEFAULT_PROVISION_POLICY,
   reminderMinOverdueDays: 1,
-  contact: null
+  contact: null,
+  msmeBankRatePercent: 6.5
 }
 
 export function getCollectionsPolicy(db: DB): CollectionsPolicy {
@@ -257,7 +264,11 @@ export function getCollectionsPolicy(db: DB): CollectionsPolicy {
       Array.isArray(raw.provisionPolicy) && validPolicy(raw.provisionPolicy) ? raw.provisionPolicy : DEFAULT_PROVISION_POLICY,
     reminderMinOverdueDays:
       typeof minOverdue === 'number' && Number.isInteger(minOverdue) && minOverdue >= 0 && minOverdue <= 365 ? minOverdue : 1,
-    contact: typeof raw.contact === 'string' && raw.contact.trim() ? raw.contact.trim().slice(0, 120) : null
+    contact: typeof raw.contact === 'string' && raw.contact.trim() ? raw.contact.trim().slice(0, 120) : null,
+    msmeBankRatePercent:
+      typeof raw.msmeBankRatePercent === 'number' && raw.msmeBankRatePercent >= 0 && raw.msmeBankRatePercent <= 30
+        ? raw.msmeBankRatePercent
+        : DEFAULT_COLLECTIONS_POLICY.msmeBankRatePercent
   }
 }
 

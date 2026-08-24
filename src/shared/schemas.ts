@@ -83,6 +83,10 @@ export const ledgerInputSchema = z.object({
    *  uphold, and a stray extra digit should be caught here rather than on a customer's statement. */
   interestRateBp: z.number().int().min(0).max(6000).nullable().optional(),
   interestGraceDays: z.number().int().min(0).max(365).nullable().optional(),
+  /** MSME classification. Absent/null means nobody has asked, which is not the same as
+   *  'not_registered' and must not be treated as an exemption from section 43B(h). */
+  msmeStatus: z.enum(['micro', 'small', 'medium', 'not_registered']).nullable().optional(),
+  udyamNumber: z.string().trim().max(25).nullable().optional(),
   salesperson: z.string().trim().max(60).nullable().optional(),
   territory: z.string().trim().max(60).nullable().optional(),
   // Stored as typed. Normalising to E.164 happens at the point of use, because a user pasting

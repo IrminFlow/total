@@ -1133,6 +1133,11 @@ export function registerIpc(): void {
     return { path, name: st.name }
   }, 'viewer')
 
+  handle('recv:msme', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return receivables.msmeExposure(requireCompany().db, asOn)
+  }, 'viewer')
+
   handle('recv:creditCheck', (p) => {
     const { ledgerId, addPaise } = z
       .object({ ledgerId: z.number().int().positive(), addPaise: z.number().int().default(0) })
@@ -1153,7 +1158,9 @@ export function registerIpc(): void {
           .min(1)
           .max(6),
         reminderMinOverdueDays: z.number().int().min(0).max(365),
-        contact: z.string().trim().max(120).nullable()
+        contact: z.string().trim().max(120).nullable(),
+        /** RBI bank rate for section 16 MSMED interest — three times it, compounded monthly. */
+        msmeBankRatePercent: z.number().min(0).max(30)
       })
       .parse(p)
     return configSvc.setCollectionsPolicy(requireCompany().db, input)

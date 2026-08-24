@@ -483,6 +483,42 @@ export interface CreditStatus {
   headroom: number | null
 }
 
+export type MsmeStatus = 'micro' | 'small' | 'medium' | 'not_registered'
+
+export interface MsmeBillLine {
+  number: string
+  date: string
+  pending: number
+  creditDays: number | null
+  dueDate: string
+  limitLabel: string
+  overdueDays: number
+  disallowed: boolean
+  interest: number
+}
+
+export interface MsmeParty {
+  ledgerId: number
+  name: string
+  status: MsmeStatus
+  udyamNumber: string | null
+  pending: number
+  disallowed: number
+  interest: number
+  bills: MsmeBillLine[]
+}
+
+export interface MsmeReport {
+  asOn: string
+  bankRatePercent: number
+  parties: MsmeParty[]
+  totalDisallowed: number
+  totalPending: number
+  totalInterest: number
+  unclassifiedParties: number
+  unclassifiedPending: number
+}
+
 export interface CollectionsPolicy {
   interestRateBp: number
   interestGraceDays: number
@@ -490,6 +526,7 @@ export interface CollectionsPolicy {
   provisionPolicy: ProvisionRule[]
   reminderMinOverdueDays: number
   contact: string | null
+  msmeBankRatePercent: number
 }
 
 /** Mirrors src/main/db/backup.ts's BackupVerification (kept local — main-process only). */
@@ -1030,6 +1067,8 @@ export const api = {
       call<{ path: string; name: string }>('recv:statementPdf', { ledgerId, from, to, side }),
     /** Where a party stands against their limit, including the voucher currently on screen. */
     creditCheck: (ledgerId: number, addPaise = 0) => call<CreditStatus | null>('recv:creditCheck', { ledgerId, addPaise }),
+    /** Section 43B(h): what is at risk of disallowance for paying a small supplier late. */
+    msme: (asOn: string) => call<MsmeReport>('recv:msme', { asOn }),
     policy: () => call<CollectionsPolicy>('recv:policy'),
     setPolicy: (input: CollectionsPolicy) => call<CollectionsPolicy>('recv:setPolicy', input)
   },

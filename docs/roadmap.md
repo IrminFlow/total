@@ -514,7 +514,7 @@ lead time measured in weeks, which makes them the first items on the list and no
 The compliance the market is being assessed on right now. Most of these are not exotic: they are
 what a CA asks for in the first meeting, and what a notice arrives about in the third.
 
-351. MSME payment reporting under section 43B(h) (M) — a Udyam classification per party, a
+351. ✓ MSME payment reporting under section 43B(h) (M) — a Udyam classification per party, a
      45-day payables view, and a year-end report of what will be disallowed. Payment to a micro
      or small enterprise beyond 45 days loses the deduction for that year, and the number is
      computed from exactly the FIFO allocation the collections desk already runs. The single
