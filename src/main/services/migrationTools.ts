@@ -1,5 +1,5 @@
 import { basename, extname, join } from "path";
-import { createReadStream, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { closeSync, createReadStream, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "fs";
 import { createHash, randomUUID } from "crypto";
 import ExcelJS from "exceljs";
 import type { DB } from "../db/connection";
@@ -392,6 +392,14 @@ export interface PortablePackage {
   };
 }
 
+const PORTABLE_DATA_NOTICE =
+  "Amounts are integer paise; quantities are integer thousandths. Derived balances are not stored.";
+const PORTABLE_OMITTED_SECRETS = [
+  "user PIN hashes",
+  "encrypted provider credentials",
+  "live session tokens",
+];
+
 function portableContent(pkg: Omit<PortablePackage, "manifest">): string {
   return JSON.stringify({
     schema: pkg.schema,
@@ -528,8 +536,7 @@ export function createPortablePackage(
     schema: "total.portable" as const,
     schemaVersion: 1 as const,
     exportedAt: new Date().toISOString(),
-    appDataNotice:
-      "Amounts are integer paise; quantities are integer thousandths. Derived balances are not stored.",
+    appDataNotice: PORTABLE_DATA_NOTICE,
     company,
     entities,
   };
@@ -539,11 +546,7 @@ export function createPortablePackage(
     manifest: {
       counts,
       sha256,
-      omittedSecrets: [
-        "user PIN hashes",
-        "encrypted provider credentials",
-        "live session tokens",
-      ],
+      omittedSecrets: PORTABLE_OMITTED_SECRETS,
     },
   };
 }
@@ -558,11 +561,63 @@ export function writePortablePackage(
   counts: Record<string, number>;
   signaturePath?: string;
 } {
-  const pkg = createPortablePackage(db, company);
+  const exportedAt = new Date().toISOString();
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const path = join(companyExportsDir(slug), `total-portable-v1-${stamp}.json`);
+  const temporaryPath = `${path}.${randomUUID()}.partial`;
   mkdirSync(companyExportsDir(slug), { recursive: true });
-  writeFileSync(path, JSON.stringify(pkg, null, 2), "utf8");
+  const hash = createHash("sha256");
+  const counts: Record<string, number> = {};
+  let manifestHash = "";
+  let descriptor: number | null = null;
+  try {
+    descriptor = openSync(temporaryPath, "wx", 0o600);
+    const write = (value: string, includeInHash = true): void => {
+      writeSync(descriptor!, value, undefined, "utf8");
+      if (includeInHash) hash.update(value);
+    };
+    write(
+      `{"schema":"total.portable","schemaVersion":1,"exportedAt":${JSON.stringify(exportedAt)},` +
+        `"appDataNotice":${JSON.stringify(PORTABLE_DATA_NOTICE)},"company":${JSON.stringify(company)},"entities":{`,
+    );
+    let firstTable = true;
+    for (const table of PORTABLE_TABLES) {
+      const exists = db
+        .prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`)
+        .get(table);
+      if (!exists) continue;
+      write(`${firstTable ? "" : ","}${JSON.stringify(table)}:[`);
+      firstTable = false;
+      let firstRow = true;
+      let count = 0;
+      for (const row of db.prepare(`SELECT * FROM "${table}" ORDER BY id`).iterate()) {
+        write(`${firstRow ? "" : ","}${JSON.stringify(row)}`);
+        firstRow = false;
+        count++;
+      }
+      write("]");
+      counts[table] = count;
+    }
+    write("}", false);
+    hash.update("}}");
+    manifestHash = hash.digest("hex");
+    write(
+      `,"manifest":${JSON.stringify({
+        counts,
+        sha256: manifestHash,
+        omittedSecrets: PORTABLE_OMITTED_SECRETS,
+      })}}`,
+      false,
+    );
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = null;
+    renameSync(temporaryPath, path);
+  } catch (error) {
+    if (descriptor !== null) closeSync(descriptor);
+    try { unlinkSync(temporaryPath); } catch { /* no partial package remains */ }
+    throw error;
+  }
   const signed = signExportIfEnabled(slug, path);
   const id = Number(
     db
@@ -571,20 +626,20 @@ export function writePortablePackage(
       )
       .run(
         path,
-        pkg.manifest.sha256,
-        JSON.stringify(pkg.manifest.counts),
+        manifestHash,
+        JSON.stringify(counts),
         actor,
       ).lastInsertRowid,
   );
   writeAudit(db, "portable_export", id, "export", null, {
     path,
-    manifestHash: pkg.manifest.sha256,
-    counts: pkg.manifest.counts,
+    manifestHash,
+    counts,
   });
   return {
     path,
-    manifestHash: pkg.manifest.sha256,
-    counts: pkg.manifest.counts,
+    manifestHash,
+    counts,
     ...(signed ? { signaturePath: signed.signaturePath } : {}),
   };
 }
