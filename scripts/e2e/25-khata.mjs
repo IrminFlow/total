@@ -117,4 +117,55 @@ await scenario('25-khata', async (h) => {
   await h.click('btn-gateway-open-khata')
   await h.waitScreen('khata')
   await h.shot('04-chase-today')
+
+  // ---- the call log, and the promises that come out of it ----
+  // Chasing money is a conversation, and a promise nobody wrote down is a promise nobody follows
+  // up. "He said he'd pay on the 20th" used to live in someone's head.
+  const party = receivable[0]
+  assert(party, 'there is a party to note against')
+
+  await h.invoke('party:addNote', {
+    ledgerId: party.ledgerId,
+    note: 'Spoke to Ramesh — cheque on Friday',
+    promisedDate: '2026-06-20',
+    promisedAmount: 500000
+  })
+  const notes = await h.invoke('party:notes', { ledgerId: party.ledgerId })
+  assert(notes.length === 1, 'the note is recorded')
+  assert(notes[0].promisedDate === '2026-06-20', 'with the date they promised')
+  assert(notes[0].promisedAmount === 500000, 'and the amount')
+
+  // A second promise does not replace the first — a promise made and broken is exactly what the
+  // next call needs to know.
+  await h.invoke('party:addNote', {
+    ledgerId: party.ledgerId,
+    note: 'Did not pay — now says month end',
+    promisedDate: '2026-06-30'
+  })
+  assert((await h.invoke('party:notes', { ledgerId: party.ledgerId })).length === 2, 'both are kept')
+
+  const promises = await h.invoke('party:promises')
+  assert(promises.length >= 2, 'both promises are open')
+  // Most overdue first, which is the order the morning's calls go in.
+  for (let i = 1; i < promises.length; i++) {
+    assert(
+      promises[i].overdueDays <= promises[i - 1].overdueDays,
+      'the follow-up list is ordered by who to call first'
+    )
+  }
+
+  // Closing one keeps it in the party's history but takes it off the list.
+  await h.invoke('party:closeNote', { id: promises[0].id })
+  const afterClose = await h.invoke('party:promises')
+  assert(afterClose.length === promises.length - 1, 'a closed promise leaves the list')
+  assert(
+    (await h.invoke('party:notes', { ledgerId: party.ledgerId })).length === 2,
+    'but stays in the history — the call log is the point'
+  )
+
+  await h.goto('gateway')
+  await h.page.keyboard.press('k')
+  await h.waitScreen('khata')
+  await h.page.waitForSelector('[data-testid="follow-up-list"]', { timeout: 15000 })
+  await h.shot('05-follow-up')
 })

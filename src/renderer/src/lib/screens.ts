@@ -292,7 +292,7 @@ export const SCREENS: ScreenDef[] = [
     // 'K' was the TDS badge; TDS moves to 'J', which is free and equally arbitrary for a badge.
     accel: 'K',
     keywords: ['khata', 'credit book', 'who owes me', 'party balance', 'credit limit', 'overdue'],
-    invalidates: ['khata']
+    invalidates: ['khata', 'promises', 'partyNotes']
   },
   {
     name: 'filings',

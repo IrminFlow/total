@@ -64,6 +64,25 @@ export interface BackupInfo {
   tag: string
 }
 
+/** Mirrors src/main/services/partyNotes.ts (kept local — that file is main-process only). */
+export interface PartyNote {
+  id: number
+  ledgerId: number
+  at: string
+  userName: string | null
+  note: string
+  /** ISO date they said they would pay, when they said one. */
+  promisedDate: string | null
+  promisedAmount: number | null
+  closedAt: string | null
+}
+
+export interface PromiseRow extends PartyNote {
+  partyName: string
+  /** Days past the promised date; negative while it is still in the future. */
+  overdueDays: number
+}
+
 /** Mirrors src/main/db/backup.ts's BackupVerification (kept local — main-process only). */
 export interface BackupVerification {
   file: string
@@ -548,6 +567,17 @@ export const api = {
       call<RegisterPeriodRow[]>('analysis:register', { kind, from, to, groupBy }),
     outstandings: (side: 'receivable' | 'payable', asOn: string, includeBills = true) =>
       call<OutstandingParty[]>('analysis:outstandings', { side, asOn, includeBills }),
+    /** The call log: what was said, and what was promised. */
+    notes: (ledgerId: number) => call<PartyNote[]>('party:notes', { ledgerId }),
+    addNote: (input: {
+      ledgerId: number
+      note: string
+      promisedDate?: string | null
+      promisedAmount?: number | null
+    }) => call<PartyNote>('party:addNote', input),
+    closeNote: (id: number) => call<PartyNote>('party:closeNote', { id }),
+    /** Open promises, most overdue first — the follow-up list. */
+    promises: () => call<PromiseRow[]>('party:promises'),
     khata: (side: 'receivable' | 'payable', asOn: string) =>
       call<KhataParty[]>('analysis:khata', { side, asOn }),
     partyShares: (kind: 'sales' | 'purchase', from: string, to: string) =>

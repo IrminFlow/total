@@ -198,7 +198,7 @@ Ordering within a section is roughly by value.
 149. ✓ A party-centric khata screen: running balance, credit limit, days overdue (M)
 150. ✓ WhatsApp payment reminders via `wa.me` (S)
 151. Reminder letters with configurable ageing bands (M)
-152. Promised-payment date per bill with a follow-up list (M)
+152. ✓ Promised-payment date per bill with a follow-up list (M)
 153. Interest on overdue bills, per party terms (M)
 154. Credit-limit enforcement at voucher entry, not just a warning (S)
 155. Party statement PDF, printable and emailable (S)
@@ -209,7 +209,7 @@ Ordering within a section is roughly by value.
 160. ✓ A daily "who to chase today" list on the Gateway (S)
 161. Bulk reminder send to every overdue party (M)
 162. ✓ Party phone and email (S)
-163. Notes and call log per party (M)
+163. ✓ Notes and call log per party (M)
 164. Advance received tracking against future invoices (M)
 165. Vendor payment scheduling by due date (M)
 166. ✓ Payables ageing mirrored from receivables (S) — already shipped: Outstandings and the

@@ -614,5 +614,32 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE employees ADD COLUMN bank_account TEXT;
   ALTER TABLE employees ADD COLUMN ifsc TEXT;
+  `,
+
+  // 22 — party notes and promised payments.
+  //
+  // Chasing money is a conversation, and the app remembered none of it. "He said he'd pay on the
+  // 20th" lived in someone's head or a diary, so the next call started from nothing and a promise
+  // nobody wrote down is a promise nobody follows up.
+  //
+  // A promise is a note with a date on it rather than a separate field on the party: a party can
+  // promise more than once, the promises are what the call log IS, and the last one is not
+  // automatically the one that matters.
+  `
+  CREATE TABLE party_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    user_name TEXT,
+    note TEXT NOT NULL,
+    -- ISO date they said they would pay, when they said one. NULL for an ordinary note.
+    promised_date TEXT,
+    -- Paise they promised, when a figure was named. NULL means "the balance" or nothing specific.
+    promised_amount INTEGER,
+    -- Set when the promise is settled or written off, so an open promise list stays short.
+    closed_at TEXT
+  );
+  CREATE INDEX idx_party_notes_ledger ON party_notes(ledger_id, at DESC);
+  CREATE INDEX idx_party_notes_promised ON party_notes(promised_date) WHERE promised_date IS NOT NULL;
   `
 ]

@@ -1,10 +1,13 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import {
+  AmountInput,
   Button,
   EmptyState,
+  Field,
+  Modal,
   Money,
   Panel,
   SectionTitle,
@@ -52,6 +55,7 @@ export function KhataScreen(): React.JSX.Element {
   )
   const [overdueOnly, setOverdueOnly] = useStickyFlag('khata-overdue-only', false)
   const [filter, setFilter] = useState('')
+  const [noting, setNoting] = useState<KhataParty | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['khata', side, to],
@@ -156,6 +160,8 @@ export function KhataScreen(): React.JSX.Element {
         {title}
       </SectionTitle>
 
+      <FollowUpList />
+
       {overLimit.length > 0 && (
         <div
           className="mb-3 rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm text-cr"
@@ -186,12 +192,17 @@ export function KhataScreen(): React.JSX.Element {
                 <th scope="col" className="r w-28">Overdue by</th>
                 <th scope="col" className="r w-40">Credit limit</th>
                 <th scope="col" className="w-28">Last paid</th>
-                <th scope="col" className="w-24" />
+                <th scope="col" className="w-40" />
               </tr>
             </thead>
             <tbody data-testid="rows-khata">
               {rows.map((p, i) => (
-                <KhataRow key={p.ledgerId} party={p} rowProps={table.rowProps(i, p)} />
+                <KhataRow
+                  key={p.ledgerId}
+                  party={p}
+                  rowProps={table.rowProps(i, p)}
+                  onNote={() => setNoting(p)}
+                />
               ))}
               <tr className="total-row">
                 <td>Total · {rows.length} parties</td>
@@ -205,6 +216,8 @@ export function KhataScreen(): React.JSX.Element {
           </table>
         )}
       </Panel>
+      {noting && <NotesModal party={noting} onClose={() => setNoting(null)} />}
+
       <p className="mt-2 text-hint text-muted">
         Sorted by how overdue they are, not by size — the largest debtor is usually the one who
         always pays. Enter opens the party&rsquo;s ledger.
@@ -215,10 +228,12 @@ export function KhataScreen(): React.JSX.Element {
 
 function KhataRow({
   party,
-  rowProps
+  rowProps,
+  onNote
 }: {
   party: KhataParty
   rowProps: ReturnType<ReturnType<typeof useTableNav<KhataParty>>['rowProps']>
+  onNote: () => void
 }): React.JSX.Element {
   const { info } = useSession()
   const toast = useToasts()
@@ -262,7 +277,16 @@ function KhataRow({
       <td className="num text-muted">
         {party.lastPaymentDate ? toDisplayDate(party.lastPaymentDate) : 'never'}
       </td>
-      <td onClick={(e) => e.stopPropagation()}>
+      <td onClick={(e) => e.stopPropagation()} className="whitespace-nowrap">
+        <Button
+          variant="ghost"
+          className="whitespace-nowrap"
+          data-testid={`btn-khata-note-${party.ledgerId}`}
+          onClick={onNote}
+          title="What was said, and what was promised"
+        >
+          Note
+        </Button>
         {party.phone && (
           <Button
             variant="ghost"
@@ -275,5 +299,169 @@ function KhataRow({
         )}
       </td>
     </tr>
+  )
+}
+
+/**
+ * Open promises, most overdue first — the morning's calls.
+ *
+ * A broken promise sorts above one still in the future, which is the order the calls actually go
+ * in. Promises still to come are included rather than hidden: knowing four people have promised
+ * this week is the point of writing them down.
+ *
+ * Renders nothing when nobody has promised anything, because an empty follow-up list on a screen
+ * someone opens daily is a panel they learn to skip past.
+ */
+function FollowUpList(): React.JSX.Element | null {
+  const nav = useNav()
+  const queryClient = useQueryClient()
+  const toast = useToasts()
+  const { data } = useQuery({ queryKey: ['promises'], queryFn: api.analysis.promises })
+  const rows = data ?? []
+  if (rows.length === 0) return null
+
+  const close = async (id: number): Promise<void> => {
+    try {
+      await api.analysis.closeNote(id)
+      await queryClient.invalidateQueries({ queryKey: ['promises'] })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <Panel className="mb-3 p-3" data-testid="follow-up-list">
+      <p className="mb-1.5 text-body-sm font-medium">
+        Promised to pay — {rows.length} open
+      </p>
+      <div className="flex flex-col gap-1">
+        {rows.map((p) => (
+          <div key={p.id} className="flex items-baseline gap-2 text-body-sm">
+            <button
+              className="text-blue hover:underline"
+              onClick={() => nav.go({ name: 'ledger-statement', ledgerId: p.ledgerId })}
+            >
+              {p.partyName}
+            </button>
+            <span className={p.overdueDays > 0 ? 'text-cr' : 'text-muted'}>
+              {p.overdueDays > 0
+                ? `${p.overdueDays}d overdue`
+                : p.overdueDays === 0
+                  ? 'today'
+                  : `in ${-p.overdueDays}d`}
+            </span>
+            {p.promisedAmount != null && <Money paise={p.promisedAmount} className="text-detail" />}
+            <span className="min-w-0 flex-1 truncate text-hint text-muted">{p.note}</span>
+            <button
+              className="shrink-0 text-hint text-muted hover:text-ink"
+              data-testid={`btn-close-promise-${p.id}`}
+              title="Settled, or written off"
+              onClick={() => void close(p.id)}
+            >
+              Done
+            </button>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  )
+}
+
+/**
+ * The call log for one party.
+ *
+ * Chasing money is a conversation, and the app remembered none of it: "he said he'd pay on the
+ * 20th" lived in someone's head, so the next call started from nothing.
+ *
+ * A promise is a note with a date on it. A party can promise more than once, and a promise made
+ * and broken is exactly what the next call needs to know — so nothing is overwritten and nothing
+ * is deleted.
+ */
+function NotesModal({ party, onClose }: { party: KhataParty; onClose: () => void }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const [note, setNote] = useState('')
+  const [promisedDate, setPromisedDate] = useState('')
+  const [promisedAmount, setPromisedAmount] = useState<number | null>(null)
+  const { data } = useQuery({
+    queryKey: ['partyNotes', party.ledgerId],
+    queryFn: () => api.analysis.notes(party.ledgerId)
+  })
+
+  const save = async (): Promise<void> => {
+    if (!note.trim()) return void toast.push('error', 'Write what was said')
+    try {
+      await api.analysis.addNote({
+        ledgerId: party.ledgerId,
+        note: note.trim(),
+        promisedDate: promisedDate || null,
+        promisedAmount
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['partyNotes', party.ledgerId] }),
+        queryClient.invalidateQueries({ queryKey: ['promises'] })
+      ])
+      setNote('')
+      setPromisedDate('')
+      setPromisedAmount(null)
+      toast.push('success', 'Noted')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <Modal title={party.name} onClose={onClose} dirty={note.trim().length > 0}>
+      <div className="flex flex-col gap-3">
+        <Field label="What was said">
+          <TextInput
+            data-testid="input-party-note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Spoke to Ramesh — cheque on Friday"
+            autoFocus
+          />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Promised to pay on" hint="Leave blank for an ordinary note">
+            <TextInput
+              data-testid="input-promise-date"
+              type="date"
+              value={promisedDate}
+              onChange={(e) => setPromisedDate(e.target.value)}
+            />
+          </Field>
+          <Field label="Amount promised" hint="Blank means the balance, or nothing specific">
+            <AmountInput paise={promisedAmount} onPaise={setPromisedAmount} testId="input-promise-amount" />
+          </Field>
+        </div>
+        <div className="flex justify-end">
+          <Button variant="primary" data-testid="btn-save-party-note" onClick={() => void save()}>
+            Save note
+          </Button>
+        </div>
+
+        {data && data.length > 0 && (
+          <div className="mt-2 border-t border-line pt-3" data-testid="party-note-list">
+            <ol className="flex flex-col gap-2">
+              {data.map((n) => (
+                <li key={n.id} className="text-body-sm">
+                  <span className="num text-hint text-muted">{n.at}</span>
+                  <span className="text-hint text-muted"> · {n.userName ?? 'someone'}</span>
+                  {n.promisedDate && (
+                    <span className={`ml-2 text-hint ${n.closedAt ? 'text-muted' : 'text-amber'}`}>
+                      promised {toDisplayDate(n.promisedDate)}
+                      {n.promisedAmount != null && <> · <Money paise={n.promisedAmount} /></>}
+                      {n.closedAt && ' (closed)'}
+                    </span>
+                  )}
+                  <div>{n.note}</div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+      </div>
+    </Modal>
   )
 }

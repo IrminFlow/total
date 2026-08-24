@@ -33,6 +33,7 @@ import * as vouchers from './services/vouchers'
 import * as reports from './services/reports'
 import * as gst from './services/gst'
 import * as filings from './services/filings'
+import * as partyNotes from './services/partyNotes'
 import * as intel from './services/intel'
 import * as analysis from './services/analysis'
 import * as banking from './services/banking'
@@ -985,6 +986,32 @@ export function registerIpc(): void {
     const { asOn } = z.object({ asOn: isoDate }).parse(p)
     return banking.reconciliationStatus(requireCompany().db, asOn)
   }, 'viewer')
+
+  handle('party:notes', (p) => {
+    const { ledgerId } = z.object({ ledgerId: z.number().int().positive() }).parse(p)
+    return partyNotes.listPartyNotes(requireCompany().db, ledgerId)
+  }, 'viewer')
+
+  handle('party:addNote', (p) => {
+    const input = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        note: z.string().trim().min(1).max(1000),
+        promisedDate: isoDate.nullable().optional(),
+        promisedAmount: z.number().int().min(0).nullable().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    // Same attribution the audit log uses, so the note and its audit row agree about who.
+    return partyNotes.addPartyNote(c.db, input, sessionUser?.name ?? null)
+  }, 'accountant')
+
+  handle('party:closeNote', (p) => {
+    const { id } = z.object({ id: z.number().int().positive() }).parse(p)
+    return partyNotes.closePartyNote(requireCompany().db, id)
+  }, 'accountant')
+
+  handle('party:promises', () => partyNotes.openPromises(requireCompany().db, todayISO()), 'viewer')
 
   handle('analysis:khata', (p) => {
     const { side, asOn } = z
