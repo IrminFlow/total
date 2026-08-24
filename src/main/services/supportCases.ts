@@ -28,6 +28,35 @@ export interface SupportCaseRecord {
   lastError: string | null;
 }
 
+export interface SupportPayloadSelection {
+  category: SupportCaseRecord["category"];
+  message: boolean;
+  diagnostics: boolean;
+  logs: boolean;
+  companyMetadata: boolean;
+  focusContext: boolean;
+  screenshot: boolean;
+}
+
+export function assertSupportCaseConsent(
+  record: SupportCaseRecord,
+  selection: SupportPayloadSelection,
+): void {
+  if (record.category !== selection.category)
+    throw new Error("Support category does not match the saved case");
+  for (const field of [
+    "message",
+    "diagnostics",
+    "logs",
+    "companyMetadata",
+    "focusContext",
+    "screenshot",
+  ] as const) {
+    if (selection[field] && !record.consent[field])
+      throw new Error(`Support case did not approve ${field}`);
+  }
+}
+
 interface SupportCaseFile {
   version: 1;
   cases: SupportCaseRecord[];

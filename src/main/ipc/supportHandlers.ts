@@ -165,6 +165,21 @@ export function registerSupportHandlers(
       throw new Error("Sign in before attaching activity logs or company metadata.");
     }
   };
+  const assertStoredConsent = (input: z.infer<typeof supportPayloadSchema>): void => {
+    const record = supportCases
+      .readSupportCases(supportCasePath())
+      .find((candidate) => candidate.id === input.caseId);
+    if (!record) throw new Error("Support case not found");
+    supportCases.assertSupportCaseConsent(record, {
+      category: input.category,
+      message: input.includeMessage,
+      diagnostics: input.includeDiagnostics,
+      logs: input.includeLogs,
+      companyMetadata: input.includeCompanyMetadata,
+      focusContext: input.focusContext !== null,
+      screenshot: input.screenshotDataUrl !== null,
+    });
+  };
 
   handle("support:diagnostics", () => safeSupportDiagnostics());
   handle("crash:list", () => crashReports.listCrashEnvelopes(), "viewer");
@@ -276,6 +291,7 @@ export function registerSupportHandlers(
   handle("support:submit", async (payload) => {
     const input = supportPayloadSchema.parse(payload);
     if (!input.includeMessage) throw new Error("Confirm message consent before sending");
+    assertStoredConsent(input);
     assertBookContextAllowed(input);
     supportCases.updateSupportCase(supportCasePath(), input.caseId, {
       status: "sending",
@@ -325,6 +341,7 @@ export function registerSupportHandlers(
     if (!input.includeMessage) {
       throw new Error("Confirm message consent before saving the bundle");
     }
+    assertStoredConsent(input);
     assertBookContextAllowed(input);
     const context = safeSupportContext(dependencies.getCurrentCompany());
     const consent = {

@@ -3,6 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import {
+  assertSupportCaseConsent,
   createStoredZip,
   createSupportCase,
   readSupportCases,
@@ -43,6 +44,36 @@ describe("support case ledger", () => {
     expect(raw).not.toContain("private message body");
     expect(raw).not.toContain("person@example.com");
     expect(JSON.parse(raw).cases[0]).not.toHaveProperty("email");
+  });
+
+  it("rejects payload fields and categories not approved by the saved case", () => {
+    const root = mkdtempSync(join(tmpdir(), "total-support-consent-"));
+    const record = createSupportCase(join(root, "support-cases.json"), {
+      category: "bug",
+      consent,
+    });
+    expect(() =>
+      assertSupportCaseConsent(record, {
+        category: "question",
+        message: true,
+        diagnostics: true,
+        logs: false,
+        companyMetadata: false,
+        focusContext: false,
+        screenshot: false,
+      }),
+    ).toThrow(/category/i);
+    expect(() =>
+      assertSupportCaseConsent(record, {
+        category: "bug",
+        message: true,
+        diagnostics: true,
+        logs: true,
+        companyMetadata: false,
+        focusContext: false,
+        screenshot: false,
+      }),
+    ).toThrow(/logs/i);
   });
 });
 

@@ -44,9 +44,9 @@ export function SupportLink({
         data-testid="link-support"
         title={`Email support (${SUPPORT_EMAIL})`}
         onClick={() => setOpen(true)}
-        className={`text-left text-[12px] text-muted hover:text-ink ${className}`}
+        className={`shrink-0 whitespace-nowrap text-left text-[12px] text-muted hover:text-ink ${className}`}
       >
-        Support · {SUPPORT_EMAIL}
+        Support<span className="support-email"> · {SUPPORT_EMAIL}</span>
       </button>
       {open && (
         <SupportModal
@@ -156,6 +156,7 @@ function SupportModal({
     focusContext: includeFocusContext ? initialFocusContext : null,
     screenshotDataUrl: includeScreenshot ? (screenshot?.dataUrl ?? null) : null,
   });
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   const refreshCases = (): void => {
     void api.support.cases().then(setRecentCases).catch(() => undefined);
@@ -215,7 +216,7 @@ function SupportModal({
           <div className="rounded-md border border-dr/30 bg-dr/5 px-4 py-5 text-center">
             <p className="text-[14px] font-medium text-dr">Feedback received</p>
             <p className="mt-1 text-[12px] text-muted">
-              Thank you. We’ll follow up by email if you included one.
+              Thank you. We’ll follow up at the email you provided.
             </p>
             {caseRecord && (
               <p
@@ -245,10 +246,11 @@ function SupportModal({
                 </select>
               </label>
               <label className="text-[11.5px] text-muted">
-                Email (optional)
+                Email
                 <input
                   className="mt-1 w-full rounded border border-line bg-panel px-2.5 py-2 text-[13px] text-ink"
                   type="email"
+                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@business.com"
@@ -552,6 +554,7 @@ function SupportModal({
               disabled={
                 state === "sending" ||
                 message.trim().length < 10 ||
+                !validEmail ||
                 !includeMessage ||
                 (includeScreenshot && !screenshot)
               }
