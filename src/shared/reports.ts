@@ -207,6 +207,31 @@ export interface PurchaseSuggestionRow {
   estimatedCost: number | null
 }
 
+/**
+ * One month of payroll, as a trend point.
+ *
+ * Payroll is usually the largest single expense a small business has and the one it looks at
+ * least: the run is committed, the payslips go out, and nobody asks what it did over the year.
+ * Headcount beside cost is what makes the question answerable — a cost that rose because two
+ * people joined is a different fact from the same cost on the same headcount.
+ */
+export interface PayrollTrendPoint {
+  /** 'YYYY-MM'. */
+  month: string
+  label: string
+  /** People paid in this run. */
+  headcount: number
+  gross: number
+  /** What the employer actually parted with: gross plus its own PF/ESI contributions. */
+  employerCost: number
+  net: number
+  /** Statutory deductions withheld from employees, and the employer's own share. */
+  employeeDeductions: number
+  employerContributions: number
+  /** employerCost / headcount, or 0 when nobody was paid. */
+  costPerHead: number
+}
+
 export interface ItemProfitRow {
   stockItemId: number
   name: string

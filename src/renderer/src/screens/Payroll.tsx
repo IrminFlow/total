@@ -12,8 +12,10 @@ import {
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
 import { useStickyTab } from '../lib/useStickyTab'
+import { csvReport, printReport } from '../lib/reportExport'
+import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 
-type Tab = 'employees' | 'runs'
+type Tab = 'employees' | 'runs' | 'trend'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -24,7 +26,7 @@ function monthLabel(month: string): string {
 }
 
 export function PayrollScreen(): React.JSX.Element {
-  const [tab, setTab] = useStickyTab<Tab>('payroll', ['employees', 'runs'], 'employees')
+  const [tab, setTab] = useStickyTab<Tab>('payroll', ['employees', 'runs', 'trend'], 'employees')
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-4 flex items-center gap-1">
@@ -33,13 +35,14 @@ export function PayrollScreen(): React.JSX.Element {
           screen="payroll"
           tabs={[
             { id: 'employees', label: 'Employees' },
-            { id: 'runs', label: 'Pay runs' }
+            { id: 'runs', label: 'Pay runs' },
+            { id: 'trend', label: 'Cost over time' }
           ]}
           active={tab}
           onSelect={setTab}
         />
       </div>
-      {tab === 'employees' ? <EmployeesTab /> : <RunsTab />}
+      {tab === 'employees' ? <EmployeesTab /> : tab === 'runs' ? <RunsTab /> : <TrendTab />}
       <p className="mt-3 text-hint text-muted">
         Statutory defaults: EPF 12% + 12% on basic (₹15,000 ceiling) · ESI 0.75% / 3.25% when gross ≤ ₹21,000 · simplified professional-tax slab. Posting books one Journal voucher: salaries and employer contributions against PF/ESI/PT/Salaries payable.
       </p>
@@ -966,5 +969,144 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
         </div>
       )}
     </Modal>
+  )
+}
+
+// ---------- cost over time ----------
+
+/**
+ * What payroll cost, month by month, and how many people it covered.
+ *
+ * Payroll is usually the largest single expense a small business has and the one it looks at
+ * least: the run is committed, the payslips go out, and nobody asks what it did over the year.
+ *
+ * Employer cost, not gross, is the headline. Gross understates what actually left the business by
+ * roughly a seventh once the employer's own PF and ESI are counted, and that gap is precisely
+ * what someone budgeting a hire needs to see. Cost per head sits beside it because a rise on more
+ * people is a different fact from the same rise on the same people.
+ */
+function TrendTab(): React.JSX.Element {
+  const toast = useToasts()
+  const { data, isLoading } = useQuery({ queryKey: ['payrollTrend'], queryFn: () => api.payroll.trend() })
+  const rows = data ?? []
+
+  const columns: PdfColumn[] = [
+    { label: 'Month', align: 'l' },
+    { label: 'People', align: 'r' },
+    { label: 'Gross', align: 'r' },
+    { label: 'Employer PF/ESI', align: 'r' },
+    { label: 'Total cost', align: 'r' },
+    { label: 'Per head', align: 'r' },
+    { label: 'Net paid', align: 'r' }
+  ]
+  const exportRows: PdfRow[] = rows.map((r) => ({
+    cells: [
+      r.label,
+      String(r.headcount),
+      formatPaise(r.gross),
+      formatPaise(r.employerContributions),
+      formatPaise(r.employerCost),
+      formatPaise(r.costPerHead),
+      formatPaise(r.net)
+    ]
+  }))
+
+  if (isLoading) return <SkeletonRows rows={6} />
+  if (rows.length === 0) {
+    return (
+      <Panel>
+        <EmptyState
+          title="No pay runs yet"
+          hint="Commit a pay run and its cost will show here, month by month."
+        />
+      </Panel>
+    )
+  }
+
+  const latest = rows[rows.length - 1]!
+  const previous = rows.length > 1 ? rows[rows.length - 2] : null
+
+  return (
+    <>
+      <div className="mb-3 flex items-center gap-3">
+        <span className="text-body-sm">
+          <b>{latest.label}</b>: <Money paise={latest.employerCost} /> for {latest.headcount}{' '}
+          {latest.headcount === 1 ? 'person' : 'people'}
+        </span>
+        {previous && previous.employerCost > 0 && (
+          <span
+            className={`text-hint ${latest.employerCost > previous.employerCost ? 'text-cr' : 'text-dr'}`}
+            data-testid="payroll-trend-change"
+          >
+            {latest.employerCost >= previous.employerCost ? '+' : ''}
+            {Math.round(((latest.employerCost - previous.employerCost) / previous.employerCost) * 100)}% on{' '}
+            {previous.label}
+            {latest.headcount !== previous.headcount &&
+              ` · ${latest.headcount > previous.headcount ? '+' : ''}${latest.headcount - previous.headcount} ${
+                Math.abs(latest.headcount - previous.headcount) === 1 ? 'person' : 'people'
+              }`}
+          </span>
+        )}
+        <span className="flex-1" />
+        <Button
+          variant="ghost"
+          onClick={() =>
+            void printReport(
+              {
+                title: 'Payroll cost over time',
+                periodLabel: `${rows[0]!.label} to ${latest.label}`,
+                columns,
+                rows: exportRows,
+                filename: 'payroll-trend'
+              },
+              toast
+            )
+          }
+        >
+          PDF
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() =>
+            void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'payroll-trend', toast)
+          }
+        >
+          CSV
+        </Button>
+      </div>
+
+      <Panel>
+        <table className="ledger-table">
+          <thead>
+            <tr>
+              <th scope="col">Month</th>
+              <th scope="col" className="r w-24">People</th>
+              <th scope="col" className="r w-36">Gross</th>
+              <th scope="col" className="r w-36">Employer PF/ESI</th>
+              <th scope="col" className="r w-36">Total cost</th>
+              <th scope="col" className="r w-32">Per head</th>
+              <th scope="col" className="r w-36">Net paid</th>
+            </tr>
+          </thead>
+          <tbody data-testid="rows-payroll-trend">
+            {rows.map((r) => (
+              <tr key={r.month}>
+                <td>{r.label}</td>
+                <td className="r num">{r.headcount}</td>
+                <td className="r"><Money paise={r.gross} /></td>
+                <td className="r text-muted"><Money paise={r.employerContributions} /></td>
+                <td className="r font-semibold"><Money paise={r.employerCost} /></td>
+                <td className="r text-muted"><Money paise={r.costPerHead} /></td>
+                <td className="r"><Money paise={r.net} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+      <p className="mt-2 text-hint text-muted">
+        Total cost is gross plus the employer&rsquo;s own PF and ESI — what actually left the
+        business, which gross alone understates by roughly a seventh.
+      </p>
+    </>
   )
 }

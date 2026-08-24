@@ -1,5 +1,6 @@
 import type { DB } from '../db/connection'
 import type { CompanyInfo, Employee, PayrollHeadAmount, PayrollLine, PayrollRun } from '@shared/domain'
+import type { PayrollTrendPoint } from '@shared/reports'
 import type { EmployeeInput, EmployeeHeadsSetInput, PayHeadInput } from '@shared/schemas'
 import { buildEcr, buildEsiCsv, buildPtCsv, computeMonthlyPay, daysInMonth, type PayHeadSpec } from '@shared/payroll'
 import { amountInWords, formatPaise } from '@shared/money'
@@ -491,3 +492,50 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
   const safeName = line.employeeName.replace(/[^a-zA-Z0-9-_]/g, '_')
   return writeExportPdf(slug, `payslip-${run.month}-${safeName}.pdf`, html, { pageSize: 'A4' })
 }
+
+/**
+ * Payroll over time: what it cost, and how many people it covered.
+ *
+ * Payroll is usually the largest single expense a small business has and the one it looks at
+ * least — the run is committed, the payslips go out, and nobody asks what it did over the year.
+ * Headcount beside cost is what makes the question answerable: a cost that rose because two
+ * people joined is a different fact from the same rise on the same headcount.
+ *
+ * Employer cost is gross plus the employer's own PF and ESI, which is what actually left the
+ * business. Reporting gross alone understates it by roughly a seventh, and that gap is precisely
+ * what someone budgeting a hire needs to see.
+ */
+export function payrollTrend(db: DB, months = 24): PayrollTrendPoint[] {
+  const runs = listRuns(db)
+    .slice()
+    .sort((a, b) => a.month.localeCompare(b.month))
+    .slice(-months)
+
+  return runs.map((run) => {
+    const lines = getRun(db, run.id)?.lines ?? []
+    const sum = (pick: (l: (typeof lines)[number]) => number): number => lines.reduce((t, l) => t + pick(l), 0)
+
+    const gross = sum((l) => l.gross)
+    const employerContributions = sum((l) => l.pfEr + l.pfAdmin + l.edli + l.esiEr)
+    const employeeDeductions = sum((l) => l.pfEmp + l.esiEmp + l.pt + l.otherDeductions)
+    const employerCost = gross + employerContributions
+    const headcount = lines.length
+
+    const [y, m] = run.month.split('-')
+    return {
+      month: run.month,
+      label: `${MONTH_LABELS[Number(m) - 1] ?? m} ${y}`,
+      headcount,
+      gross,
+      employerCost,
+      net: sum((l) => l.net),
+      employeeDeductions,
+      employerContributions,
+      costPerHead: headcount === 0 ? 0 : Math.round(employerCost / headcount)
+    }
+  })
+}
+
+const MONTH_LABELS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+]

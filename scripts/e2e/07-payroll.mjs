@@ -53,4 +53,34 @@ await scenario('07-payroll', async (h) => {
 
   await h.goto('payroll')
   await h.shot('01-payroll')
+
+  // ---- what payroll cost over time ----
+  // Payroll is usually the largest single expense a small business has and the one it looks at
+  // least. Employer cost, not gross, is the figure: gross understates what actually left the
+  // business by roughly a seventh once the employer's own PF and ESI are counted.
+  const trend = await h.invoke('payroll:trend', {})
+  assert(trend.length > 0, 'the committed run appears in the trend')
+  for (const point of trend) {
+    assert(
+      point.employerCost === point.gross + point.employerContributions,
+      `${point.month}: employer cost is gross plus the employer's own contributions`
+    )
+    assert(
+      point.net === point.gross - point.employeeDeductions,
+      `${point.month}: net is gross less what was withheld from the employee`
+    )
+    assert(point.employerCost > point.gross, `${point.month}: and it exceeds gross`)
+    assert(point.headcount > 0, `${point.month}: someone was paid`)
+    assert(
+      point.costPerHead === Math.round(point.employerCost / point.headcount),
+      `${point.month}: per-head is the cost divided by the people`
+    )
+  }
+
+  await h.goto('payroll')
+  await h.page.click('[data-testid="tab-payroll-trend"]')
+  await h.page.waitForSelector('[data-testid="rows-payroll-trend"] tr', { timeout: 15000 })
+  const shown = await h.page.$$eval('[data-testid="rows-payroll-trend"] tr', (els) => els.length)
+  assert(shown === trend.length, `every month is on screen (${shown} of ${trend.length})`)
+  await h.shot('04-payroll-trend')
 })

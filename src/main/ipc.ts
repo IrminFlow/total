@@ -721,6 +721,11 @@ export function registerIpc(): void {
       limit == null ? undefined : { limit, offset }
     )
   }, 'viewer')
+  handle('payroll:trend', (p) => {
+    const { months } = z.object({ months: z.number().int().min(1).max(120).optional() }).parse(p ?? {})
+    return payroll.payrollTrend(requireCompany().db, months)
+  }, 'viewer')
+
   handle('report:purchaseSuggestions', (p) => {
     const { asOn } = z.object({ asOn: isoDate }).parse(p)
     return reports.purchaseSuggestions(requireCompany().db, asOn)

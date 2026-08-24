@@ -6,7 +6,8 @@ import type {
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, ExceptionsReport, GroupTreeNode,
-  DayBookTypeRow, ItemProfitRow, KhataParty, LedgerBalanceRow, PartyShareRow, PurchaseSuggestionRow,
+  DayBookTypeRow, ItemProfitRow, KhataParty, LedgerBalanceRow, PartyShareRow, PayrollTrendPoint,
+  PurchaseSuggestionRow,
   ReconciliationStatus,
   LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterPeriodRow, StockAgeingRow,
   StockSummaryRow, TrialBalance,
@@ -657,6 +658,8 @@ export const api = {
   },
   payroll: {
     employees: () => call<Employee[]>('payroll:employees:list'),
+    /** What payroll cost, month by month, and how many people it covered. */
+    trend: (months?: number) => call<PayrollTrendPoint[]>('payroll:trend', { months }),
     saveEmployee: (data: EmployeeInputPayload, id?: number) => call<Employee>('payroll:employees:save', { data, id }),
     removeEmployee: (id: number) => call<null>('payroll:employees:delete', { id }),
     preview: (month: string, days: { employeeId: number; payableDays: number }[]) =>

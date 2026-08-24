@@ -227,7 +227,7 @@ Ordering within a section is roughly by value.
 178. Full-and-final settlement workflow (M)
 179. Multiple pay cycles: weekly, fortnightly (M)
 180. Cost-centre allocation of salary expense (S)
-181. Headcount and cost trend report (S)
+181. ✓ Headcount and cost trend report (S)
 
 ## I. Invoicing and documents
 
