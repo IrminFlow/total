@@ -20,16 +20,22 @@ unsigned fallback.
 
 ## Release
 
-1. Confirm main CI is green, including the site build and macOS UI suite.
-2. Confirm `package.json` already contains the intended release version. If it does not, set the intended semver version and review that commit before continuing.
-3. Tag the reviewed `main` commit with `git tag "v$(node -p "require('./package.json').version")"`, then push with `git push origin main --follow-tags`.
-4. Watch all three release jobs. The final `publish` job starts only after both signed builds pass.
-5. Confirm the GitHub release contains DMG, ZIP, EXE, blockmaps, `latest-mac.yml`, and `latest.yml`.
-6. Confirm the website's `/api/latest` reports the new version and `/api/download` returns the
-   correct platform artifact.
+1. Merge the reviewed version commit to protected `main` and wait for the exact commit's push CI to
+   finish successfully. The candidate workflow verifies this through the GitHub API; a passing PR
+   run, ancestor run or still-running workflow does not qualify.
+2. Confirm `package.json` already contains the intended release version. Use `npm version patch` only
+   when intentionally preparing a later patch version, never during promotion of an existing candidate.
+3. Dispatch **Release candidate** with the full `main` commit SHA and exact package version. Record the
+   run ID, run attempt, immutable artifact ID and candidate-manifest SHA-256 from its summary.
+4. Run migration, clean-machine, human and mobile acceptance against those exact signed candidate
+   artifacts. Commit only the sanitized approval JSON under `docs/evidence/`.
+5. Dispatch **Promote release candidate** with the recorded candidate identity, source revision and
+   version. Promotion re-downloads and verifies every candidate byte, then creates the tag and release.
+6. Confirm the public release contains DMG, ZIP, EXE, blockmaps, `latest-mac.yml`, and `latest.yml`, and
+   confirm the website's `/api/latest` and `/api/download` serve v0.5 correctly.
 
-Do not manually create the release before the workflow. The final job refuses to overwrite an
-existing release because partial or mixed-version assets would break auto-update guarantees.
+Do not create or push the release tag manually. The promotion workflow owns tag creation and refuses
+to overwrite an existing tag or release because partial or mixed-version assets would break updates.
 
 ## What the gates prove
 
@@ -40,6 +46,7 @@ existing release because partial or mixed-version assets would break auto-update
 - The macOS signature, Gatekeeper assessment and stapled notarization ticket are valid.
 - The Windows application and NSIS installer have valid Authenticode signatures.
 - Both packaged applications launch with `app.isPackaged === true`.
+- The signed candidate source has a completed successful push CI run for that exact commit on `main`.
 - The actual public v0.4 packaged app creates representative inventory and batch movements, a
   reconciled bank receipt, a committed payroll run, GST and TDS transactions, and owner/viewer
   access with a company lock. Each platform candidate opens the same books twice and preserves the

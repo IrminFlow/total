@@ -61,10 +61,14 @@ Never place these values in source, local evidence, screenshots or support cases
 
 ## 3. Release
 
-1. Confirm `git status --short` is empty and CI is green on the exact commit.
-2. Confirm `package.json` contains the intended version, then tag the reviewed commit with `git tag "v$(node -p "require('./package.json').version")"`.
-3. Push `main` and the tag with `git push origin main --follow-tags`.
-4. Watch both signed platform jobs and the final publish job. A release is complete only when DMG,
+1. Confirm `git status --short` is empty, merge the reviewed version commit to `main`, and wait for
+   successful push CI on that exact commit.
+2. Confirm `package.json` contains the intended version, then dispatch **Release candidate** with the
+   full commit SHA and version. The workflow refuses to sign a commit without exact successful CI.
+3. Complete acceptance against the immutable signed candidate and commit only sanitized evidence.
+   Dispatch **Promote release candidate** with the run, artifact, manifest and revision identity shown
+   by the candidate workflow. Do not create or push the tag manually.
+4. Watch promotion and public verification. A release is complete only when DMG,
    ZIP, NSIS, updater manifests, scorecards, public-v0.4 upgrade evidence and build evidence are
    present in one public release. The final job must report that both upgrade evidence sets were
    executed for the exact tagged revision and that their candidate artifact sizes and SHA-256

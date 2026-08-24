@@ -60,6 +60,18 @@ jobs:
             exit 1
           }
 
+      - name: Require successful CI for the exact candidate commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f head_sha="$RELEASE_REVISION" \
+            -f branch=main \
+            -f event=push \
+            -f per_page=100 > "$RUNNER_TEMP/ci-runs.json"
+          node scripts/ci-provenance-gate.mjs "$RUNNER_TEMP/ci-runs.json"
+
       - name: Install dependencies
         run: npm ci
 
