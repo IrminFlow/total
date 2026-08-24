@@ -4,6 +4,7 @@ import * as ts from "typescript";
 import {
   EXPLICIT_PERMISSION_ACTIONS,
   IPC_EXPORT_CONTRACTS,
+  PAYLOAD_PERMISSION_CONTRACTS,
   companyWideExportLabelForChannel,
   companyWideSurfaceLabelForChannel,
   exportFormatForChannel,
@@ -91,7 +92,53 @@ describe("IPC permission contracts", () => {
     },
   );
 
-  it.each(["agent:approveProposal", "agent:discardProposal"])(
+  it.each([
+    ["payroll:attendance:save", "approved", "approve"],
+    ["payroll:attendance:save", "review", "create"],
+    ["payroll:attendance:save", "exception", "create"],
+    ["payroll:leave:record", "approved", "approve"],
+    ["payroll:leave:record", "rejected", "approve"],
+    ["payroll:leave:record", "requested", "create"],
+    ["payroll:salaryRevisions:save", "approved", "approve"],
+    ["payroll:salaryRevisions:save", "draft", "create"],
+    ["ai:documents:review", "approved", "approve"],
+    ["ai:documents:review", "dismissed", "approve"],
+  ] as const)(
+    "classifies %s status %s as %s",
+    (channel, status, action) => {
+      expect(
+        permissionActionForChannel(channel, { id: 1, status }, "accountant"),
+      ).toBe(action);
+    },
+  );
+
+  it.each(Object.keys(PAYLOAD_PERMISSION_CONTRACTS))(
+    "fails closed when %s has a missing or unknown status",
+    (channel) => {
+      expect(() =>
+        permissionActionForChannel(channel, {}, "accountant"),
+      ).toThrow("has no permission contract for the requested status");
+      expect(() =>
+        permissionActionForChannel(
+          channel,
+          { status: "future_status" },
+          "accountant",
+        ),
+      ).toThrow("has no permission contract for the requested status");
+    },
+  );
+
+  it.each([
+    "agent:approveProposal",
+    "agent:discardProposal",
+    "controls:exceptions:decide",
+    "payroll:attendance:approveMonth",
+    "payroll:reimbursements:decide",
+    "communications:messages:review",
+    "communications:messages:queue",
+    "communications:messages:deliver",
+    "communications:messages:resolveAcceptance",
+  ])(
     "classifies %s as an approval decision",
     (channel) => {
       expect(
@@ -135,11 +182,55 @@ describe("IPC permission contracts", () => {
       "voucher:batchReverse": "edit",
       "bank:setBankDate": "edit",
       "bank:chequeStatus": "edit",
+      "bankrule:reject": "edit",
       "system:recovery:attempt": "backup",
       "edoc:transportSet": "edit",
+      "controls:exceptions:decide": "approve",
+      "payroll:attendance:approveMonth": "approve",
+      "payroll:reimbursements:decide": "approve",
       "agent:approveProposal": "approve",
       "agent:discardProposal": "approve",
+      "mcp:refresh:decide": "settings",
+      "communications:messages:updateDraft": "edit",
+      "communications:messages:review": "approve",
+      "communications:messages:queue": "approve",
+      "communications:messages:deliver": "approve",
+      "communications:messages:resolveAcceptance": "approve",
+      "communications:messages:cancel": "edit",
     });
+  });
+
+  it("keeps the payload-aware contract table synchronized with workflow transitions", () => {
+    expect(Object.keys(PAYLOAD_PERMISSION_CONTRACTS)).toEqual([
+      "payroll:attendance:save",
+      "payroll:leave:record",
+      "payroll:salaryRevisions:save",
+      "ai:documents:review",
+    ]);
+  });
+
+  it("fails closed for a new approval-shaped mutation without a contract", () => {
+    expect(() =>
+      permissionActionForChannel(
+        "payroll:bonus:decide",
+        { id: 7, approved: true },
+        "accountant",
+      ),
+    ).toThrow("has no explicit permission contract");
+  });
+
+  it("classifies every registered approval-shaped mutation without heuristic fallback", () => {
+    const approvalShaped = registeredChannelList().filter((channel) =>
+      /(?:^|:)(?:approve(?:[A-Z:]|$)|reject(?:[A-Z:]|$)|decide(?:[A-Z:]|$))/.test(
+        channel,
+      ),
+    );
+    expect(approvalShaped.length).toBeGreaterThan(0);
+    for (const channel of approvalShaped) {
+      expect(() =>
+        permissionActionForChannel(channel, {}, "accountant"),
+      ).not.toThrow();
+    }
   });
 
   it("keeps every permission and export contract attached to a registered IPC channel", () => {
@@ -147,6 +238,7 @@ describe("IPC permission contracts", () => {
     expect(
       [
         ...Object.keys(EXPLICIT_PERMISSION_ACTIONS),
+        ...Object.keys(PAYLOAD_PERMISSION_CONTRACTS),
         ...Object.keys(IPC_EXPORT_CONTRACTS),
       ].filter((channel) => !registered.has(channel)),
     ).toEqual([]);

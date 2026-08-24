@@ -202,6 +202,7 @@ import { registerRecurringHandlers } from "./ipc/recurringHandlers";
 import { registerOutstandingBillsHandlers } from "./ipc/outstandingBillsHandlers";
 import { registerComplianceHandlers } from "./ipc/complianceHandlers";
 import { registerExtrasHandlers } from "./ipc/extrasHandlers";
+import { registerCommunicationsHandlers } from "./ipc/communicationsHandlers";
 import type { IpcHandler, OpenCompany } from "./ipc/types";
 import * as caPack from "./services/caPack";
 import { htmlToPdf, writeExportPdf } from "./services/pdf";
@@ -5459,6 +5460,11 @@ export function registerIpc(): void {
 
   // ---------- currencies + BOM ----------
   registerExtrasHandlers({ handle, requireCompany });
+  registerCommunicationsHandlers({
+    handle,
+    requireCompany,
+    actor: () => sessionUser?.name ?? "Local user",
+  });
 
   // ---------- payroll ----------
   const daysSchema = z.array(

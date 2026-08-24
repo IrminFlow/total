@@ -198,6 +198,11 @@ export const IPC_EXPORT_CONTRACTS = {
     departmentScope: "payload_only",
     label: "The logistics adapter export",
   },
+  "communications:messages:exportEml": {
+    format: "full_data",
+    departmentScope: "payload_only",
+    label: "The reviewed email draft",
+  },
 } as const satisfies Record<string, IpcExportContract>;
 
 /*
@@ -299,17 +304,87 @@ export const EXPLICIT_PERMISSION_ACTIONS = {
   "voucher:batchReverse": "edit",
   "bank:setBankDate": "edit",
   "bank:chequeStatus": "edit",
+  "bankrule:reject": "edit",
   "system:recovery:attempt": "backup",
   "edoc:transportSet": "edit",
+  "controls:exceptions:decide": "approve",
+  "payroll:attendance:approveMonth": "approve",
+  "payroll:reimbursements:decide": "approve",
   "agent:approveProposal": "approve",
   "agent:discardProposal": "approve",
+  "mcp:refresh:decide": "settings",
+  "communications:messages:updateDraft": "edit",
+  "communications:messages:review": "approve",
+  "communications:messages:queue": "approve",
+  "communications:messages:deliver": "approve",
+  "communications:messages:resolveAcceptance": "approve",
+  "communications:messages:cancel": "edit",
 } as const satisfies Record<string, PermissionAction>;
+
+type PayloadPermissionContract = (payload: unknown) => PermissionAction;
+
+function statusPermissionContract(
+  channel: string,
+  payload: unknown,
+  actions: Readonly<Record<string, PermissionAction>>,
+): PermissionAction {
+  const status =
+    payload && typeof payload === "object" && "status" in payload
+      ? (payload as { status?: unknown }).status
+      : undefined;
+  if (
+    typeof status !== "string" ||
+    !Object.prototype.hasOwnProperty.call(actions, status)
+  )
+    throw new Error(
+      `IPC channel '${channel}' has no permission contract for the requested status`,
+    );
+  return actions[status]!;
+}
+
+/**
+ * Mutations whose authority depends on the requested workflow transition.
+ * These run before the legacy channel/payload heuristic so an approval cannot
+ * inherit create or edit authority from a generic save/review endpoint.
+ */
+export const PAYLOAD_PERMISSION_CONTRACTS = {
+  "payroll:attendance:save": (payload) =>
+    statusPermissionContract("payroll:attendance:save", payload, {
+      review: "create",
+      exception: "create",
+      approved: "approve",
+    }),
+  "payroll:leave:record": (payload) =>
+    statusPermissionContract("payroll:leave:record", payload, {
+      requested: "create",
+      approved: "approve",
+      rejected: "approve",
+    }),
+  "payroll:salaryRevisions:save": (payload) =>
+    statusPermissionContract("payroll:salaryRevisions:save", payload, {
+      draft: "create",
+      approved: "approve",
+    }),
+  "ai:documents:review": (payload) =>
+    statusPermissionContract("ai:documents:review", payload, {
+      approved: "approve",
+      dismissed: "approve",
+    }),
+} as const satisfies Record<string, PayloadPermissionContract>;
+
+const APPROVAL_SHAPED_CHANNEL =
+  /(?:^|:)(?:approve(?:[A-Z:]|$)|reject(?:[A-Z:]|$)|decide(?:[A-Z:]|$))/;
 
 export function permissionActionForChannel(
   channel: string,
   payload: unknown,
   minRole: Role,
 ): PermissionAction {
+  const payloadContract =
+    PAYLOAD_PERMISSION_CONTRACTS[
+      channel as keyof typeof PAYLOAD_PERMISSION_CONTRACTS
+    ];
+  if (payloadContract) return payloadContract(payload);
   const explicit =
     EXPLICIT_PERMISSION_ACTIONS[
       channel as keyof typeof EXPLICIT_PERMISSION_ACTIONS
@@ -321,6 +396,13 @@ export function permissionActionForChannel(
     channel.startsWith("approval:reject")
   )
     return "approve";
+  // A new decision endpoint must declare its authority above. Falling through
+  // to the payload/name heuristic could otherwise turn an approval into an
+  // edit or create merely because its payload happens to contain an `id`.
+  if (APPROVAL_SHAPED_CHANNEL.test(channel))
+    throw new Error(
+      `Approval-shaped IPC channel '${channel}' has no explicit permission contract`,
+    );
   if (channel.startsWith("backup:") || channel === "company:backup")
     return "backup";
   if (ipcExportContractForChannel(channel)) return "export";

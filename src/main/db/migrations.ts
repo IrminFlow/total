@@ -2437,4 +2437,104 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_recurring_approval_links_template
     ON recurring_approval_links(recurring_template_id, occurrence_date);
   `,
+  // 059 - local customer/supplier communications. Drafts require an explicit review before
+  // queueing; SMTP acceptance is recorded honestly and never presented as recipient delivery.
+  // Credentials are device-bound safeStorage ciphertext. Message events are append-only evidence.
+  `
+  CREATE TABLE party_contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT '',
+    email TEXT,
+    phone TEXT,
+    is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (email IS NOT NULL OR phone IS NOT NULL)
+  );
+  CREATE INDEX idx_party_contacts_ledger ON party_contacts(ledger_id,active DESC,name,id);
+  CREATE UNIQUE INDEX idx_party_contacts_email
+    ON party_contacts(ledger_id,lower(email)) WHERE email IS NOT NULL;
+  CREATE UNIQUE INDEX idx_party_contacts_primary
+    ON party_contacts(ledger_id) WHERE is_primary=1 AND active=1;
+
+  CREATE TABLE smtp_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
+    security TEXT NOT NULL CHECK (security IN ('tls','starttls')),
+    username TEXT NOT NULL,
+    encrypted_password TEXT NOT NULL,
+    from_email TEXT NOT NULL,
+    from_name TEXT NOT NULL DEFAULT '',
+    reply_to TEXT,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+    last_tested_at TEXT,
+    last_error TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_smtp_profiles_active ON smtp_profiles(active DESC,name,id);
+
+  CREATE TABLE outbound_messages (
+    id TEXT PRIMARY KEY,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    contact_id INTEGER REFERENCES party_contacts(id) ON DELETE SET NULL,
+    channel TEXT NOT NULL DEFAULT 'email' CHECK (channel='email'),
+    to_json TEXT NOT NULL CHECK (json_valid(to_json) AND json_type(to_json)='array'),
+    cc_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(cc_json) AND json_type(cc_json)='array'),
+    bcc_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(bcc_json) AND json_type(bcc_json)='array'),
+    subject TEXT NOT NULL,
+    body_text TEXT NOT NULL,
+    content_sha256 TEXT NOT NULL CHECK (length(content_sha256)=64),
+    sender_json TEXT CHECK (sender_json IS NULL OR json_valid(sender_json)),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN (
+      'draft','reviewed','queued','sending','accepted_by_smtp','acceptance_unknown','failed','cancelled','exported'
+    )),
+    smtp_profile_id INTEGER REFERENCES smtp_profiles(id) ON DELETE SET NULL,
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    reviewed_by TEXT,
+    reviewed_at TEXT,
+    queued_at TEXT,
+    accepted_at TEXT,
+    exported_at TEXT,
+    last_error TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_outbound_messages_status ON outbound_messages(status,updated_at DESC,id);
+  CREATE INDEX idx_outbound_messages_ledger ON outbound_messages(ledger_id,created_at DESC,id);
+  CREATE TRIGGER outbound_messages_content_locked
+    BEFORE UPDATE OF ledger_id,contact_id,to_json,cc_json,bcc_json,subject,body_text,content_sha256
+    ON outbound_messages WHEN OLD.status<>'draft'
+    BEGIN SELECT RAISE(ABORT,'reviewed message content is immutable'); END;
+
+  CREATE TABLE outbound_message_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL REFERENCES outbound_messages(id) ON DELETE RESTRICT,
+    event_type TEXT NOT NULL CHECK (event_type IN (
+      'created','edited','reviewed','queued','delivery_started','accepted_by_smtp',
+      'acceptance_unknown','failed','cancelled','eml_exported'
+    )),
+    detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'),
+    actor TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_outbound_message_events_message
+    ON outbound_message_events(message_id,id);
+  CREATE TRIGGER outbound_message_events_no_update
+    BEFORE UPDATE ON outbound_message_events
+    BEGIN SELECT RAISE(ABORT,'outbound message events are append-only'); END;
+  CREATE TRIGGER outbound_message_events_no_delete
+    BEFORE DELETE ON outbound_message_events
+    BEGIN SELECT RAISE(ABORT,'outbound message events are append-only'); END;
+  `,
 ];

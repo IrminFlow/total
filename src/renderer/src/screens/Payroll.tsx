@@ -18,7 +18,7 @@ import { daysInMonth } from "@shared/payroll";
 import { todayISO } from "@shared/dates";
 import { api, type EmployeeHeadRow, type PayHead } from "../lib/client";
 import { formatPaise, parseRupees } from "@shared/money";
-import { useNav, useToasts } from "../state/stores";
+import { useNav, useSession, useToasts } from "../state/stores";
 import {
   AmountInput,
   Button,
@@ -69,6 +69,17 @@ function monthLabel(month: string): string {
 
 export function PayrollScreen(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>("employees");
+  const user = useSession((state) => state.user);
+  const companySlug = useSession((state) => state.slug);
+  const permissions = useQuery({
+    queryKey: ["permissionMatrix", companySlug],
+    queryFn: api.permissions.get,
+    enabled: user !== null && user.role !== "owner",
+  });
+  const canApprove =
+    user === null ||
+    user.role === "owner" ||
+    permissions.data?.[user.role].approve === true;
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-4 flex items-center gap-1">
@@ -95,11 +106,11 @@ export function PayrollScreen(): React.JSX.Element {
       ) : tab === "runs" ? (
         <RunsTab />
       ) : tab === "attendance" ? (
-        <AttendanceTab />
+        <AttendanceTab canApprove={canApprove} />
       ) : tab === "workforce" ? (
-        <WorkforceTab />
+        <WorkforceTab canApprove={canApprove} />
       ) : tab === "claims" ? (
-        <ClaimsTab />
+        <ClaimsTab canApprove={canApprove} />
       ) : tab === "contractors" ? (
         <ContractorsTab />
       ) : (
@@ -956,7 +967,7 @@ function ProvisioningModal({
   );
 }
 
-function ClaimsTab(): React.JSX.Element {
+function ClaimsTab({ canApprove }: { canApprove: boolean }): React.JSX.Element {
   const toast = useToasts();
   const queryClient = useQueryClient();
   const [claimOpen, setClaimOpen] = useState(false);
@@ -1076,7 +1087,7 @@ function ClaimsTab(): React.JSX.Element {
                     </span>
                   </td>
                   <td className="r">
-                    {row.status === "submitted" && (
+                    {row.status === "submitted" && canApprove && (
                       <>
                         <button
                           className="mr-3 text-[12px] text-dr hover:underline"
@@ -1091,6 +1102,11 @@ function ClaimsTab(): React.JSX.Element {
                           Reject
                         </button>
                       </>
+                    )}
+                    {row.status === "submitted" && !canApprove && (
+                      <span className="text-[10px] text-muted">
+                        Awaiting approver
+                      </span>
                     )}
                     {row.status === "approved" && (
                       <button
@@ -1677,7 +1693,11 @@ function ContractorPaymentModal({
   );
 }
 
-function WorkforceTab(): React.JSX.Element {
+function WorkforceTab({
+  canApprove,
+}: {
+  canApprove: boolean;
+}): React.JSX.Element {
   const toast = useToasts();
   const queryClient = useQueryClient();
   const [leaveOpen, setLeaveOpen] = useState(false);
@@ -1875,6 +1895,7 @@ function WorkforceTab(): React.JSX.Element {
       )}
       {leaveOpen && (
         <LeaveRecordModal
+          canApprove={canApprove}
           employees={active}
           types={types ?? []}
           onClose={() => setLeaveOpen(false)}
@@ -1887,6 +1908,7 @@ function WorkforceTab(): React.JSX.Element {
       )}
       {revisionOpen && (
         <SalaryRevisionModal
+          canApprove={canApprove}
           employees={active}
           onClose={() => setRevisionOpen(false)}
           onSaved={async () => {
@@ -2282,11 +2304,13 @@ function LeaveTypeModal({
 }
 
 function LeaveRecordModal({
+  canApprove,
   employees,
   types,
   onClose,
   onSaved,
 }: {
+  canApprove: boolean;
   employees: Employee[];
   types: LeaveType[];
   onClose: () => void;
@@ -2301,8 +2325,11 @@ function LeaveRecordModal({
     "accrual" | "taken" | "carry_forward" | "encashment" | "adjustment"
   >("taken");
   const [status, setStatus] = useState<"requested" | "approved" | "rejected">(
-    "approved",
+    canApprove ? "approved" : "requested",
   );
+  useEffect(() => {
+    if (!canApprove) setStatus("requested");
+  }, [canApprove]);
   const [note, setNote] = useState("");
   const save = async (): Promise<void> => {
     try {
@@ -2385,9 +2412,9 @@ function LeaveRecordModal({
               value={status}
               onChange={(e) => setStatus(e.target.value as typeof status)}
             >
-              <option value="approved">Approved</option>
               <option value="requested">Requested</option>
-              <option value="rejected">Rejected</option>
+              {canApprove && <option value="approved">Approved</option>}
+              {canApprove && <option value="rejected">Rejected</option>}
             </Select>
           </Field>
           <Field label="Note">
@@ -2406,10 +2433,12 @@ function LeaveRecordModal({
 }
 
 function SalaryRevisionModal({
+  canApprove,
   employees,
   onClose,
   onSaved,
 }: {
+  canApprove: boolean;
   employees: Employee[];
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -2424,7 +2453,12 @@ function SalaryRevisionModal({
     selected?.special ?? null,
   );
   const [reason, setReason] = useState("Annual compensation review");
-  const [status, setStatus] = useState<"draft" | "approved">("approved");
+  const [status, setStatus] = useState<"draft" | "approved">(
+    canApprove ? "approved" : "draft",
+  );
+  useEffect(() => {
+    if (!canApprove) setStatus("draft");
+  }, [canApprove]);
   const choose = (id: number): void => {
     setEmployeeId(id);
     const row = employees.find((employee) => employee.id === id);
@@ -2501,8 +2535,8 @@ function SalaryRevisionModal({
             value={status}
             onChange={(e) => setStatus(e.target.value as typeof status)}
           >
-            <option value="approved">Approve now</option>
             <option value="draft">Save draft</option>
+            {canApprove && <option value="approved">Approve now</option>}
           </Select>
         </Field>
         <div className="border-l-2 border-blue bg-soft px-3 py-2 text-[11px] text-muted">
@@ -2533,7 +2567,11 @@ type AttendanceDraft = Pick<
   | "note"
 >;
 
-function AttendanceTab(): React.JSX.Element {
+function AttendanceTab({
+  canApprove,
+}: {
+  canApprove: boolean;
+}): React.JSX.Element {
   const toast = useToasts();
   const queryClient = useQueryClient();
   const currentMonth = todayISO().slice(0, 7);
@@ -2701,7 +2739,14 @@ function AttendanceTab(): React.JSX.Element {
           <Button
             variant="primary"
             onClick={() => void approve()}
-            disabled={!activeEmployees.length || !!summary?.exceptions}
+            disabled={
+              !canApprove || !activeEmployees.length || !!summary?.exceptions
+            }
+            disabledTitle={
+              canApprove
+                ? undefined
+                : "Your role cannot approve payroll attendance"
+            }
           >
             Approve month
           </Button>
@@ -2761,6 +2806,13 @@ function AttendanceTab(): React.JSX.Element {
               {activeEmployees.map((employee) => {
                 const draft = drafts[employee.id];
                 if (!draft) return null;
+                const approvedLocked =
+                  !canApprove &&
+                  records?.some(
+                    (record) =>
+                      record.employeeId === employee.id &&
+                      record.status === "approved",
+                  );
                 const input = (
                   key: keyof Pick<
                     AttendanceDraft,
@@ -2776,6 +2828,7 @@ function AttendanceTab(): React.JSX.Element {
                     type="number"
                     min="0"
                     step={key === "overtimeMinutes" ? 1 : 0.5}
+                    disabled={approvedLocked}
                     value={draft[key]}
                     onChange={(event) =>
                       update(employee.id, { [key]: Number(event.target.value) })
@@ -2799,6 +2852,7 @@ function AttendanceTab(): React.JSX.Element {
                     <td>
                       <Select
                         className="w-24"
+                        disabled={approvedLocked}
                         value={draft.status}
                         onChange={(event) =>
                           update(employee.id, {
@@ -2808,13 +2862,21 @@ function AttendanceTab(): React.JSX.Element {
                         }
                       >
                         <option value="review">Review</option>
-                        <option value="approved">Approved</option>
+                        <option value="approved" disabled={!canApprove}>
+                          Approved
+                        </option>
                         <option value="exception">Exception</option>
                       </Select>
                     </td>
                     <td className="r">
                       <button
-                        className="text-[12px] text-blue hover:underline"
+                        className="text-[12px] text-blue hover:underline disabled:cursor-not-allowed disabled:text-muted disabled:no-underline"
+                        disabled={approvedLocked}
+                        title={
+                          approvedLocked
+                            ? "Your role cannot change approved attendance"
+                            : undefined
+                        }
                         onClick={() => void save(employee.id)}
                       >
                         Save
