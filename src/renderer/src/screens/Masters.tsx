@@ -565,6 +565,14 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
   const [openQty, setOpenQty] = useState(item ? (item.openingQtyMilli / 1000).toString() : '')
   const [openValue, setOpenValue] = useState<number | null>(item?.openingValue ?? null)
   const [barcode, setBarcode] = useState(item?.barcode ?? '')
+  const [reorderLevel, setReorderLevel] = useState(
+    item?.reorderLevelMilli != null ? String(item.reorderLevelMilli / 1000) : ''
+  )
+  // Three states, not a checkbox: '' follows the company setting, which is what every item
+  // starts as and what most of them should stay as.
+  const [blockNegative, setBlockNegative] = useState<'' | 'block' | 'allow'>(
+    item?.blockNegative == null ? '' : item.blockNegative ? 'block' : 'allow'
+  )
 
   const hsnCheck = hsn.trim() ? validateHsn(hsn) : null
   const hsnError = hsnCheck && !hsnCheck.valid ? hsnCheck.error : null
@@ -585,8 +593,8 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         openingQtyMilli: Math.round(parseFloat(openQty || '0') * 1000),
         openingValue: openValue ?? 0,
         barcode: barcode.trim() || null,
-        // Reorder level has no field in this modal yet (Wave 3); preserve what the item has.
-        reorderLevelMilli: item?.reorderLevelMilli ?? null
+        reorderLevelMilli: reorderLevel.trim() ? Math.round(parseFloat(reorderLevel) * 1000) : null,
+        blockNegative: blockNegative === '' ? null : blockNegative === 'block'
       }
       if (item) await api.stockItems.update(item.id, data)
       else await api.stockItems.create(data)
@@ -662,6 +670,32 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         <Field label="Barcode" hint="Scan into this field, or type an SKU">
           <TextInput value={barcode} onChange={(e) => setBarcode(e.target.value)} className="num" placeholder="Optional" />
         </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Reorder level" hint="Below this, the item appears in the buy list">
+            <TextInput
+              data-testid="input-item-reorder"
+              value={reorderLevel}
+              onChange={(e) => setReorderLevel(e.target.value)}
+              className="num"
+              inputMode="decimal"
+              placeholder="None"
+            />
+          </Field>
+          <Field
+            label="Going negative"
+            hint="The company setting is all-or-nothing; this overrides it for this item."
+          >
+            <Select
+              data-testid="select-item-block-negative"
+              value={blockNegative}
+              onChange={(e) => setBlockNegative(e.target.value as '' | 'block' | 'allow')}
+            >
+              <option value="">Follow the company setting</option>
+              <option value="block">Never allow it</option>
+              <option value="allow">Always allow it</option>
+            </Select>
+          </Field>
+        </div>
         {item && (
           <div>
             <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">

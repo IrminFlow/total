@@ -75,6 +75,32 @@ await scenario('02-demo-tour', async (h) => {
   await h.page.waitForSelector('[data-testid="rows-purchase-suggestions"]', { timeout: 15000 })
   await h.shot('purchase-suggestions')
 
+  // ---- a count sheet to walk the shelves with ----
+  // Printed, carried, and written on: Counted and Difference are blank, and the book quantity is
+  // beside them so a discrepancy is visible at the shelf rather than an hour later at a desk.
+  await h.stubDialogs()
+  await h.page.click('[data-testid="btn-count-sheet"]')
+  await h.page.waitForFunction(
+    () => /count sheet|Saved|saved/i.test(document.body.textContent ?? ''),
+    null,
+    { timeout: 20000 }
+  )
+
+  // ---- per-item negative-stock block ----
+  // The company-wide flag is all-or-nothing; a business that books a sale before the purchase
+  // invoice arrives has to leave it off, which leaves it off where it matters most.
+  assert(features.preventNegativeStock === false, 'the demo company allows negative stock')
+
+  await h.invoke('master:stockItems:update', {
+    id: target.id,
+    data: { ...target, blockNegative: true }
+  })
+  const reread = (await h.invoke('master:stockItems:list')).find((i) => i.id === target.id)
+  assert(reread.blockNegative === true, 'the per-item block round-trips')
+
   // Put it back, so the tour screenshots above are of ordinary books.
-  await h.invoke('master:stockItems:update', { id: target.id, data: { ...target, reorderLevelMilli: null } })
+  await h.invoke('master:stockItems:update', {
+    id: target.id,
+    data: { ...target, reorderLevelMilli: null, blockNegative: null }
+  })
 })

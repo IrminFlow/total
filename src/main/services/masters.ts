@@ -292,11 +292,14 @@ interface StockItemRow {
   id: number; name: string; group_id: number | null; unit_id: number; hsn: string | null
   gst_rate: number | null; cess_rate: number | null; opening_qty_milli: number; opening_value: number
   barcode: string | null; reorder_level_milli: number | null; valuation_method: 'weighted_avg' | 'fifo'
+  block_negative: number | null
 }
 const mapItem = (r: StockItemRow): StockItem => ({
   id: r.id, name: r.name, groupId: r.group_id, unitId: r.unit_id, hsn: r.hsn,
   gstRate: r.gst_rate, cessRate: r.cess_rate, openingQtyMilli: r.opening_qty_milli, openingValue: r.opening_value,
-  barcode: r.barcode, reorderLevelMilli: r.reorder_level_milli, valuationMethod: r.valuation_method
+  barcode: r.barcode, reorderLevelMilli: r.reorder_level_milli, valuationMethod: r.valuation_method,
+  // NULL is a third state, not a missing false: it means "follow the company setting".
+  blockNegative: r.block_negative == null ? null : r.block_negative === 1
 })
 
 export function listStockItems(db: DB): StockItem[] {
@@ -305,10 +308,11 @@ export function listStockItems(db: DB): StockItem[] {
 
 export function createStockItem(db: DB, input: StockItemInput): StockItem {
   const res = db.prepare(
-    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode, reorder_level_milli, valuation_method)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode, reorder_level_milli, valuation_method, block_negative)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
-    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? 'weighted_avg')
+    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? 'weighted_avg',
+    input.blockNegative == null ? null : input.blockNegative ? 1 : 0)
   const created = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(res.lastInsertRowid) as StockItemRow)
   writeAudit(db, 'stockItem', created.id, 'create', null, created)
   return created
@@ -319,9 +323,12 @@ export function updateStockItem(db: DB, id: number, input: StockItemInput): Stoc
   if (!existing) throw new Error('Stock item not found')
   db.prepare(
     `UPDATE stock_items SET name = ?, group_id = ?, unit_id = ?, hsn = ?, gst_rate = ?, cess_rate = ?,
-     opening_qty_milli = ?, opening_value = ?, barcode = ?, reorder_level_milli = ?, valuation_method = ? WHERE id = ?`
+     opening_qty_milli = ?, opening_value = ?, barcode = ?, reorder_level_milli = ?, valuation_method = ?,
+     block_negative = ? WHERE id = ?`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
-    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? existing.valuation_method, id)
+    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli,
+    input.valuationMethod ?? existing.valuation_method,
+    input.blockNegative == null ? null : input.blockNegative ? 1 : 0, id)
   const updated = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow)
   writeAudit(db, 'stockItem', id, 'update', mapItem(existing), updated)
   return updated

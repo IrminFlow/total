@@ -429,9 +429,31 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number): Sav
       input.inventory.filter((l) => l.direction === 'out' && !l.isAbsolute).map((l) => l.stockItemId)
     )]
     warnings.negativeStock = checkStock(db, outItemIds, input.date)
-    if (features.preventNegativeStock && warnings.negativeStock.length > 0) {
-      const names = warnings.negativeStock.map((w) => w.name).join(', ')
-      throw new Error(`Insufficient stock for: ${names}`)
+    if (warnings.negativeStock.length > 0) {
+      // Per-item overrides the company setting in both directions. The company flag is
+      // all-or-nothing, and a business that books a sale before the purchase invoice arrives has
+      // to leave it off — which leaves it off for the items where going negative really is always
+      // a mistake. NULL on an item means "follow the company", which is what they all start as.
+      const overrides = new Map(
+        (
+          db
+            .prepare(
+              `SELECT id, block_negative AS blockNegative FROM stock_items
+               WHERE id IN (${warnings.negativeStock.map(() => '?').join(',')})`
+            )
+            .all(...warnings.negativeStock.map((w) => w.stockItemId)) as {
+              id: number; blockNegative: number | null
+            }[]
+        ).map((r) => [r.id, r.blockNegative])
+      )
+      const blocked = warnings.negativeStock.filter((w) => {
+        const own = overrides.get(w.stockItemId)
+        return own == null ? features.preventNegativeStock : own === 1
+      })
+      if (blocked.length > 0) {
+        const names = blocked.map((w) => w.name).join(', ')
+        throw new Error(`Insufficient stock for: ${names}`)
+      }
     }
 
     // Credit limit (task 76): with this voucher's lines now in the books, the party's

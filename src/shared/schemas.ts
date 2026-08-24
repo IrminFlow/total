@@ -129,7 +129,17 @@ export const stockItemInputSchema = z.object({
   /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
   reorderLevelMilli: z.number().int().min(0).nullable().default(null),
   /** Absent = keep existing (update) / 'weighted_avg' (create). */
-  valuationMethod: z.enum(['weighted_avg', 'fifo']).optional()
+  valuationMethod: z.enum(['weighted_avg', 'fifo']).optional(),
+  /**
+   * Refuse to let this item go negative, whatever the company setting says.
+   *
+   * Three states, not two: null follows the company, true blocks regardless, false permits
+   * regardless. A boolean would have forced every existing item to an opinion nobody has.
+   */
+  // Optional rather than defaulted: "not specified" and "explicitly null" both mean follow the
+  // company, so there is nothing for a default to add — and requiring it would make every
+  // existing caller state an opinion it does not have.
+  blockNegative: z.boolean().nullable().optional()
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
 

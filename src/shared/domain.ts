@@ -300,6 +300,16 @@ export interface StockItem {
   reorderLevelMilli: number | null
   /** How this item's stock is valued (src/shared/valuation.ts). */
   valuationMethod: 'weighted_avg' | 'fifo'
+  /**
+   * Refuse to let this item go negative, whatever the company-wide setting says.
+   *
+   * `null` means "follow the company setting", and is what every item starts as. The company
+   * flag is all-or-nothing, and a business that books a sale before the purchase invoice arrives
+   * has to leave it off — which leaves it off for the items where going negative really is
+   * always a mistake. `false` is the opposite exemption: allow this one item to go negative in a
+   * book that otherwise blocks it.
+   */
+  blockNegative: boolean | null
 }
 
 export interface Godown {

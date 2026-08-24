@@ -589,4 +589,16 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_gst_filings_period ON gst_filings(period);
   `,
+
+  // 20 — per-item negative-stock block.
+  //
+  // The company-wide F11 flag is all-or-nothing, and a business that sells services alongside
+  // goods, or that legitimately books a sale before the purchase invoice arrives, has to leave it
+  // off — which leaves it off for the items where going negative really is always a mistake.
+  //
+  // NULL means "follow the company setting", which is what every existing item wants. A per-item
+  // yes/no would have forced a migration to guess an answer for items nobody has an opinion on.
+  `
+  ALTER TABLE stock_items ADD COLUMN block_negative INTEGER;
+  `
 ]

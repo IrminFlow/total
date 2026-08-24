@@ -64,6 +64,17 @@ describe('migrate', () => {
     expect(names).toEqual([...EXPECTED_TABLES].sort())
   })
 
+  it('adds block_negative as a nullable column, so existing items keep no opinion', () => {
+    // NULL is a third state, not a missing false: it means "follow the company setting", which
+    // is the only answer a migration can give for an item nobody has expressed a view on.
+    const db = freshDb()
+    const cols = db.prepare('PRAGMA table_info(stock_items)').all() as { name: string; notnull: number; dflt_value: unknown }[]
+    const col = cols.find((c) => c.name === 'block_negative')
+    expect(col).toBeDefined()
+    expect(col!.notnull).toBe(0)
+    expect(col!.dflt_value).toBeNull()
+  })
+
   it('creates the partial index backing the bin (deleted_at lookups)', () => {
     const db = freshDb()
     const row = db

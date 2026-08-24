@@ -10,6 +10,21 @@ import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/clie
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 
+/**
+ * A sheet to walk the shelves with.
+ *
+ * Counted and Difference are blank on purpose — this is printed, carried, and written on. The
+ * book quantity is printed beside them so a discrepancy is visible at the shelf rather than an
+ * hour later at a desk.
+ */
+const COUNT_SHEET_COLUMNS: PdfColumn[] = [
+  { label: 'Item', align: 'l' },
+  { label: 'Unit', align: 'l', width: 60 },
+  { label: 'Per books', align: 'r', width: 90 },
+  { label: 'Counted', align: 'r', width: 110 },
+  { label: 'Difference', align: 'r', width: 110 }
+]
+
 function fmtQty(qtyMilli: number, decimals: number): string {
   return (qtyMilli / 1000).toFixed(decimals)
 }
@@ -82,6 +97,36 @@ export function StockSummaryScreen(): React.JSX.Element {
           <div className="flex items-center gap-2">
             <span className="num text-small text-muted">as on {toDisplayDate(to)}</span>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
+            <Button
+              variant="ghost"
+              data-testid="btn-count-sheet"
+              title="A printable sheet with blank columns, to walk the shelves with"
+              onClick={() =>
+                void printReport(
+                  {
+                    title: 'Physical stock count sheet',
+                    periodLabel: `as on ${toDisplayDate(to)}`,
+                    columns: COUNT_SHEET_COLUMNS,
+                    // The book quantity is deliberately included. A blind count sounds more
+                    // rigorous and produces a sheet nobody can check against anything while they
+                    // are standing at the shelf; the discrepancy column is what gets acted on.
+                    rows: rows.map((r) => ({
+                      cells: [
+                        r.name,
+                        r.unitSymbol,
+                        `${fmtQty(r.closingQtyMilli, r.decimals)}`,
+                        '',
+                        ''
+                      ]
+                    })),
+                    filename: `count-sheet-${to}`
+                  },
+                  toast
+                )
+              }
+            >
+              Count sheet
+            </Button>
             <Button
               variant="ghost"
               onClick={() =>
