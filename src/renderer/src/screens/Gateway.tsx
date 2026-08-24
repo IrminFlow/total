@@ -30,13 +30,15 @@ export function Gateway(): React.JSX.Element {
   // `nav` keyboard layer, so they work from every screen rather than only this one.
 
   const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
+  const filingFrequency = info?.gstFilingFrequency ?? 'monthly'
+  const stateCode = info?.stateCode ?? ''
 
   // hasPayroll doesn't matter for a 'gst'-kind deadline, so `false` is fine here.
   const nearestGst = useMemo(
     () =>
       gstRegistrationType === 'unregistered'
         ? null
-        : (upcomingDeadlines(today, gstRegistrationType, false, 30).find((d) => d.kind === 'gst') ?? null),
+        : (upcomingDeadlines(today, gstRegistrationType, false, 30, filingFrequency, stateCode).find((d) => d.kind === 'gst') ?? null),
     [today, gstRegistrationType]
   )
 
@@ -240,9 +242,11 @@ function CompliancePanel({
   const today = todayISO()
   const [showAll, setShowAll] = useState(false)
   const gstRegistrationType = info?.gstRegistrationType ?? 'unregistered'
+  const filingFrequency = info?.gstFilingFrequency ?? 'monthly'
+  const stateCode = info?.stateCode ?? ''
 
   const deadlines = useMemo(
-    () => upcomingDeadlines(today, gstRegistrationType, hasEmployees, 30),
+    () => upcomingDeadlines(today, gstRegistrationType, hasEmployees, 30, filingFrequency, stateCode),
     [today, gstRegistrationType, hasEmployees]
   )
 
@@ -251,7 +255,7 @@ function CompliancePanel({
     // deadlines) reflects reality rather than the react-query default of `false`.
     if (!info || !slug || !dashboardLoaded || notifiedCompanies.has(slug)) return
     notifiedCompanies.add(slug)
-    const soon = upcomingDeadlines(today, gstRegistrationType, hasEmployees, 3)
+    const soon = upcomingDeadlines(today, gstRegistrationType, hasEmployees, 3, filingFrequency, stateCode)
     if (soon.length) {
       // Deliberately fire-and-forget: an OS notification failing is not worth interrupting
       // the Gateway for — swallow the rejection.

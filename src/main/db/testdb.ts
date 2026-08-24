@@ -15,6 +15,7 @@ export const TEST_INFO: CompanyInfo = {
   stateCode: '27',
   gstin: null,
   gstRegistrationType: 'regular',
+  gstFilingFrequency: 'monthly',
   address: '',
   booksFrom: 2025,
   email: null,

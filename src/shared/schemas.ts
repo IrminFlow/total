@@ -38,6 +38,7 @@ export const companyCreateSchema = z.object({
   stateCode: stateCodeSchema,
   gstin: gstinSchema.nullable(),
   gstRegistrationType: z.enum(['regular', 'composition', 'unregistered']),
+  gstFilingFrequency: z.enum(['monthly', 'quarterly']).default('monthly'),
   address: z.string().trim().max(500).default(''),
   booksFrom: z.number().int().min(1990).max(2100),
   email: z.string().trim().email().nullable(),

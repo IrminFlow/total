@@ -14,7 +14,7 @@ Ordering within a section is roughly by value.
 3. ✓ Tally Enter-chaining with an inline Accept bar (M)
 4. ✓ Application menu; free ⌘R / F12 / ⌥⌘I from Electron's default (S)
 5. ✓ `useTableNav` list navigation with Home/End/PageUp/PageDown (M)
-6. List navigation on the last four screens: GstReturns, Gstr2b, Recurring, Tds (S)
+6. ✓ List navigation on the last four screens (S)
 7. `⌘F` focuses the filter box on every report rather than needing a click (S)
 8. Type-to-filter: any letter typed on a list screen starts filtering, as Tally does (S)
 9. `⌘[` / `⌘]` for back and forward through the nav stack (S)
@@ -37,14 +37,14 @@ Ordering within a section is roughly by value.
 
 ## B. Data entry speed
 
-26. Undo for voucher save, delete and restore, using the existing bin (M)
+26. ✓ Undo for voucher delete, offered on the toast (M)
 27. Voucher templates beyond recurring: save any voucher as a named template (M)
 28. Copy the previous voucher of the same type with one key (S)
 29. Auto-fill the narration from the party and item names (S)
 30. Inline ledger creation without leaving the picker (already partly there) (S)
 31. Paste a table of lines from a spreadsheet directly into the voucher grid (M)
-32. Amount field accepts arithmetic: typing `1200*3` yields 3,600 (S)
-33. Amount field accepts `k` and `L` suffixes: `12k`, `1.5L` (S)
+32. ✓ Amount field accepts arithmetic: `1200*3` yields 3,600 (S)
+33. ✓ Amount field accepts `k`, `L` and `cr` suffixes (S)
 34. Quantity field accepts a unit-conversion expression (`2 box` → 24 pcs) (M)
 35. Remember the last-used voucher type per session (S)
 36. Warn before saving a voucher dated outside the open period (S)
@@ -67,7 +67,7 @@ Ordering within a section is roughly by value.
 
 51. ✓ Quarterly, half-yearly and annual period granularity (M)
 52. ✓ Day Book paged at the IPC boundary (M)
-53. Extend paging to Ledger Statement, Registers and Outstandings (M)
+53. ✓ Ledger Statement paged; Outstandings sends a summary and fetches bills on expand (M)
 54. Row virtualization so a 30,000-row report scrolls without 30,000 DOM nodes (M)
 55. Comparative columns: this period against the same period last year (M)
 56. Drill-down from any figure in P&L or Balance Sheet to its ledger (M)
@@ -98,7 +98,7 @@ Ordering within a section is roughly by value.
 
 ## D. GST and statutory
 
-81. QRMP support: quarterly GSTR-3B, monthly PMT-06, IFF for months 1 and 2 (L)
+81. ✓ QRMP: quarterly GSTR-1/3B, monthly PMT-06, optional IFF, state-staggered 3B date (L)
 82. Composition scheme: CMP-08 and GSTR-4 rather than blocking export (M)
 83. GSTR-9 annual return working papers (L)
 84. GSTR-2B reconciliation improvements: fuzzy match on party name (M)
@@ -176,7 +176,7 @@ Ordering within a section is roughly by value.
 ## G. Receivables, payables and khata
 
 149. A party-centric khata screen: running balance, credit limit, days overdue (M)
-150. WhatsApp payment reminders via `wa.me` with the statement attached (S)
+150. ✓ WhatsApp payment reminders via `wa.me` (S)
 151. Reminder letters with configurable ageing bands (M)
 152. Promised-payment date per bill with a follow-up list (M)
 153. Interest on overdue bills, per party terms (M)
@@ -188,7 +188,7 @@ Ordering within a section is roughly by value.
 159. Customer credit scoring from payment history (M)
 160. A daily "who to chase today" list on the Gateway (S)
 161. Bulk reminder send to every overdue party (M)
-162. Party contact fields: phone, email, WhatsApp, GST portal login (S)
+162. ✓ Party phone and email (S)
 163. Notes and call log per party (M)
 164. Advance received tracking against future invoices (M)
 165. Vendor payment scheduling by due date (M)
@@ -263,7 +263,7 @@ Ordering within a section is roughly by value.
 ## K. Performance and scale
 
 224. ✓ Measured benchmark: 30k vouchers, every report under 100 ms (M)
-225. Code-split the renderer: 1.5 MB in one chunk today (M)
+225. ✗ Not doing: startup measured at 580 ms median over three cold launches, so the 1.5 MB single chunk is not costing anything worth splitting (M)
 226. Lazy-load screens that most users never open (S)
 227. Row virtualization on long tables (M)
 228. Prepared-statement reuse across calls in hot services (S)

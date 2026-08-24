@@ -18,6 +18,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
   const [stateCode, setStateCode] = useState(info?.stateCode ?? '27')
   const [gstin, setGstin] = useState(info?.gstin ?? '')
   const [regType, setRegType] = useState(info?.gstRegistrationType ?? 'unregistered')
+  const [filing, setFiling] = useState(info?.gstFilingFrequency ?? 'monthly')
   const [address, setAddress] = useState(info?.address ?? '')
   const [email, setEmail] = useState(info?.email ?? '')
   const [phone, setPhone] = useState(info?.phone ?? '')
@@ -31,6 +32,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
     setStateCode(info?.stateCode ?? '27')
     setGstin(info?.gstin ?? '')
     setRegType(info?.gstRegistrationType ?? 'unregistered')
+    setFiling(info?.gstFilingFrequency ?? 'monthly')
     setAddress(info?.address ?? '')
     setEmail(info?.email ?? '')
     setPhone(info?.phone ?? '')
@@ -44,6 +46,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
     stateCode !== (info?.stateCode ?? '27') ||
     gstin !== (info?.gstin ?? '') ||
     regType !== (info?.gstRegistrationType ?? 'unregistered') ||
+    filing !== (info?.gstFilingFrequency ?? 'monthly') ||
     address !== (info?.address ?? '') ||
     email !== (info?.email ?? '') ||
     phone !== (info?.phone ?? '') ||
@@ -65,6 +68,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
         stateCode,
         gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
         gstRegistrationType: gstin.trim() ? (regType === 'unregistered' ? 'regular' : regType) : 'unregistered',
+        gstFilingFrequency: filing,
         address,
         booksFrom: info?.booksFrom ?? 2025,
         email: email.trim() || null,
@@ -112,6 +116,17 @@ export function CompanyInfoScreen(): React.JSX.Element {
               <option value="regular">Regular</option>
               <option value="composition">Composition</option>
               <option value="unregistered">Unregistered</option>
+            </Select>
+          </Field>
+          <Field label="Filing frequency" hint="QRMP: quarterly returns, monthly tax">
+            <Select
+              data-testid="select-filing-frequency"
+              value={filing}
+              onChange={(e) => setFiling(e.target.value as typeof filing)}
+              disabled={!gstin.trim() || regType !== 'regular'}
+            >
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly (QRMP)</option>
             </Select>
           </Field>
         </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { upcomingDeadlines } from './compliance'
+import { type Deadline, upcomingDeadlines } from './compliance'
 
 describe('upcomingDeadlines', () => {
   it('rolls a December period over into January GSTR-1/3B deadlines', () => {
@@ -82,5 +82,76 @@ describe('upcomingDeadlines', () => {
     const withDefault = upcomingDeadlines('2026-01-01', 'regular', true)
     const explicit30 = upcomingDeadlines('2026-01-01', 'regular', true, 30)
     expect(withDefault).toEqual(explicit30)
+  })
+})
+
+describe('QRMP (quarterly returns, monthly payment)', () => {
+  // Most small businesses qualify for QRMP -- aggregate turnover up to Rs 5 crore -- and before
+  // this the calendar showed them monthly GSTR-1 and GSTR-3B dates that do not apply to them.
+  const qrmp = (today: string, horizon = 40, stateCode = '27'): Deadline[] =>
+    upcomingDeadlines(today, 'regular', false, horizon, 'quarterly', stateCode)
+
+  const forms = (ds: Deadline[]): string[] => ds.filter((d) => d.kind === 'gst').map((d) => d.form)
+
+  it('does not show the monthly GSTR-1 and GSTR-3B a QRMP filer never files', () => {
+    // April is month 1 of Q1, so the only GST items due in May are the challan and the IFF.
+    const may = forms(qrmp('2026-05-01'))
+    expect(may).not.toContain('GSTR-1')
+    expect(may).not.toContain('GSTR-3B')
+  })
+
+  it('asks for a PMT-06 challan in the first two months of the quarter', () => {
+    // Tax is still monthly under QRMP; this is the part filers most often miss.
+    expect(forms(qrmp('2026-05-01'))).toContain('PMT-06')
+    expect(forms(qrmp('2026-06-01'))).toContain('PMT-06')
+    const pmt = qrmp('2026-05-01').find((d) => d.form === 'PMT-06')!
+    expect(pmt.date).toBe('2026-05-25')
+    expect(pmt.title).toContain('April 2026')
+  })
+
+  it('offers the optional IFF alongside it', () => {
+    const iff = qrmp('2026-05-01').find((d) => d.form === 'IFF')
+    expect(iff?.date).toBe('2026-05-13')
+    expect(iff?.title).toMatch(/optional/)
+  })
+
+  it('files both returns in the month after the quarter closes', () => {
+    // Q1 is Apr-Jun, so both fall due in July and are labelled as the quarter, not the month.
+    const july = qrmp('2026-07-01')
+    const gstr1 = july.find((d) => d.form === 'GSTR-1')!
+    expect(gstr1.date).toBe('2026-07-13')
+    expect(gstr1.title).toContain('Q1')
+    expect(july.find((d) => d.form === 'PMT-06')).toBeUndefined()
+    expect(july.find((d) => d.form === 'IFF')).toBeUndefined()
+  })
+
+  it('staggers GSTR-3B by state: the 22nd for one group, the 24th for the rest', () => {
+    expect(qrmp('2026-07-01', 40, '27').find((d) => d.form === 'GSTR-3B')!.date).toBe('2026-07-22')
+    expect(qrmp('2026-07-01', 40, '09').find((d) => d.form === 'GSTR-3B')!.date).toBe('2026-07-24')
+  })
+
+  it('gets every quarter boundary right across a full year', () => {
+    // Returns are due in July, October, January and April; nothing quarterly in any other month.
+    const returnMonths: string[] = []
+    for (let m = 1; m <= 12; m++) {
+      const found = qrmp(`2026-${String(m).padStart(2, '0')}-01`, 20).some((d) => d.form === 'GSTR-1')
+      if (found) returnMonths.push(String(m))
+    }
+    expect(returnMonths).toEqual(['1', '4', '7', '10'])
+  })
+
+  it('leaves a monthly filer exactly as it was', () => {
+    const monthly = upcomingDeadlines('2026-05-01', 'regular', false, 40, 'monthly', '27')
+    expect(forms(monthly)).toContain('GSTR-1')
+    expect(forms(monthly)).toContain('GSTR-3B')
+    expect(forms(monthly)).not.toContain('PMT-06')
+    // The default argument must also mean monthly, so existing callers do not change behaviour.
+    expect(upcomingDeadlines('2026-05-01', 'regular', false, 40)).toEqual(
+      upcomingDeadlines('2026-05-01', 'regular', false, 40, 'monthly', '')
+    )
+  })
+
+  it('still files nothing for a composition dealer, whatever the frequency', () => {
+    expect(forms(upcomingDeadlines('2026-07-01', 'composition', false, 40, 'quarterly', '27'))).toEqual([])
   })
 })

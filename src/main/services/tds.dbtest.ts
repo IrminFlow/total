@@ -13,7 +13,8 @@ import type { VoucherInputParsed } from '@shared/schemas'
 import { companyExportsDir, ensureCompanyTree } from '../paths'
 
 const INFO: CompanyInfo = {
-  name: 'Test Co', stateCode: '27', gstin: null, gstRegistrationType: 'regular', address: '',
+  name: 'Test Co', stateCode: '27', gstin: null, gstRegistrationType: 'regular',
+  gstFilingFrequency: 'monthly', address: '',
   booksFrom: 2025, email: null, phone: null, pan: null, tan: null
 }
 

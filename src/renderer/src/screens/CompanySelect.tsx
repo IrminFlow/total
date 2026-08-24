@@ -396,6 +396,7 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
   const [stateCode, setStateCode] = useState('27')
   const [gstin, setGstin] = useState('')
   const [regType, setRegType] = useState<CompanyCreateInput['gstRegistrationType']>('regular')
+  const [filing, setFiling] = useState<CompanyCreateInput['gstFilingFrequency']>('monthly')
   const [address, setAddress] = useState('')
   const [booksFrom, setBooksFrom] = useState(fyOf(todayISO()).startYear)
 
@@ -408,6 +409,7 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
         stateCode,
         gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
         gstRegistrationType: gstin.trim() ? regType : 'unregistered',
+        gstFilingFrequency: filing,
         address,
         booksFrom,
         email: null,
@@ -465,6 +467,21 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
             <Select value={regType} onChange={(e) => setRegType(e.target.value as CompanyCreateInput['gstRegistrationType'])}>
               <option value="regular">Regular</option>
               <option value="composition">Composition</option>
+            </Select>
+          </Field>
+        )}
+        {gstin.trim() && regType === 'regular' && (
+          <Field
+            label="Filing frequency"
+            hint="QRMP is open to turnover up to Rs 5 crore: quarterly returns, tax still paid monthly"
+          >
+            <Select
+              data-testid="select-filing-frequency"
+              value={filing}
+              onChange={(e) => setFiling(e.target.value as CompanyCreateInput['gstFilingFrequency'])}
+            >
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly (QRMP)</option>
             </Select>
           </Field>
         )}

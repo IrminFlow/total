@@ -357,6 +357,17 @@ export interface CompanyInfo {
   stateCode: string
   gstin: string | null
   gstRegistrationType: 'regular' | 'composition' | 'unregistered'
+  /**
+   * How often GST returns are filed.
+   *
+   * QRMP (Quarterly Return, Monthly Payment) is available to registrations with aggregate
+   * turnover up to Rs 5 crore, which is most small businesses. Under it GSTR-1 and GSTR-3B are
+   * quarterly, tax is still paid monthly by PMT-06 challan, and an optional IFF lets a filer
+   * push B2B invoices to their buyers in the first two months of the quarter.
+   *
+   * Defaults to monthly so an existing company's calendar does not change under it.
+   */
+  gstFilingFrequency: 'monthly' | 'quarterly'
   address: string
   /** FY start year of the earliest books, e.g. 2025. */
   booksFrom: number

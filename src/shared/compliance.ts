@@ -8,6 +8,41 @@
 
 export type DeadlineKind = 'gst' | 'tds' | 'pf' | 'esi' | 'advance-tax'
 
+/**
+ * GSTR-3B under QRMP is staggered by state. Registrations in this group file by the 22nd; every
+ * other state files by the 24th. Codes are the two-digit GST state codes.
+ *
+ * This is the one piece of the schedule that varies by where the business is registered, and it
+ * is exactly the sort of thing worth checking against the current notification before a filing
+ * season -- the grouping has been revised before.
+ */
+const QRMP_22ND_STATE_CODES = new Set([
+  '29', // Karnataka
+  '32', // Kerala
+  '33', // Tamil Nadu
+  '34', // Puducherry
+  '35', // Andaman & Nicobar
+  '36', // Telangana
+  '37', // Andhra Pradesh
+  '24', // Gujarat
+  '26', // Dadra & Nagar Haveli and Daman & Diu
+  '27', // Maharashtra
+  '30', // Goa
+  '31', // Lakshadweep
+  '22', // Chhattisgarh
+  '23' // Madhya Pradesh
+])
+
+/** Which FY quarter a 1-indexed calendar month falls in. Q1 is Apr-Jun. */
+function fyQuarterOfMonth(month: number): 1 | 2 | 3 | 4 {
+  return (Math.floor(((month - 4 + 12) % 12) / 3) + 1) as 1 | 2 | 3 | 4
+}
+
+/** Position of a month within its FY quarter: 1, 2 or 3. */
+function monthInQuarter(month: number): 1 | 2 | 3 {
+  return (((month - 4 + 12) % 12) % 3 + 1) as 1 | 2 | 3
+}
+
 export interface Deadline {
   id: string
   form: string
@@ -60,7 +95,11 @@ export function upcomingDeadlines(
   today: string,
   gstRegistrationType: 'regular' | 'composition' | 'unregistered',
   hasPayroll: boolean,
-  horizonDays = 30
+  horizonDays = 30,
+  /** Monthly unless the registration is on QRMP. */
+  gstFilingFrequency: 'monthly' | 'quarterly' = 'monthly',
+  /** Two-digit GST state code, which decides the QRMP GSTR-3B date. */
+  stateCode = ''
 ): Deadline[] {
   const horizonEnd = addDays(today, horizonDays)
   const { y: ty, m: tm } = parseISO(today)
@@ -83,7 +122,7 @@ export function upcomingDeadlines(
     const period = monthAdd(filingY, filingM, -1)
     const periodLabel = monthLabel(period.y, period.m)
 
-    if (gstRegistrationType === 'regular') {
+    if (gstRegistrationType === 'regular' && gstFilingFrequency === 'monthly') {
       const gstr1Date = ymd(filingY, filingM, 11)
       if (inRange(gstr1Date)) {
         out.push({ id: `gstr1-${period.y}-${pad2(period.m)}`, form: 'GSTR-1', title: `GSTR-1 — outward supplies (${periodLabel})`, date: gstr1Date, kind: 'gst' })
@@ -91,6 +130,61 @@ export function upcomingDeadlines(
       const gstr3bDate = ymd(filingY, filingM, 20)
       if (inRange(gstr3bDate)) {
         out.push({ id: `gstr3b-${period.y}-${pad2(period.m)}`, form: 'GSTR-3B', title: `GSTR-3B — summary return (${periodLabel})`, date: gstr3bDate, kind: 'gst' })
+      }
+    }
+
+    if (gstRegistrationType === 'regular' && gstFilingFrequency === 'quarterly') {
+      // QRMP. The returns are quarterly but the money is still monthly, which is the part
+      // filers most often miss -- a PMT-06 challan is due in each of the first two months.
+      const position = monthInQuarter(period.m)
+      const quarter = fyQuarterOfMonth(period.m)
+
+      if (position === 3) {
+        // Quarter just ended: both returns fall due in the following month.
+        const gstr1Date = ymd(filingY, filingM, 13)
+        if (inRange(gstr1Date)) {
+          out.push({
+            id: `gstr1-q-${period.y}-${quarter}`,
+            form: 'GSTR-1',
+            title: `GSTR-1 — outward supplies (Q${quarter}, quarter ending ${periodLabel})`,
+            date: gstr1Date,
+            kind: 'gst'
+          })
+        }
+        const day3b = QRMP_22ND_STATE_CODES.has(stateCode) ? 22 : 24
+        const gstr3bDate = ymd(filingY, filingM, day3b)
+        if (inRange(gstr3bDate)) {
+          out.push({
+            id: `gstr3b-q-${period.y}-${quarter}`,
+            form: 'GSTR-3B',
+            title: `GSTR-3B — summary return (Q${quarter}, quarter ending ${periodLabel})`,
+            date: gstr3bDate,
+            kind: 'gst'
+          })
+        }
+      } else {
+        // Months 1 and 2: tax by challan, and the optional IFF so buyers see their credit
+        // without waiting for the quarter to close.
+        const pmt06Date = ymd(filingY, filingM, 25)
+        if (inRange(pmt06Date)) {
+          out.push({
+            id: `pmt06-${period.y}-${pad2(period.m)}`,
+            form: 'PMT-06',
+            title: `PMT-06 — monthly tax payment (${periodLabel})`,
+            date: pmt06Date,
+            kind: 'gst'
+          })
+        }
+        const iffDate = ymd(filingY, filingM, 13)
+        if (inRange(iffDate)) {
+          out.push({
+            id: `iff-${period.y}-${pad2(period.m)}`,
+            form: 'IFF',
+            title: `IFF — optional B2B upload (${periodLabel})`,
+            date: iffDate,
+            kind: 'gst'
+          })
+        }
       }
     }
 

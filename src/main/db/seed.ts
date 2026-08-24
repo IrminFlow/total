@@ -38,8 +38,14 @@ export function seedCompany(db: DB, info: CompanyInfo): void {
 export function readCompanyInfo(db: DB): CompanyInfo {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string }
   const parsed = JSON.parse(row.value) as CompanyInfo
-  // Older companies were seeded before pan/tan existed — default them in so callers never see undefined.
-  return { ...parsed, pan: parsed.pan ?? null, tan: parsed.tan ?? null }
+  // Older companies were seeded before these existed — default them in so callers never see
+  // undefined. Filing frequency defaults to monthly, which is what those companies were on.
+  return {
+    ...parsed,
+    pan: parsed.pan ?? null,
+    tan: parsed.tan ?? null,
+    gstFilingFrequency: parsed.gstFilingFrequency ?? 'monthly'
+  }
 }
 
 export function writeCompanyInfo(db: DB, info: CompanyInfo): void {

@@ -15,6 +15,7 @@ export const DEMO_COMPANY: CompanyInfo = {
   stateCode: '27',
   gstin: '27AAPFU0939F1ZV',
   gstRegistrationType: 'regular',
+  gstFilingFrequency: 'monthly',
   address: '12 MG Road, Pune 411001',
   booksFrom: fyOf(todayISO()).startYear,
   email: 'accounts@demotraders.test',
