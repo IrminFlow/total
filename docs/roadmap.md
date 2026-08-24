@@ -1,7 +1,10 @@
 # Total — improvement catalogue
 
-Every item below is grounded in the current codebase, not invented. Effort is **S** (hours),
-**M** (a day or two), **L** (a week or more). Items marked **✓** are done in this branch.
+Sections A-Q are grounded in the current codebase, not invented. Sections R-V were added later
+and are grounded differently: in what a marketed release has to survive, and in what the Indian
+SMB market is actually being audited and asked for. Effort is **S** (hours), **M** (a day or
+two), **L** (a week or more). Items marked **✓** are done in this branch; **✗** means
+deliberately declined, with the reason recorded.
 
 Ordering within a section is roughly by value.
 
@@ -428,7 +431,10 @@ Ordering within a section is roughly by value.
 322. ✓ Accelerator uniqueness enforced in CI (S)
 323. ✓ AI service boundaries enforced by a filesystem grep (S)
 324. ✓ MCP bundle load test that catches packaging failures (S)
-325. ✓ Windows smoke and E2E in CI (M)
+325. ✓ Windows unit, DB, renderer and smoke tests in CI (M) — the Windows job runs `npm test`,
+     `npm run test:db`, `npm run test:renderer`, builds the NSIS installer and gates the artefact
+     on `npm run smoke`. The Playwright E2E suite is **not** among them; that is #343, and this
+     entry used to claim it.
 326. Visual regression snapshots of every screen, both themes (M)
 327. Mutation testing on the money and GST engines (M)
 328. Property-based tests for the posting rules (M)
@@ -444,3 +450,185 @@ Ordering within a section is roughly by value.
 338. Dependency freshness report in CI (S)
 339. Bundle-size budget that fails on regression (S)
 340. Contributor guide covering the money and date invariants (S)
+
+---
+
+# Added after the first pass
+
+Sections A-Q came out of reading the code. What follows came out of two other questions: what
+stops this being shippable to people who paid for it, and what does this market get audited on
+that the app cannot currently answer.
+
+**Every statutory item below must be checked against the notification in force before it is
+built.** Tax law here moves faster than a release cycle — the dates cited are what was true when
+this was written, and a compliance feature that is confidently wrong is worse than one that is
+honestly absent.
+
+## R. Launch readiness
+
+The things that gate a marketed release rather than improve the product. Two have procurement
+lead time measured in weeks, which makes them the first items on the list and not the last.
+
+341. Apple Developer ID: enrol, then add `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
+     `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` (S engineering, M procurement) — the
+     workflow, hardened runtime and entitlements already read them and log a `::warning::` when
+     they are missing, so this is an account and a wait, not a code change. Until it lands,
+     macOS tells every ad click the app "cannot be opened because Apple cannot check it".
+342. Windows code signing: an OV certificate or Azure Trusted Signing (S engineering, L
+     procurement) — `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` are already wired. Organisation
+     vetting takes one to three weeks. Unsigned NSIS installers get a full-screen SmartScreen
+     block, on the platform most of this market runs.
+343. The Playwright E2E suite on Windows in CI (M) — see the correction on #325. Path handling,
+     the native menu, `_electron` launch and every file dialog are the places a macOS-only suite
+     is blind, and they are exactly what breaks on Windows.
+344. A generated 100,000-voucher book, timed through every screen, with the numbers published (M)
+     — #224 measured 30k and #329 asks for the fixture; this is the stress pass at three times
+     that, and the artefact doubles as marketing. A report that is fine at 30k and unusable at
+     100k is a report that fails during an evaluation, which is the worst possible moment.
+345. An error ring buffer attached to the feedback form, with a pre-send preview (S) — launch
+     week reaches machines nobody has seen, and a `mailto:` is not a channel. The preview is the
+     point: diagnostics the user has read are diagnostics the user will send.
+346. First-run on a machine that has never held the app (S) — no company, no data directory, no
+     keychain entry, no `~/Documents/total`. Every existing test starts from a seeded state.
+347. 1366×768 at 125% scaling, on a real ₹40,000 Windows laptop (S) — the modals, the sidebar
+     and the ledger table at the size most of the market actually runs them.
+348. The release steps as a script rather than a memory (S) — verify, tag, push, and then assert
+     the release published rather than drafted. A draft release is invisible to `releases/latest`,
+     which is what the in-app updater and the site both read.
+349. Relabel NIC live filing as experimental until it has run against the sandbox (S) — the site
+     currently sells "live IRN and e-way bill generation" for a client that has never met the
+     real portal. Lead with the offline JSON export, which works. See #107.
+350. Uninstall and reinstall leaving the books untouched, proven by a test (S) — the promise is
+     that the data is the user's and lives in their Documents folder. Nothing checks it.
+
+## S. Statutory depth
+
+The compliance the market is being assessed on right now. Most of these are not exotic: they are
+what a CA asks for in the first meeting, and what a notice arrives about in the third.
+
+351. MSME payment reporting under section 43B(h) (M) — a Udyam classification per party, a
+     45-day payables view, and a year-end report of what will be disallowed. Payment to a micro
+     or small enterprise beyond 45 days loses the deduction for that year, and the number is
+     computed from exactly the FIFO allocation the collections desk already runs. The single
+     highest-value statutory feature this app could add.
+352. Invoice Management System actions from the 2B reconciliation (L) — IMS now sits between the
+     supplier's filing and the buyer's ITC, and every invoice has to be accepted, rejected or
+     pended. `recon2b` already computes the comparison; what it does not produce is the action
+     list, which is the part that has to happen every month.
+353. GSTR-1A, the amendment return (M) — see #101. Correcting a filed GSTR-1 stopped meaning
+     "wait for next month's amendment table" and started meaning a return of its own.
+354. The e-invoice reporting deadline, as a countdown (S) — registrations above the ₹10 crore
+     turnover band must report an invoice to the IRP within 30 days of its date, after which the
+     portal simply refuses it. `turnover.ts` already knows the band; nothing counts the days.
+355. Input Service Distributor for multi-GSTIN businesses (L) — mandatory rather than optional
+     now, and it only bites the companies #108 is for. Build it with #108 or not at all.
+356. The reverse-charge self-invoice (M) — a registered buyer who purchases from an unregistered
+     supplier has to raise the invoice themselves. `rcmAdvice` already identifies the case and
+     says so; nothing produces the document, which is the thing the auditor asks to see.
+357. LUT tracking for exporters (S) — the undertaking is annual, expires on 31 March, and an
+     expired one silently converts a zero-rated export into a taxable supply. A date and a
+     reminder, worth far more than the effort.
+358. Rate history spanning the September 2025 rationalisation (M) — the move to two principal
+     slabs plus a demerit rate means an item's correct rate now depends on the invoice date.
+     This is the concrete case #92 exists for, and the one that will be asked about first.
+359. Income-tax Act 2025 section mapping (M) — in force from 1 April 2026, which renumbers what
+     `tds_sections` stores. Keep both numbers, key the correct one off the voucher date, and
+     print the one the certificate needs.
+360. TDS return files: 24Q and 26Q (L) — the app already holds every deduction. What it does not
+     do is emit the quarterly file the RPU takes, which is the step a business pays someone else
+     to do four times a year.
+361. Form 16A for vendors (M) — the deduction certificate for the party you deducted from.
+     Sibling of the payroll Form 16 (#171), same data, and nothing produces it.
+362. A Form 3CD data pack for the tax audit (M) — clause-wise extracts rather than a filled
+     form, because the form is the auditor's to sign and the data is the client's to supply.
+     Same shape as the CA pack, aimed at the one week of the year that matters most.
+363. Schedule III presentation of the Balance Sheet and P&L (M) — the format a company is
+     required to present in, as a view over the existing statement tree rather than a second
+     set of numbers.
+364. Related-party transactions report (S) — a flag on the party ledger and a disclosure listing
+     every voucher against it. Cheap, and currently impossible to produce without a spreadsheet.
+365. A Rule 3(1) audit-trail statement (S) — the one page an auditor asks for: that the log
+     exists, that it cannot be switched off, what it covers, and for which dates. The log has
+     been recording faithfully all along and can say none of this about itself. Pairs with #265.
+
+## T. Assets, borrowing and the bank
+
+Everything a business owns and owes that is not a bill. "Fixed Assets" exists in this app as a
+ledger group and nothing else — there is no register, no schedule, and no way to answer the two
+questions every year-end asks.
+
+366. A fixed asset register (M) — asset, purchase date, cost, block, location. The ledger group
+     records that ₹4 lakh of machinery was bought; nothing records what the machinery is.
+367. Depreciation computed both ways (L) — Companies Act (SLM or WDV over useful life, per
+     asset) and Income Tax (WDV on the block of assets). They give different numbers on purpose,
+     both are needed every year, and doing one and calling it depreciation is the mistake to
+     avoid.
+368. Asset disposal (M) — sale or scrapping, profit or loss on sale, and the block adjustment,
+     which is where a hand-computed schedule usually goes wrong.
+369. Capital work in progress, and capitalising it (S) — costs accumulate against a project and
+     become an asset on a date. Today they land in an expense or sit in a ledger nobody revisits.
+370. A loan register for money the business borrowed (M) — the EMI split into interest and
+     principal, a schedule that runs to the end, and the monthly journal. Every business with a
+     vehicle or a machine has one, and every one of them books the whole EMI to the loan account.
+371. CMA data for a working-capital application (L) — the format banks require, generated from
+     the books. A CA charges thousands for this and rebuilds it from a trial balance by hand.
+     Nothing in this market produces it; the data to do so is already here.
+372. The monthly stock statement for the bank (M) — stock, book debts and creditors as at
+     month end, which is the return every cash-credit borrower files and most file late.
+373. Drawing power, from #372 and the bank's margins (S) — the number the statement exists to
+     produce, and the one the borrower actually wants to see before they file it.
+374. Prepaid and accrued schedules (M) — an annual insurance premium amortised across twelve
+     months, posted monthly, rather than expensed in April and explained in March.
+375. A deposit register (S) — security deposits paid and received, with the date they are due
+     back. Money that is genuinely the business's and is routinely forgotten.
+
+## U. Selling: the counter, the quote and the paper
+
+The app assumes someone entering vouchers at a desk. A large part of this market is instead
+standing at a counter with a customer waiting, or printing on hardware that predates PDF.
+
+376. Counter mode (L) — full screen, scanner first, tender and change, and one keystroke to the
+     next sale. A kirana, a pharmacy or a hardware shop cannot run the voucher screen at a
+     counter, and that is most of the businesses this app is otherwise right for.
+377. A cash-drawer session (M) — opening float, the day's sales, the closing count, and the
+     variance. Counter mode without it is a billing screen rather than a till.
+378. Quotation → order → challan → invoice, each converting into the next (L) — #188 and #189
+     cover the middle; the quotation is missing entirely, and it is where the sale starts.
+379. Dot-matrix and continuous stationery, printed raw (M) — a large share of this market prints
+     invoices on a decade-old impact printer on pre-printed multi-part stationery, and a PDF
+     does not reach it. This is a genuine Tally-compatibility feature, not a nostalgia one.
+380. Salesperson commission, on collection rather than on billing (M) — the party already
+     carries a salesperson (#156). Commission paid on an invoice that is never collected is how
+     a business pays twice for one sale, so it is computed off the receipt.
+381. A counter-sale party that does not become a master record (S) — a walk-in should not leave
+     a ledger behind, and a thousand of them should not make the party picker unusable.
+382. A price-below-cost warning at entry (S) — the valuation is already known per item; the
+     moment it is worth saying so is while the line is being typed.
+383. Quantity-break and scheme discounts (M) — buy ten get one, slab rates. Priced by hand today
+     and got wrong in the customer's favour about as often as the reverse.
+384. Returns and exchanges at the counter (M) — a credit note is the correct accounting and a
+     terrible interaction when somebody is standing there with a receipt.
+385. A second screen for the customer (S) — nearly free once counter mode exists, and the thing
+     that makes a small shop look like it runs a real system.
+
+## V. Control, delegation and trust
+
+The owner is rarely the person typing. Everything here is about what happens when they are not
+at the desk — which is the normal case, and the one the app currently has least to say about.
+
+386. An approval threshold (M) — a voucher above a stated amount, entered by an accountant,
+     waits for the owner. The roles exist; what is missing is the idea that some entries are a
+     decision rather than a keystroke.
+387. Attachments on a voucher (M) — the scan or photograph of the bill, stored under the company
+     folder and carried into the backup. "Where is the physical bill" is a daily question and
+     there is currently no answer in the app at all.
+388. A two-person rule for a supplier's bank details (S) — changing an account number on a
+     supplier master is the single highest-value fraud available in this market, and it is
+     currently one field and one click.
+389. The same bank account on two parties, as an exception (S) — either a data error or exactly
+     the fraud #388 guards against. The exceptions report is already the place this belongs.
+390. A daily digest of what changed (M) — what was entered, altered and binned yesterday, for
+     the owner who was not there. Built from the audit log, which has recorded all of it and
+     shows it to nobody unless asked.
+391. Auditor mode: a read-only session that expires (M) — narrower than #266's permissions and
+     answering a different question. Handing an auditor the owner's PIN is what happens instead.
