@@ -26,22 +26,53 @@ Ordering within a section is roughly by value.
 9. ✓ `⌘[` / `⌘]` for back and forward through the nav stack (S)
 10. ✓ Remember the last active tab per screen across sessions (S)
 11. ✓ `⌘1`–`⌘9` jump to the first nine sidebar entries (S)
-12. A "recent screens" ring on `⌘\`` for alt-tab style switching (S)
+12. ✓ A "recent screens" ring on `⌘\`` for alt-tab style switching (S) — a tap switches to
+    the other screen, holding `⌘` walks the last eight (`⇧` the other way). The ring is frozen
+    for the length of a cycle, so committing a jump cannot shuffle the entries under the
+    highlight while they are being read.
 13. Keyboard-driven date-range picker on the period pill (S)
-14. `Alt+↑/↓` moves a voucher line up or down in the grid (S)
+14. ✓ `Alt+↑/↓` moves a voucher line up or down in the grid (S) — `⌥` rather than `⌘`,
+    because `⌘↑/↓` is top-and-bottom-of-document everywhere else on macOS. Which line moves is
+    read off the DOM rather than tracked in state: focus already arrives by six different
+    routes, and a second copy of "where the cursor is" would be wrong every time one changed.
 15. ✓ `⌘D` duplicates the selected voucher into a new draft (S)
-16. `⌘⌫` deletes the selected row with an undo toast (S)
+16. ✓ `⌘⌫` deletes the selected row with an undo toast (S) — the selected voucher on the Day
+    Book, the focused line in the voucher grid. No confirm dialog on either: the undo is the
+    confirm, and a modal between the key and the deletion turns a keyboard action back into a
+    mouse one. The ticked-rows bulk delete keeps its dialog, because "did you mean all nine" is
+    a question no undo answers as clearly.
 17. Space toggles the expand/collapse state of a tree row (S)
-18. `⌘⇧F` opens global search scoped to the current screen (S)
-19. Vim-style `gg` / `G` to jump to first/last row, behind a preference (S)
+18. ✓ `⌘⇧F` opens global search scoped to the current screen (S) — the same palette with the
+    commands dropped and the results narrowed to what the screen is about (vouchers on the Day
+    Book, ledgers and items in Masters). A screen that narrows nothing gets ⌘K's behaviour
+    rather than a pretended scope.
+19. ✓ Vim-style `gg` / `G` to jump to first/last row, behind a preference (S) — Settings →
+    Appearance, off by default and it has to stay that way: the list layer sits above the nav
+    layer, so binding `G` shadows the Gateway on every screen with a list. The preference says
+    so in as many words, and ⌘1 still goes home.
 20. A visible focus-ring audit: every interactive control reachable by Tab (M)
 21. Shortcut conflicts surfaced in Settings when a screen shadows a nav letter (S)
-22. Per-user shortcut remapping stored in the company meta (M)
-23. `?` overlay gains a search box once it exceeds one screen (S)
+22. ✗ Per-user shortcut remapping stored in the company meta (M) — declined. The uniqueness
+    guard in `__tests__/accel.test.ts` can be kept honest (it would only ever check the
+    defaults), so that is not the reason. The reason is that every surface in this app renders
+    the shortcut it binds *from* the binding: the red letter in the sidebar, the Gateway card
+    badge, the hint bar, the `?` overlay. Remapping means all of those become per-user, and the
+    one thing a Tally user can rely on — that `V` is voucher entry on any machine in the office
+    — stops being true. The real complaint behind this item is shadowing, and #21 addresses that
+    without splitting the vocabulary.
+23. ✓ `?` overlay gains a search box once it exceeds one screen (S) — matches the label, the
+    keys and the group title, so "what does ⌘D do" and "how do I reach the day book" are both
+    answerable. Empty groups disappear rather than leaving a heading behind.
 24. ✓ Numeric keypad Enter behaves as Enter everywhere (S) — already true: every handler
-    switches on `e.key`, which Chromium reports as `Enter` for NumpadEnter. Verified no site
-    switches on `e.code`.
-25. A "keyboard only" mode that hides all hover affordances (S)
+    switches on `e.key`, which Chromium reports as `Enter` for NumpadEnter. The only two sites
+    that read `e.code` are the ⌥R and ⌥O grid chords added under #48/#42, and they have to:
+    holding Option on macOS makes the browser report ⌥R as `®`, so a `key` comparison could
+    never fire. Neither is an Enter key.
+25. ✓ A "keyboard only" mode that hides all hover affordances (S) — Settings → Appearance,
+    beside motion and text size. One rule in `app.css` takes the reveal off `:hover` while
+    leaving the keyboard-active row and `:focus-within` alone, so what is visible on screen is
+    exactly what the keyboard can reach. Opacity, never `display: none` — a hidden button is
+    not in the tab order.
 
 ## B. Data entry speed
 
@@ -50,7 +81,15 @@ Ordering within a section is roughly by value.
 28. ✓ Copy the previous voucher of the same type with one key (S)
 29. ✓ Auto-fill the narration from the party and item names (S)
 30. Inline ledger creation without leaving the picker (already partly there) (S)
-31. Paste a table of lines from a spreadsheet directly into the voucher grid (M)
+31. ✓ Paste a table of lines from a spreadsheet directly into the voucher grid (M) — both
+    grids. Reads tab-separated (what a spreadsheet puts on the clipboard) or CSV, and the three
+    layouts a bookkeeper's sheet actually uses: name+amount, name+Dr/Cr+amount, and the classic
+    debit/credit pair of columns. Only intercepted when the clipboard holds a *table*, so
+    pasting one name into one cell still works. Names match exactly and never fuzzily: a
+    near-match posts real money to the wrong account and looks right afterwards. An unmatched
+    account keeps its amount and offers to create the ledger; a skipped row is reported with the
+    reason, because a paste that silently drops three of twelve rows is found at the trial
+    balance.
 32. ✓ Amount field accepts arithmetic: `1200*3` yields 3,600 (S)
 33. ✓ Amount field accepts `k`, `L` and `cr` suffixes (S)
 34. Quantity field accepts a unit-conversion expression (`2 box` → 24 pcs) (M)
@@ -62,17 +101,38 @@ Ordering within a section is roughly by value.
 39. Bulk edit: change the narration or cost centre on many vouchers at once (M)
 40. ✓ Bulk delete to the bin from the Day Book with a confirm (S)
 41. Split a voucher line across cost centres by percentage rather than amount (S)
-42. Round-off line added automatically when a line is a paisa out (S)
-43. Voucher numbering series per type per financial year, configurable (M)
+42. ✓ Round-off line added automatically when a line is a paisa out (S) — offered rather than
+    added, on a button beside the totals and on `⌥O`. Below 99 paise the difference is
+    arithmetic (rupee rounding under section 170, a percentage split landing on a third of a
+    paisa); at a rupee or more it is a transposed figure, and plugging it would turn a voucher
+    that refuses to save into one that saves wrongly.
+43. ✓ Voucher numbering series per type per financial year, configurable (M) — the prefix and
+    suffix take `{FY}`, `{YY}` and `{YYYY}`, expanded against the *voucher's* date so altering
+    last March's invoice reproduces last year's series. `restartFy` alone was never enough for
+    rule 46(b): restarting the count produces `INV-0007` twice, a year apart. A token series
+    also narrows its own scan to this year's numbers, so it genuinely restarts rather than
+    relying on a mismatched prefix casting to zero.
 44. ✓ Flag a gap in voucher numbering in Exceptions (S) — detection, not prevention: refusing
     to save a voucher that would leave a gap is worse than the gap. Numbers are allocated at
     save time, two people entering at once legitimately leave one when either cancels, and a
     business that has just voided an invoice must still be able to carry on.
-45. Auto-save an in-progress voucher as a draft, restored after a crash (M)
+45. ✓ Auto-save an in-progress voucher as a draft, restored after a crash (M) — debounced to
+    localStorage, scoped by company slug and voucher kind, offered back on a bar above the form
+    rather than applied silently. New vouchers only: an alteration's fields come from a voucher
+    already on the books, and that is the truth. Not the database, deliberately — a half-typed
+    voucher has no number, does not balance, and must never appear in a report, an audit trail
+    or a backup.
 46. A scratchpad ledger for entries the user has not decided how to classify (S)
 47. Barcode scan jumps straight to quantity on the matched item line (S)
-48. Repeat-last-line key for entering many similar lines (S)
-49. Party defaults: credit days, price level and cost centre applied on selection (S)
+48. ✓ Repeat-last-line key for entering many similar lines (S) — `⌥R` copies the whole last
+    filled line, side and amount included: on the twenty-branch expense journal the amount is
+    the field most likely to be right already, and it is one keystroke to change when it is not.
+49. ✓ Party defaults: credit days, price level and cost centre applied on selection (S) —
+    credit days and price level already prefilled; the cost centre was the one still typed by
+    hand on every voucher, and the one that is invisible when forgotten (a missing due date
+    shows up in the ageing report the same day; an unallocated line just never appears in the
+    branch's P&L). Applied at build time rather than written into each row, so it cannot fall
+    out of step with an edited amount, and stated on screen rather than applied invisibly.
 50. ✓ Show the party's current balance inline while entering a voucher (S)
 
 ## C. Reports and analysis

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeGap, gapSize, numberGaps } from './numberSeries'
+import { describeGap, expandSeriesPattern, gapSize, numberGaps, seriesHasFyToken } from './numberSeries'
 
 describe('numberGaps', () => {
   it('finds nothing in an unbroken series', () => {
@@ -64,5 +64,33 @@ describe('gapSize and describeGap', () => {
     const gap = { from: 7, to: 19 }
     expect(gapSize(gap)).toBe(13)
     expect(describeGap(gap)).toBe('7 to 19')
+  })
+})
+
+describe('financial-year series patterns', () => {
+  it('expands the FY tokens from the voucher date', () => {
+    expect(expandSeriesPattern('INV/{FY}/', '2024-06-15')).toBe('INV/2024-25/')
+    expect(expandSeriesPattern('INV/{YY}-', '2024-06-15')).toBe('INV/24-')
+    expect(expandSeriesPattern('{YYYY}/', '2024-06-15')).toBe('2024/')
+  })
+
+  it('reads the year from the FINANCIAL year, not the calendar year', () => {
+    // 31 March 2025 is still 2024-25; 1 April 2025 is not.
+    expect(expandSeriesPattern('{FY}', '2025-03-31')).toBe('2024-25')
+    expect(expandSeriesPattern('{FY}', '2025-04-01')).toBe('2025-26')
+  })
+
+  it('pads a two-digit start year across the century', () => {
+    expect(expandSeriesPattern('{YY}', '2005-05-01')).toBe('05')
+  })
+
+  it('leaves a pattern with no token exactly as it is', () => {
+    expect(expandSeriesPattern('INV-', '2024-06-15')).toBe('INV-')
+    expect(seriesHasFyToken('INV-')).toBe(false)
+    expect(seriesHasFyToken('INV/{FY}/')).toBe(true)
+  })
+
+  it('expands every occurrence, not just the first', () => {
+    expect(expandSeriesPattern('{YY}-{YY}', '2024-06-15')).toBe('24-24')
   })
 })

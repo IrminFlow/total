@@ -4,6 +4,7 @@ import {
   TEXT_SIZE_LABEL,
   TEXT_SIZE_SCALE,
   useA11y,
+  useKeyPrefs,
   useTheme,
   type MotionPref,
   type TextSize,
@@ -26,6 +27,7 @@ import { Panel, SectionTitle } from '../../components/ui'
 export function AppearanceSection(): React.JSX.Element {
   const { theme, set: setTheme } = useTheme()
   const { textSize, motion, setTextSize, setMotion } = useA11y()
+  const { keyboardOnly, vimKeys, setKeyboardOnly, setVimKeys } = useKeyPrefs()
 
   return (
     <div>
@@ -67,6 +69,31 @@ export function AppearanceSection(): React.JSX.Element {
             { value: 'reduced', label: 'Reduce motion' }
           ]}
           onChange={setMotion}
+        />
+        <Choice<'off' | 'on'>
+          label="Keyboard only"
+          // Said as a consequence rather than a feature: the user is choosing what the screen
+          // will look like, and "row actions stop appearing under the pointer" is the change.
+          hint="Row actions stop appearing on hover. They show for the amber selection bar and for Tab instead, so everything visible is something the keyboard can reach."
+          name="keyboard-only"
+          value={keyboardOnly ? 'on' : 'off'}
+          options={[
+            { value: 'off', label: 'Show on hover' },
+            { value: 'on', label: 'Keyboard only' }
+          ]}
+          onChange={(v) => setKeyboardOnly(v === 'on')}
+        />
+        <Choice<'off' | 'on'>
+          label="Vim keys on lists"
+          // The cost is stated because it is not obvious and it is not small: G is Gateway.
+          hint="Adds gg and G to jump to the first and last row of a list. While a list is on screen this takes over G, which is otherwise the Gateway — ⌘1 still goes home."
+          name="vim-keys"
+          value={vimKeys ? 'on' : 'off'}
+          options={[
+            { value: 'off', label: 'Off' },
+            { value: 'on', label: 'gg / G' }
+          ]}
+          onChange={(v) => setVimKeys(v === 'on')}
         />
       </Panel>
     </div>

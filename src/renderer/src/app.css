@@ -315,6 +315,21 @@ tr[data-active='true'] .row-action,
   opacity: 1;
 }
 
+/* Keyboard-only mode (Settings → Appearance): hover stops revealing anything.
+
+   The point is not to punish the mouse, it is to make the screen honest. With hover in the mix
+   an operator working from the keyboard sees rows whose actions appear for someone else and
+   never for them, and cannot tell whether a row has one action or four. With it out, the amber
+   bar and Tab are the only things that light an action up — so what is visible is exactly what
+   the keyboard can reach.
+
+   `:not()` rather than a blanket override so a row that is BOTH hovered and keyboard-active
+   still shows its actions: the later rule would otherwise win on equal specificity and blank
+   out the very row the user is on. */
+[data-kbd-only='true'] .group:hover:not([data-active='true']):not(:focus-within) .row-action {
+  opacity: 0;
+}
+
 /* ---------- ledger tables: hand-rules + double-rule totals ---------- */
 
 .ledger-table {

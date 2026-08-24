@@ -178,10 +178,17 @@ export function VoucherEntry({
         />
       )}
       {voucherId && <VoucherHistory voucherId={voucherId} />}
+      {/* The grid chords live here rather than in the footer strip: the bar is one line wide and
+          already carries the ten type keys, and pushing one of those off the edge to make room
+          would cost more than it gains. Under `?` too, which now has a search box. */}
       <p className="mt-3 text-hint text-muted">
         <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>,{' '}
         <span className="num">7/4</span>, <span className="num">y</span> · the type keys are in the
         bar below and under <Kbd>?</Kbd>
+      </p>
+      <p className="mt-1 text-hint text-muted">
+        In the lines: <Kbd>⌥↑</Kbd> <Kbd>⌥↓</Kbd> move · <Kbd>⌘⌫</Kbd> delete · <Kbd>⌥R</Kbd> repeat
+        the last line · <Kbd>⌥O</Kbd> round off · paste a table from a spreadsheet straight in
       </p>
     </div>
   )

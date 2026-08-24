@@ -10,7 +10,7 @@ import { Kbd } from './ui'
  * the screens that do not need it.
  */
 export function HintBar(): React.JSX.Element | null {
-  const actions = useAccelStore((s) => s.actions).filter((a) => !a.hidden)
+  const actions = useAccelStore((s) => s.actions).filter((a) => !a.hintHidden)
   if (actions.length === 0) return null
 
   return (
@@ -24,9 +24,15 @@ export function HintBar(): React.JSX.Element | null {
           className={`flex items-center gap-1 ${a.enabled ? '' : 'opacity-40'}`}
           title={a.enabled ? undefined : 'Not available right now'}
         >
-          {a.ctrlOrAlt && <Kbd>Ctrl/Alt</Kbd>}
-          {a.fkey && <Kbd>{a.fkey}</Kbd>}
-          {a.key && <Kbd>{a.key.toUpperCase()}</Kbd>}
+          {a.display ? (
+            a.display.map((d, i) => <Kbd key={i}>{d}</Kbd>)
+          ) : (
+            <>
+              {a.ctrlOrAlt && <Kbd>Ctrl/Alt</Kbd>}
+              {a.fkey && <Kbd>{a.fkey}</Kbd>}
+              {a.key && <Kbd>{a.key.toUpperCase()}</Kbd>}
+            </>
+          )}
           <span>{a.label}</span>
         </span>
       ))}

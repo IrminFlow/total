@@ -48,6 +48,9 @@ export interface Ledger {
   itcEligibility: 'eligible' | 'blocked' | 'capital_goods' | 'input_services'
   /** Price level whose rates prefill this party's invoice lines; null = item base rate. */
   priceLevelId: number | null
+  /** Cost centre every line posted against this ledger is allocated to by default; null = none.
+   *  A default, never a rule — the operator can clear or re-split it on any voucher. */
+  defaultCostCentreId: number | null
   /** Credit limit in paise; null = no limit. saveVoucher warns (or blocks, under F11
    *  enforceCreditLimit) when the party's outstanding would exceed it. */
   creditLimit: number | null

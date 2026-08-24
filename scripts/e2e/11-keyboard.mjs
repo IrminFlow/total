@@ -184,4 +184,156 @@ await scenario('11-keyboard', async (h) => {
   await h.page.waitForSelector('[data-testid="input-palette"]', { state: 'detached', timeout: 10000 })
   const screen = await h.page.getAttribute('[data-screen]', 'data-screen')
   assert(screen === 'trial-balance', 'Escape closed the palette without navigating away')
+
+  // ---- Ctrl+` switches back to the previous screen, alt-tab style ----
+  await home()
+  await h.page.keyboard.press('d')
+  await h.waitScreen('daybook', 20000)
+  await h.page.keyboard.press('t')
+  await h.waitScreen('trial-balance', 20000)
+  await h.page.keyboard.press('Control+`')
+  await h.waitScreen('daybook', 20000)
+  // And again returns to where we just were: the ring reorders on every commit.
+  await h.page.keyboard.press('Control+`')
+  await h.waitScreen('trial-balance', 20000)
+
+  // Held down, it opens the picker and walks further back. The overlay only exists mid-cycle.
+  await h.page.keyboard.down('Control')
+  await h.page.keyboard.press('`')
+  await h.page.keyboard.press('`')
+  const ringVisible = await h.page.$('[data-testid="recent-ring"]')
+  assert(ringVisible != null, 'holding the modifier shows the recent-screens ring')
+  await h.shot('07-recent-ring')
+  await h.page.keyboard.up('Control')
+  await h.page.waitForSelector('[data-testid="recent-ring"]', { state: 'detached', timeout: 10000 })
+
+  // ---- ? overlay has a search box, and it filters ----
+  await home()
+  await h.page.keyboard.press('?')
+  await h.page.waitForSelector('[data-testid="input-shortcut-search"]', { timeout: 10000 })
+  const countRows = () => h.page.$$eval('[data-testid="shortcut-row"]', (els) => els.length)
+  const allRows = await countRows()
+  assert(allRows > 30, `the ? overlay lists every binding (${allRows})`)
+  await h.page.fill('[data-testid="input-shortcut-search"]', 'balance')
+  const someRows = await countRows()
+  assert(someRows > 0 && someRows < allRows, `the ? overlay search narrows the list (${allRows} → ${someRows})`)
+  await h.shot('08-shortcut-search')
+  await h.page.keyboard.press('Escape')
+
+  // ---- Ctrl+Shift+F searches, scoped to the screen ----
+  await home()
+  await h.page.keyboard.press('d')
+  await h.waitScreen('daybook', 20000)
+  await h.page.keyboard.press('Control+Shift+f')
+  await h.page.waitForSelector('[data-testid="input-palette"]', { timeout: 10000 })
+  const scopedPlaceholder = await h.page.getAttribute('[data-testid="input-palette"]', 'placeholder')
+  assert(
+    /vouchers on this screen/.test(scopedPlaceholder ?? ''),
+    `Ctrl+Shift+F scopes the search to the Day Book ("${scopedPlaceholder}")`
+  )
+  await h.page.keyboard.press('Escape')
+
+  // ---- the voucher grid: paste a table, move a line, delete one, round off ----
+  await home()
+  await h.page.keyboard.press('v')
+  await h.waitScreen('voucher-entry', 20000)
+  await h.page.keyboard.press('F7') // Journal
+  await h.page.waitForSelector('[data-testid="rows-voucher-lines"]', { timeout: 10000 })
+
+  const lineCount = () => h.page.$$eval('[data-testid="rows-voucher-lines"] tr[data-line-index]', (els) => els.length)
+  const before = await lineCount()
+
+  // Two ledger names read from the running book rather than hard-coded, so the paste is matched
+  // against masters that really exist however the demo company's chart of accounts changes.
+  const ledgerNames = await h.page.evaluate(async () => {
+    const res = await window.total.invoke('master:ledgers:list')
+    return (res.data ?? []).map((l) => l.name).slice(0, 2)
+  })
+  assert(ledgerNames.length === 2, `the demo company has ledgers to paste against (${ledgerNames.join(', ')})`)
+
+  // A tab-separated block, exactly as a spreadsheet puts it on the clipboard, in the classic
+  // two-money-column journal shape. Delivered through a real paste event on the grid, so what is
+  // exercised is the handler the user reaches.
+  const pasted = await h.page.evaluate((rows) => {
+    const grid = document.querySelector('[data-testid="voucher-grid"]')
+    if (!grid) return false
+    const data = new DataTransfer()
+    data.setData('text/plain', `${rows[0]}\t1000\t\n${rows[1]}\t\t1000`)
+    grid.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+    return true
+  }, ledgerNames)
+  assert(pasted, 'the voucher grid is present to paste into')
+  await h.page.waitForFunction(
+    (n) => document.querySelectorAll('[data-testid="rows-voucher-lines"] tr[data-line-index]').length > n,
+    before,
+    { timeout: 10000 }
+  )
+  const afterPaste = await lineCount()
+  assert(afterPaste > before, `pasting a table added lines (${before} → ${afterPaste})`)
+
+  // The pasted names resolved against the demo company's own ledgers, so the voucher balances.
+  const balancedText = await h.page.textContent('[data-testid="rows-voucher-lines"]')
+  assert(balancedText != null, 'the grid rendered the pasted lines')
+  await h.shot('09-pasted-lines')
+
+  // The account names, in grid order — column 2 is Particulars.
+  const names = () =>
+    h.page.$$eval('[data-testid="rows-voucher-lines"] tr[data-line-index] td:nth-child(2) input', (els) =>
+      els.map((el) => el.value).filter((v) => v !== '')
+    )
+
+  // Focus is set directly rather than clicked: the cell only has to HAVE focus for the chord to
+  // find its line, and a click has to wait for a re-rendering grid to hold still first.
+  const focusLine = (i) =>
+    h.page.evaluate((n) => {
+      const el = document.querySelector(
+        `[data-testid="rows-voucher-lines"] tr[data-line-index="${n}"] td:nth-child(2) input`
+      )
+      el?.focus()
+      return document.activeElement === el
+    }, i)
+
+  // ⌥↑ moves the focused line up, so the first two account names swap.
+  const orderBefore = await names()
+  assert(
+    JSON.stringify(orderBefore) === JSON.stringify(ledgerNames),
+    `both pasted names resolved to their ledgers (wanted ${ledgerNames.join(', ')}, got ${orderBefore.join(', ')})`
+  )
+  assert(await focusLine(1), 'the second line takes focus')
+  await h.page.keyboard.press('Alt+ArrowUp')
+  const orderAfter = await names()
+  assert(
+    orderAfter[0] === orderBefore[1] && orderAfter[1] === orderBefore[0],
+    `Alt+ArrowUp swapped the first two lines (${orderBefore.join(',')} → ${orderAfter.join(',')})`
+  )
+
+  // ⌘⌫ removes the focused line and offers it straight back on the toast.
+  const beforeDelete = await lineCount()
+  assert(await focusLine(0), 'the first line takes focus')
+  await h.page.keyboard.press('Control+Backspace')
+  await h.page.waitForFunction(
+    (n) => document.querySelectorAll('[data-testid="rows-voucher-lines"] tr[data-line-index]').length < n,
+    beforeDelete,
+    { timeout: 10000 }
+  )
+  const undo = await h.page.$('text=Undo')
+  assert(undo != null, 'deleting a line offers an undo on the toast')
+  await undo.click()
+  await h.page.waitForFunction(
+    (n) => document.querySelectorAll('[data-testid="rows-voucher-lines"] tr[data-line-index]').length === n,
+    beforeDelete,
+    { timeout: 10000 }
+  )
+  assert((await lineCount()) === beforeDelete, 'Undo put the deleted line back')
+
+  // Leave the screen clean. A half-typed voucher arms the unsaved-changes guard, which is a real
+  // `beforeunload` handler — the harness's teardown then closes the window into a native dialog
+  // and the scenario dies with a protocol error rather than a result.
+  // Blur first: Escape inside a field means "leave the field", so from a focused cell the first
+  // press never reaches the nav layer.
+  await h.page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur())
+  await h.page.keyboard.press('Escape')
+  const discard = await h.page.waitForSelector('[data-testid="confirm-ok"]', { timeout: 10000 })
+  await discard.click()
+  await h.waitScreen('gateway', 20000)
 })

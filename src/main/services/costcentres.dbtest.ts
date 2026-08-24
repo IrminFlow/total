@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { seededDb } from '../db/testdb'
-import { createLedger } from './masters'
+import { createLedger, updateLedger } from './masters'
 import { saveVoucher, getVoucher } from './vouchers'
 import { listCostCentres, saveCostCentre, deleteCostCentre, ccReport, ccStatement } from './costCentres'
 import type { VoucherInputParsed } from '@shared/schemas'
@@ -230,5 +230,33 @@ describe('cost centres', () => {
     const stmt = ccStatement(db, cc.id, '2025-04-01', '2025-06-30')
     expect(stmt).toHaveLength(1)
     expect(stmt[0]).toMatchObject({ amount: 5000, date: '2025-05-01' })
+  })
+})
+
+describe('party default cost centre (migration 33)', () => {
+  it('round-trips on the ledger, and survives an update that does not mention it', () => {
+    const db = seededDb()
+    const cc = saveCostCentre(db, { name: 'Mumbai branch', parentId: null, active: true })
+    const groupId = (db.prepare("SELECT id FROM groups WHERE name = 'Sundry Debtors'").get() as { id: number }).id
+    const party = createLedger(db, { name: 'Acme Ltd', groupId, openingBalance: 0, defaultCostCentreId: cc.id })
+    expect(party.defaultCostCentreId).toBe(cc.id)
+
+    // The ledger form sends the whole record, but importers and the AI bridge send partials —
+    // an update that says nothing about the default must not silently clear it.
+    const renamed = updateLedger(db, party.id, { name: 'Acme Limited', groupId, openingBalance: 0 })
+    expect(renamed.defaultCostCentreId).toBe(cc.id)
+
+    const cleared = updateLedger(db, party.id, {
+      name: 'Acme Limited', groupId, openingBalance: 0, defaultCostCentreId: null
+    })
+    expect(cleared.defaultCostCentreId).toBeNull()
+  })
+
+  it('defaults to null, so every ledger that predates the column keeps no opinion', () => {
+    const db = seededDb()
+    const cash = db.prepare("SELECT default_cost_centre_id AS cc FROM ledgers WHERE name = 'Cash'").get() as {
+      cc: number | null
+    }
+    expect(cash.cc).toBeNull()
   })
 })

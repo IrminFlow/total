@@ -24,7 +24,43 @@ type NavItem = { type: 'command'; cmd: Command } | { type: 'hit'; hit: SearchHit
 
 const HIT_KIND_LABEL: Record<SearchHit['kind'], string> = { ledger: 'Ledger', item: 'Item', voucher: 'Voucher' }
 
-export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.Element {
+const HIT_KIND_PLURAL: Record<SearchHit['kind'], string> = { ledger: 'ledgers', item: 'items', voucher: 'vouchers' }
+
+/**
+ * What "search this screen" means, per screen (⌘⇧F).
+ *
+ * ⌘K searches everything and lists every command, which is right when you do not know where you
+ * are going. It is the wrong tool when you are already on the Day Book and want one voucher: the
+ * answer arrives behind forty navigation commands nobody asked for.
+ *
+ * So ⌘⇧F opens the same palette with the commands dropped and the results narrowed to the kind
+ * of thing THIS screen is about. A screen not listed here is one where "the current screen"
+ * narrows nothing — the key then behaves like ⌘K rather than pretending to a scope it has not got.
+ */
+export const SCREEN_SEARCH_SCOPE: Partial<Record<Screen['name'], SearchHit['kind'][]>> = {
+  daybook: ['voucher'],
+  'voucher-entry': ['voucher'],
+  registers: ['voucher'],
+  exceptions: ['voucher'],
+  'ledger-statement': ['ledger'],
+  'trial-balance': ['ledger'],
+  'profit-loss': ['ledger'],
+  'balance-sheet': ['ledger'],
+  outstandings: ['ledger'],
+  khata: ['ledger'],
+  collections: ['ledger'],
+  masters: ['ledger', 'item'],
+  'stock-summary': ['item']
+}
+
+export function CommandPalette({
+  onClose,
+  scope
+}: {
+  onClose: () => void
+  /** Result kinds to keep; the command list is hidden entirely while a scope is in force. */
+  scope?: SearchHit['kind'][]
+}): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
   const { clearCompany } = useSession()
@@ -130,13 +166,15 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   }, [nav, toast, clearCompany])
 
   const filtered = useMemo(() => {
+    // A scoped search is a search, not a menu — the commands would bury the hits it was opened for.
+    if (scope) return []
     const visible = commands.filter((c) => !c.feature || features[c.feature])
     const q = query.trim().toLowerCase()
     if (!q) return visible
     return visible.filter(
       (c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q))
     )
-  }, [commands, query, features])
+  }, [commands, query, features, scope])
 
   // Books search: debounced 150ms, only fires once the query is meaningfully specific (2+ chars).
   const [debounced, setDebounced] = useState('')
@@ -145,11 +183,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     return () => clearTimeout(t)
   }, [query])
   const searchEnabled = debounced.length >= 2
-  const { data: hits = [] } = useQuery({
+  const { data: allHits = [] } = useQuery({
     queryKey: ['search', debounced],
     queryFn: () => api.search.global(debounced),
     enabled: searchEnabled
   })
+  // Filtered here rather than at the IPC boundary so the same cached result serves both the
+  // scoped and the unscoped palette — the query key stays the query, which is what it is about.
+  const hits = useMemo(() => (scope ? allHits.filter((h) => scope.includes(h.kind)) : allHits), [allHits, scope])
 
   const navItems = useMemo<NavItem[]>(
     () => [...filtered.map((cmd) => ({ type: 'command' as const, cmd })), ...hits.map((hit) => ({ type: 'hit' as const, hit }))],
@@ -204,7 +245,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
             else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(0, active - 1)) }
             else if (e.key === 'Enter') runItem(navItems[active])
           }}
-          placeholder="Type a command — voucher, report, GST…"
+          placeholder={
+            scope
+              ? `Search ${scope.map((k) => HIT_KIND_PLURAL[k]).join(' and ')} on this screen…`
+              : 'Type a command — voucher, report, GST…'
+          }
           className="w-full border-b border-line bg-transparent px-5 py-3.5 text-lead outline-none placeholder:text-muted/60"
         />
         <div className="max-h-80 overflow-auto py-1">

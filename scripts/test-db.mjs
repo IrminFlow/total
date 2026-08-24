@@ -6,10 +6,13 @@ import { spawnSync } from 'child_process'
 
 const require = createRequire(import.meta.url)
 const electronBinaryPath = require('electron')
+// Resolved rather than assumed to be `./node_modules/vitest`: in a git worktree the install lives
+// in the parent checkout, and a relative path finds nothing there.
+const vitestBin = require.resolve('vitest/vitest.mjs')
 
 const result = spawnSync(
   electronBinaryPath,
-  ['node_modules/vitest/vitest.mjs', 'run', '-c', 'vitest.db.config.ts', ...process.argv.slice(2)],
+  [vitestBin, 'run', '-c', 'vitest.db.config.ts', ...process.argv.slice(2)],
   {
     stdio: 'inherit',
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }

@@ -129,6 +129,10 @@ function TypeAhead({
         }}
         onKeyDown={(e) => {
           if (onScan?.(e)) return
+          // ⌥↑/↓ belongs to the grid this picker sits in — it moves the whole line. Claiming the
+          // arrow regardless of the modifier would make the chord unreachable from the cell the
+          // cursor is actually in, which is this one on nearly every line.
+          if (e.altKey) return
           if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
             setOpen(true)
             return

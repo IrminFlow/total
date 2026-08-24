@@ -312,6 +312,96 @@ export const useA11y = create<A11yState>((set) => ({
     })
 }))
 
+// ---------- keyboard preferences ----------
+
+/**
+ * The two keyboard preferences that change what other keys mean, so neither can be the default.
+ *
+ * `keyboardOnly` stops hover from being the only way to discover a row's actions. Hover is a
+ * pointer idiom; an operator who never touches the trackpad sees a table of rows with invisible
+ * buttons on them and reasonably concludes there are none. Turning this on takes the reveal off
+ * `:hover` entirely, so the only thing that lights up a row's actions is the amber keyboard bar
+ * or Tab — which means what is on screen is exactly what the keyboard can reach.
+ *
+ * `vimKeys` adds `gg` / `G` to lists. It is off by default and has to stay off by default,
+ * because `G` is the Gateway accelerator and a list layer claiming it shadows the single most
+ * used key in the app. Anyone who wants it knows what `gg` is and will not miss `G`; anyone who
+ * does not must never lose their way home. ⌘1 still reaches the Gateway either way.
+ *
+ * Machine-level, like the theme: they describe the hands at the keyboard, not the books.
+ */
+interface KeyPrefsState {
+  keyboardOnly: boolean
+  vimKeys: boolean
+  setKeyboardOnly: (on: boolean) => void
+  setVimKeys: (on: boolean) => void
+}
+
+export function applyKeyboardOnly(on: boolean): void {
+  // Absent rather than 'false' when off, so the CSS can key off the attribute existing — the
+  // same shape `applyMotion` uses, for the same reason.
+  if (on) document.documentElement.dataset.kbdOnly = 'true'
+  else delete document.documentElement.dataset.kbdOnly
+  localStorage.setItem('total-keyboard-only', on ? '1' : '0')
+}
+
+export function initialKeyboardOnly(): boolean {
+  return localStorage.getItem('total-keyboard-only') === '1'
+}
+
+export function initialVimKeys(): boolean {
+  return localStorage.getItem('total-vim-keys') === '1'
+}
+
+export const useKeyPrefs = create<KeyPrefsState>((set) => ({
+  keyboardOnly: initialKeyboardOnly(),
+  vimKeys: initialVimKeys(),
+  setKeyboardOnly: (keyboardOnly) =>
+    set(() => {
+      applyKeyboardOnly(keyboardOnly)
+      return { keyboardOnly }
+    }),
+  setVimKeys: (vimKeys) =>
+    set(() => {
+      localStorage.setItem('total-vim-keys', vimKeys ? '1' : '0')
+      return { vimKeys }
+    })
+}))
+
+// ---------- recently visited screens (⌘` ring) ----------
+
+/**
+ * The MRU ring behind ⌘`.
+ *
+ * The nav stack answers "where did I come from"; it does not answer "what am I working between",
+ * which for a bookkeeper is nearly always two screens — the Day Book and voucher entry, or a
+ * report and the ledger it drills into. ⌘[ walks history one step at a time and passes through
+ * everything in between; this jumps straight to the other screen, and holding ⌘ walks further
+ * back exactly as ⌘-Tab does between apps.
+ *
+ * Screens are keyed by name only. Two visits to the Day Book with different filters are the same
+ * destination as far as "switch back to the Day Book" is concerned, and keeping both would fill
+ * the ring with entries that look identical.
+ */
+interface RecentState {
+  /** Most recent first. The screen currently on view is always index 0. */
+  ring: Screen[]
+  visit: (screen: Screen) => void
+}
+
+/** How far back the ring remembers. Eight is more than anyone walks by holding a key down, and
+ *  short enough that the overlay never needs to scroll. */
+const RING_MAX = 8
+
+export const useRecentScreens = create<RecentState>((set) => ({
+  ring: [],
+  visit: (screen) =>
+    set((s) => {
+      if (s.ring[0]?.name === screen.name) return s
+      return { ring: [screen, ...s.ring.filter((r) => r.name !== screen.name)].slice(0, RING_MAX) }
+    })
+}))
+
 // ---------- screen-reader announcements ----------
 
 interface AnnouncerState {
