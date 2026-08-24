@@ -11,6 +11,7 @@ import { createLedger, listGroups } from './masters'
 import { saveVoucher } from './vouchers'
 import { upsertCompany } from '../registry'
 import { consolidated } from './consolidated'
+import { saveUser } from './users'
 
 // consolidated() derives every path from paths.ts#dataRoot(), which honours
 // TOTAL_DATA_DIR — point the whole storage tree at a throwaway temp dir per test so
@@ -156,17 +157,32 @@ describe('consolidated()', () => {
     expect(cashRow.perCompany).toEqual([80000, null])
   })
 
-  it('warns and continues when a requested company does not exist on disk', () => {
+  it('rejects an unregistered company instead of returning a partial report', () => {
     const alpha = makeCompany('alpha', 'Alpha Traders', 100000, 20000)
     alpha.close()
 
-    const result = consolidated(['alpha', 'ghost'], 'tb', FROM, TO)
+    expect(() => consolidated(['alpha', 'ghost'], 'tb', FROM, TO)).toThrow('Company not found')
+  })
 
-    expect(result.warnings).toHaveLength(1)
-    expect(result.warnings[0]).toMatch(/ghost/)
-    expect(result.columns).toEqual(['Alpha Traders', 'ghost'])
-    const cashRow = result.rows.find((r) => r.name === 'Cash')!
-    expect(cashRow.perCompany).toEqual([80000, null])
+  it('rejects traversal and duplicate targets before reading any report', () => {
+    const alpha = makeCompany('alpha', 'Alpha Traders', 100000, 20000)
+    alpha.close()
+    expect(() => consolidated(['../../outside'], 'tb', FROM, TO)).toThrow('Invalid company identifier')
+    expect(() => consolidated(['alpha', 'alpha'], 'tb', FROM, TO)).toThrow('selected only once')
+  })
+
+  it('requires explicit authorization for every protected target company', () => {
+    const alpha = makeCompany('alpha', 'Alpha Traders', 100000, 20000)
+    const beta = makeCompany('beta', 'Beta Traders', 50000, 5000)
+    saveUser(beta, { name: 'Protected owner', role: 'owner', pin: '1234' })
+    alpha.close()
+    beta.close()
+
+    expect(() => consolidated(['alpha', 'beta'], 'tb', FROM, TO, undefined, new Set(['alpha']))).toThrow(
+      'Beta Traders is protected'
+    )
+    const authorized = consolidated(['alpha', 'beta'], 'tb', FROM, TO, undefined, new Set(['alpha', 'beta']))
+    expect(authorized.columns).toEqual(['Alpha Traders', 'Beta Traders'])
   })
 
   it('sanity-checks the migrations guard against the real migration count', () => {

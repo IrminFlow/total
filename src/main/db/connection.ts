@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { rmSync } from 'fs'
 import { join } from 'path'
-import { companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
+import { companyBackupsDir, companyDbPath, ensureCompanyTree, existingCompanyPaths } from '../paths'
 import { migrate } from './migrate'
 import { backupStamp, pruneBackupsIn, quickCheckOk, rollbackRestore, snapshotSync, snapshotTo } from './backup'
 import { MIGRATIONS } from './migrations'
@@ -59,9 +59,10 @@ export function runMigrationsWithRecovery(
   }
 }
 
-export function openCompanyDb(slug: string): DB {
-  ensureCompanyTree(slug)
-  const db = new Database(companyDbPath(slug))
+function openCompanyDbInternal(slug: string, existingOnly: boolean): DB {
+  if (existingOnly) existingCompanyPaths(slug)
+  else ensureCompanyTree(slug)
+  const db = new Database(companyDbPath(slug), existingOnly ? { fileMustExist: true } : undefined)
   db.pragma('journal_mode = WAL')
   db.pragma('busy_timeout = 5000')
   db.pragma('foreign_keys = ON')
@@ -79,6 +80,17 @@ export function openCompanyDb(slug: string): DB {
     throw err
   }
   return db
+}
+
+/** Create or open a company during an explicit creation/import flow. Existing-company entry
+ * points should use openExistingCompanyDb so a missing DB is never silently recreated. */
+export function openCompanyDb(slug: string): DB {
+  return openCompanyDbInternal(slug, false)
+}
+
+/** Open a pre-existing, already path-validated company without creating directories or files. */
+export function openExistingCompanyDb(slug: string): DB {
+  return openCompanyDbInternal(slug, true)
 }
 
 /** Close a company DB, first letting SQLite fold fresh ANALYZE-style stats into the schema

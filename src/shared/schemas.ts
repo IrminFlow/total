@@ -57,6 +57,14 @@ export const companyCreateSchema = z.object({
 });
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>;
 
+/** Canonical on-disk company directory identifier. This intentionally does not trim or transform:
+ * existing-company operations must receive the exact registered slug, never a path fragment. */
+export const companySlugSchema = z
+  .string()
+  .min(1)
+  .max(60)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invalid company identifier");
+
 export const groupInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   parentId: id,
@@ -266,7 +274,7 @@ export const periodSchema = z.object({ from: isoDate, to: isoDate });
 export type Period = z.infer<typeof periodSchema>;
 
 export const consolidatedRunSchema = z.object({
-  slugs: z.array(z.string().trim().min(1)).min(1).max(20),
+  slugs: z.array(companySlugSchema).min(1).max(20),
   kind: z.enum(["tb", "pnl"]),
   from: isoDate,
   to: isoDate,

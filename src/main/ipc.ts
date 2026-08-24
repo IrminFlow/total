@@ -26,7 +26,12 @@ import { z } from "zod";
 import Database from "better-sqlite3";
 import type { DB } from "./db/connection";
 import { atomicWriteFile } from "./atomicFile";
-import { backupCompany, closeCompanyDb, openCompanyDb } from "./db/connection";
+import {
+  backupCompany,
+  closeCompanyDb,
+  openCompanyDb,
+  openExistingCompanyDb,
+} from "./db/connection";
 import {
   inspectBackup,
   listBackupsIn,
@@ -43,6 +48,7 @@ import { readCompanyInfo, seedCompany, writeCompanyInfo } from "./db/seed";
 import {
   readRegistry,
   removeCompany,
+  requireRegisteredCompany,
   touchLastOpened,
   upsertCompany,
 } from "./registry";
@@ -68,6 +74,7 @@ import {
   ccStatementSchema,
   chequeConfigSchema,
   companyCreateSchema,
+  companySlugSchema,
   consolidatedRunSchema,
   costCentreInputSchema,
   exportCsvSchema,
@@ -204,6 +211,8 @@ import * as users from "./services/users";
 import {
   assertDeleteAuthorized,
   auditCompanyDeletion,
+  quarantineCompanyDirectory,
+  restoreQuarantinedCompanyDirectory,
 } from "./services/companyDelete";
 import type { Role } from "./services/roles";
 import {
@@ -621,7 +630,7 @@ export function registerIpc(): void {
   handle("company:delete", (payload) => {
     const { slug, confirmName, pin } = z
       .object({
-        slug: z.string().min(1),
+        slug: companySlugSchema,
         confirmName: z.string(),
         pin: z
           .string()
@@ -629,30 +638,47 @@ export function registerIpc(): void {
           .optional(),
       })
       .parse(payload);
-    const reg = readRegistry();
-    const company = reg.companies.find((c) => c.slug === slug);
-    if (!company) throw new Error("Company not found");
-    if (confirmName !== company.name)
+    const company = requireRegisteredCompany(slug);
+    if (confirmName !== company.summary.name)
       throw new Error("Company name does not match");
     // The name check above protects nothing by itself — it's readable off the same screen it's
     // typed into. If this company has users, an active owner's PIN is required too.
-    assertDeleteAuthorized(companyDbPath(slug), pin);
-    // [lane-Q audit] durable record in the app log (survives the rmSync) + best-effort tombstone
+    assertDeleteAuthorized(company.paths.database, pin);
+    // [lane-Q audit] durable record in the app log (survives quarantine) + best-effort tombstone
     // row inside the DB itself.
-    auditCompanyDeletion(companyDbPath(slug), slug, sessionUser?.name ?? null);
-    log("warn", "company-deleted", { slug, user: sessionUser?.name ?? null });
+    auditCompanyDeletion(company.paths.database, slug, sessionUser?.name ?? null);
     if (current?.slug === slug) closeCurrentCompany();
-    rmSync(companyDir(slug), { recursive: true, force: true });
-    removeCompany(slug);
+    const move = quarantineCompanyDirectory(slug);
+    try {
+      removeCompany(slug);
+    } catch (error) {
+      try {
+        restoreQuarantinedCompanyDirectory(move);
+      } catch (rollbackError) {
+        log("error", "company-quarantine-rollback-failed", {
+          slug,
+          quarantinePath: move.quarantinePath,
+          error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+        });
+        throw new Error(
+          `Company registry update failed. Your company is preserved at ${move.quarantinePath}. Contact support before trying again.`,
+        );
+      }
+      throw error;
+    }
+    log("warn", "company-quarantined", {
+      slug,
+      user: sessionUser?.name ?? null,
+      quarantinePath: move.quarantinePath,
+    });
     return null;
   });
 
   handle("company:open", async (payload) => {
-    const { slug } = z.object({ slug: z.string().min(1) }).parse(payload);
-    if (!existsSync(companyDbPath(slug)))
-      throw new Error("Company database not found");
+    const { slug } = z.object({ slug: companySlugSchema }).parse(payload);
+    requireRegisteredCompany(slug);
     closeCurrentCompany();
-    const db = openCompanyDb(slug);
+    const db = openExistingCompanyDb(slug);
     const info = readCompanyInfo(db);
     current = { slug, db, info, usersExist: users.usersExist(db) };
     // Online backup needs an open handle, so this runs after open (not before, as it used to).
@@ -986,7 +1012,7 @@ export function registerIpc(): void {
 
       closeCurrentCompany();
       const reopen = (): OpenCompany => {
-        const db = openCompanyDb(slug); // migrates if the backup predates the current schema
+        const db = openExistingCompanyDb(slug); // migrates if the backup predates the current schema
         const info = readCompanyInfo(db);
         return { slug, db, info, usersExist: users.usersExist(db) };
       };
@@ -3378,12 +3404,17 @@ export function registerIpc(): void {
   handle(
     "consol:run",
     (p) => {
+      const activeCompany = requireCompany();
       const { slugs, kind, from, to, translationRates, eliminations } =
         consolidatedRunSchema.parse(p);
-      return consolidated.consolidated(slugs, kind, from, to, {
-        translationRates,
-        eliminations,
-      });
+      return consolidated.consolidated(
+        slugs,
+        kind,
+        from,
+        to,
+        { translationRates, eliminations },
+        new Set([activeCompany.slug]),
+      );
     },
     "viewer",
   );
