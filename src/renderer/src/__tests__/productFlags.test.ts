@@ -10,6 +10,7 @@ describe("local product flags", () => {
   it("defaults to stable public features and retains a bounded local history", () => {
     const storage = memoryStorage();
     expect(readProductFlags(storage).flags.guidedHelp).toBe(true);
+    expect(readProductFlags(storage).flags.smtpDeliveryPreview).toBe(false);
     setProductFlag(storage, "featureDiscovery", false, new Date("2026-08-24T00:00:00Z"));
     const state = readProductFlags(storage);
     expect(state.flags.featureDiscovery).toBe(false);

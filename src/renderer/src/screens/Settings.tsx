@@ -1,6 +1,5 @@
 import { lazy, Suspense } from "react";
-import type { Screen } from "../state/stores";
-import { useNav } from "../state/stores";
+import { useNav, useSession, type Screen } from "../state/stores";
 import { TabBar } from "../components/TabBar";
 import { useAccessibilityPreferences } from "../lib/accessibilityPrefs";
 import { localizedLabel } from "../lib/localization";
@@ -17,6 +16,7 @@ const AiSection = lazy(async () => ({ default: (await import("./settings/AiSecti
 const AboutSection = lazy(async () => ({ default: (await import("./settings/AboutSection")).AboutSection }));
 const ControlsSection = lazy(async () => ({ default: (await import("./settings/ControlsSection")).ControlsSection }));
 const IntegrationsSection = lazy(async () => ({ default: (await import("./settings/IntegrationsSection")).IntegrationsSection }));
+const EmailDeliverySection = lazy(async () => ({ default: (await import("./settings/EmailDeliverySection")).EmailDeliverySection }));
 const PrivacySection = lazy(async () => ({ default: (await import("./settings/PrivacySection")).PrivacySection }));
 const DataHealthSection = lazy(async () => ({ default: (await import("./settings/DataHealthSection")).DataHealthSection }));
 const AccessibilitySection = lazy(async () => ({ default: (await import("./settings/AccessibilitySection")).AccessibilitySection }));
@@ -38,6 +38,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: "ai", label: "AI copilot" },
   { id: "agents", label: "Agent access" },
   { id: "integrations", label: "Integrations" },
+  { id: "email", label: "Email delivery" },
   { id: "privacy", label: "Privacy centre" },
   { id: "health", label: "Data health" },
   { id: "accessibility", label: "Accessibility" },
@@ -48,7 +49,10 @@ const TABS: { id: SettingsTab; label: string }[] = [
 export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
   const nav = useNav();
   const language = useAccessibilityPreferences((state) => state.language);
+  const user = useSession((state) => state.user);
+  const owner = !user || user.role === "owner";
   const active = tab ?? "backups";
+  const visibleTabs = owner ? TABS : TABS.filter((item) => item.id !== "email");
 
   return (
     <div className="mx-auto flex max-w-5xl gap-6">
@@ -61,7 +65,7 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
         <TabBar
           screen="settings"
           vertical
-          tabs={TABS.map((item) => ({
+          tabs={visibleTabs.map((item) => ({
             ...item,
             label: localizedLabel(item.label, language),
           }))}
@@ -84,6 +88,7 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
           {active === "ai" && <AiSection />}
           {active === "agents" && <AgentBridgeSection />}
           {active === "integrations" && <IntegrationsSection />}
+          {active === "email" && <EmailDeliverySection />}
           {active === "privacy" && <PrivacySection />}
           {active === "health" && <DataHealthSection />}
           {active === "accessibility" && <AccessibilitySection />}

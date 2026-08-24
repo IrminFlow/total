@@ -91,6 +91,7 @@ export type Screen =
   | { name: "voucher-drafts" }
   | { name: "entry-templates" }
   | { name: "sales-documents" }
+  | { name: "communications" }
   // Like 'settings', the active tab lives in the nav stack (nav.go per tab) so Esc/back
   // retraces tabs and other screens can deep-link straight to one.
   | {
@@ -158,6 +159,7 @@ export type Screen =
         | "ai"
         | "agents"
         | "integrations"
+        | "email"
         | "privacy"
         | "health"
         | "accessibility"

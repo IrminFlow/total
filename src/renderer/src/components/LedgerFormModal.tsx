@@ -10,6 +10,7 @@ import { validateGstin } from '@shared/gst/validate'
 import { GST_RATE_PRESETS } from '@shared/seed'
 import { confirmDialog } from '../lib/dialogs'
 import { groupAncestryNames, PARTY_GROUPS, TAX_GROUPS, TRADING_GROUPS } from './ledgerGroups'
+import { PartyContactsEditor } from './PartyContactsEditor'
 
 const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
   { value: '', label: 'None (domestic)' },
@@ -118,7 +119,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   }
 
   return (
-    <Modal title={ledger ? `Edit ${ledger.name}` : 'New ledger'} onClose={onClose}>
+    <Modal title={ledger ? `Edit ${ledger.name}` : 'New ledger'} onClose={onClose} wide>
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Name">
@@ -214,6 +215,12 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
                 <TextInput value={phone} onChange={(e) => setPhone(e.target.value)} className="num" placeholder="+919876543210" />
               </Field>
             </div>
+            {ledger && <PartyContactsEditor ledgerId={ledger.id} />}
+            {!ledger && (
+              <p className="rounded-md border border-line bg-panel2 px-3 py-2 text-[10.5px] text-muted">
+                Save the ledger first, then add separate billing, accounts and delivery contacts.
+              </p>
+            )}
           </>
         )}
 

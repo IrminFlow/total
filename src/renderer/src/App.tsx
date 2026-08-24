@@ -56,6 +56,9 @@ const EntryTemplatesScreen = lazy(async () => ({
 const SalesDocumentsScreen = lazy(async () => ({
   default: (await import("./screens/SalesDocuments")).SalesDocumentsScreen,
 }));
+const CommunicationsScreen = lazy(async () => ({
+  default: (await import("./screens/Communications")).CommunicationsScreen,
+}));
 const Masters = lazy(async () => ({
   default: (await import("./screens/Masters")).Masters,
 }));
@@ -358,6 +361,7 @@ export default function App(): React.JSX.Element {
             {screen.name === "voucher-drafts" && <VoucherDraftsScreen />}
             {screen.name === "entry-templates" && <EntryTemplatesScreen />}
             {screen.name === "sales-documents" && <SalesDocumentsScreen />}
+            {screen.name === "communications" && <CommunicationsScreen />}
             {screen.name === "masters" && (
               <Masters key={screen.tab ?? "ledgers"} tab={screen.tab} />
             )}

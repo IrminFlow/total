@@ -241,6 +241,19 @@ import type {
 } from "@shared/treasury";
 import type { PayrollPreflight, PayrollTieOut } from "@shared/payrollOps";
 import type {
+  AcceptanceResolution,
+  OutboundDraftInput,
+  OutboundDraftUpdate,
+  OutboundMessage,
+  OutboundMessageEvent,
+  OutboundMessageStatus,
+  PartyContact,
+  PartyContactInput,
+  SmtpProfileInput,
+  SmtpProfileSummary,
+  SmtpProfileUpdate,
+} from "@shared/communications";
+import type {
   DepartmentPayrollRow,
   ProvisioningKind,
   ProvisioningPreview,
@@ -1336,6 +1349,74 @@ export const api = {
     remove: (id: number) => call<null>("master:ledgers:delete", { id }),
     balances: (asOn: string) =>
       call<LedgerBalanceRow[]>("master:ledgerBalances", { asOn }),
+  },
+  communications: {
+    contacts: {
+      list: (ledgerId: number, includeInactive = false) =>
+        call<PartyContact[]>("communications:contacts:list", {
+          ledgerId,
+          includeInactive,
+        }),
+      save: (data: PartyContactInput, id?: number) =>
+        call<PartyContact>("communications:contacts:save", { id, data }),
+      remove: (id: number) =>
+        call<null>("communications:contacts:delete", { id }),
+    },
+    smtp: {
+      list: () =>
+        call<SmtpProfileSummary[]>("communications:smtp:list"),
+      create: (data: SmtpProfileInput) =>
+        call<SmtpProfileSummary>("communications:smtp:create", data),
+      update: (id: number, data: SmtpProfileUpdate) =>
+        call<SmtpProfileSummary>("communications:smtp:update", { id, data }),
+      remove: (id: number) =>
+        call<null>("communications:smtp:delete", { id }),
+      test: (id: number) =>
+        call<{ ok: true; serverResponse: string }>("communications:smtp:test", { id }),
+    },
+    messages: {
+      list: (filter: {
+        ledgerId?: number;
+        status?: OutboundMessageStatus;
+        limit?: number;
+      } = {}) =>
+        call<OutboundMessage[]>("communications:messages:list", filter),
+      get: (id: string) =>
+        call<OutboundMessage>("communications:messages:get", { id }),
+      events: (id: string) =>
+        call<OutboundMessageEvent[]>("communications:messages:events", { id }),
+      createDraft: (data: OutboundDraftInput) =>
+        call<OutboundMessage>("communications:messages:createDraft", data),
+      updateDraft: (id: string, data: OutboundDraftUpdate) =>
+        call<OutboundMessage>("communications:messages:updateDraft", { id, data }),
+      review: (id: string, expectedRevision: number) =>
+        call<OutboundMessage>("communications:messages:review", {
+          id,
+          expectedRevision,
+        }),
+      queue: (id: string, smtpProfileId: number) =>
+        call<OutboundMessage>("communications:messages:queue", {
+          id,
+          smtpProfileId,
+        }),
+      deliver: (id: string) =>
+        call<OutboundMessage>("communications:messages:deliver", { id }),
+      resolveAcceptance: (id: string, resolution: AcceptanceResolution) =>
+        call<OutboundMessage>("communications:messages:resolveAcceptance", {
+          id,
+          resolution,
+        }),
+      cancel: (id: string) =>
+        call<OutboundMessage>("communications:messages:cancel", { id }),
+      exportEml: (
+        id: string,
+        smtpProfileId?: number,
+      ) =>
+        call<{ path: string; message: OutboundMessage } | null>(
+          "communications:messages:exportEml",
+          { id, smtpProfileId },
+        ),
+    },
   },
   voucherTypes: {
     list: () => call<VoucherType[]>("master:voucherTypes:list"),

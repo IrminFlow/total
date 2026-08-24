@@ -186,6 +186,15 @@ export const SCREENS: ScreenDef[] = [
     ],
   },
   {
+    name: "communications",
+    keywords: ["email", "outbox", "smtp", "reminders", "messages", "contacts"],
+    title: "Message outbox",
+    screen: { name: "communications" },
+    navSection: "top",
+    card: { sub: "Draft, review and save email", key: "E" },
+    invalidates: ["outboundMessages", "smtpProfiles", "partyContacts", "ledgers", "permissionMatrix"],
+  },
+  {
     name: "entry-templates",
     keywords: ["voucher patterns", "rent", "utilities", "bank charges"],
     title: "Entry templates",
@@ -601,6 +610,7 @@ export const SCREEN_SHORTCUTS: Partial<
   "voucher-drafts": { key: "v", shift: true },
   "entry-templates": { key: "e", shift: true },
   "sales-documents": { key: "r" },
+  communications: { key: "g", shift: true },
   daybook: { key: "d" },
   masters: { key: "m" },
   recurring: { key: "c" },
