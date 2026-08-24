@@ -19,9 +19,10 @@ import {
   Panel,
   Select,
   TextInput,
-  inputCls,
 } from "../components/ui";
-import { ItemPicker, LedgerPicker, useStockItems } from "../components/pickers";
+import { inputCls } from "../components/inputStyles";
+import { ItemPicker, LedgerPicker } from "../components/pickers";
+import { useStockItems } from "../components/pickerHooks";
 
 export function BillingSchedulesModal({
   onClose,

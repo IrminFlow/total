@@ -14,7 +14,7 @@ interface ShortcutGroup {
 }
 
 /** Mirrors the keydown handlers actually wired up in App.tsx (⌘K/Esc/?), VoucherEntry.tsx
- *  (F4–F9 + the note variants + ⌘↵), and ui.tsx's `useKeyNav` (↑↓↵ on every list screen);
+ *  (F4–F9 + the note variants + ⌘↵), and `useKeyNav` (↑↓↵ on every list screen);
  *  the Gateway group derives from the screen registry's cards, same as Gateway itself. */
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {

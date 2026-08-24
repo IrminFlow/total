@@ -8,7 +8,8 @@ import {
   useToasts,
 } from "../state/stores";
 import { api } from "../lib/client";
-import { Button, DateInput, isAnyModalOpen, Kbd, Modal } from "./ui";
+import { Button, DateInput, Kbd, Modal } from "./ui";
+import { isAnyModalOpen } from "./modalRegistry";
 import { MnemonicText } from "./MnemonicText";
 import { SupportLink } from "./SupportLink";
 import {

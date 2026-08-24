@@ -27,14 +27,13 @@ import {
   Select,
   SkeletonRows,
   TextInput,
-  inputCls,
 } from "../components/ui";
+import { inputCls } from "../components/inputStyles";
 import {
   ItemPicker,
   LedgerPicker,
-  useLedgers,
-  useStockItems,
 } from "../components/pickers";
+import { useLedgers, useStockItems } from "../components/pickerHooks";
 import {
   BillingSchedulesModal,
   CustomerOperationsModal,

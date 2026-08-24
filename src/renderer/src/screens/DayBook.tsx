@@ -14,8 +14,8 @@ import {
   Select,
   SkeletonRows,
   TextInput,
-  useKeyNav,
 } from "../components/ui";
+import { useKeyNav } from "../components/useKeyNav";
 import { ReportConfigButton } from "../components/ReportConfigButton";
 import { useReportConfig, type ReportColumn } from "../lib/reportConfig";
 import { csvReport, printReport } from "../lib/reportExport";

@@ -26,8 +26,8 @@ import {
   SectionTitle,
   Select,
   TextInput,
-  inputCls,
 } from "../components/ui";
+import { inputCls } from "../components/inputStyles";
 
 type Tab = "documents" | "ledgers" | "search" | "writing" | "routing";
 

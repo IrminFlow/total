@@ -1,7 +1,7 @@
-// deadlineCountdown (screens/Gateway.tsx) — the compliance tile's phrasing.
+// deadlineCountdown — the Gateway compliance tile's phrasing.
 import { describe, expect, it } from 'vitest'
 import type { Deadline } from '@shared/compliance'
-import { deadlineCountdown } from '../screens/Gateway'
+import { deadlineCountdown } from '../lib/deadlineCountdown'
 
 const d = (date: string): Deadline =>
   ({ kind: 'gst', form: 'GSTR-3B', title: 'Monthly summary return', date }) as Deadline

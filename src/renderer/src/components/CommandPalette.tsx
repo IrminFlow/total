@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNav, useSession, useToasts, type Screen } from "../state/stores";
 import { api } from "../lib/client";
-import { useKeyNav } from "./ui";
+import { useKeyNav } from "./useKeyNav";
 import { useFeatures } from "../lib/useFeatures";
 import { SCREENS } from "../lib/screens";
 import type { CompanyFeatures } from "@shared/features";

@@ -12,8 +12,10 @@ import {
 import { formatPaise, parseRupees } from "@shared/money";
 import { parseSmartDate, toDisplayDate } from "@shared/dates";
 import { useToasts } from "../state/stores";
+import { inputCls } from "./inputStyles";
+import { isTopModal, registerModal, unregisterModal } from "./modalRegistry";
 
-// ---------- text + labels ----------
+// ---------- shared text + labels ----------
 
 export function Kbd({ children }: { children: ReactNode }): React.JSX.Element {
   return (
@@ -95,9 +97,6 @@ export function Money({
 }
 
 // ---------- controls ----------
-
-export const inputCls =
-  "w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body text-ink placeholder:text-muted/70 focus:border-amber/70 focus:bg-panel";
 
 export function Field({
   label,
@@ -410,18 +409,6 @@ export function LineTableScroller({
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/** Stack of mounted modals — only the topmost one responds to Esc/Tab, so stacked modals
- *  (e.g. a ConfirmModal over a form modal) close one at a time. */
-let modalSeq = 0;
-const modalStack: number[] = [];
-
-/** True while any Modal is mounted — screens use it to suppress their own global shortcuts
- *  (Gateway single-letter keys, VoucherEntry F-keys / ⌘↵) so keys aimed at a dialog never
- *  leak through to the screen underneath. useKeyNav already checks this internally. */
-export function isAnyModalOpen(): boolean {
-  return modalStack.length > 0;
-}
-
 export function Modal({
   title,
   onClose,
@@ -470,9 +457,8 @@ export function Modal({
   }, []);
 
   useEffect(() => {
-    const id = ++modalSeq;
-    modalStack.push(id);
-    const isTop = (): boolean => modalStack[modalStack.length - 1] === id;
+    const id = registerModal();
+    const isTop = (): boolean => isTopModal(id);
     const onKey = (e: KeyboardEvent): void => {
       if (!isTop()) return;
       if (e.key === "Escape") {
@@ -512,8 +498,7 @@ export function Modal({
     window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
-      const i = modalStack.indexOf(id);
-      if (i >= 0) modalStack.splice(i, 1);
+      unregisterModal(id);
     };
   }, [requestClose]);
 
@@ -676,76 +661,6 @@ export function SkeletonRows({
       ))}
     </div>
   );
-}
-
-// ---------- keyboard list navigation (the amber bar) ----------
-
-/** Stack of mounted keyboard lists — only the topmost enabled list responds to ↑↓↵, so an
- *  overlay's list doesn't fight the screen's list underneath it. */
-let keyNavSeq = 0;
-const keyNavStack: number[] = [];
-
-export function useKeyNav(
-  count: number,
-  onEnter: (index: number) => void,
-  enabled = true,
-): {
-  active: number;
-  setActive: (i: number) => void;
-} {
-  const [active, setActive] = useState(0);
-  const countRef = useRef(count);
-  countRef.current = count;
-  const activeRef = useRef(active);
-  activeRef.current = active;
-  const onEnterRef = useRef(onEnter);
-  onEnterRef.current = onEnter;
-  const idRef = useRef(0);
-  useEffect(() => {
-    if (active >= count && count > 0) setActive(count - 1);
-  }, [count, active]);
-  useEffect(() => {
-    if (!enabled) return;
-    const id = ++keyNavSeq;
-    idRef.current = id;
-    keyNavStack.push(id);
-    const isTop = (): boolean => keyNavStack[keyNavStack.length - 1] === id;
-    const onKey = (e: KeyboardEvent): void => {
-      if (!isTop()) return;
-      // While any Modal is up it owns the keyboard — a screen's list behind it must not
-      // move its selection (or fire Enter) from keys aimed at the dialog.
-      if (modalStack.length > 0) return;
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setActive((a) => Math.min(countRef.current - 1, a + 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setActive((a) => Math.max(0, a - 1));
-      } else if (e.key === "Enter") {
-        // Side-effect outside the state updater — updaters can run twice under StrictMode.
-        if (countRef.current > 0) onEnterRef.current(activeRef.current);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      const i = keyNavStack.indexOf(id);
-      if (i >= 0) keyNavStack.splice(i, 1);
-    };
-  }, [enabled]);
-  // Keep the active row visible as the selection moves. Rows follow the `.kbar-row` +
-  // `data-active` convention; the last match wins because overlays render after the screen.
-  useEffect(() => {
-    if (enabled && keyNavStack[keyNavStack.length - 1] !== idRef.current)
-      return;
-    const rows = document.querySelectorAll<HTMLElement>(
-      '.kbar-row[data-active="true"]',
-    );
-    rows[rows.length - 1]?.scrollIntoView({ block: "nearest" });
-  }, [active, enabled]);
-  return { active, setActive };
 }
 
 export function EmptyState({

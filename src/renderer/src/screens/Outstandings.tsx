@@ -10,7 +10,7 @@ import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { buildReminder } from '@shared/outstanding'
 import type { OutstandingBill } from '@shared/reports'
-import { useLedgers } from '../components/pickers'
+import { useLedgers } from '../components/pickerHooks'
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Party', align: 'l' },

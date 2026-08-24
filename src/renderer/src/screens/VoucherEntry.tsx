@@ -4,7 +4,8 @@ import type { VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import { api } from '../lib/client'
 import { nextDraftId, useNav, useSession, useToasts, type VoucherDraft } from '../state/stores'
-import { AmountInput, Button, Field, isAnyModalOpen, Kbd, Modal, Select, SkeletonRows } from '../components/ui'
+import { AmountInput, Button, Field, Kbd, Modal, Select, SkeletonRows } from '../components/ui'
+import { isAnyModalOpen } from '../components/modalRegistry'
 import { useFeatures } from '../lib/useFeatures'
 import { TRADING_KINDS } from './voucher/hooks'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
@@ -25,6 +26,7 @@ const LETTER_KEYS: Partial<Record<VoucherKind, string>> = {
 
 const PRIMARY_VOUCHER_KINDS = new Set<VoucherKind>(['contra', 'payment', 'receipt', 'journal', 'sales', 'purchase'])
 
+/** Routes each voucher kind to its focused accounting, invoice, stock, or manufacturing editor. */
 export function VoucherEntry({
   voucherId,
   kindHint,
@@ -377,6 +379,3 @@ function VoucherCommentsModal({ voucherId, onClose }: { voucherId: number; onClo
     <div className="mt-3 flex items-center justify-between"><span className="num text-[10px] text-muted">{body.length}/2,000</span><div className="flex gap-2"><Button onClick={onClose}>Close</Button><Button data-testid="btn-add-voucher-comment" variant="primary" disabled={!body.trim() || saving} onClick={() => void add()}>{saving ? 'Adding…' : 'Add comment'}</Button></div></div>
   </Modal>
 }
-
-// Re-export for renderer unit tests that target the pre-split path (lane T's voucherNumberField.test).
-export { useVoucherNumberField } from './voucher/hooks'

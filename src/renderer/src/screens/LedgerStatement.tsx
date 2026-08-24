@@ -9,8 +9,8 @@ import {
   Panel,
   SectionTitle,
   SkeletonRows,
-  useKeyNav,
 } from "../components/ui";
+import { useKeyNav } from "../components/useKeyNav";
 import { csvReport, printReport, slugFilename } from "../lib/reportExport";
 import type {
   ReportColumn as PdfColumn,

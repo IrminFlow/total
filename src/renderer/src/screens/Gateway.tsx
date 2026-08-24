@@ -4,19 +4,19 @@ import { api } from "../lib/client";
 import { useNav, useSession, useToasts, type Screen } from "../state/stores";
 import {
   Button,
-  isAnyModalOpen,
   Modal,
   Money,
   Panel,
   ScrollList,
   Skeleton,
 } from "../components/ui";
+import { isAnyModalOpen } from "../components/modalRegistry";
 import { toDisplayDate, todayISO } from "@shared/dates";
-import { upcomingDeadlines, type Deadline } from "@shared/compliance";
+import { upcomingDeadlines } from "@shared/compliance";
 import { useFeatures } from "../lib/useFeatures";
 import type { RecurringTemplate } from "@shared/domain";
 import type { CashSparkPoint, TopLedgerRow } from "@shared/reports";
-import { templateOpenTarget } from "./Recurring";
+import { templateOpenTarget } from "./recurringDraft";
 import { CARD_SCREENS } from "../lib/screens";
 import { MnemonicText } from "../components/MnemonicText";
 import {
@@ -30,8 +30,9 @@ import { ArrowUpRight, ClipboardText, SunHorizon } from "@phosphor-icons/react";
 import { morningDigestText } from "../lib/morningDigest";
 import { useAccessibilityPreferences } from "../lib/accessibilityPrefs";
 import { localizedLabel } from "../lib/localization";
+import { deadlineCountdown } from "../lib/deadlineCountdown";
 
-/** Cards derived from the single screen registry (lib/screens.ts). */
+/** Home cards derived from the single screen registry (lib/screens.ts). */
 const CARDS: {
   name: string;
   label: string;
@@ -766,18 +767,6 @@ function DueTodayPanel(): React.JSX.Element | null {
       </div>
     </Panel>
   );
-}
-
-/** "GSTR-3B in 5 days" / "GSTR-1 tomorrow" / "GSTR-3B due today". Exported for renderer tests. */
-export function deadlineCountdown(d: Deadline, today: string): string {
-  const days = Math.round(
-    (new Date(d.date + "T00:00:00Z").getTime() -
-      new Date(today + "T00:00:00Z").getTime()) /
-      86400000,
-  );
-  if (days <= 0) return `${d.form} due today`;
-  if (days === 1) return `${d.form} tomorrow`;
-  return `${d.form} in ${days} days`;
 }
 
 /** Fires once per company per app session (not per Gateway mount/remount) — a module-level set

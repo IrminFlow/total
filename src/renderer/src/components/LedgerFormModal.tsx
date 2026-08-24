@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Group, Ledger } from '@shared/domain'
+import type { Ledger } from '@shared/domain'
 import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
 import { AmountInput, Button, Field, Modal, Select, TextInput } from './ui'
-import { useGroups } from './pickers'
+import { useGroups } from './pickerHooks'
 import { GST_STATES } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
 import { GST_RATE_PRESETS } from '@shared/seed'
 import { confirmDialog } from '../lib/dialogs'
+import { groupAncestryNames, PARTY_GROUPS, TAX_GROUPS, TRADING_GROUPS } from './ledgerGroups'
 
 const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: string }[] = [
   { value: '', label: 'None (domestic)' },
@@ -20,25 +21,7 @@ const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: stri
 
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
 
-export const PARTY_GROUPS = ['Sundry Debtors', 'Sundry Creditors']
-export const TAX_GROUPS = ['Duties & Taxes']
-export const TRADING_GROUPS = [
-  'Sales Accounts', 'Purchase Accounts', 'Direct Incomes', 'Direct Expenses', 'Indirect Incomes', 'Indirect Expenses'
-]
-
-/** This group's own name plus every ancestor's name, walking parent_id up to the root. */
-export function groupAncestryNames(groupId: number, groups: Group[]): string[] {
-  const map = new Map(groups.map((g) => [g.id, g]))
-  const names: string[] = []
-  let g = map.get(groupId)
-  while (g) {
-    names.push(g.name)
-    g = g.parentId ? map.get(g.parentId) : undefined
-  }
-  return names
-}
-
-/** Ledger create/edit form. Which optional fields show depends on the selected group's ancestry:
+/** Ledger create-and-edit form. Which optional fields show depends on the selected group's ancestry:
  *  - Sundry Debtors/Creditors descendants ("party" ledgers) → GSTIN/state/address/PAN/TDS/credit
  *    days/export-SEZ type. No taxType/gstRate/HSN.
  *  - Duties & Taxes descendants ("tax" ledgers) → taxType only.

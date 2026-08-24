@@ -32,8 +32,8 @@ import {
   SkeletonRows,
   Spinner,
   TextInput,
-  inputCls,
 } from "../components/ui";
+import { inputCls } from "../components/inputStyles";
 import { confirmDialog } from "../lib/dialogs";
 import { TabBar } from "../components/TabBar";
 
