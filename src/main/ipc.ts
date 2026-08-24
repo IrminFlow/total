@@ -850,6 +850,12 @@ export function registerIpc(): void {
     return { jsonText, fileName: picked.filePaths[0].split('/').pop() ?? 'gstr2b.json' }
   }, 'viewer')
 
+  handle('gst:gstr9', (p) => {
+    const { fyStartYear } = z.object({ fyStartYear: z.number().int().min(1990).max(2100) }).parse(p)
+    const c = requireCompany()
+    return gst.gstr9(c.db, c.info, fyStartYear)
+  }, 'viewer')
+
   // ---------- composition scheme ----------
   handle('gst:cmp08', (p) => {
     const { from, to, category, interest, lateFee } = periodSchema

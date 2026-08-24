@@ -112,7 +112,9 @@ Ordering within a section is roughly by value.
 
 81. ✓ QRMP: quarterly GSTR-1/3B, monthly PMT-06, optional IFF, state-staggered 3B date (L)
 82. ✓ Composition scheme: CMP-08 and GSTR-4 rather than blocking export (M)
-83. GSTR-9 annual return working papers (L)
+83. ✓ GSTR-9 annual return working papers (L) — a books-against-returns reconciliation, not
+    a filled-in form. GSTR-9 has no offline utility worth targeting, and a generated annual
+    return would be a confident answer to a question that needs a human.
 84. ✓ GSTR-2B reconciliation improvements: fuzzy match on party name (M)
 85. ✓ ITC ageing: input credit not claimed within the statutory window (M)
 86. ✓ E-invoice threshold awareness by declared turnover band (S)

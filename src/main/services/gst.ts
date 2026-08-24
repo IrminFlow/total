@@ -13,6 +13,8 @@ import { toUqc } from '@shared/gst/uqc'
 import { validateGstr1, type GstIssue } from '@shared/gst/validate'
 import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
 import { periodBounds } from '@shared/period'
+import { buildGstr9, type Gstr9Working } from '@shared/gst/gstr9'
+import { filingRegister } from './filings'
 import {
   buildGstr4,
   computeCmp08,
@@ -753,4 +755,73 @@ export function exportGstr1Csv(slug: string, result: Gstr1Result): string {
   const path = join(companyExportsDir(slug), `gstr1-${result.period}-summary.csv`)
   writeFileSync(path, [header, ...lines].join('\n'))
   return path
+}
+
+/**
+ * GSTR-9 working papers for a financial year.
+ *
+ * Aggregated from the same extraction every other return uses, over the whole year in one pass
+ * rather than twelve — the extraction is already period-bounded, so a year is just a wider
+ * period, and summing twelve monthly builds would round twelve times where once is correct.
+ *
+ * Deliberately no portal JSON. GSTR-9 has no offline utility worth targeting, its tables are
+ * heavily judgement-driven, and a filled-in annual return generated from books alone would be a
+ * confident answer to a question that needs a human. What this produces is every figure that CAN
+ * be computed, beside what was filed, so the person at the portal is transcribing rather than
+ * deriving.
+ */
+export function gstr9(db: DB, company: CompanyInfo, fyStartYear: number): Gstr9Working {
+  const fy = fyFromStartYear(fyStartYear)
+  const docs = extractOutwardDocs(db, company, fy.from, fy.to)
+
+  const taxableOf = (d: (typeof docs)[number]): number =>
+    d.items.reduce((sum, i) => sum + i.taxable, 0) + (d.nilLines ?? []).reduce((sum, n) => sum + n.taxable, 0)
+  const nilOf = (d: (typeof docs)[number]): number =>
+    (d.nilLines ?? []).reduce((sum, n) => sum + n.taxable, 0)
+
+  const sales = docs.filter((d) => d.kind === 'sales')
+  const creditNotes = docs.filter((d) => d.kind === 'credit_note')
+  const debitNotes = docs.filter((d) => d.kind === 'debit_note')
+  const isExport = (d: (typeof docs)[number]): boolean => isZeroRatedTyp(d.invTyp ?? 'R')
+
+  const sumTax = (pick: (i: GstDocRateItem) => number): number =>
+    docs.reduce((sum, d) => sum + d.items.reduce((t, i) => t + pick(i), 0), 0)
+
+  const itc = itcBreakdown(db, company, fy.from, fy.to)
+  const rcm = rcmInwardSummary(db, company, fy.from, fy.to)
+
+  // What the filing register says was actually paid, and which of the year's 3B periods have no
+  // filing recorded. A month with nothing recorded is not a month filed nil.
+  const register = filingRegister(db, company, fyStartYear, todayISO())
+  const taxReturns = register.filter((r) => r.form === 'GSTR-3B')
+  const filedRows = taxReturns.filter((r) => r.record?.filedAt)
+  const taxPaid = filedRows.length > 0 ? filedRows.reduce((sum, r) => sum + (r.record?.taxPaid ?? 0), 0) : null
+
+  return buildGstr9({
+    financialYear: fy.label,
+    outward: {
+      b2bTaxable: sales.filter((d) => d.partyGstin && !isExport(d)).reduce((s, d) => s + taxableOf(d), 0),
+      b2cTaxable: sales.filter((d) => !d.partyGstin && !isExport(d)).reduce((s, d) => s + taxableOf(d), 0),
+      exportTaxable: sales.filter(isExport).reduce((s, d) => s + taxableOf(d), 0),
+      nilExemptTaxable: sales.reduce((s, d) => s + nilOf(d), 0),
+      creditNoteTaxable: creditNotes.reduce((s, d) => s + taxableOf(d), 0),
+      debitNoteTaxable: debitNotes.reduce((s, d) => s + taxableOf(d), 0),
+      igst: sumTax((i) => i.igst),
+      cgst: sumTax((i) => i.cgst),
+      sgst: sumTax((i) => i.sgst),
+      cess: sumTax((i) => i.cess)
+    },
+    itc: {
+      igst: itc.impg.igst + itc.isrc.igst + itc.oth.igst,
+      cgst: itc.impg.cgst + itc.isrc.cgst + itc.oth.cgst,
+      sgst: itc.impg.sgst + itc.isrc.sgst + itc.oth.sgst,
+      cess: itc.impg.cess + itc.isrc.cess + itc.oth.cess,
+      blocked: itc.blocked.igst + itc.blocked.cgst + itc.blocked.sgst + itc.blocked.cess
+    },
+    rcm: { igst: rcm.igst, cgst: rcm.cgst, sgst: rcm.sgst, cess: rcm.cess },
+    filed: {
+      taxPaid,
+      unfiledMonths: taxReturns.filter((r) => !r.record?.filedAt && r.status !== 'upcoming').map((r) => r.period)
+    }
+  })
 }

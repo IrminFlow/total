@@ -38,6 +38,7 @@ import type { AiConfigView, AiSettings } from '@shared/ai/config'
 import type { LicenseState } from '@shared/license'
 import type { Cmp08, CompositionCategory, Gstr4 } from '@shared/gst/composition'
 import type { FilingLiability, FilingRecord, FilingRow } from '@shared/gst/filings'
+import type { Gstr9Working } from '@shared/gst/gstr9'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -730,6 +731,10 @@ export const api = {
     chat: (input: { question: string; screen?: string; history?: { role: 'user' | 'assistant'; content: string }[] }) =>
       call<{ runId: string }>('ai:chat', input),
     cancel: (runId: string) => call<{ cancelled: boolean }>('ai:cancel', { runId })
+  },
+  annual: {
+    /** GSTR-9 working papers: the year's books beside the year's returns. */
+    gstr9: (fyStartYear: number) => call<Gstr9Working>('gst:gstr9', { fyStartYear })
   },
   composition: {
     cmp08: (from: string, to: string, category: CompositionCategory, extras: { interest?: number; lateFee?: number } = {}) =>

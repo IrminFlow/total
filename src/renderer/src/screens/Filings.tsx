@@ -23,7 +23,9 @@ import { periodBounds, periodLabel, type Period } from '@shared/period'
 import type { FilingRow } from '@shared/gst/filings'
 import { lateCharge } from '@shared/gst/lateFee'
 import { csvReport, printReport } from '../lib/reportExport'
-import type { ReportColumn as PdfColumn } from '../lib/client'
+import { useStickyTab } from '../lib/useStickyTab'
+import { TabBar } from '../components/TabBar'
+import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 
 /**
  * The filing register.
@@ -76,6 +78,7 @@ export function FilingsScreen(): React.JSX.Element {
   const queryClient = useQueryClient()
   const [fyStartYear, setFyStartYear] = useState(fyOf(from).startYear)
   const [editing, setEditing] = useState<FilingRow | null>(null)
+  const [tab, setTab] = useStickyTab<'register' | 'annual'>('filings', ['register', 'annual'], 'register')
   const [nilling, setNilling] = useState<FilingRow | null>(null)
 
   const registered = info?.gstRegistrationType !== 'unregistered'
@@ -136,6 +139,15 @@ export function FilingsScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
+            <TabBar
+              screen="filings"
+              tabs={[
+                { id: 'register', label: 'Register' },
+                { id: 'annual', label: 'GSTR-9 papers' }
+              ]}
+              active={tab}
+              onSelect={setTab}
+            />
             <Select
               data-testid="select-filings-year"
               className="w-40"
@@ -183,9 +195,13 @@ export function FilingsScreen(): React.JSX.Element {
           </div>
         }
       >
-        Filing register
+        {tab === 'annual' ? 'GSTR-9 working papers' : 'Filing register'}
       </SectionTitle>
 
+      {tab === 'annual' ? (
+        <Gstr9Papers fyStartYear={fyStartYear} />
+      ) : (
+        <>
       {outstanding.length > 0 && (
         <div
           className="mb-4 flex items-baseline gap-3 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm"
@@ -282,6 +298,8 @@ export function FilingsScreen(): React.JSX.Element {
         Late fee and interest are estimates computed from the dates. The portal is authoritative
         and applies caps and waivers this cannot know about.
       </p>
+        </>
+      )}
 
       {nilling && (
         <NilFilingModal
@@ -589,5 +607,136 @@ function NilFilingModal({
         </div>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * GSTR-9 working papers.
+ *
+ * GSTR-9 is not a return you compute so much as one you reconcile: the portal auto-populates it
+ * from the GSTR-1s and GSTR-3Bs already filed, and what a business needs before signing is
+ * whether the books for the year agree with what was filed, and where they do not.
+ *
+ * So this is a comparison, not a form. It emits no portal JSON — GSTR-9 has no offline utility
+ * worth targeting, and a filled-in annual return generated from books alone would be a confident
+ * answer to a question that needs a human.
+ */
+function Gstr9Papers({ fyStartYear }: { fyStartYear: number }): React.JSX.Element {
+  const toast = useToasts()
+  const { data, isLoading } = useQuery({
+    queryKey: ['gstr9', fyStartYear],
+    queryFn: () => api.annual.gstr9(fyStartYear)
+  })
+
+  if (isLoading || !data) return <SkeletonRows rows={10} />
+
+  const columns: PdfColumn[] = [
+    { label: 'Table', align: 'l' },
+    { label: 'Particulars', align: 'l' },
+    { label: 'Per books', align: 'r' },
+    { label: 'Per returns', align: 'r' },
+    { label: 'Difference', align: 'r' }
+  ]
+  const exportRows: PdfRow[] = data.sections.flatMap((section) => [
+    { cells: [section.title, '', '', '', ''], bold: true },
+    ...section.lines.map((l) => ({
+      cells: [
+        l.table,
+        l.label,
+        formatPaise(l.perBooks),
+        l.perReturns == null ? '—' : formatPaise(l.perReturns),
+        l.difference == null ? '—' : formatPaise(l.difference)
+      ]
+    }))
+  ])
+
+  return (
+    <>
+      <div
+        className={`mb-3 rounded-md border px-3.5 py-2.5 text-body-sm ${
+          data.reconciled ? 'border-dr/40 bg-dr/5 text-dr' : 'border-amber/50 bg-amber/10 text-amber'
+        }`}
+        data-testid="gstr9-status"
+      >
+        {data.reconciled ? (
+          <>FY {data.financialYear}: the books agree with what was filed, and nothing is outstanding.</>
+        ) : data.unfiledMonths.length > 0 ? (
+          <>
+            {data.unfiledMonths.length} period{data.unfiledMonths.length === 1 ? '' : 's'} with no GSTR-3B
+            recorded as filed: {data.unfiledMonths.join(', ')}. Fix that before reconciling anything else.
+          </>
+        ) : (
+          <>The books and the filings differ. The lines below show where.</>
+        )}
+        <span className="ml-2">
+          <Button
+            variant="ghost"
+            onClick={() =>
+              void printReport(
+                {
+                  title: `GSTR-9 working papers · FY ${data.financialYear}`,
+                  periodLabel: 'Books against returns',
+                  columns,
+                  rows: exportRows,
+                  filename: `gstr9-papers-${data.financialYear}`
+                },
+                toast
+              )
+            }
+          >
+            PDF
+          </Button>
+        </span>
+      </div>
+
+      {data.sections.map((section) => (
+        <Panel key={section.key} className="mb-3">
+          <div className="px-4 py-2.5">
+            <p className="text-body font-medium">{section.title}</p>
+            <p className="mt-0.5 text-hint text-muted">{section.note}</p>
+          </div>
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th scope="col" className="w-20">Table</th>
+                <th scope="col">Particulars</th>
+                <th scope="col" className="r w-40">Per books</th>
+                <th scope="col" className="r w-40">Per returns</th>
+                <th scope="col" className="r w-36">Difference</th>
+              </tr>
+            </thead>
+            <tbody data-testid={`rows-gstr9-${section.key}`}>
+              {section.lines.map((l, i) => (
+                <tr key={`${l.table}-${i}`}>
+                  <td className="num text-muted">{l.table}</td>
+                  <td>{l.label}</td>
+                  <td className="r"><Money paise={l.perBooks} /></td>
+                  <td className="r">
+                    {/* A dash, not a zero: "nothing recorded" and "filed nil" are different
+                        claims, and the second is far worse to make by accident. */}
+                    {l.perReturns == null ? <span className="text-muted">—</span> : <Money paise={l.perReturns} />}
+                  </td>
+                  <td className="r">
+                    {l.difference == null ? (
+                      <span className="text-muted">—</span>
+                    ) : l.difference === 0 ? (
+                      <span className="text-dr">✓</span>
+                    ) : (
+                      <span className="text-cr font-semibold"><Money paise={l.difference} signed /></span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+      ))}
+
+      <p className="mt-2 text-hint text-muted">
+        Working papers, not a return. Table 8&rsquo;s ITC reconciliation against GSTR-2A/2B and the
+        amendment tables need judgement the books cannot supply — the figures here are the ones
+        that can be computed, so the portal form is transcribed rather than derived.
+      </p>
+    </>
   )
 }

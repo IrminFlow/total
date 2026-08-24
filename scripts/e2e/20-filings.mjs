@@ -159,4 +159,52 @@ await scenario('20-filings', async (h) => {
   await h.page.waitForSelector('[data-testid="input-filing-arn"]', { timeout: 5000 })
   const stillOpen = await h.page.$('[data-testid="input-filing-arn"]')
   assert(stillOpen, 'saving without an ARN is refused')
+
+  // ---- GSTR-9 working papers ----
+  // Not a return you compute so much as one you reconcile: the portal auto-populates it from the
+  // GSTR-1s and 3Bs already filed, and what matters before signing is where the books disagree.
+  const papers = await h.invoke('gst:gstr9', { fyStartYear })
+  assert(papers.sections.length === 3, 'outward, ITC and tax sections')
+  assert(papers.financialYear, 'the year is stated')
+
+  const allLines = papers.sections.flatMap((s) => s.lines)
+  for (const l of allLines) {
+    // "Nothing recorded" and "filed nil" are different claims, and the second is far worse to
+    // make by accident — so a figure with nothing to compare against is null, never zero.
+    if (l.perReturns === null) {
+      assert(l.difference === null, `${l.table}: no comparison without a filed figure`)
+    } else {
+      assert(
+        l.difference === l.perBooks - l.perReturns,
+        `${l.table}: the difference is books minus returns`
+      )
+    }
+  }
+
+  // Every 3B period that has closed without a filing is named, and a year with one is not
+  // reconciled however well the rest ties out.
+  const register2 = await h.invoke('filings:register', { fyStartYear })
+  const expectedUnfiled = register2
+    .filter((r) => r.form === 'GSTR-3B' && !r.record?.filedAt && r.status !== 'upcoming')
+    .map((r) => r.period)
+  assert(
+    JSON.stringify(papers.unfiledMonths) === JSON.stringify(expectedUnfiled),
+    `the unfiled list matches the register (${JSON.stringify(papers.unfiledMonths)})`
+  )
+  if (papers.unfiledMonths.length > 0) {
+    assert(!papers.reconciled, 'a year with an unfiled period is never reported as reconciled')
+  }
+
+  // The previous step deliberately left the filing dialog open (saving without an ARN is
+  // refused); close it before navigating, or the overlay swallows every click.
+  await h.page.keyboard.press('Escape')
+  await h.page.waitForSelector('[data-testid="input-filing-arn"]', { state: 'detached', timeout: 10000 })
+  await h.goto('gateway')
+  await h.page.keyboard.press('q')
+  await h.waitScreen('filings')
+  await h.page.click('[data-testid="tab-filings-annual"]')
+  await h.page.waitForSelector('[data-testid="rows-gstr9-outward"] tr', { timeout: 15000 })
+  const status = await h.page.textContent('[data-testid="gstr9-status"]')
+  assert(status.length > 0, 'the papers state where the year stands')
+  await h.shot('05-gstr9')
 })
