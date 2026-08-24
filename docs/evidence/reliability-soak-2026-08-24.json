@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "sourceCommit": "38254ed",
+  "checkedAt": "2026-08-24T12:43:54.000Z",
+  "environment": {
+    "os": "Darwin 27.0.0",
+    "arch": "arm64",
+    "node": "v26.5.0",
+    "dataDirectory": "isolated temporary directory"
+  },
+  "result": {
+    "ok": true,
+    "iterations": 60,
+    "companySwitches": 62,
+    "imports": 60,
+    "reports": 242,
+    "manualBackups": 60,
+    "restores": 12,
+    "durationMs": 9420,
+    "companies": [
+      {
+        "slug": "soak-north",
+        "vouchers": 30,
+        "totalDebit": 387000,
+        "totalCredit": 387000
+      },
+      {
+        "slug": "soak-south",
+        "vouchers": 30,
+        "totalDebit": 390000,
+        "totalCredit": 390000
+      }
+    ]
+  },
+  "coverage": [
+    "company switching",
+    "reviewed generic-journal import",
+    "trial balance",
+    "day book",
+    "profit and loss",
+    "balance sheet",
+    "dashboard",
+    "manual backup",
+    "backup inspection",
+    "live restore",
+    "post-restore reconciliation"
+  ],
+  "hostedSchedule": {
+    "workflow": ".github/workflows/soak.yml",
+    "cycles": 60,
+    "cadence": "weekly",
+    "activation": "available after this workflow exists on the default branch"
+  }
+}
