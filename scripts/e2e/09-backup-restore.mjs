@@ -94,4 +94,53 @@ await scenario('09-backup-restore', async (h) => {
   const line = await h.page.textContent('[data-testid="gateway-last-backup"]')
   assert(/Last backup/.test(line), `the Gateway states the last backup (got ${line})`)
   assert(new RegExp(`${toVerify.length} kept`).test(line), 'and how many are kept')
+
+  // ---- what a restore would cost, before it costs it ----
+  // "This replaces the current books" is true and abstract. What someone needs is how many
+  // vouchers exist now that do not exist in the backup, because those get typed again.
+  const liveCount = await h.invoke('voucher:count')
+  assert(typeof liveCount === 'number', 'the books report a voucher count')
+  const backupCount = (await h.invoke('backup:verify', { file: toVerify[0].file })).voucherCount
+  assert(typeof backupCount === 'number', 'and so does the backup')
+
+  await h.goto('settings')
+  await h.page.click('[data-testid="tab-settings-backups"]')
+  await h.page.waitForSelector('[data-testid="btn-verify-' + toVerify[0].file + '"]', { timeout: 15000 })
+  // Restore is owner-gated. A company with no users has no signed-in role, so the control is
+  // absent — which is correct, and is why this checks rather than assumes.
+  const restoreBtn = await h.page.$(`[data-testid="btn-restore-${toVerify[0].file}"]`)
+  if (restoreBtn) {
+    await restoreBtn.click()
+    await h.page.waitForSelector('[data-testid="restore-impact"]', { timeout: 15000 })
+    const impact = await h.page.textContent('[data-testid="restore-impact"]')
+    if (liveCount > backupCount) {
+      assert(
+        new RegExp(`${liveCount - backupCount}`).test(impact),
+        `it names how many vouchers would be lost (got ${impact})`
+      )
+    } else {
+      assert(impact.length > 0, `it says where the two stand (got ${impact})`)
+    }
+    await h.shot('06-restore-impact')
+    await h.page.keyboard.press('Escape')
+  }
+
+  // ---- backup retention is the business's choice ----
+  // Twenty was a guess: a business that opens its books four times a day burns through twenty in
+  // a week, and one that opens weekly keeps five months in the same twenty.
+  const before = await h.invoke('config:backupKeep:get')
+  assert(before.keep === 20, `the default is twenty (got ${before.keep})`)
+  const set = await h.invoke('config:backupKeep:set', { keep: 50 })
+  assert(set.keep === 50, 'and it can be changed')
+
+  // A retention of one is not a backup policy but a mirror — the next open would overwrite the
+  // only copy, and the one thing backups exist to survive is a mistake noticed later.
+  let refused = false
+  try {
+    await h.invoke('config:backupKeep:set', { keep: 1 })
+  } catch {
+    refused = true
+  }
+  assert(refused, 'a retention of one is refused')
+  await h.invoke('config:backupKeep:set', { keep: 20 })
 })

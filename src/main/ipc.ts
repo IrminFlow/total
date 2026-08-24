@@ -407,6 +407,12 @@ export function registerIpc(): void {
 
   handle('backup:run', runManualBackup)
 
+  handle('config:backupKeep:get', () => ({ keep: configSvc.getBackupKeep(requireCompany().db) }), 'viewer')
+  handle('config:backupKeep:set', (p) => {
+    const { keep } = z.object({ keep: z.number().int().min(5).max(200) }).parse(p)
+    return { keep: configSvc.setBackupKeep(requireCompany().db, keep) }
+  }, 'owner')
+
   handle('backup:verify', (payload) => {
     const { file } = z.object({ file: backupFileSchema }).parse(payload)
     const c = requireCompany()
@@ -673,6 +679,12 @@ export function registerIpc(): void {
       .parse(p)
     return vouchers.voucherNumberExists(requireCompany().db, voucherTypeId, number, excludeId)
   })
+  /** Vouchers in books right now — the denominator for "what would a restore cost". */
+  handle('voucher:count', () => {
+    const c = requireCompany()
+    return (c.db.prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE ${vouchers.IN_BOOKS}`).get() as { n: number }).n
+  }, 'viewer')
+
   handle('voucher:draftFrom', (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     return vouchers.draftFromVoucher(requireCompany().db, voucherId)

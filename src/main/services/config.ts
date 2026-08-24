@@ -134,3 +134,33 @@ export function shouldNotifyDeadlinesToday(db: DB, today: string): boolean {
   writeMeta(db, 'deadline_notified', today)
   return true
 }
+
+/**
+ * How many backups to keep before the oldest is pruned.
+ *
+ * Twenty was a reasonable guess and is a bad universal answer: a business that opens its books
+ * four times a day burns through twenty in a week, and one that opens them weekly keeps five
+ * months of history in the same twenty. The number belongs to the business.
+ *
+ * Bounded below at 5 rather than allowing 1. A retention of one means the next open overwrites
+ * the only copy — which is not a backup policy, it is a mirror, and the one thing backups exist
+ * to survive is a mistake noticed later.
+ */
+export const BACKUP_KEEP_DEFAULT = 20
+export const BACKUP_KEEP_MIN = 5
+export const BACKUP_KEEP_MAX = 200
+
+export function getBackupKeep(db: DB): number {
+  const raw = readMeta(db, 'backup.keep')
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= BACKUP_KEEP_MIN && raw <= BACKUP_KEEP_MAX
+    ? raw
+    : BACKUP_KEEP_DEFAULT
+}
+
+export function setBackupKeep(db: DB, keep: number): number {
+  const clamped = Math.min(BACKUP_KEEP_MAX, Math.max(BACKUP_KEEP_MIN, Math.round(keep)))
+  const before = getBackupKeep(db)
+  writeMeta(db, 'backup.keep', clamped)
+  writeAudit(db, 'company', 0, 'update', { backupKeep: before }, { backupKeep: clamped })
+  return clamped
+}

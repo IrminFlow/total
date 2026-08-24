@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BackupInfo, type BackupVerification, type IntegrityResult } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, EmptyState, Field, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
+import { Button, EmptyState, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
 import { toDisplayDateTime } from '@shared/dates'
 
 function formatSize(bytes: number): string {
@@ -29,7 +29,15 @@ export function BackupsSection(): React.JSX.Element {
   const [exporting, setExporting] = useState(false)
   const [runningBackup, setRunningBackup] = useState(false)
   const rows = data ?? []
-  const isOwner = user?.role === 'owner'
+  /**
+   * Owner-only, matching the server's gate exactly.
+   *
+   * A company with no user accounts has no auth at all — every IPC channel is ungated for it (see
+   * ipc.ts's `usersExist` check) — so `user === null` is the single-user case and must be allowed.
+   * Requiring a role outright left a company that never set up accounts unable to restore a
+   * backup from the UI while the backend was perfectly willing.
+   */
+  const isOwner = user == null || user.role === 'owner'
   const canBackup = user?.role !== 'viewer'
 
   // Runs FULLY and UNCONDITIONALLY, synchronously with the restore response — nothing here is
@@ -115,7 +123,11 @@ export function BackupsSection(): React.JSX.Element {
                   </td>
                   {isOwner && (
                     <td className="r">
-                      <button className="text-small text-blue hover:underline" onClick={() => setRestoring(b)}>
+                      <button
+                        data-testid={`btn-restore-${b.file}`}
+                        className="text-small text-blue hover:underline"
+                        onClick={() => setRestoring(b)}
+                      >
                         Restore…
                       </button>
                     </td>
@@ -126,6 +138,7 @@ export function BackupsSection(): React.JSX.Element {
           </table>
         )}
       </Panel>
+      <RetentionSetting />
       <p className="mt-2 text-hint text-muted">
         Backups live in this company's data folder. A snapshot is also taken automatically on open and before risky
         operations (Tally imports, restores).
@@ -174,7 +187,8 @@ function RestoreModal({
 
   return (
     <Modal title="Restore from backup" onClose={onClose}>
-      <p className="text-detail text-ink">
+      <WhatWouldBeLost file={backup.file} />
+      <p className="mt-3 text-detail text-ink">
         This replaces the current books with the backup from {dateLabel}. A pre-restore copy is kept.
       </p>
       <div className="mt-4">
@@ -299,5 +313,119 @@ function VerifyCell({ file }: { file: string }): React.JSX.Element {
         result.problem ?? 'Failed'
       )}
     </span>
+  )
+}
+
+/**
+ * How many backups to keep.
+ *
+ * Twenty was a reasonable guess and a bad universal answer: a business that opens its books four
+ * times a day burns through twenty in a week, and one that opens them weekly keeps five months of
+ * history in the same twenty.
+ *
+ * The floor is five, not one. A retention of one means the next open overwrites the only copy —
+ * not a backup policy but a mirror, and the one thing backups exist to survive is a mistake
+ * noticed later.
+ */
+function RetentionSetting(): React.JSX.Element {
+  const { user } = useSession()
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data } = useQuery({ queryKey: ['backupKeep'], queryFn: api.backups.keepGet })
+  /**
+   * Owner-only, matching the server's gate exactly.
+   *
+   * A company with no user accounts has no auth at all — every IPC channel is ungated for it (see
+   * ipc.ts's `usersExist` check) — so `user === null` is the single-user case and must be allowed.
+   * Requiring a role outright left a company that never set up accounts unable to restore a
+   * backup from the UI while the backend was perfectly willing.
+   */
+  const isOwner = user == null || user.role === 'owner'
+
+  const save = async (keep: number): Promise<void> => {
+    try {
+      await api.backups.keepSet(keep)
+      await queryClient.invalidateQueries({ queryKey: ['backupKeep'] })
+      toast.push('success', `Keeping the last ${keep} backups`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <Panel className="mt-4 p-4">
+      <Field
+        label="Backups to keep"
+        hint="A snapshot is taken every time the books open, so this is roughly how far back you can go."
+      >
+        <Select
+          data-testid="select-backup-keep"
+          className="w-40"
+          value={data?.keep ?? 20}
+          disabled={!isOwner}
+          onChange={(e) => void save(Number(e.target.value))}
+        >
+          {[5, 10, 20, 50, 100, 200].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </Panel>
+  )
+}
+
+/**
+ * What restoring this backup would cost.
+ *
+ * "This replaces the current books" is true and abstract. What someone actually needs to know is
+ * how many vouchers exist now that do not exist in the backup — because those are the entries
+ * that will have to be typed again, and that number is the difference between a routine restore
+ * and a bad afternoon.
+ *
+ * Both figures come from opening the backup and counting, not from a stored count: a backup file
+ * is the only authority on what is in it.
+ */
+function WhatWouldBeLost({ file }: { file: string }): React.JSX.Element {
+  const { data: inBackup } = useQuery({
+    queryKey: ['backupVerify', file],
+    queryFn: () => api.backups.verify(file)
+  })
+  const { data: tb } = useQuery({ queryKey: ['voucherCount'], queryFn: () => api.vouchers.count() })
+
+  if (!inBackup || tb == null) return <p className="text-hint text-muted">Reading the backup…</p>
+  if (!inBackup.opensAsCompany) {
+    return (
+      <div className="rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm text-cr">
+        This backup does not open as a company database: {inBackup.problem}
+      </div>
+    )
+  }
+
+  const difference = tb - inBackup.voucherCount
+  return (
+    <div
+      className={`rounded-md border px-3.5 py-2.5 text-body-sm ${
+        difference > 0 ? 'border-cr/40 bg-cr/5 text-cr' : 'border-line bg-panel2 text-muted'
+      }`}
+      data-testid="restore-impact"
+    >
+      {difference > 0 ? (
+        <>
+          <b>{difference.toLocaleString('en-IN')} voucher{difference === 1 ? '' : 's'}</b> entered since
+          this backup would be gone — {tb.toLocaleString('en-IN')} now against{' '}
+          {inBackup.voucherCount.toLocaleString('en-IN')} in the backup.
+        </>
+      ) : difference === 0 ? (
+        <>Same number of vouchers as now ({tb.toLocaleString('en-IN')}), so nothing obvious is lost.</>
+      ) : (
+        <>
+          This backup holds {(-difference).toLocaleString('en-IN')} more voucher
+          {difference === -1 ? '' : 's'} than the books do now — something was deleted since.
+        </>
+      )}
+      {inBackup.balanced ? '' : ' The books in this backup do not balance.'}
+    </div>
   )
 }

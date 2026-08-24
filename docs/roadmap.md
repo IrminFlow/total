@@ -319,10 +319,12 @@ Ordering within a section is roughly by value.
 249. Transaction log of every write, replayable (L)
 250. Crash-safe voucher draft recovery (M)
 251. Duplicate-company detection when restoring (S)
-252. Backup retention policy configurable beyond twenty (S)
+252. ✓ Backup retention policy configurable, 5 to 200 (S) — floored at 5, because a retention
+     of 1 means the next open overwrites the only copy.
 253. Encrypted backup to a user-chosen cloud folder, client-side encrypted (M)
 254. Data export in a documented open format, guaranteed round-trip (M)
-255. A "what would I lose" summary before any destructive action (S)
+255. ✓ A "what would I lose" summary before a restore (S) — counted by opening the backup,
+     since a backup file is the only authority on what is in it.
 256. Bin auto-purge policy with a warning before it runs (S)
 257. Company-level read-only lock for archived years (M)
 258. Year-end close reversal, if it was run in error (M)

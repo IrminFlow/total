@@ -390,6 +390,8 @@ export const api = {
     run: () => call<{ path: string }>('backup:run'),
     /** Opens the backup and foots its books — the only claim worth making about a backup. */
     verify: (file: string) => call<BackupVerification>('backup:verify', { file }),
+    keepGet: () => call<{ keep: number }>('config:backupKeep:get'),
+    keepSet: (keep: number) => call<{ keep: number }>('config:backupKeep:set', { keep }),
     restore: (file: string) =>
       call<{ info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('backup:restore', { file }),
     exportEncrypted: (passphrase: string) => call<{ path: string }>('backup:exportEncrypted', { passphrase }),
@@ -481,6 +483,7 @@ export const api = {
     draftFrom: (voucherId: number) => call<VoucherDraft | null>('voucher:draftFrom', { voucherId }),
     latestOfType: (voucherTypeId: number) =>
       call<{ voucherId: number | null }>('voucher:latestOfType', { voucherTypeId }),
+    count: () => call<number>('voucher:count'),
     bin: () => call<BinRow[]>('voucher:bin'),
     restore: (id: number) => call<null>('voucher:restore', { id }),
     purge: (id: number) => call<null>('voucher:purge', { id })
