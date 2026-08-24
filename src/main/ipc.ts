@@ -91,7 +91,6 @@ import {
   stockGroupInputSchema,
   stockItemInputSchema,
   stockQuerySchema,
-  tallyImportSchema,
   tdsExport26qSchema,
   tdsSectionInputSchema,
   tdsSuggestSchema,
@@ -145,9 +144,6 @@ import * as priceLevels from "./services/priceLevels";
 import * as budgets from "./services/budgets";
 import * as recurring from "./services/recurring";
 import * as yearEnd from "./services/yearEnd";
-import { importTallyXml, dryRunTallyXml } from "./services/tallyImport";
-import * as importer from "./services/importers";
-import { findImportBatch, importSourceHash } from "./services/importBatches";
 import * as agentBridge from "./services/agentBridge";
 import * as mcpAccess from "./services/mcpAccess";
 import * as ai from "./services/ai";
@@ -165,7 +161,6 @@ import * as salesRecurringService from "./services/salesRecurring";
 import * as discountAuthorityService from "./services/discountAuthority";
 import * as customerOperations from "./services/customerOperations";
 import * as internalControls from "./services/internalControls";
-import * as migrationTools from "./services/migrationTools";
 import * as procurementService from "./services/procurement";
 import * as vendorService from "./services/vendors";
 import { normalizeBankStatement } from "./services/bankStatementFormats";
@@ -193,6 +188,7 @@ import {
 } from "@shared/integrationAdapters";
 import { agentBridgeConfigSchema, agentExportSchema } from "@shared/schemas";
 import { registerAiHandlers } from "./ipc/aiHandlers";
+import { registerMigrationHandlers } from "./ipc/migrationHandlers";
 import * as consolidated from "./services/consolidated";
 import * as caPack from "./services/caPack";
 import { htmlToPdf, writeExportPdf } from "./services/pdf";
@@ -243,13 +239,6 @@ export interface OpenCompany {
 }
 
 let current: OpenCompany | null = null;
-
-/** Paths the Tally-import file dialog has actually issued this session. A `filePath` supplied in
- *  a tally:import payload must be one of these — otherwise the renderer could pass any path on
- *  disk and have it read straight into the app (arbitrary file read). The dryRun -> apply wizard
- *  flow still works: dryRun's dialog pick adds the path here, and apply's payload just needs to
- *  echo that same path back. The `xmlText` inline path (used by drivers/tests) is unaffected. */
-const dialogIssuedTallyPaths = new Set<string>();
 
 /** The signed-in user for the currently-open company, or null before login / after logout.
  *  Cleared whenever the company itself closes (see closeCurrentCompany). */
@@ -6050,223 +6039,10 @@ export function registerIpc(): void {
     return { path };
   });
 
-  // ---------- CSV master import ----------
-  const importKindSchema = z.enum([
-    "ledgers",
-    "items",
-    "openings",
-    "generic_journal",
-    "busy",
-    "zoho_books",
-    "marg",
-  ]);
-  handle("import:pickCsv", async () => {
-    const picked = await dialog.showOpenDialog({
-      title: "Choose a spreadsheet",
-      filters: [{ name: "Spreadsheet", extensions: ["csv", "tsv", "txt", "xlsx"] }],
-      properties: ["openFile"],
-    });
-    if (picked.canceled || !picked.filePaths[0]) return null;
-    return migrationTools.spreadsheetFileToCsv(picked.filePaths[0]);
-  });
-  handle("import:preview", (p) => {
-    const { kind, csvText } = z
-      .object({ kind: importKindSchema, csvText: z.string() })
-      .parse(p);
-    return importer.previewImport(requireCompany().db, kind, csvText);
-  });
-  handle("import:apply", async (p) => {
-    const { kind, csvText } = z
-      .object({ kind: importKindSchema, csvText: z.string() })
-      .parse(p);
-    const c = requireCompany();
-    systemHealthService.assertImportCapacity(
-      c.slug,
-      Buffer.byteLength(csvText, "utf8"),
-    );
-    await backupCompany(c.db, c.slug, `pre-import-${kind}`);
-    return importer.applyImport(c.db, kind, csvText);
-  });
-  handle("import:template", (p) => {
-    const { kind } = z.object({ kind: importKindSchema }).parse(p);
-    const c = requireCompany();
-    const path = importer.writeTemplateCsv(c.slug, kind);
-    shell.showItemInFolder(path);
-    return { path };
-  });
-  const mappingProfileInputSchema = z.object({
-    name: z.string().trim().min(1).max(100),
-    sourceKind: z.enum(["generic", "busy", "zoho_books", "marg"]),
-    targetKind: z.enum(["ledgers", "items", "openings", "generic_journal"]),
-    fieldMappings: z.record(z.string(), z.string()),
-    valueMappings: z.record(z.string(), z.record(z.string(), z.string())),
-    dateFormat: z.string().trim().min(1).max(30),
-    active: z.boolean(),
-  });
-  handle(
-    "import:profiles:list",
-    () => migrationTools.listMappingProfiles(requireCompany().db),
-    "viewer",
-  );
-  handle(
-    "import:profiles:save",
-    (p) => {
-      const { data, id } = z
-        .object({
-          data: mappingProfileInputSchema,
-          id: z.number().int().positive().optional(),
-        })
-        .parse(p);
-      return migrationTools.saveMappingProfile(
-        requireCompany().db,
-        data,
-        sessionUser?.name ?? "Local user",
-        id,
-      );
-    },
-    "owner",
-  );
-  handle("import:profilePreview", (p) => {
-    const { profileId, csvText } = z
-      .object({ profileId: z.number().int().positive(), csvText: z.string() })
-      .parse(p);
-    const profile = migrationTools
-      .listMappingProfiles(requireCompany().db)
-      .find((row) => row.id === profileId);
-    if (!profile) throw new Error("Mapping profile not found");
-    return migrationTools.previewWithProfile(
-      requireCompany().db,
-      csvText,
-      profile,
-    );
-  });
-  handle("import:profileApply", async (p) => {
-    const { profileId, csvText } = z
-      .object({ profileId: z.number().int().positive(), csvText: z.string() })
-      .parse(p);
-    const c = requireCompany();
-    const profile = migrationTools
-      .listMappingProfiles(c.db)
-      .find((row) => row.id === profileId);
-    if (!profile) throw new Error("Mapping profile not found");
-    const normalized = migrationTools.applyMappingProfile(csvText, profile);
-    systemHealthService.assertImportCapacity(
-      c.slug,
-      Buffer.byteLength(normalized, "utf8"),
-    );
-    await backupCompany(c.db, c.slug, `pre-import-${profile.sourceKind}`);
-    return importer.applyImport(c.db, profile.targetKind, normalized);
-  });
-  handle("import:errorWorkbook", async (p) => {
-    const { fileName, csvText, kind } = z
-      .object({
-        fileName: z.string().trim().min(1).max(255),
-        csvText: z.string(),
-        kind: importKindSchema,
-      })
-      .parse(p);
-    const c = requireCompany();
-    const preview = importer.previewImport(c.db, kind, csvText);
-    const path = await migrationTools.writeErrorWorkbook(
-      c.slug,
-      fileName,
-      csvText,
-      preview,
-    );
-    shell.showItemInFolder(path);
-    return { path };
-  });
-  handle("import:attachments", async (p) => {
-    const { batchId, csvText } = z
-      .object({ batchId: z.number().int().positive(), csvText: z.string() })
-      .parse(p);
-    const picked = await dialog.showOpenDialog({
-      title: "Choose the folder containing source documents",
-      properties: ["openDirectory"],
-    });
-    if (picked.canceled || !picked.filePaths[0]) return null;
-    const c = requireCompany();
-    systemHealthService.assertImportCapacity(
-      c.slug,
-      Buffer.byteLength(csvText, "utf8"),
-    );
-    return migrationTools.linkImportAttachments(
-      c.db,
-      c.slug,
-      batchId,
-      picked.filePaths[0],
-      csvText,
-      sessionUser?.name ?? "Local user",
-    );
-  });
-  handle(
-    "export:portable",
-    () => {
-      const c = requireCompany();
-      const result = migrationTools.writePortablePackage(
-        c.db,
-        c.info,
-        c.slug,
-        sessionUser?.name ?? "Local user",
-      );
-      shell.showItemInFolder(result.path);
-      return result;
-    },
-    "owner",
-  );
-
-  // ---------- Tally import ----------
-  handle("tally:import", async (p) => {
-    const { xmlText, filePath, dryRun } = tallyImportSchema.parse(p ?? {});
-    const c = requireCompany();
-    let xml = xmlText;
-    let resolvedPath = filePath;
-    if (xml === undefined && filePath !== undefined) {
-      if (!dialogIssuedTallyPaths.has(filePath))
-        throw new Error("File path must come from the file picker");
-      xml = readFileSync(filePath, "utf8");
-    }
-    if (xml === undefined) {
-      const picked = await dialog.showOpenDialog({
-        title: "Choose a Tally XML export (Masters and/or Vouchers)",
-        filters: [{ name: "Tally XML", extensions: ["xml", "txt"] }],
-        properties: ["openFile"],
-      });
-      if (picked.canceled || !picked.filePaths[0]) return null;
-      resolvedPath = picked.filePaths[0];
-      dialogIssuedTallyPaths.add(resolvedPath);
-      xml = readFileSync(resolvedPath, "utf8");
-    }
-    // Dry run is parse-only — zero DB writes, so no backup is taken (nothing to roll back to).
-    if (dryRun) {
-      const existing = findImportBatch(c.db, "tally", xml);
-      return {
-        filePath: resolvedPath ?? null,
-        summary: {
-          ...dryRunTallyXml(xml),
-          sourceHash: importSourceHash(xml),
-          alreadyImported: existing
-            ? { id: existing.id, appliedAt: existing.appliedAt }
-            : null,
-        },
-      };
-    }
-    systemHealthService.assertImportCapacity(
-      c.slug,
-      Buffer.byteLength(xml, "utf8"),
-    );
-    // Refuse before taking a redundant backup; the service repeats this check inside its
-    // transaction to close the race between validation and application.
-    const existing = findImportBatch(c.db, "tally", xml);
-    if (existing)
-      throw new Error(
-        `This exact Tally file was already imported on ${existing.appliedAt} (batch #${existing.id})`,
-      );
-    await backupCompany(c.db, c.slug, "pre-tally-import");
-    return {
-      filePath: resolvedPath ?? null,
-      summary: importTallyXml(c.db, xml),
-    };
+  registerMigrationHandlers({
+    handle,
+    requireCompany,
+    actor: () => sessionUser?.name ?? "Local user",
   });
 
   // ---------- database health, low-disk protection and recovery copies ----------

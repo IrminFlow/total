@@ -58,7 +58,7 @@ await scenario("41-migration-workbench", async (h) => {
   await h.page.getByTitle("Company details").click();
   await h.waitScreen("company-info");
   await h.page
-    .getByRole("heading", { name: "Import from CSV" })
+    .getByRole("heading", { name: "Import from spreadsheet" })
     .scrollIntoViewIfNeeded();
   await h.page.getByLabel("Saved mapping profile").selectOption({ label: "Busy voucher export" });
   await h.shot("01-migration-workbench");
