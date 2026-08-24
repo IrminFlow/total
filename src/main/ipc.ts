@@ -72,6 +72,7 @@ import type { CompanyInfo } from '@shared/domain'
 import { featuresSchema } from '@shared/features'
 import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig'
 import { PERIODS } from '@shared/period'
+import { buildChecklist } from '@shared/onboarding'
 import { GITHUB_REPO, SITE_URL } from '@shared/product'
 
 export interface OpenCompany {
@@ -690,6 +691,36 @@ export function registerIpc(): void {
     return vouchers.voucherNumberExists(requireCompany().db, voucherTypeId, number, excludeId)
   })
   /** Vouchers in books right now — the denominator for "what would a restore cost". */
+  /**
+   * The getting-started checklist, derived from the books.
+   *
+   * Every step is computed rather than ticked: a checklist someone can tick without doing the
+   * thing is a checklist that lies, and the moment it matters is the moment a new user is
+   * deciding whether this application will work for them.
+   *
+   * Two facts are genuinely preferences rather than book facts — whether the shortcut sheet has
+   * been opened, and whether a backup has been verified — so those live in meta.
+   */
+  handle('app:checklist', () => {
+    const c = requireCompany()
+    const count = (sql: string): number => (c.db.prepare(sql).get() as { n: number }).n
+    return buildChecklist({
+      hasCompanyAddress: c.info.address.trim().length > 0,
+      hasGstin: !!c.info.gstin,
+      gstAnswered: c.info.gstRegistrationType === 'unregistered' ? true : !!c.info.gstin,
+      ledgerCount: count('SELECT COUNT(*) AS n FROM ledgers'),
+      voucherCount: count(`SELECT COUNT(*) AS n FROM vouchers v WHERE ${vouchers.IN_BOOKS}`),
+      hasVerifiedBackup: configSvc.getChecklistFlag(c.db, 'backupVerified'),
+      hasSeenShortcuts: configSvc.getChecklistFlag(c.db, 'sawShortcuts')
+    })
+  }, 'viewer')
+
+  handle('app:checklistDone', (p) => {
+    const { step } = z.object({ step: z.enum(['backupVerified', 'sawShortcuts']) }).parse(p)
+    configSvc.setChecklistFlag(requireCompany().db, step, true)
+    return null
+  }, 'viewer')
+
   handle('voucher:count', () => {
     const c = requireCompany()
     return (c.db.prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE ${vouchers.IN_BOOKS}`).get() as { n: number }).n

@@ -39,6 +39,7 @@ import type { LicenseState } from '@shared/license'
 import type { Cmp08, CompositionCategory, Gstr4 } from '@shared/gst/composition'
 import type { FilingLiability, FilingRecord, FilingRow } from '@shared/gst/filings'
 import type { Gstr9Working } from '@shared/gst/gstr9'
+import type { ChecklistState } from '@shared/onboarding'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -813,6 +814,10 @@ export const api = {
   app: {
     info: () => call<{ version: string; platform: string }>('app:info'),
     openExternal: (url: string) => call<null>('app:openExternal', { url }),
+    /** The getting-started checklist, derived from the books rather than ticked by hand. */
+    checklist: () => call<ChecklistState>('app:checklist'),
+    checklistDone: (step: 'backupVerified' | 'sawShortcuts') =>
+      call<null>('app:checklistDone', { step }),
     checkUpdates: () =>
       call<{
         status: 'dev' | 'available' | 'up-to-date' | 'error'

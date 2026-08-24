@@ -98,6 +98,7 @@ export function Gateway(): React.JSX.Element {
       {/* Fixed row height: long receivable/payable lists scroll inside their panels instead of
           stretching the row — which would also stretch the sparkline opposite and make its
           aspect depend on how many debtors the company has. */}
+      <GettingStarted />
       <LastBackupLine />
 
       <div className="mt-6 grid h-[420px] grid-cols-2 gap-3">
@@ -581,5 +582,55 @@ function LastBackupLine(): React.JSX.Element | null {
         {data.length} kept
       </button>
     </p>
+  )
+}
+
+/**
+ * The getting-started checklist.
+ *
+ * Every step is derived from the books, so it cannot be ticked without doing the thing and it
+ * reopens if the thing is undone. It disappears entirely once complete — a permanent checklist
+ * on the main screen of an application someone uses daily is clutter, and the point is to be
+ * finished with it.
+ */
+function GettingStarted(): React.JSX.Element | null {
+  const nav = useNav()
+  const { data } = useQuery({ queryKey: ['checklist'], queryFn: api.app.checklist })
+  if (!data || data.complete) return null
+
+  const remaining = data.steps.length - data.doneCount
+
+  return (
+    <Panel className="mt-4 p-4" data-testid="getting-started">
+      <div className="mb-2 flex items-baseline justify-between">
+        <p className="text-body font-medium">
+          Getting started — {data.doneCount} of {data.steps.length} done
+        </p>
+        <span className="text-hint text-muted">
+          {remaining} step{remaining === 1 ? '' : 's'} left. This disappears when they are.
+        </span>
+      </div>
+      <ol className="flex flex-col gap-1.5">
+        {data.steps.map((step) => (
+          <li key={step.id} className="flex items-baseline gap-2.5 text-body-sm">
+            <span className={step.done ? 'text-dr' : 'text-muted'}>{step.done ? '✓' : '○'}</span>
+            <span className={step.done ? 'text-muted line-through' : ''}>
+              {step.screen && !step.done ? (
+                <button
+                  className="text-blue hover:underline"
+                  data-testid={`btn-checklist-${step.id}`}
+                  onClick={() => nav.go({ name: step.screen as Screen['name'] } as Screen)}
+                >
+                  {step.label}
+                </button>
+              ) : (
+                step.label
+              )}
+              {!step.done && <span className="ml-2 text-hint text-muted">{step.why}</span>}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </Panel>
   )
 }

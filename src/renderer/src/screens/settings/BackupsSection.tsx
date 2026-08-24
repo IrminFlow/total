@@ -281,7 +281,13 @@ function VerifyCell({ file }: { file: string }): React.JSX.Element {
   const verify = async (): Promise<void> => {
     setBusy(true)
     try {
-      setResult(await api.backups.verify(file))
+      const outcome = await api.backups.verify(file)
+      setResult(outcome)
+      // The checklist's "check that your backup restores" step. Only a backup that actually
+      // passed counts — ticking it for a failed check would be the checklist lying.
+      if (outcome.integrityOk && outcome.opensAsCompany && outcome.balanced) {
+        void api.app.checklistDone('backupVerified').catch(() => undefined)
+      }
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {

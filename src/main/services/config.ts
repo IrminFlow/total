@@ -191,3 +191,19 @@ export function setBinPurgeDays(db: DB, days: number): number {
   writeAudit(db, 'company', 0, 'update', { binPurgeDays: before }, { binPurgeDays: clamped })
   return clamped
 }
+
+/**
+ * Checklist steps that are genuinely preferences rather than book facts.
+ *
+ * Only two: whether the shortcut sheet has been opened, and whether a backup has been verified.
+ * Everything else on the checklist is derived from the books, which is what stops it lying.
+ */
+export type ChecklistFlag = 'backupVerified' | 'sawShortcuts'
+
+export function getChecklistFlag(db: DB, flag: ChecklistFlag): boolean {
+  return readMeta(db, `checklist.${flag}`) === true
+}
+
+export function setChecklistFlag(db: DB, flag: ChecklistFlag, value: boolean): void {
+  writeMeta(db, `checklist.${flag}`, value)
+}

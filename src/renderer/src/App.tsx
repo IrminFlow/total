@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNav, useScreen, useSession } from './state/stores'
 import { isPlainKey, isTypingTarget, useKeyLayer } from './lib/keyboard'
 import { NAV_ACCEL, NAV_ORDER } from './lib/accel'
+import { api } from './lib/client'
 import { useMenuCommands } from './lib/menuCommands'
 import { useFeatures } from './lib/useFeatures'
 import { Button, Modal, Toasts } from './components/ui'
@@ -118,6 +119,10 @@ export default function App(): React.JSX.Element {
     if (e.key === '?') {
       if (isTypingTarget(e)) return false
       setHelpOpen(true)
+      // One of the two checklist steps that is a preference rather than a book fact: whether the
+      // user has seen what the red letters are. Fire-and-forget — a failed write costs a tick on
+      // a checklist, and must never interrupt opening the help.
+      void api.app.checklistDone('sawShortcuts').catch(() => undefined)
       return true
     }
     // Registry accelerators — pressing V opens voucher entry from anywhere, not just the Gateway.

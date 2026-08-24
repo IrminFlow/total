@@ -375,9 +375,11 @@ Ordering within a section is roughly by value.
 289. Guided opening-balance entry for businesses not coming from Tally (M)
 290. Import from Busy, Marg and Vyapar (L)
 291. Excel and CSV import of masters and opening balances (M)
-292. A first-run tour that teaches the red letters (S)
+292. ✓ The red letters taught as a checklist step rather than as a tour (S) — a modal tour is
+     dismissed and forgotten; a step that stays until the shortcut sheet has been opened is not.
 293. Sample company that mirrors the user's own trade (M)
-294. Checklist that survives across sessions until complete (S)
+294. ✓ Checklist that survives across sessions until complete (S) — derived from the books, so
+     it cannot be ticked without doing the thing and it reopens if the thing is undone.
 295. Screenshots of Tally's own export dialog, per version (S)
 296. Import dry-run diff: what will be created, changed, skipped (M)
 297. Re-import safety: never duplicate an already-imported voucher (M)
