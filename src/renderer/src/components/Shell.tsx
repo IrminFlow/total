@@ -175,7 +175,20 @@ export function Shell({
   useEffect(() => {
     if (!slug || screen.name === "voucher-entry") return;
     const scrollTop = readContinuation(slug)?.scrollByScreen[screen.name] ?? 0;
-    requestAnimationFrame(() => mainRef.current?.scrollTo({ top: scrollTop }));
+    let frame = 0;
+    let attempts = 0;
+    const restore = (): void => {
+      const main = mainRef.current;
+      if (!main) return;
+      main.scrollTo({ top: scrollTop });
+      // Dashboard rows arrive asynchronously. Keep the saved reading position until the
+      // scroller is tall enough instead of letting the browser clamp the one-shot restore to 0.
+      if (Math.abs(main.scrollTop - scrollTop) <= 1 || attempts >= 120) return;
+      attempts += 1;
+      frame = requestAnimationFrame(restore);
+    };
+    frame = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(frame);
   }, [slug, screen.name, fetching]);
 
   useEffect(() => {
