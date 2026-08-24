@@ -40,6 +40,8 @@ import type { Cmp08, CompositionCategory, Gstr4 } from '@shared/gst/composition'
 import type { FilingLiability, FilingRecord, FilingRow } from '@shared/gst/filings'
 import type { Gstr9Working } from '@shared/gst/gstr9'
 import type { ChecklistState } from '@shared/onboarding'
+import type { RecoveryGuidance } from '@shared/recovery'
+import type { Capability } from '@shared/permissions'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -48,6 +50,8 @@ export interface SessionUser {
   id: number
   name: string
   role: Role
+  /** Areas cut out of this user's role (roadmap #266); the screens hide what they cannot use. */
+  denied: Capability[]
 }
 
 export interface LoginName {
@@ -603,6 +607,13 @@ export interface AuditTrailStatement {
   canBeDisabled: boolean
   retentionDays: number | null
   retentionAffectsPeriod: boolean
+  /** Whether the trail still hashes to what it says (roadmap #265). */
+  tamperEvidence: {
+    intact: boolean
+    entriesProved: number
+    entriesUnproved: number
+    findings: string[]
+  }
 }
 
 export interface Lut {
@@ -714,6 +725,59 @@ export interface BackupVerification {
   problem: string | null
 }
 
+/** Mirrors src/main/db/backup.ts's RestorePreview (kept local — main-process only). */
+export interface RestorePreview {
+  file: string
+  problem: string | null
+  changes: { what: string; now: string; after: string; loses: boolean }[]
+  vouchersLost: number
+  vouchersReturned: number
+  sample: { date: string; type: string; number: string; amount: number }[]
+}
+
+/** Mirrors src/main/services/config.ts's ArchiveState. */
+export interface ArchiveState {
+  archived: boolean
+  note: string | null
+  at: string | null
+  by: string | null
+}
+
+/** The scheduled copy of the books, as the settings screen sees it. */
+export interface ExternalBackupView {
+  dir: string | null
+  everyHours: number
+  encrypt: boolean
+  keep: number
+  lastRunAt: string | null
+  lastError: string | null
+  description: string
+  hasPassphrase: boolean
+}
+
+export interface ExternalBackupInput {
+  dir: string | null
+  everyHours: number
+  encrypt: boolean
+  keep: number
+  passphrase?: string
+}
+
+/** An import that may first have to ask whether a second copy of these books is really wanted. */
+export type ImportOutcome =
+  | { needsConfirmation: true; duplicates: { slug: string; name: string; reason: 'gstin' | 'name' }[]; warning: string | null }
+  | { needsConfirmation: false; slug: string; name: string }
+
+/** Mirrors src/main/services/auditChain.ts's ChainVerification. */
+export interface ChainVerification {
+  ok: boolean
+  checked: number
+  unchained: number
+  problems: { kind: string; id: number; at: string; detail: string }[]
+  headHash: string | null
+  headId: number | null
+}
+
 /** Mirrors src/main/db/integrity.ts's IntegrityResult shape (kept local — main-process only). */
 export interface IntegrityResult {
   ok: boolean
@@ -739,6 +803,8 @@ export interface UserRow {
   role: Role
   active: boolean
   createdAt: string
+  /** Areas this account may not reach, on top of its role (roadmap #266). */
+  denied: Capability[]
 }
 
 /** Mirrors src/main/services/audit.ts's AuditRow shape (kept local — that file is main-process only). */
@@ -1015,17 +1081,39 @@ export const api = {
     remove: (slug: string, confirmName: string, pin?: string) =>
       call<null>('company:delete', { slug, confirmName, pin }),
     open: (slug: string) =>
-      call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('company:open', { slug }),
+      call<{
+        slug: string
+        info: CompanyInfo
+        integrity: IntegrityResult
+        locked: boolean
+        archived: boolean
+        /** Set when another machine holds these books open, or left them open (roadmap #259). */
+        openElsewhere: string | null
+      }>('company:open', { slug }),
     close: () => call<null>('company:close'),
     current: () => call<{ slug: string; info: CompanyInfo; locked: boolean } | null>('company:current'),
     updateInfo: (input: CompanyCreateInput) => call<CompanyInfo>('company:updateInfo', input),
     backup: () => call<{ path: string }>('company:backup'),
     revealExports: () => call<null>('company:revealExports'),
     lockGet: () => call<{ date: string | null }>('company:lock:get'),
-    lockSet: (date: string | null) => call<{ date: string | null }>('company:lock:set', { date })
+    lockSet: (date: string | null) => call<{ date: string | null }>('company:lock:set', { date }),
+    /** Company-wide read-only lock for books nobody should be posting into (roadmap #257). */
+    archiveGet: () => call<ArchiveState>('company:archive:get'),
+    archiveSet: (archived: boolean, note: string | null) => call<ArchiveState>('company:archive:set', { archived, note })
   },
   backups: {
     list: () => call<BackupInfo[]>('backup:list'),
+    /** What restoring this backup would change, before it changes it (roadmap #246). */
+    preview: (file: string) => call<RestorePreview>('backup:preview', { file }),
+    /** What to do when the database is damaged (roadmap #248). */
+    recovery: () => call<{ integrity: IntegrityResult; guidance: RecoveryGuidance }>('backup:recovery'),
+    externalGet: () => call<ExternalBackupView>('backup:external:get'),
+    externalChoose: () =>
+      call<{ dir: string; verdict: { ok: true; warning: string | null } | { ok: false; error: string } } | null>(
+        'backup:external:choose'
+      ),
+    externalSet: (input: ExternalBackupInput) => call<ExternalBackupView>('backup:external:set', input),
+    externalRunNow: () => call<{ ran: boolean; path: string | null; pruned: number }>('backup:external:runNow'),
     run: () => call<{ path: string }>('backup:run'),
     /** Opens the backup and foots its books — the only claim worth making about a backup. */
     verify: (file: string) => call<BackupVerification>('backup:verify', { file }),
@@ -1034,8 +1122,39 @@ export const api = {
     restore: (file: string) =>
       call<{ info: CompanyInfo; integrity: IntegrityResult; locked: boolean }>('backup:restore', { file }),
     exportEncrypted: (passphrase: string) => call<{ path: string }>('backup:exportEncrypted', { passphrase }),
-    importEncrypted: (passphrase: string) =>
-      call<{ slug: string; name: string } | null>('backup:importEncrypted', { passphrase })
+    importEncrypted: (passphrase: string, allowDuplicate = false) =>
+      call<ImportOutcome | null>('backup:importEncrypted', { passphrase, allowDuplicate })
+  },
+
+  /** The books in a documented open format, guaranteed to round-trip (roadmap #254). */
+  portable: {
+    export: () => call<{ path: string; vouchers: number; ledgers: number }>('export:portable'),
+    import: (allowDuplicate = false, json?: string) =>
+      call<ImportOutcome | null>('import:portable', { allowDuplicate, json })
+  },
+
+  /** The entry somebody was halfway through when the app died (roadmap #250). */
+  drafts: {
+    get: () => call<{ savedAt: string; payload: unknown } | null>('draft:get'),
+    save: (payload: unknown) => call<null>('draft:save', { payload }),
+    clear: () => call<null>('draft:clear')
+  },
+
+  /** Where the books live, and moving them out of a synced folder (roadmap #244). */
+  dataFolder: {
+    get: () =>
+      call<{
+        root: string
+        isDefault: boolean
+        /** The folder that was chosen has gone; the app has fallen back to the default. */
+        chosenMissing: boolean
+        syncedBy: string | null
+        companyOpen: boolean
+      }>('app:dataRoot:get'),
+    move: (destination?: string) =>
+      call<{ from: string; to: string; companies: number; warning: string | null } | null>('app:dataRoot:move', {
+        destination
+      })
   },
   groups: {
     list: () => call<Group[]>('master:groups:list'),
@@ -1471,7 +1590,10 @@ export const api = {
     preview: (fyStartYear: number) =>
       call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean }>('yearend:preview', { fyStartYear }),
     close: (fyStartYear: number) =>
-      call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
+      call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear }),
+    /** Undo a close that was run on the wrong year (roadmap #258). */
+    reverse: (fyStartYear: number) =>
+      call<{ voucherId: number; lockedUpTo: string | null }>('yearend:reverse', { fyStartYear })
   },
   tally: {
     dryRun: (filePath?: string) =>
@@ -1567,6 +1689,8 @@ export const api = {
   },
   audit: {
     list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number }>('audit:list', query),
+    /** Does the trail still hash to what it says? (roadmap #265) */
+    verifyChain: () => call<ChainVerification>('audit:verifyChain'),
     retentionGet: () => call<{ keepDays: number | null }>('config:audit:get'),
     retentionSet: (keepDays: number | null) => call<{ keepDays: number | null }>('config:audit:set', { keepDays })
   },

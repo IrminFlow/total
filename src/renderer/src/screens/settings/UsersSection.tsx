@@ -5,6 +5,7 @@ import { useSession, useToasts } from '../../state/stores'
 import { Button, EmptyState, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
 import { useStickyNumber } from '../../lib/useStickyTab'
 import { AUTO_LOCK_OPTIONS } from '../../lib/useAutoLock'
+import { CAPABILITIES, CAPABILITY_LABELS, type Capability } from '@shared/permissions'
 
 const ROLES: Role[] = ['owner', 'accountant', 'viewer']
 
@@ -51,6 +52,7 @@ export function UsersSection(): React.JSX.Element {
               <tr>
                 <th scope="col">Name</th>
                 <th scope="col" className="w-28">Role</th>
+                <th scope="col">Cannot reach</th>
                 <th scope="col" className="w-24">Status</th>
                 <th scope="col" className="r w-32"></th>
               </tr>
@@ -60,6 +62,9 @@ export function UsersSection(): React.JSX.Element {
                 <tr key={u.id}>
                   <td>{u.name}</td>
                   <td className="capitalize">{u.role}</td>
+                  <td className="text-hint text-muted" data-testid={`user-denied-${u.id}`}>
+                    {u.denied.length === 0 ? 'everything their role allows' : u.denied.join(', ')}
+                  </td>
                   <td>
                     <span
                       className={`rounded-full border px-2 py-0.5 text-caption ${
@@ -100,7 +105,9 @@ export function UsersSection(): React.JSX.Element {
             void queryClient.invalidateQueries({ queryKey: ['users'] })
             // Bootstrap owner creation auto-signs the caller in (see ipc.ts's users:save) — the
             // renderer session must catch up so the Shell chip and role gates work immediately.
-            if (!user && !saved.locked) setUser({ id: saved.id, name: saved.name, role: saved.role })
+            if (!user && !saved.locked) {
+              setUser({ id: saved.id, name: saved.name, role: saved.role, denied: saved.denied })
+            }
           }}
         />
       )}
@@ -124,6 +131,7 @@ function UserModal({
   const [name, setName] = useState(existing?.name ?? '')
   const [role, setRole] = useState<Role>(existing?.role ?? (bootstrap ? 'owner' : 'accountant'))
   const [active, setActive] = useState(existing?.active ?? true)
+  const [denied, setDenied] = useState<Capability[]>(existing?.denied ?? [])
   const [pin, setPin] = useState('')
   const [pin2, setPin2] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -139,7 +147,10 @@ function UserModal({
     if ((pinRequired || pinProvided) && pin !== pin2) return setError('PINs do not match')
     setBusy(true)
     try {
-      const result = await api.users.save({ name: name.trim(), role, active, pin: pin || undefined }, existing?.id)
+      const result = await api.users.save(
+        { name: name.trim(), role, active, denied, pin: pin || undefined },
+        existing?.id
+      )
       toast.push('success', existing ? 'User updated' : 'User added')
       onSaved(result)
       onClose()
@@ -173,6 +184,30 @@ function UserModal({
             ))}
           </Select>
         </Field>
+        {!bootstrap && (
+          <Field
+            label="Areas this account may not reach"
+            hint="The role sets the ceiling; ticking here cuts an area out of it. There is no way to grant more than the role — an entry the audit trail attributes to a viewer should have been impossible for a viewer to make."
+          >
+            <div className="grid grid-cols-2 gap-1.5" data-testid="user-denials">
+              {CAPABILITIES.map((capability) => (
+                <label key={capability} className="flex items-center gap-2 text-detail text-ink">
+                  <input
+                    type="checkbox"
+                    data-testid={`deny-${capability}`}
+                    checked={denied.includes(capability)}
+                    onChange={(e) =>
+                      setDenied((current) =>
+                        e.target.checked ? [...current, capability] : current.filter((c) => c !== capability)
+                      )
+                    }
+                  />
+                  {CAPABILITY_LABELS[capability]}
+                </label>
+              ))}
+            </div>
+          </Field>
+        )}
         <Field label={existing ? 'New PIN (leave blank to keep current)' : 'PIN (4-12 digits)'}>
           <TextInput
             type="password"

@@ -3,12 +3,17 @@ import type { CompanyInfo } from '@shared/domain'
 import { fyFromStartYear, todayISO } from '@shared/dates'
 import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { findOrCreateLedger } from './masters'
-import { saveVoucher, setLockDate, NOT_DELETED, IN_BOOKS } from './vouchers'
+import { saveVoucher, setLockDate, getLockDate, deleteVoucher, NOT_DELETED, IN_BOOKS } from './vouchers'
 import { writeAudit } from './audit'
 
 /** Marker embedded in the closing journal's narration — how re-close and status checks find it. */
 function closeMarker(fyStartYear: number): string {
   return `[year-end close FY${fyStartYear}]`
+}
+
+/** Where the books lock stood before this year's close, so reverseClose can put it back. */
+function prevLockKey(fyStartYear: number): string {
+  return `yearend.prevLock.${fyStartYear}`
 }
 
 export interface ClosePreview {
@@ -106,6 +111,11 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
 
   const closeDate = fy.to // `${fyStartYear + 1}-03-31`
 
+  // Remembered before the close moves it, because a reversal has to put it back exactly where it
+  // was — and "wherever it was" is unrecoverable once setLockDate has overwritten it. Keyed by
+  // financial year: two closes of different years each have their own answer.
+  const lockBeforeClose = getLockDate(db)
+
   const run = db.transaction((): number => {
     const voucher = saveVoucher(db, {
       voucherTypeId: journalType.id,
@@ -126,6 +136,9 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
       tds: null
     })
     setLockDate(db, closeDate)
+    db.prepare(
+      'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run(prevLockKey(fyStartYear), JSON.stringify(lockBeforeClose))
     return voucher.id
   })
 
@@ -138,4 +151,86 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
     lockedUpTo: closeDate
   })
   return { voucherId, netProfit: plan.netProfit, lockedUpTo: closeDate }
+}
+
+export interface ReverseCloseResult {
+  /** The closing journal that was binned. */
+  voucherId: number
+  /** Where the books lock was left — the date it held before the close, or null. */
+  lockedUpTo: string | null
+}
+
+/**
+ * Undo a year-end close (roadmap #258).
+ *
+ * Closing the wrong year is a two-keystroke mistake with a heavy consequence: the closing journal
+ * zeroes every income and expense ledger and then locks the books up to 31 March, which locks the
+ * closing entry itself. Unwinding that by hand means lifting the lock, finding an entry among
+ * thousands, deleting it, and hoping the lock date you type back is the one that was there — and
+ * every one of those steps is a chance to lose a period nobody meant to reopen.
+ *
+ * What this does is exactly the inverse of postClose, in the inverse order: lift the lock (or the
+ * closing entry cannot be touched), bin the closing journal, and put the lock back where it was
+ * before. The journal is soft-deleted into the bin like any other voucher rather than purged —
+ * "the close that was run in error" is a thing an auditor should be able to see, and the audit
+ * row here says who reversed it.
+ *
+ * Refuses when there is anything dated after the closing entry: those entries were made in books
+ * whose opening position the close created, and reversing underneath them would leave the
+ * following year's figures resting on a balance that no longer exists.
+ */
+export function reverseClose(db: DB, fyStartYear: number): ReverseCloseResult {
+  const fy = fyFromStartYear(fyStartYear)
+  const marker = closeMarker(fyStartYear)
+
+  const voucher = db
+    .prepare(`SELECT v.id, v.date FROM vouchers v WHERE ${NOT_DELETED} AND v.narration LIKE ? ORDER BY v.id DESC LIMIT 1`)
+    .get(`%${marker}%`) as { id: number; date: string } | undefined
+  if (!voucher) throw new Error(`No year-end close to reverse for FY ${fy.label}`)
+
+  const later = db
+    .prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE ${NOT_DELETED} AND v.date > ? AND v.id <> ?`)
+    .get(voucher.date, voucher.id) as { n: number }
+  if (later.n > 0) {
+    throw new Error(
+      `There ${later.n === 1 ? 'is 1 entry' : `are ${later.n} entries`} dated after the closing entry of ${voucher.date}. ` +
+        `Reversing the close underneath them would leave the next year opening from a balance that no longer exists — remove or re-date those entries first.`
+    )
+  }
+
+  // Where the lock stood before the close, as recorded by postClose. A close run by an older
+  // build left no record, and null — no lock — is the right fallback: leaving the books locked to
+  // 31 March after reversing the entry that locked them would be a reversal in name only.
+  const stored = db.prepare('SELECT value FROM meta WHERE key = ?').get(prevLockKey(fyStartYear)) as
+    | { value: string }
+    | undefined
+  let restoredLock: string | null = null
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored.value) as unknown
+      if (typeof parsed === 'string') restoredLock = parsed
+    } catch {
+      // Unreadable: fall back to no lock, as above.
+    }
+  }
+  // Somebody may have moved the lock forward since the close; never move it backwards past what
+  // it is now unless the close is what put it there.
+  const currentLock = getLockDate(db)
+  if (currentLock !== null && currentLock !== voucher.date && (restoredLock === null || currentLock > restoredLock)) {
+    restoredLock = currentLock
+  }
+
+  const run = db.transaction((): void => {
+    // Order matters and is the mirror of postClose: the lock has to come off first, because
+    // deleteVoucher refuses inside a locked period — including for the entry that set the lock.
+    setLockDate(db, restoredLock)
+    deleteVoucher(db, voucher.id)
+  })
+  run()
+
+  writeAudit(db, 'year_end', fyStartYear, 'delete', { voucherId: voucher.id, lockedUpTo: voucher.date }, {
+    reversed: true,
+    lockedUpTo: restoredLock
+  })
+  return { voucherId: voucher.id, lockedUpTo: restoredLock }
 }

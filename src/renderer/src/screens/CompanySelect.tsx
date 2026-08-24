@@ -30,6 +30,10 @@ export function CompanySelect(): React.JSX.Element {
   const open = async (slug: string): Promise<void> => {
     try {
       const r = await api.company.open(slug)
+      // Somebody else has these books open right now, or left them open when their machine died
+      // (roadmap #259). Said out loud and not enforced: the lock file is evidence about another
+      // machine, and the user is the only one who can tell a live session from a stale claim.
+      if (r.openElsewhere) toast.push('error', r.openElsewhere)
       if (!r.integrity.ok) {
         setIntegrityIssue({ pending: { slug: r.slug, info: r.info, locked: r.locked }, integrity: r.integrity })
         return
@@ -317,18 +321,32 @@ function ImportBackupModal({
   const toast = useToasts()
   const [passphrase, setPassphrase] = useState('')
   const [busy, setBusy] = useState(false)
+  /**
+   * The warning shown when this machine already has these books (roadmap #251).
+   *
+   * Importing a second copy is sometimes exactly what someone wants — a snapshot of last year to
+   * look at beside this one — so this asks rather than refuses. What it must never do is happen
+   * silently: the user works in the copy for a week while their real books sit in the other one,
+   * and the two can never be recombined.
+   */
+  const [duplicate, setDuplicate] = useState<string | null>(null)
 
-  const doImport = async (): Promise<void> => {
+  const doImport = async (allowDuplicate = false): Promise<void> => {
     if (passphrase.length < 8) {
       toast.push('error', 'Passphrase must be at least 8 characters')
       return
     }
     setBusy(true)
     try {
-      const result = await api.backups.importEncrypted(passphrase)
+      const result = await api.backups.importEncrypted(passphrase, allowDuplicate)
       if (!result) {
         setBusy(false)
         return // dialog cancelled
+      }
+      if (result.needsConfirmation) {
+        setDuplicate(result.warning ?? 'These books are already on this machine.')
+        setBusy(false)
+        return
       }
       toast.push('success', `${result.name} imported`)
       onImported(result.slug)
@@ -344,6 +362,14 @@ function ImportBackupModal({
         <p className="text-detail text-muted">
           Choose a <span className="num">.totalbak</span> file and enter the passphrase it was exported with.
         </p>
+        {duplicate && (
+          <div
+            className="rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm text-cr"
+            data-testid="import-duplicate-warning"
+          >
+            {duplicate}
+          </div>
+        )}
         <Field label="Passphrase">
           <TextInput
             autoFocus
@@ -360,8 +386,13 @@ function ImportBackupModal({
           <Button onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={() => void doImport()} disabled={busy}>
-            {busy ? 'Importing…' : 'Choose file & import'}
+          <Button
+            variant={duplicate ? 'danger' : 'primary'}
+            data-testid="btn-import-confirm"
+            onClick={() => void doImport(duplicate !== null)}
+            disabled={busy}
+          >
+            {busy ? 'Importing…' : duplicate ? 'Import a second copy anyway' : 'Choose file & import'}
           </Button>
         </div>
       </div>

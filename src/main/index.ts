@@ -3,12 +3,13 @@ import { join } from 'path'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { electronApp, is } from '@electron-toolkit/utils'
-import { registerIpc, closeCurrentCompany, getCurrentCompany } from './ipc'
+import { registerIpc, closeCurrentCompany, getCurrentCompany, getSessionUserName } from './ipc'
 import { ensureDataTree, dataRoot } from './paths'
 import { initUpdater } from './updater'
 import { installMenu } from './menu'
 import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
+import { startHeartbeat } from './deviceLock'
 import { syncFolderWarning } from '@shared/syncpath'
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -127,6 +128,9 @@ if (gotSingleInstanceLock) {
     ensureDataTree()
     registerIpc()
     startBackupScheduler(getCurrentCompany)
+    // Keep this machine's claim on the open company warm, so a second machine can tell a live
+    // session from a crashed one (roadmap #259).
+    startHeartbeat(() => getCurrentCompany()?.slug ?? null, getSessionUserName)
     createWindow()
     warnIfSyncedFolder()
     initUpdater()

@@ -27,6 +27,7 @@ export function AuditSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>Audit trail</SectionTitle>
+      <TamperEvidence />
       <div className="mb-3 flex flex-wrap items-end gap-3">
         <div>
           <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">Entity</span>
@@ -159,6 +160,50 @@ function AuditDiff({ row }: { row: AuditRow }): React.JSX.Element {
           <span className="text-muted">{d.key}:</span> {d.from || '—'} → {d.to || '—'}
         </p>
       ))}
+    </div>
+  )
+}
+
+
+/**
+ * Has anybody edited the log? (roadmap #265)
+ *
+ * The app could already say the trail cannot be switched off. It could not say the trail had not
+ * been rewritten: audit_log is a table in a file in Documents, and sqlite3 is a free download.
+ * Every entry now carries the hash of its contents chained onto the entry before it, so this line
+ * is a check rather than a promise.
+ */
+function TamperEvidence(): React.JSX.Element | null {
+  const { data } = useQuery({ queryKey: ['auditChain'], queryFn: api.audit.verifyChain })
+  if (!data) return null
+
+  if (data.ok) {
+    return (
+      <div
+        className="mb-3 rounded-md border border-line bg-panel2 px-3.5 py-2.5 text-body-sm text-muted"
+        data-testid="audit-chain-state"
+      >
+        {data.checked.toLocaleString('en-IN')} entries check out against their own hashes — nothing in this log has been
+        edited outside the app.
+        {data.unchained > 0 && (
+          <>
+            {' '}
+            {data.unchained.toLocaleString('en-IN')} older entries were written before this check existed and can be
+            neither proved nor disproved.
+          </>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-3 rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm text-cr" data-testid="audit-chain-state">
+      <b>This audit trail does not match its own hashes.</b> Something has changed the log outside the app.
+      <ul className="mt-1 list-disc pl-5">
+        {data.problems.slice(0, 5).map((problem) => (
+          <li key={`${problem.kind}-${problem.id}`}>{problem.detail}</li>
+        ))}
+      </ul>
     </div>
   )
 }

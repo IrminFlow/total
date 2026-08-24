@@ -4,9 +4,28 @@
     <meta charset="UTF-8" />
     <title>Total</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content-Security-Policy, audited (roadmap #269).
+
+      Three of these do NOT fall back to default-src and so were previously unset: base-uri
+      (a single injected <base> tag re-points every relative URL in the app), form-action (where
+      a form may post to, which no CSP default covers), and frame-ancestors.
+
+      style-src keeps 'unsafe-inline' because Tailwind's runtime writes inline styles and React
+      sets style props; that is a real weakening and is the reason script-src has no such
+      allowance — an injected <style> can deface this UI, an injected <script> owns the process.
+
+      frame-src is 'self' rather than 'none' because the invoice-print preview is a sandboxed
+      srcdoc iframe; a srcdoc frame is checked against frame-src and inherits this same policy.
+
+      connect-src is 'self' and is stated rather than inherited: this renderer talks to the main
+      process over the context bridge and to nothing else. Every network call in the product
+      belongs to main (see the privacy page), so a fetch() originating HERE is a bug or an attack,
+      and either way should fail loudly rather than quietly succeed.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; media-src 'none'; object-src 'none'; frame-src 'self'; worker-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     />
   </head>
   <body>

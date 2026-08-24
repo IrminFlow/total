@@ -8,6 +8,7 @@ import { Kbd, Panel, SectionTitle } from '../components/ui'
 import { auditFieldChanges, fieldLabel } from '@shared/auditDiff'
 import { formatPaise } from '@shared/money'
 import { useFeatures } from '../lib/useFeatures'
+import { RecoveredDraft } from './voucher/RecoveredDraft'
 import { TRADING_KINDS } from './voucher/hooks'
 import { InvoiceEntry } from './voucher/InvoiceEntry'
 import { AccountingEntry } from './voucher/AccountingEntry'
@@ -123,6 +124,9 @@ export function VoucherEntry({
 
   return (
     <div className="mx-auto max-w-4xl">
+      {/* Crash-safe recovery (roadmap #250) — suppressed while altering an existing voucher, and
+          while a draft has just been handed in by a nudge or a duplicate. */}
+      <RecoveredDraft suppressed={!!voucherId || !!draft} />
       {showFirstVoucherHint && (
         <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5">
           <p className="text-body-sm text-ink">

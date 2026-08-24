@@ -6,12 +6,17 @@ import { z } from 'zod'
 import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
 import { backupCompany, closeCompanyDb, openCompanyDb } from './db/connection'
-import { verifyBackup, listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheck, type BackupInfo } from './db/backup'
+import { verifyBackup, listBackupsIn, restoreCompanyDb, restorePreview, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheck, type BackupInfo } from './db/backup'
 import { checkIntegrity } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
-import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, ensureCompanyTree, slugify } from './paths'
+import { companyBackupsDir, companyDbPath, companyDir, companyExportsDir, dataRoot, dataRootMissing, ensureCompanyTree, slugify } from './paths'
+import { claimLock, inspectLock, releaseLock } from './deviceLock'
+import { inspectMoveTarget, moveDataRoot } from './dataLocation'
+import { configuredDataRoot } from './dataRootConfig'
+import { readSecret, writeSecret } from './secrets'
+import { syncFolderWarning } from '@shared/syncpath'
 import { log, recentLogLines, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
@@ -66,10 +71,20 @@ import { writeExportPdf } from './services/pdf'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch } from './services/search'
 import { createDemoCompany } from './services/demo'
-import { setAuditContext, writeAudit, listAudit, pruneAudit } from './services/audit'
+import { setAuditContext, writeAudit, listAudit, pruneAudit, verifyAuditChain } from './services/audit'
+import * as externalBackup from './services/externalBackup'
+import * as drafts from './services/drafts'
+import { exportPortable, importPortable } from './services/portable'
 import * as users from './services/users'
 import { assertDeleteAuthorized, auditCompanyDeletion } from './services/companyDelete'
 import { roleAllows, type Role } from './services/roles'
+import { capabilityOfChannel, denialMessage, permitsChannel, type Capability } from '@shared/permissions'
+import { recoveryGuidance } from '@shared/recovery'
+import { lockMessage } from '@shared/deviceLock'
+import { duplicateWarning, findDuplicateCompanies } from '@shared/companyIdentity'
+import { externalDestinationVerdict, describeExternalSchedule } from '@shared/backupSchedule'
+import { externalBackupSchema, draftSaveSchema } from '@shared/schemas'
+import { PORTABLE_FORMAT } from '@shared/portable'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
@@ -89,6 +104,8 @@ export interface OpenCompany {
   /** Cached usersExist(db) — recomputed only on open and after users:save/deactivate, so ordinary
    *  IPC calls (the vast majority) never pay for a COUNT query just to check the role gate. */
   usersExist: boolean
+  /** Cached archive flag (roadmap #257), for the same reason: the gate runs on every channel. */
+  archived: boolean
 }
 
 let current: OpenCompany | null = null
@@ -102,11 +119,16 @@ const dialogIssuedTallyPaths = new Set<string>()
 
 /** The signed-in user for the currently-open company, or null before login / after logout.
  *  Cleared whenever the company itself closes (see closeCurrentCompany). */
-let sessionUser: { id: number; name: string; role: Role } | null = null
+let sessionUser: { id: number; name: string; role: Role; denied: Capability[] } | null = null
 
 function requireCompany(): OpenCompany {
   if (!current) throw new Error('No company is open')
   return current
+}
+
+/** Who is signed in, for the device-lock heartbeat — the second machine is told a name, not a pid. */
+export function getSessionUserName(): string | null {
+  return sessionUser?.name ?? null
 }
 
 /** Accessor for the currently-open company, used by the backup scheduler (backup-scheduler.ts). */
@@ -126,6 +148,9 @@ export function closeCurrentCompany(): void {
   // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
   agentBridge.syncInboxWatcher(null)
   if (current) {
+    // Drop this machine's claim before the handle goes: another machine watching the folder
+    // should see the books free the moment they actually are (roadmap #259).
+    releaseLock(current.slug)
     closeCompanyDb(current.db)
     current = null
   }
@@ -157,6 +182,31 @@ const UNGATED_CHANNELS = new Set([
   'log:diagnostics',
   'backup:importEncrypted',
   'app:info'
+])
+
+/**
+ * Channels that still work on archived books.
+ *
+ * Only the ones that get data OUT, plus the switch itself — an archive you cannot reverse is a
+ * trap, and it has to be reversible from inside the state it creates.
+ */
+const ARCHIVE_EXEMPT_CHANNELS = new Set([
+  'company:archive:set',
+  'company:close',
+  'company:backup',
+  'company:revealExports',
+  'backup:run',
+  'backup:exportEncrypted',
+  'backup:external:runNow',
+  'export:csv',
+  'export:caPack',
+  'export:tallyXml',
+  'export:portable',
+  'log:renderer',
+  'log:reveal',
+  'log:diagnostics',
+  'auth:login',
+  'auth:logout'
 ])
 
 /**
@@ -222,6 +272,20 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
         if (!roleAllows(sessionUser.role, minRole)) {
           throw new Error('You do not have permission to do that')
         }
+        // Per-user denials narrow the role (roadmap #266). Checked here, in the same place the
+        // role is, so a channel added tomorrow is covered by its prefix without being annotated.
+        if (!permitsChannel(sessionUser.denied, channel)) {
+          throw new Error(denialMessage(capabilityOfChannel(channel)!))
+        }
+      }
+      // An archived company is read-only for everyone, including its owner (roadmap #257).
+      // Same shape as the licence check below and for the same reason: reading, printing,
+      // exporting and backing up must keep working — archived books nobody can get data out of
+      // are a hostage rather than a record. Un-archiving is exempt, or it would lock itself in.
+      if (minRole !== 'viewer' && current?.archived && !ARCHIVE_EXEMPT_CHANNELS.has(channel)) {
+        throw new Error(
+          'These books are archived and read-only. Turn that off in Settings → Backups if you need to post to them.'
+        )
       }
       // A lapsed licence is exactly "everyone is a viewer": every read channel is declared
       // `viewer`, so gating on minRole alone leaves reading, printing, exporting and backup
@@ -303,9 +367,14 @@ export function registerIpc(): void {
     const { slug } = z.object({ slug: z.string().min(1) }).parse(payload)
     if (!existsSync(companyDbPath(slug))) throw new Error('Company database not found')
     closeCurrentCompany()
+    // Who else has these books open, decided BEFORE we take them (roadmap #259). Reported, never
+    // refused: a lock file is evidence about another machine, and evidence about another machine
+    // is exactly the kind of thing that is sometimes wrong.
+    const lockVerdict = inspectLock(slug)
     const db = openCompanyDb(slug)
     const info = readCompanyInfo(db)
-    current = { slug, db, info, usersExist: users.usersExist(db) }
+    current = { slug, db, info, usersExist: users.usersExist(db), archived: configSvc.getArchive(db).archived }
+    claimLock(slug, sessionUser?.name ?? null)
     // Online backup needs an open handle, so this runs after open (not before, as it used to).
     // A backup failure here must never fail — or desync — the open itself.
     try {
@@ -349,7 +418,14 @@ export function registerIpc(): void {
     touchLastOpened(slug)
     // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
     if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
-    return { slug, info, integrity, locked: current.usersExist }
+    return {
+      slug,
+      info,
+      integrity,
+      locked: current.usersExist,
+      archived: current.archived,
+      openElsewhere: lockMessage(lockVerdict)
+    }
   })
 
   handle('company:close', () => {
@@ -359,9 +435,21 @@ export function registerIpc(): void {
 
   handle('company:current', () =>
     current
-      ? { slug: current.slug, info: current.info, locked: current.usersExist && !sessionUser }
+      ? { slug: current.slug, info: current.info, locked: current.usersExist && !sessionUser, archived: current.archived }
       : null
   )
+
+  // ---------- archived books: readable, not writable (roadmap #257) ----------
+  handle('company:archive:get', () => configSvc.getArchive(requireCompany().db), 'viewer')
+  handle('company:archive:set', (p) => {
+    const { archived, note } = z
+      .object({ archived: z.boolean(), note: z.string().max(200).nullable().default(null) })
+      .parse(p)
+    const c = requireCompany()
+    const state = configSvc.setArchive(c.db, archived, note, sessionUser?.name ?? null)
+    c.archived = state.archived
+    return state
+  }, 'owner')
 
   handle('company:updateInfo', (payload) => {
     const c = requireCompany()
@@ -406,6 +494,11 @@ export function registerIpc(): void {
     const c = requireCompany()
     return yearEnd.postClose(c.db, c.info, fyStartYear)
   }, 'owner')
+  // Closing the wrong year is a two-keystroke mistake with a heavy consequence (roadmap #258).
+  handle('yearend:reverse', (p) => {
+    const { fyStartYear } = fyStartYearSchema.parse(p)
+    return yearEnd.reverseClose(requireCompany().db, fyStartYear)
+  }, 'owner')
 
   // ---------- backups: list/run/restore + encrypted export/import ----------
   handle('backup:list', (): BackupInfo[] => {
@@ -431,6 +524,106 @@ export function registerIpc(): void {
     return { keep: configSvc.setBackupKeep(requireCompany().db, keep) }
   }, 'owner')
 
+  // ---------- what a restore would change, before it changes it (roadmap #246) ----------
+  handle('backup:preview', (payload) => {
+    const { file } = z.object({ file: backupFileSchema }).parse(payload)
+    const c = requireCompany()
+    return restorePreview(c.db, join(companyBackupsDir(c.slug), file), file)
+  }, 'viewer')
+
+  /**
+   * What to do when the database is damaged (roadmap #248).
+   *
+   * Built in main because only main can see both the integrity result and the backups folder,
+   * and the guidance depends on both: there is no point telling someone to restore a backup when
+   * they have none, or to repair a file when one voucher is out of balance.
+   */
+  handle('backup:recovery', () => {
+    const c = requireCompany()
+    const integrity = checkIntegrity(c.db)
+    const backups = listBackupsIn(companyBackupsDir(c.slug))
+    const newest = backups[0]
+    return {
+      integrity,
+      guidance: recoveryGuidance({
+        quickCheck: integrity.quickCheck,
+        unbalancedVoucherIds: integrity.unbalancedVoucherIds,
+        backupsNewestFirst: backups.map((b) => new Date(b.mtime).toISOString().slice(0, 16).replace('T', ' ')),
+        newestBackupVerified: newest ? verifyBackup(join(companyBackupsDir(c.slug), newest.file)).balanced : undefined
+      })
+    }
+  }, 'viewer')
+
+  // ---------- the backup that leaves the machine (roadmap #245, #253) ----------
+  const externalPassphraseKey = (slug: string): string => `backup.external.${slug}`
+
+  handle('backup:external:get', () => {
+    const c = requireCompany()
+    const config = configSvc.getExternalBackup(c.db)
+    return {
+      ...config,
+      description: describeExternalSchedule(config),
+      // Never the passphrase itself — only whether this machine still has one.
+      hasPassphrase: readSecret(externalPassphraseKey(c.slug)) !== null
+    }
+  }, 'viewer')
+
+  handle('backup:external:choose', async () => {
+    const c = requireCompany()
+    const picked = await dialog.showOpenDialog({
+      title: 'Choose a folder for copies of these books',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (picked.canceled || !picked.filePaths[0]) return null
+    const dir = picked.filePaths[0]
+    const config = configSvc.getExternalBackup(c.db)
+    return { dir, verdict: externalDestinationVerdict(dir, dataRoot(), config.encrypt) }
+  }, 'owner')
+
+  handle('backup:external:set', (p) => {
+    const input = externalBackupSchema.parse(p)
+    const c = requireCompany()
+    if (input.dir) {
+      const verdict = externalDestinationVerdict(input.dir, dataRoot(), input.encrypt)
+      if (!verdict.ok) throw new Error(verdict.error)
+    }
+    // The passphrase goes to the OS keychain, never into `meta` — a passphrase stored in the
+    // database would be copied into every backup it exists to protect. Turning encryption off
+    // forgets it rather than leaving it lying in the keychain unused.
+    if (input.encrypt) {
+      if (input.passphrase) writeSecret(externalPassphraseKey(c.slug), input.passphrase)
+      if (readSecret(externalPassphraseKey(c.slug)) === null) {
+        throw new Error('An encrypted schedule needs a passphrase. Nobody can recover it, so keep it somewhere else.')
+      }
+    } else {
+      writeSecret(externalPassphraseKey(c.slug), null)
+    }
+    const saved = configSvc.setExternalBackup(c.db, {
+      dir: input.dir,
+      everyHours: input.everyHours,
+      encrypt: input.encrypt,
+      keep: input.keep,
+      lastRunAt: null,
+      lastError: null
+    })
+    return { ...saved, description: describeExternalSchedule(saved) }
+  }, 'owner')
+
+  handle('backup:external:runNow', async () => {
+    const c = requireCompany()
+    const config = configSvc.getExternalBackup(c.db)
+    if (!config.dir) throw new Error('No folder is set for copies of these books')
+    const run = await externalBackup.runExternalBackup(
+      c.db,
+      c.slug,
+      config,
+      config.encrypt ? readSecret(externalPassphraseKey(c.slug)) : null
+    )
+    configSvc.stampExternalBackup(c.db, new Date().toISOString(), null)
+    auditExport(c.db, 'external_backup', { path: run.path, encrypted: config.encrypt })
+    return run
+  }, 'owner')
+
   handle('backup:verify', (payload) => {
     const { file } = z.object({ file: backupFileSchema }).parse(payload)
     const c = requireCompany()
@@ -454,7 +647,7 @@ export function registerIpc(): void {
     const reopen = (): OpenCompany => {
       const db = openCompanyDb(slug) // migrates if the backup predates the current schema
       const info = readCompanyInfo(db)
-      return { slug, db, info, usersExist: users.usersExist(db) }
+      return { slug, db, info, usersExist: users.usersExist(db), archived: configSvc.getArchive(db).archived }
     }
 
     try {
@@ -517,7 +710,9 @@ export function registerIpc(): void {
 
   // No requireCompany() — importing an encrypted backup works with no company open.
   handle('backup:importEncrypted', async (payload) => {
-    const { passphrase } = z.object({ passphrase: passphraseSchema }).parse(payload)
+    const { passphrase, allowDuplicate } = z
+      .object({ passphrase: passphraseSchema, allowDuplicate: z.boolean().default(false) })
+      .parse(payload)
     const picked = await dialog.showOpenDialog({
       title: 'Choose a Total encrypted backup',
       filters: [{ name: 'Total backup', extensions: ['totalbak'] }],
@@ -547,6 +742,15 @@ export function registerIpc(): void {
       throw new Error("This file doesn't look like a Total company backup")
     }
 
+    // The same books arriving twice under two slugs is the most dangerous silent success in the
+    // app (roadmap #251): the user works in the copy for a week while their real books sit in the
+    // other one, and the two can never be recombined.
+    const duplicates = findDuplicateCompanies(readRegistry().companies, { name: info.name, gstin: info.gstin })
+    if (duplicates.length > 0 && !allowDuplicate) {
+      rmSync(tempDir, { recursive: true, force: true })
+      return { needsConfirmation: true, duplicates, warning: duplicateWarning(duplicates) }
+    }
+
     let slug = slugify(info.name)
     let n = 2
     while (existsSync(companyDbPath(slug))) slug = `${slugify(info.name)}-${n++}`
@@ -560,7 +764,7 @@ export function registerIpc(): void {
     }
 
     upsertCompany({ slug, name: info.name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: new Date().toISOString() })
-    return { slug, name: info.name }
+    return { needsConfirmation: false, slug, name: info.name }
   })
 
   // ---------- masters ----------
@@ -1884,6 +2088,115 @@ export function registerIpc(): void {
     auditExport(c.db, 'report_pdf', { filename, path })
     return { path }
   }, 'viewer')
+  /**
+   * The books in a format that is not this app's (roadmap #254).
+   *
+   * Written into the company's exports folder as plain JSON, documented in docs/export-format.md,
+   * and guaranteed to round-trip: `export:portable` then `import:portable` into an empty company
+   * gives back an identical document (proved in portable.dbtest.ts, not asserted here).
+   */
+  handle('export:portable', () => {
+    const c = requireCompany()
+    const doc = exportPortable(c.db)
+    const path = join(companyExportsDir(c.slug), `total-books-${c.slug}-${backupStamp()}.json`)
+    writeFileSync(path, JSON.stringify(doc, null, 2), 'utf8')
+    auditExport(c.db, 'portable', { path, vouchers: doc.vouchers.length })
+    shell.showItemInFolder(path)
+    return { path, vouchers: doc.vouchers.length, ledgers: doc.ledgers.length }
+  }, 'viewer')
+
+  /**
+   * Read one back into a NEW company. Never into the open one: merging two sets of books is a
+   * different and much harder job than restoring one, and doing it silently would duplicate every
+   * entry that happens to differ by a character.
+   *
+   * `json` inline is how drivers and tests reach this without a native dialog, exactly as
+   * tally:import does.
+   */
+  handle('import:portable', async (p) => {
+    const { json, allowDuplicate } = z
+      .object({ json: z.string().max(200_000_000).optional(), allowDuplicate: z.boolean().default(false) })
+      .parse(p ?? {})
+
+    let text = json
+    if (!text) {
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose a Total books export',
+        filters: [{ name: 'Total books', extensions: ['json'] }],
+        properties: ['openFile']
+      })
+      if (picked.canceled || !picked.filePaths[0]) return null
+      text = readFileSync(picked.filePaths[0], 'utf8')
+    }
+
+    let doc: { company?: { name?: string; gstin?: string | null }; format?: string }
+    try {
+      doc = JSON.parse(text) as typeof doc
+    } catch {
+      throw new Error('That file is not readable as JSON')
+    }
+    if (doc.format !== PORTABLE_FORMAT) throw new Error('That file is not a Total books export.')
+    const name = doc.company?.name
+    if (!name) throw new Error('That file does not say which company it is.')
+
+    // Making a second, separate set of somebody's own books is the most dangerous silent success
+    // in the app (roadmap #251) — so it is never silent.
+    const duplicates = findDuplicateCompanies(readRegistry().companies, { name, gstin: doc.company?.gstin ?? null })
+    if (duplicates.length > 0 && !allowDuplicate) {
+      return { needsConfirmation: true, duplicates, warning: duplicateWarning(duplicates) }
+    }
+
+    let slug = slugify(name)
+    let n = 2
+    while (existsSync(companyDbPath(slug))) slug = `${slugify(name)}-${n++}`
+    ensureCompanyTree(slug)
+    const db = openCompanyDb(slug)
+    try {
+      const parsed = JSON.parse(text) as Parameters<typeof importPortable>[1]
+      const company = (parsed as { company: Partial<CompanyInfo> }).company
+      // The open format carries what identifies a company and deliberately not its GST filing
+      // preferences (see docs/export-format.md) — those are settings, not books. Defaults here,
+      // and the importer sets them afterwards if they matter.
+      const info: CompanyInfo = companyCreateSchema.parse({
+        name,
+        stateCode: company.stateCode ?? '27',
+        gstin: doc.company?.gstin ?? null,
+        gstRegistrationType: doc.company?.gstin ? 'regular' : 'unregistered',
+        gstFilingFrequency: 'monthly',
+        address: company.address ?? '',
+        booksFrom: company.booksFrom ?? new Date().getFullYear(),
+        email: null,
+        phone: null,
+        pan: company.pan ?? null,
+        tan: null
+      })
+      seedCompany(db, info)
+      const result = importPortable(db, parsed)
+      upsertCompany({ slug, name, stateCode: info.stateCode, gstin: info.gstin, lastOpenedAt: null })
+      return { needsConfirmation: false, slug, name, ...result }
+    } catch (err) {
+      // A half-imported company is worse than none: it looks like books and is not.
+      db.close()
+      rmSync(companyDir(slug), { recursive: true, force: true })
+      throw err
+    } finally {
+      if (db.open) db.close()
+    }
+  })
+
+  // ---------- the entry that was half typed (roadmap #250) ----------
+  handle('draft:get', () => drafts.getDraft(requireCompany().db, sessionUser?.name ?? null), 'viewer')
+  handle('draft:save', (p) => {
+    const { payload } = draftSaveSchema.parse(p)
+    const c = requireCompany()
+    drafts.saveDraft(c.db, sessionUser?.name ?? null, payload, app.getVersion())
+    return null
+  })
+  handle('draft:clear', () => {
+    drafts.clearDraft(requireCompany().db, sessionUser?.name ?? null)
+    return null
+  })
+
   handle('export:csv', (p) => {
     const { filename, csv } = exportCsvSchema.parse(p)
     const c = requireCompany()
@@ -1965,6 +2278,14 @@ export function registerIpc(): void {
   }, 'viewer')
 
   // ---------- audit ----------
+  /**
+   * Has anybody edited the log? (roadmap #265)
+   *
+   * Deliberately not cached and not run on a timer: this is the answer to a question somebody is
+   * asking right now, and an answer that might be an hour old is not one.
+   */
+  handle('audit:verifyChain', () => verifyAuditChain(requireCompany().db), 'viewer')
+
   handle('audit:list', (p) => {
     const { entity, entityId, from, to, page, pageSize } = auditListSchema.parse(p)
     return listAudit(requireCompany().db, { entity, entityId, from, to, page, pageSize })
@@ -2010,7 +2331,7 @@ export function registerIpc(): void {
     // The bootstrap owner (the very first user of a fresh company) is auto-authenticated as
     // themselves — they just proved they're standing at the machine by creating the account,
     // and forcing them to immediately re-enter the PIN they picked a second ago would be theatre.
-    if (bootstrap) sessionUser = { id: saved.id, name: saved.name, role: saved.role }
+    if (bootstrap) sessionUser = { id: saved.id, name: saved.name, role: saved.role, denied: saved.denied }
     writeAudit(c.db, 'user', saved.id, id ? 'update' : 'create', before, saved)
     return { ...saved, locked: c.usersExist && !sessionUser }
   }, 'owner')
@@ -2138,6 +2459,52 @@ export function registerIpc(): void {
       lines: recentLogLines()
     }
   }, 'viewer')
+
+  // ---------- where the books live (roadmap #244) ----------
+  handle('app:dataRoot:get', () => {
+    const root = dataRoot()
+    return {
+      root,
+      isDefault: configuredDataRoot() === null,
+      // The chosen folder has gone (a drive unplugged, a folder deleted) and the app has fallen
+      // back to the default — which must be said out loud, or the user opens a company picker
+      // that is mysteriously empty.
+      chosenMissing: dataRootMissing(),
+      syncedBy: syncFolderWarning(root),
+      // Moving copies every company, so the app has to be holding none of them open.
+      companyOpen: current !== null
+    }
+  }, 'viewer')
+
+  /**
+   * Move the whole data folder somewhere the sync client cannot reach it.
+   *
+   * Copies, verifies every company database in the copy, and only then points the app at it. The
+   * original is left exactly where it was: somebody moving their accounts between disks should
+   * end up with two copies and a choice, not one copy and a hope.
+   */
+  handle('app:dataRoot:move', async (p) => {
+    const { destination } = z.object({ destination: z.string().max(1000).optional() }).parse(p ?? {})
+    let target = destination
+    if (!target) {
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose a folder to keep your books in',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (picked.canceled || !picked.filePaths[0]) return null
+      target = picked.filePaths[0]
+    }
+    const from = dataRoot()
+    const verdict = inspectMoveTarget(from, target)
+    if (!verdict.ok) throw new Error(verdict.error)
+
+    // Copying a database another handle is writing to is precisely how a sync client corrupts
+    // one; doing it ourselves would be a poor joke in a feature about not doing that.
+    closeCurrentCompany()
+    const result = moveDataRoot(from, target)
+    log('info', 'data-root-moved', { ...result })
+    return { ...result, warning: verdict.warning }
+  }, 'owner')
 
   // ---------- app info + updates ----------
   handle('app:info', () => ({ version: app.getVersion(), platform: process.platform }))

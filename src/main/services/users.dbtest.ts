@@ -33,7 +33,7 @@ describe('users service', () => {
     const first = saveUser(db, { name: 'Priya', role: 'viewer', pin: '1111' })
     expect(first).toMatchObject({ id: expect.any(Number), name: 'Priya', role: 'owner' })
     // And login() with the same PIN authenticates as that exact user — proof the id round-trips.
-    expect(login(db, first.id, '1111')).toEqual({ id: first.id, name: 'Priya', role: 'owner' })
+    expect(login(db, first.id, '1111')).toEqual({ id: first.id, name: 'Priya', role: 'owner', denied: [] })
   })
 
   it('creating a user without a PIN is rejected', () => {
@@ -80,7 +80,7 @@ describe('users service', () => {
     const user = saveUser(db, { name: 'Priya', role: 'owner', pin: '4242' })
 
     const result = login(db, user.id, '4242')
-    expect(result).toEqual({ id: user.id, name: 'Priya', role: 'owner' })
+    expect(result).toEqual({ id: user.id, name: 'Priya', role: 'owner', denied: [] })
 
     for (let i = 0; i < 4; i++) {
       expect(() => login(db, user.id, '0000')).toThrow('Wrong PIN')
@@ -89,6 +89,7 @@ describe('users service', () => {
     expect(() => login(db, user.id, '0000')).toThrow('Wrong PIN')
 
     // 6th attempt is throttled — even with the *correct* PIN, since verifyPin is never reached.
+    // The wait doubles per failure from here (@shared/lockout), starting at thirty seconds.
     expect(() => login(db, user.id, '4242')).toThrow('Too many attempts — wait 30 seconds')
   })
 

@@ -68,7 +68,9 @@ Ordering within a section is roughly by value.
     to save a voucher that would leave a gap is worse than the gap. Numbers are allocated at
     save time, two people entering at once legitimately leave one when either cancels, and a
     business that has just voided an invoice must still be able to carry on.
-45. Auto-save an in-progress voucher as a draft, restored after a crash (M)
+45. ✓ Auto-save an in-progress voucher as a draft, restored after a crash (M) — the same work as
+    #250; debounced to disk, offered back on the next launch rather than restored over whatever
+    is on screen.
 46. A scratchpad ledger for entries the user has not decided how to classify (S)
 47. Barcode scan jumps straight to quantity on the matched item line (S)
 48. Repeat-last-line key for entering many similar lines (S)
@@ -331,41 +333,103 @@ Ordering within a section is roughly by value.
      restoring into a temp company and cheaper: it proves the books inside balance, which a
      restore alone would not.
 243. ✓ Last-good-backup timestamp on the Gateway (S)
-244. One-click "move my data out of a synced folder" (M)
-245. Backup to an external drive or folder on a schedule (M)
-246. Restore preview: what will change before it changes (M)
+244. ✓ One-click "move my data out of a synced folder" (M) — copies, opens every company in the
+     copy to prove it survived, and only then switches over. Nothing is deleted: somebody moving
+     their accounts between disks should end up with two copies and a choice.
+245. ✓ Backup to an external drive or folder on a schedule (M) — refuses a destination inside the
+     data folder (not a second copy of anything) and, unencrypted, one that syncs to the cloud.
+     A failed run says why on the Backups screen; a schedule that fails invisibly is worse than
+     no schedule.
+246. ✓ Restore preview: what will change before it changes (M) — counts on both sides plus the
+     entries that would have to be typed again, by name. "How many" answers how bad; this
+     answers what.
 247. ✓ Integrity check run on a timer (S) — already shipped: the full PRAGMA integrity_check
      runs at most once every 7 days, throttled through meta, alongside the per-open quick_check.
-248. Corrupt-database recovery guidance in the UI, not just an error (M)
-249. Transaction log of every write, replayable (L)
-250. Crash-safe voucher draft recovery (M)
-251. Duplicate-company detection when restoring (S)
+248. ✓ Corrupt-database recovery guidance in the UI, not just an error (M) — ordered by what it
+     costs to get wrong, so "copy the whole folder somewhere else, now" comes before any
+     diagnosis, and derived from the actual findings: no restore step when there are no backups,
+     no repair advice when the file is sound and one voucher is out of balance.
+249. ✗ Transaction log of every write, replayable (L) — the audit log already is one. Every
+     service write goes through `writeAudit` with the entity, the id, the action, the before and
+     the after as JSON, the user and the app version, and #265 now chains it so it cannot be
+     edited unnoticed. A second log would record the same events in a second place, and two logs
+     that can disagree about what happened are worse than one that cannot. The one thing a
+     replay engine would add over `before_json` is automated re-application, and re-applying
+     writes into books that have moved on is not a recovery, it is a merge — which #254's import
+     refuses to attempt for exactly the same reason.
+250. ✓ Crash-safe voucher draft recovery (M) — the half-typed entry is debounced to disk and
+     offered back on the next launch. Offered, not restored: replacing what somebody is typing
+     with what they were typing yesterday is worse than losing yesterday's.
+251. ✓ Duplicate-company detection when restoring (S) — a matching GSTIN is decisive, a matching
+     name is a suspicion, and importing anyway takes a second click. The silent "acme-2" was the
+     most dangerous success in the app: the user works in the copy for a week while their real
+     books sit in the other one.
 252. ✓ Backup retention policy configurable, 5 to 200 (S) — floored at 5, because a retention
      of 1 means the next open overwrites the only copy.
-253. Encrypted backup to a user-chosen cloud folder, client-side encrypted (M)
-254. Data export in a documented open format, guaranteed round-trip (M)
+253. ✓ Encrypted backup to a user-chosen cloud folder, client-side encrypted (M) — AES-256-GCM
+     with a scrypt-derived key (the existing TOTALBK1 format), passphrase in the OS keychain and
+     never in the database it protects. A synced destination is refused outright without one.
+254. ✓ Data export in a documented open format, guaranteed round-trip (M) — plain JSON, every
+     reference by name, money still in integer paise, documented in docs/export-format.md. The
+     guarantee is a test: export, import into an empty company, export again, identical file.
 255. ✓ A "what would I lose" summary before a restore (S) — counted by opening the backup,
      since a backup file is the only authority on what is in it.
 256. ✓ Bin auto-purge policy, configurable, with what the next purge would take shown on the
      Bin screen (S) — 0 means never, which is a policy rather than a disabled feature.
-257. Company-level read-only lock for archived years (M)
-258. Year-end close reversal, if it was run in error (M)
-259. Multi-device conflict detection via a file lock and a heartbeat (M)
+257. ✓ Company-level read-only lock for archived years (M) — a lock date closes a period and
+     there is always a date after it; this closes the company. Reading, printing, exporting and
+     backing up keep working, because archived books nobody can get data out of are a hostage
+     rather than a record.
+258. ✓ Year-end close reversal, if it was run in error (M) — the inverse of the close in the
+     inverse order: lift the lock, bin the closing journal, put the lock back where it was
+     (recorded at close time, since setLockDate would otherwise have destroyed the answer).
+     Refused once anything is dated after the closing entry.
+259. ✓ Multi-device conflict detection via a file lock and a heartbeat (M) — a claim file in the
+     company folder, refreshed every 30s, so the second machine can tell a live session from a
+     crash. Reported and never refused: a lock file is evidence about another machine, and that
+     is exactly the kind of evidence that is sometimes wrong.
 
 ## M. Security and privacy
 
 260. ✓ GST portal credentials moved to the OS keychain (S)
 261. ✓ AI key never reaches the renderer or the data directory (S)
-262. Optional at-rest encryption of the company database (L)
+262. ✗ Optional at-rest encryption of the company database (L) — SQLCipher means a native
+     rebuild pinned to Electron's ABI (the thing that already breaks this build most often), a
+     key that has to live somewhere, and the sentence "forgot the password = the books are gone
+     forever" said to a shopkeeper. Against that: the threat it answers is a stolen laptop, and
+     macOS FileVault and Windows BitLocker answer that one already, for the whole disk, without
+     this app being able to lose anybody's accounts. What is genuinely ours to protect — the GST
+     portal password, the AI key, the backup passphrase — is in the OS keychain (#260, #261),
+     outside the data folder entirely, and #253 encrypts the copies that actually leave the
+     machine. Nothing here is called encryption that is not.
 263. ✓ Auto-lock after a configurable idle period (S)
-264. PIN attempt throttling with exponential backoff (already partly there) (S)
-265. Audit log tamper-evidence via a hash chain (M)
-266. Per-user permissions finer than three roles (M)
+264. ✓ PIN attempt throttling with exponential backoff (S) — the flat thirty seconds cost an
+     honest typo exactly what it cost a script working through all ten thousand four-digit PINs,
+     and the script could afford it. Doubling to an hourly ceiling turns that search from an
+     afternoon into more than a year; four free attempts keep a typo free. Both PIN surfaces
+     (sign-in and company delete) quote the same wait from the same persisted counter.
+265. ✓ Audit log tamper-evidence via a hash chain (M) — every row carries the hash of its
+     contents chained onto the row before it, with the head stamped in `meta` so lopping the
+     newest entries off the end is caught too. It is evidence, not prevention, and says so:
+     someone who can write to the file can recompute the whole chain. It pairs with the Rule
+     3(1) statement in disclosure.ts, which could say the trail cannot be switched off and could
+     not say it had not been rewritten.
+266. ✓ Per-user permissions finer than three roles (M) — deny-only: the role sets the ceiling and
+     denials cut areas out of it ("the accountant who enters purchases but must not see what
+     anyone is paid"). No grant direction on purpose — a grant would let a viewer post entries
+     that the audit trail then attributes to a viewer.
 267. ✓ Session timeout, as the idle auto-lock (#263) — a separate timeout on the lock screen
      itself would guard a screen that already holds nothing (S)
 268. Redact sensitive fields in exported diagnostics (done) (S)
-269. Content-Security-Policy audit and tightening (S)
-270. Dependency vulnerability gate in CI (S)
+269. ✓ Content-Security-Policy audit and tightening (S) — base-uri, form-action and
+     frame-ancestors do not fall back to default-src and were unset; connect-src is now stated
+     rather than inherited, because every network call in the product belongs to main and one
+     originating in the renderer is a bug or an attack. The audit is written down as a test, so
+     the day script-src gains 'unsafe-inline' is the day CI fails.
+270. ✓ Dependency vulnerability gate in CI (S) — `npm audit --omit=dev --audit-level=high` in the
+     release workflow. Runtime dependencies only: this app ships a Chromium to every user, so a
+     known RCE in something it bundles is a shipped RCE, while a build-tool advisory blocking a
+     release only teaches people to pass --force.
 271. Signed releases and update verification (config done) (M)
 272. ✓ Privacy page documenting exactly what leaves the machine (S) — written as a list of
      network calls, not as a policy: that is the only form a reader can check against the app.

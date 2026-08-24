@@ -47,6 +47,7 @@ const EXPECTED_TABLES = [
   'loan_recoveries',
   'luts',
   'party_notes',
+  'voucher_drafts',
   'migrations'
 ]
 
