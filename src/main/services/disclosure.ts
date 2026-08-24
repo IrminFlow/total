@@ -8,6 +8,7 @@
 import type { DB } from '../db/connection'
 import { lutStatus, type Lut, type LutStatus } from '@shared/gst/lut'
 import { reportingBacklog, type WindowReport, type WindowRow } from '@shared/gst/eInvoiceWindow'
+import type { TurnoverBand } from '@shared/gst/turnover'
 import { IN_BOOKS } from './vouchers'
 import { writeAudit } from './audit'
 
@@ -240,7 +241,7 @@ export function deleteLut(db: DB, fyStartYear: number): Lut[] {
  * whether the window applies at all, but the backlog is computed either way — a business about to
  * cross the threshold should be able to see what it is walking into.
  */
-export function eInvoiceBacklog(db: DB, from: string, to: string, today: string, turnoverPaise: number | null): WindowReport {
+export function eInvoiceBacklog(db: DB, from: string, to: string, today: string, band: TurnoverBand | null): WindowReport {
   const rows = db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date,
@@ -255,5 +256,5 @@ export function eInvoiceBacklog(db: DB, from: string, to: string, today: string,
        ORDER BY v.date`
     )
     .all(from, to) as WindowRow[]
-  return reportingBacklog(rows, today, turnoverPaise)
+  return reportingBacklog(rows, today, band)
 }

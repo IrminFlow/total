@@ -9,10 +9,11 @@ import {
 import { lutStatus, lutValidFrom, lutValidTo, LUT_WARN_DAYS, type Lut } from './lut'
 
 describe('the e-invoice reporting window', () => {
-  it('applies only above the turnover threshold', () => {
+  it('applies only to the bands at or above ten crore', () => {
     expect(windowApplies(null)).toBe(false)
-    expect(windowApplies(9_99_00_000_00)).toBe(false)
-    expect(windowApplies(10_00_00_000_00)).toBe(true)
+    expect(windowApplies('5Cr-10Cr')).toBe(false)
+    expect(windowApplies('10Cr-plus')).toBe(true)
+    expect(windowApplies('upto-50L')).toBe(false)
   })
 
   it('counts thirty days from the invoice date', () => {
@@ -49,7 +50,7 @@ describe('the e-invoice reporting window', () => {
   })
 
   it('drops reported invoices — a to-do list with done things stops being read', () => {
-    const r = reportingBacklog([row({ irn: 'IRN123' }), row({ voucherId: 2, number: 'INV-2' })], '2026-06-10', 10_00_00_000_00)
+    const r = reportingBacklog([row({ irn: 'IRN123' }), row({ voucherId: 2, number: 'INV-2' })], '2026-06-10', '10Cr-plus')
     expect(r.rows.map((x) => x.number)).toEqual(['INV-2'])
   })
 
@@ -60,7 +61,7 @@ describe('the e-invoice reporting window', () => {
         row({ voucherId: 2, number: 'OLD', date: '2026-05-20' })
       ],
       '2026-06-25',
-      10_00_00_000_00
+      '10Cr-plus'
     )
     expect(r.rows.map((x) => x.number)).toEqual(['OLD', 'NEW'])
   })
@@ -69,7 +70,7 @@ describe('the e-invoice reporting window', () => {
     const r = reportingBacklog(
       [row({ date: '2026-01-01', value: 5_00_000_00 }), row({ voucherId: 2, date: '2026-06-24' })],
       '2026-06-25',
-      10_00_00_000_00
+      '10Cr-plus'
     )
     expect(r.expired).toBe(1)
     expect(r.expiredValue).toBe(5_00_000_00)
@@ -77,7 +78,7 @@ describe('the e-invoice reporting window', () => {
   })
 
   it('still lists the backlog for a registration the window does not apply to, but says so', () => {
-    const r = reportingBacklog([row()], '2026-06-25', 1_00_00_000_00)
+    const r = reportingBacklog([row()], '2026-06-25', 'upto-50L')
     expect(r.applies).toBe(false)
     expect(r.rows).toHaveLength(1)
   })

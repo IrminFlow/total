@@ -10,7 +10,7 @@
  * it is already too late. Nothing here talks to the portal; it only counts days.
  */
 
-import { CRORE } from './turnover'
+import { bandFloorPaise, CRORE, type TurnoverBand } from './turnover'
 
 /** Days from the invoice date within which it must reach the IRP. */
 export const REPORTING_WINDOW_DAYS = 30
@@ -60,9 +60,15 @@ export function reportingWindow(invoiceDate: string, today: string, hasIrn: bool
   return { urgency: 'fine', daysLeft, deadline, label: `${daysLeft} days left` }
 }
 
-/** Does this registration have to report at all? */
-export function windowApplies(turnoverPaise: number | null): boolean {
-  return turnoverPaise !== null && turnoverPaise >= REPORTING_WINDOW_THRESHOLD_PAISE
+/**
+ * Does this registration have to report at all?
+ *
+ * Takes the declared band rather than a rupee figure, exactly as `eInvoiceMandatory` does — the
+ * company master stores a band because aggregate turnover is a statutory figure across every
+ * GSTIN, not something these books can compute.
+ */
+export function windowApplies(band: TurnoverBand | null): boolean {
+  return band !== null && bandFloorPaise(band) >= REPORTING_WINDOW_THRESHOLD_PAISE
 }
 
 export interface WindowRow {
@@ -91,8 +97,8 @@ export interface WindowReport {
  * Already-reported invoices are dropped rather than listed as safe: this is a to-do list, and a
  * to-do list that includes the done things stops being read.
  */
-export function reportingBacklog(rows: WindowRow[], today: string, turnoverPaise: number | null): WindowReport {
-  const applies = windowApplies(turnoverPaise)
+export function reportingBacklog(rows: WindowRow[], today: string, band: TurnoverBand | null): WindowReport {
+  const applies = windowApplies(band)
   const ranked = rows
     .map((r) => ({ ...r, ...reportingWindow(r.date, today, r.irn !== null) }))
     .filter((r) => r.urgency !== 'reported')

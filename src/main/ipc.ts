@@ -39,6 +39,7 @@ import * as analysis from './services/analysis'
 import * as receivables from './services/receivables'
 import * as attendance from './services/attendance'
 import * as assets from './services/assets'
+import * as disclosure from './services/disclosure'
 import { ratesForMonth, STATUTORY_HISTORY } from '@shared/statutory'
 import { statementHtml } from './services/statementHtml'
 import * as banking from './services/banking'
@@ -1219,6 +1220,45 @@ export function registerIpc(): void {
       .parse(p)
     return assets.recordDisposal(requireCompany().db, assetId, on, proceeds, voucherId)
   })
+
+  // ---------- disclosure: related parties, the audit trail, LUT, the IRP window ----------
+
+  handle('disclosure:relatedParties', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return disclosure.relatedPartyReport(requireCompany().db, from, to)
+  }, 'viewer')
+
+  handle('disclosure:auditStatement', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    return disclosure.auditTrailStatement(c.db, from, to, configSvc.getAuditKeepDays(c.db))
+  }, 'viewer')
+
+  handle('disclosure:luts', () => disclosure.listLuts(requireCompany().db), 'viewer')
+
+  handle('disclosure:lutStatus', () => disclosure.currentLut(requireCompany().db, todayISO()), 'viewer')
+
+  handle('disclosure:saveLut', (p) => {
+    const input = z
+      .object({
+        arn: z.string().trim().min(1).max(30),
+        fyStartYear: z.number().int().min(2017).max(2200),
+        filedOn: isoDate
+      })
+      .parse(p)
+    return disclosure.saveLut(requireCompany().db, input)
+  })
+
+  handle('disclosure:deleteLut', (p) => {
+    const { fyStartYear } = z.object({ fyStartYear: z.number().int().min(2017).max(2200) }).parse(p)
+    return disclosure.deleteLut(requireCompany().db, fyStartYear)
+  })
+
+  handle('disclosure:eInvoiceWindow', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    return disclosure.eInvoiceBacklog(c.db, from, to, todayISO(), c.info.turnoverBand)
+  }, 'viewer')
 
   handle('recv:msme', (p) => {
     const { asOn } = z.object({ asOn: isoDate }).parse(p)
