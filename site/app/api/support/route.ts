@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { deleteJson, intakeStoreConfigured, readJson, storeJson } from "@/lib/intakeStore";
+import { deleteJson, deleteJsonPrefix, intakeStoreConfigured, jsonExists, listJson, readJson, storeJson } from "@/lib/intakeStore";
 
 export const runtime = "nodejs";
 
@@ -26,9 +26,20 @@ interface StoredCase {
   screenshotDataUrl: string | null;
 }
 
+interface CaseStatusEvent {
+  caseId: string;
+  status: StoredCase["status"];
+  updatedAt: string;
+}
+
 function casePath(caseId: string): string {
   const date = caseId.slice(4, 12);
   return `support/${date.slice(0, 4)}/${date.slice(4, 6)}/${caseId}.json`;
+}
+
+function caseStatusPrefix(caseId: string): string {
+  const date = caseId.slice(4, 12);
+  return `support-status/${date.slice(0, 4)}/${date.slice(4, 6)}/${caseId}/`;
 }
 
 function authorized(request: NextRequest): boolean {
@@ -288,10 +299,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Case ID and email are required" }, { status: 400 });
   if (!intakeStoreConfigured())
     return NextResponse.json({ error: "Case tracking is unavailable" }, { status: 503 });
-  const row = await readJson<StoredCase>(casePath(caseId));
+  const pathname = casePath(caseId);
+  if (!await jsonExists(pathname))
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  const row = await readJson<StoredCase>(pathname);
   if (!row || !emailMatches(row.email, email))
     return NextResponse.json({ error: "Case not found" }, { status: 404 });
-  return NextResponse.json({ caseId: row.caseId, category: row.category, status: row.status, receivedAt: row.receivedAt, updatedAt: row.updatedAt });
+  const statusEvents = await listJson<CaseStatusEvent>(caseStatusPrefix(caseId));
+  const latest = statusEvents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  return NextResponse.json({ caseId: row.caseId, category: row.category, status: latest?.status ?? row.status, receivedAt: row.receivedAt, updatedAt: latest?.updatedAt ?? row.updatedAt });
 }
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
@@ -300,10 +316,11 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   if (!body?.caseId || !/^TOT-\d{8}-[A-F0-9]{6}$/.test(body.caseId) || !["submitted", "in_review", "waiting_for_customer", "resolved"].includes(String(body.status)))
     return NextResponse.json({ error: "Invalid status update" }, { status: 400 });
   const pathname = casePath(body.caseId);
-  const row = await readJson<StoredCase>(pathname);
-  if (!row) return NextResponse.json({ error: "Case not found" }, { status: 404 });
-  await storeJson(pathname, { ...row, status: body.status, updatedAt: new Date().toISOString() }, true);
-  return NextResponse.json({ ok: true, caseId: row.caseId, status: body.status });
+  if (!await jsonExists(pathname)) return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  const updatedAt = new Date().toISOString();
+  const event: CaseStatusEvent = { caseId: body.caseId, status: body.status!, updatedAt };
+  await storeJson(`${caseStatusPrefix(body.caseId)}${updatedAt.replace(/[:.]/g, "-")}-${randomUUID()}.json`, event);
+  return NextResponse.json({ ok: true, caseId: body.caseId, status: body.status, updatedAt });
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
@@ -311,6 +328,9 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   const caseId = request.nextUrl.searchParams.get("caseId") ?? "";
   if (!/^TOT-\d{8}-[A-F0-9]{6}$/.test(caseId))
     return NextResponse.json({ error: "Invalid case ID" }, { status: 400 });
-  await deleteJson(casePath(caseId));
-  return NextResponse.json({ ok: true, caseId, deleted: true });
+  const pathname = casePath(caseId);
+  const existed = await jsonExists(pathname);
+  if (existed) await deleteJson(pathname);
+  const statusEventsDeleted = await deleteJsonPrefix(caseStatusPrefix(caseId));
+  return NextResponse.json({ ok: true, caseId, deleted: existed, statusEventsDeleted });
 }

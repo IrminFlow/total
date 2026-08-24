@@ -12,7 +12,7 @@ export async function storeJson(pathname: string, value: unknown, overwrite = fa
     contentType: "application/json",
     addRandomSuffix: false,
     allowOverwrite: overwrite,
-    cacheControlMaxAge: 0,
+    cacheControlMaxAge: 60,
   });
 }
 
@@ -30,4 +30,23 @@ export async function listJson<T>(prefix: string, limit = 1_000): Promise<T[]> {
 
 export async function deleteJson(pathname: string): Promise<void> {
   await del(pathname);
+}
+
+export async function jsonExists(pathname: string): Promise<boolean> {
+  const result = await list({ prefix: pathname, limit: 2 });
+  return result.blobs.some((blob) => blob.pathname === pathname);
+}
+
+export async function deleteJsonPrefix(prefix: string): Promise<number> {
+  let cursor: string | undefined;
+  let deleted = 0;
+  do {
+    const result = await list({ prefix, limit: 1_000, ...(cursor ? { cursor } : {}) });
+    if (result.blobs.length) {
+      await del(result.blobs.map((blob) => blob.url));
+      deleted += result.blobs.length;
+    }
+    cursor = result.hasMore ? result.cursor : undefined;
+  } while (cursor);
+  return deleted;
 }

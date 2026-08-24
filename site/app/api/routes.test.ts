@@ -125,7 +125,13 @@ describe("support intake", () => {
       expect.any(String),
       expect.objectContaining({ access: "private", addRandomSuffix: false }),
     );
+    const pathname = blobMocks.put.mock.calls.at(-1)![0] as string;
     const stored = JSON.parse(blobMocks.put.mock.calls.at(-1)![1] as string);
+    blobMocks.list.mockImplementation(async ({ prefix }: { prefix: string }) => ({
+      blobs: prefix === pathname ? [{ pathname, url: `https://private.example/${pathname}` }] : [],
+      hasMore: false,
+      cursor: undefined,
+    }));
     blobMocks.get.mockImplementation(async () => ({ statusCode: 200, stream: new Blob([JSON.stringify(stored)]).stream() }));
     const tracked = await GET(new NextRequest(`https://total.example/api/support?caseId=${receipt.caseId}&email=owner%40example.com`));
     expect(tracked.status).toBe(200);
