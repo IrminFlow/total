@@ -42,11 +42,15 @@ interface ImportAuditEvidence {
 }
 
 export interface MigrationReconciliationCertificateContent {
-  schema: "total.migration-reconciliation-certificate";
+  schema: "total.migration-import-evidence";
   schemaVersion: 1;
   generatedAt: string;
-  status: "checks_passed" | "attention_required";
+  status: "internal_checks_passed" | "attention_required";
   statement: string;
+  authenticity: {
+    status: "unsigned_content_checksum";
+    statement: string;
+  };
   independentAcceptance: {
     status: "not_performed";
     statement: string;
@@ -118,6 +122,15 @@ function readRetainedSummary(row: BatchRow): unknown {
   } catch {
     throw new Error(`Import batch #${row.id} has a corrupted retained summary`);
   }
+}
+
+function retainedWarnings(summary: unknown): string[] {
+  if (!summary || typeof summary !== "object") return [];
+  const warnings = (summary as { warnings?: unknown }).warnings;
+  if (!Array.isArray(warnings)) return [];
+  return warnings.filter(
+    (warning): warning is string => typeof warning === "string",
+  );
 }
 
 function importAuditEvidence(
@@ -193,7 +206,7 @@ function bookMetrics(
   };
 }
 
-/** Build the exact certificate payload without writing files. This is intentionally a self-check,
+/** Build the exact evidence payload without writing files. This is intentionally a self-check,
  * not an acceptance decision: expected source-system balances and a named reviewer belong in the
  * release acceptance evidence, not in an app-generated receipt. */
 export function buildMigrationCertificate(
@@ -207,6 +220,7 @@ export function buildMigrationCertificate(
   const asOn = todayISO();
   const measurement = bookMetrics(db, company, asOn);
   const metrics = measurement.metrics;
+  const warnings = retainedWarnings(retainedSummary);
   const auditEvent = importAuditEvidence(db, batch);
   const chain = verifyAuditChain(db);
   const checks: MigrationCertificateCheck[] = [
@@ -230,6 +244,16 @@ export function buildMigrationCertificate(
       status: batch.rejectedRows === 0 ? "passed" : "attention",
       statement: "No rejected source rows remain for follow-up.",
       evidence: `${batch.rejectedRows} rejected row(s)`,
+    },
+    {
+      id: "retained_warnings",
+      status: warnings.length === 0 ? "passed" : "attention",
+      statement:
+        "The retained import summary has no warnings requiring source-system review.",
+      evidence:
+        warnings.length === 0
+          ? "No retained warnings"
+          : `${warnings.length} warning(s): ${warnings.slice(0, 3).join(" · ")}`,
     },
     {
       id: "trial_balance",
@@ -264,14 +288,19 @@ export function buildMigrationCertificate(
     },
   ];
   const content: MigrationReconciliationCertificateContent = {
-    schema: "total.migration-reconciliation-certificate",
+    schema: "total.migration-import-evidence",
     schemaVersion: 1,
     generatedAt,
     status: checks.every((check) => check.status === "passed")
-      ? "checks_passed"
+      ? "internal_checks_passed"
       : "attention_required",
     statement:
       "Total measured the open company's books and linked the result to this retained import batch.",
+    authenticity: {
+      status: "unsigned_content_checksum",
+      statement:
+        "The content checksum detects changes; it does not prove who created this receipt. Authenticity requires the optional detached signature and a separately trusted public key.",
+    },
     independentAcceptance: {
       status: "not_performed",
       statement:
@@ -327,7 +356,11 @@ function certificateRows(
   ]);
   const rows: ReportRowSpec[] = [
     {
-      cells: ["Certificate", "Status", certificate.status.replaceAll("_", " ")],
+      cells: [
+        "Import evidence",
+        "Status",
+        certificate.status.replaceAll("_", " "),
+      ],
       bold: true,
     },
     {
@@ -390,9 +423,21 @@ function certificateRows(
       ],
     },
     {
-      cells: ["Certificate", "Content SHA-256", certificate.contentSha256],
+      cells: [
+        "Import evidence",
+        "Content checksum (SHA-256)",
+        certificate.contentSha256,
+      ],
       bold: true,
       rule: true,
+    },
+    {
+      cells: [
+        "Trust boundary",
+        "Authenticity",
+        certificate.authenticity.statement,
+      ],
+      bold: true,
     },
     {
       cells: [
@@ -425,11 +470,11 @@ export async function exportMigrationCertificate(
   mkdirSync(root, { recursive: true });
   const jsonPath = join(
     root,
-    `migration-certificate-batch-${batchId}-${stamp}.json`,
+    `migration-evidence-batch-${batchId}-${stamp}.json`,
   );
   atomicWriteFile(jsonPath, `${JSON.stringify(certificate, null, 2)}\n`);
   const html = reportHtml({
-    title: "Migration reconciliation certificate",
+    title: "Migration import evidence receipt",
     company,
     periodLabel: `Batch #${batchId} · measured as on ${certificate.measurement.asOn}`,
     columns: [
@@ -442,13 +487,13 @@ export async function exportMigrationCertificate(
     provenance: {
       period: `Import batch #${batchId}; source applied ${certificate.batch.appliedAt}`,
       accountingBasis: "Voucher lines and opening balances; integer paise",
-      dataFreshness: `Certificate ${certificate.contentSha256}`,
+      dataFreshness: `Content checksum ${certificate.contentSha256}`,
       generatedAt: certificate.generatedAt,
     },
   });
   const pdfPath = await writeExportPdf(
     slug,
-    `migration-certificate-batch-${batchId}-${stamp}.pdf`,
+    `migration-evidence-batch-${batchId}-${stamp}.pdf`,
     html,
     { pageSize: "A4", pageNumbers: true },
   );

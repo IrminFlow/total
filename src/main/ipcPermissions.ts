@@ -202,7 +202,7 @@ export const IPC_EXPORT_CONTRACTS = {
   "export:migrationCertificate": {
     format: "full_data",
     departmentScope: "company_wide",
-    label: "The migration reconciliation certificate",
+    label: "The migration import evidence receipt",
   },
   "export:portable": {
     format: "full_data",

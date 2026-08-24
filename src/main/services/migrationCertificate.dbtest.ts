@@ -19,7 +19,7 @@ const company: CompanyInfo = {
   tan: null,
 };
 
-describe("migration reconciliation certificate", () => {
+describe("migration import evidence receipt", () => {
   it("binds retained batch identity, current-book metrics and audit evidence", () => {
     const db = seededDb();
     const summary = {
@@ -45,10 +45,10 @@ describe("migration reconciliation certificate", () => {
     );
 
     expect(certificate).toMatchObject({
-      schema: "total.migration-reconciliation-certificate",
+      schema: "total.migration-import-evidence",
       schemaVersion: 1,
       generatedAt: "2026-08-25T10:00:00.000Z",
-      status: "checks_passed",
+      status: "internal_checks_passed",
       independentAcceptance: { status: "not_performed" },
       batch: {
         id: batch.id,
@@ -101,6 +101,32 @@ describe("migration reconciliation certificate", () => {
       certificate.checks.find((check) => check.id === "rejected_rows")?.status,
     ).toBe("attention");
     expect(certificate.independentAcceptance.status).toBe("not_performed");
+    db.close();
+  });
+
+  it("requires attention when Tally retained non-rejected warnings", () => {
+    const db = seededDb();
+    const batch = recordImportBatch(db, "tally", "<ENVELOPE />", {
+      sourceRows: 1,
+      acceptedRows: 1,
+      rejectedRows: 0,
+      summary: {
+        vouchers: 0,
+        warnings: [
+          'Ledger "Unknown party": group "Missing" not found, placed under Suspense A/c',
+        ],
+      },
+    });
+    writeAudit(db, "tally_import", batch.id, "import", null, {
+      sourceHash: batch.sourceHash,
+    });
+
+    const evidence = buildMigrationCertificate(db, company, batch.id);
+
+    expect(evidence.status).toBe("attention_required");
+    expect(
+      evidence.checks.find((check) => check.id === "retained_warnings"),
+    ).toMatchObject({ status: "attention" });
     db.close();
   });
 });

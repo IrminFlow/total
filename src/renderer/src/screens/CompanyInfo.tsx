@@ -466,10 +466,10 @@ function CsvImportCard(): React.JSX.Element {
     try {
       const result = await api.importer.certificate(lastBatch);
       toast.push(
-        result.status === "checks_passed" ? "success" : "info",
-        result.status === "checks_passed"
-          ? `Batch #${lastBatch} certificate saved as JSON and PDF`
-          : `Batch #${lastBatch} certificate saved; review the checks needing attention`,
+        result.status === "internal_checks_passed" ? "success" : "info",
+        result.status === "internal_checks_passed"
+          ? `Batch #${lastBatch} evidence receipt saved as JSON and PDF`
+          : `Batch #${lastBatch} evidence receipt saved; review the checks needing attention`,
       );
     } catch (err) {
       toast.push("error", (err as Error).message);
@@ -755,7 +755,7 @@ function CsvImportCard(): React.JSX.Element {
                 </p>
                 <p className="mt-0.5 text-[10.5px] text-muted">
                   Keep its source documents, then export a self-checked JSON and
-                  PDF reconciliation record for review.
+                  PDF import evidence receipt for review.
                 </p>
               </div>
             </div>
@@ -769,7 +769,7 @@ function CsvImportCard(): React.JSX.Element {
               </Button>
               <Button onClick={() => void exportCertificate()} disabled={busy}>
                 <FilePdf size={15} />{" "}
-                {busy ? "Preparing…" : "Export reconciliation certificate"}
+                {busy ? "Preparing…" : "Export import evidence"}
               </Button>
             </div>
           </div>

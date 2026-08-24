@@ -62,7 +62,7 @@ describe("migration IPC handlers", () => {
       jsonPath: "/exports/batch-7.json",
       pdfPath: "/exports/batch-7.pdf",
       contentSha256: "a".repeat(64),
-      status: "checks_passed",
+      status: "internal_checks_passed",
     });
     registerMigrationHandlers({
       handle,
@@ -81,6 +81,6 @@ describe("migration IPC handlers", () => {
       "Owner",
     );
     expect(showItemInFolder).toHaveBeenCalledWith("/exports/batch-7.json");
-    expect(result).toMatchObject({ status: "checks_passed" });
+    expect(result).toMatchObject({ status: "internal_checks_passed" });
   });
 });

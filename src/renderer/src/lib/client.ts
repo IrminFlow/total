@@ -1031,7 +1031,7 @@ export interface MigrationCertificateExport {
   jsonPath: string;
   pdfPath: string;
   contentSha256: string;
-  status: "checks_passed" | "attention_required";
+  status: "internal_checks_passed" | "attention_required";
   signaturePaths?: { json: string; pdf: string };
 }
 

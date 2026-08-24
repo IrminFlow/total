@@ -17,7 +17,7 @@ describe("migration certificate manifest", () => {
 
   it("detects any mutation to a self-hashed certificate", () => {
     const content = {
-      schema: "total.migration-reconciliation-certificate",
+      schema: "total.migration-import-evidence",
       schemaVersion: 1,
       batch: { id: 7 },
     };
