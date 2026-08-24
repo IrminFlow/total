@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useId, useRef, useState, type React
 import { formatPaise, parseRupees } from '@shared/money'
 import { isExpression, parseAmountExpression } from '@shared/amountExpr'
 import { parseSmartDate, toDisplayDate } from '@shared/dates'
-import { useToasts } from '../state/stores'
+import { useAnnouncer, useToasts } from '../state/stores'
 import { isBlocked, isTypingTarget, topLayer, useKeyLayer } from '../lib/keyboard'
 import { splitAccel } from '../lib/accel'
 
@@ -446,6 +446,87 @@ const FOCUSABLE =
  */
 export const isAnyModalOpen = isBlocked
 
+/**
+ * The focus trap, as one implementation (#280).
+ *
+ * Every overlay in the app needs the same three things and they are easy to get 2-of-3 right:
+ *
+ *   1. focus moves INTO the overlay when it opens — otherwise the caret is still on the row
+ *      behind it and the first Tab walks the page under the dimmer;
+ *   2. Tab and Shift+Tab wrap at the ends — otherwise focus escapes to the sidebar and the user
+ *      is operating a screen they cannot see;
+ *   3. focus goes BACK to whatever opened it on close — otherwise it falls to <body> and the
+ *      next Tab restarts from the top of the app.
+ *
+ * The Command palette had (1) only, via `autoFocus` on its input, which is exactly the 2-of-3
+ * this hook exists to stop happening again.
+ *
+ * Tab is a capture-phase window listener rather than a key-layer entry: the trap has to beat the
+ * browser's own default focus move, and the bubble-phase dispatcher runs too late for that.
+ *
+ * `isTop` lets a stack of overlays agree on which one owns the keyboard; the default traps
+ * unconditionally, which is right for an overlay that can't be stacked on.
+ */
+export function useFocusTrap(
+  ref: React.RefObject<HTMLElement | null>,
+  opts: { isTop?: () => boolean; autoFocus?: boolean } = {}
+): void {
+  const { isTop, autoFocus = true } = opts
+  const isTopRef = useRef(isTop)
+  isTopRef.current = isTop
+
+  // Captured during the first RENDER, not in the effect. React applies a child's `autoFocus`
+  // during commit, which is before passive effects run — so an effect reading activeElement
+  // finds the overlay's own input and "restores" focus to a node that is about to be unmounted.
+  // That is how the Modal has been quietly failing to give focus back all along.
+  const previousRef = useRef<HTMLElement | null>(
+    typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)
+  )
+
+  useEffect(() => {
+    const previous = previousRef.current
+    const container = ref.current
+    if (autoFocus && container && !container.contains(document.activeElement)) {
+      const first = container.querySelector<HTMLElement>(FOCUSABLE)
+      ;(first ?? container).focus()
+    }
+    return () => {
+      // Guarded: the element that opened the overlay may itself have been unmounted by whatever
+      // the overlay did (a row deleted, a screen navigated away from).
+      if (previous?.isConnected) previous.focus?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return
+      if (isTopRef.current && !isTopRef.current()) return
+      const container = ref.current
+      if (!container) return
+      const focusables = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) => el.offsetParent !== null || el === document.activeElement
+      )
+      if (focusables.length === 0) {
+        e.preventDefault()
+        return
+      }
+      const first = focusables[0]!
+      const last = focusables[focusables.length - 1]!
+      const inside = container.contains(document.activeElement)
+      if (e.shiftKey && (document.activeElement === first || !inside)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [ref])
+}
+
 export function Modal({
   title,
   onClose,
@@ -480,19 +561,6 @@ export function Modal({
     onCloseRef.current()
   }, [])
 
-  // Focus trap: move focus in on mount (unless a child autoFocus already took it), restore on close.
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null
-    const dialog = dialogRef.current
-    if (dialog && !dialog.contains(document.activeElement)) {
-      const first = dialog.querySelector<HTMLElement>(FOCUSABLE)
-      ;(first ?? dialog).focus()
-    }
-    return () => {
-      previous?.focus?.()
-    }
-  }, [])
-
   // Escape goes through the layer registry as an OPAQUE layer: it closes this dialog and, by
   // being opaque, stops the key reaching the screen's own shortcuts or nav's Esc-to-go-back.
   const modalLayer = useKeyLayer(
@@ -509,37 +577,9 @@ export function Modal({
     { opaque: true }
   )
 
-  useEffect(() => {
-    // Tab stays a capture-phase element listener: the focus trap has to beat the browser's own
-    // default focus move, which the bubble-phase dispatcher runs too late to do.
-    const isTop = (): boolean => topLayer('modal')?.id === modalLayer.current
-    const onKey = (e: KeyboardEvent): void => {
-      if (!isTop()) return
-      if (e.key === 'Tab') {
-        const dialog = dialogRef.current
-        if (!dialog) return
-        const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-          (el) => el.offsetParent !== null || el === document.activeElement
-        )
-        if (focusables.length === 0) {
-          e.preventDefault()
-          return
-        }
-        const first = focusables[0]!
-        const last = focusables[focusables.length - 1]!
-        const inside = dialog.contains(document.activeElement)
-        if (e.shiftKey && (document.activeElement === first || !inside)) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [modalLayer])
+  // Focus in on mount, wrap at the ends, restore on close — and only while this dialog is the
+  // top of the modal stack, so a ConfirmModal over a form modal traps against itself.
+  useFocusTrap(dialogRef, { isTop: () => topLayer('modal')?.id === modalLayer.current })
 
   return (
     <div
@@ -680,7 +720,44 @@ export function SkeletonRows({ rows = 8, className = '' }: { rows?: number; clas
   )
 }
 
+/**
+ * The app's single polite live region (#275) — mount once, near the toasts.
+ *
+ * Separate from <Toasts/> on purpose: that region flips to `assertive` while an error is up, and
+ * a row-selection announcement sharing it would inherit the interruption and talk over the user
+ * on every arrow press.
+ */
+export function LiveAnnouncer(): React.JSX.Element {
+  const message = useAnnouncer((s) => s.message)
+  return (
+    <div data-testid="live-announcer" role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+      {message}
+    </div>
+  )
+}
+
 // ---------- keyboard list navigation (the amber bar) ----------
+
+/** How much of a row gets read out. A ledger row can carry ten columns; the first few identify
+ *  it, and the rest is the reader talking for fifteen seconds before the next arrow press. */
+const ANNOUNCE_MAX = 140
+
+/**
+ * What a screen reader should hear when the amber bar lands on a row.
+ *
+ * Cells are joined with commas rather than taken from `textContent`, because `textContent` runs
+ * "12-Apr-26Sales/0007Acme Traders" together into one unreadable word. Position is read first:
+ * "row 4 of 96" is the thing a sighted user gets for free from the scrollbar.
+ */
+function rowAnnouncement(row: HTMLElement, index: number, count: number): string {
+  const cells = Array.from(row.querySelectorAll<HTMLElement>('td'))
+  const text = (cells.length > 0 ? cells.map((c) => c.textContent ?? '') : [row.textContent ?? ''])
+    .map((t) => t.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(', ')
+  const clipped = text.length > ANNOUNCE_MAX ? `${text.slice(0, ANNOUNCE_MAX)}…` : text
+  return `Row ${index + 1} of ${count}${clipped ? `: ${clipped}` : ''}`
+}
 
 /** What `useKeyNav` binds, as data — ShortcutHelp renders this rather than restating it. */
 export const LIST_SHORTCUTS: { keys: string[]; label: string }[] = [
@@ -705,6 +782,10 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
   activeRef.current = active
   const onEnterRef = useRef(onEnter)
   onEnterRef.current = onEnter
+  // Whether the last move came from the keyboard. Only those are announced: a pointer user
+  // sweeping down a table moves the selection dozens of times a second, and a live region fed
+  // from that is a stuck record. Screen-reader users are on the keyboard by definition.
+  const fromKeyboard = useRef(false)
   useEffect(() => {
     if (active >= count && count > 0) setActive(count - 1)
   }, [count, active])
@@ -715,6 +796,9 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
     'list',
     (e) => {
       if (isTypingTarget(e)) return false
+      // Set for every key this layer might claim, before the branches: whichever one fires, the
+      // move it causes is a keyboard move and should be spoken.
+      fromKeyboard.current = true
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setActive((a) => Math.min(countRef.current - 1, a + 1))
@@ -759,9 +843,22 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
   useEffect(() => {
     if (enabled && topLayer('list')?.id !== listLayer.current) return
     const rows = document.querySelectorAll<HTMLElement>('.kbar-row[data-active="true"]')
-    rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' })
+    const row = rows[rows.length - 1]
+    row?.scrollIntoView({ block: 'nearest' })
+    // Moving the amber bar changes nothing in the accessibility tree — no focus moves, no state
+    // attribute a reader watches. Without this, arrowing down a 900-row day book is silence.
+    if (!row || !fromKeyboard.current || countRef.current === 0) return
+    useAnnouncer.getState().announce(rowAnnouncement(row, active, countRef.current))
   }, [active, enabled, listLayer])
-  return { active, setActive }
+
+  // The pointer path, wrapped so hover can mark itself as not-keyboard. Stable identity: screens
+  // pass this straight into deps and into `rowProps`.
+  const select = useCallback((i: number) => {
+    fromKeyboard.current = false
+    setActive(i)
+  }, [])
+
+  return { active, setActive: select }
 }
 
 /**

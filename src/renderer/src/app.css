@@ -17,6 +17,14 @@
 /* ---------- theme tokens: light (default) and dark ---------- */
 
 :root {
+  /* ---- Text size preference (#279) ----
+     Every step of the type scale below is `calc(Npx * var(--t-font-scale))`, so one number moves
+     the whole scale and nothing else. Deliberately NOT a root font-size change: Tailwind v4 sizes
+     spacing in rem, so scaling the root would inflate every padding, gap and gutter in the app
+     and turn a dense ledger into a comfortable one. This product is dense on purpose — bigger
+     text has to arrive inside the same rhythm, not blow it apart. Set from JS on <html>. */
+  --t-font-scale: 1;
+
   --t-bg: #f4f4ef;
   --t-panel: #ffffff;
   --t-panel2: #f6f7fa;
@@ -85,6 +93,43 @@
   --t-warn-line: color-mix(in oklab, #d1a86a 46%, transparent);
 }
 
+/* ---------- high contrast (#278) ----------
+
+   Not "light with the dial turned up". Light and dark are both elevation models built out of
+   near-neighbours — cream on off-white, panel on ground — and that is exactly what fails for a
+   reader with low vision: the whole interface is one value. High contrast throws elevation away
+   and spends everything on separation. Pure white ground, pure black ink and black hairlines, so
+   every edge in the app is a real edge rather than a two-percent step, and every accent colour is
+   darkened until it clears WCAG AAA (7:1) against the ground instead of AA.
+
+   The amber survives as the selection bar because it is the signature, but as a *graphic* only:
+   #b06f00 is 4.1:1 against white, which passes the 3:1 non-text rule, and the ink that sits on it
+   is black rather than the usual near-black brown. */
+[data-theme='contrast'] {
+  --t-bg: #ffffff;
+  --t-panel: #ffffff;
+  --t-panel2: #ededed;
+  --t-line: #000000;
+  --t-ink: #000000;
+  --t-muted: #3a3a3a;
+  --t-amber: #6b4500;
+  --t-amber-bar: #b06f00;
+  --t-amber-soft: rgba(176, 111, 0, 0.22);
+  --t-dr: #005a36;
+  --t-cr: #a4000f;
+  --t-blue: #00358f;
+  --t-accel: #8a2600;
+  --t-on-amber: #000000;
+  --t-margin: color-mix(in oklab, #a4000f 70%, transparent);
+  /* A blurred drop shadow is invisible at this contrast and does no separating work. A hard 1px
+     ring is the same job done in a way the eye it is meant for can actually see. */
+  --t-shadow: 0 0 0 1px #000000;
+  --t-rule: #000000;
+  --t-warn: #5c4a00;
+  --t-warn-soft: rgba(92, 74, 0, 0.14);
+  --t-warn-line: #5c4a00;
+}
+
 @theme inline {
   --color-bg: var(--t-bg);
   /* `canvas` is the app background — several full-viewport screens (LockScreen, CompanySelect)
@@ -126,15 +171,19 @@
        display 28/34  wordmark, lock screen, import result counts
 
      The old names are kept as aliases so no screen breaks: they map onto the two band steps and
-     onto `section`. New code should use micro / body / lead / section / figure / page. */
-  --text-micro: 11.5px;
-  --text-body: 13px;
-  --text-lead: 15px;
-  --text-section: 18px;
-  --text-figure: 21px;
-  --text-page: 24px;
-  --text-display-sm: 28px;
-  --text-display: 34px;
+     onto `section`. New code should use micro / body / lead / section / figure / page.
+
+     Every step is multiplied by --t-font-scale (the text-size preference, see :root). The
+     multiplication has to happen here rather than at the root font-size for the density reason
+     recorded there. */
+  --text-micro: calc(11.5px * var(--t-font-scale));
+  --text-body: calc(13px * var(--t-font-scale));
+  --text-lead: calc(15px * var(--t-font-scale));
+  --text-section: calc(18px * var(--t-font-scale));
+  --text-figure: calc(21px * var(--t-font-scale));
+  --text-page: calc(24px * var(--t-font-scale));
+  --text-display-sm: calc(28px * var(--t-font-scale));
+  --text-display: calc(34px * var(--t-font-scale));
   /* The three big steps set tight, so a title reads as one object rather than a line of prose.
      (`@theme inline` inlines these, so the aliases below must repeat the literal value — a
      var() reference there would point at a custom property that is never emitted.) */
@@ -145,15 +194,15 @@
   --text-display--line-height: 1.05;
 
   /* Aliases — deprecated names, live sizes. Kept so existing screens keep compiling. */
-  --text-label: 11.5px;
-  --text-caption: 11.5px;
-  --text-hint: 11.5px;
-  --text-small: 13px;
-  --text-body-sm: 13px;
-  --text-detail: 13px;
-  --text-title: 18px;
+  --text-label: calc(11.5px * var(--t-font-scale));
+  --text-caption: calc(11.5px * var(--t-font-scale));
+  --text-hint: calc(11.5px * var(--t-font-scale));
+  --text-small: calc(13px * var(--t-font-scale));
+  --text-body-sm: calc(13px * var(--t-font-scale));
+  --text-detail: calc(13px * var(--t-font-scale));
+  --text-title: calc(18px * var(--t-font-scale));
   --text-title--line-height: 1.25;
-  --text-heading: 18px;
+  --text-heading: calc(18px * var(--t-font-scale));
   --text-heading--line-height: 1.25;
 }
 
@@ -167,7 +216,9 @@ body {
   background: var(--t-bg);
   color: var(--t-ink);
   font-family: var(--font-sans);
-  font-size: 13px;
+  /* The body step, written out — and scaled, so text that inherits rather than naming a step
+     grows with the preference too. */
+  font-size: calc(13px * var(--t-font-scale));
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
@@ -233,6 +284,37 @@ tr.kbar-row[data-active='true'] td:first-child {
   box-shadow: inset 3px 0 0 0 var(--t-amber-bar);
 }
 
+/* ---------- row actions: quiet, but never hover-only (#283) ----------
+
+   A per-row action (Edit, PDF, Rename) stays out of the way until the row is the one being
+   worked on. "Being worked on" is four different things depending on how the app is being
+   driven, and a rule that only knows about the first one locks out everyone else:
+
+     .group:hover              the pointer is on the row
+     .group:focus-within       Tab has landed inside the row
+     .group[data-active=true]  the amber keyboard bar is on the row (useTableNav's row props)
+     :focus-visible            the action itself has focus, including inside a row that is not
+                               a `.group` at all
+
+   Opacity rather than `display: none` on purpose: a hidden button is not in the tab order, so
+   Tab could never reach it and `:focus-within` could never fire. The button is always there and
+   always reachable; only its ink fades.
+
+   This lives in one class instead of a five-variant utility string repeated per screen, because
+   the repeated string is how DayBook and Masters each ended up with a different subset of it. */
+.row-action {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.group:hover .row-action,
+.group:focus-within .row-action,
+.group[data-active='true'] .row-action,
+tr[data-active='true'] .row-action,
+.row-action:focus-visible,
+.row-action:focus-within {
+  opacity: 1;
+}
+
 /* ---------- ledger tables: hand-rules + double-rule totals ---------- */
 
 .ledger-table {
@@ -251,7 +333,7 @@ tr.kbar-row[data-active='true'] td:first-child {
 .ledger-table th {
   /* The micro step, written out: `@theme inline` inlines the scale into utilities rather than
      emitting custom properties, so plain CSS cannot reference it by name. */
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--t-font-scale));
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -464,9 +546,59 @@ input[type='radio']:disabled {
   white-space: normal;
 }
 
+/* ---------- reduced motion (#277) ----------
+
+   Two ways in, one implementation: the OS setting, and an in-app preference for the case where
+   the machine is shared or the user wants it here but not everywhere. `[data-motion='reduced']`
+   is set on <html> by the preference; the media query covers the OS. Both hit the same rules, so
+   there is no second code path to keep honest.
+
+   `animation: none` was wrong in two ways. It removed the spinner and the skeleton entirely —
+   the two things on screen whose whole job is to say "still working" — and killing a transition
+   outright can strand code that waits for `transitionend`. The near-zero-duration recipe below
+   ends every transition immediately at its final value instead, so the end state is still
+   reached and the journey is not animated.
+
+   The exception is deliberate: a spinner is essential feedback, not decoration, so under reduced
+   motion it keeps pulsing — opacity only. Opacity is not vestibular; a rotating object is. */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-spin,
+  .animate-pulse {
+    animation: t-quiet-pulse 1.6s ease-in-out infinite !important;
+  }
+}
+
+[data-motion='reduced'] *,
+[data-motion='reduced'] *::before,
+[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}
+[data-motion='reduced'] .animate-spin,
+[data-motion='reduced'] .animate-pulse {
+  animation: t-quiet-pulse 1.6s ease-in-out infinite !important;
+}
+
+@keyframes t-quiet-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
   }
 }

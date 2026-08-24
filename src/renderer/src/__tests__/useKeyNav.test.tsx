@@ -1,14 +1,37 @@
 // useKeyNav — the ↑↓↵ amber-bar registry (components/ui.tsx): movement, clamping, Enter,
 // input-target suppression, and the topmost-list-wins stack.
 import { describe, expect, it, vi } from 'vitest'
-import { act, renderHook } from '@testing-library/react'
+import { act, fireEvent, render, renderHook } from '@testing-library/react'
 import { useKeyNav } from '../components/ui'
+import { useAnnouncer } from '../state/stores'
 
 function press(key: string, target?: HTMLElement): void {
   const ev = new KeyboardEvent('keydown', { key, bubbles: true })
   act(() => {
     ;(target ?? window).dispatchEvent(ev)
   })
+}
+
+/**
+ * A real table wired to the hook — rows carry the `.kbar-row` + `data-active` convention that
+ * the announcement reads back out. A static fixture would not do: the whole point is that the
+ * DOM the hook inspects is the DOM the selection actually moved in.
+ */
+function Table({ rows }: { rows: string[][] }): React.JSX.Element {
+  const { active, setActive } = useKeyNav(rows.length, () => {})
+  return (
+    <table>
+      <tbody>
+        {rows.map((cells, i) => (
+          <tr key={i} className="kbar-row" data-active={i === active} onMouseEnter={() => setActive(i)}>
+            {cells.map((c) => (
+              <td key={c}>{c}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
 }
 
 describe('useKeyNav', () => {
@@ -80,6 +103,22 @@ describe('useKeyNav', () => {
     press('ArrowDown')
     expect(under.result.current.active).toBe(1)
     under.unmount()
+  })
+
+  // #275 — moving the amber bar changes nothing in the accessibility tree, so the row has to be
+  // spoken into a live region or the whole list is silent to a screen reader.
+  it('announces the row it lands on, with its position', () => {
+    useAnnouncer.setState({ message: '' })
+    render(<Table rows={[['24-Apr-26', 'Sales/0007', 'Acme Traders'], ['25-Apr-26', 'Sales/0008', 'Bharat Steel']]} />)
+    press('ArrowDown')
+    expect(useAnnouncer.getState().message).toBe('Row 2 of 2: 25-Apr-26, Sales/0008, Bharat Steel')
+  })
+
+  it('stays silent when the pointer moves the selection', () => {
+    useAnnouncer.setState({ message: '' })
+    const { getAllByRole } = render(<Table rows={[['a'], ['b']]} />)
+    fireEvent.mouseEnter(getAllByRole('row')[1]!)
+    expect(useAnnouncer.getState().message).toBe('')
   })
 
   it('a disabled list never joins the stack', () => {

@@ -265,7 +265,7 @@ function LedgersTab(): React.JSX.Element {
                         down the page — it surfaces on the row the pointer or keyboard is on. */}
                     <button
                       data-testid="btn-masters-edit-ledger"
-                      className="text-small text-blue opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 group-data-[active=true]:opacity-100 hover:underline"
+                      className="row-action text-small text-blue hover:underline"
                       onClick={(e) => {
                         e.stopPropagation()
                         setEditing(l)
@@ -480,7 +480,10 @@ function GroupNode({
         <span className={`text-detail ${depth === 0 ? 'font-medium' : 'text-muted'}`}>{node.name}</span>
         {depth === 0 && <span className={`text-label uppercase tracking-wider ${natureTone}`}>{node.nature}</span>}
         {!node.isSystem && (
-          <span className="flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+          /* Three actions on one node, revealed together: `.row-action` also lights up on
+             :focus-within, so tabbing to Rename shows Move and Delete beside it rather than
+             leaving the user pressing invisible buttons. */
+          <span className="row-action flex gap-2">
             <button data-testid="btn-masters-group-rename" className="text-hint text-blue hover:underline" onClick={() => void onRename(node)}>
               Rename
             </button>

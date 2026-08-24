@@ -374,18 +374,33 @@ Ordering within a section is roughly by value.
 ## N. Accessibility
 
 274. ✓ Accessible names on every control, enforced by an E2E that walks every sidebar screen (M)
-275. Screen-reader announcements for row selection changes (M)
+275. ✓ Screen-reader announcements for row selection changes (M) — one polite live region fed by
+     `useKeyNav`, keyboard moves only: a pointer sweeping a table would jam it shut
 276. ✓ Live regions for toast messages, assertive while an error is showing (S)
-277. Reduced-motion honoured everywhere (partly done) (S)
-278. High-contrast theme beyond light and dark (M)
-279. Font-size preference that scales the whole type scale (M)
-280. Focus trap audit on every modal (partly done) (S)
+277. ✓ Reduced-motion honoured everywhere (S) — the blanket `animation: none` also killed the
+     spinner and the skeleton, the two things whose whole job is to say "still working". Now
+     near-zero durations plus an opacity-only pulse, and an in-app preference sharing the same
+     rules as the OS setting.
+278. ✓ High-contrast theme beyond light and dark (M) — a third `[data-theme]` block: white ground,
+     black ink and hairlines, every accent darkened to AAA. The header button cycles three ways.
+279. ✓ Font-size preference that scales the whole type scale (M) — every step is
+     `calc(Npx * var(--t-font-scale))` rather than a root font-size: Tailwind v4 sizes spacing in
+     rem, so scaling the root would have inflated every gutter and undone the density.
+280. ✓ Focus trap audit on every modal (S) — one `useFocusTrap`. The audit found the command
+     palette had no trap at all, and that restore-on-close read `activeElement` inside an effect —
+     after React had already applied a child's `autoFocus` — so no modal had ever handed focus
+     back. Both fixed; the AskDrawer is docked beside the content, not over it, so it is not
+     trapped on purpose.
 281. ✓ Table headers associated with cells via scope (S) — 321 headers across 31 files
 282. ✓ Colour is never the only signal: Dr/Cr also carry text (S) — already shipped
-283. Keyboard access to every context action currently on hover (M)
+283. ✓ Keyboard access to every context action currently on hover (M) — one `.row-action` class
+     covering hover, :focus-within, the keyboard-active row and :focus-visible, plus a renderer
+     test that fails the next hand-rolled `group-hover` fade and an E2E that reads opacity.
 284. ✓ Skip-to-content link (S)
 285. ✓ Form errors announced, not only shown (S)
-286. Minimum tap-target sizes on the LAN companion, when it exists (S)
+286. ✗ Minimum tap-target sizes on the LAN companion, when it exists (S) — the LAN companion does
+     not exist. Nothing in this app is driven by a finger, so there is no target to size; this
+     comes back with the companion rather than being invented ahead of it.
 287. ✓ Language attribute set on the document (S) — already shipped; revisit when bilingual
      invoice printing (#184) lands and a second language is actually on screen.
 

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useIsFetching } from '@tanstack/react-query'
-import { useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
+import { THEME_LABEL, THEME_ORDER, useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
 import { useAutoLock } from '../lib/useAutoLock'
 import { useStickyNumber } from '../lib/useStickyTab'
@@ -95,9 +95,12 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           data-testid="btn-theme"
           className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
           onClick={toggle}
-          title="Switch theme"
+          // The button names where it goes, not where it is — three themes make "Light/Dark" as
+          // a state label ambiguous, and a control that reads as its own destination is the one
+          // people press without thinking.
+          title={`Switch theme — currently ${THEME_LABEL[theme].toLowerCase()}`}
         >
-          {theme === 'light' ? 'Dark' : 'Light'}
+          {THEME_LABEL[THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length]!]}
         </button>
         <SupportLink variant="pill" />
         <button
