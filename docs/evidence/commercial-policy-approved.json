@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "kind": "commercial",
+  "status": "approved",
+  "productVersion": "0.5.0",
+  "approvedAt": "2026-08-24T11:44:42.000Z",
+  "authority": "Product-owner instruction to decide and publish the commercial model in the v0.5 completion goal",
+  "policyDate": "2026-08-24",
+  "model": "perpetual-major-version",
+  "betaPricePaise": 0,
+  "businessPricePaise": 990000,
+  "practicePricePaise": 2990000,
+  "includedSupportMonths": 12,
+  "directRefundDays": 30,
+  "automaticBetaConversion": false,
+  "permanentBookAccess": true,
+  "permanentPortableExport": true,
+  "qualifiedLegalReviewStillRequired": true
+}

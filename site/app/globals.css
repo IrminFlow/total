@@ -255,6 +255,25 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
 .legal-page section p, .legal-page section li { color: var(--muted); font-size: 16px; line-height: 1.7; }
 .legal-page section ul { margin: 16px 0 0 20px; display: grid; gap: 10px; }
 .legal-page section a { color: var(--amber-deep); }
+.pricing-page { padding-top: 82px; padding-bottom: 80px; }
+.pricing-page h1 { max-width: 12ch; }
+.pricing-ledger { margin-top: 52px; padding: 0; border-top: 3px double var(--rule); border-bottom: 3px double var(--rule); }
+.pricing-head { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.pricing-head h2 { margin: 0; font-size: 25px; }
+.pricing-head span { color: var(--amber-deep); font: 650 11px/1 var(--font-mono), ui-monospace, monospace; text-transform: uppercase; letter-spacing: .09em; }
+.pricing-row { display: grid; grid-template-columns: .8fr 1.5fr auto; gap: 32px; align-items: start; padding: 26px 0; border-bottom: 1px solid var(--line); }
+.pricing-row:last-child { border-bottom: 0; }
+.pricing-row p { color: var(--muted); font-size: 14px; }
+.pricing-row .pricing-name { color: var(--ink); font: 600 23px/1.1 var(--font-serif), Georgia, serif; margin-bottom: 7px; }
+.pricing-row .pricing-renewal { color: var(--ink); margin-top: 8px; }
+.pricing-row .pricing-amount { color: var(--dr); font-size: 19px; font-weight: 650; text-align: right; white-space: nowrap; }
+.pricing-amount small { display: block; margin-top: 4px; color: var(--muted); font: 400 10px/1.4 var(--font-sans), system-ui, sans-serif; }
+.pricing-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 0 54px; }
+.pricing-notes section { padding-top: 60px; }
+.pricing-notes h2 { font-size: 25px; }
+.pricing-notes p { color: var(--muted); font-size: 15.5px; }
+.pricing-fine { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.pricing-fine a { color: var(--amber-deep); }
 .capture-page { padding-top: 82px; padding-bottom: 60px; }
 .capture-page h1 { max-width: 12ch; }
 .capture-board { margin-top: 42px; display: grid; grid-template-columns: minmax(260px, .65fr) minmax(0, 1.35fr); gap: 22px; align-items: start; }
@@ -326,6 +345,10 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
   .top .nav-email { margin-left: auto; }
   .support-page { padding-top: 58px; }
   .support-form { padding: 22px; }
+  .pricing-page { padding-top: 58px; }
+  .pricing-row { grid-template-columns: 1fr; gap: 12px; }
+  .pricing-row .pricing-amount { text-align: left; }
+  .pricing-notes { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: no-preference) {

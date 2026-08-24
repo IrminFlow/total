@@ -37,6 +37,7 @@ export default async function Home(): Promise<React.JSX.Element> {
           <span className="top-links">
             <Link href="/docs">Docs</Link>
             <Link href="/compare">Compare</Link>
+            <Link href="/pricing">Pricing</Link>
             <Link href="/changelog">Changelog</Link>
             <Link href="/support">Support</Link>
           </span>
@@ -134,8 +135,8 @@ export default async function Home(): Promise<React.JSX.Element> {
                 ))}
                 <tr className="total">
                   <td className="f">Total</td>
-                  <td className="p">no subscription, no per-user seats, no server</td>
-                  <td className="r amt">₹0 / month</td>
+                  <td className="p">free beta · perpetual major-version licences after beta</td>
+                  <td className="r amt">₹0 beta</td>
                 </tr>
               </tbody>
             </table>

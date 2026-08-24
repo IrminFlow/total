@@ -14,9 +14,13 @@ try { serviceEvidence = JSON.parse(text(serviceEvidencePath)); } catch {}
 const supportVerified = serviceEvidence?.schema === 1 && serviceEvidence?.support?.ok === true && serviceEvidence?.support?.trackingAfterDeletionStatus === 404;
 const feedbackVerified = serviceEvidence?.schema === 1 && serviceEvidence?.feedback?.ok === true && serviceEvidence?.feedback?.syntheticEventsDeleted === 3;
 const privateDownloadVerified = serviceEvidence?.schema === 1 && serviceEvidence?.privateReleaseDownload?.ok === true;
-const evidenceFile = (envName, fallback) => {
+const approvedEvidence = (envName, fallback, kind) => {
   const value = env[envName]?.trim() || fallback;
-  return value ? existsSync(resolve(root, value)) : false;
+  if (!value || !existsSync(resolve(root, value))) return false;
+  try {
+    const evidence = JSON.parse(readFileSync(resolve(root, value), "utf8"));
+    return evidence?.schema === 1 && evidence?.kind === kind && evidence?.status === "approved" && evidence?.productVersion === "0.5.0" && Boolean(evidence?.approvedAt);
+  } catch { return false; }
 };
 const checks = [];
 const add = (id, status, detail, owner = "engineering") => checks.push({ id, status, detail, owner });
@@ -32,12 +36,12 @@ add("windows-signing", hasAll("WIN_CSC_LINK", "WIN_CSC_KEY_PASSWORD") ? "ready" 
 add("release-workflow", text(".github/workflows/release.yml").includes("Create one complete public release") ? "ready" : "blocked", "Cross-platform signed artifacts converge into one non-draft release.");
 add("quality-gates", text("package.json").includes('"release:scorecard"') ? "ready" : "blocked", "Correctness, type, renderer, DB, accessibility, restore, performance, security, dependency and chaos gates are scripted.");
 add("public-v04-upgrade", file("scripts/upgrade-smoke.mjs") && text(".github/workflows/release.yml").includes("Upgrade real public v0.4 books") ? "ready" : "blocked", "Release CI downloads the actual public v0.4 packages and verifies migration, repeated reopen, balances and backup integrity.");
-add("real-migration-acceptance", evidenceFile("MIGRATION_ACCEPTANCE_EVIDENCE", "docs/evidence/migration-acceptance-approved.json") ? "ready" : "external", "Reconcile representative consented Tally, Busy, Marg, Zoho and spreadsheet exports and approve the evidence.", "acceptance-owner");
-add("clean-device-acceptance", evidenceFile("CLEAN_MACHINE_EVIDENCE", "docs/evidence/clean-machine-approved.json") ? "ready" : "external", "Approve clean Apple Silicon, supported Intel macOS and Windows 11 installation, upgrade, backup, restore and uninstall evidence.", "acceptance-owner");
-add("human-acceptance", evidenceFile("HUMAN_ACCEPTANCE_EVIDENCE", "docs/evidence/human-acceptance-approved.json") ? "ready" : "external", "Approve structured bookkeeper, owner, CA, payroll and inventory/manufacturing sessions.", "product-owner");
-add("mobile-device-acceptance", evidenceFile("MOBILE_ACCEPTANCE_EVIDENCE", "docs/evidence/mobile-acceptance-approved.json") ? "ready" : "external", "Exercise camera capture and native sharing on current physical iOS and Android devices.", "acceptance-owner");
-add("commercial-approval", evidenceFile("COMMERCIAL_APPROVAL_EVIDENCE", "docs/evidence/commercial-policy-approved.json") ? "ready" : "external", "Approve pricing, licence model, refund terms, support targets and beta-to-paid transition before publication.", "product-owner");
-add("qualified-legal-review", Boolean(env.LEGAL_REVIEW_APPROVED_AT?.trim()) || evidenceFile("LEGAL_REVIEW_EVIDENCE", "docs/evidence/legal-review-approved.json") ? "ready" : "external", "Obtain qualified legal review of privacy, terms, licensing and intended selling jurisdictions.", "legal-owner");
+add("real-migration-acceptance", approvedEvidence("MIGRATION_ACCEPTANCE_EVIDENCE", "docs/evidence/migration-acceptance-approved.json", "migration") ? "ready" : "external", "Reconcile representative consented Tally, Busy, Marg, Zoho and spreadsheet exports and approve the evidence.", "acceptance-owner");
+add("clean-device-acceptance", approvedEvidence("CLEAN_MACHINE_EVIDENCE", "docs/evidence/clean-machine-approved.json", "clean-machine") ? "ready" : "external", "Approve clean Apple Silicon, supported Intel macOS and Windows 11 installation, upgrade, backup, restore and uninstall evidence.", "acceptance-owner");
+add("human-acceptance", approvedEvidence("HUMAN_ACCEPTANCE_EVIDENCE", "docs/evidence/human-acceptance-approved.json", "human") ? "ready" : "external", "Approve structured bookkeeper, owner, CA, payroll and inventory/manufacturing sessions.", "product-owner");
+add("mobile-device-acceptance", approvedEvidence("MOBILE_ACCEPTANCE_EVIDENCE", "docs/evidence/mobile-acceptance-approved.json", "mobile") ? "ready" : "external", "Exercise camera capture and native sharing on current physical iOS and Android devices.", "acceptance-owner");
+add("commercial-approval", approvedEvidence("COMMERCIAL_APPROVAL_EVIDENCE", "docs/evidence/commercial-policy-approved.json", "commercial") ? "ready" : "external", "Approve pricing, licence model, refund terms, support targets and beta-to-paid transition before publication.", "product-owner");
+add("qualified-legal-review", Boolean(env.LEGAL_REVIEW_APPROVED_AT?.trim()) || approvedEvidence("LEGAL_REVIEW_EVIDENCE", "docs/evidence/legal-review-approved.json", "legal") ? "ready" : "external", "Obtain qualified legal review of privacy, terms, licensing and intended selling jurisdictions.", "legal-owner");
 add("online-statutory", "excluded", "NIC and online GST portal connectivity are explicitly outside this production completion scope.", "product-owner");
 
 let dirty = false;

@@ -99,13 +99,13 @@ export function CommunitySection(): React.JSX.Element {
               Founding edition · public preview
             </p>
             <h3 className="mt-1 font-serif text-[21px] font-semibold text-ink">
-              ₹0 during the public preview. Your books are never held hostage.
+              ₹0 in beta. Perpetual licences after beta.
             </h3>
             <p className="mt-2 max-w-2xl text-[11.5px] leading-5 text-muted">
-              If paid plans are introduced, pricing and included features will be
-              shown before activation with at least 60 days notice. Core book
-              access and complete portable export remain available even if a
-              future entitlement expires.
+              Business is planned at ₹9,900 + applicable taxes; Practice at
+              ₹29,900. Each is a one-time major-version licence with 12 months
+              of updates and support. Optional Care renews updates and support,
+              never access to your books. Sales begin only after 60 days notice.
             </p>
           </div>
           <div className="rounded-md border border-dr/30 bg-dr/5 p-3">
@@ -113,8 +113,8 @@ export function CommunitySection(): React.JSX.Element {
               <CheckCircle size={16} weight="fill" /> Local entitlement
             </p>
             <p className="mt-2 text-[10.5px] leading-4 text-muted">
-              Active · no sign-in required
-              <br />Offline grace · unlimited in preview
+              Beta active · no sign-in required
+              <br />No automatic paid conversion
               <br />Permanent data export · included
             </p>
           </div>

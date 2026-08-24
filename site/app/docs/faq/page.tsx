@@ -12,8 +12,9 @@ export default function FaqPage(): React.JSX.Element {
 
       <h2>Is it free?</h2>
       <p>
-        Yes, while Total is in beta. There&rsquo;s no subscription, no per-user seat, and no server bill — the app runs
-        entirely on your Mac or PC and the only cost is the machine you already own.
+        Yes, while Total is in beta. When sales open, the Business licence is planned at ₹9,900 plus applicable taxes
+        for perpetual use of that major version, including 12 months of updates and support. Optional Care renewals
+        extend updates and support; existing books and portable export are never disabled. See <a href="/pricing">pricing</a>.
       </p>
 
       <h2>Does it run on Windows?</h2>

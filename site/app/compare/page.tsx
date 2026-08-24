@@ -6,7 +6,7 @@ export const metadata: Metadata = {
 }
 
 const ROWS: { particular: string; total: string; tally: string }[] = [
-  { particular: 'Price', total: '₹0 (beta)', tally: '₹750+ / month' },
+  { particular: 'Price', total: '₹0 beta; ₹9,900 perpetual Business licence after beta', tally: 'See current Tally pricing' },
   { particular: 'Fully offline', total: '✓', tally: '✓' },
   { particular: 'Native macOS app', total: '✓', tally: '✗' },
   { particular: 'Data format', total: 'Open SQLite file', tally: 'Proprietary' },
