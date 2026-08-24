@@ -202,13 +202,14 @@ Ordering within a section is roughly by value.
 157. Bad-debt provisioning entry helper (M)
 158. Payment allocation suggestions when a receipt does not match one bill (M)
 159. Customer credit scoring from payment history (M)
-160. A daily "who to chase today" list on the Gateway (S)
+160. ✓ A daily "who to chase today" list on the Gateway (S)
 161. Bulk reminder send to every overdue party (M)
 162. ✓ Party phone and email (S)
 163. Notes and call log per party (M)
 164. Advance received tracking against future invoices (M)
 165. Vendor payment scheduling by due date (M)
-166. Payables ageing mirrored from receivables (S)
+166. ✓ Payables ageing mirrored from receivables (S) — already shipped: Outstandings and the
+     khata both take a receivable/payable side through the same allocator.
 
 ## H. Payroll
 

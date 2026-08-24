@@ -91,4 +91,30 @@ await scenario('25-khata', async (h) => {
     'the payable side is labelled as such'
   )
   await h.shot('03-payable')
+
+  // ---- who to chase today, on the Gateway ----
+  // The Gateway used to show the five LARGEST receivables, which is the wrong five: the largest
+  // debtor is usually the one who always pays.
+  await h.goto('gateway')
+  await h.page.waitForSelector('[data-testid="rows-chase-today"]', { timeout: 15000 })
+  const chaseText = await h.page.textContent('[data-testid="rows-chase-today"]')
+  assert(chaseText.length > 0, 'the chase panel renders')
+
+  const receivable = await h.invoke('analysis:khata', { side: 'receivable', asOn })
+  const overdue = receivable.filter((p) => p.worstOverdueDays > 0)
+  if (overdue.length > 0) {
+    // The most overdue party must be named, whether or not it is the largest.
+    const worst = overdue.slice().sort((a, b) => b.worstOverdueDays - a.worstOverdueDays)[0]
+    assert(chaseText.includes(worst.name), `the most overdue party is named (${worst.name})`)
+    // And a reminder is one tap away for anyone with a number.
+    if (worst.phone) {
+      const btn = await h.page.$(`[data-testid="btn-chase-remind-${worst.ledgerId}"]`)
+      assert(btn, 'a reminder button sits beside them')
+    }
+  }
+
+  // The panel links to the full khata rather than being the only view of it.
+  await h.click('btn-gateway-open-khata')
+  await h.waitScreen('khata')
+  await h.shot('04-chase-today')
 })

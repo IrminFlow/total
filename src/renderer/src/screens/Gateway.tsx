@@ -5,6 +5,7 @@ import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { Accel, Button, Money, Panel, ScrollList, Skeleton } from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { upcomingDeadlines, type Deadline } from '@shared/compliance'
+import { buildReminder } from '@shared/outstanding'
 import { useFeatures } from '../lib/useFeatures'
 import type { RecurringTemplate } from '@shared/domain'
 import type { CashSparkPoint, TopLedgerRow } from '@shared/reports'
@@ -99,7 +100,10 @@ export function Gateway(): React.JSX.Element {
           aspect depend on how many debtors the company has. */}
       <div className="mt-6 grid h-[420px] grid-cols-2 gap-3">
         <div className="flex min-h-0 flex-col gap-3">
-          <TopLedgersPanel title="Top receivables" rows={data?.topReceivables ?? []} />
+          {/* Who to chase today comes before who owes the most: the largest debtor is usually
+              the one who always pays, and the panel is only useful if it names someone to call.
+              It falls back to the top-receivables list when nothing is overdue. */}
+          <ChaseTodayPanel />
           <TopLedgersPanel title="Top payables" rows={data?.topPayables ?? []} />
         </div>
         <CashSparklinePanel points={data?.cashSpark ?? []} />
@@ -441,6 +445,98 @@ function CashSparklinePanel({ points }: { points: CashSparkPoint[] }): React.JSX
           )}
         </svg>
       )}
+    </Panel>
+  )
+}
+
+/** How many parties the chase list shows before it stops being a list and becomes a report. */
+const CHASE_LIMIT = 5
+
+/**
+ * Who to chase today.
+ *
+ * The Gateway showed the five largest receivables, which is the wrong five: the largest debtor
+ * is usually the one who always pays. This shows the five most overdue, with a one-tap reminder
+ * beside each, because the answer to "who do I call this morning" should not require opening a
+ * report.
+ *
+ * Falls back to naming the largest open balances when nothing is overdue, rather than showing an
+ * empty panel — a business with everything within terms still wants to see where its money is.
+ */
+function ChaseTodayPanel(): React.JSX.Element {
+  const nav = useNav()
+  const { info, to } = useSession()
+  const toast = useToasts()
+  const { data } = useQuery({
+    queryKey: ['khata', 'receivable', to],
+    queryFn: () => api.analysis.khata('receivable', to)
+  })
+
+  const overdue = (data ?? []).filter((p) => p.worstOverdueDays > 0)
+  const chasing = overdue.length > 0
+  const rows = (chasing ? overdue : (data ?? []))
+    .slice()
+    .sort((a, b) =>
+      chasing ? b.worstOverdueDays - a.worstOverdueDays || b.pending - a.pending : b.pending - a.pending
+    )
+    .slice(0, CHASE_LIMIT)
+
+  const remind = (party: (typeof rows)[number]): void => {
+    const reminder = buildReminder(
+      { name: info?.name ?? 'We' },
+      { name: party.name, email: party.email, phone: party.phone },
+      []
+    )
+    if (!reminder.whatsapp) {
+      toast.push('error', `No usable phone number for ${party.name}`)
+      return
+    }
+    window.open(reminder.whatsapp, '_blank')
+  }
+
+  return (
+    <Panel className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-baseline justify-between border-b border-line px-5 py-2.5">
+        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">
+          {chasing ? 'Chase today' : 'Top receivables'}
+        </p>
+        <button
+          className="text-hint text-muted hover:text-ink"
+          data-testid="btn-gateway-open-khata"
+          onClick={() => nav.go({ name: 'khata' })}
+        >
+          Khata →
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="rows-chase-today">
+        {rows.length === 0 ? (
+          <p className="px-5 py-3 text-hint text-muted">Nobody owes you anything.</p>
+        ) : (
+          rows.map((p) => (
+            <div key={p.ledgerId} className="flex items-center gap-2 px-5 py-1.5 hover:bg-panel2">
+              <button
+                className="min-w-0 flex-1 truncate text-left text-detail"
+                onClick={() => nav.go({ name: 'ledger-statement', ledgerId: p.ledgerId })}
+              >
+                {p.name}
+                {p.worstOverdueDays > 0 && (
+                  <span className="ml-2 num text-hint text-cr">{p.worstOverdueDays}d</span>
+                )}
+              </button>
+              <Money paise={p.pending} className="text-detail" />
+              {p.phone && (
+                <button
+                  className="shrink-0 text-hint text-blue hover:underline"
+                  data-testid={`btn-chase-remind-${p.ledgerId}`}
+                  onClick={() => remind(p)}
+                >
+                  Remind
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
     </Panel>
   )
 }
