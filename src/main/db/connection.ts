@@ -3,7 +3,7 @@ import { rmSync } from 'fs'
 import { join } from 'path'
 import { companyBackupsDir, companyDbPath, ensureCompanyTree, existingCompanyPaths } from '../paths'
 import { migrate } from './migrate'
-import { backupStamp, pruneBackupsIn, quickCheckOk, rollbackRestore, snapshotSync, snapshotTo } from './backup'
+import { backupStamp, quickCheckOk, rollbackRestore, snapshotSync, snapshotTo } from './backup'
 import { MIGRATIONS } from './migrations'
 
 export type DB = Database.Database
@@ -105,12 +105,12 @@ export function closeCompanyDb(db: DB): void {
   db.close()
 }
 
-const MAX_BACKUPS = 20
-
 /**
  * WAL-safe snapshot of an already-open company DB into backups/, tagged (e.g. 'open', 'manual',
  * 'auto', 'pre-tally-import', 'pre-restore', 'quit'). Uses better-sqlite3's native online backup
- * so uncheckpointed WAL content is always captured — a raw file copy would not see it.
+ * so uncheckpointed WAL content is always captured — a raw file copy would not see it. Rotation
+ * is deliberately owned by the resilience service after replication: pruning here would erase
+ * historic daily/weekly/monthly restore points before the tiered policy can select them.
  */
 export async function backupCompany(db: DB, slug: string, tag = 'auto'): Promise<string> {
   const dest = join(companyBackupsDir(slug), `${backupStamp()}-${tag}.db`)
@@ -122,6 +122,5 @@ export async function backupCompany(db: DB, slug: string, tag = 'auto'): Promise
     rmSync(dest, { force: true })
     throw new Error('Backup verification failed (quick_check) — the snapshot was discarded')
   }
-  pruneBackupsIn(companyBackupsDir(slug), MAX_BACKUPS)
   return dest
 }

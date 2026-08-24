@@ -11,7 +11,13 @@ import {
 import { basename, join, resolve } from "path";
 import type { DB } from "../db/connection";
 import { companyBackupsDir } from "../paths";
-import { inspectBackup, listBackupsIn, quickCheckOk } from "../db/backup";
+import {
+  backupStamp,
+  inspectBackup,
+  listBackupsIn,
+  quickCheckOk,
+  snapshotSync,
+} from "../db/backup";
 import type {
   BackupDestination,
   BackupRotationPolicy,
@@ -142,6 +148,105 @@ function destinationCompanyDir(destination: BackupDestination, slug: string): st
   return join(destination.path, "Total Backups", slug);
 }
 
+const TIERED_BACKUP_TAGS = new Set(["auto", "scheduled", "open"]);
+const YEAR_END_TAG = /^year-end-pre-close-fy(\d{4})(?:-|$)/;
+
+function rotateBackupDirectory(
+  dir: string,
+  policy: BackupRotationPolicy,
+): string[] {
+  const files = listBackupsIn(dir);
+  const keep = new Set<string>();
+  const buckets = {
+    daily: new Set<string>(),
+    weekly: new Set<string>(),
+    monthly: new Set<string>(),
+    yearEnd: new Set<string>(),
+  };
+  const coveredWeeks = new Set<string>();
+  const coveredMonths = new Set<string>();
+
+  for (const file of files) {
+    const yearEnd = YEAR_END_TAG.exec(file.tag);
+    if (yearEnd) {
+      const financialYear = yearEnd[1]!;
+      if (
+        buckets.yearEnd.size < policy.yearEndCount &&
+        !buckets.yearEnd.has(financialYear)
+      ) {
+        buckets.yearEnd.add(financialYear);
+        keep.add(file.file);
+      }
+      continue;
+    }
+
+    if (!TIERED_BACKUP_TAGS.has(file.tag)) {
+      // Manual, pre-import, pre-upgrade, pre-restore and quit snapshots are explicit safety
+      // points. A background retention pass must never silently remove them.
+      keep.add(file.file);
+      continue;
+    }
+
+    const date = new Date(file.mtime);
+    const daily = date.toISOString().slice(0, 10);
+    const start = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const week = `${date.getUTCFullYear()}-${Math.floor((date.getTime() - start.getTime()) / (7 * 86_400_000))}`;
+    const monthly = daily.slice(0, 7);
+    if (buckets.daily.size < policy.dailyCount && !buckets.daily.has(daily)) {
+      buckets.daily.add(daily);
+      coveredWeeks.add(week);
+      coveredMonths.add(monthly);
+      keep.add(file.file);
+      continue;
+    }
+    if (buckets.weekly.size < policy.weeklyCount && !coveredWeeks.has(week)) {
+      buckets.weekly.add(week);
+      coveredWeeks.add(week);
+      coveredMonths.add(monthly);
+      keep.add(file.file);
+      continue;
+    }
+    if (
+      buckets.monthly.size < policy.monthlyCount &&
+      !coveredMonths.has(monthly)
+    ) {
+      buckets.monthly.add(monthly);
+      coveredMonths.add(monthly);
+      keep.add(file.file);
+    }
+  }
+
+  const removed: string[] = [];
+  for (const file of files) {
+    const managed = TIERED_BACKUP_TAGS.has(file.tag) || YEAR_END_TAG.test(file.tag);
+    if (managed && !keep.has(file.file)) {
+      unlinkSync(join(dir, file.file));
+      removed.push(file.file);
+    }
+  }
+  return removed;
+}
+
+/** A verified restore point immediately before posting and locking a financial-year close. */
+export function createYearEndRestorePoint(
+  db: DB,
+  slug: string,
+  fyStartYear: number,
+): string {
+  const dest = join(
+    companyBackupsDir(slug),
+    `${backupStamp()}-year-end-pre-close-fy${fyStartYear}-${Date.now()}.db`,
+  );
+  snapshotSync(db, dest);
+  if (!quickCheckOk(dest)) {
+    unlinkSync(dest);
+    throw new Error(
+      "Year-end restore-point verification failed — the books were not closed",
+    );
+  }
+  return dest;
+}
+
 export function replicateBackup(
   db: DB,
   slug: string,
@@ -166,6 +271,9 @@ export function replicateBackup(
       copyFileSync(sourcePath, tempPath);
       if (!quickCheckOk(tempPath)) throw new Error("Copied backup failed integrity verification");
       renameSync(tempPath, finalPath);
+      // Destination folders obey the same tiered policy as the company-local folder. Explicit
+      // safety points remain untouched, while unattended replication cannot grow without bound.
+      rotateBackupDirectory(dir, getRotationPolicy(db));
       db.prepare(
         `UPDATE backup_destinations SET last_success_at=datetime('now'),last_error=NULL,updated_at=datetime('now') WHERE id=?`,
       ).run(destination.id);
@@ -321,46 +429,5 @@ export function backupSpaceForecast(
 }
 
 export function applyRotationPolicy(db: DB, slug: string): string[] {
-  const policy = getRotationPolicy(db);
-  const dir = companyBackupsDir(slug);
-  const files = listBackupsIn(dir);
-  const keep = new Set<string>();
-  const buckets = {
-    daily: new Set<string>(),
-    weekly: new Set<string>(),
-    monthly: new Set<string>(),
-    year: new Set<string>(),
-  };
-  for (const file of files) {
-    if (!/-(?:auto|scheduled|open)\.db$/.test(file.file)) {
-      keep.add(file.file);
-      continue;
-    }
-    const date = new Date(file.mtime);
-    const daily = date.toISOString().slice(0, 10);
-    const start = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-    const week = `${date.getUTCFullYear()}-${Math.floor((date.getTime() - start.getTime()) / (7 * 86_400_000))}`;
-    const monthly = daily.slice(0, 7);
-    const year = String(date.getUTCFullYear());
-    if (buckets.daily.size < policy.dailyCount && !buckets.daily.has(daily)) {
-      buckets.daily.add(daily); keep.add(file.file); continue;
-    }
-    if (buckets.weekly.size < policy.weeklyCount && !buckets.weekly.has(week)) {
-      buckets.weekly.add(week); keep.add(file.file); continue;
-    }
-    if (buckets.monthly.size < policy.monthlyCount && !buckets.monthly.has(monthly)) {
-      buckets.monthly.add(monthly); keep.add(file.file); continue;
-    }
-    if (file.tag.includes("year-end") && buckets.year.size < policy.yearEndCount && !buckets.year.has(year)) {
-      buckets.year.add(year); keep.add(file.file);
-    }
-  }
-  const removed: string[] = [];
-  for (const file of files) {
-    if (!keep.has(file.file) && /-(?:auto|scheduled|open)\.db$/.test(file.file)) {
-      unlinkSync(join(dir, file.file));
-      removed.push(file.file);
-    }
-  }
-  return removed;
+  return rotateBackupDirectory(companyBackupsDir(slug), getRotationPolicy(db));
 }

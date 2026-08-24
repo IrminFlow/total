@@ -752,6 +752,7 @@ export function registerIpc(): void {
     // A backup failure here must never fail — or desync — the open itself.
     try {
       await backupCompany(db, slug, "open");
+      resilience.applyRotationPolicy(db, slug);
     } catch (err) {
       log("warn", "backup-on-open-failed", {
         slug,

@@ -4,7 +4,7 @@
 
 ## What it does
 
-- **Multi-company books** — one SQLite file per company under `~/Documents/total/companies/<slug>/`, auto-backed-up on every open (last 20 snapshots kept in `backups/`).
+- **Multi-company books** — one SQLite file per company under `~/Documents/total/companies/<slug>/`, verified on-open and scheduled snapshots with daily/weekly/monthly retention, plus explicit manual, safety and year-end restore points in `backups/`.
 - **Masters** — Tally's 28 default account groups seeded verbatim, ledgers with GST/party details, stock items (HSN, GST rate, cess), units with GST UQC codes, godowns, configurable voucher-type numbering.
 - **Vouchers** — Contra, Payment, Receipt, Journal, Sales, Purchase, Credit Note, Debit Note, Stock Journal, Physical Stock. Invoice mode computes GST live (intra → CGST+SGST, inter → IGST from state codes), rounds off to the rupee, and posts balanced double-entry lines. Every edit/delete lands in an audit log.
 - **Reports** — Day Book, Ledger statement, Trial Balance, P&L (trading + P&L with opening/closing stock), Balance Sheet, Stock Summary (weighted-average valuation). Reports drill down: statement → group → ledger → voucher.
