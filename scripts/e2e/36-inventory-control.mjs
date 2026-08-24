@@ -116,7 +116,7 @@ await scenario("36-inventory-control", async (h) => {
   });
 
   await h.goto("inventory-control");
-  await h.page.getByText("Supply decision desk", { exact: true }).waitFor();
+  await h.page.getByText("Reorder plan", { exact: true }).waitFor();
   await h.page.getByText("Roadmap Raw Material", { exact: true }).waitFor();
   await h.shot("01-supply-decision-desk");
   await h.page
