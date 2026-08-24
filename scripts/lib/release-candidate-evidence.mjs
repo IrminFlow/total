@@ -107,6 +107,12 @@ export function validateReleaseCandidateEvidence(options) {
 
     assert(build.schema === 1 && build.revision === revision && build.packageVersion === version, `${platform} build evidence is not tied to this release commit`);
     assert(build.sourceDirty === false, `${platform} build evidence came from a dirty worktree`);
+    if (platform === "mac") {
+      assert(build.signing?.macIdentityConfigured === true, "mac build evidence does not confirm the signing identity");
+      assert(build.signing?.appleNotarizationConfigured === true, "mac build evidence does not confirm notarization credentials");
+    } else {
+      assert(build.signing?.windowsIdentityConfigured === true, "win build evidence does not confirm the signing identity");
+    }
     assert(scorecard.schema === 1 && scorecard.ok === true, `${platform} release scorecard did not pass`);
     const recorded = new Map((build.artifacts ?? []).map((artifact) => [artifact.name, artifact]));
     for (const name of [upgradeName, scorecardName]) {
@@ -122,5 +128,5 @@ export function validateReleaseCandidateEvidence(options) {
     assert(upgrade.publicArtifact?.version === "0.4.0" && /^[0-9a-f]{64}$/.test(upgrade.publicArtifact?.sha256 ?? ""), `${platform} public v0.4 package provenance is missing`);
     summaries.push({ platform, fixtureDigest: upgrade.publicRelease.fixtureDigest, artifacts: upgrade.candidateArtifacts.map((artifact) => artifact.name) });
   }
-  return { ok: true, revision, version, platforms: summaries };
+  return { ok: true, revision, version, signingVerified: true, platforms: summaries };
 }

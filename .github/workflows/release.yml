@@ -1,443 +1,319 @@
-# Production release: both platforms are built, signed and verified before one public
-# GitHub release is created. Merge the reviewed version commit to main, then push its matching tag.
-name: Release
+# Promote a previously signed and accepted candidate without rebuilding it. GitHub does
+# not support atomic non-draft release asset uploads, so any failed partial publication
+# is withdrawn using the exact release ID and tag identity created by this run.
+name: Promote release candidate
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful Release candidate workflow run ID
+        required: true
+        type: string
+      candidate_run_attempt:
+        description: Exact workflow run attempt
+        required: true
+        default: "1"
+        type: string
+      candidate_artifact_id:
+        description: Immutable candidate Actions artifact ID
+        required: true
+        type: string
+      candidate_manifest_sha256:
+        description: Candidate manifest SHA-256 shown in the candidate summary
+        required: true
+        type: string
+      candidate_revision:
+        description: Exact source commit used to build the candidate
+        required: true
+        type: string
+      version:
+        description: Exact package version to publish
+        required: true
+        type: string
+
+env:
+  RELEASE_REVISION: ${{ inputs.candidate_revision }}
+  RELEASE_VERSION: ${{ inputs.version }}
+  RELEASE_TAG: v${{ inputs.version }}
+  RELEASE_WORKFLOW_RUN_ID: ${{ inputs.candidate_run_id }}
+  RELEASE_WORKFLOW_RUN_ATTEMPT: ${{ inputs.candidate_run_attempt }}
+  RELEASE_CANDIDATE_ARTIFACT_ID: ${{ inputs.candidate_artifact_id }}
+  RELEASE_CANDIDATE_MANIFEST_SHA256: ${{ inputs.candidate_manifest_sha256 }}
+  RELEASE_REPOSITORY: ${{ github.repository }}
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-promotion-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
-  release-gate:
+  validate:
     runs-on: ubuntu-latest
-    environment: production-release
-    concurrency:
-      group: production-synthetic-${{ github.repository }}
-      cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
 
-      - name: Require the tagged commit to be on main
+      - name: Validate immutable promotion inputs
+        shell: bash
+        run: |
+          [[ "$RELEASE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RELEASE_CANDIDATE_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$RELEASE_WORKFLOW_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RELEASE_WORKFLOW_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RELEASE_CANDIDATE_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$(node -p "require('./package.json').version")" = "$RELEASE_VERSION"
+
+      - name: Require candidate ancestry and evidence-only later commits
         shell: bash
         run: |
           git fetch origin main --no-tags
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
-            echo "Release tags must point to a commit already merged into main." >&2
-            exit 1
-          }
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          git cat-file -e "$RELEASE_REVISION^{commit}"
+          git merge-base --is-ancestor "$RELEASE_REVISION" HEAD
+          git diff --no-renames --name-only "$RELEASE_REVISION..HEAD" > "$RUNNER_TEMP/promotion-paths.txt"
+          node scripts/promotion-gate.mjs paths "$RUNNER_TEMP/promotion-paths.txt"
+          test "$(git show "$RELEASE_REVISION:package.json" | jq -r .version)" = "$RELEASE_VERSION"
 
-      - name: Install dependencies
+      - name: Verify candidate workflow and artifact provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_WORKFLOW_RUN_ID" > "$RUNNER_TEMP/candidate-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RELEASE_CANDIDATE_ARTIFACT_ID" > "$RUNNER_TEMP/candidate-artifact.json"
+          node scripts/promotion-gate.mjs run "$RUNNER_TEMP/candidate-run.json" "$RUNNER_TEMP/candidate-artifact.json"
+
+      - name: Download the exact immutable candidate artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir candidate
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RELEASE_CANDIDATE_ARTIFACT_ID/zip" > "$RUNNER_TEMP/candidate.zip"
+          unzip -q "$RUNNER_TEMP/candidate.zip" -d candidate
+
+      - name: Recompute candidate manifest and every artifact digest
+        run: node scripts/candidate-manifest.mjs validate candidate
+
+      - name: Install validation dependencies
         run: npm ci
 
-      - name: Validate tag and release configuration
-        run: npm run release:preflight
+      - name: Revalidate build, upgrade and updater contracts
+        run: |
+          node scripts/release-candidate-evidence.mjs
+          npm run release:contract
+        env:
+          RELEASE_CANDIDATE_EVIDENCE_DIR: ${{ github.workspace }}/candidate
+          RELEASE_DIR: ${{ github.workspace }}/candidate
 
-      - name: Exercise production support and feedback on this deployment
+      - name: Exercise support and feedback on the exact current site deployment
         run: npm run release:live -- --intake-evidence
         env:
           TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
           TOTAL_DEPLOYMENT_WAIT_MS: 600000
-          TOTAL_SYNTHETIC_EMAIL: synthetic-release-gate@irminflow.invalid
+          TOTAL_SYNTHETIC_EMAIL: synthetic-promotion-gate@irminflow.invalid
           SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
+          PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/candidate/production-services.json
 
-      - name: Require every public-release readiness gate
-        run: npm run release:readiness -- --strict --pre-artifact
+      - name: Require exact-artifact acceptance and final readiness
+        run: npm run release:readiness -- --strict
         env:
-          PRODUCTION_SERVICE_EVIDENCE: dist/production-services.json
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: release-production-services
-          if-no-files-found: error
-          path: dist/production-services.json
-
-  release-mac:
-    needs: release-gate
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Validate tag and release configuration
-        run: npm run release:preflight
-
-      - name: Require macOS signing and notarization credentials
-        shell: bash
-        env:
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: |
-          for name in MAC_CSC_LINK MAC_CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
-            if [ -z "${!name}" ]; then echo "Missing required release secret: $name" >&2; exit 1; fi
-          done
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck and complete test suite
-        run: npm run typecheck && npm test && npm run test:renderer && npm run test:db
-
-      - name: One-million-line performance and query-plan gate
-        run: npm run test:large
-
-      - name: Build application
-        run: npm run build
-
-      - name: Renderer bundle budget
-        run: npm run perf:bundle
-
-      - name: Hermetic IPC smoke test against the build
-        run: npm run smoke
-        env:
-          TOTAL_DATA_DIR: ${{ runner.temp }}/total-data
-          SMOKE_OUT: ${{ runner.temp }}/smoke
-
-      - name: Production startup budget
-        run: npm run perf:startup
-        env:
-          SMOKE_OUT: ${{ runner.temp }}/performance
-
-      - name: Large-workflow memory budget
-        run: npm run perf:memory
-        env:
-          SMOKE_OUT: ${{ runner.temp }}/performance
-
-      - name: Build, sign and notarize universal DMG + ZIP
-        run: npx electron-builder --mac --universal --publish never --config.forceCodeSigning=true
-        env:
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-
-      - name: Verify signature, notarization, archives and packaged launch
-        run: npm run release:artifact -- mac
-
-      - name: Install from DMG, post, backup, restore and uninstall
-        run: npm run release:install-smoke -- mac
-
-      - name: Download the actual public v0.4 macOS build
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p "${RUNNER_TEMP}/total-v04"
-          gh release download v0.4.0 --repo "${GITHUB_REPOSITORY}" --pattern 'Total-0.4.0-arm64-mac.zip' --dir "${RUNNER_TEMP}/total-v04"
-          ditto -x -k "${RUNNER_TEMP}/total-v04/Total-0.4.0-arm64-mac.zip" "${RUNNER_TEMP}/total-v04/app"
-
-      - name: Upgrade real public v0.4 books to the candidate
-        run: npm run release:upgrade-smoke
-        env:
-          OLD_TOTAL_EXECUTABLE: ${{ runner.temp }}/total-v04/app/Total.app/Contents/MacOS/Total
-          PUBLIC_TOTAL_ARTIFACT: ${{ runner.temp }}/total-v04/Total-0.4.0-arm64-mac.zip
-          CURRENT_TOTAL_ARTIFACT_DIR: ${{ github.workspace }}/dist
-          UPGRADE_PLATFORM: mac
-          UPGRADE_EVIDENCE: ${{ github.workspace }}/dist/upgrade-evidence-mac.json
-
-      - name: Publication scorecard
-        run: npm run release:scorecard
-        env:
-          SMOKE_OUT: ${{ runner.temp }}/release-scorecard
-          RELEASE_SCORECARD_PLATFORM: mac
-          RELEASE_SCORECARD_NAME: release-scorecard-mac.json
-
-      - name: Record reproducible macOS build evidence
-        run: npm run release:evidence
-        env:
-          RELEASE_EVIDENCE_NAME: build-evidence-mac.json
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: release-mac
-          if-no-files-found: error
-          path: |
-            dist/*.dmg
-            dist/*.dmg.blockmap
-            dist/*.zip
-            dist/*.zip.blockmap
-            dist/latest-mac.yml
-            dist/build-evidence-mac.json
-            dist/release-scorecard-mac.json
-            dist/upgrade-evidence-mac.json
-
-  release-win:
-    needs: release-gate
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Validate tag and release configuration
-        run: npm run release:preflight
-
-      - name: Require Windows signing credentials
-        shell: bash
-        env:
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-        run: |
-          for name in WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; do
-            if [ -z "${!name}" ]; then echo "Missing required release secret: $name" >&2; exit 1; fi
-          done
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build and sign NSIS installer
-        run: npm run build && npx electron-builder --win --publish never --config.forceCodeSigning=true
-        env:
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-
-      - name: Verify Authenticode signatures
-        shell: pwsh
-        run: |
-          $targets = @(Get-ChildItem dist -Filter *.exe)
-          $targets += Get-Item dist/win-unpacked/Total.exe
-          foreach ($target in $targets) {
-            $signature = Get-AuthenticodeSignature $target.FullName
-            if ($signature.Status -ne 'Valid') { throw "Invalid signature on $($target.FullName): $($signature.Status)" }
-          }
-
-      - name: Verify packaged launch
-        run: npm run release:artifact -- win
-
-      - name: Install NSIS, post, backup, restore and uninstall
-        run: npm run release:install-smoke -- win
-
-      - name: Download and install the actual public v0.4 Windows build
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\total-v04" | Out-Null
-          gh release download v0.4.0 --repo "$env:GITHUB_REPOSITORY" --pattern 'Total.Setup.0.4.0.exe' --dir "$env:RUNNER_TEMP\total-v04"
-          & "$env:RUNNER_TEMP\total-v04\Total.Setup.0.4.0.exe" /S "/D=$env:RUNNER_TEMP\total-v04\app"
-          if (-not (Test-Path "$env:RUNNER_TEMP\total-v04\app\Total.exe")) { throw 'Public v0.4 executable was not installed' }
-
-      - name: Upgrade real public v0.4 books to the candidate
-        run: npm run release:upgrade-smoke
-        env:
-          OLD_TOTAL_EXECUTABLE: ${{ runner.temp }}\total-v04\app\Total.exe
-          PUBLIC_TOTAL_ARTIFACT: ${{ runner.temp }}\total-v04\Total.Setup.0.4.0.exe
-          CURRENT_TOTAL_ARTIFACT_DIR: ${{ github.workspace }}\dist
-          UPGRADE_PLATFORM: win
-          UPGRADE_EVIDENCE: ${{ github.workspace }}\dist\upgrade-evidence-win.json
-
-      - name: Uninstall the public v0.4 test copy without touching its books
-        if: always()
-        shell: pwsh
-        run: |
-          $uninstaller = "$env:RUNNER_TEMP\total-v04\app\Uninstall Total.exe"
-          if (Test-Path $uninstaller) { & $uninstaller /S }
-
-      - name: Publication scorecard
-        run: npm run release:scorecard
-        env:
-          SMOKE_OUT: ${{ runner.temp }}/release-scorecard
-          RELEASE_SCORECARD_PLATFORM: win
-          RELEASE_SCORECARD_NAME: release-scorecard-win.json
-
-      - name: Record reproducible Windows build evidence
-        run: npm run release:evidence
-        env:
-          RELEASE_EVIDENCE_NAME: build-evidence-win.json
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: release-win
-          if-no-files-found: error
-          path: |
-            dist/*.exe
-            dist/*.exe.blockmap
-            dist/latest.yml
-            dist/build-evidence-win.json
-            dist/release-scorecard-win.json
-            dist/upgrade-evidence-win.json
+          RELEASE_CANDIDATE_EVIDENCE_DIR: ${{ github.workspace }}/candidate
+          PRODUCTION_SERVICE_EVIDENCE: ${{ github.workspace }}/candidate/production-services.json
+          SITE_REVISION: ${{ github.sha }}
 
   publish:
-    needs: [release-mac, release-win]
+    needs: validate
     runs-on: ubuntu-latest
     environment: production-release
+    permissions:
+      actions: read
+      contents: write
     concurrency:
       group: production-synthetic-${{ github.repository }}
       cancel-in-progress: false
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
 
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: release-*
-          path: release
-          merge-multiple: true
-
-      - name: Require artifact-linked executed candidate evidence
-        run: node scripts/release-candidate-evidence.mjs
-        env:
-          RELEASE_CANDIDATE_EVIDENCE_DIR: ${{ github.workspace }}/release
-          RELEASE_REVISION: ${{ github.sha }}
-          RELEASE_TAG: ${{ github.ref_name }}
-
-      - name: Re-exercise production services on the current deployment
-        run: npm run release:live -- --intake-evidence
-        env:
-          TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
-          TOTAL_DEPLOYMENT_WAIT_MS: 600000
-          TOTAL_SYNTHETIC_EMAIL: synthetic-publication-gate@irminflow.invalid
-          SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
-          PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/release/production-services.json
-
-      - name: Require final public-release readiness
-        run: npm run release:readiness -- --strict
-        env:
-          RELEASE_CANDIDATE_EVIDENCE_DIR: ${{ github.workspace }}/release
-          PRODUCTION_SERVICE_EVIDENCE: ${{ github.workspace }}/release/production-services.json
-          RELEASE_REVISION: ${{ github.sha }}
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-
-      - name: Validate cross-platform updater contract
-        run: npm run release:contract
-
-      - name: Refuse to replace an existing release
-        id: release-preflight
+      - name: Recheck publication target is unused
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists; refusing to overwrite it." >&2
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag $RELEASE_TAG already exists; refusing to replace it." >&2
             exit 1
           fi
-          echo "creation_allowed=true" >> "$GITHUB_OUTPUT"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; refusing to replace it." >&2
+            exit 1
+          fi
 
-      - name: Create one complete public release
+      - name: Re-download and validate the selected candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir candidate
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RELEASE_CANDIDATE_ARTIFACT_ID/zip" > "$RUNNER_TEMP/candidate.zip"
+          unzip -q "$RUNNER_TEMP/candidate.zip" -d candidate
+          node scripts/candidate-manifest.mjs validate candidate
+
+      - name: Create exact release tag
+        id: create-tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            --raw-field "ref=refs/tags/$RELEASE_TAG" \
+            --raw-field "sha=$RELEASE_REVISION" >/dev/null
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create non-draft prerelease
         id: create-publication
         continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mapfile -d '' assets < <(find release -type f -print0)
           created_release="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
-            --raw-field "tag_name=$GITHUB_REF_NAME" \
-            --raw-field "name=Total ${GITHUB_REF_NAME#v}" \
+            --raw-field "tag_name=$RELEASE_TAG" \
+            --raw-field "target_commitish=$RELEASE_REVISION" \
+            --raw-field "name=Total $RELEASE_VERSION" \
             --field draft=false \
-            --field prerelease=false \
+            --field prerelease=true \
             --field generate_release_notes=true)"
           release_id="$(jq -er '.id' <<<"$created_release")"
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
-          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
 
-      - name: Remove a partially-created release
-        if: ${{ always() && steps.release-preflight.outputs.creation_allowed == 'true' && steps.create-publication.outcome == 'failure' && steps.create-publication.outputs.release_id != '' }}
+      - name: Upload only approved public assets
+        id: upload-public-assets
+        if: ${{ steps.create-publication.outcome == 'success' }}
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_ID: ${{ steps.create-publication.outputs.release_id }}
         run: |
-          for attempt in 1 2 3 4 5; do
-            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" >/dev/null 2>&1 || true
-            response="$(gh api --include "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" 2>&1)" && status=0 || status=$?
-            if [[ "$status" -ne 0 ]] && grep -Eq '^HTTP/[^ ]+ 404' <<<"$response"; then
-              exit 0
-            fi
-            sleep "$((attempt * 2))"
-          done
-          echo "Could not prove partial release ID $RELEASE_ID was removed." >&2
-          exit 1
+          assets=()
+          while IFS= read -r name; do assets+=("candidate/$name"); done < <(jq -r '.publicAssetNames[]' candidate/candidate-manifest.json)
+          test "${#assets[@]}" -gt 0
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
 
-      - name: Require complete release creation
-        if: ${{ always() && steps.create-publication.outcome == 'failure' }}
+      - name: Re-download and verify every staged prerelease asset
+        id: verify-staged-assets
+        if: ${{ steps.upload-public-assets.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_PRERELEASE: "1"
         run: |
-          echo "Public release creation or asset upload failed; any partial release was removed." >&2
-          exit 1
+          mkdir staged-release
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir staged-release
+          node scripts/candidate-manifest.mjs public candidate staged-release
+          gh api "repos/$GITHUB_REPOSITORY/releases/${{ steps.create-publication.outputs.release_id }}" > "$RUNNER_TEMP/staged-release.json"
+          node scripts/promotion-gate.mjs publication "$RUNNER_TEMP/staged-release.json"
 
-      - name: Verify public updater and installer delivery
+      - name: Promote verified prerelease to public latest
+        id: promote-publication
+        if: ${{ steps.verify-staged-assets.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_PRERELEASE: "0"
+        run: |
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/${{ steps.create-publication.outputs.release_id }}" \
+            --field prerelease=false \
+            --raw-field make_latest=true > "$RUNNER_TEMP/public-release.json"
+          node scripts/promotion-gate.mjs publication "$RUNNER_TEMP/public-release.json"
+
+      - name: Verify public updater, installers and production services
         id: verify-publication
+        if: ${{ steps.promote-publication.outcome == 'success' }}
         continue-on-error: true
         run: npm run release:live
         env:
           TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
           TOTAL_DEPLOYMENT_WAIT_MS: 600000
           TOTAL_RELEASE_WAIT_MS: 600000
-          TOTAL_REQUIRE_SYNTHETIC: 1
+          TOTAL_REQUIRE_SYNTHETIC: "1"
           TOTAL_SYNTHETIC_EMAIL: synthetic-post-publication@irminflow.invalid
           SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
-          PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/release/post-publication-live.json
+          PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/candidate/post-publication-live.json
 
-      - name: Withdraw a release that failed public verification
-        if: ${{ always() && steps.verify-publication.outcome == 'failure' }}
+      - name: Withdraw only the publication created by this run after any failure
+        if: ${{ always() && steps.create-tag.outputs.created == 'true' && (steps.create-publication.outcome == 'failure' || steps.upload-public-assets.outcome == 'failure' || steps.verify-staged-assets.outcome == 'failure' || steps.promote-publication.outcome == 'failure' || steps.verify-publication.outcome == 'failure') }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_ID: ${{ steps.create-publication.outputs.release_id }}
+          CREATED_RELEASE_ID: ${{ steps.create-publication.outputs.release_id }}
         run: |
-          test -n "$RELEASE_ID"
-          for attempt in 1 2 3 4 5; do
-            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" >/dev/null 2>&1 || true
-            response="$(gh api --include "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" 2>&1)" && status=0 || status=$?
-            if [[ "$status" -ne 0 ]] && grep -Eq '^HTTP/[^ ]+ 404' <<<"$response"; then
-              exit 0
-            fi
-            sleep "$((attempt * 2))"
-          done
-          echo "Could not prove failed release ID $RELEASE_ID was withdrawn." >&2
-          exit 1
+          is_404() {
+            local endpoint="$1" response status
+            response="$(gh api --include "$endpoint" 2>&1)" && status=0 || status=$?
+            test "$status" -ne 0 && grep -Eq '^HTTP/[^ ]+ 404' <<<"$response"
+          }
+          delete_until_absent() {
+            local endpoint="$1"
+            for attempt in 1 2 3 4 5; do
+              is_404 "$endpoint" && return 0
+              gh api --method DELETE "$endpoint" >/dev/null 2>&1 || true
+              sleep "$((attempt * 2))"
+            done
+            is_404 "$endpoint"
+          }
 
-      - name: Upload publication verification evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-publication-verification
-          if-no-files-found: warn
-          path: release/post-publication-live.json
+          current_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha' 2>/dev/null || true)"
+          if test -n "$current_tag_sha" && test "$current_tag_sha" != "$RELEASE_REVISION"; then
+            echo "Refusing cleanup because $RELEASE_TAG no longer points to this candidate." >&2
+            exit 1
+          fi
 
-      - name: Require successful public verification
-        if: ${{ always() && steps.verify-publication.outcome == 'failure' }}
+          release_by_tag=""
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-by-tag.json" 2>/dev/null; then
+            release_by_tag="$RUNNER_TEMP/release-by-tag.json"
+          fi
+          release_id="$CREATED_RELEASE_ID"
+          if test -z "$release_id" && test -n "$release_by_tag"; then
+            release_id="$(node scripts/promotion-gate.mjs recover-cleanup-id "$release_by_tag" | jq -er '.releaseId')"
+          fi
+          if test -n "$release_id"; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              --jq '{releaseId: .id, tagName: .tag_name, targetCommitish: .target_commitish}' > "$RUNNER_TEMP/cleanup-release.json"
+            jq --arg sha "$RELEASE_REVISION" '. + {tagSha: $sha}' "$RUNNER_TEMP/cleanup-release.json" > "$RUNNER_TEMP/cleanup.json"
+            CREATED_RELEASE_ID="$release_id" node scripts/promotion-gate.mjs cleanup "$RUNNER_TEMP/cleanup.json"
+            delete_until_absent "repos/$GITHUB_REPOSITORY/releases/$release_id" || {
+              echo "Could not prove release ID $release_id was deleted." >&2
+              exit 1
+            }
+          fi
+          delete_until_absent "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" || {
+            echo "Could not prove tag $RELEASE_TAG was deleted." >&2
+            exit 1
+          }
+          is_404 "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" || {
+            echo "Could not prove release tag $RELEASE_TAG is absent." >&2
+            exit 1
+          }
+
+      - name: Require complete verified publication
+        if: ${{ always() && (steps.create-publication.outcome == 'failure' || steps.upload-public-assets.outcome == 'failure' || steps.verify-staged-assets.outcome == 'failure' || steps.promote-publication.outcome == 'failure' || steps.verify-publication.outcome == 'failure') }}
         run: |
-          echo "The public release failed updater, installer, or production-service verification and was withdrawn." >&2
+          echo "Publication failed; safeguarded cleanup ran for identities this workflow could prove it created." >&2
           exit 1

@@ -22,6 +22,14 @@ future timestamps, and requires approval within 14 days of testing. Release read
 revision to the exact release commit. Commercial policy and legal document approvals are durable
 governance records: they remain versioned but do not need to be re-approved for every code commit.
 
+Start acceptance only after the **Release candidate** workflow succeeds. Download its exact Actions
+artifact and retain the run ID, run attempt, artifact ID and candidate-manifest SHA-256 shown in the
+workflow summary. Do not rebuild locally. Migration, clean-machine and human evidence must record an
+installer filename, byte size and SHA-256 from that bundle. Promotion downloads the immutable artifact
+by ID, recomputes the manifest and every file digest, and rejects evidence created for another build.
+After testing, merge only sanitized JSON under `docs/evidence/`; any runtime, site, dependency or
+workflow change after the candidate requires a new candidate build.
+
 ## Migration reconciliation
 
 Use one representative, consented export each from Tally, Busy, Marg, Zoho Books and a common
@@ -52,7 +60,11 @@ Run at least one 60-minute structured session each with a bookkeeper, business o
 accountant, payroll operator and inventory/manufacturing operator. Give each participant realistic
 tasks without coaching. Record at least three scenarios with a non-placeholder name, positive elapsed
 minutes, result and SHA-256 of a privacy-safe evidence note or recording manifest. Keep the underlying
-notes and recordings outside the repository. Record completion, errors and blockers. Any
+notes and recordings outside the repository. Record exact name, byte size and SHA-256 identities for
+the candidate macOS DMG, macOS ZIP and Windows EXE in `testedArtifacts`. Every scenario records the
+`artifactIds` it actually exercised, and every release artifact must appear in at least one passed
+scenario. Final readiness recalculates all three files, so macOS-only testing cannot approve Windows
+UAT or a differently signed build. Record completion, errors and blockers. Any
 unresolved P0 data-loss/correctness issue or P1 blocked core workflow is a no-go.
 
 ## Mobile devices

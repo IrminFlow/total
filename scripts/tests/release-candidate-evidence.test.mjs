@@ -43,6 +43,7 @@ function fixture() {
     const scorecardArtifact = write(join(root, scorecardName), { schema: 1, ok: true });
     write(join(root, `build-evidence-${platform}.json`), {
       schema: 1, revision, packageVersion: version, sourceDirty: false,
+      signing: { macIdentityConfigured: platform === "mac", appleNotarizationConfigured: platform === "mac", windowsIdentityConfigured: platform === "win" },
       artifacts: [...candidates, upgradeArtifact, scorecardArtifact],
     });
   }
@@ -77,4 +78,13 @@ test("fails closed on a missing domain result or wrong source revision", () => {
   writeFileSync(path, JSON.stringify(evidence));
   assert.throws(() => validateReleaseCandidateEvidence({ root, revision, version }), /payroll/);
   assert.throws(() => validateReleaseCandidateEvidence({ root: fixture(), revision: "c".repeat(40), version }), /revision/);
+});
+
+test("fails closed when signed candidate evidence does not confirm signing readiness", () => {
+  const root = fixture();
+  const path = join(root, "build-evidence-win.json");
+  const evidence = JSON.parse(readFileSync(path, "utf8"));
+  evidence.signing.windowsIdentityConfigured = false;
+  writeFileSync(path, JSON.stringify(evidence));
+  assert.throws(() => validateReleaseCandidateEvidence({ root, revision, version }), /signing identity/);
 });

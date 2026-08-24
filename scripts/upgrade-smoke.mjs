@@ -13,7 +13,7 @@ const oldExecutable = resolveRequired("OLD_TOTAL_EXECUTABLE");
 const publicArtifactPath = resolveRequired("PUBLIC_TOTAL_ARTIFACT");
 const candidateArtifactDir = resolveRequired("CURRENT_TOTAL_ARTIFACT_DIR");
 const platform = requiredValue("UPGRADE_PLATFORM");
-const sourceRevision = requiredValue("GITHUB_SHA");
+const sourceRevision = process.env.RELEASE_REVISION?.trim() || requiredValue("GITHUB_SHA");
 const expectedOldVersion = process.env.OLD_TOTAL_VERSION ?? "0.4.0";
 const expectedCandidateVersion = process.env.CURRENT_TOTAL_VERSION ?? JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 const evidencePath = resolve(process.env.UPGRADE_EVIDENCE ?? "dist/upgrade-evidence.json");
@@ -25,14 +25,13 @@ let candidateExecutable = null;
 let candidateExecution = null;
 
 assert(platform === "mac" || platform === "win", "UPGRADE_PLATFORM must be mac or win");
-assert(/^[0-9a-f]{40}$/i.test(sourceRevision), "GITHUB_SHA must be a full release commit SHA");
+assert(/^[0-9a-f]{40}$/i.test(sourceRevision), "RELEASE_REVISION or GITHUB_SHA must be a full release commit SHA");
 
 function requiredValue(name) {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required`);
   return value;
 }
-
 function resolveRequired(name) {
   const path = resolve(requiredValue(name));
   if (!existsSync(path)) throw new Error(`${name} does not exist: ${path}`);

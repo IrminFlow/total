@@ -5,13 +5,18 @@
   "productVersion": "0.5.0",
   "testedRevision": "",
   "testedAt": "",
+  "testedArtifacts": [
+    { "id": "macos-dmg", "name": "", "bytes": 0, "sha256": "" },
+    { "id": "macos-zip", "name": "", "bytes": 0, "sha256": "" },
+    { "id": "windows-exe", "name": "", "bytes": 0, "sha256": "" }
+  ],
   "approvedAt": "",
   "approvers": [],
   "cohorts": [
-    { "id": "bookkeeper", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "result": "pending" }], "blockers": [] },
-    { "id": "business-owner", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "result": "pending" }], "blockers": [] },
-    { "id": "chartered-accountant", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "result": "pending" }], "blockers": [] },
-    { "id": "payroll-operator", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "result": "pending" }], "blockers": [] },
-    { "id": "inventory-manufacturing", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "result": "pending" }], "blockers": [] }
+    { "id": "bookkeeper", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }], "blockers": [] },
+    { "id": "business-owner", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }], "blockers": [] },
+    { "id": "chartered-accountant", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }], "blockers": [] },
+    { "id": "payroll-operator", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }], "blockers": [] },
+    { "id": "inventory-manufacturing", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }], "blockers": [] }
   ]
 }

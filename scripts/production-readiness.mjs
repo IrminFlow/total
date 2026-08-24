@@ -12,6 +12,7 @@ const file = (path) => existsSync(resolve(root, path));
 const text = (path) => readFileSync(resolve(root, path), "utf8");
 const productVersion = JSON.parse(text("package.json")).version;
 const sourceRevision = env.RELEASE_REVISION?.trim() || env.GITHUB_SHA?.trim() || execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+const siteRevision = env.SITE_REVISION?.trim() || sourceRevision;
 const hasAll = (...names) => names.every((name) => Boolean(env[name]?.trim()));
 const serviceEvidencePath = env.PRODUCTION_SERVICE_EVIDENCE?.trim();
 let serviceEvidence = null;
@@ -19,7 +20,7 @@ let serviceEvidenceError = null;
 if (serviceEvidencePath) {
   try {
     const raw = JSON.parse(readFileSync(resolve(root, serviceEvidencePath), "utf8"));
-    serviceEvidence = validateProductionServiceEvidence(raw, { revision: sourceRevision, version: productVersion });
+    serviceEvidence = validateProductionServiceEvidence(raw, { revision: siteRevision, version: productVersion });
   } catch (error) {
     serviceEvidenceError = error instanceof Error ? error.message : String(error);
   }
@@ -31,7 +32,7 @@ const approvedEvidence = (envName, fallback, kind) => {
     const evidence = JSON.parse(readFileSync(resolve(root, value), "utf8"));
     if (!(evidence?.schema === 1 && evidence?.kind === kind && evidence?.status === "approved" && evidence?.productVersion === productVersion && Boolean(evidence?.approvedAt))) return false;
     const args = [resolve(root, "scripts/acceptance-gate.mjs"), resolve(root, value), "--quiet", "--revision", sourceRevision];
-    if (candidateEvidenceDir && ["migration", "clean-machine"].includes(kind)) args.push("--candidate-evidence-dir", resolve(root, candidateEvidenceDir));
+    if (candidateEvidenceDir && ["migration", "clean-machine", "human"].includes(kind)) args.push("--candidate-evidence-dir", resolve(root, candidateEvidenceDir));
     execFileSync(process.execPath, args, { stdio: "ignore" });
     return true;
   } catch { return false; }
@@ -68,9 +69,9 @@ add(
     : "Verify both private release installers through the exact production deployment; configuration presence alone is not evidence.",
   "operations",
 );
-add("mac-signing", hasAll("MAC_CSC_LINK", "MAC_CSC_KEY_PASSWORD", "APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER") || hasAll("CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER") ? "ready" : "external", "Configure Developer ID signing and App Store Connect notarization secrets in GitHub Actions.", "release-owner");
-add("windows-signing", hasAll("WIN_CSC_LINK", "WIN_CSC_KEY_PASSWORD") ? "ready" : "external", "Configure an Authenticode certificate and password in GitHub Actions.", "release-owner");
-add("release-workflow", text(".github/workflows/release.yml").includes("Create one complete public release") ? "ready" : "blocked", "Cross-platform signed artifacts converge into one non-draft release.");
+add("mac-signing", candidateEvidence?.signingVerified || hasAll("MAC_CSC_LINK", "MAC_CSC_KEY_PASSWORD", "APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER") || hasAll("CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER") ? "ready" : "external", candidateEvidence?.signingVerified ? "The exact candidate evidence confirms the macOS signing and notarization gates ran." : "Configure Developer ID signing and App Store Connect notarization secrets in the protected signing workflow.", "release-owner");
+add("windows-signing", candidateEvidence?.signingVerified || hasAll("WIN_CSC_LINK", "WIN_CSC_KEY_PASSWORD") ? "ready" : "external", candidateEvidence?.signingVerified ? "The exact candidate evidence confirms the Windows signing gate ran." : "Configure an Authenticode certificate in the protected signing workflow.", "release-owner");
+add("release-workflow", file(".github/workflows/release-candidate.yml") && text(".github/workflows/release.yml").includes("Create non-draft prerelease") && text(".github/workflows/release.yml").includes("Promote verified prerelease to public latest") && text(".github/workflows/release.yml").includes("Upload only approved public assets") && text(".github/workflows/release.yml").includes("candidate_artifact_id") ? "ready" : "blocked", "Signed candidates are accepted and promoted without rebuilding; publication never uses a draft release.");
 add("quality-gates", text("package.json").includes('"release:scorecard"') ? "ready" : "blocked", "Correctness, type, renderer, DB, accessibility, restore, performance, security, dependency and chaos gates are scripted.");
 add(
   "public-v04-upgrade",
@@ -108,7 +109,7 @@ add("source-state", dirty ? "worktree" : "ready", dirty ? "Commit and review the
 const blockers = checks.filter((check) => check.status === "blocked");
 const external = checks.filter((check) => check.status === "external");
 const pending = checks.filter((check) => check.status === "pending");
-const output = { schema: 1, generatedAt: new Date().toISOString(), sourceRevision, scope: { excluded: ["NIC live filing", "online GST portal connectivity"] }, readyForInternalAcceptance: blockers.length === 0, readyForPublicRelease: blockers.length === 0 && external.length === 0 && pending.length === 0 && !dirty, checks };
+const output = { schema: 1, generatedAt: new Date().toISOString(), sourceRevision, siteDeploymentRevision: siteRevision, scope: { excluded: ["NIC live filing", "online GST portal connectivity"] }, readyForInternalAcceptance: blockers.length === 0, readyForPublicRelease: blockers.length === 0 && external.length === 0 && pending.length === 0 && !dirty, checks };
 mkdirSync(resolve(root, "dist"), { recursive: true });
 writeFileSync(resolve(root, "dist/production-readiness.json"), `${JSON.stringify(output, null, 2)}\n`);
 console.log(JSON.stringify(output, null, 2));

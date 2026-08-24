@@ -91,3 +91,21 @@ test("readiness fails closed when supplied production evidence is stale", () => 
   const output = JSON.parse(result.stdout);
   assert.equal(output.checks.find((check) => check.id === "support-production").status, "blocked");
 });
+
+test("readiness binds service evidence to the deployed site while preserving the app candidate revision", () => {
+  const root = resolve(new URL("../..", import.meta.url).pathname);
+  const evidenceRoot = mkdtempSync(join(tmpdir(), "total-site-revision-evidence-"));
+  const path = join(evidenceRoot, "production-services.json");
+  const current = fixture();
+  current.checkedAt = new Date().toISOString();
+  writeFileSync(path, JSON.stringify(current));
+  const appRevision = "b".repeat(40);
+  const output = JSON.parse(execFileSync(process.execPath, [join(root, "scripts/production-readiness.mjs")], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, RELEASE_REVISION: appRevision, SITE_REVISION: revision, PRODUCTION_SERVICE_EVIDENCE: path },
+  }));
+  assert.equal(output.sourceRevision, appRevision);
+  assert.equal(output.siteDeploymentRevision, revision);
+  assert.equal(output.checks.find((check) => check.id === "support-production").status, "ready");
+});

@@ -63,16 +63,26 @@ cd site && npm run dev / npm run build   # marketing site
 
 ## Release steps (auto-update pipeline)
 
-For the prepared version already recorded in `package.json`, merge the reviewed release commit to `main`, then tag that exact commit:
+For the prepared version already recorded in `package.json`, merge the reviewed release commit to
+`main`, then dispatch **Release candidate** with that full commit SHA and version. Its macOS and
+Windows jobs use the reviewer-protected `release-signing` environment and produce one private,
+content-addressed candidate artifact; they do not create a tag or release. Run migration,
+clean-machine and human acceptance against those exact installer digests, then merge only the
+sanitized evidence JSON under `docs/evidence/`.
 
-```bash
-git tag "v$(node -p "require('./package.json').version")"
-git push origin main --follow-tags
-```
+Dispatch **Promote release candidate** with the candidate run ID, run attempt, artifact ID, manifest
+SHA-256, source revision and version. The workflow rejects non-evidence changes since the candidate,
+revalidates every byte and acceptance record, and then creates the tag and one non-draft release from
+the already signed artifacts. Do not create or push the release tag manually.
 
 Use `npm version patch` only when intentionally preparing the next patch version; do not run it again for an already-versioned release candidate.
 
-- `.github/workflows/release.yml` runs on `v*` tags (macOS runner, `GITHUB_TOKEN` automatic). `releaseType: "release"` in package.json `build.publish` — releases publish directly, **never leave them as drafts** (drafts are invisible to the `releases/latest` API that feeds updates and the site).
+- `.github/workflows/release-candidate.yml` builds signed candidates; `.github/workflows/release.yml`
+  promotes an accepted candidate without rebuilding it. `releaseType: "release"` in package.json
+  `build.publish` remains non-draft. Promotion creates a non-draft prerelease, uploads and re-downloads
+  every allowlisted asset, then changes it to the public latest release in one API update. A failed
+  publication uses bounded cleanup retries and removes only a release/tag whose identity and candidate
+  revision it can prove before confirming both are absent.
 - Installed apps check for updates on launch (`src/main/updater.ts`): electron-updater first; because builds are unsigned and the repo is private, the working path is the fallback — it asks the site's `/api/latest` and offers `/api/download`. Once an Apple Developer ID (`CSC_LINK`/`CSC_KEY_PASSWORD` secrets) exists **and** releases are public, silent in-place updates take over.
 - If the repo owner/name ever changes: update package.json `build.publish`, `GITHUB_REPO` + `SITE_LATEST_URL` in `src/main/updater.ts`, and Vercel's `GITHUB_REPO` env.
 

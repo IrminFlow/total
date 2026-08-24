@@ -24,7 +24,12 @@ const evidence = JSON.parse(readFileSync(path, 'utf8'))
 const root = resolve(new URL('..', import.meta.url).pathname)
 const productVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 const RELEASE_BOUND_KINDS = new Set(['migration', 'clean-machine', 'human', 'mobile'])
-const MAX_AGE_DAYS = { migration: 30, 'clean-machine': 30, human: 90, mobile: 90 }
+const MAX_AGE_DAYS = {
+  migration: 30,
+  'clean-machine': 30,
+  human: 90,
+  mobile: 90,
+}
 const SHA256 = /^[a-f0-9]{64}$/
 const FULL_REVISION = /^[a-f0-9]{40}$/
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/
@@ -35,7 +40,10 @@ function assert(condition, message) {
 }
 function exactIds(rows, expected, label) {
   assert(Array.isArray(rows), `${label} must be an array`)
-  assert(rows.every((row) => row && typeof row.id === 'string'), `${label} entries must have string ids`)
+  assert(
+    rows.every((row) => row && typeof row.id === 'string'),
+    `${label} entries must have string ids`,
+  )
   const actual = rows.map((row) => row.id).sort()
   assert(JSON.stringify(actual) === JSON.stringify([...expected].sort()), `${label} must contain exactly: ${expected.join(', ')}`)
 }
@@ -96,7 +104,11 @@ function common() {
     assert(approver.decision === 'approved', 'Every approver decision must be approved')
   }
   if (!RELEASE_BOUND_KINDS.has(evidence.kind)) return
-  if (!expectedRevision) expectedRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+  if (!expectedRevision)
+    expectedRevision = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim()
   assert(FULL_REVISION.test(expectedRevision ?? ''), 'A full 40-character expected release revision is required')
   assert(FULL_REVISION.test(evidence.testedRevision ?? ''), 'testedRevision must be a full 40-character commit SHA')
   assert(evidence.testedRevision === expectedRevision, 'testedRevision does not match the release commit')
@@ -128,7 +140,10 @@ function migration() {
     nonPlaceholder(source.importerProfile, `${source.id}: importerProfile`)
     const importedAt = timestamp(source.importedAt, `${source.id}: importedAt`)
     assert(importedAt <= Date.parse(evidence.testedAt), `${source.id}: importedAt must not be after testedAt`)
-    assert(typeof source.importExecutionId === 'string' && /^[A-Za-z0-9._:-]{8,128}$/.test(source.importExecutionId), `${source.id}: importExecutionId is required`)
+    assert(
+      typeof source.importExecutionId === 'string' && /^[A-Za-z0-9._:-]{8,128}$/.test(source.importExecutionId),
+      `${source.id}: importExecutionId is required`,
+    )
     sha(source.importLogSha256, `${source.id}: importLogSha256`)
     sha(source.backupSha256, `${source.id}: backupSha256`)
     sha(source.reconciliationManifestSha256, `${source.id}: reconciliationManifestSha256`)
@@ -138,12 +153,21 @@ function migration() {
     approved(source.result, `${source.id}: result`)
     for (const name of metricNames) {
       const metric = source.metrics?.[name]
-      assert(metric && Number.isSafeInteger(metric.expected) && metric.expected >= 0 && Number.isSafeInteger(metric.actual) && metric.actual >= 0, `${source.id}: ${name} needs non-negative integer expected and actual values`)
-      assert(Number.isSafeInteger(metric.difference) && metric.difference === metric.actual - metric.expected, `${source.id}: ${name} difference is inconsistent`)
+      assert(
+        metric && Number.isSafeInteger(metric.expected) && metric.expected >= 0 && Number.isSafeInteger(metric.actual) && metric.actual >= 0,
+        `${source.id}: ${name} needs non-negative integer expected and actual values`,
+      )
+      assert(
+        Number.isSafeInteger(metric.difference) && metric.difference === metric.actual - metric.expected,
+        `${source.id}: ${name} difference is inconsistent`,
+      )
       assert(metric.difference === 0, `${source.id}: ${name} does not reconcile`)
     }
     assert(source.metrics.voucherCount.expected > 0, `${source.id}: representative evidence must include at least one voucher`)
-    assert(economicMetrics.some((name) => source.metrics[name].expected > 0), `${source.id}: representative evidence must include a non-zero accounting reconciliation domain`)
+    assert(
+      economicMetrics.some((name) => source.metrics[name].expected > 0),
+      `${source.id}: representative evidence must include a non-zero accounting reconciliation domain`,
+    )
   }
   for (const field of ['sourceSha256', 'importExecutionId', 'importLogSha256', 'backupSha256', 'reconciliationManifestSha256'])
     assertUnique(evidence.sources, field, field)
@@ -160,17 +184,34 @@ function cleanMachine() {
     const expectedArchitecture = platform.id === 'macos-arm64' ? 'arm64' : 'x64'
     assert(platform.architecture === expectedArchitecture, `${platform.id}: architecture must be ${expectedArchitecture}`)
     const expectedExtension = platform.id === 'windows-11' ? '.exe' : '.dmg'
-    assert(typeof platform.installerName === 'string' && platform.installerName.toLowerCase().endsWith(expectedExtension), `${platform.id}: installerName must identify the tested ${expectedExtension} artifact`)
+    assert(
+      typeof platform.installerName === 'string' && platform.installerName.toLowerCase().endsWith(expectedExtension),
+      `${platform.id}: installerName must identify the tested ${expectedExtension} artifact`,
+    )
     candidateArtifact(platform.installerName, platform.installerSha256, platform.installerBytes, platform.id)
     for (const name of required) approved(platform.checks?.[name], `${platform.id}: ${name}`)
     if (platform.id === 'macos-intel') {
-      assert(platform.checks?.upgradeFromV04 === 'not_applicable', 'macos-intel: v0.4 upgrade must be marked not_applicable because no public Intel v0.4 exists')
+      assert(
+        platform.checks?.upgradeFromV04 === 'not_applicable',
+        'macos-intel: v0.4 upgrade must be marked not_applicable because no public Intel v0.4 exists',
+      )
       assert(String(platform.upgradeNote ?? '').includes('v0.4'), 'macos-intel: explain the absent public v0.4 build')
     } else approved(platform.checks?.upgradeFromV04, `${platform.id}: upgradeFromV04`)
   }
 }
 function human() {
   exactIds(evidence.cohorts, ['bookkeeper', 'business-owner', 'chartered-accountant', 'payroll-operator', 'inventory-manufacturing'], 'cohorts')
+  exactIds(evidence.testedArtifacts, ['macos-dmg', 'macos-zip', 'windows-exe'], 'human testedArtifacts')
+  const artifactExtensions = { 'macos-dmg': '.dmg', 'macos-zip': '.zip', 'windows-exe': '.exe' }
+  const artifactIds = new Set(evidence.testedArtifacts.map((artifact) => artifact.id))
+  const exercisedArtifactIds = new Set()
+  for (const artifact of evidence.testedArtifacts) {
+    assert(
+      typeof artifact.name === 'string' && artifact.name.toLowerCase().endsWith(artifactExtensions[artifact.id]),
+      `human: ${artifact.id} must identify a ${artifactExtensions[artifact.id]} artifact`,
+    )
+    candidateArtifact(artifact.name, artifact.sha256, artifact.bytes, `human: ${artifact.id}`)
+  }
   for (const cohort of evidence.cohorts) {
     assert(Number.isInteger(cohort.participants) && cohort.participants >= 1, `${cohort.id}: at least one participant is required`)
     assert(Number.isInteger(cohort.durationMinutes) && cohort.durationMinutes >= 60, `${cohort.id}: session must last at least 60 minutes`)
@@ -179,10 +220,29 @@ function human() {
       nonPlaceholder(scenario?.name, `${cohort.id}: scenario ${index + 1} name`)
       assert(Number.isSafeInteger(scenario.durationMinutes) && scenario.durationMinutes > 0, `${cohort.id}: ${scenario.name} durationMinutes must be positive`)
       sha(scenario.evidenceSha256, `${cohort.id}: ${scenario.name} evidenceSha256`)
+      assert(Array.isArray(scenario.artifactIds) && scenario.artifactIds.length > 0, `${cohort.id}: ${scenario.name} must identify the candidate artifact used`)
+      assert(new Set(scenario.artifactIds).size === scenario.artifactIds.length, `${cohort.id}: ${scenario.name} artifactIds must not contain duplicates`)
+      for (const artifactId of scenario.artifactIds) {
+        assert(artifactIds.has(artifactId), `${cohort.id}: ${scenario.name} references unknown artifact ${artifactId}`)
+        exercisedArtifactIds.add(artifactId)
+      }
       approved(scenario.result, `${cohort.id}: ${scenario.name}`)
     })
-    assert(Array.isArray(cohort.blockers) && cohort.blockers.every((item) => !['p0', 'p1'].includes(String(item?.severity ?? '').trim().toLowerCase())), `${cohort.id}: unresolved P0/P1 blocker remains`)
+    assert(
+      Array.isArray(cohort.blockers) &&
+        cohort.blockers.every(
+          (item) =>
+            !['p0', 'p1'].includes(
+              String(item?.severity ?? '')
+                .trim()
+                .toLowerCase(),
+            ),
+        ),
+      `${cohort.id}: unresolved P0/P1 blocker remains`,
+    )
   }
+  for (const artifactId of artifactIds)
+    assert(exercisedArtifactIds.has(artifactId), `human: ${artifactId} was not exercised by any acceptance scenario`)
 }
 function mobile() {
   exactIds(evidence.devices, ['ios', 'android'], 'devices')
@@ -216,4 +276,14 @@ if (evidence.kind === 'human') human()
 if (evidence.kind === 'mobile') mobile()
 if (evidence.kind === 'commercial') commercial()
 if (evidence.kind === 'legal') legal()
-if (!quiet) console.log(JSON.stringify({ ok: true, kind: evidence.kind, path, testedRevision: evidence.testedRevision ?? null, approvedAt: evidence.approvedAt, approvers: evidence.approvers.length }))
+if (!quiet)
+  console.log(
+    JSON.stringify({
+      ok: true,
+      kind: evidence.kind,
+      path,
+      testedRevision: evidence.testedRevision ?? null,
+      approvedAt: evidence.approvedAt,
+      approvers: evidence.approvers.length,
+    }),
+  )
