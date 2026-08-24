@@ -1,7 +1,7 @@
 // Plain vitest (pure Node crypto/fs — no electron, no better-sqlite3). Matches src/main/**/*.test.ts
 // so it runs under `npm test`, not `npm run test:db`.
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, readFileSync, writeFileSync, statSync, truncateSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, statSync, truncateSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { encryptFile, decryptFile, MAGIC } from './crypt'
@@ -55,6 +55,7 @@ describe('encryptFile / decryptFile', () => {
     await expect(decryptFile(encPath, outPath, 'wrong-passphrase')).rejects.toThrow(
       'Wrong passphrase or corrupted file'
     )
+    expect(existsSync(outPath)).toBe(false)
   })
 
   it('throws a clear error on a truncated file', async () => {
@@ -71,6 +72,7 @@ describe('encryptFile / decryptFile', () => {
     await expect(decryptFile(encPath, outPath, 'a-passphrase')).rejects.toThrow(
       'Wrong passphrase or corrupted file'
     )
+    expect(existsSync(outPath)).toBe(false)
   })
 
   it('throws a clear error when the magic header does not match', async () => {
