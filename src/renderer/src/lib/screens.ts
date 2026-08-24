@@ -75,7 +75,11 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'top',
     accel: 'V',
     card: { sub: 'Sales, purchase, payment…' },
-    invalidates: ['voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes']
+    invalidates: [
+      'voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes',
+      // The entry somebody was halfway through when the app died (roadmap #250).
+      'voucherDraft'
+    ]
   },
   {
     name: 'daybook',
@@ -440,8 +444,11 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'system',
     accel: 'E',
     invalidates: [
-      'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
+      'backups', 'bin', 'users', 'audit', 'auditChain', 'nicCreds', 'nicStatus',
       'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig', 'collectionsPolicy',
+      // Data safety (roadmap L): the schedule that copies the books elsewhere, the archived
+      // flag, the data folder itself, the recovery guidance, and the restore preview.
+      'externalBackup', 'companyArchive', 'dataFolder', 'recovery', 'restorePreview',
       'reportSchedules'
     ]
   },

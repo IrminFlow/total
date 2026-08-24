@@ -4,6 +4,14 @@ import { api, type BackupInfo, type BackupVerification, type IntegrityResult } f
 import { useSession, useToasts } from '../../state/stores'
 import { Button, EmptyState, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
 import { toDisplayDateTime } from '@shared/dates'
+import {
+  ArchivePanel,
+  DataFolderPanel,
+  ExternalBackupPanel,
+  PortablePanel,
+  RecoveryPanel
+} from './DataSafetyPanels'
+import { RestoreChanges } from './RestoreChanges'
 
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -139,6 +147,11 @@ export function BackupsSection(): React.JSX.Element {
         )}
       </Panel>
       <RetentionSetting />
+      <ExternalBackupPanel />
+      <ArchivePanel />
+      <PortablePanel />
+      <DataFolderPanel />
+      <RecoveryPanel />
       <p className="mt-2 text-hint text-muted">
         Backups live in this company's data folder. A snapshot is also taken automatically on open and before risky
         operations (Tally imports, restores).
@@ -188,6 +201,7 @@ function RestoreModal({
   return (
     <Modal title="Restore from backup" onClose={onClose}>
       <WhatWouldBeLost file={backup.file} />
+      <RestoreChanges file={backup.file} />
       <p className="mt-3 text-detail text-ink">
         This replaces the current books with the backup from {dateLabel}. A pre-restore copy is kept.
       </p>

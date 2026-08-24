@@ -5,6 +5,7 @@ import { chequeConfigSchema, gst3bManualSchema, mergeChequeConfig, type ChequeCo
 import { DEFAULT_BAND_CUTS, validBandCuts } from '@shared/ageing'
 import { DEFAULT_PROVISION_POLICY, validPolicy, type ProvisionRule } from '@shared/badDebt'
 import { writeAudit } from './audit'
+import { parseExternalBackup, type ExternalBackupConfig } from '@shared/backupSchedule'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
  *  writeCompanyInfo (db/seed.ts) and the NIC credentials (services/nic.ts). */
@@ -280,4 +281,84 @@ export function setCollectionsPolicy(db: DB, input: CollectionsPolicy): Collecti
   const after = getCollectionsPolicy(db)
   writeAudit(db, 'company', 0, 'update', { collections: before }, { collections: after })
   return after
+}
+
+// ---------- archived years: books that may be read and not changed (roadmap #257) ----------
+
+export interface ArchiveState {
+  archived: boolean
+  /** Why, in the archiver's own words — "FY 2023-24, filed and assessed". */
+  note: string | null
+  /** ISO, when it was archived. */
+  at: string | null
+  /** Who archived it. */
+  by: string | null
+}
+
+const NOT_ARCHIVED: ArchiveState = { archived: false, note: null, at: null, by: null }
+
+/**
+ * Whether this whole company is read-only.
+ *
+ * The books-lock date (`lock_before`) closes a period and leaves the rest of the company open,
+ * which is right for a filed quarter and wrong for a company nobody should be posting into at
+ * all: the year that has been audited, the branch that was sold, the demo company somebody keeps
+ * typing into by mistake. A lock date cannot express that — there is always a date after it.
+ *
+ * Enforced at the IPC boundary rather than in each service, in the same place the licence check
+ * lives: every write channel refuses, every read channel works, and exports and backups keep
+ * working, because archived books you cannot get data out of are a hostage rather than a record.
+ */
+export function getArchive(db: DB): ArchiveState {
+  const raw = readMeta(db, 'archived')
+  if (raw === true) return { archived: true, note: null, at: null, by: null }
+  if (!raw || typeof raw !== 'object') return NOT_ARCHIVED
+  const value = raw as Partial<ArchiveState>
+  if (value.archived !== true) return NOT_ARCHIVED
+  return {
+    archived: true,
+    note: typeof value.note === 'string' && value.note.trim() ? value.note.trim().slice(0, 200) : null,
+    at: typeof value.at === 'string' ? value.at : null,
+    by: typeof value.by === 'string' ? value.by : null
+  }
+}
+
+export function setArchive(db: DB, archived: boolean, note: string | null, by: string | null): ArchiveState {
+  const before = getArchive(db)
+  const after: ArchiveState = archived
+    ? { archived: true, note: note?.trim() ? note.trim().slice(0, 200) : null, at: new Date().toISOString(), by }
+    : NOT_ARCHIVED
+  writeMeta(db, 'archived', after)
+  // Archiving and un-archiving are both audited: "who reopened the closed year, and when" is
+  // exactly the question this feature exists to be able to answer.
+  writeAudit(db, 'company', 0, 'update', { archive: before }, { archive: after })
+  return after
+}
+
+// ---------- the backup that leaves the machine (roadmap #245, #253) ----------
+
+/** Per-company schedule for copying backups somewhere that is not this disk. */
+export function getExternalBackup(db: DB): ExternalBackupConfig {
+  return parseExternalBackup(readMeta(db, 'backup.external'))
+}
+
+/**
+ * Save the schedule. The passphrase is NOT stored here — it goes to the OS keychain via
+ * main/secrets.ts, because a passphrase in `meta` would be copied into every backup that
+ * passphrase exists to protect.
+ */
+export function setExternalBackup(db: DB, input: ExternalBackupConfig): ExternalBackupConfig {
+  const before = getExternalBackup(db)
+  const parsed = parseExternalBackup({ ...input, lastRunAt: before.lastRunAt, lastError: before.lastError })
+  writeMeta(db, 'backup.external', parsed)
+  writeAudit(db, 'company', 0, 'update', { externalBackup: before }, { externalBackup: parsed })
+  return parsed
+}
+
+/** Record the outcome of a scheduled run. Not audited: a heartbeat is not a decision. */
+export function stampExternalBackup(db: DB, at: string | null, error: string | null): ExternalBackupConfig {
+  const current = getExternalBackup(db)
+  const next = { ...current, lastRunAt: at ?? current.lastRunAt, lastError: error }
+  writeMeta(db, 'backup.external', next)
+  return next
 }

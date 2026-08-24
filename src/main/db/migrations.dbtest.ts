@@ -72,6 +72,7 @@ const EXPECTED_TABLES = [
   'prepaid_postings',
   'stock_statements',
   'commission_schemes',
+  'voucher_drafts',
   'migrations'
 ]
 

@@ -232,6 +232,145 @@ export function rollbackRestore(dbPath: string, snapshotPath: string): void {
   swapInPlace(snapshotPath, dbPath)
 }
 
+export interface RestoreChange {
+  what: string
+  /** In the books as they stand now. */
+  now: string
+  /** In the backup that is about to replace them. */
+  after: string
+  /** True when restoring loses something — the rows a person needs to read first. */
+  loses: boolean
+}
+
+export interface RestorePreview {
+  file: string
+  /** Set when the backup cannot be read at all; every other field is then meaningless. */
+  problem: string | null
+  changes: RestoreChange[]
+  /** Vouchers in the books now that are not in the backup — the entries that get typed again. */
+  vouchersLost: number
+  /** Vouchers in the backup that are not in the books now — deletions the restore undoes. */
+  vouchersReturned: number
+  /** The lost ones, newest first, capped: a list of ten is read, a list of four hundred is not. */
+  sample: { date: string; type: string; number: string; amount: number }[]
+}
+
+const SAMPLE_SIZE = 10
+
+/** Vouchers keyed the way a human identifies one, so two databases can be compared without ids. */
+function voucherKeys(db: Database.Database): Map<string, { date: string; type: string; number: string; amount: number }> {
+  const rows = db
+    .prepare(
+      `SELECT v.date, vt.name AS type, v.number,
+              COALESCE((SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END)
+                        FROM voucher_lines vl WHERE vl.voucher_id = v.id), 0) AS amount
+       FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE v.deleted_at IS NULL`
+    )
+    .all() as { date: string; type: string; number: string; amount: number }[]
+  return new Map(rows.map((r) => [`${r.date}|${r.type}|${r.number}`, r]))
+}
+
+function countOf(db: Database.Database, sql: string): number {
+  try {
+    return (db.prepare(sql).get() as { n: number }).n
+  } catch {
+    // A table that does not exist in an older backup is a real answer: it held none of those.
+    return 0
+  }
+}
+
+/**
+ * What restoring this backup would change, before it changes it (roadmap #246).
+ *
+ * "This replaces the current books" is true and unactionable. The Backups screen already says how
+ * many vouchers would be lost; that number answers "how bad" and not "what". A restore is a
+ * one-way door for everything entered since, and the two questions people actually ask on the way
+ * through it are which entries disappear and which deletions come back — both of which need the
+ * backup and the live books compared row by row, which is what this does.
+ *
+ * Read-only on both sides. The live database is the caller's open handle; the backup is opened
+ * read-only and closed here.
+ */
+export function restorePreview(live: DB, backupPath: string, file = basename(backupPath)): RestorePreview {
+  const empty = (problem: string): RestorePreview => ({
+    file,
+    problem,
+    changes: [],
+    vouchersLost: 0,
+    vouchersReturned: 0,
+    sample: []
+  })
+  if (!existsSync(backupPath)) return empty('Backup file not found')
+
+  let backup: Database.Database
+  try {
+    backup = new Database(backupPath, { readonly: true, fileMustExist: true })
+  } catch (err) {
+    return empty(`Could not open the backup: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  try {
+    const quick = (backup.pragma('quick_check') as Array<{ quick_check: string }>)[0]?.quick_check
+    if (quick !== 'ok') return empty(`SQLite reports: ${quick ?? 'no result'}`)
+
+    const liveKeys = voucherKeys(live)
+    const backupKeys = voucherKeys(backup)
+
+    const lost = [...liveKeys.entries()].filter(([key]) => !backupKeys.has(key)).map(([, v]) => v)
+    const returned = [...backupKeys.keys()].filter((key) => !liveKeys.has(key)).length
+
+    const counts: { what: string; sql: string }[] = [
+      { what: 'Vouchers', sql: 'SELECT COUNT(*) AS n FROM vouchers WHERE deleted_at IS NULL' },
+      { what: 'Ledgers', sql: 'SELECT COUNT(*) AS n FROM ledgers' },
+      { what: 'Stock items', sql: 'SELECT COUNT(*) AS n FROM stock_items' },
+      { what: 'Employees', sql: 'SELECT COUNT(*) AS n FROM employees' },
+      { what: 'Audit entries', sql: 'SELECT COUNT(*) AS n FROM audit_log' }
+    ]
+
+    const changes: RestoreChange[] = counts.map(({ what, sql }) => {
+      const now = countOf(live, sql)
+      const after = countOf(backup, sql)
+      return {
+        what,
+        now: now.toLocaleString('en-IN'),
+        after: after.toLocaleString('en-IN'),
+        loses: after < now
+      }
+    })
+
+    const lastOf = (db: Database.Database): string =>
+      ((db.prepare('SELECT MAX(date) AS d FROM vouchers WHERE deleted_at IS NULL').get() as { d: string | null }).d ??
+        '—')
+    changes.push({
+      what: 'Latest entry',
+      now: lastOf(live),
+      after: lastOf(backup),
+      loses: lastOf(backup) < lastOf(live)
+    })
+
+    const lockOf = (db: Database.Database): string =>
+      ((db.prepare("SELECT value FROM meta WHERE key = 'lock_before'").get() as { value: string } | undefined)?.value ??
+        'not locked')
+    if (lockOf(live) !== lockOf(backup)) {
+      changes.push({ what: 'Books locked up to', now: lockOf(live), after: lockOf(backup), loses: false })
+    }
+
+    return {
+      file,
+      problem: null,
+      changes,
+      vouchersLost: lost.length,
+      vouchersReturned: returned,
+      sample: lost.sort((a, b) => b.date.localeCompare(a.date)).slice(0, SAMPLE_SIZE)
+    }
+  } catch (err) {
+    return empty(err instanceof Error ? err.message : String(err))
+  } finally {
+    backup.close()
+  }
+}
+
 export interface BackupVerification {
   file: string
   /** SQLite says the file is structurally sound. */

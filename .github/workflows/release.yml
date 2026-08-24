@@ -25,6 +25,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Dependency vulnerability gate (roadmap #270). Runtime dependencies only, and only high
+      # and critical: this app ships a Chromium and a Node to every user's machine, so a known
+      # RCE in something it bundles is a shipped RCE. Dev-only advisories are excluded on
+      # purpose — a build-tool advisory blocking a release teaches people to pass --force, and
+      # then the gate protects nothing.
+      - name: Dependency vulnerability gate
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Run tests
         run: npm test
 

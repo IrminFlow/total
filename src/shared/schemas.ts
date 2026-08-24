@@ -4,6 +4,8 @@ import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
 import { isUqc } from './gst/uqc'
 import { PT_STATES } from './payroll'
+import { CAPABILITIES } from './permissions'
+import { EXTERNAL_BACKUP_HOURS, EXTERNAL_KEEP_MIN, EXTERNAL_KEEP_MAX } from './backupSchedule'
 
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
@@ -358,6 +360,20 @@ export const backupFileSchema = z.string().regex(/^[A-Za-z0-9._-]+\.db$/, 'Inval
 /** Passphrase for encrypted export/import. */
 export const passphraseSchema = z.string().min(8, 'Passphrase must be at least 8 characters')
 
+/** Scheduled copy of the books into a folder somewhere else (roadmap #245, #253). */
+export const externalBackupSchema = z.object({
+  dir: z.string().max(1000).nullable(),
+  everyHours: z.number().int().refine((h) => (EXTERNAL_BACKUP_HOURS as readonly number[]).includes(h), 'Unsupported interval'),
+  encrypt: z.boolean(),
+  keep: z.number().int().min(EXTERNAL_KEEP_MIN).max(EXTERNAL_KEEP_MAX),
+  /** Only when turning encryption on or changing it; stored in the OS keychain, never in the DB. */
+  passphrase: passphraseSchema.optional()
+})
+export type ExternalBackupInput = z.infer<typeof externalBackupSchema>
+
+/** The entry screen's crash-safe draft (roadmap #250). Opaque to main by design. */
+export const draftSaveSchema = z.object({ payload: z.unknown() })
+
 /** audit:list query — entity/date range are optional filters; page is server-paged at 100 rows. */
 export const auditListSchema = z.object({
   entity: z.string().trim().min(1).optional(),
@@ -399,7 +415,9 @@ export const userInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
   role: z.enum(['owner', 'accountant', 'viewer']),
   pin: z.string().regex(/^\d{4,12}$/, 'PIN must be 4-12 digits').optional(),
-  active: z.boolean().default(true)
+  active: z.boolean().default(true),
+  /** Areas cut out of this user's role (roadmap #266). Deny-only — see @shared/permissions. */
+  denied: z.array(z.enum(CAPABILITIES)).default([])
 })
 export type UserInput = z.infer<typeof userInputSchema>
 

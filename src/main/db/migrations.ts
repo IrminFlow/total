@@ -1320,5 +1320,38 @@ export const MIGRATIONS: string[] = [
     active INTEGER NOT NULL DEFAULT 1,
     UNIQUE (salesperson, from_date)
   );
+  `,
+
+  // 37 — the audit trail's own signature, permissions with a hole in them, and the entry
+  // somebody was halfway through when the power went.
+  //
+  // The audit log could say it had never been switched off and could not say it had never been
+  // rewritten: it is a table in a file in Documents, and sqlite3 is a free download. Each row now
+  // carries the hash of its contents chained onto the row before it (services/auditChain.ts).
+  // Both columns are nullable because every row already written was written without them, and a
+  // row with no hash is evidence of nothing rather than evidence of tampering.
+  //
+  // Denials are per user and deny-only: the role still sets the ceiling and this cuts areas out
+  // of it. There is no grant column on purpose — a grant would let a viewer post entries that the
+  // audit trail then attributes to a viewer.
+  //
+  // A draft is not a voucher. It is deliberately opaque JSON owned by the entry screen: main
+  // stores and returns it and never parses it, so a change to the entry form can never leave a
+  // draft that main refuses to hand back. One row per person, because "the entry I was in the
+  // middle of" is singular.
+  `
+  ALTER TABLE audit_log ADD COLUMN prev_hash TEXT;
+  ALTER TABLE audit_log ADD COLUMN row_hash TEXT;
+
+  ALTER TABLE users ADD COLUMN denied_json TEXT;
+
+  CREATE TABLE voucher_drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Signed-in user name, or '' when the company has no user accounts at all.
+    owner TEXT NOT NULL UNIQUE,
+    saved_at TEXT NOT NULL DEFAULT (datetime('now')),
+    app_version TEXT,
+    payload_json TEXT NOT NULL
+  );
   `
 ]

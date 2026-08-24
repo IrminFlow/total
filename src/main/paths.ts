@@ -1,12 +1,25 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { mkdirSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
+import { configuredDataRoot } from './dataRootConfig'
 
-/** Root of all Total data: ~/Documents/total */
+/** Root of all Total data: ~/Documents/total, unless the user has moved it. */
 export function dataRoot(): string {
-  // Hermetic override for CI/smoke tests: an absolute TOTAL_DATA_DIR is used verbatim.
+  // Hermetic override for CI/smoke tests: an absolute TOTAL_DATA_DIR is used verbatim, and beats
+  // a configured location so a driver script can never be pointed at somebody's real books.
   if (process.env.TOTAL_DATA_DIR) return process.env.TOTAL_DATA_DIR
+  // Moved out of a synced folder (roadmap #244). Falls back to the default when the chosen
+  // folder has gone — an unplugged drive should leave the app usable rather than pathless.
+  const chosen = configuredDataRoot()
+  if (chosen && existsSync(chosen)) return chosen
   return join(app.getPath('documents'), 'total')
+}
+
+/** True when the configured data folder has gone missing (drive unplugged, folder deleted). */
+export function dataRootMissing(): boolean {
+  if (process.env.TOTAL_DATA_DIR) return false
+  const chosen = configuredDataRoot()
+  return chosen !== null && !existsSync(chosen)
 }
 
 export function registryPath(): string {

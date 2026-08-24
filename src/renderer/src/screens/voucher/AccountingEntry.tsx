@@ -19,6 +19,7 @@ import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
 import { CostAllocModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
 import { TransportModal } from './TransportModal'
+import { clearCrashDraft, useCrashDraft } from '../../lib/useCrashDraft'
 
 // ---------- accounting mode (payment / receipt / contra / journal + alteration) ----------
 
@@ -134,6 +135,7 @@ export function AccountingEntry({
     !voucherId && (rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== '')
   )
 
+
   const setRow = (i: number, patch: Partial<AcctRow>): void => {
     setRows((rs) => {
       const next = rs.map((r, j) => (j === i ? { ...r, ...patch } : r))
@@ -157,6 +159,17 @@ export function AccountingEntry({
     if (candidates.size === 1) return [...candidates][0]!
     return draftPartyId
   }, [rows, ledgers, groupMap, draftPartyId])
+  // The same content, kept on disk so a crash does not take it (roadmap #250). New vouchers only,
+  // for the same reason the guard above skips alterations: an altered voucher is already in the
+  // books, and offering to "recover" it later would offer to re-enter something that exists.
+  useCrashDraft(!voucherId, {
+    date,
+    partyLedgerId: derivedPartyId ?? undefined,
+    narration,
+    lines: rows
+      .filter((r) => r.ledgerId != null && (r.amount ?? 0) > 0)
+      .map((r) => ({ ledgerId: r.ledgerId!, drCr: r.drCr, amount: r.amount! }))
+  })
 
   /**
    * A narration written from what the voucher already says.
@@ -436,6 +449,9 @@ export function AccountingEntry({
         if (!proceed) return
       }
       const saved = await api.vouchers.save(input, voucherId)
+      // In the books now, so the crash-safe copy of it must go — a draft that outlives its entry
+      // is a prompt to re-type something already saved (roadmap #250).
+      clearCrashDraft()
       toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
       setWorkingDate(date)
       await queryClient.invalidateQueries()

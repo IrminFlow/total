@@ -10,7 +10,7 @@ import { lutStatus, type Lut, type LutStatus } from '@shared/gst/lut'
 import { reportingBacklog, type WindowReport, type WindowRow } from '@shared/gst/eInvoiceWindow'
 import type { TurnoverBand } from '@shared/gst/turnover'
 import { IN_BOOKS } from './vouchers'
-import { writeAudit } from './audit'
+import { writeAudit, verifyAuditChain } from './audit'
 
 // ---------- related-party transactions (roadmap #364) ----------
 
@@ -147,6 +147,21 @@ export interface AuditTrailStatement {
   retentionDays: number | null
   /** True when retention would have removed entries from inside the period being reported. */
   retentionAffectsPeriod: boolean
+  /**
+   * Whether the trail still hashes to what it says (roadmap #265).
+   *
+   * "Cannot be disabled" was always a statement about the application. This one is about the
+   * file: every entry carries the hash of its contents chained onto the entry before it, so an
+   * edit made outside the app shows up here rather than nowhere. `entriesProved` counts the rows
+   * that carry a hash; `entriesUnproved` are rows written before the chain existed, which prove
+   * nothing either way and are stated rather than quietly folded in.
+   */
+  tamperEvidence: {
+    intact: boolean
+    entriesProved: number
+    entriesUnproved: number
+    findings: string[]
+  }
 }
 
 /**
@@ -183,6 +198,11 @@ export function auditTrailStatement(db: DB, from: string, to: string, retentionD
     )
     .all(from, to) as { userName: string; entries: number }[]
 
+  // Checked here rather than reported separately: an auditor asking whether the trail is
+  // complete is asking the same question as whether it is unedited, and two screens that could
+  // disagree with each other are worse than one that cannot.
+  const chain = verifyAuditChain(db)
+
   // Retention prunes by age from today, so it bites the period only if the period starts further
   // back than the retention window reaches.
   const retentionAffectsPeriod =
@@ -199,7 +219,13 @@ export function auditTrailStatement(db: DB, from: string, to: string, retentionD
     users,
     canBeDisabled: false,
     retentionDays,
-    retentionAffectsPeriod
+    retentionAffectsPeriod,
+    tamperEvidence: {
+      intact: chain.ok,
+      entriesProved: chain.checked,
+      entriesUnproved: chain.unchained,
+      findings: chain.problems.map((p) => p.detail)
+    }
   }
 }
 

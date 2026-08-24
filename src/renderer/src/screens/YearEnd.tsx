@@ -25,9 +25,28 @@ export function YearEndScreen(): React.JSX.Element {
   const [step, setStep] = useState<Step>(1)
   const [confirmText, setConfirmText] = useState('')
   const [posting, setPosting] = useState(false)
+  const [reversing, setReversing] = useState(false)
   const [result, setResult] = useState<{ voucherId: number; netProfit: number; lockedUpTo: string } | null>(null)
 
   const fy = fyFromStartYear(fyStartYear)
+
+  const reverse = async (): Promise<void> => {
+    setReversing(true)
+    try {
+      const result = await api.yearEnd.reverse(fyStartYear)
+      await queryClient.invalidateQueries()
+      toast.push(
+        'success',
+        result.lockedUpTo
+          ? `Close reversed. The books are locked up to ${result.lockedUpTo} again.`
+          : 'Close reversed, and the books are unlocked.'
+      )
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setReversing(false)
+    }
+  }
 
   const { data: preview, isLoading } = useQuery({
     queryKey: ['yearEndPreview', fyStartYear],
@@ -147,7 +166,28 @@ export function YearEndScreen(): React.JSX.Element {
       {preview?.alreadyClosed && (
         <Panel className="mb-4 border-cr/40 bg-cr/5 p-4">
           <p className="text-detail font-medium text-cr">Books for FY {fy.label} are already closed.</p>
-          <p className="mt-1 text-body-sm text-muted">Pick a different financial year to continue, or open the closing voucher from the day book.</p>
+          <p className="mt-1 text-body-sm text-muted">
+            Pick a different financial year to continue, or open the closing voucher from the day book.
+          </p>
+          {/*
+            Closing the wrong year is a two-keystroke mistake with a heavy consequence: the journal
+            zeroes every income and expense ledger and then locks the books up to 31 March, which
+            locks the closing entry itself. Undoing that by hand means lifting the lock, finding one
+            entry among thousands and hoping the lock date typed back is the one that was there.
+          */}
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-hint text-muted">
+              Closed the wrong year? Reversing bins the closing journal and puts the books lock back where it was.
+            </span>
+            <Button
+              variant="danger"
+              data-testid="btn-year-end-reverse"
+              disabled={reversing}
+              onClick={() => void reverse()}
+            >
+              {reversing ? 'Reversing…' : 'Reverse this close'}
+            </Button>
+          </div>
         </Panel>
       )}
 

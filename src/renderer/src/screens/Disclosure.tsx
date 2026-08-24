@@ -242,6 +242,37 @@ function AuditStatementTab(): React.JSX.Element {
           The audit trail cannot be switched off. There is no setting for it and no code path that
           skips it; every write goes through the same function.
         </p>
+        {/*
+          "Cannot be switched off" is a statement about the application. This one is about the
+          file: every entry carries the hash of its contents chained onto the entry before it, so
+          an edit made outside the app shows up here rather than nowhere (roadmap #265).
+        */}
+        <p
+          className={`mt-2 rounded-md px-3 py-2 text-body-sm ${
+            data.tamperEvidence.intact ? 'text-muted' : 'border border-cr/40 bg-cr/5 text-cr'
+          }`}
+          data-testid="audit-tamper-evidence"
+        >
+          {data.tamperEvidence.intact ? (
+            <>
+              Each entry is signed with a hash of its contents and of the entry before it.{' '}
+              <b className="num">{data.tamperEvidence.entriesProved.toLocaleString('en-IN')}</b> entries
+              check out; nothing in this log has been altered outside the software.
+              {data.tamperEvidence.entriesUnproved > 0 && (
+                <>
+                  {' '}
+                  A further {data.tamperEvidence.entriesUnproved.toLocaleString('en-IN')} were recorded
+                  before this check existed and can be neither proved nor disproved.
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <b>This log does not match its own hashes.</b>{' '}
+              {data.tamperEvidence.findings[0] ?? 'Entries have been altered outside the software.'}
+            </>
+          )}
+        </p>
         {data.firstEntry && (
           <p className="mt-2 text-body-sm text-muted">
             The log holds entries from {toDisplayDate(data.firstEntry.slice(0, 10))} to{' '}
