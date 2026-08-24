@@ -36,6 +36,8 @@ import * as filings from './services/filings'
 import * as partyNotes from './services/partyNotes'
 import * as intel from './services/intel'
 import * as analysis from './services/analysis'
+import * as receivables from './services/receivables'
+import { statementHtml } from './services/statementHtml'
 import * as banking from './services/banking'
 import * as edocs from './services/edocs'
 import * as invoice from './services/invoice'
@@ -1012,6 +1014,133 @@ export function registerIpc(): void {
   }, 'accountant')
 
   handle('party:promises', () => partyNotes.openPromises(requireCompany().db, todayISO()), 'viewer')
+
+  // ---------- the collections desk (roadmap #151, #153-#159, #161, #164, #165) ----------
+
+  handle('recv:interest', (p) => {
+    const { side, asOn } = z.object({ side: z.enum(['receivable', 'payable']), asOn: isoDate }).parse(p)
+    return receivables.interestDue(requireCompany().db, side, asOn)
+  }, 'viewer')
+
+  handle('recv:creditScores', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return receivables.creditScores(requireCompany().db, asOn)
+  }, 'viewer')
+
+  handle('recv:allocationSuggestions', (p) => {
+    const { ledgerId, amount, asOn, side } = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        amount: z.number().int().min(0),
+        asOn: isoDate,
+        side: z.enum(['receivable', 'payable']).default('receivable')
+      })
+      .parse(p)
+    return receivables.allocationSuggestions(requireCompany().db, ledgerId, amount, asOn, side)
+  }, 'viewer')
+
+  handle('recv:ageingBy', (p) => {
+    const { side, asOn, dimension, bandCuts } = z
+      .object({
+        side: z.enum(['receivable', 'payable']),
+        asOn: isoDate,
+        dimension: z.enum(['salesperson', 'territory', 'party']),
+        bandCuts: z.array(z.number().int().positive()).max(6).optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return receivables.ageingBy(c.db, side, asOn, dimension, bandCuts ?? configSvc.getCollectionsPolicy(c.db).bandCuts)
+  }, 'viewer')
+
+  handle('recv:provision', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    const c = requireCompany()
+    const policy = configSvc.getCollectionsPolicy(c.db).provisionPolicy
+    return {
+      result: receivables.badDebtProvision(c.db, asOn, policy),
+      draft: receivables.provisionDraft(c.db, asOn, policy)
+    }
+  }, 'viewer')
+
+  handle('recv:advances', (p) => {
+    const { side, asOn } = z.object({ side: z.enum(['receivable', 'payable']), asOn: isoDate }).parse(p)
+    return receivables.advances(requireCompany().db, side, asOn)
+  }, 'viewer')
+
+  handle('recv:paymentSchedule', (p) => {
+    const { from, to, side } = z
+      .object({ from: isoDate, to: isoDate, side: z.enum(['payable', 'receivable']).default('payable') })
+      .parse(p)
+    return receivables.paymentSchedule(requireCompany().db, from, to, side)
+  }, 'viewer')
+
+  handle('recv:reminders', (p) => {
+    const { side, asOn, minOverdueDays, includeInterest } = z
+      .object({
+        side: z.enum(['receivable', 'payable']),
+        asOn: isoDate,
+        minOverdueDays: z.number().int().min(0).max(365).optional(),
+        includeInterest: z.boolean().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return receivables.bulkReminders(c.db, c.info.name, side, asOn, { minOverdueDays, includeInterest })
+  }, 'viewer')
+
+  handle('recv:statement', (p) => {
+    const { ledgerId, from, to } = z
+      .object({ ledgerId: z.number().int().positive(), from: isoDate, to: isoDate })
+      .parse(p)
+    const c = requireCompany()
+    return receivables.partyStatement(c.db, ledgerId, from, to, configSvc.getCollectionsPolicy(c.db).bandCuts)
+  }, 'viewer')
+
+  handle('recv:statementPdf', async (p) => {
+    const { ledgerId, from, to, side } = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        from: isoDate,
+        to: isoDate,
+        side: z.enum(['receivable', 'payable']).default('receivable')
+      })
+      .parse(p)
+    const c = requireCompany()
+    const policy = configSvc.getCollectionsPolicy(c.db)
+    const st = receivables.partyStatement(c.db, ledgerId, from, to, policy.bandCuts)
+    const html = statementHtml(c.info, st, { side, contact: policy.contact })
+    const path = await writeExportPdf(c.slug, `statement-${slugify(st.name)}-${from}-${to}.pdf`, html, {
+      pageSize: 'A4',
+      pageNumbers: true,
+      runningHead: { company: c.info.name, gstin: c.info.gstin, title: `Statement — ${st.name}`, periodLabel: `${from} to ${to}` }
+    })
+    return { path, name: st.name }
+  }, 'viewer')
+
+  handle('recv:creditCheck', (p) => {
+    const { ledgerId, addPaise } = z
+      .object({ ledgerId: z.number().int().positive(), addPaise: z.number().int().default(0) })
+      .parse(p)
+    return receivables.creditStatus(requireCompany().db, ledgerId, addPaise)
+  }, 'viewer')
+
+  handle('recv:policy', () => configSvc.getCollectionsPolicy(requireCompany().db), 'viewer')
+
+  handle('recv:setPolicy', (p) => {
+    const input = z
+      .object({
+        interestRateBp: z.number().int().min(0).max(6000),
+        interestGraceDays: z.number().int().min(0).max(365),
+        bandCuts: z.array(z.number().int().positive()).min(1).max(6),
+        provisionPolicy: z
+          .array(z.object({ afterDays: z.number().int().positive(), pct: z.number().int().min(0).max(100) }))
+          .min(1)
+          .max(6),
+        reminderMinOverdueDays: z.number().int().min(0).max(365),
+        contact: z.string().trim().max(120).nullable()
+      })
+      .parse(p)
+    return configSvc.setCollectionsPolicy(requireCompany().db, input)
+  }, 'owner')
 
   handle('analysis:khata', (p) => {
     const { side, asOn } = z

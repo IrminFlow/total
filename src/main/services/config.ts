@@ -2,6 +2,8 @@ import type { DB } from '../db/connection'
 import { featuresSchema, mergeFeatures, type CompanyFeatures } from '@shared/features'
 import { invoiceConfigSchema, mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
 import { chequeConfigSchema, gst3bManualSchema, mergeChequeConfig, type ChequeConfig, type Gst3bManualInput } from '@shared/schemas'
+import { DEFAULT_BAND_CUTS, validBandCuts } from '@shared/ageing'
+import { DEFAULT_PROVISION_POLICY, validPolicy, type ProvisionRule } from '@shared/badDebt'
 import { writeAudit } from './audit'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
@@ -206,4 +208,65 @@ export function getChecklistFlag(db: DB, flag: ChecklistFlag): boolean {
 
 export function setChecklistFlag(db: DB, flag: ChecklistFlag, value: boolean): void {
   writeMeta(db, `checklist.${flag}`, value)
+}
+
+
+/**
+ * Company-wide collections policy: the defaults a party inherits when it says nothing itself.
+ *
+ * Every field here is a business's opinion, not an accounting rule, which is why none of it is
+ * hardcoded. Interest terms fall back party → company → nothing; ageing bands and the provision
+ * ladder have no party-level override because a report that changed its columns per row would be
+ * unreadable.
+ */
+export interface CollectionsPolicy {
+  /** Default overdue interest in basis points; 0 = charge none. */
+  interestRateBp: number
+  interestGraceDays: number
+  /** Ageing band cut points, e.g. [30, 60, 90]. */
+  bandCuts: number[]
+  provisionPolicy: ProvisionRule[]
+  /** Days overdue before a party appears in a bulk reminder run. */
+  reminderMinOverdueDays: number
+  /** Contact line printed under the signature on reminders and statements. */
+  contact: string | null
+}
+
+export const DEFAULT_COLLECTIONS_POLICY: CollectionsPolicy = {
+  interestRateBp: 0,
+  interestGraceDays: 0,
+  bandCuts: DEFAULT_BAND_CUTS,
+  provisionPolicy: DEFAULT_PROVISION_POLICY,
+  reminderMinOverdueDays: 1,
+  contact: null
+}
+
+export function getCollectionsPolicy(db: DB): CollectionsPolicy {
+  const raw = readMeta(db, 'collections') as Partial<CollectionsPolicy> | null
+  if (!raw || typeof raw !== 'object') return DEFAULT_COLLECTIONS_POLICY
+  const rate = raw.interestRateBp
+  const grace = raw.interestGraceDays
+  const minOverdue = raw.reminderMinOverdueDays
+  return {
+    interestRateBp: typeof rate === 'number' && Number.isInteger(rate) && rate >= 0 && rate <= 6000 ? rate : 0,
+    interestGraceDays: typeof grace === 'number' && Number.isInteger(grace) && grace >= 0 && grace <= 365 ? grace : 0,
+    // Stored bands and policies are re-validated on read rather than trusted: `meta` is a plain
+    // JSON column that a restore, an import or a hand-edit can reach.
+    bandCuts: Array.isArray(raw.bandCuts) && validBandCuts(raw.bandCuts) ? raw.bandCuts : DEFAULT_BAND_CUTS,
+    provisionPolicy:
+      Array.isArray(raw.provisionPolicy) && validPolicy(raw.provisionPolicy) ? raw.provisionPolicy : DEFAULT_PROVISION_POLICY,
+    reminderMinOverdueDays:
+      typeof minOverdue === 'number' && Number.isInteger(minOverdue) && minOverdue >= 0 && minOverdue <= 365 ? minOverdue : 1,
+    contact: typeof raw.contact === 'string' && raw.contact.trim() ? raw.contact.trim().slice(0, 120) : null
+  }
+}
+
+export function setCollectionsPolicy(db: DB, input: CollectionsPolicy): CollectionsPolicy {
+  const before = getCollectionsPolicy(db)
+  if (!validBandCuts(input.bandCuts)) throw new Error('Ageing bands must be ascending, whole and positive')
+  if (!validPolicy(input.provisionPolicy)) throw new Error('Provision policy must rise with age')
+  writeMeta(db, 'collections', input)
+  const after = getCollectionsPolicy(db)
+  writeAudit(db, 'company', 0, 'update', { collections: before }, { collections: after })
+  return after
 }

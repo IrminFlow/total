@@ -65,6 +65,15 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [tdsSectionId, setTdsSectionId] = useState<number | ''>(ledger?.tdsSectionId ?? '')
   const [pan, setPan] = useState(ledger?.pan ?? '')
   const [creditDays, setCreditDays] = useState(ledger?.creditDays?.toString() ?? '')
+  const [creditLimit, setCreditLimit] = useState<number | null>(ledger?.creditLimit ?? null)
+  // Shown as a percentage because that is how a rate is agreed and argued about; stored as basis
+  // points so 18% never becomes 17.999999 on a customer's statement.
+  const [interestPct, setInterestPct] = useState(
+    ledger?.interestRateBp != null ? (ledger.interestRateBp / 100).toString() : ''
+  )
+  const [interestGrace, setInterestGrace] = useState(ledger?.interestGraceDays?.toString() ?? '')
+  const [salesperson, setSalesperson] = useState(ledger?.salesperson ?? '')
+  const [territory, setTerritory] = useState(ledger?.territory ?? '')
   const [phone, setPhone] = useState(ledger?.phone ?? '')
   const [email, setEmail] = useState(ledger?.email ?? '')
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
@@ -101,6 +110,11 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         tdsSectionId: tdsSectionId === '' ? null : tdsSectionId,
         pan: pan.trim() ? pan.trim().toUpperCase() : null,
         creditDays: creditDays.trim() ? Number(creditDays) : null,
+        creditLimit,
+        interestRateBp: interestPct.trim() ? Math.round(Number(interestPct) * 100) : null,
+        interestGraceDays: interestGrace.trim() ? Number(interestGrace) : null,
+        salesperson: salesperson.trim() || null,
+        territory: territory.trim() || null,
         phone: phone.trim() || null,
         email: email.trim() || null,
         exportType: exportType || null
@@ -227,6 +241,44 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="accounts@example.com"
                   inputMode="email"
+                />
+              </Field>
+              <Field label="Credit limit" hint="Warns at entry; blocks under F11 enforcement. Blank = no limit">
+                <AmountInput testId="input-ledger-credit-limit" paise={creditLimit} onPaise={setCreditLimit} />
+              </Field>
+              <Field label="Interest % p.a." hint="On overdue bills. Blank = the company default">
+                <TextInput
+                  data-testid="input-ledger-interest"
+                  value={interestPct}
+                  onChange={(e) => setInterestPct(e.target.value)}
+                  className="num text-right"
+                  placeholder="18"
+                  inputMode="decimal"
+                />
+              </Field>
+              <Field label="Interest grace days" hint="Days past due before interest starts running">
+                <TextInput
+                  value={interestGrace}
+                  onChange={(e) => setInterestGrace(e.target.value)}
+                  className="num text-right"
+                  placeholder="0"
+                  inputMode="numeric"
+                />
+              </Field>
+              <Field label="Salesperson" hint="Groups the ageing report by who owns the relationship">
+                <TextInput
+                  data-testid="input-ledger-salesperson"
+                  value={salesperson}
+                  onChange={(e) => setSalesperson(e.target.value)}
+                  placeholder="Ravi"
+                />
+              </Field>
+              <Field label="Territory" hint="Groups the ageing report by where they are">
+                <TextInput
+                  data-testid="input-ledger-territory"
+                  value={territory}
+                  onChange={(e) => setTerritory(e.target.value)}
+                  placeholder="North"
                 />
               </Field>
             </div>

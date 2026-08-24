@@ -1,6 +1,6 @@
 import type {
   Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
-  PayrollLine, PayrollRun, PriceLevel, PriceListRate, RecurringTemplate, StockGroup, StockItem, TdsSection, Unit,
+  PayrollLine, PayrollRun, PriceLevel, PriceListRate, RecurringTemplate, SaveVoucherWarnings, StockGroup, StockItem, TdsSection, Unit,
   Voucher, VoucherTransport, VoucherType
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
@@ -81,6 +81,223 @@ export interface PromiseRow extends PartyNote {
   partyName: string
   /** Days past the promised date; negative while it is still in the future. */
   overdueDays: number
+}
+
+
+/**
+ * The collections desk. Every one of these mirrors a type in src/main/services/receivables.ts —
+ * kept local rather than imported because that module reaches for better-sqlite3, which the
+ * renderer bundle must never see.
+ */
+export interface InterestLineView {
+  number: string
+  date: string
+  dueDate: string | null
+  pending: number
+  overdueDays: number
+  chargeableDays: number
+  interest: number
+}
+
+export interface PartyInterest {
+  ledgerId: number
+  name: string
+  pending: number
+  terms: { rateBp: number; graceDays: number }
+  termsLabel: string
+  interest: { lines: InterestLineView[]; total: number; rateBp: number; graceDays: number }
+}
+
+export type CreditBand = 'excellent' | 'good' | 'fair' | 'poor'
+
+export interface CreditScoreView {
+  score: number
+  band: CreditBand
+  avgDaysLate: number
+  onTimeRate: number
+  worstDaysLate: number
+  overdueNow: number
+  sample: number
+}
+
+export interface PartyCreditScore {
+  ledgerId: number
+  name: string
+  score: CreditScoreView | null
+  creditLimit: number | null
+  pending: number
+}
+
+export interface AllocationView {
+  number: string
+  voucherId: number | null
+  date: string
+  pending: number
+  applied: number
+}
+
+export interface AllocationSuggestion {
+  kind: 'exact-single' | 'exact-combination' | 'fifo' | 'fifo-partial'
+  label: string
+  allocations: AllocationView[]
+  leftover: number
+  exact: boolean
+}
+
+export interface AgeingGroupRow {
+  key: string
+  pending: number
+  billCount: number
+  partyCount: number
+  buckets: number[]
+  worstOverdueDays: number
+}
+
+export interface AgeingByResult {
+  dimension: 'salesperson' | 'territory' | 'party'
+  bandLabels: string[]
+  rows: AgeingGroupRow[]
+  total: number
+  totals: number[]
+}
+
+export interface ProvisionBillLine {
+  number: string
+  date: string
+  pending: number
+  overdueDays: number
+  pct: number
+  provision: number
+}
+
+export interface ProvisionParty {
+  ledgerId: number
+  name: string
+  pending: number
+  provision: number
+  bills: ProvisionBillLine[]
+}
+
+export interface ProvisionRule {
+  afterDays: number
+  pct: number
+}
+
+export interface ProvisionDraft {
+  date: string
+  narration: string
+  lines: { ledgerName: string; drCr: 'dr' | 'cr'; amount: number }[]
+  total: number
+  missingLedgers: string[]
+}
+
+export interface ProvisionResponse {
+  result: { parties: ProvisionParty[]; total: number; policy: ProvisionRule[] }
+  draft: ProvisionDraft | null
+}
+
+export interface AdvanceRow {
+  ledgerId: number
+  name: string
+  unapplied: number
+  openBills: number
+  lastReceiptDate: string | null
+}
+
+export interface ScheduleBill {
+  ledgerId: number
+  party: string
+  number: string
+  date: string
+  dueDate: string | null
+  pending: number
+  overdueDays: number
+}
+
+export interface ScheduleDay {
+  date: string
+  bills: ScheduleBill[]
+  due: number
+  cumulative: number
+  balanceAfter: number
+}
+
+export interface PaymentSchedule {
+  from: string
+  to: string
+  funds: number
+  overdue: ScheduleBill[]
+  overdueTotal: number
+  days: ScheduleDay[]
+  total: number
+  shortfallDate: string | null
+}
+
+export type ReminderTone = 'gentle' | 'firm' | 'final'
+
+export interface BulkReminderRow {
+  ledgerId: number
+  name: string
+  pending: number
+  worstOverdueDays: number
+  tone: ReminderTone
+  phone: string | null
+  email: string | null
+  subject: string
+  body: string
+  mailto: string
+  whatsapp: string | null
+  interest: number
+}
+
+export interface StatementLine {
+  date: string
+  number: string
+  particulars: string
+  debit: number | null
+  credit: number | null
+  balance: number
+  voucherId: number | null
+}
+
+export interface PartyStatement {
+  ledgerId: number
+  name: string
+  address: string | null
+  gstin: string | null
+  phone: string | null
+  email: string | null
+  from: string
+  to: string
+  openingBalance: number
+  lines: StatementLine[]
+  closingBalance: number
+  openBills: OutstandingBill[]
+  bandLabels: string[]
+  buckets: number[]
+  interest: { lines: InterestLineView[]; total: number; rateBp: number; graceDays: number } | null
+  termsLabel: string | null
+}
+
+export interface CreditStatus {
+  ledgerId: number
+  name: string
+  creditLimit: number | null
+  outstanding: number
+  after: number
+  used: number | null
+  exceeds: boolean
+  enforced: boolean
+  headroom: number | null
+}
+
+export interface CollectionsPolicy {
+  interestRateBp: number
+  interestGraceDays: number
+  bandCuts: number[]
+  provisionPolicy: ProvisionRule[]
+  reminderMinOverdueDays: number
+  contact: string | null
 }
 
 /** Mirrors src/main/db/backup.ts's BackupVerification (kept local — main-process only). */
@@ -490,7 +707,7 @@ export const api = {
       call<VoucherListRow[]>('voucher:list', { from, to, voucherTypeId }),
     get: (id: number) => call<Voucher | null>('voucher:get', { id }),
     save: (data: VoucherInputParsed, id?: number) =>
-      call<Voucher & { duplicateNumber?: boolean }>('voucher:save', { data, id }),
+      call<Voucher & { duplicateNumber?: boolean; warnings?: SaveVoucherWarnings }>('voucher:save', { data, id }),
     remove: (id: number) => call<null>('voucher:delete', { id }),
     nextNumber: (voucherTypeId: number, date: string, excludeId?: number) =>
       call<{ number: string }>('voucher:nextNumber', { voucherTypeId, date, excludeId }),
@@ -586,6 +803,37 @@ export const api = {
         from,
         to
       })
+  },
+  /**
+   * The collections desk: interest, scoring, allocation help, ageing by owner, provisioning,
+   * advances, the payment run, bulk reminders and the statement of account.
+   */
+  receivables: {
+    interest: (side: 'receivable' | 'payable', asOn: string) =>
+      call<PartyInterest[]>('recv:interest', { side, asOn }),
+    creditScores: (asOn: string) => call<PartyCreditScore[]>('recv:creditScores', { asOn }),
+    allocationSuggestions: (ledgerId: number, amount: number, asOn: string, side: 'receivable' | 'payable' = 'receivable') =>
+      call<AllocationSuggestion[]>('recv:allocationSuggestions', { ledgerId, amount, asOn, side }),
+    ageingBy: (
+      side: 'receivable' | 'payable',
+      asOn: string,
+      dimension: 'salesperson' | 'territory' | 'party',
+      bandCuts?: number[]
+    ) => call<AgeingByResult>('recv:ageingBy', { side, asOn, dimension, bandCuts }),
+    provision: (asOn: string) => call<ProvisionResponse>('recv:provision', { asOn }),
+    advances: (side: 'receivable' | 'payable', asOn: string) => call<AdvanceRow[]>('recv:advances', { side, asOn }),
+    paymentSchedule: (from: string, to: string, side: 'payable' | 'receivable' = 'payable') =>
+      call<PaymentSchedule>('recv:paymentSchedule', { from, to, side }),
+    reminders: (side: 'receivable' | 'payable', asOn: string, opts: { minOverdueDays?: number; includeInterest?: boolean } = {}) =>
+      call<BulkReminderRow[]>('recv:reminders', { side, asOn, ...opts }),
+    statement: (ledgerId: number, from: string, to: string) =>
+      call<PartyStatement>('recv:statement', { ledgerId, from, to }),
+    statementPdf: (ledgerId: number, from: string, to: string, side: 'receivable' | 'payable' = 'receivable') =>
+      call<{ path: string; name: string }>('recv:statementPdf', { ledgerId, from, to, side }),
+    /** Where a party stands against their limit, including the voucher currently on screen. */
+    creditCheck: (ledgerId: number, addPaise = 0) => call<CreditStatus | null>('recv:creditCheck', { ledgerId, addPaise }),
+    policy: () => call<CollectionsPolicy>('recv:policy'),
+    setPolicy: (input: CollectionsPolicy) => call<CollectionsPolicy>('recv:setPolicy', input)
   },
   bills: {
     open: (partyLedgerId: number, asOn: string) => call<OutstandingBill[]>('bills:open', { partyLedgerId, asOn })

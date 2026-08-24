@@ -40,13 +40,6 @@ export function isBankLedger(l: Ledger, groupMap: Map<number, Group>): boolean {
   return groupChain(l.groupId, groupMap).some((g) => ['Bank Accounts', 'Bank OD A/c'].includes(g.name))
 }
 
-/** Local UTC date-add — mirrors @shared/outstanding's private helper (that one isn't exported). */
-export function addDaysLocal(date: string, days: number): string {
-  const dt = new Date(`${date}T00:00:00Z`)
-  dt.setUTCDate(dt.getUTCDate() + days)
-  return dt.toISOString().slice(0, 10)
-}
-
 // ---------- voucher number field ----------
 
 export function useVoucherNumber(typeId: number, date: string, excludeId?: number): string {

@@ -8,6 +8,8 @@
  * any settlement beyond what's open becomes an advance credit that nets off the next new bill.
  * That refless path MUST stay byte-identical to the pre-refactor behavior — see outstanding.test.ts.
  */
+import { bandLabels, bandIndex, DEFAULT_BAND_CUTS, normaliseBandCuts } from './ageing'
+import { addDays, daysBetween } from './dates'
 import { formatPaise } from './money'
 import type { OutstandingBill } from './reports'
 
@@ -30,23 +32,33 @@ export interface BillEvent {
   refs: BillRef[]
 }
 
+/**
+ * A bill that closed, and how late it was.
+ *
+ * The open bills answer "who owes me"; these answer "how do they behave", which is the input to
+ * credit scoring. A bill closed by an advance already sitting on the account counts as settled on
+ * the day it was raised — the money was already in, so calling it late would be a lie.
+ */
+export interface SettledBillRecord {
+  number: string
+  date: string
+  dueDate: string | null
+  amount: number
+  /** Date of the event that took the pending to zero. */
+  settledDate: string
+  /** settledDate − dueDate (or the bill date when there is no due date). Negative = paid early. */
+  daysLate: number
+}
+
 export interface AllocateBillsResult {
   bills: OutstandingBill[]
+  /** Bills that closed within the period, oldest settlement first. */
+  settled: SettledBillRecord[]
   /** Settlement paise that outran every open bill (an advance sitting on the account). */
   unappliedCredit: number
   /** Data problems surfaced instead of silently absorbed (v0.3 #66): currently, 'against'
    *  references naming a bill that isn't open. */
   warnings: string[]
-}
-
-function addDays(date: string, days: number): string {
-  const dt = new Date(`${date}T00:00:00Z`)
-  dt.setUTCDate(dt.getUTCDate() + days)
-  return dt.toISOString().slice(0, 10)
-}
-
-function daysBetween(fromDate: string, toDate: string): number {
-  return Math.round((Date.parse(toDate) - Date.parse(fromDate)) / 86_400_000)
 }
 
 /**
@@ -56,8 +68,23 @@ function daysBetween(fromDate: string, toDate: string): number {
  */
 export function allocateBills(events: BillEvent[], asOn: string, creditDays: number | null): AllocateBillsResult {
   const open: OutstandingBill[] = []
+  const settled: SettledBillRecord[] = []
   let credit = 0
   const warnings: string[] = []
+  // The date of the event currently being applied, so a bill knows when it was closed.
+  let now = asOn
+
+  const close = (bill: OutstandingBill): void => {
+    const dueBasis = bill.dueDate ?? bill.date
+    settled.push({
+      number: bill.number,
+      date: bill.date,
+      dueDate: bill.dueDate,
+      amount: bill.amount,
+      settledDate: now,
+      daysLate: daysBetween(dueBasis, now)
+    })
+  }
 
   const dueDateFor = (date: string, ref?: BillRef): string | null => {
     if (ref?.dueDate) return ref.dueDate
@@ -71,7 +98,10 @@ export function allocateBills(events: BillEvent[], asOn: string, creditDays: num
       const take = Math.min(bill.pending, remaining)
       bill.pending -= take
       remaining -= take
-      if (bill.pending === 0) open.shift()
+      if (bill.pending === 0) {
+        close(bill)
+        open.shift()
+      }
     }
     credit += remaining
   }
@@ -88,7 +118,10 @@ export function allocateBills(events: BillEvent[], asOn: string, creditDays: num
     const bill = open[idx]!
     const take = Math.min(bill.pending, amount)
     bill.pending -= take
-    if (bill.pending === 0) open.splice(idx, 1)
+    if (bill.pending === 0) {
+      close(bill)
+      open.splice(idx, 1)
+    }
     const remaining = amount - take
     if (remaining > 0) settleFifo(remaining)
   }
@@ -99,9 +132,11 @@ export function allocateBills(events: BillEvent[], asOn: string, creditDays: num
     credit -= take
     bill.pending = bill.amount - take
     if (bill.pending > 0) open.push(bill)
+    else close(bill)
   }
 
   for (const ev of events) {
+    now = ev.date
     if (ev.refs.length > 0) {
       for (const ref of ev.refs) {
         if (ref.kind === 'new') {
@@ -141,7 +176,7 @@ export function allocateBills(events: BillEvent[], asOn: string, creditDays: num
     bill.overdueDays = Math.max(0, daysBetween(dueBasis, asOn))
   }
 
-  return { bills: open, unappliedCredit: credit, warnings }
+  return { bills: open, settled, unappliedCredit: credit, warnings }
 }
 
 export interface ReminderCompany {
@@ -183,25 +218,105 @@ export function whatsappNumber(raw: string | null, defaultCountryCode = '91'): s
   return null
 }
 
-/** A plain-text payment-reminder email for a party's open bills. */
-export function buildReminder(company: ReminderCompany, party: ReminderParty, bills: OutstandingBill[]): Reminder {
+/**
+ * How hard the letter pushes.
+ *
+ * The same facts read very differently depending on the sentence around them, and a business that
+ * sends one tone forever gets ignored. `gentle` is the reminder you send to a good customer who
+ * forgot; `final` is the one that precedes a phone call you would rather not make. Nothing here
+ * threatens legal action — that is a decision for a person, not a template.
+ */
+export type ReminderTone = 'gentle' | 'firm' | 'final'
+
+export const REMINDER_TONES: ReminderTone[] = ['gentle', 'firm', 'final']
+
+const TONE_OPENING: Record<ReminderTone, string> = {
+  gentle: 'A gentle reminder about the following bills, which are showing as unpaid in our books:',
+  firm: 'The following bills are past their due date in our books:',
+  final: 'Despite earlier reminders, the following bills remain unpaid:'
+}
+
+const TONE_CLOSING: Record<ReminderTone, string> = {
+  gentle: 'If payment is already on the way, please ignore this note.',
+  firm: 'Kindly arrange payment at your earliest convenience.',
+  final: 'Please arrange payment immediately, or call us to discuss a date.'
+}
+
+/** Suggests the tone from the worst overdue bill, so a bulk send is not all one voice. */
+export function toneFor(worstOverdueDays: number): ReminderTone {
+  if (worstOverdueDays <= 0) return 'gentle'
+  if (worstOverdueDays <= 30) return 'gentle'
+  if (worstOverdueDays <= 60) return 'firm'
+  return 'final'
+}
+
+export interface ReminderOptions {
+  tone?: ReminderTone
+  /** Ageing band cut points; bills are grouped under a heading per band. */
+  bandCuts?: number[]
+  /** Interest to state on the letter. Omitted entirely when absent — an interest line the party
+   *  never agreed to is an argument, not a reminder. */
+  interest?: { total: number; terms: string }
+  /** Contact line under the signature, e.g. a phone number to call. */
+  contact?: string | null
+}
+
+/**
+ * A plain-text payment reminder for a party's open bills, grouped by ageing band.
+ *
+ * One body serves the email and the WhatsApp message: what the user previews is exactly what the
+ * party receives, on whichever channel they pick. Bands appear only when they contain something,
+ * so a party with one recent bill gets a short note rather than four empty headings.
+ */
+export function buildReminder(
+  company: ReminderCompany,
+  party: ReminderParty,
+  bills: OutstandingBill[],
+  opts: ReminderOptions = {}
+): Reminder {
   const subject = `Payment reminder from ${company.name}`
   const total = bills.reduce((s, b) => s + b.pending, 0)
-  const lines = bills.map((b) => `  ${b.number}  (${b.date})  ${formatPaise(b.pending, { symbol: true })}`)
+  const cuts = normaliseBandCuts(opts.bandCuts ?? DEFAULT_BAND_CUTS)
+  const labels = bandLabels(cuts)
+  const tone = opts.tone ?? toneFor(bills.reduce((m, b) => Math.max(m, b.overdueDays), 0))
+
+  const grouped: OutstandingBill[][] = labels.map(() => [])
+  for (const b of bills) (grouped[bandIndex(b.overdueDays, cuts)] as OutstandingBill[]).push(b)
+
+  const billLines: string[] = []
+  const multipleBands = grouped.filter((g) => g.length > 0).length > 1
+  grouped.forEach((group, i) => {
+    if (group.length === 0) return
+    if (multipleBands) {
+      const bandTotal = group.reduce((s, b) => s + b.pending, 0)
+      billLines.push(`${labels[i]} — ${formatPaise(bandTotal, { symbol: true })}`)
+    }
+    for (const b of group) {
+      billLines.push(`  ${b.number}  (${b.date})  ${formatPaise(b.pending, { symbol: true })}`)
+    }
+    if (multipleBands) billLines.push('')
+  })
+  if (billLines[billLines.length - 1] === '') billLines.pop()
+
   const body = [
     `Dear ${party.name},`,
     '',
-    'The following bills remain outstanding:',
+    TONE_OPENING[tone],
     '',
-    ...lines,
+    ...billLines,
     '',
     `Total due: ${formatPaise(total, { symbol: true })}`,
+    ...(opts.interest && opts.interest.total > 0
+      ? [`Interest at ${opts.interest.terms}: ${formatPaise(opts.interest.total, { symbol: true })}`]
+      : []),
     '',
-    'Kindly arrange payment at your earliest convenience.',
+    TONE_CLOSING[tone],
     '',
     'Regards,',
-    company.name
+    company.name,
+    ...(opts.contact ? [opts.contact] : [])
   ].join('\n')
+
   const mailto = `mailto:${party.email ?? ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
   // Same text through both channels, so what the user previews is what the party receives.
   const number = whatsappNumber(party.phone ?? null)

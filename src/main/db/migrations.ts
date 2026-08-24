@@ -641,5 +641,22 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_party_notes_ledger ON party_notes(ledger_id, at DESC);
   CREATE INDEX idx_party_notes_promised ON party_notes(promised_date) WHERE promised_date IS NOT NULL;
+  `,
+
+  // 23 — party credit terms beyond the limit: interest, and who the party belongs to.
+  //
+  // Interest is stored in basis points rather than a percentage float because a rate is a rounded
+  // human number ("eighteen percent"), and 0.18 stored as a double is how 18% becomes 17.999999
+  // in a statement the customer is going to argue about. Grace days sit next to it because a rate
+  // without a grace period is a rate nobody applies — everybody forgives the first week.
+  //
+  // Salesperson and territory are free text, not a foreign key to a table that does not exist and
+  // that most companies would never fill in. The ageing report groups on whatever is typed; an
+  // empty one groups under "Unassigned", which is itself a useful row.
+  `
+  ALTER TABLE ledgers ADD COLUMN interest_rate_bp INTEGER;
+  ALTER TABLE ledgers ADD COLUMN interest_grace_days INTEGER;
+  ALTER TABLE ledgers ADD COLUMN salesperson TEXT;
+  ALTER TABLE ledgers ADD COLUMN territory TEXT;
   `
 ]

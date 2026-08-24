@@ -59,6 +59,7 @@ export type Screen =
   | { name: 'banking' }
   | { name: 'payroll' }
   | { name: 'khata' }
+  | { name: 'collections' }
   | { name: 'filings' }
   | { name: 'composition' }
   | { name: 'tds' }
@@ -66,7 +67,7 @@ export type Screen =
   | { name: 'budgets' }
   | { name: 'company-info' }
   | { name: 'year-end' }
-  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'agents' | 'ai' | 'license' | 'about' }
+  | { name: 'settings'; tab?: 'backups' | 'bin' | 'users' | 'audit' | 'nic' | 'features' | 'invoice' | 'collections' | 'agents' | 'ai' | 'license' | 'about' }
 
 interface NavState {
   stack: Screen[]

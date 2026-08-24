@@ -13,7 +13,10 @@ const BADGE_ACCELS = new Set([
   // Filing register: every letter of the label is claimed (F cash flow, I import, L consolidated,
   // N reconciliation, R registers, S stock summary, T trial balance, E settings, G gateway).
   // Q is the only unclaimed letter that reads as anything at all next to a returns screen.
-  'filings'
+  'filings',
+  // Collections: C cost centres, O outstandings, L consolidated, E settings, T trial balance,
+  // I import, N reconciliation, S stock summary — the whole word is spoken for. Z was free.
+  'collections'
 ])
 
 /**

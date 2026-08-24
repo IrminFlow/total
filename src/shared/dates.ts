@@ -103,6 +103,24 @@ export function parseSmartDate(input: string, context: string): string | null {
   return candidate && isValidISODate(candidate) ? candidate : null
 }
 
+/**
+ * `date` shifted by whole days, still as 'YYYY-MM-DD'.
+ *
+ * Done in UTC rather than local time on purpose: an ISO date in this app is a calendar day with
+ * no clock attached, and doing the arithmetic locally makes 30 days land on a different date
+ * either side of a DST change.
+ */
+export function addDays(date: string, days: number): string {
+  const dt = new Date(`${date}T00:00:00Z`)
+  dt.setUTCDate(dt.getUTCDate() + days)
+  return dt.toISOString().slice(0, 10)
+}
+
+/** Whole days from `fromDate` to `toDate`; negative when `toDate` is earlier. */
+export function daysBetween(fromDate: string, toDate: string): number {
+  return Math.round((Date.parse(toDate) - Date.parse(fromDate)) / 86_400_000)
+}
+
 export function todayISO(): string {
   const now = new Date()
   const y = now.getFullYear()

@@ -9,6 +9,7 @@ import { NicSection } from './settings/NicSection'
 import { FeaturesSection } from './settings/FeaturesSection'
 import { InvoiceConfigSection } from './settings/InvoiceConfigSection'
 import { AgentBridgeSection } from './settings/AgentBridgeSection'
+import { CollectionsSection } from './settings/CollectionsSection'
 import { AiSection } from './settings/AiSection'
 import { LicenseSection } from './settings/LicenseSection'
 import { AboutSection } from './settings/AboutSection'
@@ -23,6 +24,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'nic', label: 'NIC live filing' },
   { id: 'features', label: 'Features' },
   { id: 'invoice', label: 'Invoice print' },
+  { id: 'collections', label: 'Collections' },
   { id: 'agents', label: 'Agent access' },
   { id: 'ai', label: 'AI assistant' },
   { id: 'license', label: 'Licence' },
@@ -57,6 +59,7 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
         {active === 'nic' && <NicSection />}
         {active === 'features' && <FeaturesSection />}
         {active === 'invoice' && <InvoiceConfigSection />}
+        {active === 'collections' && <CollectionsSection />}
         {active === 'agents' && <AgentBridgeSection />}
         {active === 'ai' && <AiSection />}
         {active === 'license' && <LicenseSection />}

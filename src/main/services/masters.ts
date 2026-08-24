@@ -24,6 +24,8 @@ interface LedgerRow {
   tds_section_id: number | null; pan: string | null; credit_days: number | null; export_type: Ledger['exportType']
   rcm: number; itc_eligibility: Ledger['itcEligibility'] | null
   price_level_id: number | null; credit_limit: number | null
+  interest_rate_bp: number | null; interest_grace_days: number | null
+  salesperson: string | null; territory: string | null
   phone: string | null; email: string | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
@@ -33,6 +35,8 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   tdsSectionId: r.tds_section_id, pan: r.pan, creditDays: r.credit_days, exportType: r.export_type,
   rcm: !!r.rcm, itcEligibility: r.itc_eligibility ?? 'eligible',
   priceLevelId: r.price_level_id, creditLimit: r.credit_limit,
+  interestRateBp: r.interest_rate_bp, interestGraceDays: r.interest_grace_days,
+  salesperson: r.salesperson, territory: r.territory,
   phone: r.phone, email: r.email
 })
 
@@ -157,13 +161,16 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
     .prepare(
       `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, tax_type, gst_rate, hsn,
         tds_section_id, pan, credit_days, export_type, rcm, itc_eligibility, price_level_id, credit_limit,
+        interest_rate_bp, interest_grace_days, salesperson, territory,
         phone, email, is_system)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
       input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
       input.rcm ? 1 : 0, input.itcEligibility,
       input.priceLevelId ?? null, input.creditLimit ?? null,
+      input.interestRateBp ?? null, input.interestGraceDays ?? null,
+      input.salesperson ?? null, input.territory ?? null,
       input.phone ?? null, input.email ?? null)
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
@@ -177,13 +184,18 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
      address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
-     rcm = ?, itc_eligibility = ?, price_level_id = ?, credit_limit = ?, phone = ?, email = ?
+     rcm = ?, itc_eligibility = ?, price_level_id = ?, credit_limit = ?,
+     interest_rate_bp = ?, interest_grace_days = ?, salesperson = ?, territory = ?, phone = ?, email = ?
      WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
     input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
     input.rcm ? 1 : 0, input.itcEligibility,
     input.priceLevelId === undefined ? existing.priceLevelId : input.priceLevelId,
     input.creditLimit === undefined ? existing.creditLimit : input.creditLimit,
+    input.interestRateBp === undefined ? existing.interestRateBp : input.interestRateBp,
+    input.interestGraceDays === undefined ? existing.interestGraceDays : input.interestGraceDays,
+    input.salesperson === undefined ? existing.salesperson : (input.salesperson ?? null),
+    input.territory === undefined ? existing.territory : (input.territory ?? null),
     input.phone === undefined ? existing.phone : (input.phone ?? null),
     input.email === undefined ? existing.email : (input.email ?? null), id)
   const updated = getLedger(db, id)!

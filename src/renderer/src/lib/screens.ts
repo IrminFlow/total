@@ -295,6 +295,24 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['khata', 'promises', 'partyNotes']
   },
   {
+    name: 'collections',
+    title: 'Collections',
+    screen: { name: 'collections' },
+    navSection: 'analysis',
+    navLabel: 'Collections',
+    // Every letter of "Collections" is already claimed (C, O, L, E, T, I, N, S), so Z rides on
+    // the end as a badge the way TDS's J does. See __tests__/accel.test.ts's BADGE_ACCELS.
+    accel: 'Z',
+    keywords: [
+      'collections', 'chase', 'reminder', 'interest', 'overdue', 'credit score', 'provision',
+      'bad debt', 'advance', 'payment run', 'salesperson', 'territory', 'statement'
+    ],
+    invalidates: [
+      'recvReminders', 'recvInterest', 'recvScores', 'recvAgeing', 'recvAdvances',
+      'recvSchedule', 'recvProvision', 'recvStatement'
+    ]
+  },
+  {
     name: 'filings',
     title: 'Filing register',
     screen: { name: 'filings' },
@@ -336,7 +354,7 @@ export const SCREENS: ScreenDef[] = [
     accel: 'E',
     invalidates: [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
-      'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig'
+      'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig', 'collectionsPolicy'
     ]
   },
 

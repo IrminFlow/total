@@ -63,7 +63,7 @@ export function registerByPeriod(
 
 /** Every party's movements + bill_refs, expressed as pure `BillEvent`s for `allocateBills` —
  *  two batched queries for the whole party set instead of two queries per party (the old N+1). */
-function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number): Map<number, BillEvent[]> {
+export function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number): Map<number, BillEvent[]> {
   const result = new Map<number, BillEvent[]>()
   if (partyIds.length === 0) return result
   const placeholders = partyIds.map(() => '?').join(',')
@@ -112,7 +112,7 @@ function partyEventsBatch(db: DB, partyIds: number[], asOn: string, sign: number
 
 /** Opening-balance event, normalized to the same sign convention as `partyEvents`. Kept as a
  *  separate first event (never carries refs) — matches the pre-refactor behavior exactly. */
-function openingEvent(asOn: string, openingBalance: number, sign: number): BillEvent[] {
+export function openingEvent(asOn: string, openingBalance: number, sign: number): BillEvent[] {
   if (openingBalance === 0) return []
   // v0.3 #62: the FY start of asOn — `${asOn.year}-04-01` was wrong for Jan–Mar dates (it
   // produced a date in asOn's FUTURE, zeroing the opening bill's age).

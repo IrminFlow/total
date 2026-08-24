@@ -10,7 +10,7 @@ import { useStickyFlag } from '../../lib/useStickyTab'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
 import { GST_STATES } from '@shared/gst/states'
 import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
-import { toDisplayDate } from '@shared/dates'
+import { addDays, toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
 import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
@@ -19,7 +19,7 @@ import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
-import { addDaysLocal, nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
+import { nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
@@ -100,7 +100,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
 
   useEffect(() => {
     if (billDueDateTouched) return
-    setBillDueDate(addDaysLocal(date, party?.creditDays ?? 0))
+    setBillDueDate(addDays(date, party?.creditDays ?? 0))
   }, [date, party?.creditDays, billDueDateTouched])
 
   // A party switch invalidates any bills already checked against the OLD party — 'against' refs
@@ -205,6 +205,21 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   })
   const partyBalance = partyId ? (balances?.find((b) => b.ledgerId === partyId)?.balance ?? null) : null
 
+  /**
+   * The credit limit, checked while the invoice is being typed rather than at save.
+   *
+   * A refusal at save is the wrong moment — the invoice is entered, the customer is at the
+   * counter, and the only choices left are to abandon it or switch enforcement off. Asked here,
+   * the same fact is something the user can act on: take a part payment, or raise the limit on
+   * purpose. Only for sales-side vouchers: a limit is what the customer may owe US.
+   */
+  const { data: credit } = useQuery({
+    queryKey: ['creditCheck', partyId, isSalesSide ? computed.rounded : 0],
+    queryFn: () => api.receivables.creditCheck(partyId!, isSalesSide ? computed.rounded : 0),
+    enabled: !!partyId && isSalesSide
+  })
+  const creditBreach = credit?.exceeds ? credit : null
+
   // A narration written from what the voucher already says. Narration is the field most often
   // left blank and most often wanted a year later, and asking for it every time is how it ends
   // up blank.
@@ -308,6 +323,22 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     if (!partyId) return void toast.push('error', 'Pick the party account first')
     if (!accountId) return void toast.push('error', `Pick the ${isSalesSide ? 'sales' : 'purchase'} ledger`)
     if (computed.detail.length === 0) return void toast.push('error', 'Add at least one item line')
+    // The limit, asked before anything is built. Under F11 enforcement saveVoucher would refuse
+    // this anyway; saying so here means the refusal arrives with the options still open.
+    if (creditBreach) {
+      if (creditBreach.enforced) {
+        return void toast.push(
+          'error',
+          `${creditBreach.name} would be over their credit limit. Take a payment, raise the limit, or turn enforcement off in Settings → Features.`
+        )
+      }
+      const proceed = await confirmDialog({
+        title: 'Over the credit limit',
+        message: `This takes ${creditBreach.name} to ${formatPaise(creditBreach.after, { symbol: true })} against a limit of ${formatPaise(creditBreach.creditLimit ?? 0, { symbol: true })}. Save anyway?`,
+        confirmLabel: 'Save anyway'
+      })
+      if (!proceed) return
+    }
     setSaving(true)
     try {
       const input = await buildPayload()
@@ -345,6 +376,17 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       }
       const saved = await api.vouchers.save(input)
       toast.push('success', `${saved.number} saved — ${formatPaise(computed.rounded, { symbol: true })}`)
+      // Warnings ride back alongside the saved voucher; they used to be dropped on the floor.
+      const limitWarning = saved.warnings?.creditLimitExceeded
+      if (limitWarning) {
+        toast.push(
+          'warning',
+          `${limitWarning.ledgerName} is now ${formatPaise(limitWarning.outstanding, { symbol: true })} against a limit of ${formatPaise(limitWarning.creditLimit, { symbol: true })}`
+        )
+      }
+      for (const neg of saved.warnings?.negativeStock ?? []) {
+        toast.push('warning', `${neg.name} has gone negative in stock`)
+      }
       if (andPdf && kind === 'sales') {
         await api.invoice.pdf(saved.id)
       }
@@ -370,7 +412,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, periodFrom, periodTo, keepParty, toast, setWorkingDate, queryClient, numberField.reset])
+  }, [saving, partyId, accountId, computed, buildPayload, creditBreach, isSalesSide, kind, typeId, date, periodFrom, periodTo, keepParty, toast, setWorkingDate, queryClient, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -492,6 +534,27 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                 {' · '}
                 <span data-testid="party-balance">
                   Balance <Money paise={partyBalance} signed />
+                </span>
+              </>
+            )}
+            {credit?.creditLimit != null && (
+              <>
+                {' · '}
+                <span
+                  data-testid="party-credit"
+                  className={credit.exceeds ? 'text-cr font-semibold' : ''}
+                >
+                  Limit <Money paise={credit.creditLimit} />
+                  {' · '}
+                  {credit.headroom != null && credit.headroom >= 0 ? (
+                    <>
+                      <Money paise={credit.headroom} /> left
+                    </>
+                  ) : (
+                    <>
+                      over by <Money paise={Math.abs(credit.headroom ?? 0)} />
+                    </>
+                  )}
                 </span>
               </>
             )}
@@ -787,6 +850,19 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {creditBreach && (
+        <div
+          data-testid="credit-limit-banner"
+          className="mt-4 rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm text-cr"
+        >
+          <b>{creditBreach.name}</b> would be at <Money paise={creditBreach.after} /> against a credit
+          limit of <Money paise={creditBreach.creditLimit ?? 0} />.{' '}
+          {creditBreach.enforced
+            ? 'Enforcement is on, so this voucher will not save until the limit is raised or a payment is taken.'
+            : 'You will be asked to confirm before it saves.'}
         </div>
       )}
 

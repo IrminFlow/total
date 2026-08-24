@@ -78,6 +78,13 @@ export const ledgerInputSchema = z.object({
   priceLevelId: id.nullable().optional(),
   /** Credit limit in paise; absent/null = no limit. */
   creditLimit: paise.min(0).nullable().optional(),
+  /** Overdue interest in basis points (1800 = 18% p.a.); absent/null = no interest charged.
+   *  Capped at 60% p.a. — above that it is a penalty nobody will pay and a court would not
+   *  uphold, and a stray extra digit should be caught here rather than on a customer's statement. */
+  interestRateBp: z.number().int().min(0).max(6000).nullable().optional(),
+  interestGraceDays: z.number().int().min(0).max(365).nullable().optional(),
+  salesperson: z.string().trim().max(60).nullable().optional(),
+  territory: z.string().trim().max(60).nullable().optional(),
   // Stored as typed. Normalising to E.164 happens at the point of use, because a user pasting
   // a number from a phonebook should not have it silently rewritten in their master data.
   phone: z.string().trim().max(24).nullable().optional(),

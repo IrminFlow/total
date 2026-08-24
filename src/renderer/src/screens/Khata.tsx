@@ -18,9 +18,9 @@ import {
 import { useStickyFlag, useStickyTab } from '../lib/useStickyTab'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
-import { buildReminder } from '@shared/outstanding'
 import type { KhataParty } from '@shared/reports'
 import { csvReport, printReport } from '../lib/reportExport'
+import { StatementModal } from './Collections'
 import type { ReportColumn as PdfColumn } from '../lib/client'
 import { useState } from 'react'
 
@@ -56,6 +56,7 @@ export function KhataScreen(): React.JSX.Element {
   const [overdueOnly, setOverdueOnly] = useStickyFlag('khata-overdue-only', false)
   const [filter, setFilter] = useState('')
   const [noting, setNoting] = useState<KhataParty | null>(null)
+  const [statement, setStatement] = useState<KhataParty | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['khata', side, to],
@@ -192,7 +193,7 @@ export function KhataScreen(): React.JSX.Element {
                 <th scope="col" className="r w-28">Overdue by</th>
                 <th scope="col" className="r w-40">Credit limit</th>
                 <th scope="col" className="w-28">Last paid</th>
-                <th scope="col" className="w-40" />
+                <th scope="col" className="w-56" />
               </tr>
             </thead>
             <tbody data-testid="rows-khata">
@@ -200,8 +201,10 @@ export function KhataScreen(): React.JSX.Element {
                 <KhataRow
                   key={p.ledgerId}
                   party={p}
+                  side={side}
                   rowProps={table.rowProps(i, p)}
                   onNote={() => setNoting(p)}
+                  onStatement={() => setStatement(p)}
                 />
               ))}
               <tr className="total-row">
@@ -217,6 +220,14 @@ export function KhataScreen(): React.JSX.Element {
         )}
       </Panel>
       {noting && <NotesModal party={noting} onClose={() => setNoting(null)} />}
+      {statement && (
+        <StatementModal
+          ledgerId={statement.ledgerId}
+          name={statement.name}
+          side={side}
+          onClose={() => setStatement(null)}
+        />
+      )}
 
       <p className="mt-2 text-hint text-muted">
         Sorted by how overdue they are, not by size — the largest debtor is usually the one who
@@ -228,29 +239,39 @@ export function KhataScreen(): React.JSX.Element {
 
 function KhataRow({
   party,
+  side,
   rowProps,
-  onNote
+  onNote,
+  onStatement
 }: {
   party: KhataParty
+  side: 'receivable' | 'payable'
   rowProps: ReturnType<ReturnType<typeof useTableNav<KhataParty>>['rowProps']>
   onNote: () => void
+  onStatement: () => void
 }): React.JSX.Element {
-  const { info } = useSession()
+  const { to } = useSession()
   const toast = useToasts()
 
-  // Built here rather than on the server: the reminder text is the same one the Outstandings
-  // screen sends, so a party gets one message whichever screen it was sent from.
-  const remind = (): void => {
-    const reminder = buildReminder(
-      { name: info?.name ?? 'We' },
-      { name: party.name, email: party.email, phone: party.phone },
-      []
-    )
-    if (!reminder.whatsapp) {
-      toast.push('error', `No usable phone number for ${party.name}`)
-      return
+  /**
+   * Ask main for this party's reminder rather than composing one here.
+   *
+   * The message has to list the bills, grouped by ageing band, at whatever tone the oldest one
+   * earns — and only main knows which bills are open. This screen used to build the text locally
+   * with an empty bill list, which sent a reminder that named no invoices at all.
+   */
+  const remind = async (): Promise<void> => {
+    try {
+      const rows = await api.receivables.reminders(side, to, { minOverdueDays: 0 })
+      const mine = rows.find((r) => r.ledgerId === party.ledgerId)
+      if (!mine?.whatsapp) {
+        toast.push('error', `No usable phone number for ${party.name}`)
+        return
+      }
+      window.open(mine.whatsapp, '_blank')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
     }
-    window.open(reminder.whatsapp, '_blank')
   }
 
   const over = party.creditUsed != null && party.creditUsed > 1
@@ -287,12 +308,21 @@ function KhataRow({
         >
           Note
         </Button>
+        <Button
+          variant="ghost"
+          className="whitespace-nowrap"
+          data-testid={`btn-khata-statement-${party.ledgerId}`}
+          onClick={onStatement}
+          title="Statement of account, printable and sendable"
+        >
+          Statement
+        </Button>
         {party.phone && (
           <Button
             variant="ghost"
             className="whitespace-nowrap"
             data-testid={`btn-khata-remind-${party.ledgerId}`}
-            onClick={remind}
+            onClick={() => void remind()}
           >
             Remind
           </Button>

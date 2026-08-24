@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { allocateBills, buildReminder, type BillEvent, whatsappNumber } from './outstanding'
+import { allocateBills, buildReminder, type BillEvent, type BillRef, whatsappNumber } from './outstanding'
 
 describe('allocateBills — refless legacy inference (byte-identical to the pre-refactor algorithm)', () => {
   it('one bill, no settlement: stays open in full', () => {
@@ -246,5 +246,45 @@ describe('buildReminder over WhatsApp', () => {
   it('offers no WhatsApp link when there is no usable number', () => {
     expect(buildReminder(company, { name: 'X', email: null, phone: null }, bills).whatsapp).toBeNull()
     expect(buildReminder(company, { name: 'X', email: null }, bills).whatsapp).toBeNull()
+  })
+})
+
+describe('settled-bill history', () => {
+  const ev = (date: string, number: string, amount: number, refs: BillRef[] = []): BillEvent => ({
+    voucherId: null, date, number, amount, refs
+  })
+
+  it('records a bill closed by a later payment, with how late it was', () => {
+    const r = allocateBills(
+      [ev('2026-01-01', 'INV-1', 10_000), ev('2026-02-10', 'RCT-1', -10_000)],
+      '2026-03-01',
+      30
+    )
+    expect(r.bills).toHaveLength(0)
+    expect(r.settled).toHaveLength(1)
+    expect(r.settled[0]).toMatchObject({ number: 'INV-1', settledDate: '2026-02-10', dueDate: '2026-01-31', daysLate: 10 })
+  })
+
+  it('counts a bill met from an advance as settled on the day it was raised, not late', () => {
+    const r = allocateBills([ev('2026-01-01', 'RCT-1', -10_000), ev('2026-02-10', 'INV-1', 10_000)], '2026-03-01', 30)
+    expect(r.settled[0]).toMatchObject({ number: 'INV-1', settledDate: '2026-02-10', daysLate: -30 })
+  })
+
+  it('leaves a part-paid bill open and out of the history', () => {
+    const r = allocateBills([ev('2026-01-01', 'INV-1', 10_000), ev('2026-02-10', 'RCT-1', -4_000)], '2026-03-01', 30)
+    expect(r.settled).toHaveLength(0)
+    expect(r.bills[0]!.pending).toBe(6_000)
+  })
+
+  it('records bills settled by an explicit reference too', () => {
+    const r = allocateBills(
+      [
+        ev('2026-01-01', 'S1', 10_000, [{ kind: 'new', name: 'INV-9', amount: 10_000, dueDate: '2026-01-20' }]),
+        ev('2026-01-25', 'R1', -10_000, [{ kind: 'against', name: 'INV-9', amount: 10_000, dueDate: null }])
+      ],
+      '2026-03-01',
+      null
+    )
+    expect(r.settled[0]).toMatchObject({ number: 'INV-9', daysLate: 5 })
   })
 })
