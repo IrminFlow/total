@@ -2,7 +2,14 @@ import type { DB } from '../db/connection'
 import type { BankLineRow, BankRecon, ReconciliationStatus } from '@shared/reports'
 import { descendantIdsByName } from './masters'
 import { isValidISODate } from '@shared/dates'
-import { parseCsv } from '@shared/csv'
+import {
+  BUILTIN_PROFILES, guessProfile, detectProfile, parseStatement, statementHeader,
+  type ParsedStatementRow, type ProfileColumns, type StatementProfile
+} from '@shared/bankImport'
+import {
+  DEFAULT_CONFIDENCE_THRESHOLD, significantWords, suggestFromMemory,
+  type MemoryEntry
+} from '@shared/narrationMemory'
 // IN_BOOKS, not NOT_DELETED: optional (memorandum) and unmatured post-dated vouchers are out of
 // the books — the BRS/recon book balance must tie to the same ledger's statement (IN_BOOKS), and
 // bank dates must not be assignable to out-of-books entries.
@@ -91,92 +98,18 @@ export function setBankDate(db: DB, lineId: number, bankDate: string | null): vo
 
 // ---------- statement CSV import ----------
 
-interface StatementRow {
-  date: string
-  description: string
-  /** Cheque/UTR/reference cell, '' when the CSV has no such column. */
-  reference: string
-  /** Positive paise: money into the account. */
-  deposit: number
-  /** Positive paise: money out. */
-  withdrawal: number
-}
+/** What one statement line says, once a profile has been applied to it. */
+type StatementRow = ParsedStatementRow
 
-const MONTH_NAMES: Record<string, string> = {
-  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
-  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12'
-}
-
-function parseDateCell(cell: string): string | null {
-  const t = cell.trim().replace(/"/g, '')
-  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`
-  // 15-Aug-2025 / 15 Aug 25 / 15-August-2025
-  m = t.match(/^(\d{1,2})[-/. ]([A-Za-z]{3,9})[-/. ](\d{2}|\d{4})$/)
-  if (m) {
-    const month = MONTH_NAMES[m[2]!.slice(0, 3).toLowerCase()]
-    if (month) {
-      const year = m[3]!.length === 2 ? `20${m[3]}` : m[3]!
-      return `${year}-${month}-${m[1]!.padStart(2, '0')}`
-    }
-    return null
-  }
-  // 15/08/2025 · 15-08-2025 · 15.08.2025
-  m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/)
-  if (m) return `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}`
-  // 15/08/25 · 15-08-25 · 15.08.25
-  m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2})$/)
-  if (m) return `20${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}`
-  return null
-}
-
-function parseAmountCell(cell: string): number | null {
-  const t = cell.trim().replace(/["₹,\s]/g, '')
-  if (t === '' || t === '-') return null
-  const n = Number(t)
-  if (!Number.isFinite(n)) return null
-  return Math.round(n * 100)
-}
-
-/** Parse a bank statement CSV: finds date/debit/credit (or signed amount) columns from the header. */
-export function parseStatementCsv(csv: string): StatementRow[] {
-  // Full-text parse (v0.3 #67) so descriptions with embedded line breaks survive.
-  const records = parseCsv(csv)
-  if (records.length < 2) return []
-  const header = records[0]!.cells.map((h) => h.trim().toLowerCase())
-  const dateIdx = header.findIndex((h) => h.includes('date'))
-  const debitIdx = header.findIndex((h) => h.includes('debit') || h.includes('withdraw'))
-  const creditIdx = header.findIndex((h) => h.includes('credit') || h.includes('deposit'))
-  const amountIdx = header.findIndex((h) => h === 'amount' || h.includes('amount'))
-  const descIdx = header.findIndex((h) => h.includes('desc') || h.includes('narrat') || h.includes('particular') || h.includes('remark'))
-  const refIdx = header.findIndex((h) => h.includes('ref') || h.includes('chq') || h.includes('cheque') || h.includes('utr'))
-  if (dateIdx < 0) throw new Error('No date column found in the CSV header')
-
-  const rows: StatementRow[] = []
-  for (const record of records.slice(1)) {
-    const cells = record.cells
-    const date = parseDateCell(cells[dateIdx] ?? '')
-    if (!date) continue
-    let deposit = 0
-    let withdrawal = 0
-    if (debitIdx >= 0 || creditIdx >= 0) {
-      withdrawal = Math.abs(parseAmountCell(cells[debitIdx] ?? '') ?? 0)
-      deposit = Math.abs(parseAmountCell(cells[creditIdx] ?? '') ?? 0)
-    } else if (amountIdx >= 0) {
-      const amount = parseAmountCell(cells[amountIdx] ?? '') ?? 0
-      if (amount >= 0) deposit = amount
-      else withdrawal = -amount
-    }
-    if (deposit === 0 && withdrawal === 0) continue
-    rows.push({
-      date,
-      description: (cells[descIdx] ?? '').trim(),
-      reference: refIdx >= 0 ? (cells[refIdx] ?? '').trim() : '',
-      deposit,
-      withdrawal
-    })
-  }
-  return rows
+/**
+ * Read a statement CSV, choosing the profile the same way the UI does.
+ *
+ * Kept exported and CSV-in/rows-out because every caller in this file (import, suggestions,
+ * bulk accept) has to read the same file the same way; if two of them disagreed about which
+ * column held the amount, a preview would promise something the apply would not deliver.
+ */
+export function parseStatementCsv(csv: string, profile?: StatementProfile | null): StatementRow[] {
+  return parseStatement(csv, profile).rows
 }
 
 export interface UnmatchedRow {
@@ -196,6 +129,12 @@ export interface ImportResult {
   matches: { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal'; lineId: number }[]
   /** Vouchers auto-created by auto_apply rules during an applying import (audited; empty on dryRun). */
   autoCreated: { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal'; voucherId: number; ruleId: number }[]
+  /** Which profile read the file, so the preview can say so before anything is written. */
+  profileId: string
+  profileName: string
+  /** Lines the profile could not read (no date, no amount, zero amount) — a big number here
+   *  against a small statementRows is the signature of the wrong profile. */
+  skipped: number
 }
 
 /**
@@ -209,7 +148,8 @@ export interface ImportResult {
 function matchStatement(
   db: DB,
   ledgerId: number,
-  csv: string
+  csv: string,
+  profile?: StatementProfile | null
 ): {
   statement: StatementRow[]
   matches: { row: StatementRow; lineId: number }[]
@@ -217,7 +157,7 @@ function matchStatement(
   unmatched: UnmatchedRow[]
   usedLineIds: Set<number>
 } {
-  const statement = parseStatementCsv(csv)
+  const statement = parseStatementCsv(csv, profile)
   const open = db
     .prepare(
       `SELECT vl.id AS lineId, v.date, vl.dr_cr AS drCr, vl.amount
@@ -290,10 +230,11 @@ export function importStatement(
   db: DB,
   ledgerId: number,
   csv: string,
-  opts: { apply?: boolean } = {}
+  opts: { apply?: boolean; profile?: StatementProfile | null } = {}
 ): ImportResult {
   const apply = opts.apply !== false
-  const { statement, matches, alreadyReconciled, unmatched } = matchStatement(db, ledgerId, csv)
+  const read = parseStatement(csv, opts.profile)
+  const { statement, matches, alreadyReconciled, unmatched } = matchStatement(db, ledgerId, csv, read.profile)
 
   const matchDetail = matches.map((m) => ({
     date: m.row.date,
@@ -388,7 +329,10 @@ export function importStatement(
     alreadyReconciled: alreadyReconciled.length,
     unmatched: remaining,
     matches: matchDetail,
-    autoCreated
+    autoCreated,
+    profileId: read.profile.id,
+    profileName: read.profile.name,
+    skipped: read.skipped.length
   }
 }
 
@@ -477,15 +421,26 @@ export interface BankVoucherDraft {
   lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
 }
 
+export interface BankSuggestion {
+  /** null for a suggestion the narration memory produced — there is no rule behind it yet. */
+  ruleId: number | null
+  ledgerId: number
+  ledgerName: string
+  kind: 'payment' | 'receipt'
+  voucherDraft: BankVoucherDraft
+  /** 'rule': a rule the user wrote. 'learned': words remembered from past matches (#133). */
+  source: 'rule' | 'learned'
+  /** 0–100. A rule is 100 — the user already said so in as many words. */
+  confidence: number
+  /** The narration words that carried a learned match; empty for a rule. */
+  matched: string[]
+  /** Another ledger fits the narration exactly as well. Never bulk-accepted. */
+  ambiguous: boolean
+}
+
 export interface BankSuggestionRow {
   statementRow: UnmatchedRow
-  suggestion: {
-    ruleId: number
-    ledgerId: number
-    ledgerName: string
-    kind: 'payment' | 'receipt'
-    voucherDraft: BankVoucherDraft
-  } | null
+  suggestion: BankSuggestion | null
 }
 
 /** Active bank rules in the shared matcher's RuleRow shape (matchField/amount bounds included). */
@@ -502,41 +457,100 @@ function activeRuleRows(db: DB): { rules: RuleRow[]; ruleNames: Map<number, stri
 }
 
 /**
- * Runs the same matching importStatement uses (matchStatement) to find the statement rows that
- * still have no book-entry match, then runs active bank rules over just those rows to suggest a
- * voucher draft per row. Read-only — never sets bank_date, never touches bank_rules.hits (that's
- * recordRuleHit, called separately once the user actually files a suggested voucher).
+ * Draft that turns one statement row into a voucher: the suggested ledger on one side, the bank
+ * on the other. Shared by rule matches and learned matches so both file identically.
  */
-export function suggestVouchers(db: DB, ledgerId: number, csv: string): BankSuggestionRow[] {
-  const { unmatched } = matchStatement(db, ledgerId, csv)
-  const { rules, ruleNames } = activeRuleRows(db)
+function draftFor(
+  bankLedgerId: number,
+  row: UnmatchedRow,
+  ledgerId: number,
+  kind: 'payment' | 'receipt'
+): BankVoucherDraft {
+  const isPayment = kind === 'payment'
+  return {
+    date: row.date,
+    narration: row.description,
+    lines: [
+      { ledgerId, drCr: isPayment ? 'dr' : 'cr', amount: row.amount },
+      { ledgerId: bankLedgerId, drCr: isPayment ? 'cr' : 'dr', amount: row.amount }
+    ]
+  }
+}
 
-  return unmatched.map((u) => {
-    const statementLike = { description: u.description, reference: u.reference, deposit: u.kind === 'deposit' ? u.amount : 0, withdrawal: u.kind === 'withdrawal' ? u.amount : 0 }
-    const match = matchRules([statementLike], rules)[0]
-    if (!match) return { statementRow: u, suggestion: null }
-
+/**
+ * Best suggestion for one unmatched statement row: a bank rule if one fires, otherwise whatever
+ * the narration memory has learned.
+ *
+ * Rules win outright and at full confidence, because a rule is the user having already answered
+ * this question in writing. The memory only speaks where nobody has.
+ */
+function suggestFor(
+  bankLedgerId: number,
+  row: UnmatchedRow,
+  rules: RuleRow[],
+  ruleNames: Map<number, string>,
+  memory: MemoryEntry[],
+  ledgerNames: Map<number, string>
+): BankSuggestion | null {
+  const statementLike = {
+    description: row.description,
+    reference: row.reference,
+    deposit: row.kind === 'deposit' ? row.amount : 0,
+    withdrawal: row.kind === 'withdrawal' ? row.amount : 0
+  }
+  const match = matchRules([statementLike], rules)[0]
+  if (match) {
     const rule = match.rule
-    const isPayment = rule.kind === 'payment'
-    const voucherDraft: BankVoucherDraft = {
-      date: u.date,
-      narration: u.description,
-      lines: [
-        { ledgerId: rule.ledgerId, drCr: isPayment ? 'dr' : 'cr', amount: u.amount },
-        { ledgerId, drCr: isPayment ? 'cr' : 'dr', amount: u.amount }
-      ]
-    }
     return {
-      statementRow: u,
-      suggestion: {
-        ruleId: rule.id,
-        ledgerId: rule.ledgerId,
-        ledgerName: ruleNames.get(rule.id) ?? '',
-        kind: rule.kind,
-        voucherDraft
-      }
+      ruleId: rule.id,
+      ledgerId: rule.ledgerId,
+      ledgerName: ruleNames.get(rule.id) ?? '',
+      kind: rule.kind,
+      voucherDraft: draftFor(bankLedgerId, row, rule.ledgerId, rule.kind),
+      source: 'rule',
+      confidence: 100,
+      matched: [],
+      ambiguous: false
     }
-  })
+  }
+
+  const kind: 'payment' | 'receipt' = row.kind === 'deposit' ? 'receipt' : 'payment'
+  const learned = suggestFromMemory(row.description, kind, memory)
+  if (!learned) return null
+  const name = ledgerNames.get(learned.ledgerId)
+  // A ledger deleted since it was learned leaves memory rows behind (FK cascade covers the row
+  // itself, but a stale in-memory list would not) — no name, no suggestion.
+  if (!name) return null
+  return {
+    ruleId: null,
+    ledgerId: learned.ledgerId,
+    ledgerName: name,
+    kind,
+    voucherDraft: draftFor(bankLedgerId, row, learned.ledgerId, kind),
+    source: 'learned',
+    confidence: learned.confidence,
+    matched: learned.matched,
+    ambiguous: learned.ambiguous
+  }
+}
+
+/**
+ * Runs the same matching importStatement uses (matchStatement) to find the statement rows that
+ * still have no book-entry match, then offers a ledger per row — from an active bank rule where
+ * one fires, otherwise from the narration memory, with the confidence that memory earns.
+ * Read-only: never sets bank_date, never touches bank_rules.hits (that's recordRuleHit, called
+ * once the user actually files a suggested voucher) and never learns (that's learnFromMatch).
+ */
+export function suggestVouchers(db: DB, ledgerId: number, csv: string, profile?: StatementProfile | null): BankSuggestionRow[] {
+  const { unmatched } = matchStatement(db, ledgerId, csv, profile)
+  const { rules, ruleNames } = activeRuleRows(db)
+  const memory = loadMemory(db)
+  const ledgerNames = allLedgerNames(db)
+
+  return unmatched.map((u) => ({
+    statementRow: u,
+    suggestion: suggestFor(ledgerId, u, rules, ruleNames, memory, ledgerNames)
+  }))
 }
 
 // ---------- statement matching v2: tolerance + many-to-one suggestions (task Y2) ----------
@@ -557,8 +571,8 @@ export interface BankMatchSuggestion {
  * three invoices. Read-only: nothing is written; the renderer reconciles the suggested lines
  * explicitly via bank:setBankDate.
  */
-export function matchSuggestions(db: DB, ledgerId: number, csv: string, tolerancePaise = 100): BankMatchSuggestion[] {
-  const { unmatched, usedLineIds } = matchStatement(db, ledgerId, csv)
+export function matchSuggestions(db: DB, ledgerId: number, csv: string, tolerancePaise = 100, profile?: StatementProfile | null): BankMatchSuggestion[] {
+  const { unmatched, usedLineIds } = matchStatement(db, ledgerId, csv, profile)
   if (unmatched.length === 0) return []
 
   const open = db
@@ -784,4 +798,395 @@ export function reconciliationStatus(db: DB, asOn: string): ReconciliationStatus
       oldestUnreconciledDays
     }
   })
+}
+
+// ---------- statement import profiles (#131) ----------
+
+/** A profile as the renderer sees it: built-ins and user-saved ones in one list. */
+export type ImportProfileRecord = StatementProfile
+
+export interface ImportProfileInput {
+  name: string
+  dateFormat: StatementProfile['dateFormat']
+  convention: StatementProfile['convention']
+  debitFlag: string | null
+  columns: ProfileColumns
+}
+
+function userProfileRows(db: DB): StatementProfile[] {
+  const rows = db
+    .prepare(
+      `SELECT id, name, date_format AS dateFormat, convention, debit_flag AS debitFlag,
+              columns_json AS columnsJson
+       FROM bank_import_profiles ORDER BY name COLLATE NOCASE`
+    )
+    .all() as { id: number; name: string; dateFormat: string; convention: string; debitFlag: string | null; columnsJson: string }[]
+
+  return rows.map((r) => ({
+    id: `user:${r.id}`,
+    name: r.name,
+    builtIn: false,
+    dateFormat: r.dateFormat as StatementProfile['dateFormat'],
+    convention: r.convention as StatementProfile['convention'],
+    debitFlag: r.debitFlag,
+    columns: JSON.parse(r.columnsJson) as ProfileColumns
+  }))
+}
+
+/** Built-ins first (they are the common case), then whatever this company has mapped by hand. */
+export function listImportProfiles(db: DB): ImportProfileRecord[] {
+  return [...BUILTIN_PROFILES, ...userProfileRows(db)]
+}
+
+/**
+ * Profiles are not audited.
+ *
+ * The audit trail is for things that change what the books say. A column map changes how one CSV
+ * is read; the import it feeds IS audited, with the profile named on it. Filling the trail with
+ * "user renamed a column mapping" would make the entries that matter harder to find.
+ */
+export function saveImportProfile(db: DB, input: ImportProfileInput, id?: number): ImportProfileRecord {
+  const columnsJson = JSON.stringify(input.columns)
+  if (input.convention === 'flagged' && !input.debitFlag?.trim()) {
+    throw new Error('A Dr/Cr statement needs the text that means a withdrawal, e.g. DR')
+  }
+  if (id != null) {
+    const before = db.prepare('SELECT * FROM bank_import_profiles WHERE id = ?').get(id)
+    if (!before) throw new Error('Import profile not found')
+    db.prepare(
+      `UPDATE bank_import_profiles SET name = ?, date_format = ?, convention = ?, debit_flag = ?,
+       columns_json = ? WHERE id = ?`
+    ).run(input.name, input.dateFormat, input.convention, input.debitFlag, columnsJson, id)
+  } else {
+    const res = db
+      .prepare(
+        `INSERT INTO bank_import_profiles (name, date_format, convention, debit_flag, columns_json)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(input.name, input.dateFormat, input.convention, input.debitFlag, columnsJson)
+    id = Number(res.lastInsertRowid)
+  }
+  const saved = userProfileRows(db).find((p) => p.id === `user:${id}`)
+  if (!saved) throw new Error('Import profile not found after save')
+  return saved
+}
+
+export function deleteImportProfile(db: DB, id: number): void {
+  const before = db.prepare('SELECT * FROM bank_import_profiles WHERE id = ?').get(id)
+  if (!before) throw new Error('Import profile not found')
+  db.prepare('DELETE FROM bank_import_profiles WHERE id = ?').run(id)
+}
+
+/** An ad-hoc mapping the user made in the column mapper but has not saved as a profile. */
+export type AdHocProfile = Omit<ImportProfileInput, 'name'> & { name?: string }
+
+/**
+ * Which profile to read a statement with.
+ *
+ * An explicit column map wins (the user is standing in the mapper looking at their own file), then
+ * a named profile, then nothing — which leaves `parseStatement` to detect a built-in or fall back
+ * to the wording heuristic.
+ */
+export function resolveProfile(
+  db: DB,
+  opts: { profileId?: string | null; adHoc?: AdHocProfile | null } = {}
+): StatementProfile | null {
+  if (opts.adHoc) {
+    return {
+      id: 'adhoc',
+      name: opts.adHoc.name ?? 'Custom columns',
+      builtIn: false,
+      dateFormat: opts.adHoc.dateFormat,
+      convention: opts.adHoc.convention,
+      debitFlag: opts.adHoc.debitFlag,
+      columns: opts.adHoc.columns
+    }
+  }
+  if (!opts.profileId) return null
+  const found = listImportProfiles(db).find((p) => p.id === opts.profileId)
+  if (!found) throw new Error('Import profile not found')
+  return found
+}
+
+export interface StatementInspection {
+  header: string[]
+  /** null when nothing recognised the file — the renderer's cue to open the column mapper. */
+  profileId: string | null
+  profileName: string | null
+  /** True only when a stored/built-in profile claimed the header, not when we guessed. */
+  detected: boolean
+  /** The mapping being proposed, so the mapper opens pre-filled rather than blank. */
+  columns: ProfileColumns | null
+  dateFormat: StatementProfile['dateFormat']
+  convention: StatementProfile['convention']
+  debitFlag: string | null
+  /** What that mapping would actually read, so the user sees the answer before committing. */
+  rowsReadable: number
+  rowsSkipped: number
+  /** First few readable rows, for the mapper's preview table. */
+  sample: { date: string; description: string; reference: string; deposit: number; withdrawal: number }[]
+  /** Set when the chosen profile cannot be applied at all; the mapper is the only way forward. */
+  error: string | null
+}
+
+/**
+ * Look at a statement without importing it: which profile fits, what it would read, what it
+ * would skip.
+ *
+ * The whole point of #131 is that an unrecognised file must not fail — it must land the user in a
+ * column mapper with the best guess already filled in. So nothing here throws for a bad mapping;
+ * the failure is data on the way back.
+ */
+export function inspectStatement(
+  db: DB,
+  csv: string,
+  opts: { profileId?: string | null; adHoc?: AdHocProfile | null } = {}
+): StatementInspection {
+  const header = statementHeader(csv)
+  let chosen: StatementProfile | null = null
+  let detected = false
+  try {
+    chosen = resolveProfile(db, opts)
+  } catch {
+    chosen = null
+  }
+  if (!chosen) {
+    chosen = detectProfile(header, listImportProfiles(db))
+    detected = chosen != null
+    if (!chosen) chosen = guessProfile(header)
+  } else {
+    detected = opts.adHoc == null
+  }
+
+  const base = {
+    header,
+    profileId: chosen?.id ?? null,
+    profileName: chosen?.name ?? null,
+    detected,
+    columns: chosen?.columns ?? null,
+    dateFormat: chosen?.dateFormat ?? ('dmy' as const),
+    convention: chosen?.convention ?? ('debit_credit' as const),
+    debitFlag: chosen?.debitFlag ?? null
+  }
+  if (!chosen) {
+    return { ...base, rowsReadable: 0, rowsSkipped: 0, sample: [], error: 'No profile matches this file — pick the columns by hand' }
+  }
+  try {
+    const read = parseStatement(csv, chosen)
+    return {
+      ...base,
+      rowsReadable: read.rows.length,
+      rowsSkipped: read.skipped.length,
+      sample: read.rows.slice(0, 5).map((r) => ({
+        date: r.date, description: r.description, reference: r.reference, deposit: r.deposit, withdrawal: r.withdrawal
+      })),
+      error: null
+    }
+  } catch (err) {
+    return { ...base, rowsReadable: 0, rowsSkipped: 0, sample: [], error: (err as Error).message }
+  }
+}
+
+// ---------- narration memory (#133) ----------
+
+function loadMemory(db: DB): MemoryEntry[] {
+  return db
+    .prepare('SELECT keyword, ledger_id AS ledgerId, kind, hits FROM bank_narration_memory')
+    .all() as MemoryEntry[]
+}
+
+function allLedgerNames(db: DB): Map<number, string> {
+  const rows = db.prepare('SELECT id, name FROM ledgers').all() as { id: number; name: string }[]
+  return new Map(rows.map((r) => [r.id, r.name]))
+}
+
+/**
+ * Remember that this narration meant this ledger.
+ *
+ * Called when the user does something that says so out loud: files a voucher from a statement
+ * row, accepts a suggestion, or writes a rule from the row. Learning from anything less — from a
+ * suggestion merely shown, say — would teach the engine its own guesses back.
+ *
+ * Returns the keywords learned, which is empty for a narration that is all bank plumbing.
+ */
+export function learnFromMatch(
+  db: DB,
+  description: string,
+  ledgerId: number,
+  kind: 'payment' | 'receipt'
+): string[] {
+  const words = significantWords(description)
+  if (words.length === 0) return []
+  const exists = db.prepare('SELECT 1 FROM ledgers WHERE id = ?').get(ledgerId)
+  if (!exists) throw new Error('Ledger not found')
+
+  const stmt = db.prepare(
+    `INSERT INTO bank_narration_memory (keyword, ledger_id, kind, hits, last_seen)
+     VALUES (?, ?, ?, 1, datetime('now'))
+     ON CONFLICT (keyword, ledger_id, kind)
+     DO UPDATE SET hits = hits + 1, last_seen = datetime('now')`
+  )
+  const run = db.transaction(() => {
+    for (const word of words) stmt.run(word, ledgerId, kind)
+  })
+  run()
+  return words
+}
+
+export interface NarrationMemoryRow {
+  keyword: string
+  ledgerId: number
+  ledgerName: string
+  kind: 'payment' | 'receipt'
+  hits: number
+  lastSeen: string
+}
+
+/** Everything learned, strongest first — so a user can see (and delete) what the engine thinks. */
+export function listNarrationMemory(db: DB): NarrationMemoryRow[] {
+  return db
+    .prepare(
+      `SELECT m.keyword, m.ledger_id AS ledgerId, l.name AS ledgerName, m.kind, m.hits,
+              m.last_seen AS lastSeen
+       FROM bank_narration_memory m JOIN ledgers l ON l.id = m.ledger_id
+       ORDER BY m.hits DESC, m.keyword COLLATE NOCASE`
+    )
+    .all() as NarrationMemoryRow[]
+}
+
+/** Forget one keyword→ledger pair. The escape hatch for a match the user regrets teaching. */
+export function forgetNarration(db: DB, keyword: string, ledgerId: number, kind: 'payment' | 'receipt'): void {
+  const res = db
+    .prepare('DELETE FROM bank_narration_memory WHERE keyword = ? AND ledger_id = ? AND kind = ?')
+    .run(keyword, ledgerId, kind)
+  if (res.changes === 0) throw new Error('Nothing learned for that keyword')
+}
+
+// ---------- bulk accept (#134) ----------
+
+export interface BulkAcceptRow {
+  date: string
+  description: string
+  amount: number
+  kind: 'deposit' | 'withdrawal'
+  ledgerId: number
+  ledgerName: string
+  confidence: number
+  source: 'rule' | 'learned'
+  /** Only set once applied. */
+  voucherId?: number
+}
+
+export interface BulkAcceptResult {
+  /** The bar this ran at, echoed back so the confirmation cannot describe a different one. */
+  minConfidence: number
+  /** Rows at or above the bar — the ones this will (or did) file. */
+  accepted: BulkAcceptRow[]
+  count: number
+  /** Sum of the accepted rows, paise. Deposits and withdrawals are summed separately because one
+   *  net figure would let a big receipt hide a big payment. */
+  depositTotal: number
+  withdrawalTotal: number
+  /** Suggestions deliberately left alone: below the bar, or ambiguous at any confidence. */
+  skipped: number
+  applied: boolean
+}
+
+/**
+ * Accept every suggestion at or above a confidence, in one action (#134).
+ *
+ * `apply: false` is the whole safety story: it returns exactly the rows the applying call will
+ * file, with the count and totals, so the confirmation the user reads is computed from the same
+ * pass that does the work rather than from a second guess at it.
+ *
+ * Nothing below the threshold is touched, and an ambiguous suggestion — two ledgers fitting the
+ * narration equally — is never accepted at any threshold, because "high confidence" and "the
+ * engine cannot choose" are not both true.
+ */
+export function bulkAcceptSuggestions(
+  db: DB,
+  ledgerId: number,
+  csv: string,
+  minConfidence: number = DEFAULT_CONFIDENCE_THRESHOLD,
+  opts: { apply?: boolean; profile?: StatementProfile | null } = {}
+): BulkAcceptResult {
+  const apply = opts.apply === true
+  const rows = suggestVouchers(db, ledgerId, csv, opts.profile)
+
+  const eligible = rows.filter(
+    (r) => r.suggestion != null && !r.suggestion.ambiguous && r.suggestion.confidence >= minConfidence
+  )
+  const skipped = rows.filter((r) => r.suggestion != null).length - eligible.length
+
+  const accepted: BulkAcceptRow[] = eligible.map((r) => ({
+    date: r.statementRow.date,
+    description: r.statementRow.description,
+    amount: r.statementRow.amount,
+    kind: r.statementRow.kind,
+    ledgerId: r.suggestion!.ledgerId,
+    ledgerName: r.suggestion!.ledgerName,
+    confidence: r.suggestion!.confidence,
+    source: r.suggestion!.source
+  }))
+
+  if (apply && accepted.length > 0) {
+    const setBank = db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?')
+    const run = db.transaction(() => {
+      for (let i = 0; i < eligible.length; i++) {
+        const row = eligible[i]!
+        const s = row.suggestion!
+        const vt = db.prepare('SELECT id FROM voucher_types WHERE kind = ? AND is_system = 1').get(s.kind) as
+          | { id: number }
+          | undefined
+        if (!vt) throw new Error(`No ${s.kind} voucher type to file against`)
+        const voucher = saveVoucher(db, {
+          voucherTypeId: vt.id,
+          date: row.statementRow.date,
+          number: undefined,
+          partyLedgerId: null,
+          narration: row.statementRow.description,
+          reference: row.statementRow.reference || null,
+          instrumentNo: null,
+          instrumentDate: null,
+          transporterId: null,
+          vehicleNo: null,
+          transportDistanceKm: null,
+          currencyCode: null,
+          exchangeRate: null,
+          lines: s.voucherDraft.lines.map((l) => ({ ...l, costAllocations: [] })),
+          inventory: [],
+          billRefs: [],
+          tds: null
+        })
+        // The bank side of what we just filed IS the statement row, so reconcile it here rather
+        // than leaving the user to import the same statement a second time.
+        const bankLine = voucher.lines.find((l) => l.ledgerId === ledgerId)
+        if (bankLine) setBank.run(row.statementRow.date, bankLine.id)
+        if (s.ruleId != null) recordRuleHit(db, s.ruleId)
+        // Accepting is the user saying yes, so it counts as evidence for next month.
+        learnFromMatch(db, row.statementRow.description, s.ledgerId, s.kind)
+        accepted[i]!.voucherId = voucher.id
+      }
+      // 'import': the same event class as a statement import, because that is what it is — the
+      // rest of the same statement, filed in one go. The threshold is on the row so a later
+      // reader can tell what bar these were accepted at.
+      writeAudit(db, 'bank_statement', ledgerId, 'import', null, {
+        bulkAccept: true,
+        minConfidence,
+        accepted: accepted.length,
+        skipped
+      })
+    })
+    run()
+  }
+
+  return {
+    minConfidence,
+    accepted,
+    count: accepted.length,
+    depositTotal: accepted.filter((a) => a.kind === 'deposit').reduce((s, a) => s + a.amount, 0),
+    withdrawalTotal: accepted.filter((a) => a.kind === 'withdrawal').reduce((s, a) => s + a.amount, 0),
+    skipped,
+    applied: apply && accepted.length > 0
+  }
 }

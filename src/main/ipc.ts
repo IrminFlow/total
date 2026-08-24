@@ -52,6 +52,9 @@ import * as nic from './services/nic'
 import * as tds from './services/tds'
 import * as costCentres from './services/costCentres'
 import * as stockAnalysis from './services/stockAnalysis'
+import * as inventoryTransfer from './services/inventoryTransfer'
+import * as inventoryLandedCost from './services/inventoryLandedCost'
+import * as inventoryReorder from './services/inventoryReorder'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
@@ -247,6 +250,27 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
 
 const idSchema = z.object({ id: z.number().int().positive() })
 const withIdSchema = <T extends z.ZodTypeAny>(schema: T) => z.object({ id: z.number().int().positive(), data: schema })
+
+/** Godown-to-godown transfer (roadmap #112). Quantities are integer thousandths; the value is
+ *  never sent from the renderer — the service asks the valuation engine for it. */
+const transferInputSchema = z.object({
+  date: isoDate,
+  fromGodownId: z.number().int().positive(),
+  toGodownId: z.number().int().positive(),
+  items: z
+    .array(z.object({ stockItemId: z.number().int().positive(), qtyMilli: z.number().int() }))
+    .max(200),
+  narration: z.string().trim().max(1000).nullable().optional(),
+  number: z.string().trim().max(40).optional()
+})
+
+/** One landed-cost line on a purchase (roadmap #117). */
+const landedCostRowSchema = z.object({
+  ledgerId: z.number().int().positive(),
+  label: z.string().trim().max(60),
+  amount: z.number().int().positive(),
+  basis: z.enum(['value', 'qty'])
+})
 
 /** [lane-Q audit] one-line summary audit row for every file-export handler (task Q1 #90). */
 const auditExport = (db: DB, kind: string, detail: Record<string, unknown>): void =>
@@ -648,6 +672,41 @@ export function registerIpc(): void {
     const { query } = z.object({ query: z.string().trim().max(120) }).parse(p)
     return masters.findItem(requireCompany().db, query)
   }, 'viewer')
+  // ---------- moving stock between godowns (roadmap #112) ----------
+  handle('stock:godownStock', (p) => {
+    const { asOn, godownId } = z.object({ asOn: isoDate, godownId: z.number().int().positive() }).parse(p)
+    return inventoryTransfer.godownAvailability(requireCompany().db, asOn, godownId)
+  }, 'viewer')
+  handle('stock:previewTransfer', (p) => inventoryTransfer.previewTransfer(requireCompany().db, transferInputSchema.parse(p)), 'viewer')
+  handle('stock:saveTransfer', (p) => inventoryTransfer.saveTransfer(requireCompany().db, transferInputSchema.parse(p)), 'accountant')
+  handle('stock:transfers', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return inventoryTransfer.listTransfers(requireCompany().db, from, to)
+  }, 'viewer')
+
+  // ---------- landed cost on a purchase (roadmap #117) ----------
+  handle('stock:costablePurchases', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return inventoryLandedCost.costablePurchases(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('stock:landedCosts', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    return inventoryLandedCost.landedCostView(requireCompany().db, voucherId)
+  }, 'viewer')
+  handle('stock:saveLandedCosts', (p) => {
+    const { voucherId, costs } = z
+      .object({ voucherId: z.number().int().positive(), costs: z.array(landedCostRowSchema).max(20) })
+      .parse(p)
+    return inventoryLandedCost.saveLandedCosts(requireCompany().db, voucherId, costs)
+  }, 'accountant')
+
+  // ---------- reorder alerts (roadmap #121) ----------
+  handle('stock:reorderAlerts', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    const c = requireCompany()
+    return inventoryReorder.reorderAlerts(c.db, c.info.name, asOn)
+  }, 'viewer')
+
   handle('stock:negative', (p) => {
     const { asOn } = stockQuerySchema.parse(p)
     return stockAnalysis.negativeStock(requireCompany().db, asOn)
@@ -1408,25 +1467,83 @@ export function registerIpc(): void {
     banking.setBankDate(requireCompany().db, lineId, bankDate)
     return null
   })
-  handle('bank:importCsv', async (p) => {
-    const { ledgerId, csvText, dryRun } = z
-      .object({ ledgerId: z.number().int().positive(), csvText: z.string().optional(), dryRun: z.boolean().optional() })
+  // ---------- statement import profiles (#131) ----------
+  // Column maps live in one schema shared by the profile CRUD, the inspector and the importer, so
+  // the mapping a user previews is byte-for-byte the one that reads their file.
+  const profileColumnsSchema = z.object({
+    date: z.string().trim().max(120),
+    narration: z.string().trim().max(120),
+    reference: z.string().trim().max(120).nullable().optional(),
+    debit: z.string().trim().max(120).nullable().optional(),
+    credit: z.string().trim().max(120).nullable().optional(),
+    amount: z.string().trim().max(120).nullable().optional(),
+    drCr: z.string().trim().max(120).nullable().optional(),
+    balance: z.string().trim().max(120).nullable().optional()
+  })
+  const adHocProfileSchema = z.object({
+    name: z.string().trim().min(1).max(60).optional(),
+    dateFormat: z.enum(['dmy', 'mdy', 'ymd']),
+    convention: z.enum(['debit_credit', 'signed', 'flagged']),
+    debitFlag: z.string().trim().max(10).nullable(),
+    columns: profileColumnsSchema
+  })
+  const profileChoiceSchema = z.object({
+    profileId: z.string().trim().max(60).nullable().optional(),
+    adHoc: adHocProfileSchema.nullable().optional()
+  })
+
+  handle('bankprofile:list', () => banking.listImportProfiles(requireCompany().db), 'viewer')
+  handle('bankprofile:save', (p) => {
+    const { id, data } = z
+      .object({ id: z.number().int().positive().optional(), data: adHocProfileSchema.extend({ name: z.string().trim().min(1).max(60) }) })
+      .parse(p)
+    return banking.saveImportProfile(requireCompany().db, data, id)
+  })
+  handle('bankprofile:delete', (p) => {
+    banking.deleteImportProfile(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  /** Read a statement CSV from disk when the renderer didn't supply the text itself. */
+  const pickStatementCsv = async (csvText: string | undefined): Promise<string | null> => {
+    if (csvText !== undefined) return csvText
+    const picked = await dialog.showOpenDialog({
+      title: 'Choose bank statement CSV',
+      filters: [{ name: 'CSV', extensions: ['csv', 'txt'] }],
+      properties: ['openFile']
+    })
+    if (picked.canceled || !picked.filePaths[0]) return null
+    return readFileSync(picked.filePaths[0], 'utf8')
+  }
+
+  // Look before you import: which profile fits, what it would read, what it would skip. Returns
+  // csvText so the renderer can carry the same bytes through mapping → preview → apply.
+  handle('bank:inspectStatement', async (p) => {
+    const { csvText, profileId, adHoc } = profileChoiceSchema
+      .extend({ csvText: z.string().optional() })
       .parse(p)
     const c = requireCompany()
-    let csv = csvText
-    if (csv === undefined) {
-      const picked = await dialog.showOpenDialog({
-        title: 'Choose bank statement CSV',
-        filters: [{ name: 'CSV', extensions: ['csv', 'txt'] }],
-        properties: ['openFile']
+    const csv = await pickStatementCsv(csvText)
+    if (csv === null) return null
+    return { ...banking.inspectStatement(c.db, csv, { profileId, adHoc }), csvText: csv }
+  }, 'viewer')
+
+  handle('bank:importCsv', async (p) => {
+    const { ledgerId, csvText, dryRun, profileId, adHoc } = profileChoiceSchema
+      .extend({
+        ledgerId: z.number().int().positive(),
+        csvText: z.string().optional(),
+        dryRun: z.boolean().optional()
       })
-      if (picked.canceled || !picked.filePaths[0]) return null
-      csv = readFileSync(picked.filePaths[0], 'utf8')
-    }
+      .parse(p)
+    const c = requireCompany()
+    const csv = await pickStatementCsv(csvText)
+    if (csv === null) return null
+    const profile = banking.resolveProfile(c.db, { profileId, adHoc })
     // csvText rides back on the response (not just the parsed result) so the renderer — which
     // never sees the picked file's contents when the dialog path is used — can hand the exact
     // same text to banking:suggest (or back to an applying import after a dryRun preview).
-    return { ...banking.importStatement(c.db, ledgerId, csv, { apply: !dryRun }), csvText: csv }
+    return { ...banking.importStatement(c.db, ledgerId, csv, { apply: !dryRun, profile }), csvText: csv }
   })
   handle('bankrule:list', () => banking.listRules(requireCompany().db), 'viewer')
   handle('bankrule:save', (p) => {
@@ -1442,8 +1559,48 @@ export function registerIpc(): void {
     return null
   })
   handle('banking:suggest', (p) => {
-    const { ledgerId, csvText } = z.object({ ledgerId: z.number().int().positive(), csvText: z.string() }).parse(p)
-    return banking.suggestVouchers(requireCompany().db, ledgerId, csvText)
+    const { ledgerId, csvText, profileId, adHoc } = profileChoiceSchema
+      .extend({ ledgerId: z.number().int().positive(), csvText: z.string() })
+      .parse(p)
+    const c = requireCompany()
+    return banking.suggestVouchers(c.db, ledgerId, csvText, banking.resolveProfile(c.db, { profileId, adHoc }))
+  })
+
+  // ---------- narration memory (#133) + bulk accept (#134) ----------
+  const learnSchema = z.object({
+    description: z.string().trim().min(1).max(500),
+    ledgerId: z.number().int().positive(),
+    kind: z.enum(['payment', 'receipt'])
+  })
+  handle('banking:learn', (p) => {
+    const { description, ledgerId, kind } = learnSchema.parse(p)
+    return { keywords: banking.learnFromMatch(requireCompany().db, description, ledgerId, kind) }
+  })
+  handle('banking:memory', () => banking.listNarrationMemory(requireCompany().db), 'viewer')
+  handle('banking:forget', (p) => {
+    const { keyword, ledgerId, kind } = learnSchema
+      .omit({ description: true })
+      .extend({ keyword: z.string().trim().min(1).max(60) })
+      .parse(p)
+    banking.forgetNarration(requireCompany().db, keyword, ledgerId, kind)
+    return null
+  })
+  handle('banking:bulkAccept', (p) => {
+    const { ledgerId, csvText, minConfidence, apply, profileId, adHoc } = profileChoiceSchema
+      .extend({
+        ledgerId: z.number().int().positive(),
+        csvText: z.string(),
+        // A threshold below 50 would accept single-observation guesses, which is the one thing
+        // the confidence model exists to prevent.
+        minConfidence: z.number().int().min(50).max(100),
+        apply: z.boolean().optional()
+      })
+      .parse(p)
+    const c = requireCompany()
+    return banking.bulkAcceptSuggestions(c.db, ledgerId, csvText, minConfidence, {
+      apply,
+      profile: banking.resolveProfile(c.db, { profileId, adHoc })
+    })
   })
   // statement matching v2 — read-only tolerance/many-to-one suggestions (task Y2)
   handle('banking:matchSuggestions', (p) => {

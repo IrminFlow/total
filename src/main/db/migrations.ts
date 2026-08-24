@@ -896,5 +896,77 @@ export const MIGRATIONS: string[] = [
   -- The income-tax charge per asset per year, so the block rolls forward on its own rate rather
   -- than on the books'. Stored beside the Companies Act charge, never derived from it.
   ALTER TABLE depreciation_lines ADD COLUMN tax_depreciation INTEGER NOT NULL DEFAULT 0;
+  `,
+
+  // 31 — how each bank writes its statement, and what the user taught us about narrations.
+  //
+  // Two tables, both about the same hour of work: the one spent every month turning a CSV nobody
+  // designed for us into reconciled entries.
+  //
+  // A statement profile is the shape of one bank's export — which header holds the narration, how
+  // the dates are written, whether direction is two columns or a flag. The built-in five ship as
+  // code (src/shared/bankImport.ts) because they are facts about banks, not user data; this table
+  // is only for the ones a user maps by hand. The column map is one JSON blob on purpose: it is
+  // the profile's own vocabulary, and no query will ever filter on "which column held the
+  // balance".
+  //
+  // The narration memory is the other half. When a user matches a statement line to a ledger, the
+  // significant words of that narration are remembered against it, so the next month's identical
+  // remark can be offered back. `hits` is the whole safety mechanism: it separates "seen once"
+  // from "seen every month for a year", and the confidence the suggestion is offered with is
+  // computed from it. UNIQUE on the triple, because the same word learned twice is evidence, not
+  // a second row.
+  `
+  CREATE TABLE bank_import_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    date_format TEXT NOT NULL DEFAULT 'dmy' CHECK (date_format IN ('dmy','mdy','ymd')),
+    convention TEXT NOT NULL CHECK (convention IN ('debit_credit','signed','flagged')),
+    -- Cell text that means "money out" under the 'flagged' convention, e.g. 'DR'.
+    debit_flag TEXT,
+    -- { date, narration, reference, debit, credit, amount, drCr, balance } → header text.
+    columns_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE bank_narration_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword TEXT NOT NULL,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    -- Direction is part of the key: a name learned from payments says nothing about a deposit
+    -- with the same wording, which is usually a refund and belongs somewhere else.
+    kind TEXT NOT NULL CHECK (kind IN ('payment','receipt')),
+    hits INTEGER NOT NULL DEFAULT 1,
+    last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (keyword, ledger_id, kind)
+  );
+  CREATE INDEX idx_bank_narration_keyword ON bank_narration_memory(keyword);
+  `,
+
+  // 32 — freight, insurance and duty that belong in the cost of the goods.
+  //
+  // Money paid to get a purchase to the door is part of what those goods cost. Left sitting in an
+  // expense ledger it makes closing stock too low and gross margin too high, and every price set
+  // off that margin is wrong in the same direction.
+  //
+  // A row here does NOT post anything: the charge is already an ordinary debit line on the
+  // purchase voucher. What is recorded is the instruction to carry that line's money into the
+  // value of the item lines, and on which basis — by value (insurance, duty, commission) or by
+  // quantity (freight, handling). The valuation engine reads these the same way it already reads
+  // a stock journal's additional costs.
+  `
+  CREATE TABLE landed_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    -- The expense ledger the charge is posted to on this very voucher. Kept so the allocation can
+    -- be checked against a real line rather than being a number somebody typed.
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    -- Paise, always positive.
+    amount INTEGER NOT NULL,
+    basis TEXT NOT NULL CHECK (basis IN ('value','qty')),
+    line_order INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_landed_costs_voucher ON landed_costs(voucher_id);
   `
 ]

@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { migrate } from './migrate'
 import { MIGRATIONS } from './migrations'
+import { MIGRATION_HASHES } from './migrationHashes'
+import { createHash } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { freshDb, freshPartialDb } from './testdb'
 
 const EXPECTED_TABLES = [
@@ -47,6 +51,9 @@ const EXPECTED_TABLES = [
   'loan_recoveries',
   'luts',
   'party_notes',
+  'bank_import_profiles',
+  'bank_narration_memory',
+  'landed_costs',
   'migrations'
 ]
 
@@ -585,5 +592,68 @@ describe('migration 18 — party contact', () => {
       expect(row.email).toBeNull()
     }
     db.close()
+  })
+})
+
+
+/**
+ * The order is pinned, because nothing at runtime checks it.
+ *
+ * `migrate.ts` resumes from `MAX(id)` — an array index. Editing an applied migration, or slotting
+ * a new one into the middle, is invisible to every other test in this repo, because every other
+ * test builds a database from scratch where any order is self-consistent. It is only visible on a
+ * machine that already ran the app, which is every machine that matters.
+ *
+ * This nearly happened: two agents working in parallel both took "31", and the second inserted
+ * rather than appended. A database that had applied 31 migrations would have resumed at index 31,
+ * run what was now migration 32, and failed on a table it already had — with the new migration
+ * never applied at all.
+ */
+describe('migration order is append-only', () => {
+  const hash = (sql: string): string => createHash('sha256').update(sql).digest('hex').slice(0, 16)
+  const actual = MIGRATIONS.map(hash)
+
+  // Appending a migration is the only change that keeps this green, and regenerating the pin is
+  // then a deliberate one-liner rather than a hand-edit:
+  //
+  //   MIGRATION_HASHES_WRITE=1 npm run test:db -- migrations
+  //
+  // Written from the array itself so the pin can never disagree with what actually ships.
+  if (process.env.MIGRATION_HASHES_WRITE) {
+    const header = `/**
+ * A fingerprint of every migration, in order. GENERATED — see migrations.dbtest.ts.
+ *
+ * Migrations here are applied by ARRAY POSITION: migrate.ts records MAX(id) and resumes from that
+ * index. Nothing keys on a name or a checksum at runtime. Two consequences, both silent:
+ *
+ *   - EDITING an applied migration changes what a fresh database gets and leaves every existing
+ *     one behind, with no error anywhere.
+ *   - INSERTING one in the middle shifts every later migration up a position. A database that had
+ *     applied N resumes at N, runs what used to be N+1, skips the new one entirely, and then
+ *     fails on a CREATE TABLE for something it already has.
+ *
+ * Neither is visible to a test that builds from scratch, which is every other test in this repo.
+ * So the order is pinned here.
+ */
+export const MIGRATION_HASHES: readonly string[] = [`
+    const lines = actual.map((h, i) => {
+      const first =
+        (MIGRATIONS[i] ?? '')
+          .split('\n')
+          .map((l) => l.trim())
+          .find((l) => l && !l.startsWith('--')) ?? ''
+      return `  '${h}', // ${i + 1}: ${first.slice(0, 64)}`
+    })
+    writeFileSync(join(__dirname, 'migrationHashes.ts'), `${header}\n${lines.join('\n')}\n]\n`)
+  }
+
+  it('has a fingerprint for every migration', () => {
+    expect(MIGRATION_HASHES).toHaveLength(MIGRATIONS.length)
+  })
+
+  it('has not edited or reordered an existing migration', () => {
+    // Compared as whole arrays: a diff shows an insertion as one shifted block, where
+    // index-by-index assertions would flag every later migration and bury the one that moved.
+    expect(actual).toEqual([...MIGRATION_HASHES])
   })
 })

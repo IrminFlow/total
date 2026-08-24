@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ChequeConfig } from '@shared/schemas'
-import { api, type BankImportResult, type BankRuleRecord, type BankSuggestionRow, type BrsItem } from '../lib/client'
+import {
+  api, type BankAdHocProfile, type BankBulkAcceptResult, type BankImportResult, type BankProfileColumns,
+  type BankRuleRecord, type BankStatementInspection, type BankSuggestionRow, type BankUnmatchedRow, type BrsItem
+} from '../lib/client'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
 import {
   Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, SkeletonRows, Spinner, TextInput, useTableNav
@@ -10,10 +13,15 @@ import { LedgerPicker } from '../components/pickers'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { useStickyTab } from '../lib/useStickyTab'
 import { suggestPattern } from '@shared/bankRules'
+import { PROFILE_FIELDS, type ProfileField } from '@shared/bankImport'
+import { DEFAULT_CONFIDENCE_THRESHOLD } from '@shared/narrationMemory'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
 type BankTab = 'status' | 'recon' | 'brs' | 'pdc'
+
+/** How a statement is being read: a named profile, or columns mapped by hand (#131). */
+type ProfileChoice = { profileId?: string | null; adHoc?: BankAdHocProfile | null }
 
 const TAB_LABELS: Record<BankTab, string> = {
   status: 'All accounts',
@@ -37,6 +45,13 @@ export function BankingScreen(): React.JSX.Element {
   const [chequeSetupOpen, setChequeSetupOpen] = useState(false)
   const [dateEdit, setDateEdit] = useState<{ lineId: number; current: string | null } | null>(null)
   const [importPreview, setImportPreview] = useState<(BankImportResult & { csvText: string }) | null>(null)
+  // The file the user picked, plus how it is being read. Carried through mapping → preview →
+  // apply → suggestions → bulk accept so every step reads the same bytes the same way (#131).
+  const [mapping, setMapping] = useState<BankStatementInspection | null>(null)
+  const [reading, setReading] = useState<{ csvText: string; choice: ProfileChoice } | null>(null)
+  const [threshold, setThreshold] = useState(DEFAULT_CONFIDENCE_THRESHOLD)
+  const [bulkPreview, setBulkPreview] = useState<BankBulkAcceptResult | null>(null)
+  const [inlineRule, setInlineRule] = useState<{ row: BankUnmatchedRow; ruleId: number | null; ledgerId: number | null } | null>(null)
 
   useEffect(() => {
     if (ledgerId == null && ledgers?.length) setLedgerId(ledgers[0]!.id)
@@ -45,6 +60,7 @@ export function BankingScreen(): React.JSX.Element {
   // A new bank ledger's statement lines have nothing to do with the last one's suggestions.
   useEffect(() => {
     setSuggestions(null)
+    setReading(null)
   }, [ledgerId])
 
   const { data: recon } = useQuery({
@@ -76,25 +92,65 @@ export function BankingScreen(): React.JSX.Element {
     }
   }
 
-  /** Step 1 of the import: dry-run parse+match, then show the preview modal to confirm. */
-  const doImport = async (): Promise<void> => {
+  /** Re-read the unmatched lines under the same profile, so suggestions never drift from the
+   *  file that produced them. */
+  const reloadSuggestions = async (csvText: string, choice: ProfileChoice, announce = false): Promise<void> => {
     if (ledgerId == null) return
     try {
-      const result = await api.bank.importCsv(ledgerId, { dryRun: true })
-      if (!result) return // file dialog cancelled
-      if (result.statementRows === 0) return void toast.push('warning', 'No statement rows found in that CSV')
+      const rows = await api.bank.suggest(ledgerId, csvText, choice)
+      setSuggestions(rows)
+      const withSuggestion = rows.filter((r) => r.suggestion).length
+      if (announce && withSuggestion > 0) {
+        toast.push('info', `${withSuggestion} of ${rows.length} unmatched lines have a suggested ledger below`)
+      }
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  /** Dry-run parse+match under a chosen profile, then show the preview modal to confirm. */
+  const dryRun = async (csvText: string, choice: ProfileChoice): Promise<void> => {
+    if (ledgerId == null) return
+    try {
+      const result = await api.bank.importCsv(ledgerId, { csvText, dryRun: true, ...choice })
+      if (!result) return
+      if (result.statementRows === 0) {
+        // Zero readable rows out of a file that clearly has some is the signature of the wrong
+        // columns, so send the user to the mapper rather than to a dead end.
+        toast.push('warning', 'No statement rows could be read — check the column mapping')
+        const inspection = await api.bank.inspectStatement({ csvText, ...choice })
+        if (inspection) setMapping(inspection)
+        return
+      }
+      setReading({ csvText, choice })
       setImportPreview(result)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
   }
 
-  /** Step 2: the user confirmed the preview — apply the same CSV for real. */
+  /** Step 1: pick the file, work out which bank wrote it, and only then decide what to show. */
+  const doImport = async (): Promise<void> => {
+    if (ledgerId == null) return
+    try {
+      const inspection = await api.bank.inspectStatement({})
+      if (!inspection) return // file dialog cancelled
+      if (inspection.error || inspection.rowsReadable === 0) {
+        setMapping(inspection)
+        return
+      }
+      await dryRun(inspection.csvText, { profileId: inspection.profileId })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  /** Step 2: the user confirmed the preview — apply the same CSV, read the same way, for real. */
   const applyImport = async (): Promise<void> => {
-    if (ledgerId == null || !importPreview) return
+    if (ledgerId == null || !importPreview || !reading) return
     let result
     try {
-      result = await api.bank.importCsv(ledgerId, { csvText: importPreview.csvText, dryRun: false })
+      result = await api.bank.importCsv(ledgerId, { csvText: reading.csvText, dryRun: false, ...reading.choice })
     } catch (err) {
       toast.push('error', (err as Error).message)
       return
@@ -111,11 +167,28 @@ export function BankingScreen(): React.JSX.Element {
       setSuggestions(null)
       return
     }
+    await reloadSuggestions(reading.csvText, reading.choice, true)
+  }
+
+  /** Bulk accept (#134): preview first — the count and the total are computed by the same pass
+   *  that will do the work, so the confirmation cannot describe a different set of rows. */
+  const previewBulkAccept = async (): Promise<void> => {
+    if (ledgerId == null || !reading) return
     try {
-      const rows = await api.bank.suggest(ledgerId, result.csvText)
-      setSuggestions(rows)
-      const withSuggestion = rows.filter((r) => r.suggestion).length
-      if (withSuggestion > 0) toast.push('info', `${withSuggestion} of ${rows.length} unmatched lines have a suggested ledger below`)
+      setBulkPreview(await api.bank.bulkAccept(ledgerId, reading.csvText, threshold, { apply: false, ...reading.choice }))
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const applyBulkAccept = async (): Promise<void> => {
+    if (ledgerId == null || !reading) return
+    try {
+      const result = await api.bank.bulkAccept(ledgerId, reading.csvText, threshold, { apply: true, ...reading.choice })
+      setBulkPreview(null)
+      toast.push('success', `${result.count} ${result.count === 1 ? 'voucher' : 'vouchers'} filed and reconciled`)
+      await refresh()
+      await reloadSuggestions(reading.csvText, reading.choice)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -124,7 +197,10 @@ export function BankingScreen(): React.JSX.Element {
   const createFromSuggestion = async (row: BankSuggestionRow): Promise<void> => {
     if (row.suggestion) {
       try {
-        await api.bankRules.hit(row.suggestion.ruleId)
+        if (row.suggestion.ruleId != null) await api.bankRules.hit(row.suggestion.ruleId)
+        // Taking the suggestion is the user saying this narration means this ledger, which is
+        // exactly the evidence #133 learns from.
+        await api.bank.learn(row.statementRow.description, row.suggestion.ledgerId, row.suggestion.kind)
       } catch {
         // Non-fatal — the draft is still worth opening even if the hit counter didn't update.
       }
@@ -151,10 +227,22 @@ export function BankingScreen(): React.JSX.Element {
     setRulesOpen(true)
   }
 
-  const rememberRule = (row: BankSuggestionRow): void => {
-    const kind: 'payment' | 'receipt' = row.statementRow.kind === 'deposit' ? 'receipt' : 'payment'
-    openRules({ pattern: suggestPattern(row.statementRow.description), kind })
+  /** #147: the rule for a row is edited from the row. Prefilled from the narration, and pointed
+   *  at the existing rule when one already fired, so "nearly right" is a correction rather than a
+   *  second rule competing with the first. */
+  const editRuleFor = (row: BankSuggestionRow): void => {
+    setInlineRule({
+      row: row.statementRow,
+      ruleId: row.suggestion?.ruleId ?? null,
+      ledgerId: row.suggestion?.ledgerId ?? null
+    })
   }
+
+  // What the bulk-accept button would take, counted the same way the service counts it: at or
+  // above the bar, and never an ambiguous one.
+  const acceptableCount = (suggestions ?? []).filter(
+    (r) => r.suggestion && !r.suggestion.ambiguous && r.suggestion.confidence >= threshold
+  ).length
 
   if (ledgers && ledgers.length === 0) {
     return (
@@ -301,10 +389,33 @@ export function BankingScreen(): React.JSX.Element {
 
           {suggestions && suggestions.length > 0 && (
             <Panel className="mt-3">
-              <div className="border-b border-line px-4 py-2.5">
+              <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
                 <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">
                   Unmatched statement lines · {suggestions.length}
                 </p>
+                {/* Bulk accept (#134): the bar is stated, the count under it is stated, and
+                    nothing happens until the confirmation shows both plus the money. */}
+                <div className="flex items-center gap-2">
+                  <span className="text-hint text-muted">Accept at or above</span>
+                  <Select
+                    value={threshold}
+                    onChange={(e) => setThreshold(Number(e.target.value))}
+                    className="w-24"
+                    data-testid="select-banking-threshold"
+                  >
+                    <option value={100}>100%</option>
+                    <option value={90}>90%</option>
+                    <option value={80}>80%</option>
+                    <option value={70}>70%</option>
+                  </Select>
+                  <Button
+                    disabled={!reading || acceptableCount === 0}
+                    data-testid="btn-banking-bulk-accept"
+                    onClick={() => void previewBulkAccept()}
+                  >
+                    Accept {acceptableCount} high-confidence
+                  </Button>
+                </div>
               </div>
               <ScrollList maxH="40vh">
                 <table className="ledger-table">
@@ -313,8 +424,9 @@ export function BankingScreen(): React.JSX.Element {
                       <th scope="col" className="w-24">Date</th>
                       <th scope="col">Description</th>
                       <th scope="col" className="r w-32">Amount</th>
-                      <th scope="col" className="w-48">Suggested ledger</th>
-                      <th scope="col" className="w-56"></th>
+                      <th scope="col" className="w-56">Suggested ledger</th>
+                      <th scope="col" className="r w-24">Confidence</th>
+                      <th scope="col" className="w-52"></th>
                     </tr>
                   </thead>
                   <tbody data-testid="rows-banking-unmatched">
@@ -325,9 +437,34 @@ export function BankingScreen(): React.JSX.Element {
                         <td className="r"><Money paise={s.statementRow.amount} /></td>
                         <td>
                           {s.suggestion ? (
-                            <span className="rounded-md px-1.5 py-0.5 text-label bg-blue/10 text-blue">{s.suggestion.ledgerName}</span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="rounded-md px-1.5 py-0.5 text-label bg-blue/10 text-blue">{s.suggestion.ledgerName}</span>
+                              {/* Where a suggestion came from changes how much it is worth
+                                  trusting, so it is on the row rather than in a tooltip. */}
+                              <span className="text-hint text-muted">
+                                {s.suggestion.source === 'rule' ? 'rule' : `learned: ${s.suggestion.matched.join(' ')}`}
+                              </span>
+                            </span>
                           ) : (
                             <span className="text-hint text-muted">No match</span>
+                          )}
+                        </td>
+                        <td className="r num">
+                          {s.suggestion ? (
+                            <span
+                              className={
+                                s.suggestion.ambiguous
+                                  ? 'text-amber'
+                                  : s.suggestion.confidence >= threshold
+                                    ? 'text-dr font-medium'
+                                    : 'text-muted'
+                              }
+                              title={s.suggestion.ambiguous ? 'Two ledgers fit this narration equally — never bulk-accepted' : undefined}
+                            >
+                              {s.suggestion.confidence}%{s.suggestion.ambiguous ? ' ?' : ''}
+                            </span>
+                          ) : (
+                            <span className="text-muted">–</span>
                           )}
                         </td>
                         <td className="r">
@@ -341,9 +478,9 @@ export function BankingScreen(): React.JSX.Element {
                           <button
                             className="text-small text-muted hover:text-ink"
                             data-testid="btn-banking-remember-rule"
-                            onClick={() => rememberRule(s)}
+                            onClick={() => editRuleFor(s)}
                           >
-                            Remember as rule
+                            {s.suggestion?.ruleId != null ? 'Edit rule' : 'Rule from this row'}
                           </button>
                         </td>
                       </tr>
@@ -385,8 +522,44 @@ export function BankingScreen(): React.JSX.Element {
       {importPreview && (
         <ImportPreviewModal
           preview={importPreview}
+          onRemap={() => {
+            setImportPreview(null)
+            if (!reading) return
+            void api.bank
+              .inspectStatement({ csvText: reading.csvText, ...reading.choice })
+              .then((inspection) => inspection && setMapping(inspection))
+          }}
           onApply={() => void applyImport()}
           onClose={() => setImportPreview(null)}
+        />
+      )}
+      {mapping && (
+        <ColumnMappingModal
+          inspection={mapping}
+          onUse={(choice) => {
+            setMapping(null)
+            void dryRun(mapping.csvText, choice)
+          }}
+          onClose={() => setMapping(null)}
+        />
+      )}
+      {bulkPreview && (
+        <BulkAcceptModal
+          preview={bulkPreview}
+          onApply={() => void applyBulkAccept()}
+          onClose={() => setBulkPreview(null)}
+        />
+      )}
+      {inlineRule && ledgerId != null && (
+        <InlineRuleModal
+          row={inlineRule.row}
+          ruleId={inlineRule.ruleId}
+          suggestedLedgerId={inlineRule.ledgerId}
+          onClose={() => setInlineRule(null)}
+          onSaved={() => {
+            setInlineRule(null)
+            if (reading) void reloadSuggestions(reading.csvText, reading.choice)
+          }}
         />
       )}
     </div>
@@ -453,10 +626,12 @@ function BankDateModal({
  *  nothing is written until the user confirms. */
 function ImportPreviewModal({
   preview,
+  onRemap,
   onApply,
   onClose
 }: {
   preview: BankImportResult & { csvText: string }
+  onRemap: () => void
   onApply: () => void
   onClose: () => void
 }): React.JSX.Element {
@@ -464,6 +639,20 @@ function ImportPreviewModal({
   return (
     <Modal title="Import preview" onClose={onClose} wide>
       <div className="flex flex-col gap-4">
+        {/* Which bank's shape was used to read the file, and what that cost — a statement read
+            with the wrong profile shows up here as a large skipped count, before anything is
+            written rather than after (#131). */}
+        <div className="flex items-center justify-between rounded-md border border-line px-3.5 py-2 text-detail">
+          <span data-testid="banking-import-profile">
+            Read with <span className="font-medium text-ink">{preview.profileName}</span>
+            {preview.skipped > 0 && (
+              <span className="text-muted"> · {preview.skipped} {preview.skipped === 1 ? 'line' : 'lines'} not read</span>
+            )}
+          </span>
+          <button className="text-small text-blue hover:underline" data-testid="btn-banking-remap" onClick={onRemap}>
+            Change columns
+          </button>
+        </div>
         <div className="grid grid-cols-3 gap-3">
           <Panel className="px-4 py-2.5">
             <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Will reconcile</p>
@@ -522,16 +711,23 @@ function ImportPreviewModal({
 
         <div className="flex justify-end gap-2 border-t border-line pt-4">
           <Button onClick={onClose}>Cancel</Button>
+          {/* A statement can reconcile nothing and still be worth importing: its unmatched lines
+              are what the suggestion list and bulk accept (#134) work on. Only a file with
+              nothing at all in it is a dead end. */}
           <Button
             variant="primary"
-            disabled={applying || preview.matched === 0}
+            disabled={applying || (preview.matched === 0 && preview.unmatched.length === 0)}
             data-testid="btn-banking-apply-import"
             onClick={() => {
               setApplying(true)
               onApply()
             }}
           >
-            {preview.matched === 0 ? 'Nothing to reconcile' : `Reconcile ${preview.matched} ${preview.matched === 1 ? 'entry' : 'entries'}`}
+            {preview.matched > 0
+              ? `Reconcile ${preview.matched} ${preview.matched === 1 ? 'entry' : 'entries'}`
+              : preview.unmatched.length > 0
+                ? `Continue to ${preview.unmatched.length} unmatched ${preview.unmatched.length === 1 ? 'line' : 'lines'}`
+                : 'Nothing to reconcile'}
           </Button>
         </div>
       </div>
@@ -1153,5 +1349,377 @@ function ReconciliationStatusPanel({ asOn }: { asOn: string }): React.JSX.Elemen
         so it counts as open here — the same rule the BRS uses.
       </p>
     </>
+  )
+}
+
+/** Field labels for the column mapper — the user's words, not the engine's keys. */
+const FIELD_LABELS: Record<ProfileField, string> = {
+  date: 'Date',
+  narration: 'Narration',
+  reference: 'Cheque / reference',
+  debit: 'Withdrawal (debit)',
+  credit: 'Deposit (credit)',
+  amount: 'Amount',
+  drCr: 'Dr/Cr indicator',
+  balance: 'Balance'
+}
+
+/**
+ * Map a statement nobody recognises (#131).
+ *
+ * The failure this replaces was an error toast: a bank the app had never seen simply would not
+ * import, and there was nothing the user could do about it. Here the header row is on screen, the
+ * best guess is pre-filled, and the count of rows the mapping actually reads updates as the user
+ * changes it — so "did I get this right" is answered before anything is imported, not after.
+ */
+function ColumnMappingModal({
+  inspection,
+  onUse,
+  onClose
+}: {
+  inspection: BankStatementInspection
+  onUse: (choice: ProfileChoice) => void
+  onClose: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data: profiles } = useQuery({ queryKey: ['bankImportProfiles'], queryFn: api.bankProfiles.list })
+  const [columns, setColumns] = useState<BankProfileColumns>(
+    inspection.columns ?? { date: inspection.header[0] ?? '', narration: '' }
+  )
+  const [dateFormat, setDateFormat] = useState(inspection.dateFormat)
+  const [convention, setConvention] = useState(inspection.convention)
+  const [debitFlag, setDebitFlag] = useState(inspection.debitFlag ?? 'DR')
+  const [saveAs, setSaveAs] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const adHoc: BankAdHocProfile = { dateFormat, convention, debitFlag: debitFlag || null, columns }
+
+  // Re-read the file on every change: the answer to "will this work" is the file itself, and it
+  // is cheap enough to compute that showing anything less would be a choice.
+  const { data: trial } = useQuery({
+    queryKey: ['bankStatementInspect', inspection.csvText.length, JSON.stringify(adHoc)],
+    queryFn: () => api.bank.inspectStatement({ csvText: inspection.csvText, adHoc })
+  })
+
+  const setField = (field: ProfileField, value: string): void =>
+    setColumns((c) => ({ ...c, [field]: value === '' ? null : value }))
+
+  const usePicked = (profileId: string): void => {
+    const found = (profiles ?? []).find((p) => p.id === profileId)
+    if (!found) return
+    setColumns(found.columns)
+    setDateFormat(found.dateFormat)
+    setConvention(found.convention)
+    setDebitFlag(found.debitFlag ?? 'DR')
+  }
+
+  const saveProfile = async (): Promise<void> => {
+    if (saveAs.trim().length < 2) return void toast.push('error', 'Give the profile a name')
+    setSaving(true)
+    try {
+      const saved = await api.bankProfiles.save({ ...adHoc, name: saveAs.trim() })
+      await queryClient.invalidateQueries({ queryKey: ['bankImportProfiles'] })
+      toast.push('success', `Saved as “${saved.name}” — next month's file is recognised on sight`)
+      onUse({ profileId: saved.id })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+      setSaving(false)
+    }
+  }
+
+  // Which fields are worth showing depends on how the file expresses direction — offering a
+  // Dr/Cr column on a two-column statement is just noise to read past.
+  const shown: ProfileField[] = PROFILE_FIELDS.filter((f) => {
+    if (f === 'debit' || f === 'credit') return convention === 'debit_credit'
+    if (f === 'amount') return convention !== 'debit_credit'
+    if (f === 'drCr') return convention === 'flagged'
+    return true
+  })
+
+  return (
+    <Modal title="Which column is which?" onClose={onClose} wide>
+      <div className="flex flex-col gap-4">
+        <p className="text-detail text-muted">
+          {inspection.error ?? `Read with ${inspection.profileName ?? 'no profile'}`}. Point each field at a column
+          from your file; the count below says what that mapping actually reads.
+        </p>
+
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Start from">
+            <Select defaultValue="" onChange={(e) => usePicked(e.target.value)} data-testid="select-banking-profile">
+              <option value="">Pick a bank…</option>
+              {(profiles ?? []).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Dates are written">
+            <Select value={dateFormat} onChange={(e) => setDateFormat(e.target.value as typeof dateFormat)} data-testid="select-banking-dateformat">
+              <option value="dmy">Day/Month/Year — 03/04/2026 is 3 April</option>
+              <option value="mdy">Month/Day/Year — 03/04/2026 is 4 March</option>
+              <option value="ymd">Year/Month/Day</option>
+            </Select>
+          </Field>
+          <Field label="Direction is">
+            <Select value={convention} onChange={(e) => setConvention(e.target.value as typeof convention)} data-testid="select-banking-convention">
+              <option value="debit_credit">Two columns (withdrawal / deposit)</option>
+              <option value="signed">One amount, negative is money out</option>
+              <option value="flagged">One amount plus a Dr/Cr column</option>
+            </Select>
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-4 gap-3">
+          {shown.map((field) => (
+            <Field key={field} label={FIELD_LABELS[field]}>
+              <Select
+                value={(columns[field] as string | null | undefined) ?? ''}
+                onChange={(e) => setField(field, e.target.value)}
+                data-testid={`select-banking-col-${field}`}
+              >
+                <option value="">— none —</option>
+                {inspection.header.map((h, i) => (
+                  <option key={`${h}-${i}`} value={h}>{h || `(column ${i + 1})`}</option>
+                ))}
+              </Select>
+            </Field>
+          ))}
+          {convention === 'flagged' && (
+            <Field label="Withdrawal is marked">
+              <TextInput value={debitFlag} onChange={(e) => setDebitFlag(e.target.value)} placeholder="DR" />
+            </Field>
+          )}
+        </div>
+
+        <div className="rounded-md border border-line">
+          <p className="border-b border-line px-3.5 py-2 text-detail" data-testid="banking-mapping-count">
+            {trial?.error
+              ? <span className="text-cr">{trial.error}</span>
+              : <>Reads <span className="num font-medium text-ink">{trial?.rowsReadable ?? 0}</span> rows
+                  {(trial?.rowsSkipped ?? 0) > 0 && <span className="text-muted"> · skips {trial!.rowsSkipped}</span>}</>}
+          </p>
+          {(trial?.sample.length ?? 0) > 0 && (
+            <table className="ledger-table">
+              <thead>
+                <tr>
+                  <th scope="col" className="w-24">Date</th>
+                  <th scope="col">Description</th>
+                  <th scope="col" className="r w-32">Deposit</th>
+                  <th scope="col" className="r w-32">Withdrawal</th>
+                </tr>
+              </thead>
+              <tbody data-testid="rows-banking-mapping-sample">
+                {trial!.sample.map((r, i) => (
+                  <tr key={i}>
+                    <td className="num w-24 text-muted">{toDisplayDate(r.date)}</td>
+                    <td className="max-w-80 truncate">{r.description}</td>
+                    <td className="num r w-32"><Money paise={r.deposit} /></td>
+                    <td className="num r w-32"><Money paise={r.withdrawal} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="flex items-end justify-between gap-2 border-t border-line pt-4">
+          <div className="flex items-end gap-2">
+            <Field label="Remember this as">
+              <TextInput value={saveAs} onChange={(e) => setSaveAs(e.target.value)} placeholder="e.g. Saraswat Co-op" className="w-56" />
+            </Field>
+            <Button disabled={saving || !saveAs.trim()} data-testid="btn-banking-save-profile" onClick={() => void saveProfile()}>
+              Save profile &amp; use
+            </Button>
+          </div>
+          <span className="flex gap-2">
+            <Button onClick={onClose}>Cancel</Button>
+            <Button
+              variant="primary"
+              disabled={!trial || trial.rowsReadable === 0}
+              data-testid="btn-banking-use-mapping"
+              onClick={() => onUse({ adHoc })}
+            >
+              Use these columns
+            </Button>
+          </span>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * Confirmation for bulk accept (#134): the count, the money, and the rows themselves.
+ *
+ * Filing twenty vouchers is not something to do on the strength of a number alone, so the rows
+ * are listed with the ledger and the confidence each was accepted at — and the same pass that
+ * produced this list is the one that will do the work.
+ */
+function BulkAcceptModal({
+  preview,
+  onApply,
+  onClose
+}: {
+  preview: BankBulkAcceptResult
+  onApply: () => void
+  onClose: () => void
+}): React.JSX.Element {
+  const [applying, setApplying] = useState(false)
+  return (
+    <Modal title={`Accept ${preview.count} high-confidence ${preview.count === 1 ? 'match' : 'matches'}`} onClose={onClose} wide>
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-3 gap-3">
+          <Panel className="px-4 py-2.5">
+            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Will file</p>
+            <p className="num mt-1 text-lead font-medium" data-testid="banking-bulk-count">{preview.count}</p>
+          </Panel>
+          <Panel className="px-4 py-2.5">
+            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Payments</p>
+            <p className="num mt-1 text-lead font-medium"><Money paise={preview.withdrawalTotal} /></p>
+          </Panel>
+          <Panel className="px-4 py-2.5">
+            <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">Receipts</p>
+            <p className="num mt-1 text-lead font-medium"><Money paise={preview.depositTotal} /></p>
+          </Panel>
+        </div>
+
+        <ScrollList maxH="34vh" className="rounded-md border border-line">
+          <table className="ledger-table">
+            <tbody data-testid="rows-banking-bulk-accept">
+              {preview.accepted.map((a, i) => (
+                <tr key={i}>
+                  <td className="num w-24 text-muted">{toDisplayDate(a.date)}</td>
+                  <td className="max-w-72 truncate">{a.description}</td>
+                  <td className="w-48 truncate">{a.ledgerName}</td>
+                  <td className="num r w-20 text-muted">{a.confidence}%</td>
+                  <td className="num r w-32"><Money paise={a.amount} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollList>
+
+        <p className="text-hint text-muted">
+          At or above {preview.minConfidence}%. {preview.skipped} other {preview.skipped === 1 ? 'suggestion stays' : 'suggestions stay'} untouched —
+          anything below the bar, and anything where two ledgers fit the wording equally well.
+        </p>
+
+        <div className="flex justify-end gap-2 border-t border-line pt-4">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            disabled={applying || preview.count === 0}
+            data-testid="btn-banking-bulk-apply"
+            onClick={() => {
+              setApplying(true)
+              onApply()
+            }}
+          >
+            {preview.count === 0 ? 'Nothing to accept' : `File ${preview.count} ${preview.count === 1 ? 'voucher' : 'vouchers'}`}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * Create or edit the rule for one unmatched row, from that row (#147).
+ *
+ * Writing a rule used to mean leaving the line you were looking at, opening the rules list, and
+ * retyping the narration from memory. Here the row is the context: the pattern is suggested from
+ * its own narration, the direction is fixed by which way the money went, and an existing rule
+ * that already fired is edited rather than competed with.
+ */
+function InlineRuleModal({
+  row,
+  ruleId,
+  suggestedLedgerId,
+  onSaved,
+  onClose
+}: {
+  row: BankUnmatchedRow
+  ruleId: number | null
+  suggestedLedgerId: number | null
+  onSaved: () => void
+  onClose: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data: rules } = useQuery({ queryKey: ['bankRules'], queryFn: api.bankRules.list })
+  const existing = ruleId != null ? rules?.find((r) => r.id === ruleId) : undefined
+  // Direction is not a choice: a withdrawal cannot be a receipt rule, and offering the option
+  // only invites a rule that can never fire.
+  const kind: 'payment' | 'receipt' = row.kind === 'deposit' ? 'receipt' : 'payment'
+
+  const [pattern, setPattern] = useState(existing?.pattern ?? suggestPattern(row.description))
+  const [ledgerId, setLedgerId] = useState<number | null>(existing?.ledgerId ?? suggestedLedgerId)
+  const [active, setActive] = useState(existing?.active ?? true)
+  const [saving, setSaving] = useState(false)
+  const [loaded, setLoaded] = useState(existing != null)
+
+  // The rule list arrives after the modal opens; fill the form from it once, without stomping on
+  // anything the user has already typed.
+  useEffect(() => {
+    if (loaded || !existing) return
+    setPattern(existing.pattern)
+    setLedgerId(existing.ledgerId)
+    setActive(existing.active)
+    setLoaded(true)
+  }, [existing, loaded])
+
+  const matches = pattern.trim() !== '' && row.description.toLowerCase().includes(pattern.trim().toLowerCase())
+
+  const save = async (): Promise<void> => {
+    if (pattern.trim().length < 2) return void toast.push('error', 'Pattern needs at least 2 characters')
+    if (ledgerId == null) return void toast.push('error', 'Pick a ledger')
+    setSaving(true)
+    try {
+      await api.bankRules.save({ pattern: pattern.trim(), ledgerId, kind, active }, ruleId ?? undefined)
+      // Writing a rule for a narration is the user saying what it means, so it teaches the
+      // narration memory too — the two halves of #133 and #147 are the same statement.
+      await api.bank.learn(row.description, ledgerId, kind)
+      await queryClient.invalidateQueries({ queryKey: ['bankRules'] })
+      toast.push('success', ruleId ? 'Rule updated' : 'Rule created')
+      onSaved()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title={ruleId ? 'Edit the rule for this line' : 'Rule from this line'} onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <div className="rounded-md border border-line px-3.5 py-2">
+          <p className="text-detail text-ink">{row.description}</p>
+          <p className="mt-0.5 text-hint text-muted">
+            {toDisplayDate(row.date)} · {row.kind} · <Money paise={row.amount} />
+          </p>
+        </div>
+
+        <Field
+          label="Match when the narration contains"
+          hint={matches ? 'Matches this line' : 'Does not match this line — the rule will not fire on it'}
+        >
+          <TextInput autoFocus value={pattern} onChange={(e) => setPattern(e.target.value)} data-testid="input-banking-inline-pattern" />
+        </Field>
+        <Field label={kind === 'payment' ? 'Post the payment to' : 'Post the receipt to'}>
+          <LedgerPicker value={ledgerId} onPick={setLedgerId} placeholder="Ledger" />
+        </Field>
+        <label className="flex items-center gap-2 text-detail text-ink">
+          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+          Active
+        </label>
+
+        <div className="flex justify-end gap-2 border-t border-line pt-4">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={saving} data-testid="btn-banking-inline-rule-save" onClick={() => void save()}>
+            {ruleId ? 'Save rule' : 'Create rule'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }

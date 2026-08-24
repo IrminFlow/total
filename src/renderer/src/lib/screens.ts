@@ -161,7 +161,12 @@ export const SCREENS: ScreenDef[] = [
     accel: 'S',
     feature: 'inventory',
     card: { sub: 'Quantities and value' },
-    invalidates: ['stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches', 'purchaseSuggestions', 'nearExpiry']
+    invalidates: [
+      'stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches', 'purchaseSuggestions', 'nearExpiry',
+      // Reorder alerts, and the transfer / landed-cost modals this screen opens.
+      'reorderAlerts', 'godownStock', 'stockTransferPreview', 'stockTransfers', 'costablePurchases',
+      'landedCosts'
+    ]
   },
   {
     name: 'year-end',
@@ -233,7 +238,10 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'banking',
     accel: 'N',
     navLabel: 'Reconciliation',
-    invalidates: ['bankLedgers', 'bankRecon', 'bankRules', 'chequeConfig', 'brs', 'pdc', 'reconStatus']
+    invalidates: [
+      'bankLedgers', 'bankRecon', 'bankRules', 'bankImportProfiles', 'bankStatementInspect',
+      'chequeConfig', 'brs', 'pdc', 'reconStatus'
+    ]
   },
 
   {

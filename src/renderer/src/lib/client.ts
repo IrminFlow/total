@@ -14,6 +14,9 @@ import type {
   VoucherListRow
 } from '@shared/reports'
 import type { CashFlowStatement } from '@shared/reportMath'
+import type { TransferItem, TransferPlan } from '@shared/stockTransfer'
+import type { LandedCostBasis } from '@shared/landedCost'
+import type { ReorderAlerts } from '@shared/reorder'
 import type { Concentration } from '@shared/concentration'
 import type { VoucherDraft } from '../state/stores'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
@@ -785,15 +788,106 @@ export interface BankUnmatchedRow {
   kind: 'deposit' | 'withdrawal'
 }
 
+export interface BankSuggestion {
+  /** null for a suggestion the narration memory produced — no rule behind it yet (#133). */
+  ruleId: number | null
+  ledgerId: number
+  ledgerName: string
+  kind: 'payment' | 'receipt'
+  voucherDraft: BankVoucherDraft
+  source: 'rule' | 'learned'
+  /** 0-100; a rule is 100. Bulk accept (#134) compares this against the user's threshold. */
+  confidence: number
+  matched: string[]
+  ambiguous: boolean
+}
+
 export interface BankSuggestionRow {
   statementRow: BankUnmatchedRow
-  suggestion: {
-    ruleId: number
-    ledgerId: number
-    ledgerName: string
-    kind: 'payment' | 'receipt'
-    voucherDraft: BankVoucherDraft
-  } | null
+  suggestion: BankSuggestion | null
+}
+
+/** Mirrors src/shared/bankImport.ts's ProfileColumns / StatementProfile (#131). */
+export interface BankProfileColumns {
+  date: string
+  narration: string
+  reference?: string | null
+  debit?: string | null
+  credit?: string | null
+  amount?: string | null
+  drCr?: string | null
+  balance?: string | null
+}
+
+export type BankDateFormat = 'dmy' | 'mdy' | 'ymd'
+export type BankAmountConvention = 'debit_credit' | 'signed' | 'flagged'
+
+export interface BankImportProfile {
+  id: string
+  name: string
+  builtIn: boolean
+  dateFormat: BankDateFormat
+  convention: BankAmountConvention
+  debitFlag?: string | null
+  columns: BankProfileColumns
+}
+
+export interface BankProfileInput {
+  name: string
+  dateFormat: BankDateFormat
+  convention: BankAmountConvention
+  debitFlag: string | null
+  columns: BankProfileColumns
+}
+
+/** A column map the user is trying out in the mapper but has not saved. */
+export type BankAdHocProfile = Omit<BankProfileInput, 'name'> & { name?: string }
+
+export interface BankStatementInspection {
+  header: string[]
+  profileId: string | null
+  profileName: string | null
+  detected: boolean
+  columns: BankProfileColumns | null
+  dateFormat: BankDateFormat
+  convention: BankAmountConvention
+  debitFlag: string | null
+  rowsReadable: number
+  rowsSkipped: number
+  sample: { date: string; description: string; reference: string; deposit: number; withdrawal: number }[]
+  error: string | null
+  csvText: string
+}
+
+export interface BankBulkAcceptRow {
+  date: string
+  description: string
+  amount: number
+  kind: 'deposit' | 'withdrawal'
+  ledgerId: number
+  ledgerName: string
+  confidence: number
+  source: 'rule' | 'learned'
+  voucherId?: number
+}
+
+export interface BankBulkAcceptResult {
+  minConfidence: number
+  accepted: BankBulkAcceptRow[]
+  count: number
+  depositTotal: number
+  withdrawalTotal: number
+  skipped: number
+  applied: boolean
+}
+
+export interface BankNarrationMemoryRow {
+  keyword: string
+  ledgerId: number
+  ledgerName: string
+  kind: 'payment' | 'receipt'
+  hits: number
+  lastSeen: string
 }
 
 export interface BankMatchSuggestion {
@@ -809,6 +903,10 @@ export interface BankImportResult {
   unmatched: BankUnmatchedRow[]
   matches: { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal'; lineId: number }[]
   autoCreated: { date: string; description: string; amount: number; kind: 'deposit' | 'withdrawal'; voucherId: number; ruleId: number }[]
+  /** Which profile read the file (#131), and how many lines it could not read. */
+  profileId: string
+  profileName: string
+  skipped: number
 }
 
 export interface BrsItem {
@@ -955,6 +1053,83 @@ export interface TallyImportSummary {
   warnings: string[]
 }
 
+/** Mirrors src/main/services/inventoryTransfer.ts + inventoryLandedCost.ts (main-process only). */
+export interface GodownAvailabilityRow {
+  stockItemId: number
+  name: string
+  unitSymbol: string
+  decimals: number
+  availableQtyMilli: number
+  ratePaise: number
+}
+
+export interface TransferInput {
+  date: string
+  fromGodownId: number
+  toGodownId: number
+  items: TransferItem[]
+  narration?: string | null
+}
+
+export interface TransferResult {
+  voucherId: number
+  number: string
+  totalValue: number
+  lineCount: number
+}
+
+export interface TransferListRow {
+  voucherId: number
+  date: string
+  number: string
+  narration: string | null
+  fromGodown: string
+  toGodown: string
+  items: number
+  totalValue: number
+}
+
+export interface LandedCostInputRow {
+  ledgerId: number
+  label: string
+  amount: number
+  basis: LandedCostBasis
+}
+
+export interface LandedCostView {
+  voucherId: number
+  date: string
+  number: string
+  partyName: string | null
+  costs: (LandedCostInputRow & { id: number; ledgerName: string })[]
+  candidates: { ledgerId: number; ledgerName: string; amount: number; allocated: number }[]
+  lines: {
+    inventoryLineId: number
+    stockItemId: number
+    name: string
+    unitSymbol: string
+    decimals: number
+    qtyMilli: number
+    amount: number
+    ratePaise: number
+    extra: number
+    effectiveAmount: number
+    effectiveRatePaise: number
+  }[]
+  total: number
+  unallocated: number
+}
+
+export interface CostedPurchaseRow {
+  voucherId: number
+  date: string
+  number: string
+  partyName: string | null
+  goodsValue: number
+  landed: number
+  items: number
+}
+
 /** Mirrors src/main/services/stockAnalysis.ts's row shapes (kept local — main-process only). */
 export interface GodownStockRow {
   godownId: number | null
@@ -1091,7 +1266,22 @@ export const api = {
     /** The rate and HSN an item actually charges, and which parts came from its group. */
     effectiveTax: (stockItemId: number) => call<EffectiveItemTax>('stock:effectiveTax', { stockItemId }),
     /** Code, then barcode, then exact name — how a person at a counter finds a thing. */
-    find: (query: string) => call<StockItem | null>('stock:find', { query })
+    find: (query: string) => call<StockItem | null>('stock:find', { query }),
+    /** What one godown holds — the menu a transfer picks from. */
+    godownStock: (asOn: string, godownId: number) =>
+      call<GodownAvailabilityRow[]>('stock:godownStock', { asOn, godownId }),
+    /** Dry run, so the form can refuse a move before the user presses save. */
+    previewTransfer: (input: TransferInput) => call<TransferPlan>('stock:previewTransfer', input),
+    saveTransfer: (input: TransferInput) => call<TransferResult>('stock:saveTransfer', input),
+    transfers: (from: string, to: string) => call<TransferListRow[]>('stock:transfers', { from, to }),
+    /** Purchases carrying stock, so a landed cost has something to be spread over. */
+    costablePurchases: (from: string, to: string) =>
+      call<CostedPurchaseRow[]>('stock:costablePurchases', { from, to }),
+    landedCosts: (voucherId: number) => call<LandedCostView>('stock:landedCosts', { voucherId }),
+    saveLandedCosts: (voucherId: number, costs: LandedCostInputRow[]) =>
+      call<LandedCostView>('stock:saveLandedCosts', { voucherId, costs }),
+    /** What to reorder, grouped into one message per supplier. */
+    reorderAlerts: (asOn: string) => call<ReorderAlerts>('stock:reorderAlerts', { asOn })
   },
   priceLevels: {
     list: () => call<PriceLevel[]>('master:priceLevels:list'),
@@ -1326,13 +1516,37 @@ export const api = {
       call<ReconciliationStatus[]>('bank:reconciliationStatus', { asOn }),
     recon: (ledgerId: number, from: string, to: string) => call<BankRecon>('bank:recon', { ledgerId, from, to }),
     setBankDate: (lineId: number, bankDate: string | null) => call<null>('bank:setBankDate', { lineId, bankDate }),
-    importCsv: (ledgerId: number, opts?: { csvText?: string; dryRun?: boolean }) =>
-      call<(BankImportResult & { csvText: string }) | null>('bank:importCsv', { ledgerId, ...opts }),
-    suggest: (ledgerId: number, csvText: string) => call<BankSuggestionRow[]>('banking:suggest', { ledgerId, csvText }),
+    importCsv: (
+      ledgerId: number,
+      opts?: { csvText?: string; dryRun?: boolean; profileId?: string | null; adHoc?: BankAdHocProfile | null }
+    ) => call<(BankImportResult & { csvText: string }) | null>('bank:importCsv', { ledgerId, ...opts }),
+    /** Which profile fits a statement, and what it would read — before anything is imported. */
+    inspectStatement: (opts: { csvText?: string; profileId?: string | null; adHoc?: BankAdHocProfile | null } = {}) =>
+      call<BankStatementInspection | null>('bank:inspectStatement', opts),
+    suggest: (ledgerId: number, csvText: string, profile: { profileId?: string | null; adHoc?: BankAdHocProfile | null } = {}) =>
+      call<BankSuggestionRow[]>('banking:suggest', { ledgerId, csvText, ...profile }),
+    /** Remember that this narration meant this ledger (#133). */
+    learn: (description: string, ledgerId: number, kind: 'payment' | 'receipt') =>
+      call<{ keywords: string[] }>('banking:learn', { description, ledgerId, kind }),
+    memory: () => call<BankNarrationMemoryRow[]>('banking:memory'),
+    forget: (keyword: string, ledgerId: number, kind: 'payment' | 'receipt') =>
+      call<null>('banking:forget', { keyword, ledgerId, kind }),
+    /** Accept every suggestion at or above `minConfidence`. `apply: false` is the preview (#134). */
+    bulkAccept: (
+      ledgerId: number,
+      csvText: string,
+      minConfidence: number,
+      opts: { apply?: boolean; profileId?: string | null; adHoc?: BankAdHocProfile | null } = {}
+    ) => call<BankBulkAcceptResult>('banking:bulkAccept', { ledgerId, csvText, minConfidence, ...opts }),
     matchSuggestions: (ledgerId: number, csvText: string, tolerancePaise?: number) =>
       call<BankMatchSuggestion[]>('banking:matchSuggestions', { ledgerId, csvText, tolerancePaise }),
     brs: (ledgerId: number, asOn: string) => call<BrsReport>('banking:brs', { ledgerId, asOn }),
     brsPdf: (ledgerId: number, asOn: string) => call<{ path: string }>('banking:brsPdf', { ledgerId, asOn })
+  },
+  bankProfiles: {
+    list: () => call<BankImportProfile[]>('bankprofile:list'),
+    save: (data: BankProfileInput, id?: number) => call<BankImportProfile>('bankprofile:save', { id, data }),
+    remove: (id: number) => call<null>('bankprofile:delete', { id })
   },
   bankRules: {
     list: () => call<BankRuleRecord[]>('bankrule:list'),
