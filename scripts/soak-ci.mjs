@@ -11,8 +11,10 @@ const electronPath = require("electron");
 const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...desktopEnv } = process.env;
 const iterations = Math.min(200, Math.max(2, Number(process.env.TOTAL_SOAK_ITERATIONS ?? 20)));
 const dataDir = process.env.TOTAL_DATA_DIR || mkdtempSync(join(tmpdir(), "total-soak-data-"));
-const outDir = process.env.SMOKE_OUT || join(process.cwd(), "soak-out");
+const profileDir = join(dataDir, ".electron-profile");
+const outDir = process.env.SMOKE_OUT || mkdtempSync(join(tmpdir(), "total-soak-evidence-"));
 mkdirSync(dataDir, { recursive: true });
+mkdirSync(profileDir, { recursive: true });
 mkdirSync(outDir, { recursive: true });
 
 const startedAt = Date.now();
@@ -27,7 +29,10 @@ const assert = (condition, message) => {
 try {
   app = await electron.launch({
     executablePath: electronPath,
-    args: [process.cwd()],
+    // Keep Chromium state and requestSingleInstanceLock isolated from a developer's
+    // live Total window and from concurrent release jobs. TOTAL_DATA_DIR isolates
+    // company books, but Electron's application profile is a separate boundary.
+    args: [`--user-data-dir=${profileDir}`, process.cwd()],
     timeout: 60_000,
     env: { ...desktopEnv, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: "1" },
   });
