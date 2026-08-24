@@ -1,5 +1,5 @@
 import { basename, extname, join } from "path";
-import { createReadStream, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { createReadStream, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { createHash } from "crypto";
 import ExcelJS from "exceljs";
 import type { DB } from "../db/connection";
@@ -13,6 +13,10 @@ import { signExportIfEnabled } from "./exportSigning";
 import { storeManagedAttachment } from "./attachmentVault";
 
 export type MigrationSource = "generic" | "busy" | "zoho_books" | "marg";
+const MAX_SPREADSHEET_BYTES = 64 * 1024 * 1024;
+const MAX_SPREADSHEET_ROWS = 100_000;
+const MAX_SPREADSHEET_COLUMNS = 256;
+const MAX_WORKSHEETS = 50;
 export type ProfileTarget =
   "ledgers" | "items" | "openings" | "generic_journal";
 export interface MappingProfile {
@@ -90,6 +94,8 @@ function parseTabSeparated(text: string): string[][] {
 export async function spreadsheetFileToCsv(filePath: string): Promise<{ csvText: string; fileName: string; sheetName: string | null; sourceFormat: "csv" | "tsv" | "xlsx" }> {
   const extension = extname(filePath).toLowerCase();
   const fileName = basename(filePath);
+  if (statSync(filePath).size > MAX_SPREADSHEET_BYTES)
+    throw new Error("The spreadsheet exceeds the 64 MB import limit");
   if (extension === ".csv")
     return { csvText: readFileSync(filePath, "utf8"), fileName, sheetName: null, sourceFormat: "csv" };
   if (extension === ".tsv" || extension === ".txt") {
@@ -104,8 +110,12 @@ export async function spreadsheetFileToCsv(filePath: string): Promise<{ csvText:
     throw new Error("Choose CSV, tab-separated text or an .xlsx workbook. Save legacy .xls files as .xlsx first.");
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(filePath);
+  if (workbook.worksheets.length > MAX_WORKSHEETS)
+    throw new Error(`The workbook has more than ${MAX_WORKSHEETS} worksheets`);
   const sheet = workbook.worksheets.find((candidate) => candidate.actualRowCount > 0);
   if (!sheet) throw new Error("The workbook has no non-empty worksheet");
+  if (sheet.actualRowCount > MAX_SPREADSHEET_ROWS || sheet.actualColumnCount > MAX_SPREADSHEET_COLUMNS)
+    throw new Error(`The worksheet exceeds ${MAX_SPREADSHEET_ROWS} rows or ${MAX_SPREADSHEET_COLUMNS} columns`);
   const rows: string[][] = [];
   sheet.eachRow({ includeEmpty: false }, (row) => {
     const values = Array.from({ length: Math.max(sheet.actualColumnCount, row.cellCount) }, (_, index) => spreadsheetCellText(row.getCell(index + 1).value));

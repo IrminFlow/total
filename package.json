@@ -16,6 +16,7 @@
     "test:renderer": "vitest run -c vitest.renderer.config.ts",
     "test:large": "node scripts/test-large.mjs",
     "test:chaos": "node scripts/chaos-suite.mjs",
+    "test:soak": "node scripts/soak-ci.mjs",
     "test:visual": "node scripts/visual-regression-gate.mjs",
     "cli": "node scripts/total-cli.mjs",
     "mcp": "node scripts/total-mcp.mjs",

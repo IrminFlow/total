@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { DEFAULT_INVOICE_CONFIG, invoiceConfigSchema, mergeInvoiceConfig } from './invoiceConfig'
 
+const ONE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='
+
 describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
   it('defaults round-trip through the schema unchanged', () => {
     expect(invoiceConfigSchema.parse(DEFAULT_INVOICE_CONFIG)).toEqual(DEFAULT_INVOICE_CONFIG)
@@ -19,7 +21,7 @@ describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
   it('accepts a full custom config with bank details and multiple copy labels', () => {
     const input = {
       title: 'INVOICE',
-      logoDataUrl: 'data:image/png;base64,aGVsbG8=',
+      logoDataUrl: ONE_PIXEL_PNG,
       declaration: 'Custom declaration text',
       bankDetails: { name: 'Total Bank', account: '1234567890', ifsc: 'TOTL0000001', branch: 'Main' },
       upiDetails: { vpa: 'accounts@totalbank', payeeName: 'Total Traders' },
@@ -61,6 +63,15 @@ describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
         logoDataUrl: 'data:image/png;base64,aGVsbG8="><script>alert(1)</script>'
       })
     ).toThrow()
+  })
+
+  it('rejects disguised, corrupt and unsupported logo image payloads', () => {
+    for (const logoDataUrl of [
+      'data:image/png;base64,aGVsbG8=',
+      'data:image/jpeg;base64,iVBORw0KGgo=',
+      'data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+',
+      'data:image/webp;base64,UklGRgAAAABOT1RXRUJQ',
+    ]) expect(invoiceConfigSchema.safeParse({ ...DEFAULT_INVOICE_CONFIG, logoDataUrl }).success).toBe(false)
   })
 
   it('rejects an empty copyLabels array (at least one page must print)', () => {

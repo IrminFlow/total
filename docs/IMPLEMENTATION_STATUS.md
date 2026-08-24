@@ -279,14 +279,14 @@ credentials must never exist in the repository.
 - 284 — a six-module Total practitioner pathway for accounting, GST, banking, controls, migration and safe automation, with local practice progress and a separate proctored-assessment gate
 - 285 — visible Founding-edition pricing terms, unlimited preview grace and a permanent promise that book access and portable export are never disabled by entitlement state
 - 292 — randomized accounting property suites covering balanced postings, bill/tax allocations and long stock-valuation walks without floating-point money
-- 293 — bounded malformed XML, CSV and JSON boundary fuzzing across import, MCP/plugin-shaped and AI/provider-shaped payloads
+- 293 — bounded malformed XML, CSV, XLSX, portable-package, logo-image, MCP/plugin-shaped and AI/provider-shaped fuzzing, with explicit workbook size and shape limits
 - 294 — release visual contracts for light/dark Gateway, large Hindi layouts, regional invoice labels, offline help and community/learning surfaces
 - 295 — automated direct-dependency source, version, license, native-runtime and deprecation policy with transitive deprecations retained as actionable warnings
 - 296 — local-only redacted crash envelopes with bounded stack frames, exact Privacy-centre preview, explicit submission and trackable failed-delivery fallback
 - 297 — versioned device-only feature flags with bounded change history and safe fallbacks that cannot gate migrations, posting, reports, backups or export
 - 298 — per-platform build evidence recording revision, dirty state, lock hash, toolchain, signing configuration and SHA-256 artifact provenance
 - 299 — forced-termination and recovery orchestration across vouchers, imports, approvals, migrations, backups, restore, exports and atomic writes
-- 300 — fail-closed macOS and Windows publication scorecards spanning correctness, types, renderer/database tests, accessibility, restore, performance, security, dependencies, chaos, visuals and packaged-artifact verification
+- 300 — fail-closed macOS and Windows publication scorecards spanning correctness, types, renderer/database tests, accessibility, restore, performance, security, dependencies, chaos, multi-company soak, visuals and packaged-artifact verification
 - Batch sales-invoice PDF generation from the Day Book’s exact selection
 - Monthly and quarterly sales/purchase registers
 - Global and screen-level red-letter keyboard mnemonics

@@ -16,6 +16,7 @@ const checks = [
   ["security", "npm", ["run", "security:threat-model"]],
   ["dependencies", "npm", ["run", "security:dependencies"]],
   ["chaos", "npm", ["run", "test:chaos"]],
+  ["soak", "npm", ["run", "test:soak"]],
 ];
 if (process.platform === "darwin") checks.push(["visual", "npm", ["run", "test:visual"]]);
 const packagingPlatform = process.env.RELEASE_SCORECARD_PLATFORM;
@@ -27,7 +28,7 @@ for (const [category, command, args] of checks) {
   results.push({ category, ok: result.status === 0, durationMs: Date.now() - started });
   if (result.status !== 0) break;
 }
-const required = ["correctness", "type-safety", "renderer", "database", "accessibility", "restore", "bundle-performance", "startup-performance", "memory-performance", "security", "dependencies", "chaos", ...(process.platform === "darwin" ? ["visual"] : []), ...(packagingPlatform ? ["packaging"] : [])];
+const required = ["correctness", "type-safety", "renderer", "database", "accessibility", "restore", "bundle-performance", "startup-performance", "memory-performance", "security", "dependencies", "chaos", "soak", ...(process.platform === "darwin" ? ["visual"] : []), ...(packagingPlatform ? ["packaging"] : [])];
 const ok = required.every((category) => results.find((result) => result.category === category)?.ok);
 const output = { schema: 1, generatedAt: new Date().toISOString(), ok, required, results };
 const dist = resolve(root, "dist");

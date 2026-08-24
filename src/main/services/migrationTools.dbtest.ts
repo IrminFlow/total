@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "fs";
 import { execFileSync } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -139,6 +139,26 @@ describe("migration workbench", () => {
     expect(tsv).toMatchObject({ sourceFormat: "tsv", sheetName: null });
     expect(tsv.csvText).toContain('"1,250.50"');
   });
+  it("rejects oversized and corrupted spreadsheet containers within bounded work", async () => {
+    tree();
+    const oversized = join(root!, "oversized.xlsx");
+    writeFileSync(oversized, "PK");
+    truncateSync(oversized, 64 * 1024 * 1024 + 1);
+    await expect(spreadsheetFileToCsv(oversized)).rejects.toThrow(/64 MB/);
+
+    const corrupt = join(root!, "corrupt.xlsx");
+    let state = 0x51ee;
+    for (let sample = 0; sample < 50; sample++) {
+      const length = 16 + (sample * 37) % 4096;
+      const bytes = Buffer.alloc(length);
+      for (let index = 0; index < bytes.length; index++) {
+        state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+        bytes[index] = state & 0xff;
+      }
+      writeFileSync(corrupt, bytes);
+      await expect(spreadsheetFileToCsv(corrupt)).rejects.toThrow();
+    }
+  });
   it("exports a versioned exit package with accounting data and no authentication secrets", () => {
     tree();
     const db = booksDb();
@@ -206,6 +226,32 @@ describe("migration workbench", () => {
     const tampered = structuredClone(pkg);
     (tampered.entities.voucher_lines![0] as { amount: number }).amount += 1;
     expect(() => validatePortablePackage(tampered)).toThrow(/content hash/i);
+    source.close();
+    destination.close();
+  });
+  it("rejects hostile portable-package mutations before reconstruction", () => {
+    const source = booksDb();
+    applyImport(source, "generic_journal", journalCsv());
+    const pkg = createPortablePackage(source, {
+      name: "Fuzz Books", gstin: null, stateCode: "27", address: "", email: null, phone: null,
+      pan: null, tan: null, booksFrom: 2026, gstRegistrationType: "unregistered",
+    });
+    const mutations: unknown[] = [
+      null,
+      [],
+      { ...pkg, schema: "other" },
+      { ...pkg, schemaVersion: Number.MAX_SAFE_INTEGER },
+      { ...pkg, entities: [] },
+      { ...pkg, entities: { ...pkg.entities, "../../books": [] } },
+      { ...pkg, entities: { ...pkg.entities, vouchers: "not-an-array" } },
+      { ...pkg, manifest: null },
+      { ...pkg, manifest: { ...pkg.manifest, counts: { ...pkg.manifest.counts, vouchers: -1 } } },
+      { ...pkg, manifest: { ...pkg.manifest, sha256: "0".repeat(64) } },
+    ];
+    for (const mutation of mutations) expect(() => validatePortablePackage(mutation)).toThrow();
+    const destination = freshDb();
+    for (const mutation of mutations) expect(() => restorePortablePackage(destination, mutation, "Fuzzer")).toThrow();
+    expect(destination.prepare("SELECT COUNT(*) AS n FROM vouchers").get()).toEqual({ n: 0 });
     source.close();
     destination.close();
   });

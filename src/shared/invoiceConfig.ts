@@ -67,6 +67,22 @@ export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
 /** ~200KB of base64 (280,000 chars covers 200KB with base64's ~4/3 expansion plus headroom). */
 const MAX_LOGO_DATA_URL_LEN = 280_000;
 
+function validLogoImageDataUrl(value: string): boolean {
+  const match = value.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/i);
+  if (!match) return false;
+  try {
+    const bytes = globalThis.atob(match[2]!);
+    const mime = match[1]!.toLowerCase();
+    if (mime === "png")
+      return bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => bytes.charCodeAt(index) === byte);
+    if (mime === "jpeg")
+      return bytes.length >= 3 && bytes.charCodeAt(0) === 0xff && bytes.charCodeAt(1) === 0xd8 && bytes.charCodeAt(2) === 0xff;
+    return bytes.length >= 12 && bytes.slice(0, 4) === "RIFF" && bytes.slice(8, 12) === "WEBP";
+  } catch {
+    return false;
+  }
+}
+
 const bankDetailsSchema = z.object({
   name: z.string().trim().max(120),
   account: z.string().trim().max(40),
@@ -84,10 +100,7 @@ export const invoiceConfigSchema = z.object({
   logoDataUrl: z
     .string()
     .max(MAX_LOGO_DATA_URL_LEN, "Logo image is too large (max ~200KB)")
-    .regex(
-      /^data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+$/i,
-      "Logo must be an image data URL",
-    )
+    .refine(validLogoImageDataUrl, "Logo must be a valid PNG, JPEG or WebP image data URL")
     .nullable(),
   declaration: z.string().trim().max(1000),
   bankDetails: bankDetailsSchema.nullable(),
