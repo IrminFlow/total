@@ -12,7 +12,7 @@ export async function storeJson(pathname: string, value: unknown, overwrite = fa
     contentType: "application/json",
     addRandomSuffix: false,
     allowOverwrite: overwrite,
-    cacheControlMaxAge: 60,
+    cacheControlMaxAge: 0,
   });
 }
 
