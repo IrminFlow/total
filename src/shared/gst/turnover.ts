@@ -18,7 +18,7 @@
  * and will move again.
  */
 
-const CRORE = 100_00_00_000 // ₹1 crore in paise
+export const CRORE = 100_00_00_000 // ₹1 crore in paise
 const LAKH = 100_00_000 // ₹1 lakh in paise
 
 /** E-invoicing (IRN) is mandatory above this, for B2B supplies. ₹5 crore since 1 Aug 2023. */

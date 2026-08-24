@@ -477,6 +477,12 @@ honestly absent.
 The things that gate a marketed release rather than improve the product. Two have procurement
 lead time measured in weeks, which makes them the first items on the list and not the last.
 
+392. ✓ An app icon (S) — there was none at all, so every build shipped the default Electron
+     one: the first thing a buyer sees after paying. Drawn as a checked-in SVG in the app's own
+     colours and rasterised by `npm run icon`, which renders it through Electron because the repo
+     assumes no image toolchain. The script also emits a contact sheet at 16/32/64/128, which is
+     the only honest way to judge an icon that lives in a dock.
+
 341. Apple Developer ID: enrol, then add `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
      `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` (S engineering, M procurement) — the
      workflow, hardened runtime and entitlements already read them and log a `::warning::` when

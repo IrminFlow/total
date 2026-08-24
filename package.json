@@ -19,7 +19,8 @@
     "e2e": "node scripts/run-e2e.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "postinstall": "electron-builder install-app-deps",
-    "build:mac": "electron-vite build && electron-builder --mac"
+    "build:mac": "electron-vite build && electron-builder --mac",
+    "icon": "node scripts/run-icon.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
@@ -76,7 +77,8 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": true
+      "notarize": true,
+      "icon": "build/icon.png"
     },
     "win": {
       "target": [
@@ -84,7 +86,8 @@
       ],
       "signtoolOptions": {
         "publisherName": "Irmin Labs"
-      }
+      },
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": true,
@@ -103,7 +106,10 @@
       "**/node_modules/better-sqlite3/**",
       "**/node_modules/bindings/**",
       "**/node_modules/file-uri-to-path/**"
-    ]
+    ],
+    "linux": {
+      "icon": "build/icon.png"
+    }
   },
   "allowScripts": {
     "electron@37.10.3": true,

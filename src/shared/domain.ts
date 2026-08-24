@@ -51,6 +51,10 @@ export interface Ledger {
   /** Credit limit in paise; null = no limit. saveVoucher warns (or blocks, under F11
    *  enforceCreditLimit) when the party's outstanding would exceed it. */
   creditLimit: number | null
+  /** A director, a relative, or an entity under common control — for the disclosure schedule.
+   *  Only a person can know this; the books only know the transactions. */
+  relatedParty: boolean
+  relationship: string | null
   /** MSME classification under the MSMED Act. Null means nobody has asked — distinct from
    *  'not_registered', because silence is not an exemption from section 43B(h). */
   msmeStatus: 'micro' | 'small' | 'medium' | 'not_registered' | null

@@ -847,5 +847,30 @@ export const MIGRATIONS: string[] = [
     UNIQUE (run_id, asset_id)
   );
   CREATE INDEX idx_depreciation_lines_asset ON depreciation_lines(asset_id);
+  `,
+
+  // 29 — related parties, and the LUT an exporter supplies under.
+  //
+  // A related-party disclosure is a schedule every audited entity has to produce and nothing here
+  // could answer: the books know every transaction with a ledger, and only a person knows whether
+  // that ledger is a director, a relative, or a company under common control. One flag and a
+  // relationship, and the report writes itself.
+  //
+  // The LUT is annual, expires on 31 March whenever it was filed, and an expired one silently
+  // turns a zero-rated export into a taxable supply. Stored per financial year rather than as a
+  // single current value, because "which LUT covered this invoice" is a question that gets asked
+  // a year later.
+  `
+  ALTER TABLE ledgers ADD COLUMN related_party INTEGER NOT NULL DEFAULT 0;
+  -- Free text: 'Director', 'Relative of director', 'Company under common control', …
+  ALTER TABLE ledgers ADD COLUMN relationship TEXT;
+
+  CREATE TABLE luts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    arn TEXT NOT NULL,
+    -- Financial year start: 2026 means FY 2026-27.
+    fy_start_year INTEGER NOT NULL UNIQUE,
+    filed_on TEXT NOT NULL
+  );
   `
 ]
