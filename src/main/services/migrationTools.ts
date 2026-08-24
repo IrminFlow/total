@@ -11,6 +11,7 @@ import { companyDir, companyExportsDir } from "../paths";
 import { writeAudit } from "./audit";
 import { signExportIfEnabled } from "./exportSigning";
 import { storeManagedAttachment } from "./attachmentVault";
+import { assertSafeXlsxContainer } from "./xlsxSafety";
 
 export type MigrationSource = "generic" | "busy" | "zoho_books" | "marg";
 const MAX_SPREADSHEET_BYTES = 64 * 1024 * 1024;
@@ -108,8 +109,10 @@ export async function spreadsheetFileToCsv(filePath: string): Promise<{ csvText:
   }
   if (extension !== ".xlsx")
     throw new Error("Choose CSV, tab-separated text or an .xlsx workbook. Save legacy .xls files as .xlsx first.");
+  const xlsxBuffer = readFileSync(filePath);
+  assertSafeXlsxContainer(xlsxBuffer);
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(filePath);
+  await workbook.xlsx.load(xlsxBuffer as unknown as ExcelJS.Buffer);
   if (workbook.worksheets.length > MAX_WORKSHEETS)
     throw new Error(`The workbook has more than ${MAX_WORKSHEETS} worksheets`);
   const sheet = workbook.worksheets.find((candidate) => candidate.actualRowCount > 0);

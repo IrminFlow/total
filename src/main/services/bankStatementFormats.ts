@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs'
 import { rowsToCsv } from '@shared/csv'
+import { assertSafeXlsxContainer } from './xlsxSafety'
 
 export type BankStatementFormat = 'csv' | 'xlsx' | 'ofx' | 'qif' | 'mt940'
 
@@ -123,6 +124,11 @@ function cellText(cell: ExcelJS.Cell): string {
 }
 
 export async function normalizeXlsx(buffer: Buffer): Promise<string> {
+  assertSafeXlsxContainer(buffer, {
+    maxEntries: 5_000,
+    maxUncompressedBytes: 128 * 1024 * 1024,
+    maxEntryBytes: 48 * 1024 * 1024,
+  })
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer)
   const sheet = workbook.worksheets[0]
