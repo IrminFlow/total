@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { readContinuation, rememberContinuation } from '../lib/continuation'
+import { continuationRouteKey, readContinuation, rememberContinuation } from '../lib/continuation'
 
 describe('continue working state', () => {
   beforeEach(() => localStorage.clear())
@@ -18,5 +18,17 @@ describe('continue working state', () => {
     expect(readContinuation('alpha')).toBeNull()
     localStorage.setItem('total-continuation-alpha', JSON.stringify({ screen: { name: 'daybook' }, from: 'bad', to: '2026-08-31' }))
     expect(readContinuation('alpha')).toBeNull()
+  })
+
+  it('distinguishes same-screen tabs and drill-down routes', () => {
+    expect(continuationRouteKey({ name: 'settings', tab: 'agents' })).not.toBe(
+      continuationRouteKey({ name: 'settings', tab: 'integrations' })
+    )
+    expect(continuationRouteKey({ name: 'daybook', voucherIds: [1, 2] })).not.toBe(
+      continuationRouteKey({ name: 'daybook', voucherIds: [2, 3] })
+    )
+    expect(continuationRouteKey({ name: 'ledger-statement', ledgerId: 7 })).not.toBe(
+      continuationRouteKey({ name: 'ledger-statement', ledgerId: 8 })
+    )
   })
 })

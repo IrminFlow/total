@@ -21,6 +21,7 @@ await scenario('20-continue-working', async (h) => {
   assert(Math.abs(restoredScroll - savedScroll) < 100, `Gateway reading position restored (${savedScroll} → ${restoredScroll})`)
 
   await h.goto('registers')
+  await h.page.waitForFunction(() => (document.querySelector('main')?.scrollTop ?? -1) < 5)
   await h.relaunch()
   await h.waitScreen('company-select')
   await h.clickText('Demo Traders')

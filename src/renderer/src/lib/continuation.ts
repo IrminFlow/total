@@ -11,6 +11,26 @@ export interface ContinuationState {
 
 function key(slug: string): string { return `total-continuation-${slug}` }
 
+/** Stable identity for screen variants that share one navigation name but not one scroll position. */
+export function continuationRouteKey(screen: Screen): string {
+  switch (screen.name) {
+    case 'task-inbox':
+      return `${screen.name}:${screen.compose ? 'compose' : ''}:${screen.linkType ?? ''}:${screen.linkKey ?? ''}`
+    case 'daybook':
+      return `${screen.name}:${screen.from ?? ''}:${screen.to ?? ''}:${screen.periodLabel ?? ''}:${screen.kind ?? ''}:${screen.voucherIds?.join(',') ?? ''}`
+    case 'voucher-entry':
+      return `${screen.name}:${screen.voucherId ?? ''}:${screen.draftId ?? ''}:${screen.workDraftId ?? ''}`
+    case 'masters':
+    case 'procurement':
+    case 'settings':
+      return `${screen.name}:${screen.tab ?? ''}`
+    case 'ledger-statement':
+      return `${screen.name}:${screen.ledgerId}`
+    default:
+      return screen.name
+  }
+}
+
 export function readContinuation(slug: string): ContinuationState | null {
   try {
     const parsed = JSON.parse(localStorage.getItem(key(slug)) ?? 'null') as Partial<ContinuationState> | null

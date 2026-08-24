@@ -54,7 +54,11 @@ import {
   Sparkle,
   Sun,
 } from "@phosphor-icons/react";
-import { readContinuation, rememberContinuation } from "../lib/continuation";
+import {
+  continuationRouteKey,
+  readContinuation,
+  rememberContinuation,
+} from "../lib/continuation";
 import { navigationLabel } from "../lib/navigationLabels";
 import { useAccessibilityPreferences } from "../lib/accessibilityPrefs";
 import { localizedLabel } from "../lib/localization";
@@ -81,6 +85,16 @@ const FOCUS_SCREENS = new Set([
   "gstr2b",
   "edocs",
   "month-close",
+]);
+
+const SCROLL_INTENT_KEYS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  " ",
 ]);
 
 export function Shell({
@@ -125,17 +139,32 @@ export function Shell({
     readWorkspacePrefs(slug, identity),
   );
   const mainRef = useRef<HTMLElement>(null);
-  const restoreKey = `${slug}:${screen.name}`;
-  const scrollRestoreRef = useRef({ key: "", target: 0, complete: true });
+  const restoreKey = `${slug}:${continuationRouteKey(screen)}`;
+  const scrollRestoreRef = useRef({
+    key: "",
+    slug: "",
+    screenName: "",
+    target: 0,
+    complete: true,
+  });
   if (scrollRestoreRef.current.key !== restoreKey) {
+    const hadRoute = scrollRestoreRef.current.key !== "";
+    const sameScreenRouteChange =
+      hadRoute &&
+      scrollRestoreRef.current.slug === (slug ?? "") &&
+      scrollRestoreRef.current.screenName === screen.name;
     const target =
-      slug && screen.name !== "voucher-entry"
+      slug && screen.name !== "voucher-entry" && !sameScreenRouteChange
         ? (readContinuation(slug)?.scrollByScreen[screen.name] ?? 0)
         : 0;
     scrollRestoreRef.current = {
       key: restoreKey,
+      slug: slug ?? "",
+      screenName: screen.name,
       target,
-      complete: target <= 0,
+      // A route transition with no saved position still needs one explicit scrollTo(0),
+      // because React reuses the same scrolling element across screens and tabs.
+      complete: !slug || screen.name === "voucher-entry" || (!hadRoute && target <= 0),
     };
   }
   const fetching = useIsFetching();
@@ -188,9 +217,8 @@ export function Shell({
   useEffect(() => {
     if (!slug || screen.name === "voucher-entry") return;
     const restoration = scrollRestoreRef.current;
-    if (restoration.key !== restoreKey) return;
+    if (restoration.key !== restoreKey || restoration.complete) return;
     const scrollTop = restoration.target;
-    restoration.complete = scrollTop <= 0;
     let frame = 0;
     let attempts = 0;
     const restore = (): void => {
@@ -199,10 +227,13 @@ export function Shell({
       main.scrollTo({ top: scrollTop });
       // Dashboard rows arrive asynchronously. Keep the saved reading position until the
       // scroller is tall enough instead of letting the browser clamp the one-shot restore to 0.
-      if (Math.abs(main.scrollTop - scrollTop) <= 1 || attempts >= 120) {
+      if (Math.abs(main.scrollTop - scrollTop) <= 1) {
         restoration.complete = true;
         return;
       }
+      // Stay pending after this bounded burst. A later query-layout transition can retry,
+      // while direct user input below always cancels restoration immediately.
+      if (attempts >= 120) return;
       attempts += 1;
       frame = requestAnimationFrame(restore);
     };
@@ -267,7 +298,20 @@ export function Shell({
   }, [nav, visibleNav, canFocus]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="flex h-full flex-col"
+      onKeyDownCapture={(event) => {
+        if (
+          !event.altKey &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          SCROLL_INTENT_KEYS.has(event.key) &&
+          scrollRestoreRef.current.key === restoreKey
+        ) {
+          scrollRestoreRef.current.complete = true;
+        }
+      }}
+    >
       <header
         className={`drag-region flex h-12 shrink-0 items-center gap-3 border-b border-line bg-panel pr-4 panel-shadow ${
           window.total.platform === "darwin" ? "pl-24" : "pl-4"
@@ -597,6 +641,18 @@ export function Shell({
           data-screen={screen.name}
           data-loading={fetching > 0 ? "true" : "false"}
           className={`min-h-0 flex-1 overflow-auto transition-[padding] duration-200 ${focusActive ? "bg-canvas p-7" : "p-5"}`}
+          onPointerDownCapture={() => {
+            if (scrollRestoreRef.current.key === restoreKey)
+              scrollRestoreRef.current.complete = true;
+          }}
+          onTouchStartCapture={() => {
+            if (scrollRestoreRef.current.key === restoreKey)
+              scrollRestoreRef.current.complete = true;
+          }}
+          onWheelCapture={() => {
+            if (scrollRestoreRef.current.key === restoreKey)
+              scrollRestoreRef.current.complete = true;
+          }}
           onScroll={(event) => {
             if (!slug || screen.name === "voucher-entry") return;
             const restoration = scrollRestoreRef.current;
