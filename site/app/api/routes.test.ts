@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
+const blobMocks = vi.hoisted(() => ({
+  put: vi.fn(),
+  get: vi.fn(),
+  list: vi.fn(),
+  del: vi.fn(),
+}));
+
+vi.mock("@vercel/blob", () => blobMocks);
+
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`redirect:${url}`);
@@ -35,6 +44,12 @@ beforeEach(() => {
   delete process.env.CONVEX_FEEDBACK_URL;
   delete process.env.SUPPORT_WEBHOOK_SECRET;
   delete process.env.SUPPORT_FALLBACK_EMAIL;
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  delete process.env.VERCEL_OIDC_TOKEN;
+  blobMocks.put.mockResolvedValue({});
+  blobMocks.get.mockResolvedValue(null);
+  blobMocks.list.mockResolvedValue({ blobs: [], hasMore: false, cursor: undefined });
+  blobMocks.del.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -93,6 +108,31 @@ describe("support intake", () => {
     const response = await POST(post("/api/support", { message: "short", email: "not-an-email" }));
     expect(response.status).toBe(400);
   });
+
+  it("persists a private case and allows email-bound status tracking", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    const { POST, GET } = await import("./support/route");
+    const response = await POST(post("/api/support", {
+      category: "bug",
+      email: "owner@example.com",
+      message: "The imported opening balance needs review before month close.",
+    }));
+    const receipt = await response.json() as { caseId: string; status: string };
+    expect(response.status).toBe(200);
+    expect(receipt.status).toBe("submitted");
+    expect(blobMocks.put).toHaveBeenCalledWith(
+      expect.stringMatching(new RegExp(`${receipt.caseId}\\.json$`)),
+      expect.any(String),
+      expect.objectContaining({ access: "private", addRandomSuffix: false }),
+    );
+    const stored = JSON.parse(blobMocks.put.mock.calls.at(-1)![1] as string);
+    blobMocks.get.mockImplementation(async () => ({ statusCode: 200, stream: new Blob([JSON.stringify(stored)]).stream() }));
+    const tracked = await GET(new NextRequest(`https://total.example/api/support?caseId=${receipt.caseId}&email=owner%40example.com`));
+    expect(tracked.status).toBe(200);
+    expect(await tracked.json()).toMatchObject({ caseId: receipt.caseId, status: "submitted" });
+    const hidden = await GET(new NextRequest(`https://total.example/api/support?caseId=${receipt.caseId}&email=wrong%40example.com`));
+    expect(hidden.status).toBe(404);
+  });
 });
 
 describe("feedback board", () => {
@@ -110,11 +150,24 @@ describe("feedback board", () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true, votes: 8 }));
     vi.stubGlobal("fetch", fetchMock);
     const { POST } = await import("./feedback/route");
-    const response = await POST(post("/api/feedback", { action: "follow", ideaId: "mobile-companion" }));
+    const response = await POST(post("/api/feedback", { action: "follow", ideaId: "mobile-companion", email: "owner@example.com" }));
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledWith(
       new URL("https://feedback.example/actions"),
       expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer feedback-secret" }) }),
+    );
+  });
+
+  it("records private append-only feedback events when Blob is connected", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    const { POST } = await import("./feedback/route");
+    const response = await POST(post("/api/feedback", { action: "vote", ideaId: "mobile-companion" }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, status: "recorded" });
+    expect(blobMocks.put).toHaveBeenCalledWith(
+      expect.stringMatching(/^feedback\/events\//),
+      expect.any(String),
+      expect.objectContaining({ access: "private", addRandomSuffix: false }),
     );
   });
 });

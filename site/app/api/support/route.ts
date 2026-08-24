@@ -1,11 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { deleteJson, intakeStoreConfigured, readJson, storeJson } from "@/lib/intakeStore";
 
 export const runtime = "nodejs";
 
 const WINDOW_MS = 10 * 60_000;
 const MAX_REQUESTS = 8;
 const attempts = new Map<string, { count: number; resetAt: number }>();
+
+interface StoredCase {
+  caseId: string;
+  category: string;
+  email: string;
+  message: string;
+  source: "app" | "website";
+  status: "submitted" | "in_review" | "waiting_for_customer" | "resolved";
+  receivedAt: string;
+  updatedAt: string;
+  diagnostics: unknown;
+  logs: unknown;
+  companyMetadata: unknown;
+  crashEnvelope: unknown;
+  focusContext: unknown;
+  screenshotDataUrl: string | null;
+}
+
+function casePath(caseId: string): string {
+  const date = caseId.slice(4, 12);
+  return `support/${date.slice(0, 4)}/${date.slice(4, 6)}/${caseId}.json`;
+}
+
+function authorized(request: NextRequest): boolean {
+  const expected = process.env.SUPPORT_WEBHOOK_SECRET;
+  const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  if (!expected || expected.length !== supplied.length) return false;
+  return timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
+}
+
+function emailMatches(expected: string, supplied: string): boolean {
+  const digest = (value: string) => createHash("sha256").update(value.trim().toLowerCase()).digest();
+  return timingSafeEqual(digest(expected), digest(supplied));
+}
 
 function fallback(caseId: string, category: string, email: string, message: string): NextResponse {
   const fallbackEmail = process.env.SUPPORT_FALLBACK_EMAIL || "total@irminflow.com";
@@ -182,9 +218,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 400 },
     );
   }
+  const receivedAt = new Date().toISOString();
+  const storedCase: StoredCase = {
+    caseId,
+    category,
+    email,
+    message,
+    source: body.source === "app" ? "app" : "website",
+    status: "submitted",
+    receivedAt,
+    updatedAt: receivedAt,
+    diagnostics,
+    logs,
+    companyMetadata,
+    crashEnvelope,
+    focusContext,
+    screenshotDataUrl,
+  };
+  if (intakeStoreConfigured()) {
+    try {
+      await storeJson(casePath(caseId), storedCase);
+    } catch {
+      return fallback(caseId, category, email, message);
+    }
+  }
+
   const webhook =
     process.env.CONVEX_SUPPORT_URL || process.env.SUPPORT_WEBHOOK_URL;
-  if (!webhook) return fallback(caseId, category, email, message);
+  if (!webhook) {
+    return intakeStoreConfigured()
+      ? NextResponse.json({ ok: true, caseId, status: "submitted" })
+      : fallback(caseId, category, email, message);
+  }
   let target: URL;
   try {
     target = new URL(webhook);
@@ -201,25 +266,51 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           ? { authorization: `Bearer ${process.env.SUPPORT_WEBHOOK_SECRET}` }
           : {}),
       },
-      body: JSON.stringify({
-        caseId,
-        category,
-        email,
-        message,
-        source: body.source === "app" ? "app" : "website",
-        diagnostics,
-        logs,
-        companyMetadata,
-        crashEnvelope,
-        focusContext,
-        screenshotDataUrl,
-        receivedAt: new Date().toISOString(),
-      }),
+      body: JSON.stringify(storedCase),
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return fallback(caseId, category, email, message);
+    if (!response.ok)
+      return intakeStoreConfigured()
+        ? NextResponse.json({ ok: true, caseId, status: "submitted", notification: "failed" })
+        : fallback(caseId, category, email, message);
     return NextResponse.json({ ok: true, caseId, status: "submitted" });
   } catch {
-    return fallback(caseId, category, email, message);
+    return intakeStoreConfigured()
+      ? NextResponse.json({ ok: true, caseId, status: "submitted", notification: "failed" })
+      : fallback(caseId, category, email, message);
   }
+}
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const caseId = request.nextUrl.searchParams.get("caseId") ?? "";
+  const email = request.nextUrl.searchParams.get("email") ?? "";
+  if (!/^TOT-\d{8}-[A-F0-9]{6}$/.test(caseId) || !email)
+    return NextResponse.json({ error: "Case ID and email are required" }, { status: 400 });
+  if (!intakeStoreConfigured())
+    return NextResponse.json({ error: "Case tracking is unavailable" }, { status: 503 });
+  const row = await readJson<StoredCase>(casePath(caseId));
+  if (!row || !emailMatches(row.email, email))
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  return NextResponse.json({ caseId: row.caseId, category: row.category, status: row.status, receivedAt: row.receivedAt, updatedAt: row.updatedAt });
+}
+
+export async function PATCH(request: NextRequest): Promise<NextResponse> {
+  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const body = await request.json().catch(() => null) as { caseId?: string; status?: StoredCase["status"] } | null;
+  if (!body?.caseId || !/^TOT-\d{8}-[A-F0-9]{6}$/.test(body.caseId) || !["submitted", "in_review", "waiting_for_customer", "resolved"].includes(String(body.status)))
+    return NextResponse.json({ error: "Invalid status update" }, { status: 400 });
+  const pathname = casePath(body.caseId);
+  const row = await readJson<StoredCase>(pathname);
+  if (!row) return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  await storeJson(pathname, { ...row, status: body.status, updatedAt: new Date().toISOString() }, true);
+  return NextResponse.json({ ok: true, caseId: row.caseId, status: body.status });
+}
+
+export async function DELETE(request: NextRequest): Promise<NextResponse> {
+  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const caseId = request.nextUrl.searchParams.get("caseId") ?? "";
+  if (!/^TOT-\d{8}-[A-F0-9]{6}$/.test(caseId))
+    return NextResponse.json({ error: "Invalid case ID" }, { status: 400 });
+  await deleteJson(casePath(caseId));
+  return NextResponse.json({ ok: true, caseId, deleted: true });
 }

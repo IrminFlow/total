@@ -15,6 +15,7 @@ here.
 | NIC API password and client secret | Encrypted envelope in company SQLite `meta.nic` | Entire credential object encrypted with Electron OS-backed `safeStorage`; legacy plaintext is upgraded on read | Both secret fields return only `••••••••` | Backups contain only the OS-protected envelope; diagnostics, logs, audit rows and mirrors exclude values | Re-enter in Settings → NIC live filing; another Mac may require re-entry |
 | Encrypted-backup passphrase | Process memory during one export/import | Never persisted | Password input for the active operation only | Not included in the resulting archive, logs or diagnostics | Create a new encrypted export with a new passphrase |
 | Support webhook bearer secret | Vercel environment (`SUPPORT_WEBHOOK_SECRET`) | Hosting provider secret store | Never reaches browser or desktop app | Not part of app data or diagnostics | Rotate in hosting and receiver environments |
+| Private support-store credential | Vercel project (`BLOB_READ_WRITE_TOKEN` / short-lived OIDC) | Hosting provider secret store; private Mumbai-region Blob store | Server routes only; private objects cannot be read by public URL | Never reaches the browser, desktop app, logs or diagnostic bundles | Rotate or disconnect in Vercel Storage; verify case intake after rotation |
 
 Support diagnostics are deliberately allow-listed, not redacted after collection: only app version,
 OS platform and CPU architecture are constructed. The in-app support dialog shows the exact JSON

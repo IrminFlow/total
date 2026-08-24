@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
+import { intakeStoreConfigured, listJson, storeJson } from "@/lib/intakeStore";
 
 export const runtime = "nodejs";
 
@@ -21,6 +23,17 @@ function endpoint(): URL | null {
 
 export async function GET(): Promise<NextResponse> {
   const target = endpoint();
+  if (!target && intakeStoreConfigured()) {
+    try {
+      const events = await listJson<{ action: string; ideaId?: string }>("feedback/events/");
+      const votes = new Map<string, number>();
+      for (const event of events)
+        if (event.action === "vote" && event.ideaId) votes.set(event.ideaId, (votes.get(event.ideaId) ?? 0) + 1);
+      return NextResponse.json({ ideas: SHIPPED_IDEAS.map((idea) => ({ ...idea, votes: votes.get(idea.id) ?? 0 })) });
+    } catch {
+      return NextResponse.json({ ideas: SHIPPED_IDEAS });
+    }
+  }
   if (!target) return NextResponse.json({ ideas: SHIPPED_IDEAS });
   try {
     const response = await fetch(target, {
@@ -39,8 +52,6 @@ export async function GET(): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const target = endpoint();
-  if (!target)
-    return NextResponse.json({ error: "Feedback voting is not configured" }, { status: 503 });
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   const action = String(body.action);
@@ -50,13 +61,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const email = typeof body.email === "string" ? body.email.trim().slice(0, 200) : "";
   if (!(["vote", "follow"].includes(action) && ideaId) && !(action === "submit" && title.length >= 5 && detail.length >= 10))
     return NextResponse.json({ error: "Check the feedback fields" }, { status: 400 });
+  if ((action === "follow" || (action === "submit" && email)) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return NextResponse.json({ error: "A valid email is required for updates" }, { status: 400 });
+  const event = { id: randomUUID(), action, ideaId, title, detail, email, source: body.source === "app" ? "app" : "website", receivedAt: new Date().toISOString() };
+  if (!target && intakeStoreConfigured()) {
+    await storeJson(`feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`, event);
+    return NextResponse.json({ ok: true, id: event.id, status: action === "submit" ? "awaiting_review" : "recorded" });
+  }
+  if (!target)
+    return NextResponse.json({ error: "Feedback voting is not configured" }, { status: 503 });
   const response = await fetch(target, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       ...(process.env.SUPPORT_WEBHOOK_SECRET ? { authorization: `Bearer ${process.env.SUPPORT_WEBHOOK_SECRET}` } : {}),
     },
-    body: JSON.stringify({ action, ideaId, title, detail, email, source: body.source === "app" ? "app" : "website", receivedAt: new Date().toISOString() }),
+    body: JSON.stringify(event),
     signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) return NextResponse.json({ error: "Feedback service unavailable" }, { status: 502 });

@@ -22,11 +22,12 @@ Vercel (`site` as root directory):
 
 - `GITHUB_TOKEN`: fine-grained, read-only access to releases in `IrminFlow/total` while private.
 - `NEXT_PUBLIC_SITE_URL`: canonical HTTPS origin.
-- `CONVEX_SUPPORT_URL` or `SUPPORT_WEBHOOK_URL`: production support intake.
-- `CONVEX_FEEDBACK_URL`: production feedback board.
-- `SUPPORT_WEBHOOK_SECRET`: shared bearer secret for the selected backend.
+- `BLOB_READ_WRITE_TOKEN`: private Vercel Blob intake storage (the current production backend), or
+  `CONVEX_SUPPORT_URL` / `SUPPORT_WEBHOOK_URL` for an alternate support service.
+- `CONVEX_FEEDBACK_URL`: optional alternate feedback backend; private Blob events are the default.
+- `SUPPORT_WEBHOOK_SECRET`: shared bearer secret for case status and deletion operations.
 
-Submit a synthetic support case and feedback idea after deployment. Verify backend receipt, case ID,
+Submit a synthetic support case and feedback idea after deployment. Verify private-store receipt, case ID,
 rate limiting, fallback behavior and that no book data appears unless explicitly selected.
 
 GitHub Actions release secrets:
