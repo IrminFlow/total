@@ -259,7 +259,7 @@ export async function writeErrorWorkbook(
   return path;
 }
 
-const PORTABLE_TABLES = [
+export const PORTABLE_TABLES = [
   "groups",
   "ledgers",
   "voucher_types",
@@ -286,6 +286,7 @@ const PORTABLE_TABLES = [
   "purchase_order_lines",
   "goods_receipts",
   "goods_receipt_lines",
+  "import_batches",
   "import_voucher_attachments",
   "audit_log",
 ] as const;
@@ -302,6 +303,122 @@ export interface PortablePackage {
     omittedSecrets: string[];
   };
 }
+
+function portableContent(pkg: Omit<PortablePackage, "manifest">): string {
+  return JSON.stringify({
+    schema: pkg.schema,
+    schemaVersion: pkg.schemaVersion,
+    exportedAt: pkg.exportedAt,
+    appDataNotice: pkg.appDataNotice,
+    company: pkg.company,
+    entities: pkg.entities,
+  });
+}
+
+export function validatePortablePackage(input: unknown): PortablePackage {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    throw new Error("Portable package must be a JSON object");
+  const pkg = input as PortablePackage;
+  if (pkg.schema !== "total.portable" || pkg.schemaVersion !== 1)
+    throw new Error("Unsupported portable package schema");
+  if (!pkg.company || typeof pkg.company !== "object")
+    throw new Error("Portable package company metadata is missing");
+  if (!pkg.entities || typeof pkg.entities !== "object" || Array.isArray(pkg.entities))
+    throw new Error("Portable package entities are missing");
+  if (!pkg.manifest || typeof pkg.manifest !== "object")
+    throw new Error("Portable package manifest is missing");
+  const allowed = new Set<string>(PORTABLE_TABLES);
+  for (const [table, rows] of Object.entries(pkg.entities)) {
+    if (!allowed.has(table)) throw new Error(`Portable package contains unsupported table "${table}"`);
+    if (!Array.isArray(rows)) throw new Error(`Portable table "${table}" must be an array`);
+    if (pkg.manifest.counts[table] !== rows.length)
+      throw new Error(`Portable table "${table}" count does not match its manifest`);
+  }
+  for (const [table, count] of Object.entries(pkg.manifest.counts)) {
+    if (!allowed.has(table) || !Number.isSafeInteger(count) || count < 0)
+      throw new Error(`Portable manifest count for "${table}" is invalid`);
+    if ((pkg.entities[table] ?? []).length !== count)
+      throw new Error(`Portable manifest references missing table "${table}"`);
+  }
+  const content = portableContent(pkg);
+  const expected = createHash("sha256").update(content).digest("hex");
+  if (pkg.manifest.sha256 !== expected)
+    throw new Error("Portable package content hash does not match the manifest");
+  return pkg;
+}
+
+export interface PortableRestoreResult {
+  company: CompanyInfo;
+  counts: Record<string, number>;
+  manifestHash: string;
+}
+
+/**
+ * Reconstructs the portable accounting tables in a migrated destination database. The caller
+ * must create the destination company folder and write the returned company metadata. Existing
+ * posted books are never overwritten.
+ */
+export function restorePortablePackage(
+  db: DB,
+  input: unknown,
+  actor: string,
+): PortableRestoreResult {
+  const pkg = validatePortablePackage(input);
+  const existing = db.prepare("SELECT COUNT(*) AS n FROM vouchers").get() as { n: number };
+  if (existing.n > 0) throw new Error("Portable restore requires a company with no posted vouchers");
+  const run = db.transaction(() => {
+    for (const table of [...PORTABLE_TABLES].reverse())
+      db.prepare(`DELETE FROM "${table}"`).run();
+
+    for (const table of PORTABLE_TABLES) {
+      const rows = pkg.entities[table] ?? [];
+      if (!rows.length) continue;
+      const columns = new Set(
+        (db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>).map((row) => row.name),
+      );
+      for (const raw of rows) {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw))
+          throw new Error(`Portable table "${table}" contains a non-object row`);
+        const row = raw as Record<string, unknown>;
+        const keys = Object.keys(row);
+        if (!keys.length || keys.some((key) => !columns.has(key)))
+          throw new Error(`Portable table "${table}" contains unknown or empty columns`);
+        const quoted = keys.map((key) => `"${key}"`).join(",");
+        const values = keys.map(() => "?").join(",");
+        db.prepare(`INSERT INTO "${table}" (${quoted}) VALUES (${values})`).run(...keys.map((key) => row[key]));
+      }
+    }
+
+    const foreignKeyFailure = db.prepare("PRAGMA foreign_key_check").get() as unknown;
+    if (foreignKeyFailure) throw new Error("Portable package violates destination foreign keys");
+    const unbalanced = db.prepare(`
+      SELECT v.id
+      FROM vouchers v
+      JOIN voucher_lines l ON l.voucher_id=v.id
+      GROUP BY v.id
+      HAVING SUM(CASE WHEN l.dr_cr='dr' THEN l.amount ELSE -l.amount END)<>0
+      LIMIT 1
+    `).get() as { id: number } | undefined;
+    if (unbalanced) throw new Error(`Portable package contains unbalanced voucher ${unbalanced.id}`);
+
+    const counts: Record<string, number> = {};
+    for (const table of PORTABLE_TABLES) {
+      const row = db.prepare(`SELECT COUNT(*) AS n FROM "${table}"`).get() as { n: number };
+      const expected = pkg.manifest.counts[table] ?? 0;
+      if (row.n !== expected) throw new Error(`Portable restore count differs for "${table}"`);
+      counts[table] = row.n;
+    }
+    return counts;
+  });
+  const counts = run();
+  writeAudit(db, "portable_restore", 0, "import", null, {
+    actor,
+    manifestHash: pkg.manifest.sha256,
+    counts,
+  });
+  return { company: pkg.company, counts, manifestHash: pkg.manifest.sha256 };
+}
+
 export function createPortablePackage(
   db: DB,
   company: CompanyInfo,
@@ -328,9 +445,7 @@ export function createPortablePackage(
     company,
     entities,
   };
-  const sha256 = createHash("sha256")
-    .update(JSON.stringify(base))
-    .digest("hex");
+  const sha256 = createHash("sha256").update(portableContent(base)).digest("hex");
   return {
     ...base,
     manifest: {

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { execFileSync } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
-import { seededDb } from "../db/testdb";
+import { freshDb, seededDb } from "../db/testdb";
 import { ensureCompanyTree } from "../paths";
 import { applyImport, previewImport } from "./importers";
 import {
@@ -12,6 +12,8 @@ import {
   listMappingProfiles,
   migrationDryRun,
   previewWithProfile,
+  restorePortablePackage,
+  validatePortablePackage,
   writeErrorWorkbook,
   writePortablePackage,
 } from "./migrationTools";
@@ -149,6 +151,39 @@ describe("migration workbench", () => {
     expect(
       db.prepare("SELECT COUNT(*) n FROM portable_export_receipts").get(),
     ).toEqual({ n: 1 });
+  });
+  it("reconstructs a portable package transactionally with exact counts and balanced books", () => {
+    const source = booksDb();
+    applyImport(source, "generic_journal", journalCsv());
+    const company = {
+      name: "Round-trip Books",
+      gstin: null,
+      stateCode: "27",
+      address: "",
+      email: null,
+      phone: null,
+      pan: null,
+      tan: null,
+      booksFrom: 2026,
+      gstRegistrationType: "unregistered" as const,
+    };
+    const pkg = createPortablePackage(source, company);
+    const destination = freshDb();
+    const result = restorePortablePackage(destination, pkg, "Migration operator");
+
+    expect(result.company).toEqual(company);
+    expect(result.manifestHash).toBe(pkg.manifest.sha256);
+    expect(result.counts.vouchers).toBe(1);
+    expect(result.counts.voucher_lines).toBe(2);
+    expect(destination.prepare("SELECT COUNT(*) AS n FROM vouchers").get()).toEqual({ n: 1 });
+    expect(destination.prepare("SELECT SUM(CASE WHEN dr_cr='dr' THEN amount ELSE -amount END) AS n FROM voucher_lines").get()).toEqual({ n: 0 });
+    expect(destination.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity='portable_restore'").get()).toEqual({ n: 1 });
+
+    const tampered = structuredClone(pkg);
+    (tampered.entities.voucher_lines![0] as { amount: number }).amount += 1;
+    expect(() => validatePortablePackage(tampered)).toThrow(/content hash/i);
+    source.close();
+    destination.close();
   });
   it("upgrades legacy portable JSON through the standalone CLI with a transformation report", () => {
     tree();
