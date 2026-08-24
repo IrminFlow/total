@@ -19,6 +19,9 @@ export default function SiteNav(): React.JSX.Element {
           <Link href="/capture">Capture</Link>
           <Link href="/support">Support</Link>
         </span>
+        <a className="nav-email" href="mailto:total@irminflow.com">
+          total@irminflow.com
+        </a>
         <a className="btn small" href="/api/download">
           Download
         </a>
