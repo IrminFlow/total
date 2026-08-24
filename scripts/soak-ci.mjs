@@ -5,11 +5,12 @@ import { createRequire } from "node:module";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseSoakIterations } from "./lib/soak.mjs";
 
 const require = createRequire(import.meta.url);
 const electronPath = require("electron");
 const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...desktopEnv } = process.env;
-const iterations = Math.min(200, Math.max(2, Number(process.env.TOTAL_SOAK_ITERATIONS ?? 20)));
+const iterations = parseSoakIterations(process.env.TOTAL_SOAK_ITERATIONS);
 const dataDir = process.env.TOTAL_DATA_DIR || mkdtempSync(join(tmpdir(), "total-soak-data-"));
 const profileDir = join(dataDir, ".electron-profile");
 const outDir = process.env.SMOKE_OUT || mkdtempSync(join(tmpdir(), "total-soak-evidence-"));
