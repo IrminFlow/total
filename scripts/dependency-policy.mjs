@@ -28,6 +28,16 @@ for (const name of Object.keys(direct)) {
 const deprecated = Object.entries(lock.packages ?? {})
   .filter(([, value]) => value && typeof value === "object" && "deprecated" in value)
   .map(([name, value]) => `${name || "root"}: ${value.deprecated}`);
+const reviewedTransitiveDeprecations = new Map([
+  ["node_modules/boolean", "electron-builder -> @electron/get -> global-agent"],
+  ["node_modules/fstream", "exceljs -> unzipper"],
+  ["node_modules/glob", "exceljs/electron-builder legacy archive helpers"],
+  ["node_modules/inflight", "glob 7"],
+  ["node_modules/lodash.isequal", "electron-updater and exceljs -> fast-csv"],
+  ["node_modules/rimraf", "exceljs -> unzipper -> fstream and Windows packaging"],
+]);
+const unexpectedDeprecated = deprecated.filter((warning) => !reviewedTransitiveDeprecations.has(warning.slice(0, warning.indexOf(":"))));
+if (unexpectedDeprecated.length) failures.push(...unexpectedDeprecated.map((warning) => `unreviewed transitive deprecation ${warning}`));
 const directPackagePaths = new Set(Object.keys(direct).map((name) => `node_modules/${name}`));
 const deprecatedDirect = Object.entries(lock.packages ?? {})
   .filter(([name, value]) => directPackagePaths.has(name) && value && typeof value === "object" && "deprecated" in value)
@@ -37,9 +47,13 @@ const nativeDirect = Object.keys(pkg.dependencies ?? {}).filter((name) => {
   const file = `${root}/node_modules/${name}/package.json`;
   if (!existsSync(file)) return false;
   const metadata = JSON.parse(readFileSync(file, "utf8"));
-  return metadata.gypfile === true || !!metadata.binary || /node-gyp|prebuild-install/.test(String(metadata.scripts?.install ?? ""));
+  return existsSync(`${root}/node_modules/${name}/binding.gyp`) || metadata.gypfile === true || !!metadata.binary || /node-gyp|prebuild-install/.test(String(metadata.scripts?.install ?? ""));
 });
 for (const name of nativeDirect)
   if (name !== "better-sqlite3") failures.push(`${name}: native runtime dependency is not on the reviewed allow-list`);
-console.log(JSON.stringify({ ok: failures.length === 0, directDependencies: Object.keys(direct).length, nativeDirect, licenses: Object.fromEntries(licenses), transitiveDeprecationWarnings: deprecated, failures }, null, 2));
+const transitiveDeprecationExceptions = deprecated.map((warning) => {
+  const path = warning.slice(0, warning.indexOf(":"));
+  return { path, owner: reviewedTransitiveDeprecations.get(path) ?? null, warning: warning.slice(warning.indexOf(":") + 2) };
+});
+console.log(JSON.stringify({ ok: failures.length === 0, directDependencies: Object.keys(direct).length, nativeDirect, licenses: Object.fromEntries(licenses), transitiveDeprecationExceptions, failures }, null, 2));
 if (failures.length) process.exit(1);

@@ -48,7 +48,7 @@
     "@fontsource/ibm-plex-serif": "^5.3.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@phosphor-icons/react": "^2.1.10",
-    "better-sqlite3": "^12.2.0",
+    "better-sqlite3": "^13.0.3",
     "electron-updater": "^6.8.9",
     "exceljs": "^4.4.0",
     "openai": "^7.5.0",
@@ -139,7 +139,7 @@
   },
   "allowScripts": {
     "electron@43.4.1": true,
-    "better-sqlite3@12.11.1": true,
+    "better-sqlite3@13.0.3": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
     "electron-winstaller@5.4.0": true
