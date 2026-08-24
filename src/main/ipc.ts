@@ -706,6 +706,12 @@ export function registerIpc(): void {
       limit == null ? undefined : { limit, offset }
     )
   }, 'viewer')
+  handle('report:dayBookByType', (p) => {
+    const { from, to, includeOutOfBooks } = periodSchema
+      .extend({ includeOutOfBooks: z.boolean().optional() })
+      .parse(p)
+    return reports.dayBookByType(requireCompany().db, from, to, includeOutOfBooks)
+  }, 'viewer')
   handle('report:trialBalance', (p) => {
     const { asOn, includeZeroBalances } = z
       .object({ asOn: z.string(), includeZeroBalances: z.boolean().optional() })

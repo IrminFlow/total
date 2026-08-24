@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type {
-  BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, ExceptionRow, ExceptionSection, ExceptionsReport,
+  BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, DayBookTypeRow, ExceptionRow, ExceptionSection, ExceptionsReport,
   ItemProfitRow, LedgerStatement, LedgerStatementRow,
   ProfitAndLoss, StatementNode, StockAgeingRow, StockSummaryRow, TopLedgerRow, TrialBalance
 } from '@shared/reports'
@@ -419,7 +419,11 @@ export function dayBook(
       `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, vt.kind AS kind, v.number, v.narration,
               v.is_optional AS isOptional, v.post_dated AS postDated,
               COALESCE(pl.name, fl.name, '') AS account,
-              COALESCE(anet.net, 0) AS accountNet
+              COALESCE(anet.net, 0) AS accountNet,
+              -- How many of this voucher's bank legs exist, and how many are marked off. Counted
+              -- rather than boolean so a voucher between two bank accounts can say "partial".
+              COALESCE(bank.legs, 0) AS bankLegs,
+              COALESCE(bank.cleared, 0) AS bankCleared
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
@@ -433,6 +437,16 @@ export function dayBook(
                 SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
          FROM voucher_lines vl GROUP BY vl.voucher_id, vl.ledger_id
        ) anet ON anet.voucher_id = v.id AND anet.ledger_id = COALESCE(pl.id, fl.id)
+       LEFT JOIN (
+         SELECT vl.voucher_id,
+                COUNT(*) AS legs,
+                SUM(CASE WHEN vl.bank_date IS NOT NULL THEN 1 ELSE 0 END) AS cleared
+         FROM voucher_lines vl
+         JOIN ledgers bl ON bl.id = vl.ledger_id
+         JOIN groups bg ON bg.id = bl.group_id
+         WHERE bg.name = 'Bank Accounts'
+         GROUP BY vl.voucher_id
+       ) bank ON bank.voucher_id = v.id
        WHERE v.date BETWEEN ? AND ? AND ${scope}
        ORDER BY v.date, v.id
        ${opts.limit != null ? 'LIMIT ? OFFSET ?' : ''}`
@@ -441,6 +455,7 @@ export function dayBook(
       voucherId: number; date: string; voucherType: string; kind: string; number: string
       narration: string | null; account: string; accountNet: number
       isOptional: number; postDated: number
+      bankLegs: number; bankCleared: number
     }[]
   return rows.map((r) => ({
     voucherId: r.voucherId,
@@ -453,8 +468,41 @@ export function dayBook(
     debit: r.accountNet > 0 ? r.accountNet : 0,
     credit: r.accountNet < 0 ? -r.accountNet : 0,
     isOptional: !!r.isOptional,
-    postDated: !!r.postDated
+    postDated: !!r.postDated,
+    bankStatus:
+      r.bankLegs === 0
+        ? null
+        : r.bankCleared === 0
+          ? 'pending'
+          : r.bankCleared < r.bankLegs
+            ? 'partial'
+            : 'reconciled'
   }))
+}
+
+/**
+ * The period by voucher type: how many of each, and what they moved.
+ *
+ * A summary rather than subtotals inside the list, because the list is paged — subtotals
+ * computed over a page would be subtotals of an arbitrary slice, which is worse than none. This
+ * counts the whole period in one query however many rows that is, and each row drills into the
+ * Day Book filtered to that type.
+ */
+export function dayBookByType(db: DB, from: string, to: string, includeOutOfBooks = false): DayBookTypeRow[] {
+  const scope = includeOutOfBooks ? NOT_DELETED : IN_BOOKS
+  return db
+    .prepare(
+      `SELECT vt.kind AS kind, vt.name AS voucherType, COUNT(DISTINCT v.id) AS count,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END), 0) AS debit,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END), 0) AS credit
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       LEFT JOIN voucher_lines vl ON vl.voucher_id = v.id
+       WHERE v.date BETWEEN ? AND ? AND ${scope}
+       GROUP BY vt.id
+       ORDER BY count DESC, vt.name`
+    )
+    .all(from, to) as DayBookTypeRow[]
 }
 
 /** How many day-book rows the period holds — the denominator for a paged view. */
@@ -981,6 +1029,8 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
       // Real flags (not hard-coded false): the recent list shows out-of-books vouchers too, and
       // the renderer badges them just like the Day Book does.
       isOptional: v.isOptional, postDated: v.postDated
+      // bankStatus deliberately absent: the Gateway's recent list has no reconciliation column,
+      // and `null` already means "not a bank voucher".
     }))
 
   const partyIds = new Set([...debtorIds, ...creditorIds])

@@ -19,6 +19,27 @@ export interface DayBookRow {
   isOptional: boolean
   /** Post-dated and not yet matured — kept out of the books until its date arrives (v0.3 S5). */
   postDated: boolean
+  /**
+   * Bank reconciliation state, for vouchers that touch a bank ledger.
+   *
+   * `null` means "not a bank voucher" — a cash receipt is not "unreconciled", and showing it as
+   * pending would put a permanent to-do beside entries that can never be cleared. `'partial'`
+   * covers a voucher touching two bank ledgers where only one leg has been marked off.
+   *
+   * Absent (rather than null) when the producer did not compute it: the Gateway's eight-row
+   * recent list has no reconciliation column, and one value must not have to mean both
+   * "not applicable" and "not asked".
+   */
+  bankStatus?: 'reconciled' | 'partial' | 'pending' | null
+}
+
+/** One voucher type's contribution to a period — the Day Book's summary view. */
+export interface DayBookTypeRow {
+  kind: string
+  voucherType: string
+  count: number
+  debit: number
+  credit: number
 }
 
 export interface LedgerStatementRow {

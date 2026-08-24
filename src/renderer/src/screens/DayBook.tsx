@@ -2,7 +2,8 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput, useKeyNav } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput, useKeyNav, useTableNav } from '../components/ui'
+import { useStickyFlag } from '../lib/useStickyTab'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
@@ -25,7 +26,10 @@ const COLUMNS: ReportColumn[] = [
   { key: 'number', label: 'Number', defaultOn: true },
   { key: 'account', label: 'Account', defaultOn: true },
   { key: 'debit', label: 'Debit', defaultOn: true },
-  { key: 'credit', label: 'Credit', defaultOn: true }
+  { key: 'credit', label: 'Credit', defaultOn: true },
+  // Off by default: it is only meaningful on bank vouchers, and a mostly-empty column costs
+  // width on every row of a dense table to say something about a few of them.
+  { key: 'reconciled', label: 'Reconciled', defaultOn: false }
 ]
 
 /** Which vouchers show: the books only (default), everything, or just the out-of-book kinds. */
@@ -106,6 +110,21 @@ const DayBookRowView = memo(function DayBookRowView({
           <Money paise={row.credit} />
         </td>
       )}
+      {visible.reconciled && (
+        <td className="text-hint" data-testid="daybook-bank-status">
+          {row.bankStatus == null ? (
+            // Not a bank voucher. A dash, not "pending" — a cash receipt can never be cleared,
+            // and showing it as outstanding would be a permanent to-do that is not a to-do.
+            <span className="text-muted">–</span>
+          ) : row.bankStatus === 'reconciled' ? (
+            <span className="text-dr">Cleared</span>
+          ) : row.bankStatus === 'partial' ? (
+            <span className="text-amber">Part-cleared</span>
+          ) : (
+            <span className="text-amber">Not cleared</span>
+          )}
+        </td>
+      )}
     </tr>
   )
 })
@@ -113,6 +132,7 @@ const DayBookRowView = memo(function DayBookRowView({
 export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}): React.JSX.Element {
   const { from, to } = useSession()
   const nav = useNav()
+  const [byType, setByType] = useStickyFlag('daybook-by-type', false)
   const toast = useToasts()
   const [filter, setFilter] = useState('')
   const [scope, setScope] = useState<Scope>('books')
@@ -198,7 +218,13 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
 
   // Date and Narration always show; the rest follow the F12 column config.
   const colCount =
-    2 + (visible.type ? 1 : 0) + (visible.number ? 1 : 0) + (visible.account ? 1 : 0) + (visible.debit ? 1 : 0) + (visible.credit ? 1 : 0)
+    2 +
+    (visible.type ? 1 : 0) +
+    (visible.number ? 1 : 0) +
+    (visible.account ? 1 : 0) +
+    (visible.debit ? 1 : 0) +
+    (visible.credit ? 1 : 0) +
+    (visible.reconciled ? 1 : 0)
 
   const exportColumns: PdfColumn[] = [
     { label: 'Date', align: 'l' },
@@ -274,6 +300,14 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                 </option>
               ))}
             </Select>
+            <Button
+              variant="ghost"
+              data-testid="btn-daybook-by-type"
+              onClick={() => setByType(!byType)}
+              title="Count and total the period by voucher type"
+            >
+              {byType ? 'Show entries' : 'By type'}
+            </Button>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
             <Button
               variant="ghost"
@@ -327,6 +361,9 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
           <span className="text-hint text-muted">Filtered from Registers</span>
         </div>
       )}
+      {byType ? (
+        <ByTypePanel from={from} to={to} includeOutOfBooks={scope !== 'books'} />
+      ) : (
       <Panel>
         {isLoading ? (
           <SkeletonRows />
@@ -346,6 +383,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                 <th>Narration</th>
                 {visible.debit && <th className="r w-36">Debit</th>}
                 {visible.credit && <th className="r w-36">Credit</th>}
+                {visible.reconciled && <th className="w-28">Reconciled</th>}
               </tr>
             </thead>
             <tbody data-testid="rows-daybook">
@@ -377,7 +415,11 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                 </tr>
               )}
               <tr className="total-row">
-                <td colSpan={colCount - (visible.debit ? 1 : 0) - (visible.credit ? 1 : 0)}>
+                <td
+                  colSpan={
+                    colCount - (visible.debit ? 1 : 0) - (visible.credit ? 1 : 0) - (visible.reconciled ? 1 : 0)
+                  }
+                >
                   Total{hasOutOfBooks ? ' (in books)' : ''} · {bookRows.length} vouchers
                 </td>
                 {visible.debit && (
@@ -390,11 +432,85 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                     <Money paise={totalCredit} />
                   </td>
                 )}
+                {visible.reconciled && <td />}
               </tr>
             </tbody>
           </table>
         )}
       </Panel>
+      )}
     </div>
+  )
+}
+
+/**
+ * The period by voucher type.
+ *
+ * A summary rather than subtotals inside the list, because the list is paged: subtotals over a
+ * page would be subtotals of an arbitrary slice, which is worse than none at all. This counts the
+ * whole period server-side however many rows that is, and each row drills into the Day Book
+ * filtered to that type.
+ */
+function ByTypePanel({
+  from,
+  to,
+  includeOutOfBooks
+}: {
+  from: string
+  to: string
+  includeOutOfBooks: boolean
+}): React.JSX.Element {
+  const nav = useNav()
+  const { data, isLoading } = useQuery({
+    queryKey: ['dayBookByType', from, to, includeOutOfBooks],
+    queryFn: () => api.reports.dayBookByType(from, to, includeOutOfBooks)
+  })
+  const rows = data ?? []
+  const table = useTableNav(rows, {
+    rowId: (r) => r.kind,
+    onEnter: (r) => nav.go({ name: 'daybook', kind: r.kind })
+  })
+
+  return (
+    <>
+      <Panel>
+        {isLoading ? (
+          <SkeletonRows rows={6} />
+        ) : rows.length === 0 ? (
+          <EmptyState title="No entries in this period" />
+        ) : (
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th>Voucher type</th>
+                <th className="r w-24">Count</th>
+                <th className="r w-40">Debit</th>
+                <th className="r w-40">Credit</th>
+              </tr>
+            </thead>
+            <tbody data-testid="rows-daybook-by-type">
+              {rows.map((r, i) => (
+                <tr key={r.kind} {...table.rowProps(i, r)}>
+                  <td>{r.voucherType}</td>
+                  <td className="r num">{r.count}</td>
+                  <td className="r"><Money paise={r.debit} /></td>
+                  <td className="r"><Money paise={r.credit} /></td>
+                </tr>
+              ))}
+              <tr className="total-row">
+                <td>Total · {rows.reduce((s, r) => s + r.count, 0)} vouchers</td>
+                <td className="r num">{rows.reduce((s, r) => s + r.count, 0)}</td>
+                <td className="r"><Money paise={rows.reduce((s, r) => s + r.debit, 0)} /></td>
+                <td className="r"><Money paise={rows.reduce((s, r) => s + r.credit, 0)} /></td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </Panel>
+      <p className="mt-2 text-hint text-muted">
+        Counted over the whole period, not just the entries loaded below. Click a type to open its
+        vouchers.
+      </p>
+    </>
   )
 }
