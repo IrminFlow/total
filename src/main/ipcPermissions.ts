@@ -1,5 +1,9 @@
 import type { Role } from "./services/roles";
-import type { PermissionAction } from "./services/permissions";
+import type { DB } from "./db/connection";
+import {
+  permissionAllows,
+  type PermissionAction,
+} from "./services/permissions";
 
 /**
  * Channels whose permission does not follow the legacy payload/name heuristic.
@@ -15,8 +19,16 @@ export const EXPLICIT_PERMISSION_ACTIONS = {
   "voucher:batchReverse": "edit",
   "bank:setBankDate": "edit",
   "bank:chequeStatus": "edit",
+  "edoc:transportSet": "edit",
   "agent:approveProposal": "approve",
   "agent:discardProposal": "approve",
+  "gst:exportGstr1": "export",
+  "gst:exportGstr3b": "export",
+  "tds:export26q": "export",
+  "edoc:exportEInvoice": "export",
+  "edoc:exportEwb": "export",
+  "edoc:ewbJson": "export",
+  "invoice:pdfBatch": "export",
 } as const satisfies Record<string, PermissionAction>;
 
 export function permissionActionForChannel(
@@ -68,4 +80,18 @@ export function permissionActionForChannel(
   )
     return "edit";
   return "create";
+}
+
+/** The one permission-matrix gate used by IPC registration and denial tests. */
+export function assertIpcPermissionAllowed(
+  db: DB,
+  role: Role,
+  channel: string,
+  payload: unknown,
+  minRole: Role,
+): PermissionAction {
+  const action = permissionActionForChannel(channel, payload, minRole);
+  if (!permissionAllows(db, role, action))
+    throw new Error("You do not have permission to do that");
+  return action;
 }

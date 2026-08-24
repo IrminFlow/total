@@ -3,10 +3,14 @@ import type { VoucherInputParsed } from "@shared/schemas";
 import { seededDb } from "../db/testdb";
 import { saveVoucher, listVouchers } from "./vouchers";
 import {
+  approvalRequestInDepartmentScope,
+  assertApprovalRequestDepartmentScope,
   assertCompanyWideSurfaceAllowed,
   assertVoucherDepartmentScope,
   assertVoucherInputDepartmentScope,
+  filterVoucherLinkedRowsByDepartmentScope,
   filterVoucherRowsByDepartmentScope,
+  voucherInputInDepartmentScope,
   voucherInDepartmentScope,
 } from "./departmentScope";
 
@@ -61,10 +65,11 @@ function allow(
   db: ReturnType<typeof seededDb>,
   kind: "voucher_type" | "godown" | "cost_centre",
   dimensionId: number,
+  role: "viewer" | "accountant" = "viewer",
 ): void {
   db.prepare(
-    "INSERT INTO department_boundaries(role,dimension_kind,dimension_id,allowed) VALUES('viewer',?,?,1)",
-  ).run(kind, dimensionId);
+    "INSERT INTO department_boundaries(role,dimension_kind,dimension_id,allowed) VALUES(?,?,?,1)",
+  ).run(role, kind, dimensionId);
 }
 
 describe("record-backed department scope", () => {
@@ -193,5 +198,92 @@ describe("record-backed department scope", () => {
         stockInput("2026-08-04", deniedGodown),
       ),
     ).toThrow("outside your configured department boundaries");
+  });
+
+  it("filters voucher-linked output rows without exposing out-of-scope records", () => {
+    const db = seededDb();
+    const journal = id(db, "SELECT id FROM voucher_types WHERE kind='journal'");
+    const receipt = id(db, "SELECT id FROM voucher_types WHERE kind='receipt'");
+    const allowed = saveVoucher(db, journalInput(db, journal, "2026-08-01"));
+    const denied = saveVoucher(db, journalInput(db, receipt, "2026-08-02"));
+    allow(db, "voucher_type", journal);
+
+    const rows = [
+      { eventId: 1, voucherId: allowed.id },
+      { eventId: 2, voucherId: denied.id },
+      { eventId: 3, voucherId: 999_999 },
+    ];
+    expect(
+      filterVoucherLinkedRowsByDepartmentScope(
+        db,
+        "viewer",
+        rows,
+        (row) => row.voucherId,
+      ),
+    ).toEqual([{ eventId: 1, voucherId: allowed.id }]);
+  });
+
+  it("filters approval payloads and checks both target and posted voucher records", () => {
+    const db = seededDb();
+    const journal = id(db, "SELECT id FROM voucher_types WHERE kind='journal'");
+    const receipt = id(db, "SELECT id FROM voucher_types WHERE kind='receipt'");
+    const allowedInput = journalInput(db, journal, "2026-08-01");
+    const deniedInput = journalInput(db, receipt, "2026-08-02");
+    const allowed = saveVoucher(db, allowedInput);
+    const denied = saveVoucher(db, deniedInput);
+    allow(db, "voucher_type", journal, "accountant");
+
+    const allowedRequest = {
+      payload: allowedInput,
+      targetVoucherId: allowed.id,
+      postedVoucherId: null,
+    };
+    const deniedPayloadRequest = {
+      payload: deniedInput,
+      targetVoucherId: null,
+      postedVoucherId: null,
+    };
+    const deniedTargetRequest = {
+      payload: allowedInput,
+      targetVoucherId: allowed.id,
+      postedVoucherId: denied.id,
+    };
+
+    expect(
+      approvalRequestInDepartmentScope(db, "accountant", allowedRequest),
+    ).toBe(true);
+    expect(
+      approvalRequestInDepartmentScope(db, "accountant", deniedPayloadRequest),
+    ).toBe(false);
+    expect(
+      approvalRequestInDepartmentScope(db, "accountant", deniedTargetRequest),
+    ).toBe(false);
+    expect(() =>
+      assertApprovalRequestDepartmentScope(
+        db,
+        "accountant",
+        deniedTargetRequest,
+      ),
+    ).toThrow("outside your configured department boundaries");
+    expect(
+      approvalRequestInDepartmentScope(db, "owner", deniedTargetRequest),
+    ).toBe(true);
+  });
+
+  it("rejects out-of-scope agent proposal voucher inputs but preserves owner access", () => {
+    const db = seededDb();
+    const journal = id(db, "SELECT id FROM voucher_types WHERE kind='journal'");
+    const receipt = id(db, "SELECT id FROM voucher_types WHERE kind='receipt'");
+    const allowedInput = journalInput(db, journal, "2026-08-01");
+    const deniedInput = journalInput(db, receipt, "2026-08-02");
+    allow(db, "voucher_type", journal, "accountant");
+
+    expect(voucherInputInDepartmentScope(db, "accountant", allowedInput)).toBe(
+      true,
+    );
+    expect(voucherInputInDepartmentScope(db, "accountant", deniedInput)).toBe(
+      false,
+    );
+    expect(voucherInputInDepartmentScope(db, "owner", deniedInput)).toBe(true);
   });
 });

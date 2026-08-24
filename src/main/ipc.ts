@@ -180,7 +180,7 @@ import * as integrations from "./services/integrations";
 import * as partnerAdapters from "./services/partnerAdapters";
 import * as resilience from "./services/resilience";
 import * as attachmentVault from "./services/attachmentVault";
-import { permissionActionForChannel as permissionActionFor } from "./ipcPermissions";
+import { assertIpcPermissionAllowed } from "./ipcPermissions";
 import * as privacyControls from "./services/privacyControls";
 import * as exportSigning from "./services/exportSigning";
 import { backgroundWork } from "./services/workloadGovernor";
@@ -331,12 +331,37 @@ function companyWideSurfaceLabel(channel: string): string | null {
   return null;
 }
 
+function agentProposalInDepartmentScope(
+  db: DB,
+  role: Role,
+  proposal: agentBridge.AgentProposal,
+): boolean {
+  try {
+    return departmentScope.voucherInputInDepartmentScope(
+      db,
+      role,
+      voucherInputSchema.parse(proposal.voucher),
+    );
+  } catch {
+    return false;
+  }
+}
+
 function exportFormatFor(channel: string): ExportFormat {
   if (channel === "agent:exportMirror") return "json_mirror";
-  if (channel === "export:caPack" || channel === "export:tallyXml")
+  if (
+    channel === "export:caPack" ||
+    channel === "export:tallyXml" ||
+    channel === "gst:exportGstr1" ||
+    channel === "gst:exportGstr3b" ||
+    channel === "tds:export26q" ||
+    channel.startsWith("edoc:export") ||
+    channel === "edoc:ewbJson"
+  )
     return "full_data";
   if (
     channel === "report:pdf" ||
+    channel === "invoice:pdfBatch" ||
     channel.endsWith(":pdf") ||
     channel.includes("Pdf")
   )
@@ -399,12 +424,13 @@ function handle(
           // to the lock screen instead of a generic permission toast.
           throw new Error("Locked — sign in first");
         }
-        const action = permissionActionFor(channel, payload, minRole);
-        if (
-          !permissions.permissionAllows(current.db, sessionUser.role, action)
-        ) {
-          throw new Error("You do not have permission to do that");
-        }
+        const action = assertIpcPermissionAllowed(
+          current.db,
+          sessionUser.role,
+          channel,
+          payload,
+          minRole,
+        );
         if (
           action === "export" &&
           !internalControls.exportAllowed(
@@ -3059,7 +3085,13 @@ export function registerIpc(): void {
             .default("pending"),
         })
         .parse(p ?? {});
-      return approvals.listApprovalRequests(requireCompany().db, status);
+      const c = requireCompany();
+      const role = sessionUser?.role ?? "owner";
+      return approvals
+        .listApprovalRequests(c.db, status)
+        .filter((request) =>
+          departmentScope.approvalRequestInDepartmentScope(c.db, role, request),
+        );
     },
     "accountant",
   );
@@ -3073,8 +3105,14 @@ export function registerIpc(): void {
         })
         .parse(p);
       if (!sessionUser) throw new Error("Locked — sign in first");
+      const c = requireCompany();
+      departmentScope.assertApprovalRequestDepartmentScope(
+        c.db,
+        sessionUser.role,
+        approvals.getApprovalRequest(c.db, id),
+      );
       return approvals.approveRequest(
-        requireCompany().db,
+        c.db,
         id,
         sessionUser,
         note,
@@ -3092,7 +3130,13 @@ export function registerIpc(): void {
         })
         .parse(p);
       if (!sessionUser) throw new Error("Locked — sign in first");
-      approvals.rejectRequest(requireCompany().db, id, sessionUser, note);
+      const c = requireCompany();
+      departmentScope.assertApprovalRequestDepartmentScope(
+        c.db,
+        sessionUser.role,
+        approvals.getApprovalRequest(c.db, id),
+      );
+      approvals.rejectRequest(c.db, id, sessionUser, note);
       return null;
     },
     "owner",
@@ -5234,7 +5278,13 @@ export function registerIpc(): void {
     "edoc:list",
     (p) => {
       const { from, to } = periodSchema.parse(p);
-      return edocs.listSalesInvoices(requireCompany().db, from, to);
+      const c = requireCompany();
+      return departmentScope.filterVoucherLinkedRowsByDepartmentScope(
+        c.db,
+        sessionUser?.role ?? "owner",
+        edocs.listSalesInvoices(c.db, from, to),
+        (row) => row.voucherId,
+      );
     },
     "viewer",
   );
@@ -5244,7 +5294,16 @@ export function registerIpc(): void {
       const { voucherId } = z
         .object({ voucherId: z.number().int().positive().optional() })
         .parse(p ?? {});
-      return complianceOps.edocEvents(requireCompany().db, voucherId);
+      const c = requireCompany();
+      const role = sessionUser?.role ?? "owner";
+      if (voucherId)
+        departmentScope.assertVoucherDepartmentScope(c.db, role, voucherId);
+      return departmentScope.filterVoucherLinkedRowsByDepartmentScope(
+        c.db,
+        role,
+        complianceOps.edocEvents(c.db, voucherId),
+        (row) => row.voucherId,
+      );
     },
     "viewer",
   );
@@ -5269,8 +5328,14 @@ export function registerIpc(): void {
         reason: z.string().trim().max(1000).nullable(),
       })
       .parse(p);
+    const c = requireCompany();
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      data.voucherId,
+    );
     return complianceOps.addEdocEvent(
-      requireCompany().db,
+      c.db,
       data,
       sessionUser?.name ?? "Local user",
     );
@@ -5278,6 +5343,11 @@ export function registerIpc(): void {
   handle("edoc:exportEInvoice", (p) => {
     const { from, to, period } = gstPeriodInput.parse(p);
     const c = requireCompany();
+    departmentScope.assertCompanyWideSurfaceAllowed(
+      c.db,
+      sessionUser?.role ?? "owner",
+      "Bulk e-invoice export",
+    );
     const r = edocs.exportEInvoices(c.db, c.info, c.slug, from, to, period);
     auditExport(c.db, "einvoice", { period, path: r.path, count: r.count });
     shell.showItemInFolder(r.path);
@@ -5292,6 +5362,18 @@ export function registerIpc(): void {
         })
         .parse(p);
     const c = requireCompany();
+    if (voucherIds?.length)
+      departmentScope.assertVoucherIdsDepartmentScope(
+        c.db,
+        sessionUser?.role ?? "owner",
+        voucherIds,
+      );
+    else
+      departmentScope.assertCompanyWideSurfaceAllowed(
+        c.db,
+        sessionUser?.role ?? "owner",
+        "Bulk e-way bill export",
+      );
     // Writes the combined bulk file AND one single-bill file per voucher (exports/ewb/<period>/).
     const r = edocs.exportEwb(c.db, c.info, c.slug, from, to, period, {
       voucherIds,
@@ -5306,6 +5388,11 @@ export function registerIpc(): void {
       .object({ voucherId: z.number().int().positive() })
       .parse(p);
     const c = requireCompany();
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      voucherId,
+    );
     const r = edocs.ewbJsonForVoucher(c.db, c.info, c.slug, voucherId);
     shell.showItemInFolder(r.path);
     return r;
@@ -5316,7 +5403,13 @@ export function registerIpc(): void {
       const { voucherId } = z
         .object({ voucherId: z.number().int().positive() })
         .parse(p);
-      return edocs.getTransport(requireCompany().db, voucherId);
+      const c = requireCompany();
+      departmentScope.assertVoucherDepartmentScope(
+        c.db,
+        sessionUser?.role ?? "owner",
+        voucherId,
+      );
+      return edocs.getTransport(c.db, voucherId);
     },
     "viewer",
   );
@@ -5327,13 +5420,24 @@ export function registerIpc(): void {
         data: voucherTransportSchema,
       })
       .parse(p);
-    return edocs.setTransport(requireCompany().db, voucherId, data);
+    const c = requireCompany();
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      voucherId,
+    );
+    return edocs.setTransport(c.db, voucherId, data);
   });
   handle("invoice:pdf", async (p) => {
     const { voucherId } = z
       .object({ voucherId: z.number().int().positive() })
       .parse(p);
     const c = requireCompany();
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      voucherId,
+    );
     const path = await invoice.invoicePdf(c.db, c.info, c.slug, voucherId);
     auditExport(c.db, "invoice_pdf", { voucherId, path });
     shell.openPath(path);
@@ -5343,6 +5447,11 @@ export function registerIpc(): void {
   handle("invoice:pdfBatch", async (p) => {
     const { voucherIds } = invoicePdfBatchSchema.parse(p);
     const c = requireCompany();
+    departmentScope.assertVoucherIdsDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      voucherIds,
+    );
     const r = await invoice.invoicePdfBatch(c.db, c.info, c.slug, voucherIds);
     auditExport(c.db, "invoice_pdf_batch", {
       count: r.paths.length,
@@ -5363,6 +5472,12 @@ export function registerIpc(): void {
         .default({})
         .parse(p ?? {});
       const c = requireCompany();
+      if (voucherId)
+        departmentScope.assertVoucherDepartmentScope(
+          c.db,
+          sessionUser?.role ?? "owner",
+          voucherId,
+        );
       return invoice.invoicePreviewHtml(c.db, c.info, voucherId, config);
     },
     "viewer",
@@ -6659,7 +6774,15 @@ export function registerIpc(): void {
   );
   handle(
     "agent:listProposals",
-    () => agentBridge.listProposals(requireCompany().slug),
+    () => {
+      const c = requireCompany();
+      const role = sessionUser?.role ?? "owner";
+      return agentBridge
+        .listProposals(c.slug)
+        .filter((proposal) =>
+          agentProposalInDepartmentScope(c.db, role, proposal),
+        );
+    },
     "viewer",
   );
   handle(
@@ -6667,7 +6790,15 @@ export function registerIpc(): void {
     (p) => {
       const { file } = z.object({ file: z.string().min(1).max(240) }).parse(p);
       const c = requireCompany();
-      return agentBridge.approveProposal(c.db, c.slug, file, sessionUser);
+      const role = sessionUser?.role ?? "owner";
+      return agentBridge.approveProposal(
+        c.db,
+        c.slug,
+        file,
+        sessionUser,
+        (input) =>
+          departmentScope.assertVoucherInputDepartmentScope(c.db, role, input),
+      );
     },
     "accountant",
   );
@@ -6675,7 +6806,14 @@ export function registerIpc(): void {
     "agent:discardProposal",
     (p) => {
       const { file } = z.object({ file: z.string().min(1).max(240) }).parse(p);
-      agentBridge.discardProposal(requireCompany().slug, file);
+      const c = requireCompany();
+      const role = sessionUser?.role ?? "owner";
+      agentBridge.discardProposal(c.slug, file, (proposal) => {
+        if (!agentProposalInDepartmentScope(c.db, role, proposal))
+          throw new Error(
+            "This agent proposal is outside your configured department boundaries",
+          );
+      });
       return null;
     },
     "accountant",

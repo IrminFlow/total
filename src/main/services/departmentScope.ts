@@ -27,6 +27,12 @@ interface VoucherDimensions {
   costCentreIds: number[];
 }
 
+export interface ApprovalScopeTarget {
+  payload: VoucherInputParsed;
+  targetVoucherId: number | null;
+  postedVoucherId: number | null;
+}
+
 const EMPTY_SCOPE = (): RoleScope => ({
   voucher_type: { configured: false, allowed: new Set<number>() },
   godown: { configured: false, allowed: new Set<number>() },
@@ -191,12 +197,31 @@ export function filterVoucherRowsByDepartmentScope<T extends { id: number }>(
   });
 }
 
-export function assertVoucherInputDepartmentScope(
+export function filterVoucherLinkedRowsByDepartmentScope<T>(
+  db: DB,
+  role: Role,
+  rows: T[],
+  voucherIdOf: (row: T) => number,
+): T[] {
+  const scope = roleScope(db, role);
+  if (!Object.values(scope).some((dimension) => dimension.configured))
+    return rows;
+  const dimensions = voucherDimensionsById(
+    db,
+    rows.map(voucherIdOf),
+  );
+  return rows.filter((row) => {
+    const target = dimensions.get(voucherIdOf(row));
+    return !!target && dimensionsAllowed(scope, target);
+  });
+}
+
+export function voucherInputInDepartmentScope(
   db: DB,
   role: Role,
   input: VoucherInputParsed,
-): void {
-  if (role === "owner") return;
+): boolean {
+  if (role === "owner") return true;
   const dimensions: VoucherDimensions = {
     voucherTypeIds: [input.voucherTypeId],
     godownIds: input.inventory.map((line) => line.godownId),
@@ -204,9 +229,41 @@ export function assertVoucherInputDepartmentScope(
       line.costAllocations.map((allocation) => allocation.costCentreId),
     ),
   };
-  if (!dimensionsAllowed(roleScope(db, role), dimensions)) {
+  return dimensionsAllowed(roleScope(db, role), dimensions);
+}
+
+export function assertVoucherInputDepartmentScope(
+  db: DB,
+  role: Role,
+  input: VoucherInputParsed,
+): void {
+  if (!voucherInputInDepartmentScope(db, role, input)) {
     throw new Error(
       "This voucher is outside your configured department boundaries",
+    );
+  }
+}
+
+export function approvalRequestInDepartmentScope(
+  db: DB,
+  role: Role,
+  request: ApprovalScopeTarget,
+): boolean {
+  if (!hasDepartmentScope(db, role)) return true;
+  if (!voucherInputInDepartmentScope(db, role, request.payload)) return false;
+  return [request.targetVoucherId, request.postedVoucherId]
+    .filter((id): id is number => id != null)
+    .every((id) => voucherInDepartmentScope(db, role, id));
+}
+
+export function assertApprovalRequestDepartmentScope(
+  db: DB,
+  role: Role,
+  request: ApprovalScopeTarget,
+): void {
+  if (!approvalRequestInDepartmentScope(db, role, request)) {
+    throw new Error(
+      "This approval request is outside your configured department boundaries",
     );
   }
 }
