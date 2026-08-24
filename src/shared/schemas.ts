@@ -295,6 +295,15 @@ export const employeeInputSchema = z.object({
     .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'Not an IFSC (e.g. HDFC0001234)')
     .nullable()
     .optional(),
+  email: z.string().trim().max(120).nullable().optional(),
+  phone: z.string().trim().max(24).nullable().optional(),
+  /** Section 115BAC. Absent or null means the new regime, which is the statutory default —
+   *  stored as NULL so "never chosen" and "chose the default" stay the same fact. */
+  taxRegime: z.enum(['new', 'old']).nullable().optional(),
+  /** Chapter VI-A deductions declared and accepted, paise. Ignored under the new regime. */
+  declaredDeductions: paise.min(0).nullable().optional(),
+  /** TDS a previous system already took this financial year. */
+  openingTds: paise.min(0).nullable().optional(),
   active: z.boolean().default(true)
 })
 export type EmployeeInput = z.infer<typeof employeeInputSchema>

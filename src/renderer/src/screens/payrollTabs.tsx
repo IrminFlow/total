@@ -534,3 +534,206 @@ function SettlementBody({ settlement }: { settlement: Settlement }): React.JSX.E
     </div>
   )
 }
+
+// ---------- Form 16 (#171) ----------
+
+/**
+ * Part B of Form 16, on screen before it is printed.
+ *
+ * Part A carries the TAN and the challan details and comes from TRACES — no employer's books can
+ * produce it, and the certificate says so rather than looking complete and not being.
+ */
+export function Form16Modal({
+  employeeId,
+  employeeName,
+  onClose
+}: {
+  employeeId: number
+  employeeName: string
+  onClose: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const [fy, setFy] = useState(() => {
+    const now = todayISO()
+    const [y, m] = now.split('-').map(Number)
+    return (m as number) >= 4 ? (y as number) : (y as number) - 1
+  })
+  const [busy, setBusy] = useState(false)
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['form16', employeeId, fy],
+    queryFn: () => api.payroll.form16(employeeId, fy),
+    retry: false
+  })
+
+  const print = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const r = await api.payroll.form16Pdf(employeeId, fy)
+      toast.push('success', `Saved to exports — ${r.path}`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={`Form 16 Part B — ${employeeName}`} onClose={onClose} wide>
+      <div className="mb-3 flex items-center gap-2 text-small text-muted">
+        <span>Financial year</span>
+        <Select className="w-40" data-testid="select-form16-fy" value={fy} onChange={(e) => setFy(Number(e.target.value))}>
+          {[0, 1, 2, 3].map((back) => {
+            const year = fy + 1 - back - 1
+            return (
+              <option key={year} value={year}>
+                {year}-{String(year + 1).slice(2)}
+              </option>
+            )
+          })}
+        </Select>
+        {data && <span>· {data.monthsPaid} months paid · {data.regime === 'new' ? 'new regime' : 'old regime'}</span>}
+      </div>
+
+      {isLoading ? (
+        <SkeletonRows rows={8} />
+      ) : error ? (
+        <div className="rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm text-cr">
+          {(error as Error).message}
+        </div>
+      ) : data ? (
+        <div data-testid="form16-body">
+          <table className="ledger-table">
+            <tbody>
+              {data.rows.map((r) => (
+                <tr key={r.label} className={r.indent ? 'text-muted text-small' : undefined}>
+                  <td className={r.indent ? 'pl-8' : 'font-medium'}>{r.label}</td>
+                  <td className="r"><Money paise={r.amount} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {data.computation.rates.assumedFromEarlierYear && (
+            <div className="mt-3 rounded-md border border-amberbar/50 bg-amberbar/10 px-3.5 py-2.5 text-small">
+              No slab table is on file for {data.fyLabel} — this uses FY{' '}
+              {data.computation.rates.fyStartYear}-{String(data.computation.rates.fyStartYear + 1).slice(2)}.
+              Check it against the Finance Act before issuing the certificate.
+            </div>
+          )}
+
+          <p className="mt-3 text-hint text-muted">
+            {data.computation.rates.note} Part A — TAN, challans and the TRACES verification — is
+            downloaded from the portal and cannot be produced from the books.
+          </p>
+        </div>
+      ) : null}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <Button onClick={onClose}>Close</Button>
+        <Button variant="primary" data-testid="btn-form16-pdf" disabled={busy || !data} onClick={() => void print()}>
+          {busy ? 'Printing…' : 'PDF'}
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------- payslip delivery and bulk export (#174, #176) ----------
+
+/**
+ * Every payslip for a run, written out and ready to go.
+ *
+ * The PDF cannot ride inside a wa.me link, so the message carries the net figure and the person
+ * attaches the file. That is honest about what an offline app can do, and still turns an
+ * afternoon of printing and handing out into one click and a row of sends.
+ */
+export function PayslipsModal({
+  runId,
+  monthLabel,
+  count,
+  onClose
+}: {
+  runId: number
+  monthLabel: string
+  /** How many payslips are coming, so the wait can be described rather than merely endured. */
+  count: number
+  onClose: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['payslips', runId],
+    queryFn: () => api.payroll.payslips(runId),
+    retry: false
+  })
+  const rows = data ?? []
+
+  return (
+    <Modal title={`Payslips — ${monthLabel}`} onClose={onClose} wide>
+      {isLoading ? (
+        <>
+          <SkeletonRows rows={Math.min(8, Math.max(3, count))} />
+          {/* Roughly a second per payslip, measured. Saying so beats a spinner that looks stuck:
+              forty people is most of a minute, and a user who was not told assumes a hang. */}
+          <p className="mt-2 text-hint text-muted">
+            Writing {count} payslip{count === 1 ? '' : 's'}, one PDF each — about{' '}
+            {count < 5 ? 'a few seconds' : `${count} seconds`}.
+          </p>
+        </>
+      ) : error ? (
+        <div className="rounded-md border border-cr/40 bg-cr/5 px-3.5 py-2.5 text-body-sm text-cr">
+          {(error as Error).message}
+        </div>
+      ) : (
+        <table className="ledger-table" data-testid="payslips-body">
+          <thead>
+            <tr>
+              <th scope="col">Employee</th>
+              <th scope="col" className="r w-36">Net pay</th>
+              <th scope="col" className="w-48" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.employeeId}>
+                <td>{r.employeeName}</td>
+                <td className="r"><Money paise={r.net} /></td>
+                <td className="r whitespace-nowrap">
+                  {r.whatsapp ? (
+                    <Button variant="ghost" onClick={() => window.open(r.whatsapp as string, '_blank')}>
+                      WhatsApp
+                    </Button>
+                  ) : null}
+                  {r.mailto ? (
+                    <Button variant="ghost" onClick={() => window.open(r.mailto as string, '_blank')}>
+                      Email
+                    </Button>
+                  ) : null}
+                  {!r.whatsapp && !r.mailto && (
+                    <span className="text-hint text-muted">no phone or email on record</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="mt-4 flex justify-end gap-2">
+        <Button onClick={onClose}>Close</Button>
+        <Button
+          variant="primary"
+          disabled={rows.length === 0}
+          onClick={() => {
+            void navigator.clipboard.writeText(rows.map((r) => r.path).join('\n'))
+            toast.push('success', `${rows.length} payslip paths copied`)
+          }}
+        >
+          Copy the file paths
+        </Button>
+      </div>
+      <p className="mt-3 text-hint text-muted">
+        Every payslip is already written to the company&rsquo;s exports folder. The message carries
+        the net figure; attach the PDF before sending — Total never sends anything itself.
+      </p>
+    </Modal>
+  )
+}

@@ -228,16 +228,16 @@ Ordering within a section is roughly by value.
 168. ✓ Leave and attendance tracking feeding the pay run (L)
 169. ✓ Loan and advance recovery from salary (M)
 170. ✓ Bonus and gratuity computation (M)
-171. Form 16 generation (L)
+171. ✓ Form 16 generation (L)
 172. ✓ PF ECR file format validation before upload (S)
 173. ✓ ESI return file generation (M) — already shipped as buildEsiCsv, wired to a run through
      payroll:esi.
-174. Payslip email or WhatsApp delivery (S)
+174. ✓ Payslip email or WhatsApp delivery (S)
 175. ✓ Salary bank transfer file (M) — the common shape (name, account, IFSC, amount,
      reference), deliberately not branded as any one bank's. The formats differ in ways this
      cannot verify without a real portal, and a file labelled "HDFC format" that the portal
      rejects is worse than an unlabelled one the user maps once.
-176. Employee self-service payslip export (S)
+176. ✓ Employee self-service payslip export (S)
 177. ✓ Statutory rate table with effective dates, not hardcoded (M)
 178. ✓ Full-and-final settlement workflow (M)
 179. Multiple pay cycles: weekly, fortnightly (M)
@@ -447,7 +447,10 @@ Ordering within a section is roughly by value.
 332. Typed IPC channel registry generated from one source (M)
 333. Renderer test coverage reporting with a floor (S)
 334. E2E run time budget so the suite stays usable (S)
-335. Flake detection: rerun failures and report them separately (S)
+335. Flake detection: rerun failures and report them separately (S) — one was found by hand
+     while adding #171: scenario 02 failed about half the time because `staleTime` is 5s and
+     `purchaseSuggestions` was in no screen's invalidation list, so a revisit inside five seconds
+     served a cached empty panel. `__tests__/invalidation.test.ts` now guards the whole class.
 336. A `npm run verify` that runs everything in one command (S)
 337. Pre-commit hook running typecheck and the fast tests (S)
 338. Dependency freshness report in CI (S)

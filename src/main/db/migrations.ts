@@ -719,5 +719,28 @@ export const MIGRATIONS: string[] = [
   -- Which cost centre carries this employee's salary. NULL means the salary journal is posted
   -- unallocated, exactly as it was before — no existing company's books change under this.
   ALTER TABLE employees ADD COLUMN cost_centre_id INTEGER REFERENCES cost_centres(id);
+  `,
+
+  // 25 — income tax on salary: how to reach the employee, and what regime they chose.
+  //
+  // Section 192 asks the employer to estimate the year's salary, compute the tax on it and deduct
+  // it in parts. That needs two things the employee master never held: which regime they opted
+  // for (the new one is the default, and the old one has to be chosen), and what they declared
+  // under Chapter VI-A, which only the old regime allows anyway.
+  //
+  // Phone and email are here for the same reason they are on a party ledger: a payslip that has
+  // to be printed, walked over and handed across a desk is a payslip that arrives late.
+  `
+  ALTER TABLE employees ADD COLUMN email TEXT;
+  ALTER TABLE employees ADD COLUMN phone TEXT;
+  -- 'new' | 'old'. NULL means the default, which is the new regime.
+  ALTER TABLE employees ADD COLUMN tax_regime TEXT;
+  -- Chapter VI-A deductions the employee declared and the employer accepted, paise. Old regime only.
+  ALTER TABLE employees ADD COLUMN declared_deductions INTEGER;
+  -- Tax deducted before this app started running payroll mid-year, so the spread over the
+  -- remaining months does not re-deduct what another system already took.
+  ALTER TABLE employees ADD COLUMN opening_tds INTEGER;
+
+  ALTER TABLE payroll_lines ADD COLUMN tds INTEGER NOT NULL DEFAULT 0;
   `
 ]

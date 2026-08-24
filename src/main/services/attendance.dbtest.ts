@@ -11,7 +11,7 @@ import {
   payableDaysFor,
   saveAttendance
 } from './attendance'
-import { commitRun, ecrCheck, ecrForRun, getRun, previewRun, saveEmployee, settlement } from './payroll'
+import { commitRun, ecrCheck, ecrForRun, form16, getRun, previewRun, saveEmployee, settlement, tdsForMonth } from './payroll'
 
 /**
  * Attendance, advances and what leaving costs.
@@ -276,5 +276,118 @@ describe('full and final settlement', () => {
     const db = seededDb()
     const e = saveEmployee(db, emp({ joined: null }))
     expect(() => settlement(db, { employeeId: e.id, lastDay: '2026-06-20', leaveBalanceDays: 0 })).toThrow('no joining date')
+  })
+})
+
+describe('TDS on salary and Form 16', () => {
+  const taxed = (over: Partial<EmployeeInput> = {}): EmployeeInput =>
+    emp({ basic: 1_00_000_00, hra: 40_000_00, special: 20_000_00, pfEnabled: false, esiEnabled: false, ...over })
+
+  it('deducts nothing from a salary the rebate covers', () => {
+    const db = seededDb()
+    saveEmployee(db, emp({ basic: 20_000_00, hra: 8_000_00, special: 4_000_00 }))
+    // ₹32,000 a month is ₹3,84,000 a year — well under the rebate.
+    expect(previewRun(db, '2026-06', [])[0]!.tds).toBe(0)
+  })
+
+  it("spreads the year's tax over the months that are left", () => {
+    const db = seededDb()
+    const e = saveEmployee(db, taxed())
+    const april = tdsForMonth(db, '2026-04').get(e.id)!
+    expect(april.monthsRemaining).toBe(12)
+    expect(april.annualGross).toBe(1_60_000_00 * 12)
+    expect(april.thisMonth).toBe(Math.ceil(april.computation.totalTax / 12))
+    // Later in the year, the same tax over fewer months is a bigger instalment.
+    expect(tdsForMonth(db, '2027-01').get(e.id)!.monthsRemaining).toBe(3)
+  })
+
+  it('catches up after months where nothing was deducted', () => {
+    const db = seededDb()
+    const e = saveEmployee(db, taxed())
+    const total = tdsForMonth(db, '2026-04').get(e.id)!.computation.totalTax
+    // Six runs posted, then check what October has to carry.
+    for (const m of ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09']) commitRun(db, m, [])
+    const oct = tdsForMonth(db, '2026-10').get(e.id)!
+    expect(oct.deductedSoFar).toBeGreaterThan(0)
+    expect(oct.thisMonth).toBe(Math.ceil((total - oct.deductedSoFar) / 6))
+  })
+
+  it('honours an opening TDS figure from a previous system', () => {
+    const db = seededDb()
+    const plain = saveEmployee(db, taxed())
+    const carried = saveEmployee(db, taxed({ name: 'Carried Over', openingTds: 50_000_00 }))
+    const rows = tdsForMonth(db, '2026-04')
+    expect(rows.get(carried.id)!.deductedSoFar).toBe(50_000_00)
+    expect(rows.get(carried.id)!.thisMonth).toBeLessThan(rows.get(plain.id)!.thisMonth)
+  })
+
+  it('taxes the old regime differently, and only there allows the declaration', () => {
+    const db = seededDb()
+    const newReg = saveEmployee(db, taxed({ name: 'New Regime', declaredDeductions: 1_50_000_00 }))
+    const oldReg = saveEmployee(db, taxed({ name: 'Old Regime', taxRegime: 'old', declaredDeductions: 1_50_000_00 }))
+    const rows = tdsForMonth(db, '2026-04')
+    expect(rows.get(newReg.id)!.computation.chapterVIA).toBe(0)
+    expect(rows.get(oldReg.id)!.computation.chapterVIA).toBe(1_50_000_00)
+    expect(rows.get(newReg.id)!.regime).toBe('new')
+  })
+
+  it('books the deduction to a payable and keeps the journal balanced', () => {
+    const db = seededDb()
+    saveEmployee(db, taxed())
+    const run = commitRun(db, '2026-06', [])
+    const lines = db
+      .prepare(
+        `SELECT l.name, vl.dr_cr AS drCr, vl.amount FROM voucher_lines vl
+         JOIN ledgers l ON l.id = vl.ledger_id WHERE vl.voucher_id = ?`
+      )
+      .all(run.voucherId) as { name: string; drCr: string; amount: number }[]
+    const tdsLine = lines.find((l) => l.name === 'TDS on Salary Payable')!
+    expect(tdsLine.drCr).toBe('cr')
+    expect(tdsLine.amount).toBe(getRun(db, run.id)!.lines[0]!.tds)
+    const dr = lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+    const cr = lines.filter((l) => l.drCr === 'cr').reduce((s, l) => s + l.amount, 0)
+    expect(dr).toBe(cr)
+  })
+
+  it('never lets TDS and an advance together push the net below zero', () => {
+    const db = seededDb()
+    const e = saveEmployee(db, taxed())
+    createLoan(db, { employeeId: e.id, grantedOn: '2026-05-01', principal: 5_00_000_00, instalment: 5_00_000_00 })
+    const line = previewRun(db, '2026-06', [])[0]!
+    expect(line.net).toBeGreaterThanOrEqual(0)
+    expect(line.gross - line.pfEmp - line.esiEmp - line.pt - line.otherDeductions - line.tds - line.advanceRecovery).toBe(line.net)
+  })
+
+  it('builds Form 16 from the runs actually posted, not from the projection', () => {
+    const db = seededDb()
+    const e = saveEmployee(db, taxed({ pan: 'ABCPK1234F' }))
+    for (const m of ['2026-04', '2026-05', '2026-06']) commitRun(db, m, [])
+    const f = form16(db, e.id, 2026)
+    expect(f.monthsPaid).toBe(3)
+    expect(f.fyLabel).toBe('FY 2026-27')
+    expect(f.ayLabel).toBe('AY 2027-28')
+    expect(f.grossSalary).toBe(1_60_000_00 * 3)
+    expect(f.tdsDeducted).toBe(f.months.reduce((s, m) => s + m.tds, 0))
+    // Three months of salary is a smaller year than the projection assumed, so the certificate
+    // shows tax already over-deducted rather than pretending the projection was the year.
+    expect(f.shortfall).toBe(f.computation.totalTax - f.tdsDeducted)
+  })
+
+  it('shows the working line by line, and always states the balance', () => {
+    const db = seededDb()
+    const e = saveEmployee(db, taxed())
+    commitRun(db, '2026-04', [])
+    const f = form16(db, e.id, 2026)
+    const labels = f.rows.map((r) => r.label)
+    expect(labels[0]).toBe('Gross salary under section 17(1)')
+    expect(labels).toContain('Total taxable income')
+    expect(labels).toContain('Total tax payable')
+    expect(labels.some((l) => l.startsWith('Balance tax payable') || l.startsWith('Excess tax deducted'))).toBe(true)
+  })
+
+  it('refuses a year with no runs rather than issuing an empty certificate', () => {
+    const db = seededDb()
+    const e = saveEmployee(db, taxed())
+    expect(() => form16(db, e.id, 2026)).toThrow('No pay runs')
   })
 })

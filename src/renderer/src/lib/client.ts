@@ -370,6 +370,58 @@ export interface Settlement {
   } | null
 }
 
+export interface TaxComputation {
+  grossSalary: number
+  standardDeduction: number
+  chapterVIA: number
+  professionalTaxAllowed: number
+  taxableIncome: number
+  taxBeforeRebate: number
+  rebate: number
+  surcharge: number
+  cess: number
+  totalTax: number
+  rates: { fyStartYear: number; regime: 'new' | 'old'; note: string; assumedFromEarlierYear: boolean }
+}
+
+export interface EmployeeTax {
+  employeeId: number
+  employeeName: string
+  regime: 'new' | 'old'
+  annualGross: number
+  computation: TaxComputation
+  deductedSoFar: number
+  monthsRemaining: number
+  thisMonth: number
+}
+
+export interface Form16 {
+  employeeId: number
+  employeeName: string
+  pan: string | null
+  designation: string | null
+  fyStartYear: number
+  fyLabel: string
+  ayLabel: string
+  regime: 'new' | 'old'
+  grossSalary: number
+  rows: { label: string; amount: number; indent?: boolean }[]
+  computation: TaxComputation
+  tdsDeducted: number
+  shortfall: number
+  monthsPaid: number
+  months: { month: string; gross: number; tds: number }[]
+}
+
+export interface PayslipDelivery {
+  employeeId: number
+  employeeName: string
+  path: string
+  whatsapp: string | null
+  mailto: string | null
+  net: number
+}
+
 export interface StatutoryRates {
   effectiveFrom: string
   pfWageCeiling: number
@@ -1109,7 +1161,14 @@ export const api = {
       waiveGratuityMinimum?: boolean
     }) => call<Settlement>('payroll:settlement', input),
     /** The statutory rates in force for a month, and the history they came from. */
-    rates: (month: string) => call<{ rates: StatutoryRates; history: StatutoryRates[] }>('payroll:rates', { month })
+    rates: (month: string) => call<{ rates: StatutoryRates; history: StatutoryRates[] }>('payroll:rates', { month }),
+    /** What each employee's TDS should be this month, and the year's tax it comes from. */
+    tds: (month: string) => call<EmployeeTax[]>('payroll:tds', { month }),
+    form16: (employeeId: number, fyStartYear: number) => call<Form16>('payroll:form16', { employeeId, fyStartYear }),
+    form16Pdf: (employeeId: number, fyStartYear: number) =>
+      call<{ path: string }>('payroll:form16Pdf', { employeeId, fyStartYear }),
+    /** Every payslip for a run, written out, each with a way to send it. */
+    payslips: (runId: number) => call<PayslipDelivery[]>('payroll:payslips', { runId })
   },
   yearEnd: {
     preview: (fyStartYear: number) =>

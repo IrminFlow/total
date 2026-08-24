@@ -5,10 +5,29 @@ import { Button, Modal, Spinner } from './ui'
 
 export const SUPPORT_EMAIL = 'total@irminflow.com'
 
-/** Support contact shown on every screen — Shell sidebar, company select and lock screen.
- *  Clicking it opens a dialog to copy the address, review diagnostics, or launch a mail app. */
-export function SupportLink({ className = '' }: { className?: string }): React.JSX.Element {
+/**
+ * Support contact, shown wherever the user might be stuck: the app's top bar, the company
+ * selector and the lock screen. Clicking it opens a dialog to copy the address, review
+ * diagnostics, or launch a mail app.
+ *
+ * Two shapes. `pill` matches the other top-bar controls; `inline` is the plain line used on the
+ * screens that have no top bar. The address itself is hidden below `lg` in the pill, because the
+ * target machine for this app is a 1366px laptop and an address that pushes the ⌘K button off the
+ * edge helps nobody — the label, the tooltip and the dialog all still carry it.
+ */
+export function SupportLink({
+  className = '',
+  variant = 'inline'
+}: {
+  className?: string
+  variant?: 'inline' | 'pill'
+}): React.JSX.Element {
   const [open, setOpen] = useState(false)
+
+  const base =
+    variant === 'pill'
+      ? 'rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink'
+      : 'text-left text-small text-muted hover:text-ink'
 
   return (
     <>
@@ -17,9 +36,15 @@ export function SupportLink({ className = '' }: { className?: string }): React.J
         data-testid="link-support"
         title={`Email support (${SUPPORT_EMAIL})`}
         onClick={() => setOpen(true)}
-        className={`text-left text-small text-muted hover:text-ink ${className}`}
+        className={`${base} ${className}`}
       >
-        Support · {SUPPORT_EMAIL}
+        {variant === 'pill' ? (
+          <>
+            Support<span className="num hidden lg:inline"> · {SUPPORT_EMAIL}</span>
+          </>
+        ) : (
+          <>Support · {SUPPORT_EMAIL}</>
+        )}
       </button>
       {open && <SupportModal onClose={() => setOpen(false)} />}
     </>

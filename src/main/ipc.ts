@@ -1582,6 +1582,34 @@ export function registerIpc(): void {
     return attendance.dueRecoveries(requireCompany().db, month)
   }, 'viewer')
 
+  handle('payroll:tds', (p) => {
+    const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).parse(p)
+    return [...payroll.tdsForMonth(requireCompany().db, month).values()]
+  }, 'viewer')
+
+  handle('payroll:form16', (p) => {
+    const { employeeId, fyStartYear } = z
+      .object({ employeeId: z.number().int().positive(), fyStartYear: z.number().int().min(2000).max(2100) })
+      .parse(p)
+    return payroll.form16(requireCompany().db, employeeId, fyStartYear)
+  }, 'viewer')
+
+  handle('payroll:form16Pdf', async (p) => {
+    const { employeeId, fyStartYear } = z
+      .object({ employeeId: z.number().int().positive(), fyStartYear: z.number().int().min(2000).max(2100) })
+      .parse(p)
+    const c = requireCompany()
+    const path = await payroll.form16Pdf(c.db, c.info, c.slug, employeeId, fyStartYear)
+    shell.openPath(path)
+    return { path }
+  }, 'viewer')
+
+  handle('payroll:payslips', async (p) => {
+    const { runId } = payrollRunIdSchema.parse(p)
+    const c = requireCompany()
+    return payroll.payslipsForRun(c.db, c.info, c.slug, runId)
+  }, 'viewer')
+
   handle('payroll:ecrCheck', (p) => payroll.ecrCheck(requireCompany().db, payrollRunIdSchema.parse(p).runId), 'viewer')
 
   handle('payroll:settlement', (p) => {

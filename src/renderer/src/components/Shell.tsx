@@ -99,6 +99,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         >
           {theme === 'light' ? 'Dark' : 'Light'}
         </button>
+        <SupportLink variant="pill" />
         <button
           className="flex items-center gap-2 rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
           onClick={onOpenPalette}
@@ -185,9 +186,6 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           >
             Switch company
           </button>
-          <div className="mt-2 border-t border-line pt-2">
-            <SupportLink />
-          </div>
         </aside>
 
         {/* data-screen + data-loading: the E2E harness's navigation/idle markers (lib/testids.ts). */}

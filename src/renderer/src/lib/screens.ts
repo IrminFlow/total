@@ -66,7 +66,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'gateway' },
     navSection: 'top',
     accel: 'G',
-    invalidates: ['dashboard', 'recurring']
+    invalidates: ['dashboard', 'recurring', 'checklist']
   },
   {
     name: 'voucher-entry',
@@ -84,7 +84,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'top',
     accel: 'D',
     card: { sub: 'Every entry, in order' },
-    invalidates: ['daybook']
+    invalidates: ['daybook', 'dayBookByType']
   },
   {
     name: 'masters',
@@ -161,7 +161,7 @@ export const SCREENS: ScreenDef[] = [
     accel: 'S',
     feature: 'inventory',
     card: { sub: 'Quantities and value' },
-    invalidates: ['stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches']
+    invalidates: ['stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches', 'purchaseSuggestions']
   },
   {
     name: 'year-end',
@@ -179,7 +179,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'registers' },
     navSection: 'analysis',
     accel: 'R',
-    invalidates: ['register']
+    invalidates: ['register', 'partyShares']
   },
   {
     name: 'outstandings',
@@ -188,7 +188,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'outstandings' },
     navSection: 'analysis',
     accel: 'O',
-    invalidates: ['outstandings']
+    invalidates: ['outstandings', 'openBills']
   },
   {
     name: 'consolidated',
@@ -233,7 +233,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'banking',
     accel: 'N',
     navLabel: 'Reconciliation',
-    invalidates: ['bankLedgers', 'bankRecon', 'bankRules', 'chequeConfig', 'brs', 'pdc']
+    invalidates: ['bankLedgers', 'bankRecon', 'bankRules', 'chequeConfig', 'brs', 'pdc', 'reconStatus']
   },
 
   {
@@ -246,7 +246,7 @@ export const SCREENS: ScreenDef[] = [
     feature: 'payroll',
     invalidates: [
       'employees', 'payrollRuns', 'payrollPreview', 'payHeads', 'employeeHeads', 'ptSummary',
-      'attendance', 'payrollLoans', 'dueRecoveries', 'payrollRates'
+      'attendance', 'payrollLoans', 'dueRecoveries', 'payrollRates', 'form16', 'payslips', 'payrollTrend'
     ]
   },
 
@@ -284,7 +284,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'edocs' },
     navSection: 'gst',
     accel: 'W',
-    invalidates: ['edocList', 'nicStatus', 'nicCreds']
+    invalidates: ['edocList', 'nicStatus', 'nicCreds', 'edocPreview']
   },
   {
     name: 'khata',
@@ -325,7 +325,7 @@ export const SCREENS: ScreenDef[] = [
     // claimed, so Q rides on the end the way TDS's K does. See __tests__/accel.test.ts.
     accel: 'Q',
     keywords: ['filing', 'filed', 'arn', 'late fee', 'interest', 'due', 'overdue', 'calendar'],
-    invalidates: ['filings']
+    invalidates: ['filings', 'gstr9', 'filingLiability']
   },
   {
     name: 'composition',

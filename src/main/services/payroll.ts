@@ -10,8 +10,12 @@ import {
 import { ratesForMonth } from '@shared/statutory'
 import { dueRecoveries, outstandingByEmployee, payableDaysFor, recordRecoveries } from './attendance'
 import { fullAndFinal, type FnfResult } from '@shared/fnf'
+import { whatsappNumber } from '@shared/outstanding'
 import { serviceLength } from '@shared/gratuity'
 import { fyOf } from '@shared/dates'
+import {
+  computeAnnualTax, fyStartYearOf, monthlyTds, monthsLeftInFy, type Regime, type TaxComputation
+} from '@shared/incomeTax'
 import { amountInWords, formatPaise } from '@shared/money'
 import { deleteVoucher, getLockDate, saveVoucher } from './vouchers'
 import { findOrCreateLedger } from './masters'
@@ -26,6 +30,8 @@ interface EmployeeRow {
   basic: number; hra: number; special: number
   pf_enabled: number; esi_enabled: number; pt_enabled: number; pt_state: string; active: number
   bank_account: string | null; ifsc: string | null
+  email: string | null; phone: string | null
+  tax_regime: string | null; declared_deductions: number | null; opening_tds: number | null
 }
 
 const mapEmployee = (r: EmployeeRow): Employee => ({
@@ -33,7 +39,11 @@ const mapEmployee = (r: EmployeeRow): Employee => ({
   pan: r.pan, uan: r.uan, esicNo: r.esic_no,
   basic: r.basic, hra: r.hra, special: r.special,
   pfEnabled: !!r.pf_enabled, esiEnabled: !!r.esi_enabled, ptEnabled: !!r.pt_enabled,
-  ptState: r.pt_state, bankAccount: r.bank_account, ifsc: r.ifsc, active: !!r.active
+  ptState: r.pt_state, bankAccount: r.bank_account, ifsc: r.ifsc, active: !!r.active,
+  email: r.email, phone: r.phone,
+  // The new regime is the default in law, so a NULL here is 'new' rather than "not chosen".
+  taxRegime: r.tax_regime === 'old' ? 'old' : 'new',
+  declaredDeductions: r.declared_deductions, openingTds: r.opening_tds
 })
 
 export function listEmployees(db: DB): Employee[] {
@@ -59,18 +69,22 @@ export function saveEmployee(db: DB, input: EmployeeInput, id?: number): Employe
     db.prepare(
       `UPDATE employees SET name = ?, code = ?, designation = ?, joined = ?, pan = ?, uan = ?, esic_no = ?,
        basic = ?, hra = ?, special = ?, pf_enabled = ?, esi_enabled = ?, pt_enabled = ?, pt_state = ?,
-       bank_account = ?, ifsc = ?, active = ? WHERE id = ?`
+       bank_account = ?, ifsc = ?, email = ?, phone = ?, tax_regime = ?, declared_deductions = ?,
+       opening_tds = ?, active = ? WHERE id = ?`
     ).run(input.name, input.code, input.designation, input.joined, input.pan, input.uan, input.esicNo,
       input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, input.ptState,
-      input.bankAccount ?? null, input.ifsc ?? null, +input.active, id)
+      input.bankAccount ?? null, input.ifsc ?? null, input.email ?? null, input.phone ?? null,
+      input.taxRegime ?? null, input.declaredDeductions ?? null, input.openingTds ?? null, +input.active, id)
   } else {
     const res = db.prepare(
       `INSERT INTO employees (name, code, designation, joined, pan, uan, esic_no, basic, hra, special,
-        pf_enabled, esi_enabled, pt_enabled, pt_state, bank_account, ifsc, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        pf_enabled, esi_enabled, pt_enabled, pt_state, bank_account, ifsc, email, phone,
+        tax_regime, declared_deductions, opening_tds, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(input.name, input.code, input.designation, input.joined, input.pan, input.uan, input.esicNo,
       input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, input.ptState,
-      input.bankAccount ?? null, input.ifsc ?? null, +input.active)
+      input.bankAccount ?? null, input.ifsc ?? null, input.email ?? null, input.phone ?? null,
+      input.taxRegime ?? null, input.declaredDeductions ?? null, input.openingTds ?? null, +input.active)
     id = Number(res.lastInsertRowid)
   }
   syncSeededHeads(db, id, input)
@@ -216,6 +230,7 @@ export function previewRun(db: DB, month: string, days: { employeeId: number; pa
   const byId = new Map(days.map((d) => [d.employeeId, d.payableDays]))
   const fromRegister = new Map(payableDaysFor(db, month).map((a) => [a.employeeId, a.payableDays]))
   const recoveries = new Map(dueRecoveries(db, month).map((r) => [r.employeeId, r]))
+  const tdsByEmployee = tdsForMonth(db, month)
   const headsByEmployee = loadEmployeeHeadSpecs(db)
   return listEmployees(db)
     .filter((e) => e.active)
@@ -223,9 +238,10 @@ export function previewRun(db: DB, month: string, days: { employeeId: number; pa
       const payableDays = byId.get(e.id) ?? fromRegister.get(e.id) ?? monthDays
       const heads = headsByEmployee.get(e.id)
       const advanceRecovery = recoveries.get(e.id)?.amount ?? 0
+      const tds = tdsByEmployee.get(e.id)?.thisMonth ?? 0
       // The rates in force for THIS month, not today's. A run recomputed after a rate change
       // must still answer what it answered when it was posted and filed.
-      const pay = computeMonthlyPay({ ...e, heads, advanceRecovery }, payableDays, monthDays, { rates })
+      const pay = computeMonthlyPay({ ...e, heads, advanceRecovery, tds }, payableDays, monthDays, { rates })
       return { employeeId: e.id, employeeName: e.name, payableDays, monthDays, ...pay }
     })
 }
@@ -250,6 +266,7 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
   const pt = sum((l) => l.pt)
   const otherDeductions = sum((l) => l.otherDeductions)
   const advanceRecovery = sum((l) => l.advanceRecovery)
+  const tds = sum((l) => l.tds)
   const net = sum((l) => l.net)
 
   // Salary expense split by whichever cost centre carries each employee (roadmap #180). Employees
@@ -295,6 +312,7 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
   push('PF Payable', 'Provisions', 'cr', pfEmp + pfEr + pfAdmin + edli)
   push('ESI Payable', 'Provisions', 'cr', esiEmp + esiEr)
   push('Professional Tax Payable', 'Duties & Taxes', 'cr', pt)
+  push('TDS on Salary Payable', 'Duties & Taxes', 'cr', tds)
   push('Employee Deductions Payable', 'Provisions', 'cr', otherDeductions)
   // Recovering an advance settles an asset rather than paying anybody: the credit reduces the
   // Salary Advances balance, and the net going to Salaries Payable is already short by it.
@@ -329,13 +347,13 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
     const insert = db.prepare(
       `INSERT INTO payroll_lines (run_id, employee_id, payable_days, month_days, basic, hra, special, gross,
         pf_emp, pf_er, esi_emp, esi_er, pt, net,
-        other_earnings, other_deductions, eps_er, pf_admin, edli, advance_recovery, heads_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        other_earnings, other_deductions, eps_er, pf_admin, edli, advance_recovery, tds, heads_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     for (const l of lines) {
       insert.run(runId, l.employeeId, l.payableDays, l.monthDays, l.basic, l.hra, l.special, l.gross,
         l.pfEmp, l.pfEr, l.esiEmp, l.esiEr, l.pt, l.net,
-        l.otherEarnings, l.otherDeductions, l.epsEr, l.pfAdmin, l.edli, l.advanceRecovery,
+        l.otherEarnings, l.otherDeductions, l.epsEr, l.pfAdmin, l.edli, l.advanceRecovery, l.tds,
         l.headAmounts.length ? JSON.stringify(l.headAmounts) : null)
     }
     // Inside the run's transaction: a payslip that shows a recovery and a loan balance that does
@@ -360,7 +378,7 @@ interface LineRow {
   basic: number; hra: number; special: number; gross: number
   pf_emp: number; pf_er: number; esi_emp: number; esi_er: number; pt: number; net: number
   other_earnings: number; other_deductions: number; eps_er: number; pf_admin: number; edli: number
-  advance_recovery: number
+  advance_recovery: number; tds: number
   heads_json: string | null
 }
 
@@ -383,7 +401,7 @@ export function getRun(db: DB, id: number): PayrollRun | null {
       payableDays: l.payable_days, monthDays: l.month_days,
       basic: l.basic, hra: l.hra, special: l.special,
       otherEarnings: l.other_earnings, otherDeductions: l.other_deductions,
-      advanceRecovery: l.advance_recovery, gross: l.gross,
+      advanceRecovery: l.advance_recovery, tds: l.tds, gross: l.gross,
       pfEmp: l.pf_emp, pfEr: l.pf_er, epsEr: l.eps_er, pfAdmin: l.pf_admin, edli: l.edli,
       esiEmp: l.esi_emp, esiEr: l.esi_er, pt: l.pt, net: l.net,
       headAmounts: l.heads_json ? (JSON.parse(l.heads_json) as PayrollHeadAmount[]) : []
@@ -571,7 +589,10 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
   const customDeductionRows = customHeads.filter((h) => h.kind === 'deduction').map((h) => row(h.name, h.amount)).join('')
   const otherEarningsFallback = customEarningRows === '' ? row('Other allowances', line.otherEarnings) : ''
   const otherDeductionsFallback = customDeductionRows === '' ? row('Other deductions', line.otherDeductions) : ''
-  const totalDeductions = line.pfEmp + line.esiEmp + line.pt + line.otherDeductions
+  // Every deduction the net was actually reduced by. The advance recovery used to be missing
+  // here, so a payslip that deducted it showed a "total deductions" that did not reconcile to
+  // the net printed six lines below it.
+  const totalDeductions = line.pfEmp + line.esiEmp + line.pt + line.otherDeductions + line.advanceRecovery + line.tds
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -608,6 +629,7 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
       </table></div>
       <div><h3>Deductions</h3><table>
         ${row('Provident fund', line.pfEmp)}${row('ESI', line.esiEmp)}${row('Professional tax', line.pt)}
+        ${row('Income tax (TDS)', line.tds)}${row('Salary advance', line.advanceRecovery)}
         ${customDeductionRows}${otherDeductionsFallback}
         <tr><td><b>Total deductions</b></td><td class="r num"><b>${money(totalDeductions)}</b></td></tr>
       </table></div>
@@ -810,4 +832,339 @@ export function settlement(db: DB, input: SettlementInput): Settlement {
           }
         : null
   }
+}
+
+
+// ---------- income tax on salary (roadmap #171) ----------
+
+export interface EmployeeTax {
+  employeeId: number
+  employeeName: string
+  regime: Regime
+  /** Estimated salary for the whole financial year, paise. */
+  annualGross: number
+  computation: TaxComputation
+  /** TDS already taken this financial year, including any opening figure carried in. */
+  deductedSoFar: number
+  monthsRemaining: number
+  /** What this month should deduct. */
+  thisMonth: number
+}
+
+/**
+ * What each employee's TDS should be for a month.
+ *
+ * Section 192 works on an estimate: the employer projects the year's salary, computes the tax on
+ * it, and deducts the balance over the months that are left. Projecting from the *contracted*
+ * salary rather than from the months already run means a mid-year joiner is not taxed as though
+ * they earned a full year, and a revision corrects itself over the remaining months instead of
+ * leaving a lump in March.
+ *
+ * Professional tax is projected the same way, because under the old regime it is deductible.
+ */
+export function tdsForMonth(db: DB, month: string): Map<number, EmployeeTax> {
+  const fyStartYear = fyStartYearOf(month)
+  const fyFrom = `${fyStartYear}-04-01`
+  const fyTo = `${fyStartYear + 1}-03-31`
+  const monthsRemaining = monthsLeftInFy(month)
+
+  // What has already come off this financial year, from runs that are posted.
+  const deducted = new Map(
+    (
+      db
+        .prepare(
+          `SELECT pl.employee_id AS employeeId, COALESCE(SUM(pl.tds), 0) AS tds, COALESCE(SUM(pl.pt), 0) AS pt
+           FROM payroll_lines pl JOIN payroll_runs pr ON pr.id = pl.run_id
+           WHERE pr.month >= ? AND pr.month <= ? AND pr.month < ?
+           GROUP BY pl.employee_id`
+        )
+        .all(fyFrom.slice(0, 7), fyTo.slice(0, 7), month) as { employeeId: number; tds: number; pt: number }[]
+    ).map((r) => [r.employeeId, r])
+  )
+
+  const rates = ratesForMonth(month)
+  const headsByEmployee = loadEmployeeHeadSpecs(db)
+  const out = new Map<number, EmployeeTax>()
+
+  for (const e of listEmployees(db)) {
+    if (!e.active) continue
+    const monthDays = daysInMonth(month)
+    const full = computeMonthlyPay({ ...e, heads: headsByEmployee.get(e.id) }, monthDays, monthDays, { rates })
+    // Months this employee will be paid for in this financial year, joining date respected.
+    const monthsPaid = e.joined && e.joined > fyFrom ? Math.max(1, monthsLeftInFy(e.joined.slice(0, 7))) : 12
+    const annualGross = full.gross * monthsPaid
+    const annualPt = full.pt * monthsPaid
+
+    const computation = computeAnnualTax({
+      grossSalary: annualGross,
+      declaredDeductions: e.declaredDeductions ?? 0,
+      professionalTax: annualPt,
+      regime: e.taxRegime,
+      fyStartYear
+    })
+
+    const soFar = (deducted.get(e.id)?.tds ?? 0) + (e.openingTds ?? 0)
+    out.set(e.id, {
+      employeeId: e.id,
+      employeeName: e.name,
+      regime: e.taxRegime,
+      annualGross,
+      computation,
+      deductedSoFar: soFar,
+      monthsRemaining,
+      thisMonth: monthlyTds(computation.totalTax, soFar, monthsRemaining)
+    })
+  }
+  return out
+}
+
+
+// ---------- Form 16 Part B (roadmap #171) ----------
+
+export interface Form16Row {
+  label: string
+  amount: number
+  /** Nested under the line above it on the certificate. */
+  indent?: boolean
+}
+
+export interface Form16 {
+  employeeId: number
+  employeeName: string
+  pan: string | null
+  designation: string | null
+  fyStartYear: number
+  /** 'FY 2025-26'. */
+  fyLabel: string
+  /** 'AY 2026-27'. */
+  ayLabel: string
+  regime: Regime
+  /** Salary actually paid across the year's posted runs, not the projection. */
+  grossSalary: number
+  rows: Form16Row[]
+  computation: TaxComputation
+  /** TDS actually deducted across the year's runs. */
+  tdsDeducted: number
+  /** Positive when more is still to be deducted; negative when too much was taken. */
+  shortfall: number
+  monthsPaid: number
+  /** Runs that make up this certificate, so the figures can be traced. */
+  months: { month: string; gross: number; tds: number }[]
+}
+
+/**
+ * Part B of Form 16: what was paid, what was deducted from it, and the arithmetic in between.
+ *
+ * Built from the runs that were actually posted, not from the projection the monthly TDS used —
+ * a certificate is a statement of fact about the year that happened. Where the two differ (a
+ * mid-year revision, a late declaration), the shortfall is stated rather than smoothed away,
+ * because the employee has to know about it before they file.
+ *
+ * Part A comes from TRACES and is not something an employer can generate; this is Part B only,
+ * and the document says so.
+ */
+export function form16(db: DB, employeeId: number, fyStartYear: number): Form16 {
+  const employee = listEmployees(db).find((e) => e.id === employeeId)
+  if (!employee) throw new Error('Employee not found')
+
+  const fromMonth = `${fyStartYear}-04`
+  const toMonth = `${fyStartYear + 1}-03`
+  const months = (
+    db
+      .prepare(
+        `SELECT pr.month, pl.gross, pl.tds, pl.pt
+         FROM payroll_lines pl JOIN payroll_runs pr ON pr.id = pl.run_id
+         WHERE pl.employee_id = ? AND pr.month >= ? AND pr.month <= ?
+         ORDER BY pr.month`
+      )
+      .all(employeeId, fromMonth, toMonth) as { month: string; gross: number; tds: number; pt: number }[]
+  )
+  if (months.length === 0) throw new Error(`No pay runs for ${employee.name} in FY ${fyStartYear}-${String(fyStartYear + 1).slice(2)}`)
+
+  const grossSalary = months.reduce((s, m) => s + m.gross, 0)
+  const professionalTax = months.reduce((s, m) => s + m.pt, 0)
+  const tdsDeducted = months.reduce((s, m) => s + m.tds, 0) + (employee.openingTds ?? 0)
+
+  const computation = computeAnnualTax({
+    grossSalary,
+    declaredDeductions: employee.declaredDeductions ?? 0,
+    professionalTax,
+    regime: employee.taxRegime,
+    fyStartYear
+  })
+
+  const rows: Form16Row[] = [
+    { label: 'Gross salary under section 17(1)', amount: grossSalary },
+    { label: 'Less: standard deduction under section 16(ia)', amount: computation.standardDeduction, indent: true }
+  ]
+  if (computation.professionalTaxAllowed > 0) {
+    rows.push({ label: 'Less: tax on employment under section 16(iii)', amount: computation.professionalTaxAllowed, indent: true })
+  }
+  if (computation.chapterVIA > 0) {
+    rows.push({ label: 'Less: deductions under Chapter VI-A', amount: computation.chapterVIA, indent: true })
+  }
+  rows.push({ label: 'Total taxable income', amount: computation.taxableIncome })
+  rows.push({ label: 'Tax on total income', amount: computation.taxBeforeRebate })
+  if (computation.rebate > 0) rows.push({ label: 'Less: rebate under section 87A', amount: computation.rebate, indent: true })
+  if (computation.surcharge > 0) rows.push({ label: 'Add: surcharge', amount: computation.surcharge, indent: true })
+  rows.push({ label: 'Add: health and education cess', amount: computation.cess, indent: true })
+  rows.push({ label: 'Total tax payable', amount: computation.totalTax })
+  rows.push({ label: 'Less: tax deducted at source', amount: tdsDeducted, indent: true })
+
+  const shortfall = computation.totalTax - tdsDeducted
+  rows.push({ label: shortfall >= 0 ? 'Balance tax payable' : 'Excess tax deducted', amount: Math.abs(shortfall) })
+
+  return {
+    employeeId,
+    employeeName: employee.name,
+    pan: employee.pan,
+    designation: employee.designation,
+    fyStartYear,
+    fyLabel: `FY ${fyStartYear}-${String(fyStartYear + 1).slice(2)}`,
+    ayLabel: `AY ${fyStartYear + 1}-${String(fyStartYear + 2).slice(2)}`,
+    regime: employee.taxRegime,
+    grossSalary,
+    rows,
+    computation,
+    tdsDeducted,
+    shortfall,
+    monthsPaid: months.length,
+    months: months.map((m) => ({ month: m.month, gross: m.gross, tds: m.tds }))
+  }
+}
+
+export async function form16Pdf(
+  db: DB,
+  company: CompanyInfo,
+  slug: string,
+  employeeId: number,
+  fyStartYear: number
+): Promise<string> {
+  const f = form16(db, employeeId, fyStartYear)
+  const money = (p: number): string => formatPaise(p)
+
+  const rows = f.rows
+    .map(
+      (r) =>
+        `<tr class="${r.indent ? 'sub' : 'main'}"><td${r.indent ? ' style="padding-left:24px"' : ''}>${esc(r.label)}</td>` +
+        `<td class="r num">${money(r.amount)}</td></tr>`
+    )
+    .join('')
+
+  const monthRows = f.months
+    .map((m) => `<tr><td class="num">${esc(m.month)}</td><td class="r num">${money(m.gross)}</td><td class="r num">${money(m.tds)}</td></tr>`)
+    .join('')
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Form 16 Part B</title><style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font: 12px/1.5 'Helvetica Neue', Arial, sans-serif; color: #16181f; padding: 30px; }
+    .num { font-variant-numeric: tabular-nums; font-family: Menlo, monospace; font-size: 11.5px; }
+    .head { border-bottom: 1.5px solid #16181f; padding-bottom: 12px; display: flex; justify-content: space-between; }
+    h1 { font-size: 17px; } .sub { color: #555; font-size: 11px; }
+    .tag { text-align: right; } .tag b { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+    .parties { display: flex; gap: 40px; padding: 14px 0; border-bottom: 1px solid #16181f; }
+    .parties h3, h3 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #555; margin-bottom: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; text-align: left; border-bottom: 1.5px solid #16181f; padding: 6px 0; }
+    td { padding: 5px 0; border-bottom: 1px dotted #bbb; }
+    tr.main td { font-weight: 600; }
+    tr.sub td { color: #555; }
+    .r { text-align: right; }
+    .note { margin-top: 16px; font-size: 10.5px; color: #555; border-top: 1px dotted #999; padding-top: 8px; }
+    .sign { margin-top: 34px; display: flex; justify-content: space-between; font-size: 11px; }
+  </style></head><body>
+    <div class="head">
+      <div><h1>${esc(company.name)}</h1><div class="sub">${esc(company.address)}</div></div>
+      <div class="tag"><b>Form 16 — Part B</b><div class="sub">${esc(f.fyLabel)} · ${esc(f.ayLabel)}</div></div>
+    </div>
+
+    <div class="parties">
+      <div><h3>Employee</h3><b>${esc(f.employeeName)}</b>
+        <div class="sub">${esc(f.designation ?? '')}${f.pan ? ' · PAN ' + esc(f.pan) : ' · PAN not on record'}</div></div>
+      <div><h3>Regime</h3>${f.regime === 'new' ? 'New (section 115BAC)' : 'Old'}
+        <div class="sub">${esc(f.computation.rates.note)}</div></div>
+      <div><h3>Months paid</h3><span class="num">${f.monthsPaid}</span></div>
+    </div>
+
+    <h3 style="margin-top:14px">Details of salary paid and tax deducted</h3>
+    <table><tbody>${rows}</tbody></table>
+
+    <h3 style="margin-top:18px">Month by month</h3>
+    <table>
+      <thead><tr><th>Month</th><th class="r">Gross</th><th class="r">TDS</th></tr></thead>
+      <tbody>${monthRows}</tbody>
+    </table>
+
+    <div class="note">
+      This is Part B only. Part A, carrying the TAN, the challan details and the TRACES
+      verification, is downloaded from the TRACES portal and cannot be produced by an employer's
+      books. Figures above are taken from the pay runs actually posted for ${esc(f.fyLabel)}.
+      ${f.shortfall > 0 ? `<b>₹${money(f.shortfall)} of tax remains to be deducted or paid.</b>` : ''}
+      ${f.shortfall < 0 ? `<b>₹${money(-f.shortfall)} more was deducted than the year's tax — claimable as a refund.</b>` : ''}
+    </div>
+
+    <div class="sign"><span>Place: ${esc(company.address.split(',').pop()?.trim() ?? '')}</span>
+      <span>For <b>${esc(company.name)}</b><br><br><br>Authorised signatory</span></div>
+  </body></html>`
+
+  const safeName = f.employeeName.replace(/[^a-zA-Z0-9-_]/g, '_')
+  return writeExportPdf(slug, `form16-${f.fyStartYear}-${safeName}.pdf`, html, { pageSize: 'A4', pageNumbers: true })
+}
+
+// ---------- payslip delivery and bulk export (roadmap #174, #176) ----------
+
+export interface PayslipDelivery {
+  employeeId: number
+  employeeName: string
+  path: string
+  /** wa.me link with the covering message, or null when there is no usable number. */
+  whatsapp: string | null
+  /** mailto: draft, or null without an address. */
+  mailto: string | null
+  net: number
+}
+
+/**
+ * Every payslip for a run, written to the exports folder, each with a way to send it.
+ *
+ * The PDF cannot ride inside a `wa.me` link or a `mailto:`, so the message carries the figure and
+ * the person attaches the file — which is honest about what an offline app can do, and still
+ * turns an afternoon of printing and handing out into one click and fifteen sends.
+ */
+export async function payslipsForRun(
+  db: DB,
+  company: CompanyInfo,
+  slug: string,
+  runId: number
+): Promise<PayslipDelivery[]> {
+  const run = getRun(db, runId)
+  if (!run) throw new Error('Pay run not found')
+  const employees = new Map(listEmployees(db).map((e) => [e.id, e]))
+  const out: PayslipDelivery[] = []
+
+  for (const line of run.lines) {
+    const path = await payslipPdf(db, company, slug, runId, line.employeeId)
+    const e = employees.get(line.employeeId)
+    const body = [
+      `Dear ${line.employeeName},`,
+      '',
+      `Your payslip for ${run.month} is attached.`,
+      `Net pay: ${formatPaise(line.net, { symbol: true })}`,
+      '',
+      'Regards,',
+      company.name
+    ].join('\n')
+    const number = whatsappNumber(e?.phone ?? null)
+    out.push({
+      employeeId: line.employeeId,
+      employeeName: line.employeeName,
+      path,
+      net: line.net,
+      whatsapp: number ? `https://wa.me/${number}?text=${encodeURIComponent(body)}` : null,
+      mailto: e?.email
+        ? `mailto:${e.email}?subject=${encodeURIComponent(`Payslip for ${run.month}`)}&body=${encodeURIComponent(body)}`
+        : null
+    })
+  }
+  return out
 }

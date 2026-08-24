@@ -167,6 +167,76 @@ await scenario('27-payroll-desk', async (h) => {
     'asking for a settlement posted nothing'
   )
 
+  // ---- income tax: the year's tax, spread over the months that are left ----
+  const taxed = await h.invoke('payroll:employees:save', {
+    data: {
+      name: 'Priya Menon', code: 'E003', designation: 'Manager', joined: '2020-04-01',
+      pan: 'ABCPM9876Q', uan: '100200300500', esicNo: null,
+      basic: 10000000, hra: 4000000, special: 2000000,
+      pfEnabled: false, esiEnabled: false, ptEnabled: true, active: true
+    }
+  })
+  const april = (await h.invoke('payroll:tds', { month: '2026-04' })).find((t) => t.employeeId === taxed.id)
+  assert(april.monthsRemaining === 12, 'April has twelve months left in the year')
+  assert(april.annualGross === 16000000 * 12, 'the year is projected from the contracted salary')
+  assert(april.thisMonth === Math.ceil(april.computation.totalTax / 12), 'the year splits evenly across it')
+  assert(april.computation.taxableIncome === april.annualGross - april.computation.standardDeduction, 'standard deduction comes off first')
+  assert(april.regime === 'new', 'the new regime is the default, as it is in law')
+
+  const january = (await h.invoke('payroll:tds', { month: '2027-01' })).find((t) => t.employeeId === taxed.id)
+  assert(january.monthsRemaining === 3, 'January has three months of the financial year left')
+
+  // A month's payslip deducts it, and the journal carries it to a payable.
+  const taxRun = await h.invoke('payroll:commit', { month: '2026-04', days: [] })
+  const taxLine = taxRun.lines.find((l) => l.employeeId === taxed.id)
+  assert(taxLine.tds === april.thisMonth, 'the payslip deducts what the projection said')
+  assert(
+    taxLine.net === taxLine.gross - taxLine.pfEmp - taxLine.esiEmp - taxLine.pt - taxLine.otherDeductions - taxLine.tds - taxLine.advanceRecovery,
+    'net reconciles to every deduction on the line'
+  )
+  const taxVoucher = await h.invoke('voucher:get', { id: taxRun.voucherId })
+  const taxDr = taxVoucher.lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+  const taxCr = taxVoucher.lines.filter((l) => l.drCr === 'cr').reduce((s, l) => s + l.amount, 0)
+  assert(taxDr === taxCr, 'the journal with TDS in it still balances')
+
+  // Next month knows what April already took.
+  const may = (await h.invoke('payroll:tds', { month: '2026-05' })).find((t) => t.employeeId === taxed.id)
+  assert(may.deductedSoFar === taxLine.tds, 'May knows what April deducted')
+  assert(may.monthsRemaining === 11, 'and has eleven months to spread the rest over')
+
+  // ---- Form 16 Part B is built from runs, not from the projection ----
+  const f16 = await h.invoke('payroll:form16', { employeeId: taxed.id, fyStartYear: 2026 })
+  assert(f16.fyLabel === 'FY 2026-27' && f16.ayLabel === 'AY 2027-28', 'the year is labelled both ways')
+  assert(f16.monthsPaid === 1, 'one run posted so far')
+  assert(f16.grossSalary === f16.months.reduce((s, m) => s + m.gross, 0), 'the gross is the runs, not the projection')
+  assert(f16.tdsDeducted === f16.months.reduce((s, m) => s + m.tds, 0), 'so is the TDS')
+  assert(f16.shortfall === f16.computation.totalTax - f16.tdsDeducted, 'and the balance is stated rather than smoothed')
+  assert(f16.rows[0].label.includes('17(1)'), 'the certificate cites the section it is computed under')
+  assert(
+    f16.rows.some((r) => r.label === 'Total tax payable'),
+    'and states the total'
+  )
+  const f16pdf = await h.invoke('payroll:form16Pdf', { employeeId: taxed.id, fyStartYear: 2026 })
+  assert(f16pdf.path.endsWith('.pdf'), `Form 16 prints (${f16pdf.path})`)
+
+  let refusedYear = false
+  try {
+    await h.invoke('payroll:form16', { employeeId: taxed.id, fyStartYear: 2019 })
+  } catch {
+    refusedYear = true
+  }
+  assert(refusedYear, 'a year with no runs is refused rather than issued empty')
+
+  // ---- payslips for a whole run, each with a way to send it ----
+  const slips = await h.invoke('payroll:payslips', { runId: taxRun.id })
+  assert(slips.length === taxRun.lines.length, 'one payslip per line')
+  for (const s of slips) assert(s.path.endsWith('.pdf'), `${s.employeeName}'s payslip is written`)
+  const withPhone = slips.find((s) => s.whatsapp)
+  if (withPhone) {
+    assert(withPhone.whatsapp.startsWith('https://wa.me/'), 'a wa.me link, not an API call')
+    assert(decodeURIComponent(withPhone.whatsapp).includes('Net pay'), 'the message carries the figure')
+  }
+
   // ---- the screen ----
   await h.page.keyboard.press('Escape')
   await h.goto('payroll')

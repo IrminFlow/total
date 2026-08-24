@@ -182,6 +182,15 @@ export interface EmployeePayInput {
    * absent would quietly extend the advance and is nobody's intention.
    */
   advanceRecovery?: number
+  /**
+   * Monthly TDS under section 192, paise.
+   *
+   * Like the advance recovery, never prorated: the tax is estimated on the year's salary and
+   * deducted in parts, and a month with fewer payable days changes the estimate rather than the
+   * instalment. The caller computes it, because only the caller knows what has been deducted so
+   * far and how many months are left.
+   */
+  tds?: number
 }
 
 export interface PayComputation {
@@ -194,6 +203,8 @@ export interface PayComputation {
   otherDeductions: number
   /** Salary advance recovered this month; never prorated. */
   advanceRecovery: number
+  /** Income tax deducted under section 192; computed on the year and never prorated. */
+  tds: number
   gross: number
   pfEmp: number
   pfEr: number
@@ -304,11 +315,13 @@ export function computeMonthlyPay(
   // Never recover more than is left to pay: an advance instalment that pushes the net negative
   // turns a deduction into a debt, which is not what the payslip says and not what the bank file
   // can carry. The remainder simply waits for next month.
-  const advanceRecovery = Math.max(0, Math.min(e.advanceRecovery ?? 0, gross - pfEmp - esiEmp - pt - otherDeductions))
-  const net = gross - pfEmp - esiEmp - pt - otherDeductions - advanceRecovery
+  const afterStatutory = gross - pfEmp - esiEmp - pt - otherDeductions
+  const tds = Math.max(0, Math.min(e.tds ?? 0, afterStatutory))
+  const advanceRecovery = Math.max(0, Math.min(e.advanceRecovery ?? 0, afterStatutory - tds))
+  const net = afterStatutory - tds - advanceRecovery
 
   return {
-    basic, hra, special, otherEarnings, otherDeductions, advanceRecovery, gross,
+    basic, hra, special, otherEarnings, otherDeductions, advanceRecovery, tds, gross,
     pfEmp, pfEr, epsEr, epfEr, pfAdmin, edli, esiEmp, esiEr, pt, net,
     employerCost: gross + pfEr + esiEr + pfAdmin + edli,
     headAmounts

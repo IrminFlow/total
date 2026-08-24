@@ -12,7 +12,7 @@ import {
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
 import { useStickyTab } from '../lib/useStickyTab'
-import { AttendanceTab, AdvancesTab, SettlementModal } from './payrollTabs'
+import { AttendanceTab, AdvancesTab, Form16Modal, PayslipsModal, SettlementModal } from './payrollTabs'
 import { auditFieldChanges, fieldLabel } from '@shared/auditDiff'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -71,6 +71,7 @@ function EmployeesTab(): React.JSX.Element {
   const { data: employees } = useQuery({ queryKey: ['employees'], queryFn: api.payroll.employees })
   const [editing, setEditing] = useState<Employee | 'new' | null>(null)
   const [settling, setSettling] = useState<Employee | null>(null)
+  const [form16For, setForm16For] = useState<Employee | null>(null)
   const [headsOpen, setHeadsOpen] = useState(false)
   const [overridesFor, setOverridesFor] = useState<Employee | null>(null)
   // Enter opens the selected employee for editing, matching the row's Edit button.
@@ -116,7 +117,7 @@ function EmployeesTab(): React.JSX.Element {
                 <th scope="col" className="r w-28">HRA</th>
                 <th scope="col" className="r w-28">Special</th>
                 <th scope="col" className="r w-28">Gross / mo</th>
-                <th scope="col" className="w-64"></th>
+                <th scope="col" className="w-[22rem]"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-payroll-employees">
@@ -152,6 +153,14 @@ function EmployeesTab(): React.JSX.Element {
                     </button>
                     <button
                       className="mr-3 text-small text-muted hover:text-ink"
+                      data-testid={`btn-payroll-form16-${e.id}`}
+                      title="Form 16 Part B"
+                      onClick={() => setForm16For(e)}
+                    >
+                      Form 16
+                    </button>
+                    <button
+                      className="mr-3 text-small text-muted hover:text-ink"
                       data-testid={`btn-payroll-settle-${e.id}`}
                       title="Full and final settlement"
                       onClick={() => setSettling(e)}
@@ -178,6 +187,9 @@ function EmployeesTab(): React.JSX.Element {
       {settling && (
         <SettlementModal employeeId={settling.id} employeeName={settling.name} onClose={() => setSettling(null)} />
       )}
+      {form16For && (
+        <Form16Modal employeeId={form16For.id} employeeName={form16For.name} onClose={() => setForm16For(null)} />
+      )}
     </>
   )
 }
@@ -199,6 +211,12 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
   const [esiEnabled, setEsi] = useState(employee?.esiEnabled ?? true)
   const [ptEnabled, setPt] = useState(employee?.ptEnabled ?? true)
   const [active, setActive] = useState(employee?.active ?? true)
+  const [joined, setJoined] = useState(employee?.joined ?? '')
+  const [email, setEmail] = useState(employee?.email ?? '')
+  const [phone, setPhone] = useState(employee?.phone ?? '')
+  const [taxRegime, setTaxRegime] = useState<'new' | 'old'>(employee?.taxRegime ?? 'new')
+  const [declared, setDeclared] = useState<number | null>(employee?.declaredDeductions ?? null)
+  const [openingTds, setOpeningTds] = useState<number | null>(employee?.openingTds ?? null)
 
   const save = async (): Promise<void> => {
     try {
@@ -207,7 +225,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           name: name.trim(),
           code: code.trim() || null,
           designation: designation.trim() || null,
-          joined: employee?.joined ?? null,
+          joined: joined.trim() || null,
           pan: pan.trim() || null,
           uan: uan.trim() || null,
           esicNo: employee?.esicNo ?? null,
@@ -216,6 +234,11 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           basic: basic ?? 0,
           hra: hra ?? 0,
           special: special ?? 0,
+          email: email.trim() || null,
+          phone: phone.trim() || null,
+          taxRegime,
+          declaredDeductions: taxRegime === 'old' ? declared : null,
+          openingTds,
           pfEnabled,
           esiEnabled,
           ptEnabled,
@@ -286,6 +309,57 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
               className="num"
               placeholder="HDFC0001234"
             />
+          </Field>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Joined" hint="Gratuity cannot be computed without it">
+            <TextInput
+              type="date"
+              data-testid="input-employee-joined"
+              value={joined}
+              onChange={(e) => setJoined(e.target.value)}
+            />
+          </Field>
+          <Field label="Email" hint="Where the payslip goes">
+            <TextInput
+              data-testid="input-employee-email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              inputMode="email"
+            />
+          </Field>
+          <Field label="Phone" hint="Drives WhatsApp payslip delivery">
+            <TextInput
+              data-testid="input-employee-phone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="num"
+              inputMode="tel"
+            />
+          </Field>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field
+            label="Tax regime"
+            hint={taxRegime === 'new' ? 'The statutory default. Almost no deductions survive it.' : 'Chosen deliberately'}
+          >
+            <Select
+              data-testid="select-employee-regime"
+              value={taxRegime}
+              onChange={(e) => setTaxRegime(e.target.value as 'new' | 'old')}
+            >
+              <option value="new">New (section 115BAC)</option>
+              <option value="old">Old</option>
+            </Select>
+          </Field>
+          <Field
+            label="Declared deductions"
+            hint={taxRegime === 'old' ? '80C, 80D and the rest, for the year' : 'Not allowed under the new regime'}
+          >
+            <AmountInput paise={declared} onPaise={setDeclared} />
+          </Field>
+          <Field label="TDS already taken" hint="This financial year, by a previous system">
+            <AmountInput paise={openingTds} onPaise={setOpeningTds} />
           </Field>
         </div>
         <div className="grid grid-cols-3 gap-3">
@@ -931,6 +1005,7 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
   const nav = useNav()
   const queryClient = useQueryClient()
   const [payslipsOpen, setPayslipsOpen] = useState(false)
+  const [sendingPayslips, setSendingPayslips] = useState(false)
   const [ptOpen, setPtOpen] = useState(false)
   const payslipsRef = useRef<HTMLSpanElement>(null)
 
@@ -1060,6 +1135,19 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
                     </button>
                   ))}
                 </ScrollList>
+                <span className="mt-1 block border-t border-line pt-1">
+                  <button
+                    className="block w-full px-3 py-1.5 text-left text-body-sm font-medium text-ink hover:bg-panel2"
+                    data-testid="btn-payroll-payslips-all"
+                    title="Write every payslip and get a way to send each one"
+                    onClick={() => {
+                      setPayslipsOpen(false)
+                      setSendingPayslips(true)
+                    }}
+                  >
+                    All {run.lines.length}, with sending…
+                  </button>
+                </span>
               </span>
             )}
           </span>
@@ -1086,6 +1174,14 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
         </span>
       </div>
       {ptOpen && <PtSummaryModal run={run} onClose={() => setPtOpen(false)} />}
+      {sendingPayslips && (
+        <PayslipsModal
+          runId={run.id}
+          monthLabel={monthLabel(run.month)}
+          count={run.lines.length}
+          onClose={() => setSendingPayslips(false)}
+        />
+      )}
     </div>
   )
 }

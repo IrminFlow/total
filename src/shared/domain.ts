@@ -450,6 +450,15 @@ export interface Employee {
   /** Where salary is transferred. Null for an employee genuinely paid in cash. */
   bankAccount: string | null
   ifsc: string | null
+  /** Where the payslip goes. Both optional; the phone drives WhatsApp delivery. */
+  email: string | null
+  phone: string | null
+  /** Income tax regime under section 115BAC. The new regime is the default in law. */
+  taxRegime: 'new' | 'old'
+  /** Chapter VI-A deductions declared and accepted, paise. Only the old regime allows them. */
+  declaredDeductions: number | null
+  /** TDS taken by a previous system this financial year, so the spread does not re-deduct it. */
+  openingTds: number | null
   active: boolean
 }
 
@@ -475,6 +484,8 @@ export interface PayrollLine {
   otherDeductions: number
   /** Salary advance instalment recovered this month; never prorated by attendance. */
   advanceRecovery: number
+  /** Income tax deducted at source under section 192, paise. */
+  tds: number
   gross: number
   pfEmp: number
   pfEr: number
