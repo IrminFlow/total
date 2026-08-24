@@ -70,24 +70,38 @@ await scenario('14-ai-off-by-default', async (h) => {
     await h.waitScreen('gateway', 30000)
     fake.push({ kind: 'text', text: 'Your cash balance is 50,000.00 [tb:1].' })
 
+    // Subscribe BEFORE asking. `ai:chat` returns a runId immediately and the frames follow on a
+    // one-way channel — attaching the listener afterwards is a subscribe-after-fire race that
+    // loses the `done` frame whenever the run finishes quickly, which is most of the time.
+    await h.page.evaluate(() => {
+      window.__aiFrames = []
+      window.__aiOff = window.total.on('ai:stream', (f) => window.__aiFrames.push(f))
+    })
+
     const { runId } = await h.invoke('ai:chat', { question: 'what is my cash balance?' })
     assert(typeof runId === 'string' && runId.length > 0, 'ai:chat returns a runId immediately')
 
-    // The frames stream on the one-way channel; wait for the run to finish.
     const finish = await h.page.evaluate(
       (id) =>
         new Promise((resolve) => {
-          const seen = []
-          const off = window.total.on('ai:stream', (f) => {
-            if (f.runId !== id) return
-            seen.push(f)
-            if (f.t === 'done') {
-              off()
-              resolve({ finish: f.finish, text: seen.filter((x) => x.t === 'delta').map((x) => x.text).join('') })
-            }
-          })
+          const settle = () => {
+            const mine = window.__aiFrames.filter((f) => f.runId === id)
+            const done = mine.find((f) => f.t === 'done')
+            if (!done) return false
+            window.__aiOff()
+            resolve({
+              finish: done.finish,
+              text: mine.filter((x) => x.t === 'delta').map((x) => x.text).join('')
+            })
+            return true
+          }
+          if (settle()) return
+          const poll = setInterval(() => {
+            if (settle()) clearInterval(poll)
+          }, 50)
           setTimeout(() => {
-            off()
+            clearInterval(poll)
+            window.__aiOff()
             resolve({ finish: 'timeout', text: '' })
           }, 15000)
         }),

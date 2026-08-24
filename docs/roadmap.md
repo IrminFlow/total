@@ -217,7 +217,9 @@ Ordering within a section is roughly by value.
 
 ## H. Payroll
 
-167. Salary revision history per employee (M)
+167. ✓ Salary revision history per employee (M) — derived from the audit log, which has
+     recorded every employee save's full before and after all along. A separate salary-history
+     table would be a second record of the same fact, free to disagree with the first.
 168. Leave and attendance tracking feeding the pay run (L)
 169. Loan and advance recovery from salary (M)
 170. Bonus and gratuity computation (M)

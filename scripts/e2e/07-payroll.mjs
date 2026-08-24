@@ -121,4 +121,33 @@ await scenario('07-payroll', async (h) => {
     rejected = true
   }
   assert(rejected, 'a malformed IFSC is refused')
+
+  // ---- salary revision history ----
+  // Derived from the audit log rather than a second table: employee saves have always recorded
+  // their full before and after, so the history already existed and simply had nowhere to be read.
+  const before = await h.invoke('audit:list', {
+    entity: 'employee', entityId: first.id, page: 0, pageSize: 50
+  })
+  await h.invoke('payroll:employees:save', {
+    data: { ...first, bankAccount: '12345678901', ifsc: 'HDFC0001234', basic: first.basic + 500000 },
+    id: first.id
+  })
+  const trail = await h.invoke('audit:list', {
+    entity: 'employee', entityId: first.id, page: 0, pageSize: 50
+  })
+  assert(trail.total > before.total, 'the raise is recorded')
+
+  const latest = trail.rows[0]
+  assert(latest.beforeJson && latest.afterJson, 'with both sides of the change')
+  const wasBasic = JSON.parse(latest.beforeJson).basic
+  const nowBasic = JSON.parse(latest.afterJson).basic
+  assert(nowBasic === wasBasic + 500000, `and the amounts (${wasBasic} → ${nowBasic})`)
+
+  // Only THIS employee's history — an id filter without an entity would mix employee 3 with
+  // voucher 3, and the trail on an employee screen must be about the employee.
+  assert(
+    trail.rows.every((r) => r.entityId === first.id),
+    'the trail is this employee only'
+  )
+  assert(trail.rows.every((r) => r.entity === 'employee'), 'and only employee records')
 })

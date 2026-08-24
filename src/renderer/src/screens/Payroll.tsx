@@ -12,6 +12,7 @@ import {
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
 import { useStickyTab } from '../lib/useStickyTab'
+import { auditFieldChanges, fieldLabel } from '@shared/auditDiff'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 
@@ -280,6 +281,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           {check('Professional tax', ptEnabled, setPt)}
           {check('Active', active, setActive)}
         </div>
+        {employee && <SalaryHistory employeeId={employee.id} />}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" data-testid="btn-payroll-save-employee" onClick={() => void save()}>
@@ -288,6 +290,82 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
         </div>
       </div>
     </Modal>
+  )
+}
+
+/** Pay fields, in the order they appear on the form. Anything else — a corrected PAN, a change of
+ *  professional-tax state — is a change to the record but not a salary revision, and listing it
+ *  here would bury the ones that are. */
+const PAY_FIELDS = new Set(['basic', 'hra', 'special'])
+
+/**
+ * When this employee's pay changed, and by how much.
+ *
+ * Derived from the audit log rather than a second table: employee saves have always recorded
+ * their full before and after, so the revision history already existed — it simply had nowhere to
+ * be read. A separate salary-history table would be a second record of the same fact, free to
+ * disagree with the first.
+ *
+ * Collapsed by default. Most edits are opened to fix a detail, not to review a history.
+ */
+function SalaryHistory({ employeeId }: { employeeId: number }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const { data } = useQuery({
+    queryKey: ['employeeAudit', employeeId],
+    queryFn: () => api.audit.list({ entity: 'employee', entityId: employeeId, page: 0, pageSize: 50 }),
+    enabled: open
+  })
+
+  const revisions = (data?.rows ?? [])
+    .filter((row) => row.beforeJson && row.afterJson)
+    .map((row) => ({
+      row,
+      changes: auditFieldChanges(
+        JSON.parse(row.beforeJson!) as unknown,
+        JSON.parse(row.afterJson!) as unknown,
+        (paise) => formatPaise(paise)
+      ).filter((c) => PAY_FIELDS.has(c.field))
+    }))
+    .filter((r) => r.changes.length > 0)
+
+  return (
+    <div>
+      <button
+        data-testid="btn-salary-history"
+        className="text-small text-muted hover:text-ink"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? '▾' : '▸'} Salary history
+      </button>
+      {open && (
+        <div className="mt-2 rounded-md border border-line bg-panel2 p-3" data-testid="salary-history">
+          {!data ? (
+            <p className="text-hint text-muted">Loading…</p>
+          ) : revisions.length === 0 ? (
+            // Possible and unremarkable: an employee whose pay has never been changed since they
+            // were added, or one imported before the audit log covered them.
+            <p className="text-hint text-muted">No pay changes recorded for this employee.</p>
+          ) : (
+            <ol className="flex flex-col gap-1.5">
+              {revisions.map(({ row, changes }) => (
+                <li key={row.id} className="text-body-sm">
+                  <span className="num text-muted">{row.at}</span>
+                  <span className="text-muted"> · {row.userName ?? 'someone'}</span>
+                  <ul className="mt-0.5 ml-4 flex flex-col gap-0.5 text-hint text-muted">
+                    {changes.map((c) => (
+                      <li key={c.field}>
+                        {fieldLabel(c.field)}: <span className="num">{c.before ?? '—'}</span> →{' '}
+                        <span className="num text-ink">{c.after ?? '—'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
