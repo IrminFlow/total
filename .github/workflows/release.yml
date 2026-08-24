@@ -10,8 +10,57 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    environment: production-release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Require the tagged commit to be on main
+        shell: bash
+        run: |
+          git fetch origin main --no-tags
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "Release tags must point to a commit already merged into main." >&2
+            exit 1
+          }
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate tag and release configuration
+        run: npm run release:preflight
+
+      - name: Require every public-release readiness gate
+        run: npm run release:readiness -- --strict
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.VERCEL_GITHUB_TOKEN }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          CONVEX_SUPPORT_URL: ${{ secrets.CONVEX_SUPPORT_URL }}
+          SUPPORT_WEBHOOK_URL: ${{ secrets.SUPPORT_WEBHOOK_URL }}
+          CONVEX_FEEDBACK_URL: ${{ secrets.CONVEX_FEEDBACK_URL }}
+
   release-mac:
+    needs: release-gate
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -126,6 +175,7 @@ jobs:
             dist/upgrade-evidence-mac.json
 
   release-win:
+    needs: release-gate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

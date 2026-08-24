@@ -3,6 +3,10 @@
 # publish pipeline) — this workflow never publishes anything.
 name: CI
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
@@ -101,11 +105,14 @@ jobs:
           name: smoke-shots
           path: ${{ runner.temp }}/smoke
 
-  # Full UI E2E suite (scripts/e2e/*.mjs via npm run e2e) against the built app. Push-to-main
-  # only — it's the slowest job, and PRs already get the smoke-mac coverage above.
+  # Split the full desktop suite across four macOS runners so PRs receive the same workflow
+  # coverage as main without serializing all scenarios on one machine.
   e2e-mac:
-    if: github.event_name == 'push'
     runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v4
 
@@ -120,13 +127,14 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: E2E scenarios
-        run: npm run e2e
-        env:
-          SMOKE_OUT: ${{ runner.temp }}/e2e
-
-      - name: Visual regression contracts
-        run: npm run test:visual -- --inspect-only
+      - name: E2E scenarios (shard ${{ matrix.shard }})
+        shell: bash
+        run: |
+          scenarios=$(find scripts/e2e -maxdepth 1 -name '[0-9][0-9]-*.mjs' -print \
+            | sort \
+            | awk -F/ -v shard='${{ matrix.shard }}' 'substr($NF,1,2) % 4 == shard { sub(/\.mjs$/, "", $NF); printf "%s ", $NF }')
+          test -n "$scenarios"
+          node scripts/run-e2e.mjs $scenarios
         env:
           SMOKE_OUT: ${{ runner.temp }}/e2e
 
@@ -134,8 +142,24 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-shots
+          name: e2e-shots-${{ matrix.shard }}
           path: ${{ runner.temp }}/e2e
+
+  visual-contracts:
+    needs: e2e-mac
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-shots-*
+          path: smoke-out/e2e
+          merge-multiple: true
+
+      - name: Verify visual evidence contracts
+        run: node scripts/visual-regression-gate.mjs --inspect-only
 
   build-win:
     runs-on: windows-latest

@@ -63,10 +63,14 @@ cd site && npm run dev / npm run build   # marketing site
 
 ## Release steps (auto-update pipeline)
 
+For the prepared version already recorded in `package.json`, merge the reviewed release commit to `main`, then tag that exact commit:
+
 ```bash
-npm version patch      # bumps version, commits, tags vX.Y.Z
-git push --follow-tags # → GitHub Actions: tests, DMG+ZIP build, publishes the release
+git tag "v$(node -p "require('./package.json').version")"
+git push origin main --follow-tags
 ```
+
+Use `npm version patch` only when intentionally preparing the next patch version; do not run it again for an already-versioned release candidate.
 
 - `.github/workflows/release.yml` runs on `v*` tags (macOS runner, `GITHUB_TOKEN` automatic). `releaseType: "release"` in package.json `build.publish` — releases publish directly, **never leave them as drafts** (drafts are invisible to the `releases/latest` API that feeds updates and the site).
 - Installed apps check for updates on launch (`src/main/updater.ts`): electron-updater first; because builds are unsigned and the repo is private, the working path is the fallback — it asks the site's `/api/latest` and offers `/api/download`. Once an Apple Developer ID (`CSC_LINK`/`CSC_KEY_PASSWORD` secrets) exists **and** releases are public, silent in-place updates take over.

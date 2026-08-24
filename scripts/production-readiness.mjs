@@ -7,6 +7,7 @@ const strict = process.argv.includes("--strict");
 const env = process.env;
 const file = (path) => existsSync(resolve(root, path));
 const text = (path) => readFileSync(resolve(root, path), "utf8");
+const productVersion = JSON.parse(text("package.json")).version;
 const hasAll = (...names) => names.every((name) => Boolean(env[name]?.trim()));
 const serviceEvidencePath = "docs/evidence/production-services-2026-08-24.json";
 let serviceEvidence = null;
@@ -19,7 +20,7 @@ const approvedEvidence = (envName, fallback, kind) => {
   if (!value || !existsSync(resolve(root, value))) return false;
   try {
     const evidence = JSON.parse(readFileSync(resolve(root, value), "utf8"));
-    if (!(evidence?.schema === 1 && evidence?.kind === kind && evidence?.status === "approved" && evidence?.productVersion === "0.5.0" && Boolean(evidence?.approvedAt))) return false;
+    if (!(evidence?.schema === 1 && evidence?.kind === kind && evidence?.status === "approved" && evidence?.productVersion === productVersion && Boolean(evidence?.approvedAt))) return false;
     execFileSync(process.execPath, [resolve(root, "scripts/acceptance-gate.mjs"), resolve(root, value), "--quiet"], { stdio: "ignore" });
     return true;
   } catch { return false; }

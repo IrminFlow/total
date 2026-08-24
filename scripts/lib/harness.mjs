@@ -203,7 +203,7 @@ export class Harness {
   /** From company-select: build the Demo Traders sample company and land on the Gateway. */
   async createDemoCompany(timeout = 60000) {
     await this.waitScreen('company-select')
-    await this.clickText('Explore with sample data')
+    await this.click('btn-company-demo')
     await this.waitScreen('gateway', timeout)
     await this.page.waitForSelector('[data-testid="card-voucher-entry"]', { state: 'visible', timeout })
   }

@@ -17,7 +17,7 @@
 - **Manufacturing / BOM** — bill of materials on stock items; the Stock Journal voucher becomes a Manufacture screen: pick the output and quantity, components are consumed at weighted-average cost (plus an overhead %), finished goods enter stock at cost.
 - **Multi-currency** — add currencies in Masters; sales invoices can be priced in a foreign currency with an exchange rate — books stay in ₹, the currency and rate are stored on the voucher.
 - **Tally import** — reads Tally's Masters and Day Book XML exports (groups, ledgers with opening balances and GSTINs, units, stock items, vouchers with Tally's Dr/Cr sign conventions). Best-effort with a warnings report; auto-backup before every import.
-- **Live filing (optional)** — NIC e-invoice API client (auth with RSA + AES session encryption, generate IRN per invoice, generate e-way bill against the IRN); paste your API credentials once under e-Invoice → Set up live filing. Fully optional — the offline JSON exports remain the default path.
+- **Offline statutory exports** — validated GST, e-invoice and e-way bill files for review and upload through the government offline tools. NIC sandbox and online GST portal integrations are outside the v0.5 release scope.
 - **Offline intelligence** — ledger autosuggest ranked by usage per voucher kind, duplicate-voucher warning (same party + amount ± 3 days), anomaly nudge on unusual amounts, Tally-style smart dates (`7`, `7/4`, `y`, `t`), amount-in-words on invoices.
 
 ## Keyboard
@@ -32,9 +32,10 @@ The repo lives (private) at `IrminFlow/total`. If the owner/name ever changes, u
 
 1. **Releases (auto-update feed)** — pushing a version tag makes GitHub Actions build the DMG+ZIP and attach them to a release (`.github/workflows/release.yml`):
    ```bash
-   npm version patch        # bumps package.json, commits, tags v0.1.1
-   git push --follow-tags
+   git tag "v$(node -p "require('./package.json').version")"
+   git push origin main --follow-tags
    ```
+   Run `npm version patch` only when you intend to prepare the next patch version.
 2. **Vercel** — import the repo and set **Root Directory to `site`**. Required env var while the repo is private: `GITHUB_TOKEN` — a fine-grained PAT with *read* access to this repo's contents, so the site can show the latest version and serve `/api/download` (it exchanges the asset for a short-lived public URL; the token never reaches the browser). Optional: `NEXT_PUBLIC_SITE_URL` (your domain, for social cards), `GITHUB_REPO` (owner/repo override).
 3. **How updates reach users** — installed apps check the site's `/api/latest` on launch (this works while the repo is private) and offer the new DMG via `/api/download`. Unsigned builds always use this prompt-to-download path; once you add `CSC_LINK`/`CSC_KEY_PASSWORD` secrets (Apple Developer ID) *and* the repo/releases are public, electron-updater's silent in-place updates take over. If `src/main/updater.ts`'s `SITE_LATEST_URL` doesn't match your real Vercel domain, update it.
 

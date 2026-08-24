@@ -40,8 +40,8 @@ Never place these values in source, local evidence, screenshots or support cases
 ## 3. Release
 
 1. Confirm `git status --short` is empty and CI is green on the exact commit.
-2. Run `npm version patch`; review the generated version commit and tag.
-3. Push the branch and tag with `git push --follow-tags`.
+2. Confirm `package.json` contains the intended version, then tag the reviewed commit with `git tag "v$(node -p "require('./package.json').version")"`.
+3. Push `main` and the tag with `git push origin main --follow-tags`.
 4. Watch both signed platform jobs and the final publish job. A release is complete only when DMG,
    ZIP, NSIS, updater manifests, scorecards, public-v0.4 upgrade evidence and build evidence are
    present in one public release.

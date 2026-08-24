@@ -21,8 +21,8 @@ unsigned fallback.
 ## Release
 
 1. Confirm main CI is green, including the site build and macOS UI suite.
-2. Update release notes and run `npm version patch` (or the intended semver level).
-3. Push the commit and tag together with `git push --follow-tags`.
+2. Confirm `package.json` already contains the intended release version. If it does not, set the intended semver version and review that commit before continuing.
+3. Tag the reviewed `main` commit with `git tag "v$(node -p "require('./package.json').version")"`, then push with `git push origin main --follow-tags`.
 4. Watch all three release jobs. The final `publish` job starts only after both signed builds pass.
 5. Confirm the GitHub release contains DMG, ZIP, EXE, blockmaps, `latest-mac.yml`, and `latest.yml`.
 6. Confirm the website's `/api/latest` reports the new version and `/api/download` returns the

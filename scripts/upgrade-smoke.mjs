@@ -3,14 +3,14 @@
 // migrates those exact files, then proves that balances, vouchers and backups
 // survived. No developer build or fixture database substitutes for the old app.
 import { _electron as electron } from 'playwright-core'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
 const oldExecutable = resolveRequired('OLD_TOTAL_EXECUTABLE')
 const candidateExecutable = resolveRequired('CURRENT_TOTAL_EXECUTABLE')
 const expectedOldVersion = process.env.OLD_TOTAL_VERSION ?? '0.4.0'
-const expectedCandidateVersion = process.env.CURRENT_TOTAL_VERSION ?? '0.5.0'
+const expectedCandidateVersion = process.env.CURRENT_TOTAL_VERSION ?? JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 const evidencePath = resolve(process.env.UPGRADE_EVIDENCE ?? 'dist/upgrade-evidence.json')
 const scratch = mkdtempSync(join(tmpdir(), 'total-upgrade-smoke-'))
 const dataDir = join(scratch, 'data')

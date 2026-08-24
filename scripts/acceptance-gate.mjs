@@ -6,6 +6,7 @@ const quiet = process.argv.includes('--quiet')
 if (!input) throw new Error('Usage: npm run acceptance:gate -- <evidence.json>')
 const path = resolve(input)
 const evidence = JSON.parse(readFileSync(path, 'utf8'))
+const productVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
@@ -21,7 +22,7 @@ function approved(result, label) {
 function common() {
   assert(evidence.schema === 1, 'schema must be 1')
   assert(['migration', 'clean-machine', 'human', 'mobile', 'commercial', 'legal'].includes(evidence.kind), 'Unknown acceptance kind')
-  assert(evidence.productVersion === '0.5.0', 'productVersion must be 0.5.0')
+  assert(evidence.productVersion === productVersion, `productVersion must be ${productVersion}`)
   assert(evidence.status === 'approved', 'status must be approved')
   assert(!Number.isNaN(Date.parse(evidence.approvedAt)), 'approvedAt must be an ISO timestamp')
   assert(Array.isArray(evidence.approvers) && evidence.approvers.length > 0, 'At least one named approver is required')
