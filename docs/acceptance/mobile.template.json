@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "kind": "mobile",
+  "status": "pending",
+  "productVersion": "0.5.0",
+  "approvedAt": "",
+  "approvers": [],
+  "devices": [
+    { "id": "ios", "physicalDevice": false, "osVersion": "", "model": "", "checks": {} },
+    { "id": "android", "physicalDevice": false, "osVersion": "", "model": "", "checks": {} }
+  ]
+}

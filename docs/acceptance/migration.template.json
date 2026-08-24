@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "migration",
+  "status": "pending",
+  "productVersion": "0.5.0",
+  "approvedAt": "",
+  "approvers": [],
+  "sources": [
+    { "id": "tally", "consented": false, "sourceSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
+    { "id": "busy", "consented": false, "sourceSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
+    { "id": "marg", "consented": false, "sourceSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
+    { "id": "zoho_books", "consented": false, "sourceSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} },
+    { "id": "spreadsheet", "consented": false, "sourceSha256": "", "importBatchId": 0, "backupVerified": false, "rejectedRowsResolved": false, "result": "pending", "metrics": {} }
+  ]
+}

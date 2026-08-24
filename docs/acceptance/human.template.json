@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "human",
+  "status": "pending",
+  "productVersion": "0.5.0",
+  "approvedAt": "",
+  "approvers": [],
+  "cohorts": [
+    { "id": "bookkeeper", "participants": 0, "durationMinutes": 0, "scenarios": [], "blockers": [] },
+    { "id": "business-owner", "participants": 0, "durationMinutes": 0, "scenarios": [], "blockers": [] },
+    { "id": "chartered-accountant", "participants": 0, "durationMinutes": 0, "scenarios": [], "blockers": [] },
+    { "id": "payroll-operator", "participants": 0, "durationMinutes": 0, "scenarios": [], "blockers": [] },
+    { "id": "inventory-manufacturing", "participants": 0, "durationMinutes": 0, "scenarios": [], "blockers": [] }
+  ]
+}

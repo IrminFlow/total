@@ -34,6 +34,7 @@
     "release:scorecard": "node scripts/release-scorecard.mjs",
     "release:readiness": "node scripts/production-readiness.mjs",
     "release:live": "node scripts/production-live-check.mjs",
+    "acceptance:gate": "node scripts/acceptance-gate.mjs",
     "security:dependencies": "node scripts/dependency-policy.mjs",
     "e2e": "node scripts/run-e2e.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",

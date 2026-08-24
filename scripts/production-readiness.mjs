@@ -19,7 +19,9 @@ const approvedEvidence = (envName, fallback, kind) => {
   if (!value || !existsSync(resolve(root, value))) return false;
   try {
     const evidence = JSON.parse(readFileSync(resolve(root, value), "utf8"));
-    return evidence?.schema === 1 && evidence?.kind === kind && evidence?.status === "approved" && evidence?.productVersion === "0.5.0" && Boolean(evidence?.approvedAt);
+    if (!(evidence?.schema === 1 && evidence?.kind === kind && evidence?.status === "approved" && evidence?.productVersion === "0.5.0" && Boolean(evidence?.approvedAt))) return false;
+    execFileSync(process.execPath, [resolve(root, "scripts/acceptance-gate.mjs"), resolve(root, value), "--quiet"], { stdio: "ignore" });
+    return true;
   } catch { return false; }
 };
 const checks = [];
@@ -41,7 +43,7 @@ add("clean-device-acceptance", approvedEvidence("CLEAN_MACHINE_EVIDENCE", "docs/
 add("human-acceptance", approvedEvidence("HUMAN_ACCEPTANCE_EVIDENCE", "docs/evidence/human-acceptance-approved.json", "human") ? "ready" : "external", "Approve structured bookkeeper, owner, CA, payroll and inventory/manufacturing sessions.", "product-owner");
 add("mobile-device-acceptance", approvedEvidence("MOBILE_ACCEPTANCE_EVIDENCE", "docs/evidence/mobile-acceptance-approved.json", "mobile") ? "ready" : "external", "Exercise camera capture and native sharing on current physical iOS and Android devices.", "acceptance-owner");
 add("commercial-approval", approvedEvidence("COMMERCIAL_APPROVAL_EVIDENCE", "docs/evidence/commercial-policy-approved.json", "commercial") ? "ready" : "external", "Approve pricing, licence model, refund terms, support targets and beta-to-paid transition before publication.", "product-owner");
-add("qualified-legal-review", Boolean(env.LEGAL_REVIEW_APPROVED_AT?.trim()) || approvedEvidence("LEGAL_REVIEW_EVIDENCE", "docs/evidence/legal-review-approved.json", "legal") ? "ready" : "external", "Obtain qualified legal review of privacy, terms, licensing and intended selling jurisdictions.", "legal-owner");
+add("qualified-legal-review", approvedEvidence("LEGAL_REVIEW_EVIDENCE", "docs/evidence/legal-review-approved.json", "legal") ? "ready" : "external", "Obtain qualified legal review of privacy, terms, licensing and intended selling jurisdictions.", "legal-owner");
 add("online-statutory", "excluded", "NIC and online GST portal connectivity are explicitly outside this production completion scope.", "product-owner");
 
 let dirty = false;

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "kind": "legal",
+  "status": "pending",
+  "productVersion": "0.5.0",
+  "approvedAt": "",
+  "approvers": [],
+  "reviewer": { "name": "", "qualification": "" },
+  "jurisdictions": ["India"],
+  "documents": [
+    { "id": "privacy", "result": "pending" },
+    { "id": "terms", "result": "pending" },
+    { "id": "security", "result": "pending" },
+    { "id": "commercial-policy", "result": "pending" }
+  ]
+}

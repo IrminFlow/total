@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "kind": "clean-machine",
+  "status": "pending",
+  "productVersion": "0.5.0",
+  "approvedAt": "",
+  "approvers": [],
+  "platforms": [
+    { "id": "macos-arm64", "cleanDevice": false, "osVersion": "", "installerSha256": "", "checks": {} },
+    { "id": "macos-intel", "cleanDevice": false, "osVersion": "", "installerSha256": "", "upgradeNote": "No public Intel v0.4 build exists.", "checks": { "upgradeFromV04": "not_applicable" } },
+    { "id": "windows-11", "cleanDevice": false, "osVersion": "", "installerSha256": "", "checks": {} }
+  ]
+}
