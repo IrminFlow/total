@@ -119,7 +119,6 @@ import {
   stockTransferSchema,
 } from "@shared/schemas";
 import { todayISO } from "@shared/dates";
-import type { ExportFormat } from "@shared/internalControls";
 import { formatPaise } from "@shared/money";
 import * as configSvc from "./services/config";
 import { createBoundedTemporaryDirectory } from "./services/tempArtifacts";
@@ -180,7 +179,14 @@ import * as integrations from "./services/integrations";
 import * as partnerAdapters from "./services/partnerAdapters";
 import * as resilience from "./services/resilience";
 import * as attachmentVault from "./services/attachmentVault";
-import { assertIpcPermissionAllowed } from "./ipcPermissions";
+import {
+  assertAutomationRunAllowed,
+  assertIpcExportFormatAllowed,
+  assertIpcPermissionAllowed,
+  companyWideExportLabelForChannel,
+  ipcExportContractForChannel,
+  permissionResolvedInsideHandler,
+} from "./ipcPermissions";
 import * as privacyControls from "./services/privacyControls";
 import * as exportSigning from "./services/exportSigning";
 import { backgroundWork } from "./services/workloadGovernor";
@@ -321,6 +327,8 @@ const UNGATED_CHANNELS = new Set([
 ]);
 
 function companyWideSurfaceLabel(channel: string): string | null {
+  const exportLabel = companyWideExportLabelForChannel(channel);
+  if (exportLabel) return exportLabel;
   if (channel.startsWith("report:")) return "Reports";
   if (channel.startsWith("analysis:")) return "Analysis reports";
   if (channel === "search:global") return "Global search";
@@ -345,28 +353,6 @@ function agentProposalInDepartmentScope(
   } catch {
     return false;
   }
-}
-
-function exportFormatFor(channel: string): ExportFormat {
-  if (channel === "agent:exportMirror") return "json_mirror";
-  if (
-    channel === "export:caPack" ||
-    channel === "export:tallyXml" ||
-    channel === "gst:exportGstr1" ||
-    channel === "gst:exportGstr3b" ||
-    channel === "tds:export26q" ||
-    channel.startsWith("edoc:export") ||
-    channel === "edoc:ewbJson"
-  )
-    return "full_data";
-  if (
-    channel === "report:pdf" ||
-    channel === "invoice:pdfBatch" ||
-    channel.endsWith(":pdf") ||
-    channel.includes("Pdf")
-  )
-    return "pdf";
-  return "spreadsheet";
 }
 
 function enforceDepartmentBoundaries(
@@ -424,24 +410,17 @@ function handle(
           // to the lock screen instead of a generic permission toast.
           throw new Error("Locked — sign in first");
         }
-        const action = assertIpcPermissionAllowed(
-          current.db,
-          sessionUser.role,
-          channel,
-          payload,
-          minRole,
-        );
-        if (
-          action === "export" &&
-          !internalControls.exportAllowed(
-            current.db,
-            sessionUser.role,
-            exportFormatFor(channel),
-          )
-        ) {
-          throw new Error(
-            "Your role is not allowed to create this export format",
-          );
+        const action = permissionResolvedInsideHandler(channel)
+          ? null
+          : assertIpcPermissionAllowed(
+              current.db,
+              sessionUser.role,
+              channel,
+              payload,
+              minRole,
+            );
+        if (action === "export") {
+          assertIpcExportFormatAllowed(current.db, sessionUser.role, channel);
         }
         enforceDepartmentBoundaries(current.db, sessionUser.role, payload);
         const companyWideSurface = companyWideSurfaceLabel(channel);
@@ -457,11 +436,8 @@ function handle(
       const backgroundKind =
         channel === "ai:documents:capture"
           ? "document"
-          : channel.startsWith("export:") ||
-              channel === "report:pdf" ||
-              channel === "backup:exportEncrypted" ||
-              channel.endsWith(":pdf") ||
-              channel.endsWith(":csv")
+          : ipcExportContractForChannel(channel) ||
+              channel === "backup:exportEncrypted"
             ? "export"
             : null;
       const requestId =
@@ -5513,6 +5489,11 @@ export function registerIpc(): void {
       })
       .parse(p);
     const c = requireCompany();
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      voucherId,
+    );
     // chequePdf itself reveals the file in Finder — a cheque is meant to be loaded into the
     // printer tray and checked for alignment, not opened in a PDF viewer.
     const path = await cheque.chequePdf(
@@ -5536,6 +5517,11 @@ export function registerIpc(): void {
       .object({ voucherId: z.number().int().positive() })
       .parse(p);
     const c = requireCompany();
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      voucherId,
+    );
     const path = await cheque.paymentAdvicePdf(c.db, c.info, c.slug, voucherId);
     shell.openPath(path);
     return { path };
@@ -7101,8 +7087,16 @@ export function registerIpc(): void {
           config: z.record(z.string(), z.unknown()).optional(),
         })
         .parse(p);
+      const company = requireCompany();
+      const role = sessionUser?.role ?? "owner";
+      assertAutomationRunAllowed(company.db, role, input.taskKind);
+      departmentScope.assertCompanyWideSurfaceAllowed(
+        company.db,
+        role,
+        "This automation schedule",
+      );
       return integrations.saveAutomationSchedule(
-        requireCompany().db,
+        company.db,
         input,
         sessionUser?.name ?? "Local owner",
       );
@@ -7115,8 +7109,22 @@ export function registerIpc(): void {
       const { id, enabled } = z
         .object({ id: z.number().int().positive(), enabled: z.boolean() })
         .parse(p);
+      const company = requireCompany();
+      if (enabled) {
+        const schedule = integrations
+          .listAutomationSchedules(company.db)
+          .find((row) => row.id === id);
+        if (!schedule) throw new Error("Automation schedule not found");
+        const role = sessionUser?.role ?? "owner";
+        assertAutomationRunAllowed(company.db, role, schedule.taskKind);
+        departmentScope.assertCompanyWideSurfaceAllowed(
+          company.db,
+          role,
+          "This automation schedule",
+        );
+      }
       return integrations.setAutomationEnabled(
-        requireCompany().db,
+        company.db,
         id,
         enabled,
       );
@@ -7138,6 +7146,17 @@ export function registerIpc(): void {
     (p) => {
       const { id } = idSchema.parse(p);
       const company = requireCompany();
+      const schedule = integrations
+        .listAutomationSchedules(company.db)
+        .find((row) => row.id === id);
+      if (!schedule) throw new Error("Automation schedule not found");
+      const role = sessionUser?.role ?? "owner";
+      assertAutomationRunAllowed(company.db, role, schedule.taskKind);
+      departmentScope.assertCompanyWideSurfaceAllowed(
+        company.db,
+        role,
+        "This automation",
+      );
       return integrations.runAutomation(
         company.db,
         company.info,

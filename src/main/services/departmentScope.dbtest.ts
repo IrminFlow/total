@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { VoucherInputParsed } from "@shared/schemas";
 import { seededDb } from "../db/testdb";
 import { saveVoucher, listVouchers } from "./vouchers";
+import { IPC_EXPORT_CONTRACTS } from "../ipcPermissions";
 import {
   approvalRequestInDepartmentScope,
   assertApprovalRequestDepartmentScope,
@@ -285,5 +286,28 @@ describe("record-backed department scope", () => {
       false,
     );
     expect(voucherInputInDepartmentScope(db, "owner", deniedInput)).toBe(true);
+  });
+
+  it("fails closed for every unfilterable company-wide export contract", () => {
+    const db = seededDb();
+    const journal = id(db, "SELECT id FROM voucher_types WHERE kind='journal'");
+    allow(db, "voucher_type", journal, "accountant");
+    const companyWideContracts = Object.values(IPC_EXPORT_CONTRACTS).filter(
+      (contract) => contract.departmentScope === "company_wide",
+    );
+
+    expect(companyWideContracts.length).toBeGreaterThan(10);
+    for (const contract of companyWideContracts) {
+      expect(() =>
+        assertCompanyWideSurfaceAllowed(
+          db,
+          "accountant",
+          contract.label,
+        ),
+      ).toThrow("would expose company-wide data");
+      expect(() =>
+        assertCompanyWideSurfaceAllowed(db, "owner", contract.label),
+      ).not.toThrow();
+    }
   });
 });
