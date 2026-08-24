@@ -37,6 +37,8 @@ import * as partyNotes from './services/partyNotes'
 import * as intel from './services/intel'
 import * as analysis from './services/analysis'
 import * as receivables from './services/receivables'
+import * as attendance from './services/attendance'
+import { ratesForMonth, STATUTORY_HISTORY } from '@shared/statutory'
 import { statementHtml } from './services/statementHtml'
 import * as banking from './services/banking'
 import * as edocs from './services/edocs'
@@ -1529,6 +1531,80 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('payroll:employeeHeads:set', (p) => payroll.setEmployeeHeads(requireCompany().db, employeeHeadsSetSchema.parse(p)))
   // statutory exports: PF ECR text, ESI upload CSV, PT summary per state (lane Y, task Y1)
+  // ---------- attendance, advances, settlement (roadmap #168, #169, #170, #172, #178) ----------
+
+  handle('payroll:attendance', (p) => {
+    const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).parse(p)
+    return attendance.attendanceForMonth(requireCompany().db, month)
+  }, 'viewer')
+
+  handle('payroll:saveAttendance', (p) => {
+    const input = z
+      .object({
+        employeeId: z.number().int().positive(),
+        month: z.string().regex(/^\d{4}-\d{2}$/),
+        presentDays: z.number().min(0).max(31),
+        paidLeaveDays: z.number().min(0).max(31),
+        lopDays: z.number().min(0).max(31),
+        note: z.string().trim().max(200).nullable().optional()
+      })
+      .parse(p)
+    return attendance.saveAttendance(requireCompany().db, input)
+  })
+
+  handle('payroll:loans', (p) => {
+    const { employeeId, openOnly } = z
+      .object({ employeeId: z.number().int().positive().optional(), openOnly: z.boolean().optional() })
+      .parse(p ?? {})
+    return attendance.listLoans(requireCompany().db, { employeeId, openOnly })
+  }, 'viewer')
+
+  handle('payroll:createLoan', (p) => {
+    const input = z
+      .object({
+        employeeId: z.number().int().positive(),
+        grantedOn: isoDate,
+        principal: z.number().int().positive(),
+        instalment: z.number().int().positive(),
+        note: z.string().trim().max(200).nullable().optional()
+      })
+      .parse(p)
+    return attendance.createLoan(requireCompany().db, input)
+  })
+
+  handle('payroll:closeLoan', (p) => {
+    const { id } = idSchema.parse(p)
+    return attendance.closeLoan(requireCompany().db, id, todayISO())
+  })
+
+  handle('payroll:dueRecoveries', (p) => {
+    const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).parse(p)
+    return attendance.dueRecoveries(requireCompany().db, month)
+  }, 'viewer')
+
+  handle('payroll:ecrCheck', (p) => payroll.ecrCheck(requireCompany().db, payrollRunIdSchema.parse(p).runId), 'viewer')
+
+  handle('payroll:settlement', (p) => {
+    const input = z
+      .object({
+        employeeId: z.number().int().positive(),
+        lastDay: isoDate,
+        leaveBalanceDays: z.number().min(0).max(365),
+        noticeShortfallDays: z.number().min(0).max(365).optional(),
+        finalMonthDays: z.number().min(0).max(31).optional(),
+        payBonus: z.boolean().optional(),
+        bonusPercent: z.number().min(0).max(20).optional(),
+        waiveGratuityMinimum: z.boolean().optional()
+      })
+      .parse(p)
+    return payroll.settlement(requireCompany().db, input)
+  }, 'viewer')
+
+  handle('payroll:rates', (p) => {
+    const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).parse(p)
+    return { rates: ratesForMonth(month), history: STATUTORY_HISTORY }
+  }, 'viewer')
+
   handle('payroll:ecr', (p) => {
     const { runId } = payrollRunIdSchema.parse(p)
     const c = requireCompany()

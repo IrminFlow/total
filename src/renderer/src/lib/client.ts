@@ -279,6 +279,110 @@ export interface PartyStatement {
   termsLabel: string | null
 }
 
+
+/** Mirrors src/main/services/attendance.ts and the payroll settlement service. */
+export interface AttendanceRow {
+  id: number
+  employeeId: number
+  employeeName: string
+  month: string
+  presentDays: number
+  paidLeaveDays: number
+  lopDays: number
+  note: string | null
+  payableDays: number
+  monthDays: number
+}
+
+export interface LoanRow {
+  id: number
+  employeeId: number
+  employeeName: string
+  grantedOn: string
+  principal: number
+  instalment: number
+  note: string | null
+  closedAt: string | null
+  recovered: number
+  outstanding: number
+  instalmentsLeft: number
+}
+
+export interface DueRecovery {
+  loanId: number
+  employeeId: number
+  employeeName: string
+  amount: number
+  outstanding: number
+  final: boolean
+}
+
+export interface EcrProblem {
+  employee: string
+  field: 'uan' | 'name' | 'wages' | 'contribution' | 'days'
+  severity: 'error' | 'warning'
+  message: string
+}
+
+export interface EcrCheck {
+  month: string
+  problems: EcrProblem[]
+  uploadable: boolean
+  skipped: { name: string; reason: string }[]
+  memberCount: number
+}
+
+export interface FnfLine {
+  label: string
+  working: string
+  amount: number
+  kind: 'payable' | 'recovery'
+}
+
+export interface Settlement {
+  employeeId: number
+  result: {
+    employeeName: string
+    joined: string
+    lastDay: string
+    lines: FnfLine[]
+    totalPayable: number
+    totalRecovery: number
+    net: number
+    gratuity: {
+      eligible: boolean
+      reason: string | null
+      countedYears: number
+      serviceYears: number
+      serviceMonths: number
+      serviceDays: number
+      computed: number
+      amount: number
+      cappedByCeiling: boolean
+    }
+    bonus: { eligible: boolean; reason: string | null; calculationBase: number; percent: number; monthsPayable: number; amount: number } | null
+    notes: string[]
+  }
+  draft: {
+    date: string
+    narration: string
+    lines: { ledgerName: string; group: string; drCr: 'dr' | 'cr'; amount: number }[]
+  } | null
+}
+
+export interface StatutoryRates {
+  effectiveFrom: string
+  pfWageCeiling: number
+  pfRate: number
+  epsRate: number
+  pfAdminRate: number
+  edliRate: number
+  esiGrossLimit: number
+  esiEmpRate: number
+  esiErRate: number
+  note: string
+}
+
 export interface CreditStatus {
   ledgerId: number
   name: string
@@ -976,7 +1080,36 @@ export const api = {
     ecr: (runId: number) => call<{ path: string }>('payroll:ecr', { runId }),
     esiCsv: (runId: number) => call<{ path: string }>('payroll:esi', { runId }),
     ptSummary: (runId: number) => call<PtSummaryRow[]>('payroll:ptSummary', { runId }),
-    ptCsv: (runId: number) => call<{ path: string }>('payroll:ptCsv', { runId })
+    ptCsv: (runId: number) => call<{ path: string }>('payroll:ptCsv', { runId }),
+    /** The month's register: every active employee, defaulting to a full month. */
+    attendance: (month: string) => call<AttendanceRow[]>('payroll:attendance', { month }),
+    saveAttendance: (input: {
+      employeeId: number
+      month: string
+      presentDays: number
+      paidLeaveDays: number
+      lopDays: number
+      note?: string | null
+    }) => call<AttendanceRow>('payroll:saveAttendance', input),
+    loans: (opts: { employeeId?: number; openOnly?: boolean } = {}) => call<LoanRow[]>('payroll:loans', opts),
+    createLoan: (input: { employeeId: number; grantedOn: string; principal: number; instalment: number; note?: string | null }) =>
+      call<LoanRow>('payroll:createLoan', input),
+    closeLoan: (id: number) => call<LoanRow>('payroll:closeLoan', { id }),
+    dueRecoveries: (month: string) => call<DueRecovery[]>('payroll:dueRecoveries', { month }),
+    /** Pre-flight the ECR before EPFO rejects the whole file over one line. */
+    ecrCheck: (runId: number) => call<EcrCheck>('payroll:ecrCheck', { runId }),
+    settlement: (input: {
+      employeeId: number
+      lastDay: string
+      leaveBalanceDays: number
+      noticeShortfallDays?: number
+      finalMonthDays?: number
+      payBonus?: boolean
+      bonusPercent?: number
+      waiveGratuityMinimum?: boolean
+    }) => call<Settlement>('payroll:settlement', input),
+    /** The statutory rates in force for a month, and the history they came from. */
+    rates: (month: string) => call<{ rates: StatutoryRates; history: StatutoryRates[] }>('payroll:rates', { month })
   },
   yearEnd: {
     preview: (fyStartYear: number) =>

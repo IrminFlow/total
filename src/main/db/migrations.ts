@@ -658,5 +658,66 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE ledgers ADD COLUMN interest_grace_days INTEGER;
   ALTER TABLE ledgers ADD COLUMN salesperson TEXT;
   ALTER TABLE ledgers ADD COLUMN territory TEXT;
+  `,
+
+  // 24 — attendance, salary advances, and where a salary lands.
+  //
+  // Payable days were typed into the pay run and forgotten the moment it was posted, so "why was
+  // Anita paid for 22 days in June" had no answer three months later. Attendance is now a record
+  // in its own right: one row per employee per month, entered before the run and kept after it.
+  //
+  // The three counts are stored rather than derived from each other because they are three
+  // different facts — a paid leave is not a present day and is not a loss of pay — and a business
+  // that reconciles its own register against ours needs to see each of them.
+  //
+  // Advances are their own table rather than a recurring deduction head: a head is a rate, and an
+  // advance is a balance that runs down. Recoveries are recorded per run, so the outstanding
+  // amount is derived and cannot drift from the payslips that actually deducted it.
+  `
+  CREATE TABLE attendance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    -- 'YYYY-MM'.
+    month TEXT NOT NULL,
+    present_days REAL NOT NULL DEFAULT 0,
+    paid_leave_days REAL NOT NULL DEFAULT 0,
+    -- Loss of pay: days present in the month that are not paid for.
+    lop_days REAL NOT NULL DEFAULT 0,
+    note TEXT,
+    UNIQUE (employee_id, month)
+  );
+  CREATE INDEX idx_attendance_month ON attendance(month);
+
+  CREATE TABLE employee_loans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    granted_on TEXT NOT NULL,
+    principal INTEGER NOT NULL,
+    -- Paise recovered per pay run. The last instalment is whatever is left, never an overshoot.
+    instalment INTEGER NOT NULL,
+    note TEXT,
+    -- Set when written off or settled outside payroll; a fully recovered loan closes itself.
+    closed_at TEXT
+  );
+  CREATE INDEX idx_employee_loans_employee ON employee_loans(employee_id);
+
+  CREATE TABLE loan_recoveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loan_id INTEGER NOT NULL REFERENCES employee_loans(id) ON DELETE CASCADE,
+    run_id INTEGER REFERENCES payroll_runs(id) ON DELETE CASCADE,
+    month TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    UNIQUE (loan_id, month)
+  );
+  CREATE INDEX idx_loan_recoveries_run ON loan_recoveries(run_id);
+
+  -- What the payslip actually recovered. Stored on the line rather than derived from
+  -- loan_recoveries so a reprinted payslip shows the figure it showed the first time, even if
+  -- the advance is later written off.
+  ALTER TABLE payroll_lines ADD COLUMN advance_recovery INTEGER NOT NULL DEFAULT 0;
+
+  -- Which cost centre carries this employee's salary. NULL means the salary journal is posted
+  -- unallocated, exactly as it was before — no existing company's books change under this.
+  ALTER TABLE employees ADD COLUMN cost_centre_id INTEGER REFERENCES cost_centres(id);
   `
 ]

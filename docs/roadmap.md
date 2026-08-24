@@ -146,7 +146,9 @@ Ordering within a section is roughly by value.
 107. NIC sandbox validation of the live-filing client (M)
 108. Multi-GSTIN companies: one book, several registrations (L)
 109. TDS lower-deduction certificate handling (M)
-110. Professional tax slabs per state, not just one (M)
+110. ✓ Professional tax slabs per state, not just one (M) — already shipped: PT_SLABS carries
+     Maharashtra, Karnataka, West Bengal, Tamil Nadu, Gujarat, Andhra Pradesh, Telangana and
+     Madhya Pradesh, keyed off the employee's pt_state. #177 added effective dates on top.
 
 ## E. Inventory
 
@@ -223,22 +225,23 @@ Ordering within a section is roughly by value.
 167. ✓ Salary revision history per employee (M) — derived from the audit log, which has
      recorded every employee save's full before and after all along. A separate salary-history
      table would be a second record of the same fact, free to disagree with the first.
-168. Leave and attendance tracking feeding the pay run (L)
-169. Loan and advance recovery from salary (M)
-170. Bonus and gratuity computation (M)
+168. ✓ Leave and attendance tracking feeding the pay run (L)
+169. ✓ Loan and advance recovery from salary (M)
+170. ✓ Bonus and gratuity computation (M)
 171. Form 16 generation (L)
-172. PF ECR file format validation before upload (S)
-173. ESI return file generation (M)
+172. ✓ PF ECR file format validation before upload (S)
+173. ✓ ESI return file generation (M) — already shipped as buildEsiCsv, wired to a run through
+     payroll:esi.
 174. Payslip email or WhatsApp delivery (S)
 175. ✓ Salary bank transfer file (M) — the common shape (name, account, IFSC, amount,
      reference), deliberately not branded as any one bank's. The formats differ in ways this
      cannot verify without a real portal, and a file labelled "HDFC format" that the portal
      rejects is worse than an unlabelled one the user maps once.
 176. Employee self-service payslip export (S)
-177. Statutory rate table with effective dates, not hardcoded (M)
-178. Full-and-final settlement workflow (M)
+177. ✓ Statutory rate table with effective dates, not hardcoded (M)
+178. ✓ Full-and-final settlement workflow (M)
 179. Multiple pay cycles: weekly, fortnightly (M)
-180. Cost-centre allocation of salary expense (S)
+180. ✓ Cost-centre allocation of salary expense (S)
 181. ✓ Headcount and cost trend report (S)
 
 ## I. Invoicing and documents

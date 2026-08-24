@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Employee, PayrollRun } from '@shared/domain'
 import { daysInMonth } from '@shared/payroll'
-import { todayISO } from '@shared/dates'
+import { todayISO, toDisplayDate } from '@shared/dates'
 import { api, type EmployeeHeadRow, type PayHead } from '../lib/client'
 import { formatPaise, parseRupees } from '@shared/money'
 import { useNav, useToasts } from '../state/stores'
@@ -12,11 +12,12 @@ import {
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
 import { useStickyTab } from '../lib/useStickyTab'
+import { AttendanceTab, AdvancesTab, SettlementModal } from './payrollTabs'
 import { auditFieldChanges, fieldLabel } from '@shared/auditDiff'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 
-type Tab = 'employees' | 'runs' | 'trend'
+type Tab = 'employees' | 'attendance' | 'advances' | 'runs' | 'trend'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -27,7 +28,14 @@ function monthLabel(month: string): string {
 }
 
 export function PayrollScreen(): React.JSX.Element {
-  const [tab, setTab] = useStickyTab<Tab>('payroll', ['employees', 'runs', 'trend'], 'employees')
+  const [tab, setTab] = useStickyTab<Tab>(
+    'payroll',
+    ['employees', 'attendance', 'advances', 'runs', 'trend'],
+    'employees'
+  )
+  // One month drives the attendance register and the "what will the next run recover" banner, so
+  // moving between the two tabs does not mean picking the month twice.
+  const [month, setMonth] = useState(() => todayISO().slice(0, 7))
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-4 flex items-center gap-1">
@@ -36,6 +44,8 @@ export function PayrollScreen(): React.JSX.Element {
           screen="payroll"
           tabs={[
             { id: 'employees', label: 'Employees' },
+            { id: 'attendance', label: 'Attendance' },
+            { id: 'advances', label: 'Advances' },
             { id: 'runs', label: 'Pay runs' },
             { id: 'trend', label: 'Cost over time' }
           ]}
@@ -43,10 +53,12 @@ export function PayrollScreen(): React.JSX.Element {
           onSelect={setTab}
         />
       </div>
-      {tab === 'employees' ? <EmployeesTab /> : tab === 'runs' ? <RunsTab /> : <TrendTab />}
-      <p className="mt-3 text-hint text-muted">
-        Statutory defaults: EPF 12% + 12% on basic (₹15,000 ceiling) · ESI 0.75% / 3.25% when gross ≤ ₹21,000 · simplified professional-tax slab. Posting books one Journal voucher: salaries and employer contributions against PF/ESI/PT/Salaries payable.
-      </p>
+      {tab === 'employees' && <EmployeesTab />}
+      {tab === 'attendance' && <AttendanceTab month={month} onMonth={setMonth} />}
+      {tab === 'advances' && <AdvancesTab month={month} />}
+      {tab === 'runs' && <RunsTab />}
+      {tab === 'trend' && <TrendTab />}
+      <StatutoryFootnote month={month} />
     </div>
   )
 }
@@ -58,6 +70,7 @@ function EmployeesTab(): React.JSX.Element {
   const queryClient = useQueryClient()
   const { data: employees } = useQuery({ queryKey: ['employees'], queryFn: api.payroll.employees })
   const [editing, setEditing] = useState<Employee | 'new' | null>(null)
+  const [settling, setSettling] = useState<Employee | null>(null)
   const [headsOpen, setHeadsOpen] = useState(false)
   const [overridesFor, setOverridesFor] = useState<Employee | null>(null)
   // Enter opens the selected employee for editing, matching the row's Edit button.
@@ -103,7 +116,7 @@ function EmployeesTab(): React.JSX.Element {
                 <th scope="col" className="r w-28">HRA</th>
                 <th scope="col" className="r w-28">Special</th>
                 <th scope="col" className="r w-28">Gross / mo</th>
-                <th scope="col" className="w-44"></th>
+                <th scope="col" className="w-64"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-payroll-employees">
@@ -138,6 +151,14 @@ function EmployeesTab(): React.JSX.Element {
                       Edit
                     </button>
                     <button
+                      className="mr-3 text-small text-muted hover:text-ink"
+                      data-testid={`btn-payroll-settle-${e.id}`}
+                      title="Full and final settlement"
+                      onClick={() => setSettling(e)}
+                    >
+                      Settle
+                    </button>
+                    <button
                       className="text-small text-cr hover:underline"
                       data-testid="btn-payroll-delete-employee"
                       onClick={() => void remove(e)}
@@ -154,6 +175,9 @@ function EmployeesTab(): React.JSX.Element {
       {editing && <EmployeeModal employee={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {headsOpen && <PayHeadsModal onClose={() => setHeadsOpen(false)} />}
       {overridesFor && <EmployeeHeadsModal employee={overridesFor} onClose={() => setOverridesFor(null)} />}
+      {settling && (
+        <SettlementModal employeeId={settling.id} employeeName={settling.name} onClose={() => setSettling(null)} />
+      )}
     </>
   )
 }
@@ -927,8 +951,27 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
     }
   }, [payslipsOpen])
 
+  /**
+   * Write a statutory file, after checking the portal would take it.
+   *
+   * The ECR is checked first because EPFO rejects the whole upload over one bad line and answers
+   * with a line number rather than a name. Anyone the file cannot carry is named here too: a
+   * member silently left out only finds out when their passbook does not update.
+   */
   const exportFile = async (kind: 'ecr' | 'esi'): Promise<void> => {
     try {
+      if (kind === 'ecr') {
+        const check = await api.payroll.ecrCheck(run.id)
+        const errors = check.problems.filter((p) => p.severity === 'error')
+        if (errors.length > 0) {
+          toast.push('error', `EPFO would reject this: ${errors[0]!.employee} — ${errors[0]!.message}`)
+          return
+        }
+        for (const w of check.problems.filter((p) => p.severity === 'warning')) {
+          toast.push('warning', `${w.employee}: ${w.message}`)
+        }
+        for (const s of check.skipped) toast.push('warning', `${s.name} is not in the file — ${s.reason}`)
+      }
       const r = kind === 'ecr' ? await api.payroll.ecr(run.id) : await api.payroll.esiCsv(run.id)
       toast.push('success', `${kind === 'ecr' ? 'PF ECR' : 'ESI CSV'}: ${r.path}`)
     } catch (err) {
@@ -1246,5 +1289,30 @@ function TrendTab(): React.JSX.Element {
         business, which gross alone understates by roughly a seventh.
       </p>
     </>
+  )
+}
+
+
+/**
+ * The rates the run will actually use, rather than the rates that happen to apply today.
+ *
+ * Stated per month because they change on dates: a June 2019 run and a July 2019 run are computed
+ * on different ESI rates, and a footnote that says otherwise is a footnote that will be quoted
+ * back during an inspection.
+ */
+function StatutoryFootnote({ month }: { month: string }): React.JSX.Element {
+  const { data } = useQuery({ queryKey: ['payrollRates', month], queryFn: () => api.payroll.rates(month) })
+  const r = data?.rates
+  if (!r) return <p className="mt-3 text-hint text-muted">Loading the rates in force…</p>
+  const pct = (n: number): string => `${n}%`
+  return (
+    <p className="mt-3 text-hint text-muted" data-testid="statutory-footnote">
+      Rates in force for {monthLabel(month)} (effective {toDisplayDate(r.effectiveFrom)}): EPF{' '}
+      {pct(r.pfRate)} + {pct(r.pfRate)} on basic, ceiling {formatPaise(r.pfWageCeiling, { symbol: true })} · EPS{' '}
+      {pct(r.epsRate)} · admin {pct(r.pfAdminRate)} + EDLI {pct(r.edliRate)} · ESI {pct(r.esiEmpRate)} /{' '}
+      {pct(r.esiErRate)} when gross ≤ {formatPaise(r.esiGrossLimit, { symbol: true })} · professional tax by state
+      slab. Posting books one Journal voucher; a run is always computed on its own month&rsquo;s rates,
+      so re-opening an old one cannot change what was filed.
+    </p>
   )
 }

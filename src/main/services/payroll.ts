@@ -3,7 +3,15 @@ import type { CompanyInfo, Employee, PayrollHeadAmount, PayrollLine, PayrollRun 
 import type { PayrollTrendPoint } from '@shared/reports'
 import { buildTransferFile, type TransferFile } from '@shared/salaryTransfer'
 import type { EmployeeInput, EmployeeHeadsSetInput, PayHeadInput } from '@shared/schemas'
-import { buildEcr, buildEsiCsv, buildPtCsv, computeMonthlyPay, daysInMonth, type PayHeadSpec } from '@shared/payroll'
+import {
+  buildEcr, buildEsiCsv, buildPtCsv, computeMonthlyPay, daysInMonth, ecrUploadable, validateEcr,
+  type EcrInput, type EcrProblem, type PayHeadSpec
+} from '@shared/payroll'
+import { ratesForMonth } from '@shared/statutory'
+import { dueRecoveries, outstandingByEmployee, payableDaysFor, recordRecoveries } from './attendance'
+import { fullAndFinal, type FnfResult } from '@shared/fnf'
+import { serviceLength } from '@shared/gratuity'
+import { fyOf } from '@shared/dates'
 import { amountInWords, formatPaise } from '@shared/money'
 import { deleteVoucher, getLockDate, saveVoucher } from './vouchers'
 import { findOrCreateLedger } from './masters'
@@ -195,16 +203,29 @@ function loadEmployeeHeadSpecs(db: DB): Map<number, PayHeadSpec[]> {
 
 export interface RunPreviewLine extends Omit<PayrollLine, 'id'> {}
 
+/**
+ * Preview a month's pay.
+ *
+ * `days` overrides attendance for the employees it names; everyone else takes what the attendance
+ * register says, and an employee with no register entry is a full month. That ordering matters:
+ * the register is the record, and the argument is the correction being tried out on the screen.
+ */
 export function previewRun(db: DB, month: string, days: { employeeId: number; payableDays: number }[]): RunPreviewLine[] {
   const monthDays = daysInMonth(month)
+  const rates = ratesForMonth(month)
   const byId = new Map(days.map((d) => [d.employeeId, d.payableDays]))
+  const fromRegister = new Map(payableDaysFor(db, month).map((a) => [a.employeeId, a.payableDays]))
+  const recoveries = new Map(dueRecoveries(db, month).map((r) => [r.employeeId, r]))
   const headsByEmployee = loadEmployeeHeadSpecs(db)
   return listEmployees(db)
     .filter((e) => e.active)
     .map((e) => {
-      const payableDays = byId.get(e.id) ?? monthDays
+      const payableDays = byId.get(e.id) ?? fromRegister.get(e.id) ?? monthDays
       const heads = headsByEmployee.get(e.id)
-      const pay = computeMonthlyPay({ ...e, heads }, payableDays, monthDays)
+      const advanceRecovery = recoveries.get(e.id)?.amount ?? 0
+      // The rates in force for THIS month, not today's. A run recomputed after a rate change
+      // must still answer what it answered when it was posted and filed.
+      const pay = computeMonthlyPay({ ...e, heads, advanceRecovery }, payableDays, monthDays, { rates })
       return { employeeId: e.id, employeeName: e.name, payableDays, monthDays, ...pay }
     })
 }
@@ -228,15 +249,46 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
   const esiEr = sum((l) => l.esiEr)
   const pt = sum((l) => l.pt)
   const otherDeductions = sum((l) => l.otherDeductions)
+  const advanceRecovery = sum((l) => l.advanceRecovery)
   const net = sum((l) => l.net)
+
+  // Salary expense split by whichever cost centre carries each employee (roadmap #180). Employees
+  // with no cost centre contribute nothing, so a company that has never used them posts exactly
+  // the voucher it posted before — an unallocated single line.
+  const centreByEmployee = new Map(
+    (db.prepare('SELECT id, cost_centre_id FROM employees WHERE cost_centre_id IS NOT NULL').all() as {
+      id: number; cost_centre_id: number
+    }[]).map((r) => [r.id, r.cost_centre_id])
+  )
+  const salaryAllocations = new Map<number, number>()
+  for (const l of lines) {
+    const centre = centreByEmployee.get(l.employeeId)
+    if (centre === undefined) continue
+    salaryAllocations.set(centre, (salaryAllocations.get(centre) ?? 0) + l.gross)
+  }
 
   const journal = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal' AND is_system = 1").get() as { id: number }
 
-  const voucherLines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; costAllocations: never[] }[] = []
-  const push = (name: string, group: string, drCr: 'dr' | 'cr', amount: number): void => {
-    if (amount > 0) voucherLines.push({ ledgerId: findOrCreateLedger(db, name, group), drCr, amount, costAllocations: [] })
+  const voucherLines: {
+    ledgerId: number; drCr: 'dr' | 'cr'; amount: number
+    costAllocations: { costCentreId: number; amount: number }[]
+  }[] = []
+  const push = (
+    name: string,
+    group: string,
+    drCr: 'dr' | 'cr',
+    amount: number,
+    costAllocations: { costCentreId: number; amount: number }[] = []
+  ): void => {
+    if (amount > 0) voucherLines.push({ ledgerId: findOrCreateLedger(db, name, group), drCr, amount, costAllocations })
   }
-  push('Salaries', 'Indirect Expenses', 'dr', gross)
+  push(
+    'Salaries',
+    'Indirect Expenses',
+    'dr',
+    gross,
+    [...salaryAllocations.entries()].map(([costCentreId, amount]) => ({ costCentreId, amount }))
+  )
   push('Employer PF Contribution', 'Indirect Expenses', 'dr', pfEr)
   push('PF Admin & EDLI Charges', 'Indirect Expenses', 'dr', pfAdmin + edli)
   push('Employer ESI Contribution', 'Indirect Expenses', 'dr', esiEr)
@@ -244,8 +296,12 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
   push('ESI Payable', 'Provisions', 'cr', esiEmp + esiEr)
   push('Professional Tax Payable', 'Duties & Taxes', 'cr', pt)
   push('Employee Deductions Payable', 'Provisions', 'cr', otherDeductions)
+  // Recovering an advance settles an asset rather than paying anybody: the credit reduces the
+  // Salary Advances balance, and the net going to Salaries Payable is already short by it.
+  push('Salary Advances', 'Loans & Advances (Asset)', 'cr', advanceRecovery)
   push('Salaries Payable', 'Provisions', 'cr', net)
 
+  const recoveryLoanIds = new Map(dueRecoveries(db, month).map((r) => [r.employeeId, r.loanId]))
   const lastDay = `${month}-${String(daysInMonth(month)).padStart(2, '0')}`
   const commit = db.transaction((): number => {
     const voucher = saveVoucher(db, {
@@ -273,15 +329,23 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
     const insert = db.prepare(
       `INSERT INTO payroll_lines (run_id, employee_id, payable_days, month_days, basic, hra, special, gross,
         pf_emp, pf_er, esi_emp, esi_er, pt, net,
-        other_earnings, other_deductions, eps_er, pf_admin, edli, heads_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        other_earnings, other_deductions, eps_er, pf_admin, edli, advance_recovery, heads_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     for (const l of lines) {
       insert.run(runId, l.employeeId, l.payableDays, l.monthDays, l.basic, l.hra, l.special, l.gross,
         l.pfEmp, l.pfEr, l.esiEmp, l.esiEr, l.pt, l.net,
-        l.otherEarnings, l.otherDeductions, l.epsEr, l.pfAdmin, l.edli,
+        l.otherEarnings, l.otherDeductions, l.epsEr, l.pfAdmin, l.edli, l.advanceRecovery,
         l.headAmounts.length ? JSON.stringify(l.headAmounts) : null)
     }
+    // Inside the run's transaction: a payslip that shows a recovery and a loan balance that does
+    // not know about it are the two halves of the same fact, and they commit together or not at all.
+    recordRecoveries(
+      db,
+      runId,
+      month,
+      lines.filter((l) => l.advanceRecovery > 0).map((l) => ({ loanId: recoveryLoanIds.get(l.employeeId)!, amount: l.advanceRecovery }))
+    )
     return runId
   })
   const runId = commit()
@@ -296,6 +360,7 @@ interface LineRow {
   basic: number; hra: number; special: number; gross: number
   pf_emp: number; pf_er: number; esi_emp: number; esi_er: number; pt: number; net: number
   other_earnings: number; other_deductions: number; eps_er: number; pf_admin: number; edli: number
+  advance_recovery: number
   heads_json: string | null
 }
 
@@ -317,7 +382,8 @@ export function getRun(db: DB, id: number): PayrollRun | null {
       id: l.id, employeeId: l.employee_id, employeeName: l.employeeName,
       payableDays: l.payable_days, monthDays: l.month_days,
       basic: l.basic, hra: l.hra, special: l.special,
-      otherEarnings: l.other_earnings, otherDeductions: l.other_deductions, gross: l.gross,
+      otherEarnings: l.other_earnings, otherDeductions: l.other_deductions,
+      advanceRecovery: l.advance_recovery, gross: l.gross,
       pfEmp: l.pf_emp, pfEr: l.pf_er, epsEr: l.eps_er, pfAdmin: l.pf_admin, edli: l.edli,
       esiEmp: l.esi_emp, esiEr: l.esi_er, pt: l.pt, net: l.net,
       headAmounts: l.heads_json ? (JSON.parse(l.heads_json) as PayrollHeadAmount[]) : []
@@ -351,31 +417,86 @@ export function deleteRun(db: DB, id: number): void {
 // ---------- statutory exports (PF ECR / ESI upload / PT summary) ----------
 
 /** EPFO ECR 2.0 text for a posted run — one #~# line per PF member with a UAN. */
-export function ecrForRun(db: DB, runId: number): { filename: string; text: string } {
+interface EcrCandidate {
+  row: EcrInput
+  /** Set when the member cannot go in the file at all. */
+  skipReason: string | null
+}
+
+/** Every PF member in the run, whether or not they can be filed for — the validator needs both. */
+function ecrCandidates(db: DB, runId: number): { month: string; candidates: EcrCandidate[] } {
   const run = getRun(db, runId)
   if (!run) throw new Error('Pay run not found')
   const employees = new Map(listEmployees(db).map((e) => [e.id, e]))
-  const rows = run.lines
-    .filter((l) => {
-      const e = employees.get(l.employeeId)
-      return !!e?.pfEnabled && !!e.uan && l.pfEmp > 0
+  const candidates = run.lines
+    .filter((l) => employees.get(l.employeeId)?.pfEnabled)
+    .map((l) => {
+      const e = employees.get(l.employeeId)!
+      return {
+        row: {
+          uan: e.uan ?? '',
+          name: l.employeeName,
+          gross: l.gross,
+          basic: l.basic,
+          pfEmp: l.pfEmp,
+          pfEr: l.pfEr,
+          epsEr: l.epsEr,
+          payableDays: l.payableDays,
+          monthDays: l.monthDays
+        },
+        skipReason: !e.uan ? 'No UAN on the employee record' : l.pfEmp <= 0 ? 'No PF contribution this month' : null
+      }
     })
-    .map((l) => ({
-      uan: employees.get(l.employeeId)!.uan!,
-      name: l.employeeName,
-      gross: l.gross,
-      basic: l.basic,
-      pfEmp: l.pfEmp,
-      pfEr: l.pfEr,
-      epsEr: l.epsEr,
-      payableDays: l.payableDays,
-      monthDays: l.monthDays
-    }))
-  if (rows.length === 0) throw new Error('No PF members with a UAN in this run — add UANs on the employee records first')
-  return { filename: `pf-ecr-${run.month}.txt`, text: buildEcr(rows) }
+  return { month: run.month, candidates }
 }
 
-/** ESIC monthly-contribution upload CSV for a posted run. */
+export interface EcrCheck {
+  month: string
+  problems: EcrProblem[]
+  uploadable: boolean
+  /** PF members left out of the file, and why. */
+  skipped: { name: string; reason: string }[]
+  memberCount: number
+}
+
+/**
+ * Check the ECR before EPFO does (roadmap #172).
+ *
+ * Runs over every PF member in the run, including the ones the file itself cannot carry — a
+ * member with no UAN used to be filtered out in silence, which produced a valid-looking file that
+ * was short a person, and the person only found out when their passbook did not update.
+ */
+export function ecrCheck(db: DB, runId: number): EcrCheck {
+  const { month, candidates } = ecrCandidates(db, runId)
+  const filed = candidates.filter((c) => c.skipReason === null)
+  return {
+    month,
+    problems: validateEcr(filed.map((c) => c.row)),
+    uploadable: ecrUploadable(validateEcr(filed.map((c) => c.row))) && filed.length > 0,
+    skipped: candidates
+      .filter((c) => c.skipReason !== null)
+      .map((c) => ({ name: c.row.name, reason: c.skipReason as string })),
+    memberCount: filed.length
+  }
+}
+
+export function ecrForRun(db: DB, runId: number): { filename: string; text: string; skipped: EcrCheck['skipped'] } {
+  const { month, candidates } = ecrCandidates(db, runId)
+  const rows = candidates.filter((c) => c.skipReason === null).map((c) => c.row)
+  if (rows.length === 0) throw new Error('No PF members with a UAN in this run — add UANs on the employee records first')
+  const problems = validateEcr(rows)
+  if (!ecrUploadable(problems)) {
+    // Refuse rather than write a file EPFO will reject: the round trip to the portal is slow and
+    // the error it returns is a line number, not a name.
+    throw new Error(`ECR has ${problems.filter((p) => p.severity === 'error').length} problem(s) EPFO will reject — check the pre-flight`)
+  }
+  return {
+    filename: `pf-ecr-${month}.txt`,
+    text: buildEcr(rows),
+    skipped: candidates.filter((c) => c.skipReason !== null).map((c) => ({ name: c.row.name, reason: c.skipReason as string }))
+  }
+}
+
 export function esiForRun(db: DB, runId: number): { filename: string; text: string } {
   const run = getRun(db, runId)
   if (!run) throw new Error('Pay run not found')
@@ -569,4 +690,124 @@ export function salaryTransferFile(db: DB, runId: number): TransferFile {
     }),
     `Salary ${run.month}`
   )
+}
+
+
+// ---------- full and final settlement (roadmap #178) ----------
+
+export interface SettlementInput {
+  employeeId: number
+  lastDay: string
+  leaveBalanceDays: number
+  noticeShortfallDays?: number
+  /** Days actually payable in the final month; defaults to the days up to lastDay. */
+  finalMonthDays?: number
+  payBonus?: boolean
+  bonusPercent?: number
+  waiveGratuityMinimum?: boolean
+}
+
+export interface Settlement {
+  employeeId: string | number
+  result: FnfResult
+  /** A journal the human reads and saves. Nothing here posts. */
+  draft: {
+    date: string
+    narration: string
+    lines: { ledgerName: string; group: string; drCr: 'dr' | 'cr'; amount: number }[]
+  } | null
+}
+
+/**
+ * What is owed when somebody leaves.
+ *
+ * Every figure is pulled from what the books already know — the contracted salary from the
+ * employee master, the outstanding advance from the advance register, service length from the
+ * joining date — so the only things asked for are the ones only a person can answer: the last
+ * day, the leave balance, and whether notice was served.
+ */
+export function settlement(db: DB, input: SettlementInput): Settlement {
+  const employee = listEmployees(db).find((e) => e.id === input.employeeId)
+  if (!employee) throw new Error('Employee not found')
+  if (!employee.joined) throw new Error(`${employee.name} has no joining date — gratuity cannot be computed without one`)
+
+  const month = input.lastDay.slice(0, 7)
+  const monthDays = daysInMonth(month)
+  const finalMonthDays = input.finalMonthDays ?? Number(input.lastDay.slice(8, 10))
+
+  const heads = loadEmployeeHeadSpecs(db).get(employee.id)
+  const rates = ratesForMonth(month)
+  const finalPay = computeMonthlyPay({ ...employee, heads }, finalMonthDays, monthDays, { rates })
+  const fullMonth = computeMonthlyPay({ ...employee, heads }, monthDays, monthDays, { rates })
+
+  const loanOutstanding = outstandingByEmployee(db).get(employee.id) ?? 0
+  const service = employee.joined <= input.lastDay ? employee.joined : input.lastDay
+  // Months of the bonus year worked: the Act's accounting year runs April to March, and a
+  // mid-year leaver is entitled for the months they were there.
+  const fyStart = fyOf(input.lastDay).from
+  const startedThisYear = service > fyStart ? service : fyStart
+  const bonusMonths = Math.max(
+    0,
+    Math.min(12, serviceLength(startedThisYear, input.lastDay).years * 12 + serviceLength(startedThisYear, input.lastDay).months)
+  )
+
+  const result = fullAndFinal({
+    employeeName: employee.name,
+    joined: service,
+    lastDay: input.lastDay,
+    // Gratuity and encashment are computed on the full contracted basic, never the prorated one:
+    // "last drawn wages" means the rate of pay, not what the final part-month happened to be.
+    monthlyBasic: fullMonth.basic,
+    monthlyGross: fullMonth.gross,
+    finalMonthDays,
+    finalMonthTotalDays: monthDays,
+    leaveBalanceDays: input.leaveBalanceDays,
+    noticeShortfallDays: input.noticeShortfallDays,
+    loanOutstanding,
+    statutoryDeductions: finalPay.pfEmp + finalPay.esiEmp + finalPay.pt,
+    waiveGratuityMinimum: input.waiveGratuityMinimum,
+    ...(input.payBonus
+      ? { bonus: { daysWorked: finalMonthDays + 30 * bonusMonths, monthsPayable: bonusMonths, percent: input.bonusPercent } }
+      : {})
+  })
+
+  const lines: { ledgerName: string; group: string; drCr: 'dr' | 'cr'; amount: number }[] = []
+  const add = (ledgerName: string, group: string, drCr: 'dr' | 'cr', amount: number): void => {
+    if (amount > 0) lines.push({ ledgerName, group, drCr, amount })
+  }
+  for (const l of result.lines) {
+    if (l.kind !== 'payable') continue
+    if (l.label === 'Gratuity') add('Gratuity Expense', 'Indirect Expenses', 'dr', l.amount)
+    else if (l.label === 'Statutory bonus') add('Bonus Expense', 'Indirect Expenses', 'dr', l.amount)
+    else add('Salaries', 'Indirect Expenses', 'dr', l.amount)
+  }
+  add('PF Payable', 'Provisions', 'cr', finalPay.pfEmp)
+  add('ESI Payable', 'Provisions', 'cr', finalPay.esiEmp)
+  add('Professional Tax Payable', 'Duties & Taxes', 'cr', finalPay.pt)
+  add('Salary Advances', 'Loans & Advances (Asset)', 'cr', loanOutstanding)
+  // A notice-period recovery is not an expense reversal: the employee is paying the company for
+  // notice they did not serve, which is income.
+  const notice = result.lines.find((l) => l.label === 'Notice period shortfall')
+  add('Notice Pay Recovered', 'Indirect Incomes', 'cr', notice?.amount ?? 0)
+  if (result.net >= 0) {
+    add('Salaries Payable', 'Provisions', 'cr', result.net)
+  } else {
+    // Recoveries outran what was payable: the leaver owes the company, so the balancing figure is
+    // a receivable rather than a negative payable. Booking it as a negative credit would leave the
+    // journal unbalanced and the debt invisible.
+    add('Employee Recoverable', 'Loans & Advances (Asset)', 'dr', -result.net)
+  }
+
+  return {
+    employeeId: employee.id,
+    result,
+    draft:
+      lines.length > 0
+        ? {
+            date: input.lastDay,
+            narration: `Full and final settlement — ${employee.name}, ${employee.joined} to ${input.lastDay}`,
+            lines
+          }
+        : null
+  }
 }

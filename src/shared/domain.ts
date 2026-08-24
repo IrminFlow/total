@@ -473,6 +473,8 @@ export interface PayrollLine {
   otherEarnings: number
   /** Custom deduction heads (subtracted from net). */
   otherDeductions: number
+  /** Salary advance instalment recovered this month; never prorated by attendance. */
+  advanceRecovery: number
   gross: number
   pfEmp: number
   pfEr: number
