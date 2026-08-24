@@ -14,6 +14,7 @@ import {
   partyContactInputSchema,
   smtpProfileInputSchema,
   smtpProfileUpdateSchema,
+  smtpSecuritySchema,
   type OutboundDraftInput,
   type OutboundDraftUpdate,
   type OutboundMessage,
@@ -40,18 +41,25 @@ const MAX_SMTP_REPLY_LINES = 200;
 
 const activeDeliveries = new WeakMap<DB, Set<string>>();
 
-interface SmtpProfileSecret extends SmtpProfileSummary {
+export interface SmtpTransportProfile extends SmtpProfileSummary {
   password: string;
+}
+
+export interface NetworkSmtpTransportOptions {
+  /** Additional trust anchor for deterministic tests or a private company CA. */
+  ca?: string | Buffer;
+  connectionTimeoutMs?: number;
+  sessionDeadlineMs?: number;
 }
 
 export interface SmtpTransport {
   send(
-    profile: SmtpProfileSecret,
+    profile: SmtpTransportProfile,
     eml: string,
     recipients: string[],
     signal?: AbortSignal,
   ): Promise<SmtpAcceptance>;
-  test(profile: SmtpProfileSecret, signal?: AbortSignal): Promise<string>;
+  test(profile: SmtpTransportProfile, signal?: AbortSignal): Promise<string>;
 }
 
 /** The DATA body was submitted but the server's final acceptance response was not received. */
@@ -240,7 +248,7 @@ function publicProfile(row: Record<string, unknown>): SmtpProfileSummary {
     name: String(row.name),
     host: String(row.host),
     port: Number(row.port),
-    security: row.security as "tls" | "starttls",
+    security: smtpSecuritySchema.parse(row.security),
     username: String(row.username),
     fromEmail: String(row.fromEmail),
     fromName: String(row.fromName),
@@ -271,7 +279,7 @@ function secretProfile(
   db: DB,
   id: number,
   requireActive = true,
-): SmtpProfileSecret {
+): SmtpTransportProfile {
   const row = profileRow(db, id);
   if (!row) throw new Error("SMTP profile not found");
   const summary = publicProfile(row);
@@ -1105,7 +1113,7 @@ async function command(
 async function authenticate(
   socket: net.Socket | tls.TLSSocket,
   reader: SmtpLineReader,
-  profile: SmtpProfileSecret,
+  profile: SmtpTransportProfile,
   capabilities: string,
 ): Promise<void> {
   if (/\bAUTH\b[^\n]*\bPLAIN\b/i.test(capabilities)) {
@@ -1148,33 +1156,46 @@ async function authenticate(
 }
 
 async function smtpSession<T>(
-  profile: SmtpProfileSecret,
+  profile: SmtpTransportProfile,
   operation: (
     socket: net.Socket | tls.TLSSocket,
     reader: SmtpLineReader,
   ) => Promise<T>,
   signal?: AbortSignal,
+  options: NetworkSmtpTransportOptions = {},
 ): Promise<T> {
+  const security = smtpSecuritySchema.safeParse(profile.security);
+  if (!security.success)
+    throw new Error("SMTP transport requires implicit TLS or STARTTLS");
   let socket: net.Socket | tls.TLSSocket;
   let reader: SmtpLineReader;
   const tlsOptions = {
     servername: net.isIP(profile.host) ? undefined : profile.host,
     rejectUnauthorized: true,
+    minVersion: "TLSv1.2" as const,
+    ca: options.ca,
+    checkServerIdentity: (
+      _hostname: string,
+      certificate: tls.PeerCertificate,
+    ) => tls.checkServerIdentity(profile.host, certificate),
   };
+  const connectionTimeoutMs = options.connectionTimeoutMs ?? SMTP_TIMEOUT_MS;
+  const sessionDeadlineMs =
+    options.sessionDeadlineMs ?? SMTP_SESSION_DEADLINE_MS;
   if (profile.security === "tls") {
     const secure = tls.connect({
       host: profile.host,
       port: profile.port,
       ...tlsOptions,
     });
-    secure.setTimeout(SMTP_TIMEOUT_MS, () =>
+    secure.setTimeout(connectionTimeoutMs, () =>
       secure.destroy(new Error("SMTP connection timed out")),
     );
     socket = secure;
     reader = new SmtpLineReader(socket);
   } else {
     const plain = net.connect({ host: profile.host, port: profile.port });
-    plain.setTimeout(SMTP_TIMEOUT_MS, () =>
+    plain.setTimeout(connectionTimeoutMs, () =>
       plain.destroy(new Error("SMTP connection timed out")),
     );
     socket = plain;
@@ -1187,7 +1208,7 @@ async function smtpSession<T>(
     );
   const deadline = setTimeout(
     () => socket.destroy(deadlineError),
-    SMTP_SESSION_DEADLINE_MS,
+    sessionDeadlineMs,
   );
   signal?.addEventListener("abort", abort, { once: true });
   try {
@@ -1214,7 +1235,7 @@ async function smtpSession<T>(
         socket: socket as net.Socket,
         ...tlsOptions,
       });
-      secure.setTimeout(SMTP_TIMEOUT_MS, () =>
+      secure.setTimeout(connectionTimeoutMs, () =>
         secure.destroy(new Error("SMTP connection timed out")),
       );
       socket = secure;
@@ -1238,60 +1259,72 @@ async function smtpSession<T>(
   }
 }
 
-export const networkSmtpTransport: SmtpTransport = {
-  async test(profile, signal) {
-    return smtpSession(
-      profile,
-      async (socket, reader) => {
-        const reply = await command(socket, reader, "NOOP");
-        expectReply(reply, [250], "SMTP NOOP");
-        return reply.text;
-      },
-      signal,
-    );
-  },
-  async send(profile, eml, recipients, signal) {
-    return smtpSession(
-      profile,
-      async (socket, reader) => {
-        expectReply(
-          await command(socket, reader, `MAIL FROM:<${profile.fromEmail}>`),
-          [250],
-          "SMTP sender",
-        );
-        for (const recipient of recipients)
+export function createNetworkSmtpTransport(
+  options: NetworkSmtpTransportOptions = {},
+): SmtpTransport {
+  return {
+    async test(profile, signal) {
+      return smtpSession(
+        profile,
+        async (socket, reader) => {
+          const reply = await command(socket, reader, "NOOP");
+          expectReply(reply, [250], "SMTP NOOP");
+          return reply.text;
+        },
+        signal,
+        options,
+      );
+    },
+    async send(profile, eml, recipients, signal) {
+      return smtpSession(
+        profile,
+        async (socket, reader) => {
           expectReply(
-            await command(socket, reader, `RCPT TO:<${recipient}>`),
-            [250, 251],
-            `SMTP recipient ${recipient}`,
+            await command(socket, reader, `MAIL FROM:<${profile.fromEmail}>`),
+            [250],
+            "SMTP sender",
           );
-        expectReply(await command(socket, reader, "DATA"), [354], "SMTP DATA");
-        const stuffed = eml
-          .replace(/\r?\n/g, "\r\n")
-          .replace(/(^|\r\n)\./g, "$1..")
-          .replace(/\r\n$/, "");
-        let reply: { code: number; text: string };
-        try {
-          reply = await command(socket, reader, `${stuffed}\r\n.`);
-        } catch (error) {
-          throw new SmtpAcceptanceUnknownError(
-            `SMTP acceptance is unknown after DATA: ${error instanceof Error ? error.message : String(error)}`,
+          for (const recipient of recipients)
+            expectReply(
+              await command(socket, reader, `RCPT TO:<${recipient}>`),
+              [250, 251],
+              `SMTP recipient ${recipient}`,
+            );
+          expectReply(
+            await command(socket, reader, "DATA"),
+            [354],
+            "SMTP DATA",
           );
-        }
-        expectReply(reply, [250], "SMTP message acceptance");
-        const match = reply.text.match(
-          /(?:queued as|id[= :]?)\s*<?([^\s<>]+)>?/i,
-        );
-        return {
-          accepted: true,
-          serverResponse: reply.text,
-          serverMessageId: match?.[1] ?? null,
-        };
-      },
-      signal,
-    );
-  },
-};
+          const stuffed = eml
+            .replace(/\r?\n/g, "\r\n")
+            .replace(/(^|\r\n)\./g, "$1..")
+            .replace(/\r\n$/, "");
+          let reply: { code: number; text: string };
+          try {
+            reply = await command(socket, reader, `${stuffed}\r\n.`);
+          } catch (error) {
+            throw new SmtpAcceptanceUnknownError(
+              `SMTP acceptance is unknown after DATA: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+          expectReply(reply, [250], "SMTP message acceptance");
+          const match = reply.text.match(
+            /(?:queued as|id[= :]?)\s*<?([^\s<>]+)>?/i,
+          );
+          return {
+            accepted: true,
+            serverResponse: reply.text,
+            serverMessageId: match?.[1] ?? null,
+          };
+        },
+        signal,
+        options,
+      );
+    },
+  };
+}
+
+export const networkSmtpTransport: SmtpTransport = createNetworkSmtpTransport();
 
 export async function testSmtpProfile(
   db: DB,
