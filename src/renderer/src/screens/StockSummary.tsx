@@ -228,6 +228,7 @@ export function StockSummaryScreen(): React.JSX.Element {
           </table>
         )}
       </Panel>
+      <NearExpiry asOn={to} />
       <PurchaseSuggestions asOn={to} />
       <StockAnalysis asOn={to} />
     </div>
@@ -445,6 +446,141 @@ function PurchaseSuggestions({ asOn }: { asOn: string }): React.JSX.Element | nu
         Estimated at the last price paid, which is a starting point rather than a quote. Items
         never bought before show no estimate rather than a guessed one.
       </p>
+    </Panel>
+  )
+}
+
+
+const BUCKET_CLASS: Record<string, string> = {
+  expired: 'text-cr font-semibold',
+  within30: 'text-cr',
+  within90: 'text-ink',
+  later: 'text-muted',
+  none: 'text-muted'
+}
+
+/**
+ * What is about to become worthless (roadmap #114, #116).
+ *
+ * Sorted by how soon each batch dies, not by how much it is worth — the expensive batch with a
+ * year on it is not the problem. Value is the batch's remaining stock at the item's own
+ * valuation, so it agrees with the closing stock on the balance sheet rather than being a second
+ * opinion about it.
+ *
+ * Renders nothing when no batch carries an expiry date and none is at risk, because a permanently
+ * empty panel on a screen people open daily is a panel they learn to scroll past.
+ */
+function NearExpiry({ asOn }: { asOn: string }): React.JSX.Element | null {
+  const toast = useToasts()
+  const [showAll, setShowAll] = useState(false)
+  const { data } = useQuery({ queryKey: ['nearExpiry', asOn], queryFn: () => api.stock.nearExpiry(asOn) })
+  if (!data || (data.rows.length === 0 && data.undatedBatches === 0)) return null
+
+  const atRisk = data.rows.filter((r) => r.bucket !== 'later')
+  const shown = showAll ? data.rows : atRisk
+  if (shown.length === 0 && data.undatedBatches === 0) return null
+
+  const columns: PdfColumn[] = [
+    { label: 'Item', align: 'l' },
+    { label: 'Batch', align: 'l' },
+    { label: 'Expires', align: 'l' },
+    { label: 'Days', align: 'r' },
+    { label: 'Quantity', align: 'r' },
+    { label: 'Value', align: 'r' }
+  ]
+  const exportRows: PdfRow[] = shown.map((r) => ({
+    cells: [
+      r.itemName,
+      r.batchName,
+      r.expiryDate ? toDisplayDate(r.expiryDate) : '–',
+      String(r.daysToExpiry),
+      `${fmtQty(r.closingQtyMilli, r.decimals)} ${r.unitSymbol}`,
+      formatPaise(r.value)
+    ]
+  }))
+
+  return (
+    <Panel className="mt-4">
+      <div className="mb-2 flex items-baseline justify-between px-1">
+        <p className="text-body font-medium">
+          Shelf life — <Money paise={data.atRisk} /> expiring within 90 days
+          {data.expired > 0 && (
+            <span className="text-cr"> · <Money paise={data.expired} /> already expired</span>
+          )}
+        </p>
+        <span className="flex items-center gap-2">
+          <Button variant="ghost" data-testid="btn-expiry-show-all" onClick={() => setShowAll(!showAll)}>
+            {showAll ? 'At risk only' : `All ${data.rows.length} batches`}
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={!shown.length}
+            onClick={() =>
+              void printReport(
+                {
+                  title: 'Shelf life',
+                  periodLabel: `as on ${toDisplayDate(asOn)}`,
+                  columns,
+                  rows: exportRows,
+                  footNote: 'Value is each batch at the item\u2019s own valuation, so it foots to closing stock.',
+                  filename: 'shelf-life'
+                },
+                toast
+              )
+            }
+          >
+            PDF
+          </Button>
+        </span>
+      </div>
+
+      <div className="mb-2 flex flex-wrap gap-4 px-1 text-hint text-muted">
+        {data.summary
+          .filter((b) => b.batches > 0)
+          .map((b) => (
+            <span key={b.bucket}>
+              {b.label}: <Money paise={b.value} /> <span className="num">({b.batches})</span>
+            </span>
+          ))}
+      </div>
+
+      {shown.length > 0 && (
+        <table className="ledger-table" data-testid="rows-near-expiry">
+          <thead>
+            <tr>
+              <th scope="col">Item</th>
+              <th scope="col" className="w-40">Batch</th>
+              <th scope="col" className="w-28">Expires</th>
+              <th scope="col" className="r w-24">Days</th>
+              <th scope="col" className="r w-32">Quantity</th>
+              <th scope="col" className="r w-36">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r) => (
+              <tr key={r.batchId}>
+                <td>{r.itemName}</td>
+                <td className="num text-muted">{r.batchName}</td>
+                <td className="num">{r.expiryDate ? toDisplayDate(r.expiryDate) : '–'}</td>
+                <td className={`r num ${BUCKET_CLASS[r.bucket]}`}>
+                  {r.daysToExpiry < 0 ? `${-r.daysToExpiry}d ago` : `${r.daysToExpiry}d`}
+                </td>
+                <td className="r num">
+                  {fmtQty(r.closingQtyMilli, r.decimals)} {r.unitSymbol}
+                </td>
+                <td className="r"><Money paise={r.value} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {data.undatedBatches > 0 && (
+        <p className="mt-2 px-1 text-hint text-muted" data-testid="expiry-undated">
+          {data.undatedBatches} batch{data.undatedBatches === 1 ? '' : 'es'} hold stock with no
+          expiry date recorded. That is a gap in the data rather than a clean bill of health.
+        </p>
+      )}
     </Panel>
   )
 }

@@ -631,6 +631,21 @@ export function registerIpc(): void {
     const { asOn } = stockQuerySchema.parse(p)
     return stockAnalysis.expiryAgeing(requireCompany().db, asOn)
   }, 'viewer')
+
+  handle('stock:nearExpiry', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return stockAnalysis.nearExpiry(requireCompany().db, asOn)
+  }, 'viewer')
+
+  handle('stock:effectiveTax', (p) => {
+    const { stockItemId } = z.object({ stockItemId: z.number().int().positive() }).parse(p)
+    return masters.effectiveItemTax(requireCompany().db, stockItemId)
+  }, 'viewer')
+
+  handle('stock:find', (p) => {
+    const { query } = z.object({ query: z.string().trim().max(120) }).parse(p)
+    return masters.findItem(requireCompany().db, query)
+  }, 'viewer')
   handle('stock:negative', (p) => {
     const { asOn } = stockQuerySchema.parse(p)
     return stockAnalysis.negativeStock(requireCompany().db, asOn)

@@ -26,6 +26,9 @@ interface PickerOption {
   sub?: string
   /** Scannable barcode/SKU — when the typed text matches one exactly, that option ranks first. */
   barcode?: string | null
+  /** Short code from the shelf label. Beats the barcode on an exact match: a person typing four
+   *  characters means the code, and a scanner does not type slowly enough to reach here first. */
+  code?: string | null
 }
 
 /** Generic type-ahead picker with the amber keyboard bar and an optional inline-create hook. */
@@ -69,14 +72,20 @@ function TypeAhead({
     const q = text.trim().toLowerCase()
     if (!q || q === selected?.label.toLowerCase()) return options.slice(0, 50)
     const matches = options.filter(
-      (o) => o.label.toLowerCase().includes(q) || (o.barcode ? o.barcode.toLowerCase().includes(q) : false)
+      (o) =>
+        o.label.toLowerCase().includes(q) ||
+        (o.barcode ? o.barcode.toLowerCase().includes(q) : false) ||
+        (o.code ? o.code.toLowerCase().includes(q) : false)
     )
-    // Exact barcode match ranks first (scanner input lands here before onScan can even fire).
-    matches.sort((a, b) => {
-      const aExact = a.barcode && a.barcode.toLowerCase() === q ? 0 : 1
-      const bExact = b.barcode && b.barcode.toLowerCase() === q ? 0 : 1
-      return aExact - bExact
-    })
+    // Rank: exact code, then exact barcode, then everything else. Code first because it is the
+    // shortest thing a person types and the one printed on the shelf label; scanner input lands
+    // here before onScan can even fire, and a barcode is never four characters.
+    const rank = (o: PickerOption): number => {
+      if (o.code && o.code.toLowerCase() === q) return 0
+      if (o.barcode && o.barcode.toLowerCase() === q) return 1
+      return 2
+    }
+    matches.sort((a, b) => rank(a) - rank(b))
     return matches.slice(0, 50)
   }, [options, text, selected])
 
@@ -254,7 +263,9 @@ export function ItemPicker({
       items.map((i) => ({
         id: i.id,
         label: i.name,
-        sub: i.gstRate != null ? `${i.gstRate}% GST` : undefined,
+        // The code goes in the sub-line too: seeing it is how somebody learns to type it.
+        sub: [i.code, i.gstRate != null ? `${i.gstRate}% GST` : null].filter(Boolean).join(' · ') || undefined,
+        code: i.code,
         barcode: i.barcode
       })),
     [items]

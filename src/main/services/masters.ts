@@ -285,19 +285,43 @@ export function createUnit(db: DB, input: UnitInput): Unit {
   return created
 }
 
-interface StockGroupRow { id: number; name: string; parent_id: number | null }
+interface StockGroupRow {
+  id: number; name: string; parent_id: number | null
+  gst_rate: number | null; cess_rate: number | null; hsn: string | null
+}
+const mapStockGroup = (r: StockGroupRow): StockGroup => ({
+  id: r.id, name: r.name, parentId: r.parent_id,
+  gstRate: r.gst_rate, cessRate: r.cess_rate, hsn: r.hsn
+})
 
 export function listStockGroups(db: DB): StockGroup[] {
-  return (db.prepare('SELECT * FROM stock_groups ORDER BY name').all() as StockGroupRow[])
-    .map((r) => ({ id: r.id, name: r.name, parentId: r.parent_id }))
+  return (db.prepare('SELECT * FROM stock_groups ORDER BY name').all() as StockGroupRow[]).map(mapStockGroup)
 }
 
 export function createStockGroup(db: DB, input: StockGroupInput): StockGroup {
-  const res = db.prepare('INSERT INTO stock_groups (name, parent_id) VALUES (?, ?)').run(input.name, input.parentId)
+  const res = db
+    .prepare('INSERT INTO stock_groups (name, parent_id, gst_rate, cess_rate, hsn) VALUES (?, ?, ?, ?, ?)')
+    .run(input.name, input.parentId, input.gstRate ?? null, input.cessRate ?? null, input.hsn ?? null)
   const r = db.prepare('SELECT * FROM stock_groups WHERE id = ?').get(res.lastInsertRowid) as StockGroupRow
-  const created = { id: r.id, name: r.name, parentId: r.parent_id }
+  const created = mapStockGroup(r)
   writeAudit(db, 'stockGroup', created.id, 'create', null, created)
   return created
+}
+
+/** An empty code must become NULL: the unique index treats '' as a value, so two items with a
+ *  cleared code would collide on it. */
+const normaliseCode = (code: string | null | undefined): string | null => (code?.trim() ? code.trim() : null)
+
+/**
+ * An alternate unit is only meaningful with a conversion, and a conversion only with a unit.
+ * Half of the pair silently stored would make `toBase` a no-op that looks like it worked, so
+ * either both are written or neither is.
+ */
+function altColumns(input: StockItemInput): [number | null, number | null] {
+  const unit = input.altUnitId ?? null
+  const conversion = input.altConversionMilli ?? null
+  if (unit === null || conversion === null || conversion <= 0) return [null, null]
+  return [unit, conversion]
 }
 
 interface StockItemRow {
@@ -305,11 +329,14 @@ interface StockItemRow {
   gst_rate: number | null; cess_rate: number | null; opening_qty_milli: number; opening_value: number
   barcode: string | null; reorder_level_milli: number | null; valuation_method: 'weighted_avg' | 'fifo'
   block_negative: number | null
+  code: string | null; alt_unit_id: number | null; alt_conversion_milli: number | null
 }
 const mapItem = (r: StockItemRow): StockItem => ({
   id: r.id, name: r.name, groupId: r.group_id, unitId: r.unit_id, hsn: r.hsn,
   gstRate: r.gst_rate, cessRate: r.cess_rate, openingQtyMilli: r.opening_qty_milli, openingValue: r.opening_value,
-  barcode: r.barcode, reorderLevelMilli: r.reorder_level_milli, valuationMethod: r.valuation_method,
+  code: r.code, barcode: r.barcode, reorderLevelMilli: r.reorder_level_milli,
+  altUnitId: r.alt_unit_id, altConversionMilli: r.alt_conversion_milli,
+  valuationMethod: r.valuation_method,
   // NULL is a third state, not a missing false: it means "follow the company setting".
   blockNegative: r.block_negative == null ? null : r.block_negative === 1
 })
@@ -320,10 +347,13 @@ export function listStockItems(db: DB): StockItem[] {
 
 export function createStockItem(db: DB, input: StockItemInput): StockItem {
   const res = db.prepare(
-    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value, barcode, reorder_level_milli, valuation_method, block_negative)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value,
+      code, barcode, alt_unit_id, alt_conversion_milli, reorder_level_milli, valuation_method, block_negative)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
-    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli, input.valuationMethod ?? 'weighted_avg',
+    input.openingQtyMilli, input.openingValue, normaliseCode(input.code), input.barcode,
+    ...altColumns(input),
+    input.reorderLevelMilli, input.valuationMethod ?? 'weighted_avg',
     input.blockNegative == null ? null : input.blockNegative ? 1 : 0)
   const created = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(res.lastInsertRowid) as StockItemRow)
   writeAudit(db, 'stockItem', created.id, 'create', null, created)
@@ -335,10 +365,12 @@ export function updateStockItem(db: DB, id: number, input: StockItemInput): Stoc
   if (!existing) throw new Error('Stock item not found')
   db.prepare(
     `UPDATE stock_items SET name = ?, group_id = ?, unit_id = ?, hsn = ?, gst_rate = ?, cess_rate = ?,
-     opening_qty_milli = ?, opening_value = ?, barcode = ?, reorder_level_milli = ?, valuation_method = ?,
-     block_negative = ? WHERE id = ?`
+     opening_qty_milli = ?, opening_value = ?, code = ?, barcode = ?, alt_unit_id = ?, alt_conversion_milli = ?,
+     reorder_level_milli = ?, valuation_method = ?, block_negative = ? WHERE id = ?`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
-    input.openingQtyMilli, input.openingValue, input.barcode, input.reorderLevelMilli,
+    input.openingQtyMilli, input.openingValue, normaliseCode(input.code), input.barcode,
+    ...altColumns(input),
+    input.reorderLevelMilli,
     input.valuationMethod ?? existing.valuation_method,
     input.blockNegative == null ? null : input.blockNegative ? 1 : 0, id)
   const updated = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow)
@@ -414,4 +446,93 @@ export function createBatch(db: DB, input: BatchInput): Batch {
   const created = mapBatch(db.prepare('SELECT * FROM batches WHERE id = ?').get(res.lastInsertRowid) as BatchRow)
   writeAudit(db, 'batch', created.id, 'create', null, created)
   return created
+}
+
+
+// ---------- item tax inherited from its group (roadmap #129) ----------
+
+export interface EffectiveItemTax {
+  gstRate: number | null
+  cessRate: number | null
+  hsn: string | null
+  /** Which of the three came from the group rather than the item — shown, never guessed at. */
+  inherited: { gstRate: boolean; cessRate: boolean; hsn: boolean }
+  /** The group the values were inherited from, when any were. */
+  fromGroup: string | null
+}
+
+/**
+ * The rate and HSN an item actually charges.
+ *
+ * A trade with two hundred items in one tax band should state the band once. NULL on the item is
+ * the only way to say "whatever the group says" — copying the value down onto every item looks
+ * identical on day one and silently stops following the group the day the rate changes, which is
+ * exactly the day it matters.
+ *
+ * Inheritance walks up the group tree, so a sub-group can override its parent and a leaf item can
+ * override both. The nearest ancestor that states a value wins.
+ */
+export function effectiveItemTax(db: DB, stockItemId: number): EffectiveItemTax {
+  const item = db
+    .prepare('SELECT group_id, gst_rate, cess_rate, hsn FROM stock_items WHERE id = ?')
+    .get(stockItemId) as { group_id: number | null; gst_rate: number | null; cess_rate: number | null; hsn: string | null } | undefined
+  if (!item) throw new Error('Stock item not found')
+
+  let gstRate = item.gst_rate
+  let cessRate = item.cess_rate
+  let hsn = item.hsn
+  const inherited = { gstRate: false, cessRate: false, hsn: false }
+  let fromGroup: string | null = null
+
+  let groupId = item.group_id
+  const seen = new Set<number>()
+  while (groupId !== null && !seen.has(groupId)) {
+    seen.add(groupId)
+    const g = db
+      .prepare('SELECT name, parent_id, gst_rate, cess_rate, hsn FROM stock_groups WHERE id = ?')
+      .get(groupId) as { name: string; parent_id: number | null; gst_rate: number | null; cess_rate: number | null; hsn: string | null } | undefined
+    if (!g) break
+    if (gstRate === null && g.gst_rate !== null) {
+      gstRate = g.gst_rate
+      inherited.gstRate = true
+      fromGroup ??= g.name
+    }
+    if (cessRate === null && g.cess_rate !== null) {
+      cessRate = g.cess_rate
+      inherited.cessRate = true
+      fromGroup ??= g.name
+    }
+    if (hsn === null && g.hsn !== null) {
+      hsn = g.hsn
+      inherited.hsn = true
+      fromGroup ??= g.name
+    }
+    groupId = g.parent_id
+  }
+
+  return { gstRate, cessRate, hsn, inherited, fromGroup }
+}
+
+// ---------- finding an item the way a person at a counter would (roadmap #130) ----------
+
+/**
+ * Look an item up by code, barcode or name, in that order.
+ *
+ * Code first because it is the shortest thing to type and the one printed on the shelf label;
+ * barcode next because a scanner types it for you; name last because it is the slowest and the
+ * most ambiguous. An exact match on any of the three wins outright — a shop with an item called
+ * "12" and an item coded "12" wants the coded one.
+ */
+export function findItem(db: DB, query: string): StockItem | null {
+  const q = query.trim()
+  if (!q) return null
+  const exact = db
+    .prepare(
+      `SELECT * FROM stock_items
+       WHERE code = ? COLLATE NOCASE OR barcode = ? COLLATE NOCASE OR name = ? COLLATE NOCASE
+       ORDER BY CASE WHEN code = ? COLLATE NOCASE THEN 0 WHEN barcode = ? COLLATE NOCASE THEN 1 ELSE 2 END
+       LIMIT 1`
+    )
+    .get(q, q, q, q, q) as StockItemRow | undefined
+  return exact ? mapItem(exact) : null
 }

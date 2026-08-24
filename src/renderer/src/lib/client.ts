@@ -435,6 +435,42 @@ export interface StatutoryRates {
   note: string
 }
 
+export type ExpiryBucket = 'none' | 'expired' | 'within30' | 'within90' | 'later'
+
+export interface NearExpiryRow {
+  batchId: number
+  batchName: string
+  stockItemId: number
+  itemName: string
+  unitSymbol: string
+  decimals: number
+  mfgDate: string | null
+  expiryDate: string | null
+  closingQtyMilli: number
+  bucket: ExpiryBucket
+  daysToExpiry: number
+  value: number
+  ageDays: number | null
+}
+
+export interface NearExpiryReport {
+  asOn: string
+  rows: NearExpiryRow[]
+  summary: { bucket: ExpiryBucket; label: string; value: number; batches: number }[]
+  atRisk: number
+  expired: number
+  undatedBatches: number
+  undatedQtyMilli: number
+}
+
+export interface EffectiveItemTax {
+  gstRate: number | null
+  cessRate: number | null
+  hsn: string | null
+  inherited: { gstRate: boolean; cessRate: boolean; hsn: boolean }
+  fromGroup: string | null
+}
+
 export interface CreditStatus {
   ledgerId: number
   name: string
@@ -839,7 +875,13 @@ export const api = {
     byGodown: (asOn: string) => call<GodownStockRow[]>('stock:byGodown', { asOn }),
     batches: (asOn: string, stockItemId?: number) => call<BatchStockRow[]>('stock:batches', { asOn, stockItemId }),
     expiry: (asOn: string) => call<ExpiryAgeingRow[]>('stock:expiry', { asOn }),
-    negative: (asOn: string) => call<NegativeStockWarning[]>('stock:negative', { asOn })
+    negative: (asOn: string) => call<NegativeStockWarning[]>('stock:negative', { asOn }),
+    /** What is about to become worthless, and what it is worth. */
+    nearExpiry: (asOn: string) => call<NearExpiryReport>('stock:nearExpiry', { asOn }),
+    /** The rate and HSN an item actually charges, and which parts came from its group. */
+    effectiveTax: (stockItemId: number) => call<EffectiveItemTax>('stock:effectiveTax', { stockItemId }),
+    /** Code, then barcode, then exact name — how a person at a counter finds a thing. */
+    find: (query: string) => call<StockItem | null>('stock:find', { query })
   },
   priceLevels: {
     list: () => call<PriceLevel[]>('master:priceLevels:list'),

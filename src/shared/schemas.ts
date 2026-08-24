@@ -113,7 +113,12 @@ export type UnitInput = z.infer<typeof unitInputSchema>
 
 export const stockGroupInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  parentId: id.nullable().default(null)
+  parentId: id.nullable().default(null),
+  /** Tax an item in this group inherits when it states none of its own. Absent/null = nothing
+   *  to inherit, which is what every group was before this existed. */
+  gstRate: z.number().min(0).max(100).nullable().optional(),
+  cessRate: z.number().min(0).max(300).nullable().optional(),
+  hsn: z.string().trim().max(12).nullable().optional()
 })
 export type StockGroupInput = z.infer<typeof stockGroupInputSchema>
 
@@ -126,6 +131,9 @@ export const stockItemInputSchema = z.object({
   cessRate: z.number().min(0).max(300).nullable().default(null),
   openingQtyMilli: z.number().int().min(0).default(0),
   openingValue: paise.min(0).default(0),
+  /** Short code printed on the shelf label — what a person types at a counter. An empty string
+   *  is normalised to null in the service, so a cleared field does not claim the unique index. */
+  code: z.string().trim().max(32).nullable().optional(),
   barcode: z
     .string()
     .trim()
@@ -133,6 +141,9 @@ export const stockItemInputSchema = z.object({
     .nullable()
     .default(null)
     .transform((s) => (s === '' ? null : s)),
+  /** Alternate unit and how many base units are in one of it (thousandths). Both or neither. */
+  altUnitId: id.nullable().optional(),
+  altConversionMilli: z.number().int().positive().nullable().optional(),
   /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
   reorderLevelMilli: z.number().int().min(0).nullable().default(null),
   /** Absent = keep existing (update) / 'weighted_avg' (create). */

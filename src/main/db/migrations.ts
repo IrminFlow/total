@@ -742,5 +742,31 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE employees ADD COLUMN opening_tds INTEGER;
 
   ALTER TABLE payroll_lines ADD COLUMN tds INTEGER NOT NULL DEFAULT 0;
+  `,
+
+  // 26 — the item master, made worth typing into.
+  //
+  // A code, because at a counter nobody types "Parle-G Biscuit 200g" — they type the six
+  // characters printed on the shelf label, and the picker should find it on the first one.
+  //
+  // An alternate unit, because a trade buys in boxes and sells in pieces. Stock is always kept in
+  // the base unit (the small one, or a part box becomes unrepresentable); the alternate is a
+  // named multiple that entry accepts and converts. The conversion is in thousandths so
+  // "1 box = 12 pieces" is 12000 and no float ever touches a quantity.
+  //
+  // GST rate and HSN on the group, inherited by items that do not state their own. A trade with
+  // two hundred items in one tax band should set the band once, and NULL on the item is the only
+  // way to say "whatever the group says" — a copied-down value silently stops following it.
+  `
+  ALTER TABLE stock_items ADD COLUMN code TEXT;
+  CREATE UNIQUE INDEX idx_stock_items_code ON stock_items(code) WHERE code IS NOT NULL;
+
+  ALTER TABLE stock_items ADD COLUMN alt_unit_id INTEGER REFERENCES units(id);
+  -- Base units in one alternate unit, thousandths. NULL when there is no alternate.
+  ALTER TABLE stock_items ADD COLUMN alt_conversion_milli INTEGER;
+
+  ALTER TABLE stock_groups ADD COLUMN gst_rate REAL;
+  ALTER TABLE stock_groups ADD COLUMN cess_rate REAL;
+  ALTER TABLE stock_groups ADD COLUMN hsn TEXT;
   `
 ]

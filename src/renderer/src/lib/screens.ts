@@ -161,7 +161,7 @@ export const SCREENS: ScreenDef[] = [
     accel: 'S',
     feature: 'inventory',
     card: { sub: 'Quantities and value' },
-    invalidates: ['stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches', 'purchaseSuggestions']
+    invalidates: ['stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches', 'purchaseSuggestions', 'nearExpiry']
   },
   {
     name: 'year-end',

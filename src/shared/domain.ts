@@ -280,6 +280,11 @@ export interface StockGroup {
   id: number
   name: string
   parentId: number | null
+  /** Tax an item in this group inherits when it states none of its own. Null = nothing to
+   *  inherit, which is what every existing group is. */
+  gstRate: number | null
+  cessRate: number | null
+  hsn: string | null
 }
 
 export interface Unit {
@@ -302,8 +307,14 @@ export interface StockItem {
   cessRate: number | null
   openingQtyMilli: number
   openingValue: number
+  /** Short code printed on the shelf label — what a person types at a counter. Unique when set. */
+  code: string | null
   /** Scannable barcode/SKU (unique when set). */
   barcode: string | null
+  /** Alternate unit of measure, e.g. a box of twelve. Stock is always kept in the base unit. */
+  altUnitId: number | null
+  /** Base units in one alternate unit, thousandths. 12 pieces per box = 12_000. */
+  altConversionMilli: number | null
   /** Reorder level in integer thousandths; null = no reorder alert (v0.3 #58). */
   reorderLevelMilli: number | null
   /** How this item's stock is valued (src/shared/valuation.ts). */

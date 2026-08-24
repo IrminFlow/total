@@ -155,23 +155,25 @@ Ordering within a section is roughly by value.
 111. Barcode label printing to a thermal printer (M)
 112. Multi-godown stock transfer voucher (M)
 113. ✓ Reorder level with a purchase suggestion report (M)
-114. Batch expiry tracking with a near-expiry report (M)
+114. ✓ Batch expiry tracking with a near-expiry report (M)
 115. Serial-number tracking for high-value items (L)
-116. Stock ageing by batch rather than by item (M)
+116. ✓ Stock ageing by batch rather than by item (M)
 117. Landed cost allocation across a purchase (M)
 118. Standard costing with variance against actual (L)
 119. Item images on the invoice and in the picker (M)
-120. Alternate units of measure with conversion (M)
+120. ✓ Alternate units of measure with conversion (M)
 121. Item-wise reorder email or WhatsApp alert (S)
 122. ✓ Negative-stock prevention per item, overriding the company setting in both directions (S)
 123. ✓ Physical stock count sheets, printable with blank quantity columns (S)
-124. Stock valuation method per item, not per company (M)
+124. ✓ Stock valuation method per item, not per company (M) — already shipped: stock_items
+     .valuation_method is per item and the valuation engine honours it (weighted average or
+     FIFO) when pricing every outward movement.
 125. Bill of materials with scrap and yield percentages (M)
 126. Sub-assembly BOMs, nested (L)
 127. Job-work stock sent out and received back (L)
 128. Price list versioning with effective dates (M)
-129. Item groups with inherited GST rate and HSN (S)
-130. Fast item entry by code rather than name (S)
+129. ✓ Item groups with inherited GST rate and HSN (S)
+130. ✓ Fast item entry by code rather than name (S)
 
 ## F. Banking and reconciliation
 

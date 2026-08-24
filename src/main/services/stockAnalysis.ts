@@ -1,8 +1,8 @@
 import type { DB } from '../db/connection'
 import type { StockSummaryRow } from '@shared/reports'
 import {
-  valueStock, expiryBucketOf, allocateAdditionalCost,
-  type ExpiryBucket, type StockMovement, type ValuationMethod
+  valueStock, expiryBucketOf, allocateAdditionalCost, daysToExpiry, summariseExpiry, AT_RISK_BUCKETS,
+  type ExpiryBucket, type ExpirySummaryRow, type StockMovement, type ValuationMethod
 } from '@shared/valuation'
 import { IN_BOOKS, checkStock } from './vouchers'
 import type { NegativeStockWarning } from '@shared/domain'
@@ -317,4 +317,73 @@ export function expiryAgeing(db: DB, asOn: string): ExpiryAgeingRow[] {
     .filter((r) => r.closingQtyMilli > 0 && r.expiryDate !== null)
     .map((r) => ({ ...r, bucket: expiryBucketOf(r.expiryDate, asOn) }))
     .sort((a, b) => (a.expiryDate! < b.expiryDate! ? -1 : a.expiryDate! > b.expiryDate! ? 1 : 0))
+}
+
+
+// ---------- near-expiry, with what it is worth (roadmap #114, #116) ----------
+
+export interface NearExpiryRow extends ExpiryAgeingRow {
+  daysToExpiry: number
+  /** What this batch's remaining stock is worth, at the item's own valuation. Paise. */
+  value: number
+  /** Days since the batch was made, when a manufacturing date was recorded. */
+  ageDays: number | null
+}
+
+export interface NearExpiryReport {
+  asOn: string
+  rows: NearExpiryRow[]
+  summary: ExpirySummaryRow[]
+  /** Expired plus everything inside ninety days — the number worth putting in front of somebody. */
+  atRisk: number
+  expired: number
+  /** Batches holding stock with no expiry recorded. Not a clean bill of health: a gap in the data. */
+  undatedBatches: number
+  undatedQtyMilli: number
+}
+
+/**
+ * What is about to become worthless, and what it costs.
+ *
+ * `expiryAgeing` already knew which batches expire when; what it could not say is what they are
+ * worth, which is the only form of the question anybody acts on. Value is the batch's remaining
+ * quantity at the item's own rate from the valuation engine, so it agrees with the closing stock
+ * on the balance sheet rather than being a second opinion about it.
+ *
+ * Batches with stock but no expiry date are counted separately and loudly. Reporting "nothing
+ * expires soon" when the truth is "nobody recorded a date" is the one failure this report cannot
+ * afford.
+ */
+export function nearExpiry(db: DB, asOn: string): NearExpiryReport {
+  const batches = batchStock(db, asOn).filter((r) => r.closingQtyMilli > 0)
+  // One valuation pass for every item that has a live batch, rather than one per batch.
+  const rates = new Map<number, number>()
+  for (const row of stockSummary(db, asOn)) {
+    rates.set(row.stockItemId, row.closingQtyMilli > 0 ? Math.round((row.closingValue * 1000) / row.closingQtyMilli) : 0)
+  }
+
+  const rows: NearExpiryRow[] = batches
+    .filter((r) => r.expiryDate !== null)
+    .map((r) => {
+      const rate = rates.get(r.stockItemId) ?? 0
+      return {
+        ...r,
+        bucket: expiryBucketOf(r.expiryDate, asOn),
+        daysToExpiry: daysToExpiry(r.expiryDate, asOn) as number,
+        value: Math.round((r.closingQtyMilli * rate) / 1000),
+        ageDays: r.mfgDate ? Math.max(0, -(daysToExpiry(r.mfgDate, asOn) as number)) : null
+      }
+    })
+    .sort((a, b) => a.daysToExpiry - b.daysToExpiry || b.value - a.value)
+
+  const undated = batches.filter((r) => r.expiryDate === null)
+  return {
+    asOn,
+    rows,
+    summary: summariseExpiry(rows.map((r) => ({ bucket: r.bucket, value: r.value }))),
+    atRisk: rows.filter((r) => AT_RISK_BUCKETS.has(r.bucket)).reduce((s, r) => s + r.value, 0),
+    expired: rows.filter((r) => r.bucket === 'expired').reduce((s, r) => s + r.value, 0),
+    undatedBatches: undated.length,
+    undatedQtyMilli: undated.reduce((s, r) => s + r.closingQtyMilli, 0)
+  }
 }

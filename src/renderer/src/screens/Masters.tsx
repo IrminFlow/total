@@ -565,6 +565,11 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
   const [openQty, setOpenQty] = useState(item ? (item.openingQtyMilli / 1000).toString() : '')
   const [openValue, setOpenValue] = useState<number | null>(item?.openingValue ?? null)
   const [barcode, setBarcode] = useState(item?.barcode ?? '')
+  const [code, setCode] = useState(item?.code ?? '')
+  const [altUnitId, setAltUnitId] = useState<number | ''>(item?.altUnitId ?? '')
+  const [altConversion, setAltConversion] = useState(
+    item?.altConversionMilli != null ? String(item.altConversionMilli / 1000) : ''
+  )
   const [reorderLevel, setReorderLevel] = useState(
     item?.reorderLevelMilli != null ? String(item.reorderLevelMilli / 1000) : ''
   )
@@ -592,7 +597,12 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         cessRate: cessRate.trim() ? Number(cessRate) : null,
         openingQtyMilli: Math.round(parseFloat(openQty || '0') * 1000),
         openingValue: openValue ?? 0,
+        code: code.trim() || null,
         barcode: barcode.trim() || null,
+        // Both or neither: half the pair stored makes the conversion a silent no-op.
+        altUnitId: altUnitId === '' || !altConversion.trim() ? null : altUnitId,
+        altConversionMilli:
+          altUnitId === '' || !altConversion.trim() ? null : Math.round(parseFloat(altConversion) * 1000),
         reorderLevelMilli: reorderLevel.trim() ? Math.round(parseFloat(reorderLevel) * 1000) : null,
         blockNegative: blockNegative === '' ? null : blockNegative === 'block'
       }
@@ -667,9 +677,58 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
             <AmountInput paise={openValue} onPaise={setOpenValue} />
           </Field>
         </div>
-        <Field label="Barcode" hint="Scan into this field, or type an SKU">
-          <TextInput value={barcode} onChange={(e) => setBarcode(e.target.value)} className="num" placeholder="Optional" />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Code" hint="What is printed on the shelf label — the fastest way to find this at a counter">
+            <TextInput
+              data-testid="input-item-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className="num"
+              placeholder="Optional"
+            />
+          </Field>
+          <Field label="Barcode" hint="Scan into this field, or type an SKU">
+            <TextInput value={barcode} onChange={(e) => setBarcode(e.target.value)} className="num" placeholder="Optional" />
+          </Field>
+        </div>
+        {/* Stock is always kept in the base unit — the small one, or a part box cannot be
+            represented. The alternate is a named multiple that entry accepts and converts. */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Also sold in" hint="A box, a case, a dozen — entry accepts either unit">
+            <Select
+              data-testid="select-item-alt-unit"
+              value={altUnitId}
+              onChange={(e) => setAltUnitId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value="">No alternate unit</option>
+              {(units ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.symbol})
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="Base units in one"
+            hint={
+              altUnitId === ''
+                ? 'Pick an alternate unit first'
+                : `1 ${units?.find((u) => u.id === altUnitId)?.symbol ?? ''} = this many ${
+                    units?.find((u) => u.id === unitId)?.symbol ?? 'base units'
+                  }`
+            }
+          >
+            <TextInput
+              data-testid="input-item-alt-conversion"
+              value={altConversion}
+              onChange={(e) => setAltConversion(e.target.value)}
+              className="num text-right"
+              inputMode="decimal"
+              placeholder="12"
+              disabled={altUnitId === ''}
+            />
+          </Field>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Reorder level" hint="Below this, the item appears in the buy list">
             <TextInput
