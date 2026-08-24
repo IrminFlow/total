@@ -2322,7 +2322,7 @@ export const api = {
     due: (today: string) =>
       call<RecurringTemplate[]>("recurring:due", { today }),
     post: (id: number, date: string) =>
-      call<Voucher>("recurring:post", { id, date }),
+      call<VoucherSaveResult>("recurring:post", { id, date }),
     skip: (id: number) => call<RecurringTemplate>("recurring:skip", { id }),
   },
   bank: {

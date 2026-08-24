@@ -2,29 +2,53 @@ import { describe, it, expect } from 'vitest'
 import { seededDb } from '../db/testdb'
 import { createLedger } from './masters'
 import { setLockDate } from './vouchers'
-import { listTemplates, saveTemplate, due, postFromTemplate, skip } from './recurring'
+import { listTemplates, listTemplatesInScope, deleteTemplate, saveTemplate, saveTemplateInScope, due, postFromTemplate, postFromTemplateControlled, skip, skipInScope } from './recurring'
 import type { VoucherInputParsed } from '@shared/schemas'
+import { saveUser } from './users'
+import { approveRequest, rejectRequest, setApprovalPolicy } from './approvals'
 
 function expenseLedger(db: ReturnType<typeof seededDb>, name: string) {
   const group = db.prepare("SELECT id FROM groups WHERE name = 'Direct Expenses'").get() as { id: number }
   return createLedger(db, {
-    name, groupId: group.id, openingBalance: 0, gstin: null, stateCode: null, address: null,
-    taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null
+    name,
+    groupId: group.id,
+    openingBalance: 0,
+    gstin: null,
+    stateCode: null,
+    address: null,
+    taxType: null,
+    gstRate: null,
+    hsn: null,
+    tdsSectionId: null,
+    pan: null,
+    creditDays: null,
+    exportType: null,
   })
 }
 
 /** Serializes a valid two-line voucher of `voucherTypeId` — the exact VoucherInputParsed JSON
  *  shape a recurring template stores (number left unset: an auto-numbered voucher type fills
  *  it in at post time). */
-function voucherJsonFor(
-  voucherTypeId: number,
-  date: string,
-  lines: VoucherInputParsed['lines']
-): string {
+function voucherJsonFor(voucherTypeId: number, date: string, lines: VoucherInputParsed['lines']): string {
   const input: VoucherInputParsed = {
-    voucherTypeId, date, number: undefined, partyLedgerId: null, narration: 'Recurring rent',
-    reference: null, instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
-    transportDistanceKm: null, posOverride: null, currencyCode: null, exchangeRate: null, lines, inventory: [], billRefs: [], tds: null
+    voucherTypeId,
+    date,
+    number: undefined,
+    partyLedgerId: null,
+    narration: 'Recurring rent',
+    reference: null,
+    instrumentNo: null,
+    instrumentDate: null,
+    transporterId: null,
+    vehicleNo: null,
+    transportDistanceKm: null,
+    posOverride: null,
+    currencyCode: null,
+    exchangeRate: null,
+    lines,
+    inventory: [],
+    billRefs: [],
+    tds: null,
   }
   return JSON.stringify(input)
 }
@@ -40,7 +64,7 @@ function rentVoucherJson(db: ReturnType<typeof seededDb>, date: string): string 
   const rent = expenseLedger(db, 'Rent')
   return journalVoucherJson(db, date, [
     { ledgerId: rent.id, drCr: 'dr', amount: 10000, costAllocations: [] },
-    { ledgerId: cash.id, drCr: 'cr', amount: 10000, costAllocations: [] }
+    { ledgerId: cash.id, drCr: 'cr', amount: 10000, costAllocations: [] },
   ])
 }
 
@@ -49,7 +73,12 @@ describe('recurring vouchers', () => {
     const db = seededDb()
     const voucherJson = rentVoucherJson(db, '2026-08-05')
     const created = saveTemplate(db, {
-      name: 'Monthly rent', voucherJson, cadence: 'monthly', dayOfMonth: 5, nextDue: '2026-09-05', active: true
+      name: 'Monthly rent',
+      voucherJson,
+      cadence: 'monthly',
+      dayOfMonth: 5,
+      nextDue: '2026-09-05',
+      active: true,
     })
     expect(created.name).toBe('Monthly rent')
     expect(created.cadence).toBe('monthly')
@@ -63,7 +92,14 @@ describe('recurring vouchers', () => {
   it('postFromTemplate posts a voucher, sets last_posted, and advances next_due by one cadence step', () => {
     const db = seededDb()
     const voucherJson = rentVoucherJson(db, '2026-08-05')
-    const tmpl = saveTemplate(db, { name: 'Monthly rent', voucherJson, cadence: 'monthly', dayOfMonth: 5, nextDue: '2026-08-05', active: true })
+    const tmpl = saveTemplate(db, {
+      name: 'Monthly rent',
+      voucherJson,
+      cadence: 'monthly',
+      dayOfMonth: 5,
+      nextDue: '2026-08-05',
+      active: true,
+    })
 
     const voucher = postFromTemplate(db, tmpl.id, '2026-08-05')
     expect(voucher.date).toBe('2026-08-05')
@@ -80,7 +116,14 @@ describe('recurring vouchers', () => {
   it('skip advances next_due only — no voucher posted, last_posted untouched', () => {
     const db = seededDb()
     const voucherJson = rentVoucherJson(db, '2026-08-05')
-    const tmpl = saveTemplate(db, { name: 'Monthly rent', voucherJson, cadence: 'monthly', dayOfMonth: 5, nextDue: '2026-08-05', active: true })
+    const tmpl = saveTemplate(db, {
+      name: 'Monthly rent',
+      voucherJson,
+      cadence: 'monthly',
+      dayOfMonth: 5,
+      nextDue: '2026-08-05',
+      active: true,
+    })
 
     const updated = skip(db, tmpl.id)
     expect(updated.nextDue).toBe('2026-09-05')
@@ -93,7 +136,14 @@ describe('recurring vouchers', () => {
   it('post throws a clear message when the stored voucher JSON no longer validates (schema drift / stale reference)', () => {
     const db = seededDb()
     const voucherJson = rentVoucherJson(db, '2026-08-05')
-    const tmpl = saveTemplate(db, { name: 'Monthly rent', voucherJson, cadence: 'monthly', dayOfMonth: 5, nextDue: '2026-08-05', active: true })
+    const tmpl = saveTemplate(db, {
+      name: 'Monthly rent',
+      voucherJson,
+      cadence: 'monthly',
+      dayOfMonth: 5,
+      nextDue: '2026-08-05',
+      active: true,
+    })
 
     // Simulate drift: corrupt the stored JSON directly (bypassing saveTemplate's own validation).
     db.prepare('UPDATE recurring_templates SET voucher_json = ? WHERE id = ?').run('{"nonsense":true}', tmpl.id)
@@ -104,7 +154,14 @@ describe('recurring vouchers', () => {
   it('post surfaces the period-lock error from saveVoucher unmodified, and leaves the template untouched (atomic)', () => {
     const db = seededDb()
     const voucherJson = rentVoucherJson(db, '2026-06-05')
-    const tmpl = saveTemplate(db, { name: 'Monthly rent', voucherJson, cadence: 'monthly', dayOfMonth: 5, nextDue: '2026-06-05', active: true })
+    const tmpl = saveTemplate(db, {
+      name: 'Monthly rent',
+      voucherJson,
+      cadence: 'monthly',
+      dayOfMonth: 5,
+      nextDue: '2026-06-05',
+      active: true,
+    })
     setLockDate(db, '2026-06-30')
 
     expect(() => postFromTemplate(db, tmpl.id, '2026-06-05')).toThrow('Books are locked up to 2026-06-30')
@@ -119,18 +176,23 @@ describe('recurring vouchers', () => {
 
   it('saveTemplate rejects a manual-numbered voucher type', () => {
     const db = seededDb()
-    const manualVt = db
-      .prepare("INSERT INTO voucher_types (name, kind, numbering, prefix) VALUES ('Manual Journal', 'journal', 'manual', '')")
-      .run().lastInsertRowid as number
+    const manualVt = db.prepare("INSERT INTO voucher_types (name, kind, numbering, prefix) VALUES ('Manual Journal', 'journal', 'manual', '')").run().lastInsertRowid as number
     const cash = db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }
     const rent = expenseLedger(db, 'Rent')
     const voucherJson = voucherJsonFor(manualVt, '2026-08-05', [
       { ledgerId: rent.id, drCr: 'dr', amount: 10000, costAllocations: [] },
-      { ledgerId: cash.id, drCr: 'cr', amount: 10000, costAllocations: [] }
+      { ledgerId: cash.id, drCr: 'cr', amount: 10000, costAllocations: [] },
     ])
 
     expect(() =>
-      saveTemplate(db, { name: 'Monthly rent', voucherJson, cadence: 'monthly', dayOfMonth: 5, nextDue: '2026-09-05', active: true })
+      saveTemplate(db, {
+        name: 'Monthly rent',
+        voucherJson,
+        cadence: 'monthly',
+        dayOfMonth: 5,
+        nextDue: '2026-09-05',
+        active: true,
+      }),
     ).toThrow('Recurring templates need an auto-numbered voucher type')
     expect(listTemplates(db)).toHaveLength(0)
   })
@@ -138,11 +200,136 @@ describe('recurring vouchers', () => {
   it('postFromTemplate rejects a pre-existing template whose voucher type became manual since it was saved', () => {
     const db = seededDb()
     const voucherJson = rentVoucherJson(db, '2026-08-05')
-    const tmpl = saveTemplate(db, { name: 'Monthly rent', voucherJson, cadence: 'monthly', dayOfMonth: 5, nextDue: '2026-08-05', active: true })
+    const tmpl = saveTemplate(db, {
+      name: 'Monthly rent',
+      voucherJson,
+      cadence: 'monthly',
+      dayOfMonth: 5,
+      nextDue: '2026-08-05',
+      active: true,
+    })
 
     const vt = JSON.parse(voucherJson) as VoucherInputParsed
     db.prepare("UPDATE voucher_types SET numbering = 'manual' WHERE id = ?").run(vt.voucherTypeId)
 
     expect(() => postFromTemplate(db, tmpl.id, '2026-08-05')).toThrow('Recurring templates need an auto-numbered voucher type')
+  })
+
+  it('filters opaque template payloads and rejects scoped mutations outside department boundaries', () => {
+    const db = seededDb()
+    const journal = db.prepare("SELECT id FROM voucher_types WHERE kind='journal'").get() as { id: number }
+    const receipt = db.prepare("SELECT id FROM voucher_types WHERE kind='receipt'").get() as { id: number }
+    const allowed = saveTemplate(db, {
+      name: 'Allowed template',
+      voucherJson: rentVoucherJson(db, '2026-08-05'),
+      cadence: 'monthly',
+      dayOfMonth: 5,
+      nextDue: '2026-08-05',
+      active: true,
+    })
+    const cash = db.prepare("SELECT id FROM ledgers WHERE name='Cash'").get() as { id: number }
+    const incomeGroup = db.prepare("SELECT id FROM groups WHERE nature='income' LIMIT 1").get() as { id: number }
+    const income = Number(db.prepare("INSERT INTO ledgers(name,group_id) VALUES('Scoped income',?)").run(incomeGroup.id).lastInsertRowid)
+    const deniedJson = voucherJsonFor(receipt.id, '2026-08-05', [
+      { ledgerId: cash.id, drCr: 'dr', amount: 10000, costAllocations: [] },
+      { ledgerId: income, drCr: 'cr', amount: 10000, costAllocations: [] },
+    ])
+    const denied = saveTemplate(db, {
+      name: 'Denied template',
+      voucherJson: deniedJson,
+      cadence: 'monthly',
+      dayOfMonth: 5,
+      nextDue: '2026-08-05',
+      active: true,
+    })
+    db.prepare("INSERT INTO department_boundaries(role,dimension_kind,dimension_id,allowed) VALUES('accountant','voucher_type',?,1)").run(journal.id)
+
+    expect(listTemplatesInScope(db, 'accountant').map((row) => row.id)).toEqual([allowed.id])
+    expect(() => skipInScope(db, denied.id, 'accountant')).toThrow(/outside your configured department boundaries/)
+    expect(() =>
+      saveTemplateInScope(
+        db,
+        {
+          name: 'Blocked create',
+          voucherJson: deniedJson,
+          cadence: 'monthly',
+          dayOfMonth: 5,
+          nextDue: '2026-08-05',
+          active: true,
+        },
+        undefined,
+        'accountant',
+      ),
+    ).toThrow(/outside your configured department boundaries/)
+  })
+
+  it('routes controlled recurring posts into maker-checker without creating a voucher', () => {
+    const db = seededDb()
+    const owner = saveUser(db, { name: 'Owner', role: 'owner', pin: '1234' })
+    const maker = saveUser(db, {
+      name: 'Maker',
+      role: 'accountant',
+      pin: '2345',
+    })
+    const voucherJson = rentVoucherJson(db, '2026-08-05')
+    const template = saveTemplate(db, {
+      name: 'Controlled rent',
+      voucherJson,
+      cadence: 'monthly',
+      dayOfMonth: 5,
+      nextDue: '2026-08-05',
+      active: true,
+    })
+    setApprovalPolicy(db, {
+      enabled: true,
+      thresholdPaise: 1,
+      voucherTypeIds: [],
+      expenseEnabled: false,
+      expenseThresholdPaise: null,
+    })
+
+    const result = postFromTemplateControlled(db, template.id, '2026-08-10', maker)
+    expect(result.approvalRequired).toBe(true)
+    expect((db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n).toBe(0)
+    expect((db.prepare("SELECT COUNT(*) AS n FROM approval_requests WHERE status='pending'").get() as { n: number }).n).toBe(1)
+    expect(listTemplates(db).find((row) => row.id === template.id)).toMatchObject({
+      lastPosted: null,
+      nextDue: '2026-08-05',
+    })
+    expect(() => postFromTemplateControlled(db, template.id, '2026-08-10', maker)).toThrow(/approval pending/)
+    expect(() =>
+      saveTemplateInScope(
+        db,
+        {
+          name: 'Edited while pending',
+          voucherJson,
+          cadence: 'monthly',
+          dayOfMonth: 5,
+          nextDue: '2026-09-05',
+          active: true,
+        },
+        template.id,
+        maker.role,
+      ),
+    ).toThrow(/approval pending/)
+
+    if (!result.approvalRequired) throw new Error('Expected approval handoff')
+    approveRequest(db, result.request.id, owner, 'Approved recurring rent')
+    expect(listTemplates(db).find((row) => row.id === template.id)).toMatchObject({
+      lastPosted: '2026-08-10',
+      nextDue: '2026-09-05',
+    })
+    expect((db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n).toBe(1)
+
+    const rejected = postFromTemplateControlled(db, template.id, '2026-09-05', maker)
+    if (!rejected.approvalRequired) throw new Error('Expected approval handoff')
+    rejectRequest(db, rejected.request.id, owner, 'Correct the narration')
+    expect(listTemplates(db).find((row) => row.id === template.id)).toMatchObject({ nextDue: '2026-09-05' })
+    const retried = postFromTemplateControlled(db, template.id, '2026-09-05', maker)
+    expect(retried.approvalRequired).toBe(true)
+    if (!retried.approvalRequired) throw new Error('Expected approval handoff')
+    rejectRequest(db, retried.request.id, owner, 'Cancel this occurrence')
+    deleteTemplate(db, template.id)
+    expect(listTemplates(db).find((row) => row.id === template.id)).toBeUndefined()
   })
 })

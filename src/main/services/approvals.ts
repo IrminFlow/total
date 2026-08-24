@@ -167,6 +167,16 @@ export function approveRequest(db: DB, id: number, checker: { id: number; name: 
       `UPDATE approval_requests SET status = 'approved', checker_user_id = ?, checker_name = ?,
        posted_voucher_id = ?, decision_note = ?, reviewed_at = datetime('now') WHERE id = ? AND status = 'pending'`
     ).run(checker.id, checker.name, saved.id, note, id)
+    const recurringLink = db.prepare(
+      `SELECT recurring_template_id AS templateId, occurrence_date AS occurrenceDate,
+              next_due AS nextDue
+       FROM recurring_approval_links WHERE approval_request_id = ?`
+    ).get(id) as { templateId: number; occurrenceDate: string; nextDue: string } | undefined
+    if (recurringLink) {
+      db.prepare(
+        `UPDATE recurring_templates SET last_posted = ?, next_due = ? WHERE id = ?`
+      ).run(request.payload.date, recurringLink.nextDue, recurringLink.templateId)
+    }
     writeAudit(db, 'approval_request', id, 'update', { status: 'pending', maker: request.makerName }, {
       status: 'approved', checker: checker.name, postedVoucherId: saved.id, note
     })
@@ -183,6 +193,7 @@ export function rejectRequest(db: DB, id: number, checker: { id: number; name: s
       `UPDATE approval_requests SET status = 'rejected', checker_user_id = ?, checker_name = ?,
        decision_note = ?, reviewed_at = datetime('now') WHERE id = ? AND status = 'pending'`
     ).run(checker.id, checker.name, note, id)
+    db.prepare('DELETE FROM recurring_approval_links WHERE approval_request_id = ?').run(id)
     writeAudit(db, 'approval_request', id, 'update', { status: 'pending', maker: request.makerName }, {
       status: 'rejected', checker: checker.name, note
     })

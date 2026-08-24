@@ -229,6 +229,25 @@ export function companyWideExportLabelForChannel(
   return contract?.departmentScope === "company_wide" ? contract.label : null;
 }
 
+export function companyWideSurfaceLabelForChannel(
+  channel: string,
+): string | null {
+  const exportLabel = companyWideExportLabelForChannel(channel);
+  if (exportLabel) return exportLabel;
+  if (channel.startsWith("report:")) return "Reports";
+  if (channel.startsWith("analysis:")) return "Analysis reports";
+  if (channel === "search:global") return "Global search";
+  if (channel === "consol:run") return "Consolidated reports";
+  if (channel === "pdc:list") return "The post-dated cheque register";
+  if (channel === "voucher:smartDefaults") return "Company-wide smart defaults";
+  if (channel === "voucher:creditExposure")
+    return "Company-wide credit exposure";
+  if (channel === "audit:list") return "The audit trail";
+  if (channel.startsWith("budget:")) return "Budgets";
+  if (channel.startsWith("cc:")) return "Cost-centre reports";
+  return null;
+}
+
 export function assertIpcExportFormatAllowed(
   db: DB,
   role: Role,
@@ -236,7 +255,9 @@ export function assertIpcExportFormatAllowed(
 ): ExportFormat {
   const format = exportFormatForChannel(channel);
   if (!format)
-    throw new Error(`Export channel '${channel}' has no explicit format contract`);
+    throw new Error(
+      `Export channel '${channel}' has no explicit format contract`,
+    );
   if (!exportAllowed(db, role, format))
     throw new Error("Your role is not allowed to create this export format");
   return format;
@@ -252,7 +273,9 @@ export function assertAutomationRunAllowed(
   if (!permissionAllows(db, role, action))
     throw new Error("You do not have permission to run this automation");
   if (!exportAllowed(db, role, format))
-    throw new Error("Your role is not allowed to create this automation format");
+    throw new Error(
+      "Your role is not allowed to create this automation format",
+    );
   return { action, format };
 }
 
@@ -270,6 +293,7 @@ export function permissionResolvedInsideHandler(channel: string): boolean {
  * edit/approve=false bypass the configured permission matrix.
  */
 export const EXPLICIT_PERMISSION_ACTIONS = {
+  "recurring:post": "create",
   "voucher:batchTag": "edit",
   "voucher:batchReview": "edit",
   "voucher:batchReverse": "edit",

@@ -69,13 +69,9 @@ import {
   bankRuleInputSchema,
   batchInputSchema,
   billsOpenSchema,
-  budgetInputSchema,
-  budgetVarianceSchema,
-  ccStatementSchema,
   chequeConfigSchema,
   companyCreateSchema,
   companySlugSchema,
-  costCentreInputSchema,
   exportCsvSchema,
   godownInputSchema,
   groupInputSchema,
@@ -88,10 +84,8 @@ import {
   periodSchema,
   priceLevelInputSchema,
   priceRateInputSchema,
-  recurringInputSchema,
   rendererLogSchema,
   reportPdfSchema,
-  searchGlobalSchema,
   stockGroupInputSchema,
   stockItemInputSchema,
   stockQuerySchema,
@@ -125,7 +119,6 @@ import * as masters from "./services/masters";
 import * as vouchers from "./services/vouchers";
 import * as voucherWorkflow from "./services/voucherWorkflow";
 import * as gst from "./services/gst";
-import * as intel from "./services/intel";
 import * as analysis from "./services/analysis";
 import * as banking from "./services/banking";
 import * as edocs from "./services/edocs";
@@ -138,14 +131,11 @@ import * as workforce from "./services/workforce";
 import * as workforceOperations from "./services/workforceOperations";
 import * as nic from "./services/nic";
 import * as tds from "./services/tds";
-import * as costCentres from "./services/costCentres";
 import * as stockAnalysis from "./services/stockAnalysis";
 import * as inventoryOperations from "./services/inventoryOperations";
 import * as inventoryTraceability from "./services/inventoryTraceability";
 import { exportBarcodeLabels } from "./services/barcodeLabels";
 import * as priceLevels from "./services/priceLevels";
-import * as budgets from "./services/budgets";
-import * as recurring from "./services/recurring";
 import * as agentBridge from "./services/agentBridge";
 import * as mcpAccess from "./services/mcpAccess";
 import * as ai from "./services/ai";
@@ -180,7 +170,7 @@ import {
   assertAutomationRunAllowed,
   assertIpcExportFormatAllowed,
   assertIpcPermissionAllowed,
-  companyWideExportLabelForChannel,
+  companyWideSurfaceLabelForChannel,
   ipcExportContractForChannel,
   permissionResolvedInsideHandler,
 } from "./ipcPermissions";
@@ -204,19 +194,19 @@ import { registerSupportHandlers } from "./ipc/supportHandlers";
 import { registerReportHandlers } from "./ipc/reportHandlers";
 import { registerConsolidatedHandlers } from "./ipc/consolidatedHandlers";
 import { registerYearEndHandlers } from "./ipc/yearEndHandlers";
+import { registerAnalysisHandlers } from "./ipc/analysisHandlers";
+import { registerAuditHandlers } from "./ipc/auditHandlers";
+import { registerIntelligenceHandlers } from "./ipc/intelligenceHandlers";
+import { registerSearchHandlers } from "./ipc/searchHandlers";
+import { registerConfigHandlers } from "./ipc/configHandlers";
+import { registerPlanningHandlers } from "./ipc/planningHandlers";
+import { registerRecurringHandlers } from "./ipc/recurringHandlers";
 import type { IpcHandler, OpenCompany } from "./ipc/types";
 import * as caPack from "./services/caPack";
 import { htmlToPdf, writeExportPdf } from "./services/pdf";
 import { reportHtml } from "./services/reportHtml";
-import { globalSearch } from "./services/search";
 import { createDemoCompany } from "./services/demo";
-import {
-  setAuditContext,
-  writeAudit,
-  listAudit,
-  pruneAudit,
-  verifyAuditChain,
-} from "./services/audit";
+import { setAuditContext, writeAudit, pruneAudit } from "./services/audit";
 import * as users from "./services/users";
 import {
   assertDeleteAuthorized,
@@ -230,21 +220,15 @@ import {
   currencyInputSchema,
   employeeInputSchema,
   nicCredentialsSchema,
-  auditListSchema,
   userInputSchema,
   authLoginSchema,
   payHeadInputSchema,
   employeeHeadsSetSchema,
   payrollRunIdSchema,
-  auditRetentionSchema,
   invoicePdfBatchSchema,
 } from "@shared/schemas";
 import type { CompanyInfo } from "@shared/domain";
-import { featuresSchema } from "@shared/features";
-import {
-  invoiceConfigPartialSchema,
-  invoiceConfigSchema,
-} from "@shared/invoiceConfig";
+import { invoiceConfigPartialSchema } from "@shared/invoiceConfig";
 
 let current: OpenCompany | null = null;
 
@@ -315,19 +299,6 @@ const UNGATED_CHANNELS = new Set([
   "support:submit",
 ]);
 
-function companyWideSurfaceLabel(channel: string): string | null {
-  const exportLabel = companyWideExportLabelForChannel(channel);
-  if (exportLabel) return exportLabel;
-  if (channel.startsWith("report:")) return "Reports";
-  if (channel.startsWith("analysis:")) return "Analysis reports";
-  if (channel === "search:global") return "Global search";
-  if (channel === "consol:run") return "Consolidated reports";
-  if (channel === "pdc:list") return "The post-dated cheque register";
-  if (channel === "voucher:smartDefaults") return "Company-wide smart defaults";
-  if (channel === "voucher:creditExposure") return "Company-wide credit exposure";
-  return null;
-}
-
 function agentProposalInDepartmentScope(
   db: DB,
   role: Role,
@@ -361,7 +332,7 @@ function enforceDepartmentBoundaries(
       value as Record<string, unknown>,
     )) {
       const kind =
-        key === "costCentreId"
+        key === "costCentreId" || key === "ccId"
           ? "cost_centre"
           : key === "godownId"
             ? "godown"
@@ -412,7 +383,7 @@ function handle(
           assertIpcExportFormatAllowed(current.db, sessionUser.role, channel);
         }
         enforceDepartmentBoundaries(current.db, sessionUser.role, payload);
-        const companyWideSurface = companyWideSurfaceLabel(channel);
+        const companyWideSurface = companyWideSurfaceLabelForChannel(channel);
         if (companyWideSurface)
           departmentScope.assertCompanyWideSurfaceAllowed(
             current.db,
@@ -496,21 +467,42 @@ export function registerIpc(): void {
       freeBytes,
       diskReady: freeBytes >= 2 * 1024 ** 3,
       clockReady: clockYear >= 2020 && clockYear <= 2100,
-      secureCredentials: process.env.TOTAL_SUPPRESS_SYNC_WARNING === "1" ? true : safeStorage.isEncryptionAvailable(),
+      secureCredentials:
+        process.env.TOTAL_SUPPRESS_SYNC_WARNING === "1"
+          ? true
+          : safeStorage.isEncryptionAvailable(),
       automaticBackups: true,
       dataPath: "~/Documents/total",
     };
   });
 
   handle("company:create", (payload) => {
-    const parsed = companyCreateSchema.extend({
-      onboarding: z.object({
-        businessType: z.enum(["retailer", "wholesaler", "service", "manufacturer", "freelancer", "professional"]),
-        priorSoftware: z.enum(["tally", "busy", "marg", "zoho", "excel", "first-time"]),
-        needsInventory: z.boolean(),
-        needsPayroll: z.boolean(),
-      }).optional(),
-    }).parse(payload);
+    const parsed = companyCreateSchema
+      .extend({
+        onboarding: z
+          .object({
+            businessType: z.enum([
+              "retailer",
+              "wholesaler",
+              "service",
+              "manufacturer",
+              "freelancer",
+              "professional",
+            ]),
+            priorSoftware: z.enum([
+              "tally",
+              "busy",
+              "marg",
+              "zoho",
+              "excel",
+              "first-time",
+            ]),
+            needsInventory: z.boolean(),
+            needsPayroll: z.boolean(),
+          })
+          .optional(),
+      })
+      .parse(payload);
     const { onboarding: onboardingInput, ...input } = parsed;
     let slug = slugify(input.name);
     let n = 2;
@@ -522,8 +514,15 @@ export function registerIpc(): void {
     seedCompany(db, info);
     const profile = onboarding.defaultOnboardingProfile(onboardingInput);
     onboarding.applyBusinessTemplate(db, profile.businessType);
-    configSvc.setFeatures(db, { ...configSvc.getFeatures(db), inventory: profile.needsInventory, payroll: profile.needsPayroll });
-    onboarding.writeOnboardingProfile(join(companyDir(slug), "setup.json"), profile);
+    configSvc.setFeatures(db, {
+      ...configSvc.getFeatures(db),
+      inventory: profile.needsInventory,
+      payroll: profile.needsPayroll,
+    });
+    onboarding.writeOnboardingProfile(
+      join(companyDir(slug), "setup.json"),
+      profile,
+    );
     db.close();
     upsertCompany({
       slug,
@@ -535,37 +534,81 @@ export function registerIpc(): void {
     return { slug };
   });
 
-  handle("onboarding:status", () => {
-    const c = requireCompany();
-    const file = join(companyDir(c.slug), "setup.json");
-    const profile = onboarding.readOnboardingProfile(file);
-    const status = onboarding.onboardingStatus(c.db, profile, listBackupsIn(companyBackupsDir(c.slug)).length);
-    onboarding.writeOnboardingProfile(file, status.profile);
-    return status;
-  }, "viewer");
+  handle(
+    "onboarding:status",
+    () => {
+      const c = requireCompany();
+      const file = join(companyDir(c.slug), "setup.json");
+      const profile = onboarding.readOnboardingProfile(file);
+      const status = onboarding.onboardingStatus(
+        c.db,
+        profile,
+        listBackupsIn(companyBackupsDir(c.slug)).length,
+      );
+      onboarding.writeOnboardingProfile(file, status.profile);
+      return status;
+    },
+    "viewer",
+  );
 
   handle("onboarding:update", (payload) => {
-    const changes = z.object({
-      businessType: z.enum(["retailer", "wholesaler", "service", "manufacturer", "freelancer", "professional"]).optional(),
-      priorSoftware: z.enum(["tally", "busy", "marg", "zoho", "excel", "first-time"]).optional(),
-      needsInventory: z.boolean().optional(),
-      needsPayroll: z.boolean().optional(),
-    }).parse(payload);
+    const changes = z
+      .object({
+        businessType: z
+          .enum([
+            "retailer",
+            "wholesaler",
+            "service",
+            "manufacturer",
+            "freelancer",
+            "professional",
+          ])
+          .optional(),
+        priorSoftware: z
+          .enum(["tally", "busy", "marg", "zoho", "excel", "first-time"])
+          .optional(),
+        needsInventory: z.boolean().optional(),
+        needsPayroll: z.boolean().optional(),
+      })
+      .parse(payload);
     const c = requireCompany();
     const file = join(companyDir(c.slug), "setup.json");
     const profile = { ...onboarding.readOnboardingProfile(file), ...changes };
     onboarding.applyBusinessTemplate(c.db, profile.businessType);
-    configSvc.setFeatures(c.db, { ...configSvc.getFeatures(c.db), inventory: profile.needsInventory, payroll: profile.needsPayroll });
+    configSvc.setFeatures(c.db, {
+      ...configSvc.getFeatures(c.db),
+      inventory: profile.needsInventory,
+      payroll: profile.needsPayroll,
+    });
     onboarding.writeOnboardingProfile(file, profile);
-    return onboarding.onboardingStatus(c.db, profile, listBackupsIn(companyBackupsDir(c.slug)).length);
+    return onboarding.onboardingStatus(
+      c.db,
+      profile,
+      listBackupsIn(companyBackupsDir(c.slug)).length,
+    );
   });
 
   handle("onboarding:handoff:export", () => {
     const c = requireCompany();
-    const profile = onboarding.readOnboardingProfile(join(companyDir(c.slug), "setup.json"));
-    const path = join(companyExportsDir(c.slug), "accountant-setup-handoff.json");
-    const payload = { schema: 1, generatedAt: new Date().toISOString(), company: c.info, onboarding: profile,
-      questions: ["Confirm opening balances", "Confirm tax registrations", "Confirm bank ledgers", "Confirm inventory and payroll scope"] };
+    const profile = onboarding.readOnboardingProfile(
+      join(companyDir(c.slug), "setup.json"),
+    );
+    const path = join(
+      companyExportsDir(c.slug),
+      "accountant-setup-handoff.json",
+    );
+    const payload = {
+      schema: 1,
+      generatedAt: new Date().toISOString(),
+      company: c.info,
+      onboarding: profile,
+      questions: [
+        "Confirm opening balances",
+        "Confirm tax registrations",
+        "Confirm bank ledgers",
+        "Confirm inventory and payroll scope",
+      ],
+    };
     atomicWriteFile(path, `${JSON.stringify(payload, null, 2)}\n`, 0o600);
     shell.showItemInFolder(path);
     return { path };
@@ -573,24 +616,67 @@ export function registerIpc(): void {
 
   handle("onboarding:handoff:import", async () => {
     const c = requireCompany();
-    const picked = await dialog.showOpenDialog({ properties: ["openFile"], filters: [{ name: "Total setup handoff", extensions: ["json"] }] });
+    const picked = await dialog.showOpenDialog({
+      properties: ["openFile"],
+      filters: [{ name: "Total setup handoff", extensions: ["json"] }],
+    });
     if (picked.canceled || !picked.filePaths[0]) return null;
     const file = picked.filePaths[0];
-    if (statSync(file).size > 256 * 1024) throw new Error("Setup handoff exceeds 256 KB");
-    const parsed = z.object({ schema: z.literal(1), onboarding: z.object({
-      businessType: z.enum(["retailer", "wholesaler", "service", "manufacturer", "freelancer", "professional"]),
-      priorSoftware: z.enum(["tally", "busy", "marg", "zoho", "excel", "first-time"]),
-      needsInventory: z.boolean(), needsPayroll: z.boolean(),
-    }) }).parse(JSON.parse(readFileSync(file, "utf8")));
-    const currentProfile = onboarding.readOnboardingProfile(join(companyDir(c.slug), "setup.json"));
+    if (statSync(file).size > 256 * 1024)
+      throw new Error("Setup handoff exceeds 256 KB");
+    const parsed = z
+      .object({
+        schema: z.literal(1),
+        onboarding: z.object({
+          businessType: z.enum([
+            "retailer",
+            "wholesaler",
+            "service",
+            "manufacturer",
+            "freelancer",
+            "professional",
+          ]),
+          priorSoftware: z.enum([
+            "tally",
+            "busy",
+            "marg",
+            "zoho",
+            "excel",
+            "first-time",
+          ]),
+          needsInventory: z.boolean(),
+          needsPayroll: z.boolean(),
+        }),
+      })
+      .parse(JSON.parse(readFileSync(file, "utf8")));
+    const currentProfile = onboarding.readOnboardingProfile(
+      join(companyDir(c.slug), "setup.json"),
+    );
     const profile = { ...currentProfile, ...parsed.onboarding };
     onboarding.applyBusinessTemplate(c.db, profile.businessType);
-    onboarding.writeOnboardingProfile(join(companyDir(c.slug), "setup.json"), profile);
-    return onboarding.onboardingStatus(c.db, profile, listBackupsIn(companyBackupsDir(c.slug)).length);
+    onboarding.writeOnboardingProfile(
+      join(companyDir(c.slug), "setup.json"),
+      profile,
+    );
+    return onboarding.onboardingStatus(
+      c.db,
+      profile,
+      listBackupsIn(companyBackupsDir(c.slug)).length,
+    );
   });
 
   handle("company:createDemo", (payload) => {
-    const businessType = z.enum(["retailer", "wholesaler", "service", "manufacturer", "freelancer", "professional"]).default("retailer").parse(payload);
+    const businessType = z
+      .enum([
+        "retailer",
+        "wholesaler",
+        "service",
+        "manufacturer",
+        "freelancer",
+        "professional",
+      ])
+      .default("retailer")
+      .parse(payload);
     return createDemoCompany(businessType);
   });
 
@@ -613,7 +699,11 @@ export function registerIpc(): void {
     assertDeleteAuthorized(company.paths.database, pin);
     // [lane-Q audit] durable record in the app log (survives quarantine) + best-effort tombstone
     // row inside the DB itself.
-    auditCompanyDeletion(company.paths.database, slug, sessionUser?.name ?? null);
+    auditCompanyDeletion(
+      company.paths.database,
+      slug,
+      sessionUser?.name ?? null,
+    );
     if (current?.slug === slug) closeCurrentCompany();
     const move = quarantineCompanyDirectory(slug);
     try {
@@ -625,7 +715,10 @@ export function registerIpc(): void {
         log("error", "company-quarantine-rollback-failed", {
           slug,
           quarantinePath: move.quarantinePath,
-          error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+          error:
+            rollbackError instanceof Error
+              ? rollbackError.message
+              : String(rollbackError),
         });
         throw new Error(
           `Company registry update failed. Your company is preserved at ${move.quarantinePath}. Contact support before trying again.`,
@@ -1660,11 +1753,7 @@ export function registerIpc(): void {
   });
 
   // ---------- search ----------
-  handle(
-    "search:global",
-    (p) => globalSearch(requireCompany().db, searchGlobalSchema.parse(p).q),
-    "viewer",
-  );
+  registerSearchHandlers({ handle, requireCompany });
 
   // ---------- vouchers ----------
   handle(
@@ -1712,7 +1801,14 @@ export function registerIpc(): void {
         .min(1)
         .max(200),
     });
-    const { data, id, draftId, procurementMatch, procurementClaimKey, creditOverrideReason } = z
+    const {
+      data,
+      id,
+      draftId,
+      procurementMatch,
+      procurementClaimKey,
+      creditOverrideReason,
+    } = z
       .object({
         data: voucherInputSchema,
         id: z.number().int().positive().optional(),
@@ -1724,8 +1820,7 @@ export function registerIpc(): void {
       .parse(p);
     const c = requireCompany();
     const role = sessionUser?.role ?? "owner";
-    if (id)
-      departmentScope.assertVoucherDepartmentScope(c.db, role, id);
+    if (id) departmentScope.assertVoucherDepartmentScope(c.db, role, id);
     departmentScope.assertVoucherInputDepartmentScope(c.db, role, data);
     voucherPostingControls.assertVoucherDiscountAuthority(
       c.db,
@@ -1758,7 +1853,11 @@ export function registerIpc(): void {
         if (draftId) voucherDraftService.deleteVoucherDraft(c.db, draftId);
         return saved;
       }
-      if (creditOverrideReason) writeAudit(c.db, 'voucher', saved.id, 'update', null, { creditLimitOverride: creditOverrideReason, actor: sessionUser?.name ?? 'Local user' });
+      if (creditOverrideReason)
+        writeAudit(c.db, "voucher", saved.id, "update", null, {
+          creditLimitOverride: creditOverrideReason,
+          actor: sessionUser?.name ?? "Local user",
+        });
       if (procurementMatch)
         procurementService.recordInvoiceMatch(
           c.db,
@@ -1884,13 +1983,42 @@ export function registerIpc(): void {
   handle(
     "voucher:smartDefaults",
     (p) => {
-      const { partyLedgerId, kind } = z.object({ partyLedgerId: z.number().int().positive(), kind: z.string().trim().min(1).max(30) }).parse(p);
-      return voucherAccelerators.smartLedgerDefaults(requireCompany().db, partyLedgerId, kind);
+      const { partyLedgerId, kind } = z
+        .object({
+          partyLedgerId: z.number().int().positive(),
+          kind: z.string().trim().min(1).max(30),
+        })
+        .parse(p);
+      return voucherAccelerators.smartLedgerDefaults(
+        requireCompany().db,
+        partyLedgerId,
+        kind,
+      );
     },
     "viewer",
   );
-  handle("voucher:creditExposure", (p) => { const { partyLedgerId, proposedDebit } = z.object({ partyLedgerId: z.number().int().positive(), proposedDebit: z.number().int().positive() }).parse(p); return voucherAccelerators.creditExposure(requireCompany().db, partyLedgerId, proposedDebit) }, "viewer");
-  handle("voucher:clipboardLines", () => ({ text: clipboard.readText().slice(0, 256 * 1024) }), "accountant");
+  handle(
+    "voucher:creditExposure",
+    (p) => {
+      const { partyLedgerId, proposedDebit } = z
+        .object({
+          partyLedgerId: z.number().int().positive(),
+          proposedDebit: z.number().int().positive(),
+        })
+        .parse(p);
+      return voucherAccelerators.creditExposure(
+        requireCompany().db,
+        partyLedgerId,
+        proposedDebit,
+      );
+    },
+    "viewer",
+  );
+  handle(
+    "voucher:clipboardLines",
+    () => ({ text: clipboard.readText().slice(0, 256 * 1024) }),
+    "accountant",
+  );
   handle(
     "voucher:attachments",
     (p) => {
@@ -1906,7 +2034,12 @@ export function registerIpc(): void {
     "viewer",
   );
   handle("voucher:attachmentAdd", async (p) => {
-    const { id, kind } = z.object({ id: z.number().int().positive(), kind: z.enum(["invoice", "receipt", "email", "delivery", "other"]) }).parse(p);
+    const { id, kind } = z
+      .object({
+        id: z.number().int().positive(),
+        kind: z.enum(["invoice", "receipt", "email", "delivery", "other"]),
+      })
+      .parse(p);
     const c = requireCompany();
     departmentScope.assertVoucherDepartmentScope(
       c.db,
@@ -1916,66 +2049,121 @@ export function registerIpc(): void {
     const picked = await dialog.showOpenDialog({
       title: "Attach voucher evidence",
       properties: ["openFile", "multiSelections"],
-      filters: [{ name: "Documents", extensions: ["pdf", "png", "jpg", "jpeg", "webp", "csv", "xlsx", "eml", "txt"] }],
+      filters: [
+        {
+          name: "Documents",
+          extensions: [
+            "pdf",
+            "png",
+            "jpg",
+            "jpeg",
+            "webp",
+            "csv",
+            "xlsx",
+            "eml",
+            "txt",
+          ],
+        },
+      ],
     });
     if (picked.canceled) return [];
-    if (picked.filePaths.length > 20) throw new Error("Attach at most 20 files at a time");
-    const attachmentDir = join(companyDir(c.slug), "attachments", "vouchers", String(id));
+    if (picked.filePaths.length > 20)
+      throw new Error("Attach at most 20 files at a time");
+    const attachmentDir = join(
+      companyDir(c.slug),
+      "attachments",
+      "vouchers",
+      String(id),
+    );
     mkdirSync(attachmentDir, { recursive: true });
     return picked.filePaths.map((sourcePath) => {
       const source = statSync(sourcePath);
-      if (!source.isFile() || source.size > 25 * 1024 * 1024) throw new Error(`${basename(sourcePath)} must be a file no larger than 25 MB`);
-      const destination = join(attachmentDir, `${randomUUID()}${extname(sourcePath).toLowerCase()}`);
-      const storedPath = attachmentVault.storeManagedAttachment(c.db, c.slug, sourcePath, destination);
-      return voucherAccelerators.addAttachment(c.db, { voucherId: id, originalName: basename(sourcePath), storedPath, kind, sizeBytes: source.size, actor: sessionUser?.name ?? "Local user" });
+      if (!source.isFile() || source.size > 25 * 1024 * 1024)
+        throw new Error(
+          `${basename(sourcePath)} must be a file no larger than 25 MB`,
+        );
+      const destination = join(
+        attachmentDir,
+        `${randomUUID()}${extname(sourcePath).toLowerCase()}`,
+      );
+      const storedPath = attachmentVault.storeManagedAttachment(
+        c.db,
+        c.slug,
+        sourcePath,
+        destination,
+      );
+      return voucherAccelerators.addAttachment(c.db, {
+        voucherId: id,
+        originalName: basename(sourcePath),
+        storedPath,
+        kind,
+        sizeBytes: source.size,
+        actor: sessionUser?.name ?? "Local user",
+      });
     });
   });
-  handle("voucher:attachmentOpen", async (p) => {
-    const { id } = z.object({ id: z.number().int().positive() }).parse(p);
-    const c = requireCompany();
-    const attachment = c.db.prepare("SELECT voucher_id AS voucherId,stored_path AS storedPath,original_name AS originalName FROM voucher_attachments WHERE id=?").get(id) as { voucherId: number; storedPath: string; originalName: string } | undefined;
-    if (!attachment) throw new Error("Attachment was not found");
-    departmentScope.assertVoucherDepartmentScope(
-      c.db,
-      sessionUser?.role ?? "owner",
-      attachment.voucherId,
-    );
-    let openPath = attachment.storedPath;
-    let temporaryPreview: ReturnType<typeof createBoundedTemporaryDirectory> | null = null;
-    if (openPath.endsWith(".totalatt")) {
-      temporaryPreview = createBoundedTemporaryDirectory(
-        "total-voucher-attachment-",
+  handle(
+    "voucher:attachmentOpen",
+    async (p) => {
+      const { id } = z.object({ id: z.number().int().positive() }).parse(p);
+      const c = requireCompany();
+      const attachment = c.db
+        .prepare(
+          "SELECT voucher_id AS voucherId,stored_path AS storedPath,original_name AS originalName FROM voucher_attachments WHERE id=?",
+        )
+        .get(id) as
+        | { voucherId: number; storedPath: string; originalName: string }
+        | undefined;
+      if (!attachment) throw new Error("Attachment was not found");
+      departmentScope.assertVoucherDepartmentScope(
+        c.db,
+        sessionUser?.role ?? "owner",
+        attachment.voucherId,
       );
-      try {
-        const candidateExtension = extname(attachment.originalName).toLowerCase();
-        const safeExtension = /^\.[a-z0-9]{1,10}$/.test(candidateExtension)
-          ? candidateExtension
-          : "";
-        openPath = join(
-          temporaryPreview.path,
-          `attachment-${randomUUID()}${safeExtension}`,
+      let openPath = attachment.storedPath;
+      let temporaryPreview: ReturnType<
+        typeof createBoundedTemporaryDirectory
+      > | null = null;
+      if (openPath.endsWith(".totalatt")) {
+        temporaryPreview = createBoundedTemporaryDirectory(
+          "total-voucher-attachment-",
         );
-        writeFileSync(
-          openPath,
-          attachmentVault.readManagedAttachment(
-            c.db,
-            c.slug,
-            attachment.storedPath,
-          ),
-          { mode: 0o600 },
-        );
-      } catch (error) {
-        temporaryPreview.dispose();
-        throw error;
+        try {
+          const candidateExtension = extname(
+            attachment.originalName,
+          ).toLowerCase();
+          const safeExtension = /^\.[a-z0-9]{1,10}$/.test(candidateExtension)
+            ? candidateExtension
+            : "";
+          openPath = join(
+            temporaryPreview.path,
+            `attachment-${randomUUID()}${safeExtension}`,
+          );
+          writeFileSync(
+            openPath,
+            attachmentVault.readManagedAttachment(
+              c.db,
+              c.slug,
+              attachment.storedPath,
+            ),
+            {
+              mode: 0o600,
+            },
+          );
+        } catch (error) {
+          temporaryPreview.dispose();
+          throw error;
+        }
       }
-    }
-    const error = await shell.openPath(openPath);
-    if (error) {
-      temporaryPreview?.dispose();
-      throw new Error(error);
-    }
-    return null;
-  }, "viewer");
+      const error = await shell.openPath(openPath);
+      if (error) {
+        temporaryPreview?.dispose();
+        throw new Error(error);
+      }
+      return null;
+    },
+    "viewer",
+  );
   const voucherDraftInput = z.object({
     voucherTypeId: z.number().int().positive(),
     mode: z.enum(["accounting", "invoice", "manufacture", "physical_stock"]),
@@ -3057,12 +3245,7 @@ export function registerIpc(): void {
         sessionUser.role,
         approvals.getApprovalRequest(c.db, id),
       );
-      return approvals.approveRequest(
-        c.db,
-        id,
-        sessionUser,
-        note,
-      );
+      return approvals.approveRequest(c.db, id, sessionUser, note);
     },
     "owner",
   );
@@ -3834,35 +4017,7 @@ export function registerIpc(): void {
   );
 
   // ---------- analysis ----------
-  handle(
-    "analysis:register",
-    (p) => {
-      const { kind, from, to, granularity } = periodSchema
-        .extend({
-          kind: z.enum(["sales", "purchase"]),
-          granularity: z.enum(["month", "quarter"]).default("month"),
-        })
-        .parse(p);
-      return analysis.registerByPeriod(
-        requireCompany().db,
-        kind,
-        from,
-        to,
-        granularity,
-      );
-    },
-    "viewer",
-  );
-  handle(
-    "analysis:outstandings",
-    (p) => {
-      const { side, asOn } = z
-        .object({ side: z.enum(["receivable", "payable"]), asOn: z.string() })
-        .parse(p);
-      return analysis.outstandings(requireCompany().db, side, asOn);
-    },
-    "viewer",
-  );
+  registerAnalysisHandlers({ handle, requireCompany });
 
   // ---------- management insight workspace ----------
   handle(
@@ -4059,15 +4214,123 @@ export function registerIpc(): void {
       outcomeNote,
     );
   });
-  handle("collections:workspace", (p) => { const { ledgerId, asOn } = z.object({ ledgerId: z.number().int().positive(), asOn: isoDate }).parse(p); return collections.customerWorkspace(requireCompany().db, ledgerId, asOn) }, "viewer");
-  const collectionSettingsSchema = z.object({ owner: z.string().trim().max(100), reminderDays: z.array(z.number().int().min(1).max(365)).min(1).max(12), earlyDiscountBps: z.number().int().min(0).max(5000), earlyDays: z.number().int().min(0).max(365) });
-  handle("collections:settingsSave", (p) => { const { ledgerId, settings } = z.object({ ledgerId: z.number().int().positive(), settings: collectionSettingsSchema }).parse(p); return collections.saveCustomerSettings(requireCompany().db, ledgerId, settings, sessionUser?.name ?? "Local user") });
-  handle("collections:disputeOpen", (p) => { const input = z.object({ ledgerId: z.number().int().positive(), voucherId: z.number().int().positive(), reason: z.string().trim().min(1).max(500), owner: z.string().trim().min(1).max(100) }).parse(p); collections.openDispute(requireCompany().db, input.ledgerId, input.voucherId, input.reason, input.owner); return null });
-  handle("collections:disputeResolve", (p) => { const { id, resolution } = z.object({ id: z.number().int().positive(), resolution: z.string().trim().min(1).max(500) }).parse(p); collections.resolveDispute(requireCompany().db, id, resolution); return null });
-  handle("collections:noteAdd", (p) => { const { ledgerId, body } = z.object({ ledgerId: z.number().int().positive(), body: z.string().trim().min(1).max(2000) }).parse(p); collections.addCollectionNote(requireCompany().db, ledgerId, body, sessionUser?.name ?? "Local user"); return null });
-  handle("collections:reminderDraft", (p) => { const input = z.object({ ledgerId: z.number().int().positive(), voucherId: z.number().int().positive().nullable(), channel: z.enum(["email", "whatsapp", "phone"]), body: z.string().trim().min(1).max(5000), dueDate: isoDate }).parse(p); collections.draftReminder(requireCompany().db, input.ledgerId, input.voucherId, input.channel, input.body, input.dueDate, sessionUser?.name ?? "Local user"); return null });
-  handle("collections:receiptSuggestions", (p) => { const input = z.object({ amount: z.number().int().positive(), date: isoDate, reference: z.string().trim().max(200), payer: z.string().trim().max(200) }).parse(p); return collections.receiptSuggestions(requireCompany().db, input) }, "viewer");
-  handle("collections:ownerWorkload", (p) => { const { asOn } = z.object({ asOn: isoDate }).parse(p); return collections.ownerWorkload(requireCompany().db, asOn) }, "viewer");
+  handle(
+    "collections:workspace",
+    (p) => {
+      const { ledgerId, asOn } = z
+        .object({ ledgerId: z.number().int().positive(), asOn: isoDate })
+        .parse(p);
+      return collections.customerWorkspace(requireCompany().db, ledgerId, asOn);
+    },
+    "viewer",
+  );
+  const collectionSettingsSchema = z.object({
+    owner: z.string().trim().max(100),
+    reminderDays: z.array(z.number().int().min(1).max(365)).min(1).max(12),
+    earlyDiscountBps: z.number().int().min(0).max(5000),
+    earlyDays: z.number().int().min(0).max(365),
+  });
+  handle("collections:settingsSave", (p) => {
+    const { ledgerId, settings } = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        settings: collectionSettingsSchema,
+      })
+      .parse(p);
+    return collections.saveCustomerSettings(
+      requireCompany().db,
+      ledgerId,
+      settings,
+      sessionUser?.name ?? "Local user",
+    );
+  });
+  handle("collections:disputeOpen", (p) => {
+    const input = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        voucherId: z.number().int().positive(),
+        reason: z.string().trim().min(1).max(500),
+        owner: z.string().trim().min(1).max(100),
+      })
+      .parse(p);
+    collections.openDispute(
+      requireCompany().db,
+      input.ledgerId,
+      input.voucherId,
+      input.reason,
+      input.owner,
+    );
+    return null;
+  });
+  handle("collections:disputeResolve", (p) => {
+    const { id, resolution } = z
+      .object({
+        id: z.number().int().positive(),
+        resolution: z.string().trim().min(1).max(500),
+      })
+      .parse(p);
+    collections.resolveDispute(requireCompany().db, id, resolution);
+    return null;
+  });
+  handle("collections:noteAdd", (p) => {
+    const { ledgerId, body } = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        body: z.string().trim().min(1).max(2000),
+      })
+      .parse(p);
+    collections.addCollectionNote(
+      requireCompany().db,
+      ledgerId,
+      body,
+      sessionUser?.name ?? "Local user",
+    );
+    return null;
+  });
+  handle("collections:reminderDraft", (p) => {
+    const input = z
+      .object({
+        ledgerId: z.number().int().positive(),
+        voucherId: z.number().int().positive().nullable(),
+        channel: z.enum(["email", "whatsapp", "phone"]),
+        body: z.string().trim().min(1).max(5000),
+        dueDate: isoDate,
+      })
+      .parse(p);
+    collections.draftReminder(
+      requireCompany().db,
+      input.ledgerId,
+      input.voucherId,
+      input.channel,
+      input.body,
+      input.dueDate,
+      sessionUser?.name ?? "Local user",
+    );
+    return null;
+  });
+  handle(
+    "collections:receiptSuggestions",
+    (p) => {
+      const input = z
+        .object({
+          amount: z.number().int().positive(),
+          date: isoDate,
+          reference: z.string().trim().max(200),
+          payer: z.string().trim().max(200),
+        })
+        .parse(p);
+      return collections.receiptSuggestions(requireCompany().db, input);
+    },
+    "viewer",
+  );
+  handle(
+    "collections:ownerWorkload",
+    (p) => {
+      const { asOn } = z.object({ asOn: isoDate }).parse(p);
+      return collections.ownerWorkload(requireCompany().db, asOn);
+    },
+    "viewer",
+  );
   handle(
     "payables:queue",
     (p) => {
@@ -4389,106 +4652,14 @@ export function registerIpc(): void {
   });
 
   // ---------- cost centres ----------
-  handle(
-    "cc:list",
-    () => costCentres.listCostCentres(requireCompany().db),
-    "viewer",
-  );
-  handle("cc:save", (p) => {
-    const { id, data } = z
-      .object({
-        id: z.number().int().positive().optional(),
-        data: costCentreInputSchema,
-      })
-      .parse(p);
-    return costCentres.saveCostCentre(requireCompany().db, data, id);
-  });
-  handle("cc:delete", (p) =>
-    costCentres.deleteCostCentre(requireCompany().db, idSchema.parse(p).id),
-  );
-  handle(
-    "cc:report",
-    (p) => {
-      const { from, to } = periodSchema.parse(p);
-      return costCentres.ccReport(requireCompany().db, from, to);
-    },
-    "viewer",
-  );
-  handle(
-    "cc:statement",
-    (p) => {
-      const { ccId, from, to } = ccStatementSchema.parse(p);
-      return costCentres.ccStatement(requireCompany().db, ccId, from, to);
-    },
-    "viewer",
-  );
-
-  // ---------- budgets ----------
-  handle(
-    "budget:list",
-    () => budgets.listBudgets(requireCompany().db),
-    "viewer",
-  );
-  handle("budget:save", (p) => {
-    const { id, data } = z
-      .object({
-        id: z.number().int().positive().optional(),
-        data: budgetInputSchema,
-      })
-      .parse(p);
-    return budgets.saveBudget(requireCompany().db, data, id);
-  });
-  handle("budget:delete", (p) =>
-    budgets.deleteBudget(requireCompany().db, idSchema.parse(p).id),
-  );
-  handle(
-    "budget:variance",
-    (p) => {
-      const { budgetId, upToMonth } = budgetVarianceSchema.parse(p);
-      return budgets.budgetVarianceReport(
-        requireCompany().db,
-        budgetId,
-        upToMonth,
-      );
-    },
-    "viewer",
-  );
+  registerPlanningHandlers({ handle, requireCompany });
 
   // ---------- recurring vouchers ----------
-  handle(
-    "recurring:list",
-    () => recurring.listTemplates(requireCompany().db),
-    "viewer",
-  );
-  handle("recurring:save", (p) => {
-    const { id, data } = z
-      .object({
-        id: z.number().int().positive().optional(),
-        data: recurringInputSchema,
-      })
-      .parse(p);
-    return recurring.saveTemplate(requireCompany().db, data, id);
+  registerRecurringHandlers({
+    handle,
+    requireCompany,
+    getSessionUser: () => sessionUser,
   });
-  handle("recurring:delete", (p) =>
-    recurring.deleteTemplate(requireCompany().db, idSchema.parse(p).id),
-  );
-  handle(
-    "recurring:due",
-    (p) => {
-      const { today } = z.object({ today: isoDate }).parse(p);
-      return recurring.due(requireCompany().db, today);
-    },
-    "viewer",
-  );
-  handle("recurring:post", (p) => {
-    const { id, date } = z
-      .object({ id: z.number().int().positive(), date: isoDate })
-      .parse(p);
-    return recurring.postFromTemplate(requireCompany().db, id, date);
-  });
-  handle("recurring:skip", (p) =>
-    recurring.skip(requireCompany().db, idSchema.parse(p).id),
-  );
 
   // ---------- banking ----------
   handle(
@@ -5344,30 +5515,7 @@ export function registerIpc(): void {
   });
 
   // ---------- F11 features + F12 invoice print config ----------
-  handle(
-    "config:features:get",
-    () => configSvc.getFeatures(requireCompany().db),
-    "viewer",
-  );
-  handle(
-    "config:features:set",
-    (p) => configSvc.setFeatures(requireCompany().db, featuresSchema.parse(p)),
-    "owner",
-  );
-  handle(
-    "config:invoice:get",
-    () => configSvc.getInvoiceConfig(requireCompany().db),
-    "viewer",
-  );
-  handle(
-    "config:invoice:set",
-    (p) =>
-      configSvc.setInvoiceConfig(
-        requireCompany().db,
-        invoiceConfigSchema.parse(p),
-      ),
-    "owner",
-  );
+  registerConfigHandlers({ handle, requireCompany });
 
   // ---------- currencies + BOM ----------
   handle(
@@ -6394,57 +6542,10 @@ export function registerIpc(): void {
   );
 
   // ---------- intelligence ----------
-  handle(
-    "intel:suggestLedgers",
-    (p) => {
-      const { kind, query } = z
-        .object({ kind: z.string(), query: z.string() })
-        .parse(p);
-      return intel.suggestLedgers(requireCompany().db, kind, query);
-    },
-    "viewer",
-  );
-  handle(
-    "intel:anomaly",
-    (p) => {
-      const { ledgerId, amount } = z
-        .object({
-          ledgerId: z.number().int().positive(),
-          amount: z.number().int(),
-        })
-        .parse(p);
-      return intel.anomalyCheck(requireCompany().db, ledgerId, amount);
-    },
-    "viewer",
-  );
+  registerIntelligenceHandlers({ handle, requireCompany });
 
   // ---------- audit ----------
-  handle(
-    "audit:list",
-    (p) => {
-      const { entity, from, to, page } = auditListSchema.parse(p);
-      return listAudit(requireCompany().db, { entity, from, to, page });
-    },
-    "viewer",
-  );
-  handle("audit:verify", () => verifyAuditChain(requireCompany().db), "viewer");
-
-  // ---------- audit retention (lane Q, task Q1 #92) ----------
-  handle(
-    "config:audit:get",
-    () => ({ keepDays: configSvc.getAuditKeepDays(requireCompany().db) }),
-    "viewer",
-  );
-  handle(
-    "config:audit:set",
-    (p) => {
-      const { keepDays } = auditRetentionSchema.parse(p);
-      return {
-        keepDays: configSvc.setAuditKeepDays(requireCompany().db, keepDays),
-      };
-    },
-    "owner",
-  );
+  registerAuditHandlers({ handle, requireCompany });
 
   // ---------- auth + users ----------
   // auth:* itself is in UNGATED_CHANNELS (see `handle`) — you have to be able to call
@@ -6939,11 +7040,7 @@ export function registerIpc(): void {
           "This automation schedule",
         );
       }
-      return integrations.setAutomationEnabled(
-        company.db,
-        id,
-        enabled,
-      );
+      return integrations.setAutomationEnabled(company.db, id, enabled);
     },
     "owner",
   );

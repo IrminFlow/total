@@ -5,6 +5,7 @@ import {
   EXPLICIT_PERMISSION_ACTIONS,
   IPC_EXPORT_CONTRACTS,
   companyWideExportLabelForChannel,
+  companyWideSurfaceLabelForChannel,
   exportFormatForChannel,
   permissionResolvedInsideHandler,
   permissionActionForChannel,
@@ -81,11 +82,14 @@ describe("IPC permission contracts", () => {
       "bank:chequeStatus",
       { voucherId: 7, status: "cleared", statusDate: "2026-08-24" },
     ],
-  ])("classifies %s as an edit even without a top-level id", (channel, payload) => {
-    expect(permissionActionForChannel(channel, payload, "accountant")).toBe(
-      "edit",
-    );
-  });
+  ])(
+    "classifies %s as an edit even without a top-level id",
+    (channel, payload) => {
+      expect(permissionActionForChannel(channel, payload, "accountant")).toBe(
+        "edit",
+      );
+    },
+  );
 
   it.each(["agent:approveProposal", "agent:discardProposal"])(
     "classifies %s as an approval decision",
@@ -125,6 +129,7 @@ describe("IPC permission contracts", () => {
 
   it("keeps the explicit contract table synchronized with the protected channels", () => {
     expect(EXPLICIT_PERMISSION_ACTIONS).toEqual({
+      "recurring:post": "create",
       "voucher:batchTag": "edit",
       "voucher:batchReview": "edit",
       "voucher:batchReverse": "edit",
@@ -143,9 +148,7 @@ describe("IPC permission contracts", () => {
       [
         ...Object.keys(EXPLICIT_PERMISSION_ACTIONS),
         ...Object.keys(IPC_EXPORT_CONTRACTS),
-      ].filter(
-        (channel) => !registered.has(channel),
-      ),
+      ].filter((channel) => !registered.has(channel)),
     ).toEqual([]);
   });
 
@@ -190,6 +193,18 @@ describe("IPC permission contracts", () => {
     }
   });
 
+  it("fails closed for company-wide audit, budget, and cost-centre surfaces", () => {
+    expect(companyWideSurfaceLabelForChannel("audit:list")).toBe(
+      "The audit trail",
+    );
+    expect(companyWideSurfaceLabelForChannel("budget:variance")).toBe(
+      "Budgets",
+    );
+    expect(companyWideSurfaceLabelForChannel("cc:statement")).toBe(
+      "Cost-centre reports",
+    );
+  });
+
   it("keeps voucher authorization inside both cheque document handlers", () => {
     const source = readFileSync(new URL("./ipc.ts", import.meta.url), "utf8");
     const chequePdf = source.slice(
@@ -210,13 +225,16 @@ describe("IPC permission contracts", () => {
     expect(permissionResolvedInsideHandler("integrations:automation:run")).toBe(
       true,
     );
-    expect(permissionResolvedInsideHandler("integrations:automation:save")).toBe(
-      false,
-    );
+    expect(
+      permissionResolvedInsideHandler("integrations:automation:save"),
+    ).toBe(false);
     expect(source).toContain("permissionResolvedInsideHandler(channel)");
   });
 
   it("preserves ordinary create, id-based edit, view, and settings inference", () => {
+    expect(
+      permissionActionForChannel("recurring:post", { id: 1 }, "accountant"),
+    ).toBe("create");
     expect(
       permissionActionForChannel("master:ledgers:create", {}, "accountant"),
     ).toBe("create");

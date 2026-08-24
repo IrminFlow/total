@@ -698,7 +698,12 @@ function DueTodayPanel(): React.JSX.Element | null {
     try {
       const saved = await api.recurring.post(t.id, today);
       await queryClient.invalidateQueries();
-      toast.push("success", `${saved.number} posted from "${t.name}"`);
+      toast.push(
+        "success",
+        saved.approvalRequired
+          ? `"${t.name}" sent for approval`
+          : `${saved.number} posted from "${t.name}"`,
+      );
     } catch (err) {
       toast.push("error", (err as Error).message);
     } finally {

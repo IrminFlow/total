@@ -2424,4 +2424,17 @@ export const MIGRATIONS: string[] = [
     processed_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
+  // 058 - ties a recurring occurrence to maker-checker so the schedule advances only when
+  // the voucher is actually approved. Rejection leaves the occurrence due for correction/retry.
+  `
+  CREATE TABLE recurring_approval_links (
+    approval_request_id INTEGER PRIMARY KEY REFERENCES approval_requests(id) ON DELETE CASCADE,
+    recurring_template_id INTEGER NOT NULL REFERENCES recurring_templates(id) ON DELETE CASCADE,
+    occurrence_date TEXT NOT NULL,
+    next_due TEXT NOT NULL,
+    UNIQUE(recurring_template_id, occurrence_date)
+  );
+  CREATE INDEX idx_recurring_approval_links_template
+    ON recurring_approval_links(recurring_template_id, occurrence_date);
+  `,
 ];
