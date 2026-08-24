@@ -6,7 +6,7 @@ await scenario("50-community-learning", async (h) => {
   await h.goto("settings");
   await h.page.getByRole("button", { name: "Community & learning", exact: true }).click();
   const section = h.page.locator('[data-testid="community-settings"]');
-  await section.getByText("₹0 during the public preview. Your books are never held hostage.", { exact: true }).waitFor();
+  await section.getByText("₹0 in beta. Perpetual licences after beta.", { exact: true }).waitFor();
   await h.shot("01-plan-and-community");
 
   await section.getByText("Share this bounded aggregate envelope only when I choose Send.", { exact: true }).click();

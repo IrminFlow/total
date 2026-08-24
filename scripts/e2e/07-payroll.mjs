@@ -5,6 +5,8 @@
 // RECONCILE: lane S4 moves the renderer preview to the server (payroll:preview) — once merged,
 // assert the Payroll screen's preview table shows these same figures.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 await scenario('07-payroll', async (h) => {
   await h.createDemoCompany()
@@ -84,7 +86,9 @@ await scenario('07-payroll', async (h) => {
     { name: 'Special Allowance', kind: 'earning', calc: 'flat', value: 200000 }
   ] })
   await h.invoke('payroll:loans:create', { employeeId: asha.id, disbursedDate: today, principal: 1000000, annualInterestBps: 900, installmentAmount: 110000, firstDeductionMonth: month, note: 'Relocation advance' })
-  const claim = await h.invoke('payroll:reimbursements:submit', { employeeId: ravi.id, claimDate: today, category: 'Travel', amount: 125000, taxable: false, description: 'Client-site taxi', attachmentPath: '/evidence/taxi.pdf' })
+  const reimbursementEvidence = path.join(h.outDir, 'taxi-evidence.pdf')
+  fs.writeFileSync(reimbursementEvidence, 'synthetic taxi receipt')
+  const claim = await h.invoke('payroll:reimbursements:submit', { employeeId: ravi.id, claimDate: today, category: 'Travel', amount: 125000, taxable: false, description: 'Client-site taxi', attachmentPath: reimbursementEvidence })
   await h.invoke('payroll:reimbursements:decide', { id: claim.id, decision: 'approved' })
   const sections = await h.invoke('tds:sections')
   const contractor = await h.invoke('payroll:contractors:save', { data: { name: 'Build Right Services', pan: 'ABCDE1234F', bankAccount: '50123456789', bankIfsc: 'HDFC0001234', tdsSectionId: sections.find((row) => row.code === '194C').id, active: true } })
