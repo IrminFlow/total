@@ -77,6 +77,25 @@ await scenario('18-composition', async (h) => {
     `the current quarter Q${q} is in the annual return`
   )
 
+  // ---- the printed document is a bill of supply, not a tax invoice ----
+  // A composition dealer may not collect tax and may not issue a tax invoice. Before this the
+  // print said TAX INVOICE with nil CGST/SGST rows, which is a document they are barred from
+  // issuing — so this asserts on the real rendered HTML, not on a helper.
+  const invoices = await h.invoke('edoc:list', { from: iso(qStart), to: iso(qEnd) })
+  assert(invoices.length > 0, 'the demo books have sales invoices in the quarter')
+  const { html } = await h.invoke('invoice:previewHtml', {
+    voucherId: invoices[0].voucherId ?? invoices[0].id
+  })
+  assert(/BILL OF SUPPLY/.test(html), 'the printed document is headed BILL OF SUPPLY')
+  assert(!/TAX INVOICE/.test(html), 'it is not headed TAX INVOICE')
+  assert(
+    /Composition taxable person, not eligible to collect tax on supplies/.test(html),
+    'it carries the rule 5(1)(f) declaration'
+  )
+  for (const tax of ['>CGST<', '>SGST<', '>IGST<']) {
+    assert(!html.includes(tax), `no ${tax} column on a bill of supply`)
+  }
+
   // ---- the screen behind accelerator 4 ----
   await h.page.keyboard.press('Escape')
   await h.page.keyboard.press('g')

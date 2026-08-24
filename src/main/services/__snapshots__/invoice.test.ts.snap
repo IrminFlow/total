@@ -14,6 +14,10 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
     h1 { font-size: 20px; letter-spacing: 0.02em; }
     .tag { text-align: right; font-size: 11px; }
     .tag b { font-size: 14px; letter-spacing: 0.12em; }
+    /* Statutory endorsements. Rule 5(1)(f) wants the composition line at the TOP of the
+       document, so this sits directly under the header band and above the party block. */
+    .endorse { padding: 6px 16px; border-bottom: 1.5px solid #16181f; font-size: 10.5px;
+               font-weight: 600; letter-spacing: 0.02em; }
     .meta { display: flex; border-bottom: 1.5px solid #16181f; }
     .meta > div { flex: 1; padding: 10px 16px; }
     .meta > div + div { border-left: 1px solid #16181f; }
@@ -57,6 +61,7 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
        </div>
         </div>
       </div>
+      
       <div class="meta">
         <div>
           <div class="lbl">Billed to</div>

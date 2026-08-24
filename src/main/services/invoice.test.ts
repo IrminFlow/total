@@ -180,9 +180,46 @@ describe('hsnSummaryForInvoice (Q2 #96 — HSN-wise tax summary block)', () => {
     expect(rows[1]).toMatchObject({ igst: 18000, cgst: 0, sgst: 0 })
   })
 
-  it('uses the IGST column for an inter-state invoice whose lines are all 0%/exempt', () => {
-    // All taxes are zero, so the amounts alone cannot reveal the supply type — buildInvoiceHtml
-    // must fall back to place-of-supply vs company state ('29' vs COMPANY's '27' here).
+  it('prints a composition dealer a bill of supply, with the rule 5(1)(f) line and no tax', () => {
+    // A composition dealer may not collect tax and may not issue a tax invoice. Printing one
+    // with nil CGST/SGST rows is the dealer holding out a document they are barred from issuing.
+    const composition: CompanyInfo = { ...COMPANY, gstRegistrationType: 'composition' }
+    const html = buildInvoiceHtml(composition, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)
+
+    expect(html).toContain('BILL OF SUPPLY')
+    expect(html).not.toContain('TAX INVOICE')
+    expect(html).toContain('Composition taxable person, not eligible to collect tax on supplies')
+    // Not one tax column anywhere: totals table, item table, or HSN summary.
+    expect(html).not.toContain('>CGST<')
+    expect(html).not.toContain('>SGST<')
+    expect(html).not.toContain('>IGST<')
+    expect(html).not.toContain('>GST<')
+    expect(html).toContain('Value of supply')
+    expect(html).not.toContain('Taxable value')
+  })
+
+  it('keeps a tax invoice for a reverse-charge supply and says who owes the tax', () => {
+    // Zero tax on the face of it, but the tax exists — the buyer pays it. Rule 46(p).
+    const rcm: EdocInvoice = {
+      ...SAMPLE_INVOICE,
+      rchrg: true,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      total: SAMPLE_INVOICE.taxable,
+      items: [item({ rate: 18, cgst: 0, sgst: 0, igst: 0 })]
+    }
+    const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, rcm)
+    expect(html).toContain(DEFAULT_INVOICE_CONFIG.title)
+    expect(html).not.toContain('BILL OF SUPPLY')
+    expect(html).toContain('Tax payable on reverse charge basis')
+    // The tax columns stay, at nil, which is exactly what a reverse-charge invoice shows.
+    expect(html).toContain('>CGST<')
+  })
+
+  it('prints an all-0%/exempt supply as a bill of supply, with no tax columns at all', () => {
+    // A regular dealer's wholly-exempt supply owes a bill of supply under s.31(3)(c). This used
+    // to print TAX INVOICE with a nil IGST column, which reads as tax charged at zero.
     const inv: EdocInvoice = {
       ...SAMPLE_INVOICE,
       partyStateCode: '29',
@@ -194,8 +231,18 @@ describe('hsnSummaryForInvoice (Q2 #96 — HSN-wise tax summary block)', () => {
       items: [item({ rate: 0, cgst: 0, sgst: 0, igst: 0 })]
     }
     const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, inv)
-    expect(html).toContain('>IGST<')
+    expect(html).toContain('BILL OF SUPPLY')
+    expect(html).not.toContain('>IGST<')
     expect(html).not.toContain('>CGST<')
+    expect(html).toContain('Value of supply')
+
+    // The same document exported without payment of tax IS a tax invoice, and keeps the column:
+    // zero-rated is not exempt. All taxes are still zero, so buildInvoiceHtml has to fall back to
+    // place-of-supply vs company state ('29' vs COMPANY's '27') to pick the column.
+    const exported = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, { ...inv, supTyp: 'EXPWOP' })
+    expect(exported).toContain('>IGST<')
+    expect(exported).not.toContain('>CGST<')
+    expect(exported).toContain('without payment of integrated tax')
 
     const rows = hsnSummaryForInvoice(inv, 'inter')
     expect(rows[0]).toMatchObject({ rate: 0, cgst: 0, sgst: 0, igst: 0 })

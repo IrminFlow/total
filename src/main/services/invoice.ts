@@ -8,6 +8,12 @@ import { amountInWords, formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { GST_STATES } from '@shared/gst/states'
 import { computeGst } from '@shared/gst/calc'
+import {
+  showsTax,
+  supplyDocumentKind,
+  supplyDocumentTitle,
+  supplyEndorsements
+} from '@shared/gst/billOfSupply'
 import { mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
 import { einvoiceQrPayload } from '@shared/einvoiceQr'
 import { extractEdocInvoices } from './edocs'
@@ -144,10 +150,28 @@ export function buildInvoiceHtml(
       : inv.cgst > 0 || inv.sgst > 0
         ? true
         : (inv.supTyp == null || inv.supTyp === 'B2B') && inv.pos === company.stateCode
+  // Tax invoice, bill of supply, or a plain invoice from an unregistered business. A composition
+  // dealer may not issue a tax invoice at all, and a regular dealer's wholly-exempt supply owes a
+  // bill of supply -- both of which the print used to label TAX INVOICE regardless.
+  const docKind = supplyDocumentKind({
+    gstRegistrationType: company.gstRegistrationType,
+    taxPaise: inv.cgst + inv.sgst + inv.igst + inv.cess,
+    supTyp: inv.supTyp,
+    reverseCharge: inv.rchrg
+  })
+  const withTax = showsTax(docKind)
+  const endorsements = supplyEndorsements({
+    gstRegistrationType: company.gstRegistrationType,
+    taxPaise: inv.cgst + inv.sgst + inv.igst + inv.cess,
+    supTyp: inv.supTyp,
+    reverseCharge: inv.rchrg
+  })
+
   const showHsn = config.showHsn
   const showDiscount = config.showDiscount
   const showBarcode = config.showItemBarcode && inv.items.some((i) => i.barcode)
-  const columnCount = 6 + (showHsn ? 1 : 0) + (showBarcode ? 1 : 0) + (showDiscount ? 1 : 0)
+  // The GST-rate column goes with the tax: a rate printed on a bill of supply is a rate charged.
+  const columnCount = 5 + (withTax ? 1 : 0) + (showHsn ? 1 : 0) + (showBarcode ? 1 : 0) + (showDiscount ? 1 : 0)
 
   const itemRow = (item: EdocInvoice['items'][number], i: number): string => `
       <tr>
@@ -158,7 +182,7 @@ export function buildInvoiceHtml(
         <td class="r num">${item.qtyMilli / 1000} ${esc(item.uqc)}</td>
         <td class="r num">${money(item.unitPricePaise)}</td>
         ${showDiscount ? `<td class="r num">${item.discountPaise ? money(item.discountPaise) : '–'}</td>` : ''}
-        <td class="c num">${item.rate}%</td>
+        ${withTax ? `<td class="c num">${item.rate}%</td>` : ''}
         <td class="r num">${money(item.taxablePaise)}</td>
       </tr>`
 
@@ -168,7 +192,7 @@ export function buildInvoiceHtml(
           ${showBarcode ? '<th class="c" style="width:100px">Barcode</th>' : ''}
           <th class="r" style="width:90px">Qty</th><th class="r" style="width:100px">Rate</th>
           ${showDiscount ? '<th class="r" style="width:80px">Discount</th>' : ''}
-          <th class="c" style="width:60px">GST</th><th class="r" style="width:110px">Amount</th>
+          ${withTax ? '<th class="c" style="width:60px">GST</th>' : ''}<th class="r" style="width:110px">Amount</th>
         </tr>`
 
   // Long invoices split into pages of INVOICE_ITEMS_PER_PAGE items, with a "Carried forward"
@@ -210,17 +234,17 @@ export function buildInvoiceHtml(
     ? `
       <table class="hsn">
         <thead><tr>
-          <th>HSN/SAC</th><th class="c" style="width:60px">Rate</th><th class="r" style="width:110px">Taxable</th>
-          ${isIntra ? '<th class="r" style="width:100px">CGST</th><th class="r" style="width:100px">SGST</th>' : '<th class="r" style="width:100px">IGST</th>'}
-          ${anyCess ? '<th class="r" style="width:100px">Cess</th>' : ''}
+          <th>HSN/SAC</th>${withTax ? '<th class="c" style="width:60px">Rate</th>' : ''}<th class="r" style="width:110px">${withTax ? 'Taxable' : 'Value'}</th>
+          ${withTax ? (isIntra ? '<th class="r" style="width:100px">CGST</th><th class="r" style="width:100px">SGST</th>' : '<th class="r" style="width:100px">IGST</th>') : ''}
+          ${withTax && anyCess ? '<th class="r" style="width:100px">Cess</th>' : ''}
         </tr></thead>
         <tbody>
         ${hsnRows
           .map(
             (r) => `<tr>
-          <td class="num">${r.hsn ? esc(r.hsn) : '—'}</td><td class="c num">${r.rate}%</td><td class="r num">${money(r.taxable)}</td>
-          ${isIntra ? `<td class="r num">${money(r.cgst)}</td><td class="r num">${money(r.sgst)}</td>` : `<td class="r num">${money(r.igst)}</td>`}
-          ${anyCess ? `<td class="r num">${money(r.cess)}</td>` : ''}
+          <td class="num">${r.hsn ? esc(r.hsn) : '—'}</td>${withTax ? `<td class="c num">${r.rate}%</td>` : ''}<td class="r num">${money(r.taxable)}</td>
+          ${withTax ? (isIntra ? `<td class="r num">${money(r.cgst)}</td><td class="r num">${money(r.sgst)}</td>` : `<td class="r num">${money(r.igst)}</td>`) : ''}
+          ${withTax && anyCess ? `<td class="r num">${money(r.cess)}</td>` : ''}
         </tr>`
           )
           .join('')}
@@ -229,10 +253,10 @@ export function buildInvoiceHtml(
     : ''
 
   const taxRows = [
-    isIntra ? `<tr><td>CGST</td><td class="r num">${money(inv.cgst)}</td></tr>` : '',
-    isIntra ? `<tr><td>SGST</td><td class="r num">${money(inv.sgst)}</td></tr>` : '',
-    !isIntra ? `<tr><td>IGST</td><td class="r num">${money(inv.igst)}</td></tr>` : '',
-    inv.cess > 0 ? `<tr><td>Cess</td><td class="r num">${money(inv.cess)}</td></tr>` : '',
+    withTax && isIntra ? `<tr><td>CGST</td><td class="r num">${money(inv.cgst)}</td></tr>` : '',
+    withTax && isIntra ? `<tr><td>SGST</td><td class="r num">${money(inv.sgst)}</td></tr>` : '',
+    withTax && !isIntra ? `<tr><td>IGST</td><td class="r num">${money(inv.igst)}</td></tr>` : '',
+    withTax && inv.cess > 0 ? `<tr><td>Cess</td><td class="r num">${money(inv.cess)}</td></tr>` : '',
     inv.roundOff !== 0 ? `<tr><td>Round off</td><td class="r num">${money(inv.roundOff)}</td></tr>` : ''
   ].join('')
 
@@ -281,10 +305,15 @@ export function buildInvoiceHtml(
           <div class="num">GSTIN: ${esc(company.gstin ?? 'Unregistered')} · ${esc(GST_STATES[company.stateCode] ?? company.stateCode)}</div>
         </div>
         <div class="tag">
-          <b>${esc(config.title)}</b>
+          <b>${esc(supplyDocumentTitle(docKind, config.title))}</b>
           ${qrBlock}
         </div>
       </div>
+      ${
+        endorsements.length
+          ? `<div class="endorse">${endorsements.map((e) => `<div>${esc(e)}</div>`).join('')}</div>`
+          : ''
+      }
       <div class="meta">
         <div>
           <div class="lbl">Billed to</div>
@@ -312,7 +341,7 @@ export function buildInvoiceHtml(
           ${termsBlock}
         </div>
         <table class="tot">
-          <tr><td>Taxable value</td><td class="r num">${money(inv.taxable)}</td></tr>
+          <tr><td>${withTax ? 'Taxable value' : 'Value of supply'}</td><td class="r num">${money(inv.taxable)}</td></tr>
           ${taxRows}
           <tr class="grand"><td>Total</td><td class="r num">₹ ${money(inv.total)}</td></tr>
         </table>
@@ -356,6 +385,10 @@ export function buildInvoiceHtml(
     h1 { font-size: 20px; letter-spacing: 0.02em; }
     .tag { text-align: right; font-size: 11px; }
     .tag b { font-size: 14px; letter-spacing: 0.12em; }
+    /* Statutory endorsements. Rule 5(1)(f) wants the composition line at the TOP of the
+       document, so this sits directly under the header band and above the party block. */
+    .endorse { padding: 6px 16px; border-bottom: 1.5px solid #16181f; font-size: 10.5px;
+               font-weight: 600; letter-spacing: 0.02em; }
     .meta { display: flex; border-bottom: 1.5px solid #16181f; }
     .meta > div { flex: 1; padding: 10px 16px; }
     .meta > div + div { border-left: 1px solid #16181f; }

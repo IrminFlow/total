@@ -105,7 +105,7 @@ Ordering within a section is roughly by value.
 85. ITC ageing: input credit not claimed within the statutory window (M)
 86. E-invoice threshold awareness by declared turnover band (S)
 87. Reverse-charge ledger auto-selection on notified supplies (M)
-88. Bill of supply for exempt and composition sales (M)
+88. ✓ Bill of supply for exempt and composition sales (M)
 89. Delivery challan and job-work challan (ITC-04) (L)
 90. TCS on sale of goods, section 206C(1H) (M)
 91. 26AS reconciliation against TDS entries (L)

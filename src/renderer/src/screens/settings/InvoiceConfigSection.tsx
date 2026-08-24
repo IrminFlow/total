@@ -11,13 +11,24 @@ const PREVIEW_DEBOUNCE_MS = 400
 export function InvoiceConfigSection(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const { user } = useSession()
+  const { user, info } = useSession()
   const { data: existing } = useQuery({ queryKey: ['invoiceConfig'], queryFn: api.config.invoice.get })
   const [draft, setDraft] = useState<InvoiceConfig | null>(null)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const value = draft ?? existing ?? DEFAULT_INVOICE_CONFIG
   const canEdit = user?.role === 'owner'
+
+  // A composition dealer prints BILL OF SUPPLY and an unregistered business prints INVOICE, and
+  // neither heading is theirs to choose -- so the field is shown as overridden rather than left
+  // editable and silently ignored by the printer. A regular dealer's exempt-only supply also
+  // prints a bill of supply, but that is per-document, so the field still applies to them.
+  const statutoryTitle =
+    info?.gstRegistrationType === 'composition'
+      ? 'BILL OF SUPPLY'
+      : info?.gstRegistrationType === 'unregistered'
+        ? 'INVOICE'
+        : null
 
   // Debounce the current (possibly unsaved) draft into the preview query key so the iframe
   // updates as you type, without needing a Save round-trip. The server merges this partial
@@ -86,8 +97,19 @@ export function InvoiceConfigSection(): React.JSX.Element {
       <div className="grid grid-cols-2 gap-5">
         <Panel className="p-5">
           <div className="flex flex-col gap-3">
-            <Field label="Title" hint="Printed at the top-right of the invoice">
-              <TextInput value={value.title} onChange={(e) => set({ title: e.target.value })} disabled={!canEdit} />
+            <Field
+              label="Title"
+              hint={
+                statutoryTitle
+                  ? `Overridden: this company prints "${statutoryTitle}", which the law fixes and not the company`
+                  : 'Printed at the top-right of the invoice'
+              }
+            >
+              <TextInput
+                value={value.title}
+                onChange={(e) => set({ title: e.target.value })}
+                disabled={!canEdit || !!statutoryTitle}
+              />
             </Field>
             <Field label="Logo" hint="PNG or JPEG, under 200KB — shown top-left">
               <div className="flex items-center gap-3">
