@@ -30,3 +30,20 @@ for (const workflow of [
     assert.match(source, /CRON_SECRET: \$\{\{ secrets\.CRON_SECRET \}\}/);
   });
 }
+
+test("release candidate treats the dispatched version as untrusted shell data", () => {
+  const source = readFileSync(
+    resolve(root, ".github/workflows/release-candidate.yml"),
+    "utf8",
+  );
+  const shellBodies = [...source.matchAll(/run: \|\n((?: {10}.*\n?)*)/g)]
+    .map((match) => match[1])
+    .join("\n");
+
+  assert.doesNotMatch(shellBodies, /\$\{\{ inputs\.version \}\}/);
+  assert.match(source, /RELEASE_VERSION: \$\{\{ inputs\.version \}\}/);
+  assert.match(
+    shellBodies,
+    /\[\[ "\$RELEASE_VERSION" =~ \^\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$ \]\]/,
+  );
+});

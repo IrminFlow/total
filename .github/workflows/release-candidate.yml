@@ -15,6 +15,7 @@ on:
         type: string
 
 env:
+  RELEASE_VERSION: ${{ inputs.version }}
   RELEASE_TAG: v${{ inputs.version }}
   RELEASE_REVISION: ${{ inputs.source_revision }}
 
@@ -46,6 +47,10 @@ jobs:
       - name: Require the exact candidate commit to be on main
         shell: bash
         run: |
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Version must be an exact stable semantic version (for example, 0.5.0)." >&2
+            exit 1
+          }
           git fetch origin main --no-tags
           test "$(git rev-parse HEAD)" = "$RELEASE_REVISION" || {
             echo "Checkout does not match the requested candidate revision." >&2
@@ -55,7 +60,7 @@ jobs:
             echo "Candidate revision must already be merged into main." >&2
             exit 1
           }
-          test "$(node -p "require('./package.json').version")" = "${{ inputs.version }}" || {
+          test "$(node -p "require('./package.json').version")" = "$RELEASE_VERSION" || {
             echo "Requested version does not match package.json at the candidate revision." >&2
             exit 1
           }
@@ -376,7 +381,7 @@ jobs:
           {
             echo "### Signed candidate"
             echo "- Revision: \`$RELEASE_REVISION\`"
-            echo "- Version: \`${{ inputs.version }}\`"
+            echo "- Version: \`$RELEASE_VERSION\`"
             echo "- Run: \`${{ github.run_id }}\`, attempt \`${{ github.run_attempt }}\`"
             echo "- Artifact ID: \`${{ steps.candidate-upload.outputs.artifact-id }}\`"
             echo "- Manifest SHA-256: \`$manifest_sha\`"
