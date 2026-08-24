@@ -1,30 +1,33 @@
 /**
  * Agent access layer (lane A): CSV/JSON mirrors of the books under `<company>/agent/`, plus the
  * validated `<company>/inbox/` drop-folder that lets external agents (Claude Code, Codex, ...)
- * post vouchers and masters without touching SQLite directly.
+ * prepare inert voucher proposals and import explicitly supported master CSVs without touching
+ * SQLite directly.
  *
- * Every write goes through the exact same code path as the UI: zod `voucherInputSchema` →
- * `saveVoucher` (which runs `validateVoucher` + the period lock) — the inbox/CLI can never post
- * anything the voucher screen would reject. Reads are recomputed from voucher_lines at export
- * time, never denormalised.
+ * Voucher JSON never posts from the drop folder. It is schema-checked and placed in the same
+ * human review queue as MCP/AI drafts. Posting happens only after an authenticated approval and
+ * the ordinary permission, department, discount and maker-checker gates. Reads are recomputed
+ * from voucher_lines at export time, never denormalised.
  *
  * Concurrency: the app and the CLI may have the same company.db open at once — WAL journal mode
  * + busy_timeout (set in db/connection.ts) make that safe; nothing here takes exclusive locks.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, watch, writeFileSync, type FSWatcher } from 'fs'
 import { basename, extname, join } from 'path'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { Notification } from 'electron'
 import type { DB } from '../db/connection'
 import { companyDir } from '../paths'
 import { rowsToCsv } from '@shared/csv'
 import { fyOf, todayISO } from '@shared/dates'
 import { voucherInputSchema } from '@shared/schemas'
-import type { Voucher } from '@shared/domain'
+import type { VoucherInputParsed } from '@shared/schemas'
+import type { Voucher, VoucherKind } from '@shared/domain'
+import { validateVoucher, type LedgerFacts } from '@shared/posting'
 import * as masters from './masters'
 import { trialBalance } from './reports'
 import { outstandings } from './analysis'
-import { getVoucher, saveVoucher, NOT_DELETED } from './vouchers'
+import { getVoucher, NOT_DELETED } from './vouchers'
 import { applyImport, type ImportKind, type ImportResult } from './importers'
 import { runAsAuditUser } from './audit'
 import { log } from '../log'
@@ -92,6 +95,24 @@ function safeProposalName(file: string): string {
   return name
 }
 
+function readProposal(slug: string, file: string): { proposal: AgentProposal; sha256: string } {
+  const name = safeProposalName(file)
+  const path = join(proposalsDir(slug), name)
+  if (!existsSync(path)) throw new Error('Proposal no longer exists')
+  if (statSync(path).size > 512 * 1024) throw new Error('Proposal is too large')
+  const text = readFileSync(path, 'utf8')
+  const parsed = JSON.parse(text) as AgentProposal
+  if (parsed.version !== 1 || parsed.status !== 'pending' || !parsed.voucher) throw new Error('Invalid proposal')
+  return {
+    proposal: { ...parsed, id: name },
+    sha256: createHash('sha256').update(text).digest('hex')
+  }
+}
+
+export function getProposal(slug: string, file: string): AgentProposal {
+  return readProposal(slug, file).proposal
+}
+
 /** Read-only listing of reviewable agent drafts. Nothing in proposals/ affects the books. */
 export function listProposals(slug: string): AgentProposal[] {
   const dir = proposalsDir(slug)
@@ -122,30 +143,103 @@ export function approveProposal(
   db: DB,
   slug: string,
   file: string,
-  actor: VoucherPostingActor | null
+  actor: VoucherPostingActor | null,
+  authorize?: (input: VoucherInputParsed) => void
 ): ControlledVoucherPostResult {
   const name = safeProposalName(file)
   const dir = proposalsDir(slug)
   const path = join(dir, name)
-  if (!existsSync(path)) throw new Error('Proposal no longer exists')
-  if (statSync(path).size > 512 * 1024) throw new Error('Proposal is too large')
-  const proposal = JSON.parse(readFileSync(path, 'utf8')) as AgentProposal
-  if (proposal.version !== 1 || proposal.status !== 'pending') throw new Error('Invalid proposal')
+  const resultRow = db.prepare(
+    `SELECT proposal_sha256 AS proposalSha256,proposal_json AS proposalJson,result_kind AS resultKind,
+            result_id AS resultId,result_json AS resultJson
+     FROM agent_proposal_results WHERE proposal_id=?`
+  )
+  type ResultRow = {
+    proposalSha256: string
+    proposalJson: string
+    resultKind: 'voucher' | 'approval_request'
+    resultId: number
+    resultJson: string
+  }
+  const decodeResult = (row: ResultRow): ControlledVoucherPostResult => {
+    const result = JSON.parse(row.resultJson) as ControlledVoucherPostResult
+    const identity = result.approvalRequired ? result.request.id : result.id
+    const kind = result.approvalRequired ? 'approval_request' : 'voucher'
+    if (identity !== row.resultId || kind !== row.resultKind) {
+      throw new Error('Stored proposal result is inconsistent')
+    }
+    return result
+  }
+  const archive = (): void => {
+    if (!existsSync(path)) return
+    const reviewed = join(dir, 'reviewed')
+    mkdirSync(reviewed, { recursive: true })
+    renameSync(path, join(reviewed, `${stamp()}-${name}`))
+  }
+
+  const previous = resultRow.get(name) as ResultRow | undefined
+  if (previous) {
+    authorize?.(voucherInputSchema.parse(JSON.parse(previous.proposalJson)))
+    if (existsSync(path)) {
+      const pending = readProposal(slug, name)
+      if (pending.sha256 !== previous.proposalSha256) {
+        throw new Error('Proposal content changed after it was processed')
+      }
+      // The accounting result is already durable. Archival is housekeeping on a replay and must
+      // not turn a successful, idempotent retry into another apparent posting failure.
+      try {
+        archive()
+      } catch (error) {
+        log('warn', 'agent-proposal-archive-retry-failed', {
+          slug,
+          proposalId: name,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+    return decodeResult(previous)
+  }
+
+  const { proposal, sha256 } = readProposal(slug, name)
   const input = voucherInputSchema.parse(proposal.voucher)
+  authorize?.(input)
   assertVoucherDiscountAuthority(db, input, actor)
   const saved = runAsAuditUser(`agent-${proposal.source}`, () =>
-    db.transaction(() => postVoucherWithApprovalControl(db, input, actor))()
+    db.transaction(() => {
+      // Recheck under the write transaction so two near-simultaneous approvals share one result.
+      const concurrent = resultRow.get(name) as ResultRow | undefined
+      if (concurrent) {
+        if (concurrent.proposalSha256 !== sha256) {
+          throw new Error('Proposal content changed while it was being processed')
+        }
+        return decodeResult(concurrent)
+      }
+      const result = postVoucherWithApprovalControl(db, input, actor)
+      const resultKind = result.approvalRequired ? 'approval_request' : 'voucher'
+      const resultId = result.approvalRequired ? result.request.id : result.id
+      db.prepare(
+        `INSERT INTO agent_proposal_results
+         (proposal_id,proposal_sha256,proposal_json,result_kind,result_id,result_json)
+         VALUES(?,?,?,?,?,?)`
+      ).run(name, sha256, JSON.stringify(input), resultKind, resultId, JSON.stringify(result))
+      return result
+    })()
   )
-  const reviewed = join(dir, 'reviewed')
-  mkdirSync(reviewed, { recursive: true })
-  renameSync(path, join(reviewed, `${stamp()}-${name}`))
+  // Deliberately after the DB commit. If this fails, the durable result above makes every retry
+  // return the same voucher/request rather than posting again.
+  archive()
   return saved
 }
 
-export function discardProposal(slug: string, file: string): void {
-  const name = safeProposalName(file)
+export function discardProposal(
+  slug: string,
+  file: string,
+  authorize?: (proposal: AgentProposal) => void
+): void {
+  const proposal = getProposal(slug, file)
+  authorize?.(proposal)
+  const name = proposal.id
   const path = join(proposalsDir(slug), name)
-  if (!existsSync(path)) throw new Error('Proposal no longer exists')
   rmSync(path)
 }
 
@@ -345,13 +439,33 @@ class CsvRowErrors extends Error {
   }
 }
 
+/** Pure posting validation for inert proposals. It catches unbalanced/invalid accounting drafts
+ * without allocating a voucher number, touching period state, or calling saveVoucher. */
+function validateInertVoucher(db: DB, input: VoucherInputParsed): void {
+  const voucherType = db.prepare('SELECT kind FROM voucher_types WHERE id=?').get(input.voucherTypeId) as
+    | { kind: VoucherKind }
+    | undefined
+  if (!voucherType) throw new Error('Voucher type not found')
+  const cashBankGroups = masters.cashBankGroupIds(db)
+  const ledger = db.prepare('SELECT group_id AS groupId FROM ledgers WHERE id=?')
+  const cache = new Map<number, LedgerFacts>()
+  const facts = (id: number): LedgerFacts => {
+    const known = cache.get(id)
+    if (known) return known
+    const row = ledger.get(id) as { groupId: number } | undefined
+    const resolved = { exists: !!row, isCashOrBank: !!row && cashBankGroups.has(row.groupId) }
+    cache.set(id, resolved)
+    return resolved
+  }
+  const errors = validateVoucher(input, voucherType.kind, facts)
+  if (errors.length > 0) throw new Error(errors.map((error) => error.message).join('; '))
+}
+
 /**
- * Validate + apply one dropped file, then move it to `inbox/processed/<ts>-<file>` on success or
- * `inbox/failed/<file>` (+ `<file>.error.txt`) on failure. `*.json` = voucher input (single object
- * or array); `*.csv` = masters import (ledgers/items, sniffed from the header). BOTH kinds apply
- * atomically per file — any bad voucher or bad CSV row rolls back the entire drop, so a failure
- * report always truthfully means "nothing was applied". All writes are audited as user
- * 'agent-inbox' and run through the same validation/period-lock path as the UI.
+ * Validate one dropped file, then move it to `inbox/processed/<ts>-<file>` on success or
+ * `inbox/failed/<file>` (+ `<file>.error.txt`) on failure. `*.json` = inert voucher proposal
+ * (single object or array); `*.csv` = masters import (ledgers/items, sniffed from the header).
+ * JSON never changes the books. CSV applies atomically per file and is audited as agent-inbox.
  *
  * Concurrent writers: agents that write the drop in place (no temp-file-then-rename) can be read
  * mid-write. When the content doesn't parse, the file is re-read after a short pause for as long
@@ -423,17 +537,19 @@ export function processInboxFile(db: DB, slug: string, filePath: string): InboxO
       }
       const items = Array.isArray(parsed) ? parsed : [parsed]
       if (items.length === 0) return fail('Empty voucher array')
-      // All-or-nothing per file: saveVoucher's own transaction nests as a savepoint inside this
-      // one, so a failure on voucher 3 of 5 rolls back 1-2 as well — no half-applied drops.
-      const posted = runAsAuditUser('agent-inbox', () =>
-        db.transaction(() =>
-          items.map((item) => {
-            const input = voucherInputSchema.parse(item)
-            return saveVoucher(db, input)
-          })
-        )()
+      // Validate the complete file before creating any proposal, so one malformed member leaves
+      // the review queue unchanged. Approval is a separate authenticated action.
+      const inputs = items.map((item) => voucherInputSchema.parse(item))
+      for (const input of inputs) validateInertVoucher(db, input)
+      const proposals = inputs.map((input, index) =>
+        createProposal(
+          slug,
+          'external',
+          `Inbox voucher proposal${inputs.length > 1 ? ` ${index + 1}/${inputs.length}` : ''} · ${input.date}`,
+          input
+        )
       )
-      return succeed(`posted ${posted.length} voucher(s): ${posted.map((v) => `#${v.number} (id ${v.id})`).join(', ')}`)
+      return succeed(`queued ${proposals.length} voucher proposal(s) for review`)
     }
     if (ext === '.csv') {
       for (let attempt = 0; ; attempt++) {

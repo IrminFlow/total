@@ -1,4 +1,4 @@
-// Inbox drop-folder semantics: valid voucher JSON posts (audited as 'agent-inbox') and moves to
+// Inbox drop-folder semantics: valid voucher JSON creates inert review proposals and moves to
 // processed/; invalid drops move to failed/ with an .error.txt; multi-voucher files are atomic.
 // The fs.watch wiring itself isn't timing-tested here — scanInbox/processInboxFile ARE the watcher
 // callback body, so this covers the whole pipeline deterministically.
@@ -11,6 +11,7 @@ import { getAgentBridgeEnabled, setAgentBridgeEnabled } from './config'
 import { approveProposal, createProposal, discardProposal, inboxDir, listProposals, processInboxFile, scanInbox } from './agentBridge'
 import { cmdCreateCompany, openCompany } from '../cli/commands'
 import type { DB } from '../db/connection'
+import { companyDir } from '../paths'
 import { saveDiscountPolicy } from './discountAuthority'
 import { listApprovalRequests, setApprovalPolicy } from './approvals'
 import { saveUser } from './users'
@@ -85,7 +86,11 @@ describe('inbox drop processing', () => {
     expect(audit.user_name).toBe('agent-inbox')
   })
 
-  it('posts a valid voucher JSON drop and audits it as agent-inbox', () => {
+  it('turns a valid voucher JSON drop into an inert review proposal', () => {
+    const before = voucherCount()
+    const voucherAuditsBefore = (db.prepare(
+      "SELECT COUNT(*) AS n FROM audit_log WHERE entity='voucher'"
+    ).get() as { n: number }).n
     const file = join(inbox, 'sale.json')
     writeFileSync(
       file,
@@ -101,14 +106,13 @@ describe('inbox drop processing', () => {
     )
     const outcome = processInboxFile(db, slug, file)
     expect(outcome.ok).toBe(true)
-    expect(outcome.detail).toContain('posted 1 voucher')
-    expect(voucherCount()).toBe(1)
-    const audit = db
-      .prepare("SELECT user_name FROM audit_log WHERE entity = 'voucher' ORDER BY id DESC LIMIT 1")
-      .get() as { user_name: string }
-    expect(audit.user_name).toBe('agent-inbox')
-    // The app session user is restored after the inbox write.
-    db.prepare("SELECT 1").get()
+    expect(outcome.detail).toContain('queued 1 voucher proposal')
+    expect(voucherCount()).toBe(before)
+    expect(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity='voucher'").get())
+      .toEqual({ n: voucherAuditsBefore })
+    const proposal = listProposals(slug).find((row) => row.source === 'external')
+    expect(proposal).toMatchObject({ status: 'pending', source: 'external' })
+    discardProposal(slug, proposal!.id)
   })
 
   it('rejects an invalid drop into failed/ with an error file, changing nothing', () => {
@@ -132,6 +136,7 @@ describe('inbox drop processing', () => {
 
   it('is atomic across a multi-voucher file — one bad voucher rolls back the whole drop', () => {
     const before = voucherCount()
+    const proposalsBefore = listProposals(slug).length
     const good = {
       voucherTypeId: receiptTypeId(),
       date: '2025-08-03',
@@ -145,7 +150,8 @@ describe('inbox drop processing', () => {
     writeFileSync(file, JSON.stringify([good, good, bad]))
     const outcome = processInboxFile(db, slug, file)
     expect(outcome.ok).toBe(false)
-    expect(voucherCount()).toBe(before) // the two good ones rolled back too
+    expect(voucherCount()).toBe(before)
+    expect(listProposals(slug)).toHaveLength(proposalsBefore)
   })
 
   it('rejects malformed JSON and unknown extensions with readable errors', () => {
@@ -226,6 +232,58 @@ describe('agent proposal review queue', () => {
     expect(audit.user_name).toBe('agent-mcp')
   })
 
+  it('rolls posting back when the durable proposal result cannot be recorded', () => {
+    const before = voucherCount()
+    const proposal = createProposal(slug, 'ai', 'Injected result-ledger failure', draft())
+    db.exec(`CREATE TRIGGER fail_agent_proposal_result
+      BEFORE INSERT ON agent_proposal_results
+      BEGIN SELECT RAISE(ABORT, 'injected proposal result failure'); END`)
+
+    expect(() => approveProposal(db, slug, proposal.id, null))
+      .toThrow(/injected proposal result failure/)
+    expect(voucherCount()).toBe(before)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM agent_proposal_results WHERE proposal_id=?').get(proposal.id))
+      .toEqual({ n: 0 })
+    expect(listProposals(slug).map((row) => row.id)).toContain(proposal.id)
+
+    db.exec('DROP TRIGGER fail_agent_proposal_result')
+    const retry = approveProposal(db, slug, proposal.id, null)
+    expect(retry.approvalRequired).toBe(false)
+    expect(voucherCount()).toBe(before + 1)
+  })
+
+  it('returns the same posted voucher after archival failure instead of posting twice', () => {
+    const before = voucherCount()
+    const proposal = createProposal(slug, 'mcp', 'Archive failure replay', draft())
+    const reviewed = join(companyDir(slug), 'proposals', 'reviewed')
+    rmSync(reviewed, { recursive: true, force: true })
+    writeFileSync(reviewed, 'blocks reviewed directory creation')
+
+    expect(() => approveProposal(db, slug, proposal.id, null)).toThrow()
+    expect(voucherCount()).toBe(before + 1)
+    expect(listProposals(slug).map((row) => row.id)).toContain(proposal.id)
+    const durable = db.prepare(
+      `SELECT result_kind AS resultKind,result_id AS resultId
+       FROM agent_proposal_results WHERE proposal_id=?`
+    ).get(proposal.id) as { resultKind: string; resultId: number }
+    expect(durable.resultKind).toBe('voucher')
+
+    rmSync(reviewed)
+    const retry = approveProposal(db, slug, proposal.id, null)
+    expect(retry.approvalRequired).toBe(false)
+    if (retry.approvalRequired) throw new Error('Unexpected approval request')
+    expect(retry.id).toBe(durable.resultId)
+    expect(voucherCount()).toBe(before + 1)
+    expect(listProposals(slug).map((row) => row.id)).not.toContain(proposal.id)
+
+    // A client retry after the file has already moved still resolves from the durable ledger.
+    const afterMoveRetry = approveProposal(db, slug, proposal.id, null)
+    expect(afterMoveRetry.approvalRequired).toBe(false)
+    if (afterMoveRetry.approvalRequired) throw new Error('Unexpected approval request')
+    expect(afterMoveRetry.id).toBe(durable.resultId)
+    expect(voucherCount()).toBe(before + 1)
+  })
+
   it('discards a draft without changing the books', () => {
     const before = voucherCount()
     const proposal = createProposal(slug, 'ai', 'discard me', draft())
@@ -279,9 +337,11 @@ describe('agent proposal review queue', () => {
     expect(db.prepare(
       "SELECT actor_role AS actorRole, actor_name AS actorName, outcome FROM sales_discount_events ORDER BY id DESC LIMIT 1"
     ).get()).toEqual({ actorRole: 'accountant', actorName: 'Restricted accountant', outcome: 'blocked' })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM agent_proposal_results WHERE proposal_id=?').get(proposal.id))
+      .toEqual({ n: 0 })
   })
 
-  it('routes a controlled proposal into maker-checker without posting a voucher', () => {
+  it('routes a controlled proposal into maker-checker once even when archival fails', () => {
     const owner = saveUser(db, { name: 'Proposal owner', role: 'owner', pin: '1357' })
     const maker = saveUser(db, { name: 'Proposal maker', role: 'accountant', pin: '2468' })
     setApprovalPolicy(db, {
@@ -293,13 +353,27 @@ describe('agent proposal review queue', () => {
     })
     const before = voucherCount()
     const proposal = createProposal(slug, 'ai', 'Controlled receipt', draft())
+    const reviewed = join(companyDir(slug), 'proposals', 'reviewed')
+    rmSync(reviewed, { recursive: true, force: true })
+    writeFileSync(reviewed, 'blocks reviewed directory creation')
 
+    expect(() => approveProposal(db, slug, proposal.id, maker)).toThrow()
+    expect(voucherCount()).toBe(before)
+    expect(listApprovalRequests(db)).toHaveLength(1)
+    const durable = db.prepare(
+      `SELECT result_kind AS resultKind,result_id AS resultId
+       FROM agent_proposal_results WHERE proposal_id=?`
+    ).get(proposal.id) as { resultKind: string; resultId: number }
+    expect(durable.resultKind).toBe('approval_request')
+
+    rmSync(reviewed)
     const result = approveProposal(db, slug, proposal.id, maker)
 
     expect(result.approvalRequired).toBe(true)
     if (!result.approvalRequired) throw new Error('Expected maker-checker handoff')
     expect(voucherCount()).toBe(before)
     expect(result.request).toMatchObject({
+      id: durable.resultId,
       status: 'pending',
       makerUserId: maker.id,
       makerName: maker.name,

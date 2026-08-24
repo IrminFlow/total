@@ -146,6 +146,7 @@ const EXPECTED_TABLES = [
   "import_mapping_profiles",
   "import_voucher_attachments",
   "portable_export_receipts",
+  "agent_proposal_results",
   "ai_document_inbox",
   "ai_task_routes",
   "ai_ledger_feedback",

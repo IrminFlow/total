@@ -2410,4 +2410,18 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE ledgers ADD COLUMN email TEXT;
   ALTER TABLE ledgers ADD COLUMN phone TEXT;
   `,
+  // 057 - durable idempotency ledger for human-reviewed agent proposals. The accounting or
+  // maker-checker result and this row commit together; filesystem archival can then be retried
+  // without ever posting the same proposal twice.
+  `
+  CREATE TABLE agent_proposal_results (
+    proposal_id TEXT PRIMARY KEY,
+    proposal_sha256 TEXT NOT NULL,
+    proposal_json TEXT NOT NULL,
+    result_kind TEXT NOT NULL CHECK (result_kind IN ('voucher','approval_request')),
+    result_id INTEGER NOT NULL,
+    result_json TEXT NOT NULL,
+    processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
 ];
