@@ -98,6 +98,30 @@ export interface TaxTotals extends InwardSummary {
  */
 export const B2CL_THRESHOLD_PAISE = 100_000 * 100
 
+/**
+ * Does this sale belong in GSTR-1 table 5 (B2C large) rather than the table 7 summary?
+ *
+ * Named and exported so the voucher screen can warn at entry time using the *same* rule the
+ * return applies. A hint derived from a second copy of the test would eventually disagree with
+ * the return it is meant to predict, and the user would trust the wrong one.
+ *
+ * Strictly above the threshold, matching the statute: an invoice of exactly ₹1,00,000 is B2C
+ * small.
+ */
+export function isB2cLarge(input: {
+  partyGstin: string | null
+  /** Place of supply, two-digit state code. */
+  pos: string
+  companyStateCode: string
+  invoiceValue: number
+}): boolean {
+  return (
+    !input.partyGstin &&
+    input.pos !== input.companyStateCode &&
+    input.invoiceValue > B2CL_THRESHOLD_PAISE
+  )
+}
+
 const toRupees = (paise: number): number => Math.round(paise) / 100
 
 /** Quantity thousandths → a 2-decimal number (portal HSN qty precision), integer math. */
@@ -266,7 +290,15 @@ export function buildGstr1(
   const expDocs = sales.filter((d) => isExport(d) && hasRated(d))
   const b2bDocs = sales.filter((d) => !isExport(d) && d.partyGstin && hasRated(d))
   const b2clDocs = sales.filter(
-    (d) => !isExport(d) && !d.partyGstin && hasRated(d) && d.pos !== companyState && d.invoiceValue > B2CL_THRESHOLD_PAISE
+    (d) =>
+      !isExport(d) &&
+      hasRated(d) &&
+      isB2cLarge({
+        partyGstin: d.partyGstin,
+        pos: d.pos,
+        companyStateCode: companyState,
+        invoiceValue: d.invoiceValue
+      })
   )
   const b2csDocs = sales.filter(
     (d) => !isExport(d) && !d.partyGstin && !b2clDocs.includes(d)

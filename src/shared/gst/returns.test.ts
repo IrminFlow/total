@@ -17,6 +17,7 @@ import {
   EWB_THRESHOLD_PAISE, type EdocCompany, type EdocInvoice
 } from './edocs'
 import { validateGstr1 } from './validate'
+import { isB2cLarge } from './returns'
 import { backOutAdvance } from './calc'
 import { isUqc, toUqc, UQC_CODES } from './uqc'
 
@@ -752,5 +753,28 @@ describe('validateGstr1', () => {
       const docs = fixtureDocs().map((d) => ({ ...d, partyGstin: null }))
       expect(validateGstr1(docs, big).find((i) => i.code === 'missing_irn')).toBeUndefined()
     })
+  })
+})
+
+describe('isB2cLarge', () => {
+  // Exported so the voucher screen can warn at entry time using the same rule the return
+  // applies. These pin the rule itself; the routing tests above pin its use in the return.
+  const base = { partyGstin: null, pos: '29', companyStateCode: '27', invoiceValue: 100_00_001 }
+
+  it('is true for an inter-state unregistered sale above ₹1,00,000', () => {
+    expect(isB2cLarge(base)).toBe(true)
+  })
+
+  it('is false at exactly ₹1,00,000 — the statute says above', () => {
+    expect(isB2cLarge({ ...base, invoiceValue: 100_00_000 })).toBe(false)
+    expect(isB2cLarge({ ...base, invoiceValue: 99_99_999 })).toBe(false)
+  })
+
+  it('is false for a registered buyer, who goes to B2B whatever the value', () => {
+    expect(isB2cLarge({ ...base, partyGstin: '29AAPFU0939F1ZV' })).toBe(false)
+  })
+
+  it('is false intra-state, however large', () => {
+    expect(isB2cLarge({ ...base, pos: '27', invoiceValue: 10_00_00_000 })).toBe(false)
   })
 })

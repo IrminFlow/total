@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
 import type { VoucherInputParsed } from '@shared/schemas'
+import { isB2cLarge } from '@shared/gst/returns'
+import { rcmAdvice } from '@shared/gst/reverseCharge'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
 import { GST_STATES } from '@shared/gst/states'
 import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
@@ -155,6 +157,41 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     const rounded = roundToRupee(gst.total)
     return { detail, gst, rounded, roundDiff: rounded - gst.total }
   }, [rows, items, account, supply, fxActive, fxRate])
+
+  /**
+   * Two things the entry screen can tell you that the books cannot work out after the fact.
+   *
+   * Reverse charge attaches to the *supply*, not the supplier, so a per-party flag misses the
+   * common case: an ordinary vendor billing one notified service. Matched on the SAC of what was
+   * actually billed, and only ever advice — reverse charge moves real money, so nothing here
+   * changes a posting.
+   *
+   * B2C large: an inter-state sale over Rs 1,00,000 to an unregistered buyer must be itemised in
+   * GSTR-1 table 5 rather than summarised in 7. That is a return-time consequence of an
+   * entry-time fact, and the entry screen is where the value can still be checked.
+   */
+  const rcm = useMemo(() => {
+    if (isSalesSide || kind === 'debit_note') return { kind: 'none' as const }
+    // The SAC on the purchase ledger, or on the first line's stock item when it carries one.
+    const itemHsn = computed.detail.find((d) => d.item.hsn)?.item.hsn ?? null
+    return rcmAdvice({
+      sac: itemHsn ?? account?.hsn ?? null,
+      partyFlagged: !!party?.rcm,
+      partyGstin: party?.gstin ?? null
+    })
+  }, [isSalesSide, kind, computed.detail, account?.hsn, party?.rcm, party?.gstin])
+
+  // The same predicate the return applies, not a second copy of the test — a hint derived from
+  // its own rule would eventually disagree with the return it is meant to predict.
+  const b2cLarge =
+    isSalesSide &&
+    kind === 'sales' &&
+    isB2cLarge({
+      partyGstin: party?.gstin ?? null,
+      pos: posOverride ?? party?.stateCode ?? info!.stateCode,
+      companyStateCode: info!.stateCode,
+      invoiceValue: computed.rounded
+    })
 
   const noteAllocatedTotal = noteBillRefs.reduce((s, r) => s + r.amount, 0)
 
@@ -373,6 +410,34 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
           />
         </Field>
       </div>
+
+      {rcm.kind !== 'none' && (
+        <p
+          className={`mt-2 text-hint ${rcm.kind === 'suggest' ? 'text-amber' : 'text-muted'}`}
+          data-testid="hint-rcm"
+        >
+          {rcm.kind === 'suggest' ? (
+            <>
+              <b>{rcm.match.category.label}</b> looks like a reverse-charge supply — you would owe
+              the tax, not the supplier. {rcm.match.category.reason}. Set “Reverse charge” on the
+              party ledger if that is right.
+            </>
+          ) : (
+            <>
+              Reverse charge — {rcm.match.category.label.toLowerCase()}. The tax is yours to pay and
+              the party is flagged for it.
+            </>
+          )}
+        </p>
+      )}
+
+      {b2cLarge && (
+        <p className="mt-2 text-hint text-amber" data-testid="hint-b2cl">
+          Over ₹1,00,000 inter-state to an unregistered buyer — this goes into GSTR-1 table 5
+          (B2C large) invoice by invoice, not into the table 7 summary. Worth checking the value
+          and the place of supply now.
+        </p>
+      )}
 
       <div className="mt-2 flex items-center justify-between">
         {party ? (
