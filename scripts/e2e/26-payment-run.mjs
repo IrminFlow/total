@@ -22,7 +22,10 @@ await scenario('26-payment-run', async (h) => {
 
   await h.page.getByTestId('post-payment-run').click()
   await h.page.getByRole('button', { name: 'Post payment vouchers', exact: true }).last().click()
-  await h.page.getByText('posted', { exact: true }).waitFor()
+  await h.page
+    .getByTestId(`payment-run-${draftsBeforePost[0].id}`)
+    .getByText('posted', { exact: true })
+    .waitFor()
   const [posted] = await h.invoke('paymentRun:list')
   assertEq(posted.status, 'posted', 'review posts the payment run')
   assert(posted.items.every((item) => typeof item.voucherId === 'number'), 'each supplier receives a linked payment voucher')
