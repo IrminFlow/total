@@ -471,6 +471,100 @@ export interface EffectiveItemTax {
   fromGroup: string | null
 }
 
+export type DepreciationMethod = 'slm' | 'wdv'
+
+export interface AssetBlock {
+  id: number
+  name: string
+  itRate: number
+}
+
+export interface FixedAsset {
+  id: number
+  name: string
+  code: string | null
+  blockId: number | null
+  blockName: string | null
+  itRate: number | null
+  ledgerId: number | null
+  ledgerName: string | null
+  purchaseDate: string
+  putToUseDate: string | null
+  cost: number
+  residualValue: number
+  usefulLifeMonths: number
+  method: DepreciationMethod
+  location: string | null
+  notes: string | null
+  disposedOn: string | null
+  disposalProceeds: number | null
+  accumulated: number
+  bookValue: number
+}
+
+export interface AssetScheduleRow {
+  assetId: number
+  name: string
+  code: string | null
+  blockName: string | null
+  purchaseDate: string
+  putToUseDate: string | null
+  method: DepreciationMethod
+  cost: number
+  openingWdv: number
+  depreciation: number
+  closingWdv: number
+  heldFraction: number
+  cappedAtResidual: boolean
+  disposedOn: string | null
+}
+
+export interface BlockResult {
+  blockName: string
+  rate: number
+  openingWdv: number
+  additionsFullRate: number
+  additionsHalfRate: number
+  deletions: number
+  writtenDownBeforeDepreciation: number
+  depreciation: number
+  closingWdv: number
+  blockExhausted: boolean
+  shortTermGain: number
+}
+
+export interface DepreciationSchedule {
+  fyStartYear: number
+  from: string
+  to: string
+  companiesAct: AssetScheduleRow[]
+  companiesActTotal: number
+  incomeTax: BlockResult[]
+  incomeTaxTotal: number
+  difference: number
+  unblocked: number
+  alreadyPosted: boolean
+}
+
+export interface DepreciationDraft {
+  fyStartYear: number
+  date: string
+  narration: string
+  lines: { ledgerName: string; group: string; drCr: 'dr' | 'cr'; amount: number }[]
+  total: number
+}
+
+export interface DisposalDraft {
+  asset: FixedAsset
+  bookValue: number
+  proceeds: number
+  profitOrLoss: number
+  incomeTaxTreatment: string
+  lines: { ledgerName: string; group: string; drCr: 'dr' | 'cr'; amount: number }[]
+  narration: string
+  date: string
+}
+
 export interface CreditStatus {
   ledgerId: number
   name: string
@@ -1071,6 +1165,38 @@ export const api = {
     msme: (asOn: string) => call<MsmeReport>('recv:msme', { asOn }),
     policy: () => call<CollectionsPolicy>('recv:policy'),
     setPolicy: (input: CollectionsPolicy) => call<CollectionsPolicy>('recv:setPolicy', input)
+  },
+  /** The fixed asset register, and the two depreciation schedules the law asks for. */
+  assets: {
+    blocks: () => call<AssetBlock[]>('assets:blocks'),
+    saveBlock: (data: { name: string; itRate: number }, id?: number) => call<AssetBlock>('assets:saveBlock', { data, id }),
+    list: (includeDisposed = false) => call<FixedAsset[]>('assets:list', { includeDisposed }),
+    save: (
+      data: {
+        name: string
+        code?: string | null
+        blockId?: number | null
+        ledgerId?: number | null
+        purchaseDate: string
+        putToUseDate?: string | null
+        cost: number
+        residualValue?: number
+        usefulLifeMonths: number
+        method?: DepreciationMethod
+        location?: string | null
+        notes?: string | null
+      },
+      id?: number
+    ) => call<FixedAsset>('assets:save', { data, id }),
+    remove: (id: number) => call<null>('assets:delete', { id }),
+    schedule: (fyStartYear: number) =>
+      call<{ schedule: DepreciationSchedule; draft: DepreciationDraft | null }>('assets:schedule', { fyStartYear }),
+    postDepreciation: (fyStartYear: number, voucherId: number | null) =>
+      call<{ runId: number }>('assets:postDepreciation', { fyStartYear, voucherId }),
+    disposalDraft: (assetId: number, on: string, proceeds: number) =>
+      call<DisposalDraft>('assets:disposalDraft', { assetId, on, proceeds }),
+    dispose: (assetId: number, on: string, proceeds: number, voucherId?: number) =>
+      call<FixedAsset>('assets:dispose', { assetId, on, proceeds, voucherId })
   },
   bills: {
     open: (partyLedgerId: number, asOn: string) => call<OutstandingBill[]>('bills:open', { partyLedgerId, asOn })

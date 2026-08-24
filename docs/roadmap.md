@@ -565,13 +565,13 @@ Everything a business owns and owes that is not a bill. "Fixed Assets" exists in
 ledger group and nothing else — there is no register, no schedule, and no way to answer the two
 questions every year-end asks.
 
-366. A fixed asset register (M) — asset, purchase date, cost, block, location. The ledger group
+366. ✓ A fixed asset register (M) — asset, purchase date, cost, block, location. The ledger group
      records that ₹4 lakh of machinery was bought; nothing records what the machinery is.
-367. Depreciation computed both ways (L) — Companies Act (SLM or WDV over useful life, per
+367. ✓ Depreciation computed both ways (L) — Companies Act (SLM or WDV over useful life, per
      asset) and Income Tax (WDV on the block of assets). They give different numbers on purpose,
      both are needed every year, and doing one and calling it depreciation is the mistake to
      avoid.
-368. Asset disposal (M) — sale or scrapping, profit or loss on sale, and the block adjustment,
+368. ✓ Asset disposal (M) — sale or scrapping, profit or loss on sale, and the block adjustment,
      which is where a hand-computed schedule usually goes wrong.
 369. Capital work in progress, and capitalising it (S) — costs accumulate against a project and
      become an asset on a date. Today they land in an expense or sit in a ledger nobody revisits.

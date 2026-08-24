@@ -38,6 +38,7 @@ import * as intel from './services/intel'
 import * as analysis from './services/analysis'
 import * as receivables from './services/receivables'
 import * as attendance from './services/attendance'
+import * as assets from './services/assets'
 import { ratesForMonth, STATUTORY_HISTORY } from '@shared/statutory'
 import { statementHtml } from './services/statementHtml'
 import * as banking from './services/banking'
@@ -1132,6 +1133,92 @@ export function registerIpc(): void {
     })
     return { path, name: st.name }
   }, 'viewer')
+
+  // ---------- fixed assets and depreciation (roadmap #366, #367, #368) ----------
+
+  handle('assets:blocks', () => assets.ensureBlocks(requireCompany().db), 'viewer')
+
+  handle('assets:saveBlock', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({ name: z.string().trim().min(1).max(80), itRate: z.number().min(0).max(100) }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return assets.saveBlock(requireCompany().db, data, id)
+  })
+
+  handle('assets:list', (p) => {
+    const { includeDisposed } = z.object({ includeDisposed: z.boolean().optional() }).parse(p ?? {})
+    return assets.listAssets(requireCompany().db, { includeDisposed })
+  }, 'viewer')
+
+  handle('assets:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          name: z.string().trim().min(1).max(120),
+          code: z.string().trim().max(32).nullable().optional(),
+          blockId: z.number().int().positive().nullable().optional(),
+          ledgerId: z.number().int().positive().nullable().optional(),
+          purchaseDate: isoDate,
+          putToUseDate: isoDate.nullable().optional(),
+          cost: z.number().int().positive(),
+          residualValue: z.number().int().min(0).optional(),
+          usefulLifeMonths: z.number().int().positive().max(1200),
+          method: z.enum(['slm', 'wdv']).optional(),
+          location: z.string().trim().max(80).nullable().optional(),
+          notes: z.string().trim().max(500).nullable().optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return assets.saveAsset(requireCompany().db, data, id)
+  })
+
+  handle('assets:delete', (p) => {
+    assets.deleteAsset(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('assets:schedule', (p) => {
+    const { fyStartYear } = z.object({ fyStartYear: z.number().int().min(1990).max(2200) }).parse(p)
+    const c = requireCompany()
+    return {
+      schedule: assets.depreciationSchedule(c.db, fyStartYear),
+      draft: assets.depreciationDraft(c.db, fyStartYear)
+    }
+  }, 'viewer')
+
+  handle('assets:postDepreciation', (p) => {
+    const { fyStartYear, voucherId } = z
+      .object({ fyStartYear: z.number().int().min(1990).max(2200), voucherId: z.number().int().positive().nullable() })
+      .parse(p)
+    const c = requireCompany()
+    assets.ensureAssetLedgers(c.db)
+    return { runId: assets.recordDepreciationRun(c.db, fyStartYear, voucherId) }
+  })
+
+  handle('assets:disposalDraft', (p) => {
+    const { assetId, on, proceeds } = z
+      .object({ assetId: z.number().int().positive(), on: isoDate, proceeds: z.number().int().min(0) })
+      .parse(p)
+    const c = requireCompany()
+    assets.ensureAssetLedgers(c.db)
+    return assets.disposalDraft(c.db, assetId, on, proceeds)
+  }, 'viewer')
+
+  handle('assets:dispose', (p) => {
+    const { assetId, on, proceeds, voucherId } = z
+      .object({
+        assetId: z.number().int().positive(),
+        on: isoDate,
+        proceeds: z.number().int().min(0),
+        voucherId: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return assets.recordDisposal(requireCompany().db, assetId, on, proceeds, voucherId)
+  })
 
   handle('recv:msme', (p) => {
     const { asOn } = z.object({ asOn: isoDate }).parse(p)

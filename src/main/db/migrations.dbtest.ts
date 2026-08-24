@@ -38,8 +38,12 @@ const EXPECTED_TABLES = [
   'pay_heads',
   'employee_pay_heads',
   'gst_filings',
+  'asset_blocks',
   'attendance',
+  'depreciation_lines',
+  'depreciation_runs',
   'employee_loans',
+  'fixed_assets',
   'loan_recoveries',
   'party_notes',
   'migrations'

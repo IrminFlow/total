@@ -60,6 +60,7 @@ export type Screen =
   | { name: 'payroll' }
   | { name: 'khata' }
   | { name: 'collections' }
+  | { name: 'assets' }
   | { name: 'filings' }
   | { name: 'composition' }
   | { name: 'tds' }

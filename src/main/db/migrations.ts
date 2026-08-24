@@ -784,5 +784,68 @@ export const MIGRATIONS: string[] = [
   -- 'micro' | 'small' | 'medium' | 'not_registered'. NULL = never asked.
   ALTER TABLE ledgers ADD COLUMN msme_status TEXT;
   ALTER TABLE ledgers ADD COLUMN udyam_number TEXT;
+  `,
+
+  // 28 — the fixed asset register.
+  //
+  // "Fixed Assets" existed here as a ledger group and nothing else: the books recorded that four
+  // lakh of machinery was bought and nothing recorded what the machinery was, when it was put to
+  // use, or what it is worth now. Every year-end needs all three.
+  //
+  // Two schedules, because the law asks for two different numbers. The Companies Act depreciates
+  // per asset over a useful life, pro-rated from the day it was put to use. The Income-tax Act
+  // pools assets into blocks by rate and charges half in the first year if it was used for fewer
+  // than 180 days. They disagree on purpose, and the difference is a deferred tax somebody has to
+  // see — so both are stored per asset per year rather than one being derived from the other.
+  `
+  CREATE TABLE asset_blocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    -- Written-down-value rate under the Income-tax Act, whole percent.
+    it_rate REAL NOT NULL
+  );
+
+  CREATE TABLE fixed_assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    code TEXT,
+    block_id INTEGER REFERENCES asset_blocks(id),
+    -- The ledger the asset's cost sits in, so the register can be reconciled to the books.
+    ledger_id INTEGER REFERENCES ledgers(id),
+    purchase_date TEXT NOT NULL,
+    -- Depreciation starts here, not at purchase. An asset in a crate is not in use.
+    put_to_use_date TEXT,
+    cost INTEGER NOT NULL,
+    -- Schedule II caps this at 5% of cost; a company may assume less.
+    residual_value INTEGER NOT NULL DEFAULT 0,
+    useful_life_months INTEGER NOT NULL,
+    method TEXT NOT NULL DEFAULT 'slm' CHECK (method IN ('slm','wdv')),
+    location TEXT,
+    notes TEXT,
+    disposed_on TEXT,
+    disposal_proceeds INTEGER,
+    disposal_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL
+  );
+  CREATE INDEX idx_fixed_assets_block ON fixed_assets(block_id);
+  CREATE UNIQUE INDEX idx_fixed_assets_code ON fixed_assets(code) WHERE code IS NOT NULL;
+
+  CREATE TABLE depreciation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fy_start_year INTEGER NOT NULL UNIQUE,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE depreciation_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES depreciation_runs(id) ON DELETE CASCADE,
+    asset_id INTEGER NOT NULL REFERENCES fixed_assets(id) ON DELETE CASCADE,
+    opening_wdv INTEGER NOT NULL,
+    -- Companies Act charge for the year, per asset.
+    depreciation INTEGER NOT NULL,
+    closing_wdv INTEGER NOT NULL,
+    UNIQUE (run_id, asset_id)
+  );
+  CREATE INDEX idx_depreciation_lines_asset ON depreciation_lines(asset_id);
   `
 ]

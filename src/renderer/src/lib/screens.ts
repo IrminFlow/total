@@ -316,6 +316,21 @@ export const SCREENS: ScreenDef[] = [
     ]
   },
   {
+    name: 'assets',
+    title: 'Fixed assets',
+    screen: { name: 'assets' },
+    navSection: 'books',
+    navLabel: 'Fixed assets',
+    // "Fixed assets" — F is cash flow, I is import, X is exceptions, E is settings, D day book,
+    // A year-end, S stock summary, T trial balance. Every letter is taken, so 5 rides as a badge.
+    accel: '5',
+    keywords: [
+      'assets', 'fixed assets', 'depreciation', 'schedule ii', 'block of assets', 'wdv',
+      'straight line', 'disposal', 'written down value'
+    ],
+    invalidates: ['assets', 'assetBlocks', 'assetSchedule', 'disposalDraft']
+  },
+  {
     name: 'filings',
     title: 'Filing register',
     screen: { name: 'filings' },
