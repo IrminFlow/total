@@ -77,3 +77,36 @@ export function useStickyFlag(key: string, defaultValue: boolean): [boolean, (v:
 
   return [value, set]
 }
+
+/**
+ * A numeric preference that survives a restart — an interval, a count, a threshold.
+ *
+ * Anything unparseable falls back to the default rather than to NaN, which would silently
+ * disable whatever the number drives.
+ */
+export function useStickyNumber(key: string, defaultValue: number): [number, (v: number) => void] {
+  const storageKey = `total-num-${key}`
+
+  const [value, setValue] = useState<number>(() => {
+    try {
+      const stored = Number(localStorage.getItem(storageKey))
+      return Number.isFinite(stored) && localStorage.getItem(storageKey) !== null ? stored : defaultValue
+    } catch {
+      return defaultValue
+    }
+  })
+
+  const set = useCallback(
+    (next: number) => {
+      setValue(next)
+      try {
+        localStorage.setItem(storageKey, String(next))
+      } catch {
+        // Preference lost, setting still applied for this session.
+      }
+    },
+    [storageKey]
+  )
+
+  return [value, set]
+}

@@ -2,6 +2,8 @@ import { useState, type ReactNode } from 'react'
 import { useIsFetching } from '@tanstack/react-query'
 import { useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
+import { useAutoLock } from '../lib/useAutoLock'
+import { useStickyNumber } from '../lib/useStickyTab'
 import { Accel, Button, DateInput, Kbd, Modal } from './ui'
 import { SupportLink } from './SupportLink'
 import { HintBar } from './HintBar'
@@ -26,6 +28,10 @@ const NAV = NAV_SECTIONS.map((section) => ({
 
 export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpenPalette: () => void }): React.JSX.Element {
   const { info, from, to, clearCompany, user, setUser, setLocked } = useSession()
+  // A machine-level preference, not a company one: it is about the desk this app is open on,
+  // and a user with two companies wants the same answer for both.
+  const [autoLockMinutes] = useStickyNumber('auto-lock-minutes', 0)
+  useAutoLock(autoLockMinutes)
   const screen = useScreen()
   const nav = useNav()
   const toast = useToasts()

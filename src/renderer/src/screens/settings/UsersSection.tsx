@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type Role, type UserRow } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
 import { Button, EmptyState, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
+import { useStickyNumber } from '../../lib/useStickyTab'
+import { AUTO_LOCK_OPTIONS } from '../../lib/useAutoLock'
 
 const ROLES: Role[] = ['owner', 'accountant', 'viewer']
 
@@ -83,6 +85,8 @@ export function UsersSection(): React.JSX.Element {
           </table>
         )}
       </Panel>
+
+      <AutoLockSetting hasUsers={rows.length > 0} />
 
       {(adding || editing) && (
         <UserModal
@@ -242,5 +246,47 @@ function DeactivateModal({ user, onClose }: { user: UserRow; onClose: () => void
         </Button>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Lock the books when nobody is at the machine.
+ *
+ * A laptop left open on a counter shows every customer's balance, every supplier's price and
+ * every salary in the payroll. The lock screen already exists and is one click away, which means
+ * it protects nothing at the moment it matters: when someone walks away without thinking about
+ * it.
+ *
+ * Stored per machine rather than per company: it is about the desk this app is open on, and
+ * someone with two companies wants the same answer for both.
+ */
+function AutoLockSetting({ hasUsers }: { hasUsers: boolean }): React.JSX.Element {
+  const [minutes, setMinutes] = useStickyNumber('auto-lock-minutes', 0)
+
+  return (
+    <Panel className="mt-4 p-4">
+      <Field
+        label="Lock automatically after"
+        hint={
+          hasUsers
+            ? 'Applies to this machine. ⌘⇧L (Ctrl+Shift+L) locks immediately, from any screen.'
+            : 'Add a user first — without one there is no lock screen to fall back to, and locking would strand you behind a PIN you never set.'
+        }
+      >
+        <Select
+          data-testid="select-auto-lock"
+          className="w-48"
+          value={minutes}
+          disabled={!hasUsers}
+          onChange={(e) => setMinutes(Number(e.target.value))}
+        >
+          {AUTO_LOCK_OPTIONS.map((m) => (
+            <option key={m} value={m}>
+              {m === 0 ? 'Never' : `${m} minutes`}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </Panel>
   )
 }

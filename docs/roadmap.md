@@ -329,17 +329,18 @@ Ordering within a section is roughly by value.
 260. ✓ GST portal credentials moved to the OS keychain (S)
 261. ✓ AI key never reaches the renderer or the data directory (S)
 262. Optional at-rest encryption of the company database (L)
-263. Auto-lock after a configurable idle period (S)
+263. ✓ Auto-lock after a configurable idle period (S)
 264. PIN attempt throttling with exponential backoff (already partly there) (S)
 265. Audit log tamper-evidence via a hash chain (M)
 266. Per-user permissions finer than three roles (M)
-267. Session timeout on the lock screen (S)
+267. ✓ Session timeout, as the idle auto-lock (#263) — a separate timeout on the lock screen
+     itself would guard a screen that already holds nothing (S)
 268. Redact sensitive fields in exported diagnostics (done) (S)
 269. Content-Security-Policy audit and tightening (S)
 270. Dependency vulnerability gate in CI (S)
 271. Signed releases and update verification (config done) (M)
 272. Privacy page documenting exactly what leaves the machine (S)
-273. A "panic" key that locks immediately (S)
+273. ✓ A "panic" key that locks immediately — ⌘⇧L from any screen (S)
 
 ## N. Accessibility
 

@@ -56,6 +56,40 @@ await scenario('10-roles-lock', async (h) => {
   await h.click('btn-unlock')
   await h.waitScreen('gateway')
 
+  // ---- the panic key ----
+  // A laptop left open on a counter shows every customer's balance and every salary in the
+  // payroll. The lock screen already existed and was one click away, which means it protected
+  // nothing at the moment it matters: when someone walks away without thinking about it.
+  await h.page.keyboard.press('Control+Shift+L')
+  await h.page.waitForSelector('[data-screen="lock"]', { state: 'attached', timeout: 10000 })
+  await h.shot('05-panic-locked')
+
+  // And it really is a session lock, not just a screen: the books are unreachable behind it.
+  const afterPanic = await invokeExpectingError(h, 'voucher:list', { from: '2026-01-01', to: '2026-12-31' })
+  assert(/locked|sign in/i.test(afterPanic), `the panic key ends the session (got: ${afterPanic})`)
+
+  await h.clickText('Priya Owner')
+  await h.fill('input-pin', '1234')
+  await h.click('btn-unlock')
+  await h.waitScreen('gateway')
+
+  // The auto-lock interval is offered once the company has users, and defaults to never — a
+  // setting that locked an unattended till mid-sale by surprise would be turned off for good.
+  await h.goto('settings')
+  await h.page.click('[data-testid="tab-settings-users"]')
+  // Wait for the users list itself: the control is disabled until the query says the company has
+  // someone to lock behind, and asserting before that would be asserting on a loading state.
+  await h.page.waitForFunction(
+    () => {
+      const el = document.querySelector('[data-testid="select-auto-lock"]')
+      return el instanceof HTMLSelectElement && !el.disabled
+    },
+    null,
+    { timeout: 15000 }
+  )
+  const defaultLock = await h.page.inputValue('[data-testid="select-auto-lock"]')
+  assert(defaultLock === '0', `auto-lock is off until asked for (got ${defaultLock})`)
+
   // Role gate, driven over IPC (same surface the UI uses). Viewer: no posting, no user admin.
   await h.invoke('auth:logout')
   const lockedErr = await invokeExpectingError(h, 'voucher:list', { from: '2026-01-01', to: '2026-12-31' })
