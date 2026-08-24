@@ -43,6 +43,7 @@ import type { Cmp08, CompositionCategory, Gstr4 } from '@shared/gst/composition'
 import type { FilingLiability, FilingRecord, FilingRow } from '@shared/gst/filings'
 import type { Gstr9Working } from '@shared/gst/gstr9'
 import type { ChecklistState } from '@shared/onboarding'
+import type { DailyDigest } from '@shared/digest'
 import type { Registry } from '../types'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
@@ -1007,7 +1008,10 @@ export interface ImportPreview {
   rows: Record<string, unknown>[]
   total: number
   willCreate: number
+  /** Rows that exist AND differ. */
   willUpdate: number
+  /** Rows that exist and are identical — the ones a re-import would leave alone. */
+  unchanged: number
   errors: { line: number; message: string }[]
 }
 
@@ -1050,7 +1054,84 @@ export interface TallyImportSummary {
   items: number
   vouchers: number
   skipped: number
+  /** Already in these books from an earlier import of the same entries (roadmap O #297). */
+  duplicates: number
   warnings: string[]
+  /** The user pressed Cancel; nothing was written. */
+  cancelled?: boolean
+}
+
+/** What an import would do to THESE books, without doing it (roadmap O #296). */
+export interface TallyImportDiff {
+  masters: { label: string; create: number; exists: number }[]
+  vouchers: { create: number; duplicate: number; blocked: number }
+  samples: { kind: string; label: string }[]
+  warnings: string[]
+}
+
+export interface ImportProgress {
+  done: number
+  total: number
+  phase: 'masters' | 'vouchers'
+}
+
+/** Mirrors src/main/services/attachments.ts's Attachment (main-process only). */
+export interface Attachment {
+  id: number
+  voucherId: number
+  fileName: string
+  storedName: string
+  byteSize: number
+  sha256: string
+  note: string | null
+  addedAt: string
+  addedBy: string | null
+  /** The file is no longer in the company folder. Shown rather than hidden — the app losing
+   *  evidence has to be visible. */
+  missing: boolean
+}
+
+/** Mirrors src/main/services/approvals.ts's PendingVoucher (main-process only). */
+export interface PendingVoucher {
+  voucherId: number
+  date: string
+  number: string
+  voucherType: string
+  partyName: string | null
+  amount: number
+  narration: string | null
+  enteredBy: string | null
+  enteredAt: string
+  state: 'pending' | 'approved' | 'rejected'
+  decidedBy: string | null
+  decidedAt: string | null
+  note: string | null
+}
+
+/** Mirrors src/main/services/bankChanges.ts's BankChangeRequest (main-process only). */
+export interface BankChangeRequest {
+  id: number
+  ledgerId: number
+  ledgerName: string
+  oldAccount: string | null
+  oldIfsc: string | null
+  oldHolder: string | null
+  newAccount: string | null
+  newIfsc: string | null
+  newHolder: string | null
+  state: 'pending' | 'approved' | 'rejected'
+  requestedBy: string | null
+  requestedAt: string
+  decidedBy: string | null
+  decidedAt: string | null
+  decisionNote: string | null
+}
+
+export interface AuditorStatus {
+  active: boolean
+  expiresAt: string | null
+  timeLeft: string | null
+  grantedBy: string | null
 }
 
 /** Mirrors src/main/services/inventoryTransfer.ts + inventoryLandedCost.ts (main-process only). */
@@ -1222,7 +1303,10 @@ export const api = {
   ledgers: {
     list: () => call<Ledger[]>('master:ledgers:list'),
     create: (data: LedgerInput) => call<Ledger>('master:ledgers:create', data),
-    update: (id: number, data: LedgerInput) => call<Ledger>('master:ledgers:update', { id, data }),
+    /** `bankChange` is non-null when the two-person rule parked the bank details instead of
+     *  applying them (roadmap V #388) — the rest of the master saved either way. */
+    update: (id: number, data: LedgerInput) =>
+      call<Ledger & { bankChange: BankChangeRequest | null }>('master:ledgers:update', { id, data }),
     remove: (id: number) => call<null>('master:ledgers:delete', { id }),
     balances: (asOn: string) => call<LedgerBalanceRow[]>('master:ledgerBalances', { asOn })
   },
@@ -1689,9 +1773,58 @@ export const api = {
   },
   tally: {
     dryRun: (filePath?: string) =>
-      call<{ filePath: string | null; summary: TallyImportSummary } | null>('tally:import', { filePath, dryRun: true }),
+      call<{ filePath: string | null; summary: TallyImportSummary; diff: TallyImportDiff } | null>('tally:import', {
+        filePath,
+        dryRun: true
+      }),
     apply: (filePath?: string) =>
-      call<{ filePath: string | null; summary: TallyImportSummary } | null>('tally:import', { filePath, dryRun: false })
+      call<{ filePath: string | null; summary: TallyImportSummary } | null>('tally:import', { filePath, dryRun: false }),
+    /** Ask the running import to stop. It rolls back — everything or nothing. */
+    cancel: () => call<{ cancelling: boolean }>('tally:cancel'),
+    /** The PDF a CA signs off (roadmap O #298). Every figure on it is read back out of the books
+     *  in main, not taken from this screen. */
+    migrationReport: (asOn?: string) => call<{ path: string; outOfBalance: number }>('tally:migrationReport', { asOn }),
+    /** Progress from the running import. Returns its own unsubscriber. */
+    onProgress: (listener: (progress: ImportProgress) => void): (() => void) =>
+      window.total.on('import:progress', (payload) => listener(payload as ImportProgress))
+  },
+
+  /** The scan of the bill (roadmap V #387). */
+  attachments: {
+    list: (voucherId: number) => call<Attachment[]>('voucher:attachments:list', { id: voucherId }),
+    /** No payload beyond the voucher opens the file picker; `null` back means they cancelled. */
+    add: (voucherId: number, note?: string | null) =>
+      call<Attachment | null>('voucher:attachments:add', { voucherId, note }),
+    remove: (id: number) => call<{ removed: boolean }>('voucher:attachments:remove', { id }),
+    open: (id: number) => call<{ opened: boolean }>('voucher:attachments:open', { id }),
+    reveal: (id: number) => call<{ revealed: boolean }>('voucher:attachments:reveal', { id }),
+    footprint: () => call<{ files: number; bytes: number }>('voucher:attachments:footprint')
+  },
+
+  /** Entries waiting for the owner (roadmap V #386). */
+  approvals: {
+    list: () =>
+      call<{ threshold: number | null; pending: PendingVoucher[]; decided: PendingVoucher[] }>('approvals:list'),
+    decide: (voucherId: number, approve: boolean, note?: string | null) =>
+      call<PendingVoucher>('approvals:decide', { voucherId, approve, note }),
+    thresholdGet: () => call<{ threshold: number | null }>('config:approvalThreshold:get'),
+    /** null switches it off; 0 means everything waits. They are different answers. */
+    thresholdSet: (threshold: number | null) =>
+      call<{ threshold: number | null }>('config:approvalThreshold:set', { threshold })
+  },
+
+  /** Bank-detail changes waiting for a second person (roadmap V #388). */
+  bankChanges: {
+    list: () => call<{ pending: BankChangeRequest[]; decided: BankChangeRequest[] }>('bankChange:list'),
+    decide: (id: number, approve: boolean, note?: string | null) =>
+      call<BankChangeRequest>('bankChange:decide', { id, approve, note })
+  },
+
+  /** A read-only session that expires (roadmap V #391). */
+  auditor: {
+    status: () => call<AuditorStatus>('auditor:status'),
+    begin: (hours: number) => call<AuditorStatus>('auditor:begin', { hours }),
+    end: () => call<AuditorStatus>('auditor:end')
   },
   importer: {
     pickCsv: () => call<{ csvText: string; fileName: string } | null>('import:pickCsv'),
@@ -1782,7 +1915,9 @@ export const api = {
   audit: {
     list: (query: AuditListInput) => call<{ rows: AuditRow[]; total: number }>('audit:list', query),
     retentionGet: () => call<{ keepDays: number | null }>('config:audit:get'),
-    retentionSet: (keepDays: number | null) => call<{ keepDays: number | null }>('config:audit:set', { keepDays })
+    retentionSet: (keepDays: number | null) => call<{ keepDays: number | null }>('config:audit:set', { keepDays }),
+    /** What changed on a day, for the owner who was not there. Defaults to yesterday. */
+    digest: (date?: string) => call<DailyDigest>('audit:digest', { date })
   },
   auth: {
     users: () => call<LoginName[]>('auth:users'),

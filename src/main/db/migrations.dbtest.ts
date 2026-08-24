@@ -54,6 +54,8 @@ const EXPECTED_TABLES = [
   'bank_import_profiles',
   'bank_narration_memory',
   'landed_costs',
+  'voucher_attachments',
+  'bank_detail_requests',
   'migrations'
 ]
 

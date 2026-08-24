@@ -15,6 +15,7 @@ import type { CompanyInfo } from '@shared/domain'
 import { itcRisk } from '@shared/gst/itcAgeing'
 import { describeGap, gapSize, numberGaps } from '@shared/numberSeries'
 import { computeTcs, tcsAppliesToSeller, TCS_THRESHOLD_PAISE } from '@shared/tcs'
+import { maskAccount, sharedBankAccounts } from '@shared/bankDetails'
 import { fyOf } from '@shared/dates'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
@@ -513,6 +514,33 @@ export function exceptions(db: DB, from: string, to: string, company?: CompanyIn
     }
   }
   section('tcsThreshold', 'Buyers past the TCS threshold (206C(1H))', tcsRows)
+
+  // Two parties paid into one bank account (roadmap V #389). Not period-scoped: a master is true
+  // now or it is not, and a payee pointed at somebody else's account is not a fact about April.
+  //
+  // The legitimate case — a proprietor and their firm — is silenced per party by the "shared
+  // knowingly" flag on the master, and only when EVERY party on that account carries it, so a
+  // third name appearing on the same account speaks up again. The rule itself is pure:
+  // src/shared/bankDetails.ts.
+  const bankRows = db
+    .prepare(
+      `SELECT id AS ledgerId, name, bank_account AS account, bank_ifsc AS ifsc, bank_shared_ok AS sharedOk
+       FROM ledgers WHERE bank_account IS NOT NULL AND TRIM(bank_account) <> ''`
+    )
+    .all() as { ledgerId: number; name: string; account: string; ifsc: string | null; sharedOk: number }[]
+  const sharedRows: ExceptionRow[] = sharedBankAccounts(
+    bankRows.map((r) => ({ ...r, sharedOk: !!r.sharedOk }))
+  ).flatMap((group) =>
+    group.parties.map((p) => ({
+      label: p.name,
+      detail: `Paid into ${maskAccount(group.account)}, shared with ${group.parties
+        .filter((o) => o.ledgerId !== p.ledgerId)
+        .map((o) => o.name)
+        .join(', ')}`,
+      ledgerId: p.ledgerId
+    }))
+  )
+  section('sharedBankAccount', 'One bank account on two parties', sharedRows)
 
   return { sections }
 }

@@ -46,4 +46,5 @@ export const MIGRATION_HASHES: readonly string[] = [
   'd1868fe7bfdafe06', // 30: ALTER TABLE fixed_assets ADD COLUMN opening_accumulated INTEGER 
   'a3c44b450e6a0817', // 31: CREATE TABLE bank_import_profiles (
   '62d50df48bbe07b7', // 32: CREATE TABLE landed_costs (
+  '90ec58e175cd3ffb', // 33: CREATE TABLE voucher_attachments (
 ]

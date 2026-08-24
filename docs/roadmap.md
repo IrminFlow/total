@@ -407,20 +407,63 @@ Ordering within a section is roughly by value.
 ## O. Onboarding and migration
 
 288. ✓ Tally import reconciliation: "matched to the paise" (M)
-289. Guided opening-balance entry for businesses not coming from Tally (M)
-290. Import from Busy, Marg and Vyapar (L)
-291. Excel and CSV import of masters and opening balances (M)
+289. ✓ Guided opening-balance entry for businesses not coming from Tally (M) — six questions in
+     the words a shopkeeper would use (what is in the bank, who owes you, who you owe) instead of
+     "opening balances, debit positive". The screen works out the side, creates each ledger under
+     the right group, and shows the difference with the usual reason for it — missing capital one
+     way, uncounted stock the other. It posts nothing: an opening balance is a property of a
+     ledger, which is also why the screen can be abandoned half-done and returned to.
+290. ✗ Import from Busy, Marg and Vyapar (L) — declined for now, on the grounds that a parser
+     guessed at is worse than none. None of the three publishes an export schema, and no real
+     export file from any of them was available to check against; a converter written from
+     memory would fail silently on somebody's three years of books, which is the one failure
+     mode this app cannot afford. What they all do have is CSV export, and #291 now reads that
+     with a diff before anything is written. Revisit with a real file in hand.
+291. ✓ Excel and CSV import of masters and opening balances (M) — the parser and the matching
+     existed with no way to reach them; there is now a screen (Import → Spreadsheet) with the
+     same three steps as the Tally wizard, and the preview separates "changed" from "unchanged"
+     so a re-import of a corrected file reads honestly. **.xlsx itself is declined**: Excel writes
+     CSV in one menu command, and the alternative is carrying a zip/shared-string/serial-date
+     parser in an offline app to avoid a two-second conversion.
 292. ✓ The red letters taught as a checklist step rather than as a tour (S) — a modal tour is
      dismissed and forgotten; a step that stays until the shortcut sheet has been opened is not.
 293. Sample company that mirrors the user's own trade (M)
 294. ✓ Checklist that survives across sessions until complete (S) — derived from the books, so
      it cannot be ticked without doing the thing and it reopens if the thing is undone.
-295. Screenshots of Tally's own export dialog, per version (S)
-296. Import dry-run diff: what will be created, changed, skipped (M)
-297. Re-import safety: never duplicate an already-imported voucher (M)
-298. Migration report PDF for the CA to sign off (M)
-299. Restore from a Tally backup file directly (L)
-300. Import progress with a cancel button (S)
+295. ✗ Screenshots of Tally's own export dialog, per version (S) — cannot be obtained. Tally is
+     licensed proprietary software; there is no copy of it here, and no legitimate source of its
+     dialogs per version. Describing them from memory would put confident, possibly wrong
+     instructions in front of somebody mid-migration, which is worse than the text steps the
+     screen already carries. Someone with a Tally licence can take four screenshots and this
+     becomes a ten-minute task.
+296. ✓ Import dry-run diff: what will be created, changed, skipped (M) — the preview used to
+     count what was in the file, which answers "did it parse". It now counts what would happen to
+     THESE books: new against already-here, per master type, plus vouchers already imported and
+     vouchers blocked by a ledger the file never defines. Read-only by construction — every
+     lookup is a SELECT and no transaction is opened. The CSV path gained the same distinction
+     between "changed" and "unchanged".
+297. ✓ Re-import safety: never duplicate an already-imported voucher (M) — every imported voucher
+     carries a fingerprint (`vouchers.import_key`): Tally's own GUID where the export has one,
+     otherwise type/date/number/party plus the line count, the debit total and a hash of the
+     lines. The counts and totals sit in the key in plain sight, so a hash collision alone can
+     never merge two vouchers. Indexed, deliberately NOT unique: a voucher that was imported and
+     then binned must be importable again, because the bin is a decision.
+298. ✓ Migration report PDF for the CA to sign off (M) — every import run, who ran it, what was
+     refused, what the books add up to now, and a signature block. Built from the audit trail and
+     the vouchers in main, never from what the import screen happened to be holding: a report
+     whose figures the caller supplies proves nothing to the person signing it. Books that do not
+     balance say so in the first line rather than in a footnote of caveats.
+299. ✗ Restore from a Tally backup file directly (L) — declined. A Tally backup (`TBK900.001`) is
+     an undocumented proprietary container, not a database anyone outside Tally Solutions can
+     read; the only honest way in is the XML export the wizard already asks for, which Tally
+     itself will produce from a restored backup in three clicks. Reverse-engineering a container
+     format to save those three clicks is a large amount of work whose failure mode is a
+     silently mis-read set of books.
+300. ✓ Import progress with a cancel button (S) — the import now yields between chunks of 25
+     vouchers, which is the only reason main can service the cancel click at all (it is
+     single-threaded, and the old synchronous loop could never have seen it). Cancel rolls the
+     whole thing back — masters included — because everything-or-nothing is the only honest
+     answer to "stop" halfway through somebody's books.
 
 ## P. Business, growth and the site
 
@@ -653,19 +696,47 @@ standing at a counter with a customer waiting, or printing on hardware that pred
 The owner is rarely the person typing. Everything here is about what happens when they are not
 at the desk — which is the normal case, and the one the app currently has least to say about.
 
-386. An approval threshold (M) — a voucher above a stated amount, entered by an accountant,
-     waits for the owner. The roles exist; what is missing is the idea that some entries are a
-     decision rather than a keystroke.
-387. Attachments on a voucher (M) — the scan or photograph of the bill, stored under the company
-     folder and carried into the backup. "Where is the physical bill" is a daily question and
-     there is currently no answer in the app at all.
-388. A two-person rule for a supplier's bank details (S) — changing an account number on a
-     supplier master is the single highest-value fraud available in this market, and it is
-     currently one field and one click.
-389. The same bank account on two parties, as an exception (S) — either a data error or exactly
-     the fraud #388 guards against. The exceptions report is already the place this belongs.
-390. A daily digest of what changed (M) — what was entered, altered and binned yesterday, for
-     the owner who was not there. Built from the audit log, which has recorded all of it and
-     shows it to nobody unless asked.
-391. Auditor mode: a read-only session that expires (M) — narrower than #266's permissions and
-     answering a different question. Handing an auditor the owner's PIN is what happens instead.
+386. ✓ An approval threshold (M) — one number, in paise. Above it, a voucher entered by an
+     accountant is saved, numbered, visible to whoever typed it, and deliberately OUT of the books
+     until the owner decides (`IN_BOOKS` excludes it, so every report inherits the rule). Four
+     edges are load-bearing and each has its own test: an unset threshold is off but **zero is
+     not** — zero means everything waits, which is a real thing to do for a week after finding
+     something wrong; the limit permits an entry exactly at it; the owner's own entry never waits;
+     and a company with no users has no queue. An alteration is re-gated rather than
+     grandfathered, because raising an approved ₹40,000 entry to ₹4,00,000 is the move the
+     threshold exists to catch. A refusal keeps the entry out of the books and clears itself the
+     moment the entry is corrected.
+387. ✓ Attachments on a voucher (M) — the scan lives in `<company>/attachments/`, so the folder a
+     user copies, syncs and backs up carries it. **Copied, not referenced**, and the comment in
+     `src/shared/attachments.ts` says why: a reference is a promise about a path on somebody
+     else's disk, it breaks when Downloads is emptied or the books move machine, and it breaks
+     silently — the app would go on listing a bill that is nowhere. The price is disk, so the cap
+     (10 MB, 20 per voucher, PDF/image/CSV only) is stated under the button rather than sprung
+     after a slow copy. The same scan attached twice is recognised by SHA-256. A file deleted
+     behind the app's back is shown struck through and flagged, never quietly dropped: the app
+     losing evidence has to be visible.
+388. ✓ A two-person rule for a supplier's bank details (S) — an account number, IFSC or holder
+     change on an existing party is parked in `bank_detail_requests` and applied only when
+     somebody else confirms it. The rest of the master saves as it always did, and the toast says
+     which of the two things happened, because a change that silently did not take effect would
+     be worse than no rule. Two deliberate differences from #386: the owner's own change is parked
+     too (the risk here is a convincing letter, not a careless entry), and a company with fewer
+     than two users is exempt — a rule nobody can satisfy is a master that never gets corrected.
+389. ✓ The same bank account on two parties, as an exception (S) — a new section in the
+     exceptions report, comparing account numbers normalised for spacing and case (leading zeros
+     kept: two accounts differing by one are two accounts). The legitimate case is real and
+     common — a proprietor and their firm — so a "knowingly shared" flag on the party silences
+     it, but only when EVERY party on that account carries the flag, so a third name appearing
+     later speaks up again.
+390. ✓ A daily digest of what changed (M) — entered, altered, binned, restored, masters touched,
+     imports, exports and sign-ins for a chosen day, with who did each and what the day's entries
+     came to. Built from the audit log, which had recorded all of it and shown it to nobody.
+     Queried on `date(at, 'localtime')`, not UTC: audit rows are stamped in UTC and India is
+     +5:30, so the plain comparison would file every entry before 5:30 am under the wrong day —
+     quietly wrong every single morning.
+391. ✓ Auditor mode: a read-only session that expires (M) — the owner hands over the machine for
+     1 to 8 hours; the session is a viewer (so every write channel refuses it by the gate that
+     already exists), it is stamped as 'Auditor' on everything it touches, a pill in the header
+     counts it down, and it ends by itself. In memory only and gone on quit, on purpose: a session
+     that survived a restart would be a second way into the books outliving the visit, which is
+     the failure it exists to prevent.

@@ -75,7 +75,12 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'top',
     accel: 'V',
     card: { sub: 'Sales, purchase, payment…' },
-    invalidates: ['voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes']
+    invalidates: [
+      'voucher', 'nextNumber', 'billsOpen', 'ledgers', 'stockItems', 'units', 'currencies', 'voucherTypes',
+      // The bill attached to the voucher being altered, and whether it is still waiting for the
+      // owner — both can have changed on another screen since this one was last looked at.
+      'attachments', 'approvalThreshold'
+    ]
   },
   {
     name: 'daybook',
@@ -110,11 +115,14 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'import-tally',
+    keywords: ['csv', 'spreadsheet', 'opening balances', 'migrate'],
     title: 'Import from Tally',
     screen: { name: 'import-tally' },
     navSection: 'top',
     accel: 'I',
-    invalidates: []
+    // The spreadsheet and opening-balance tabs read the masters they are about to change; a
+    // stale list would offer to create a ledger that already exists.
+    invalidates: ['ledgers', 'groups']
   },
 
   {
@@ -396,7 +404,10 @@ export const SCREENS: ScreenDef[] = [
     accel: 'E',
     invalidates: [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
-      'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig', 'collectionsPolicy'
+      'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig', 'collectionsPolicy',
+      // Approvals + auditor tabs (roadmap V): the queue an owner comes here to clear is exactly
+      // the thing that must not be five seconds stale.
+      'approvals', 'approvalThreshold', 'bankChanges', 'auditorStatus', 'digest', 'authCurrent'
     ]
   },
 

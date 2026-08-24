@@ -81,6 +81,10 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [phone, setPhone] = useState(ledger?.phone ?? '')
   const [email, setEmail] = useState(ledger?.email ?? '')
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
+  const [bankAccount, setBankAccount] = useState(ledger?.bankAccount ?? '')
+  const [bankIfsc, setBankIfsc] = useState(ledger?.bankIfsc ?? '')
+  const [bankHolder, setBankHolder] = useState(ledger?.bankHolder ?? '')
+  const [bankSharedOk, setBankSharedOk] = useState(ledger?.bankSharedOk ?? false)
 
   const ancestry = useMemo(() => groupAncestryNames(groupId, groups), [groupId, groups])
   const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
@@ -125,11 +129,37 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         territory: territory.trim() || null,
         phone: phone.trim() || null,
         email: email.trim() || null,
-        exportType: exportType || null
+        exportType: exportType || null,
+        // Sent only when they were typed. On an existing party the two-person rule (#388) reads
+        // these, so passing them unchanged on every save would fill the queue with requests for
+        // changes nobody made — and `undefined` is what tells the service to leave them alone.
+        ...(isParty
+          ? {
+              bankAccount: bankAccount.trim() || null,
+              bankIfsc: bankIfsc.trim() ? bankIfsc.trim().toUpperCase() : null,
+              bankHolder: bankHolder.trim() || null,
+              bankSharedOk
+            }
+          : {})
       }
-      if (ledger) await api.ledgers.update(ledger.id, data)
-      else await api.ledgers.create(data)
-      await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+      if (ledger) {
+        const saved = await api.ledgers.update(ledger.id, data)
+        await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+        await queryClient.invalidateQueries({ queryKey: ['bankChanges'] })
+        // A change that silently did not take effect would be worse than no rule at all, so the
+        // toast says which of the two things happened.
+        if (saved.bankChange) {
+          toast.push(
+            'success',
+            'Saved. The bank details are waiting for a second person to confirm — Settings → Approvals.'
+          )
+          onClose()
+          return
+        }
+      } else {
+        await api.ledgers.create(data)
+        await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+      }
       toast.push('success', `Ledger ${ledger ? 'updated' : 'created'}`)
       onClose()
     } catch (err) {
@@ -313,6 +343,46 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
                   onChange={(e) => setTerritory(e.target.value)}
                   placeholder="North"
                 />
+              </Field>
+              <Field label="Bank account" hint="Where this party is paid. Changing it needs a second person">
+                <TextInput
+                  data-testid="input-ledger-bank-account"
+                  value={bankAccount}
+                  onChange={(e) => setBankAccount(e.target.value)}
+                  className="num"
+                  placeholder="001234567890"
+                />
+              </Field>
+              <Field label="IFSC">
+                <TextInput
+                  data-testid="input-ledger-bank-ifsc"
+                  value={bankIfsc}
+                  onChange={(e) => setBankIfsc(e.target.value.toUpperCase())}
+                  className="num"
+                  placeholder="HDFC0001234"
+                />
+              </Field>
+              <Field label="Account holder" hint="As the bank has it — often not the ledger name">
+                <TextInput
+                  data-testid="input-ledger-bank-holder"
+                  value={bankHolder}
+                  onChange={(e) => setBankHolder(e.target.value)}
+                  placeholder="Kumar Traders"
+                />
+              </Field>
+              <Field
+                label="Shared account"
+                hint="A proprietor and their firm, say. Stops the exceptions report flagging this pair"
+              >
+                <label className="flex items-center gap-2 text-body-sm">
+                  <input
+                    type="checkbox"
+                    data-testid="input-ledger-bank-shared-ok"
+                    checked={bankSharedOk}
+                    onChange={(e) => setBankSharedOk(e.target.checked)}
+                  />
+                  This account is knowingly shared with another party
+                </label>
               </Field>
             </div>
             <Field label="Export / SEZ type" hint="For e-invoice/e-way classification">

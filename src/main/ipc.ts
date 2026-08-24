@@ -21,12 +21,13 @@ import {
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
-import { todayISO } from '@shared/dates'
+import { addDays, todayISO } from '@shared/dates'
 import { aiSettingsSchema } from '@shared/ai/config'
 import * as aiConfig from './services/ai/config'
 import * as licenseSvc from './services/license'
 import { mcpSnippet } from './mcp/snippet'
 import { formatPaise } from '@shared/money'
+import { ATTACHMENT_EXTENSIONS } from '@shared/attachments'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
@@ -59,7 +60,8 @@ import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
 import * as yearEnd from './services/yearEnd'
-import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
+import { importTallyXml, dryRunTallyXml, diffTallyXml, importTallyXmlStreaming } from './services/tallyImport'
+import { migrationReportBody } from './services/migrationReport'
 import * as importer from './services/importers'
 import * as agentBridge from './services/agentBridge'
 import { agentBridgeConfigSchema, agentExportSchema } from '@shared/schemas'
@@ -69,10 +71,17 @@ import { writeExportPdf } from './services/pdf'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch } from './services/search'
 import { createDemoCompany } from './services/demo'
-import { setAuditContext, writeAudit, listAudit, pruneAudit } from './services/audit'
+import { setAuditContext, writeAudit, listAudit, pruneAudit, dailyDigest } from './services/audit'
 import * as users from './services/users'
 import { assertDeleteAuthorized, auditCompanyDeletion } from './services/companyDelete'
 import { roleAllows, type Role } from './services/roles'
+import * as attachments from './services/attachments'
+import * as approvals from './services/approvals'
+import * as bankChanges from './services/bankChanges'
+import {
+  AUDITOR_DURATIONS_HOURS, AUDITOR_SESSION_NAME, auditorExpiry, auditorSessionExpired,
+  auditorTimeLeftLabel, type AuditorSession
+} from '@shared/auditorSession'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
@@ -103,9 +112,36 @@ let current: OpenCompany | null = null
  *  echo that same path back. The `xmlText` inline path (used by drivers/tests) is unaffected. */
 const dialogIssuedTallyPaths = new Set<string>()
 
+/** Same guard for attachments: a `filePath` in a voucher:attachments:add payload must be one the
+ *  picker issued this session, or the renderer could have any file on disk copied into the
+ *  company folder. The inline `bytesBase64` path (drivers/tests) is unaffected. */
+const dialogIssuedAttachmentPaths = new Set<string>()
+
+/** Set by tally:cancel, polled by the running import between chunks. A plain module-level flag
+ *  is enough because only one import can be in flight: the wizard's button is disabled while it
+ *  runs, and main processes one handler at a time between yields. */
+let importCancelled = false
+
 /** The signed-in user for the currently-open company, or null before login / after logout.
  *  Cleared whenever the company itself closes (see closeCurrentCompany). */
 let sessionUser: { id: number; name: string; role: Role } | null = null
+
+/**
+ * The auditor's session, when one is open (roadmap V #391).
+ *
+ * In memory only, and never persisted: an auditor session that survived a restart would be a
+ * second way into the books that outlives the visit, which is the exact failure it exists to
+ * prevent. It rides alongside `sessionUser` — while it is live, `sessionUser` IS the auditor
+ * (role 'viewer', so every write channel refuses it by the existing gate) and the expiry below
+ * is the only thing this adds.
+ */
+let auditorSession: AuditorSession | null = null
+
+/** Ends the auditor's session — on expiry, on Sign out, or when the company closes. */
+function endAuditorSession(): void {
+  auditorSession = null
+  if (sessionUser?.name === AUDITOR_SESSION_NAME) sessionUser = null
+}
 
 function requireCompany(): OpenCompany {
   if (!current) throw new Error('No company is open')
@@ -133,6 +169,7 @@ export function closeCurrentCompany(): void {
     current = null
   }
   sessionUser = null
+  auditorSession = null
 }
 
 type Handler = (payload: unknown) => unknown | Promise<unknown>
@@ -216,6 +253,13 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
       // (usersExist is cached on `current` — see OpenCompany — to avoid a COUNT query per call).
       // A brand-new company with zero users is intentionally wide open: that's how the very
       // first (owner) user gets created via users:save without a chicken-and-egg deadlock.
+      // An auditor session dies of old age wherever it is noticed, which is here — the one
+      // place every channel passes through. Checked before the role gate, so an expired auditor
+      // is refused as "signed out" rather than as "not allowed", and the renderer routes them to
+      // the lock screen like any other ended session.
+      if (auditorSession && auditorSessionExpired(auditorSession, Date.now())) {
+        endAuditorSession()
+      }
       if (!UNGATED_CHANNELS.has(channel) && current && current.usersExist) {
         if (!sessionUser) {
           // Distinct from the role-denied case below: the renderer can route this specifically
@@ -271,6 +315,28 @@ const landedCostRowSchema = z.object({
   amount: z.number().int().positive(),
   basis: z.enum(['value', 'qty'])
 })
+
+/** One attachment to add: a picked path, or the bytes inline (drivers/tests), plus the name to
+ *  keep it under. Base64 capped a little above the 10 MB byte limit, since base64 is ~4/3 the
+ *  size — the real limit is enforced on the decoded bytes in services/attachments.ts. */
+const attachmentAddSchema = z.object({
+  voucherId: z.number().int().positive(),
+  filePath: z.string().min(1).optional(),
+  fileName: z.string().min(1).max(255).optional(),
+  bytesBase64: z.string().max(16 * 1024 * 1024).optional(),
+  note: z.string().trim().max(200).nullable().optional()
+})
+
+/** The auditor session as the renderer sees it: enough to draw the banner, nothing more. */
+function auditorStatus(): { active: boolean; expiresAt: string | null; timeLeft: string | null; grantedBy: string | null } {
+  if (!auditorSession) return { active: false, expiresAt: null, timeLeft: null, grantedBy: null }
+  return {
+    active: true,
+    expiresAt: auditorSession.expiresAt,
+    timeLeft: auditorTimeLeftLabel(auditorSession, Date.now()),
+    grantedBy: auditorSession.grantedBy
+  }
+}
 
 /** [lane-Q audit] one-line summary audit row for every file-export handler (task Q1 #90). */
 const auditExport = (db: DB, kind: string, detail: Record<string, unknown>): void =>
@@ -349,7 +415,13 @@ export function registerIpc(): void {
     }
     try {
       const purged = vouchers.purgeOldDeleted(db, configSvc.getBinPurgeDays(db))
-      if (purged > 0) log('info', 'bin-purge', { purged })
+      if (purged > 0) {
+        log('info', 'bin-purge', { purged })
+        // A purge is the only thing that really deletes a voucher, and with it the rows that
+        // remembered its attachments. Their copies would otherwise sit in the folder forever.
+        const swept = attachments.sweepOrphanFiles(db, slug)
+        if (swept > 0) log('info', 'attachment-sweep', { swept })
+      }
     } catch (err) {
       // e.g. an over-age binned voucher still referenced by payroll_runs — housekeeping must
       // never block opening the company.
@@ -598,10 +670,37 @@ export function registerIpc(): void {
   handle('master:groups:delete', (p) => masters.deleteGroup(requireCompany().db, idSchema.parse(p).id))
 
   handle('master:ledgers:list', () => masters.listLedgers(requireCompany().db), 'viewer')
+  // Bank details on a NEW party are written straight through: there is no previous account to
+  // redirect money away from, so the two-person rule (which guards the *change*) has nothing to
+  // protect yet. The shared-account exception still sees it immediately.
   handle('master:ledgers:create', (p) => masters.createLedger(requireCompany().db, ledgerInputSchema.parse(p)))
+  /**
+   * Save a party — with the bank details taken out of the ordinary path.
+   *
+   * Everything else about the master saves as it always did. The account number, IFSC and holder
+   * are routed through the two-person rule (roadmap V #388), which either applies them or parks
+   * them for someone else to confirm. The result says which happened, because a change that
+   * silently did not take effect would be worse than no rule at all.
+   */
   handle('master:ledgers:update', (p) => {
     const { id, data } = withIdSchema(ledgerInputSchema).parse(p)
-    return masters.updateLedger(requireCompany().db, id, data)
+    const c = requireCompany()
+    const wantsBankChange =
+      data.bankAccount !== undefined || data.bankIfsc !== undefined || data.bankHolder !== undefined
+    const ledger = masters.updateLedger(c.db, id, {
+      ...data,
+      bankAccount: undefined,
+      bankIfsc: undefined,
+      bankHolder: undefined
+    })
+    if (!wantsBankChange) return { ...ledger, bankChange: null as bankChanges.BankChangeRequest | null }
+    const outcome = bankChanges.submitBankChange(
+      c.db,
+      id,
+      { account: data.bankAccount ?? null, ifsc: data.bankIfsc ?? null, holder: data.bankHolder ?? null },
+      { role: sessionUser?.role ?? null, name: sessionUser?.name ?? null }
+    )
+    return { ...masters.getLedger(c.db, id)!, bankChange: outcome.request }
   })
   handle('master:ledgers:delete', (p) => masters.deleteLedger(requireCompany().db, idSchema.parse(p).id))
   handle('master:ledgerBalances', (p) => {
@@ -746,7 +845,13 @@ export function registerIpc(): void {
   handle('voucher:save', (p) => {
     const { data, id } = z.object({ data: voucherInputSchema, id: z.number().int().positive().optional() }).parse(p)
     const c = requireCompany()
-    const saved = vouchers.saveVoucher(c.db, data, id)
+    // The approval threshold applies to what a PERSON types, which is only knowable here: the
+    // recurring runner, the Tally import and the agent inbox all call saveVoucher without an
+    // actor and are therefore never gated (roadmap V #386).
+    const saved = vouchers.saveVoucher(c.db, data, id, {
+      role: sessionUser?.role ?? null,
+      hasUsers: c.usersExist
+    })
     // Agent mirror stays fresh while the flag is on — debounced so entry bursts export once.
     if (configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
     return saved
@@ -754,7 +859,13 @@ export function registerIpc(): void {
   handle('voucher:delete', (p) => vouchers.deleteVoucher(requireCompany().db, idSchema.parse(p).id))
   handle('voucher:bin', () => vouchers.listBin(requireCompany().db), 'viewer')
   handle('voucher:restore', (p) => vouchers.restoreVoucher(requireCompany().db, idSchema.parse(p).id))
-  handle('voucher:purge', (p) => vouchers.purgeVoucher(requireCompany().db, idSchema.parse(p).id), 'owner')
+  handle('voucher:purge', (p) => {
+    const c = requireCompany()
+    vouchers.purgeVoucher(c.db, idSchema.parse(p).id)
+    // The attachment rows went with the voucher (ON DELETE CASCADE); the copies on disk have to
+    // be shown the door explicitly.
+    attachments.sweepOrphanFiles(c.db, c.slug)
+  }, 'owner')
   handle('voucher:nextNumber', (p) => {
     const { voucherTypeId, date, excludeId } = z
       .object({ voucherTypeId: z.number().int().positive(), date: z.string(), excludeId: z.number().int().positive().optional() })
@@ -2019,9 +2130,60 @@ export function registerIpc(): void {
       xml = readFileSync(resolvedPath, 'utf8')
     }
     // Dry run is parse-only — zero DB writes, so no backup is taken (nothing to roll back to).
-    if (dryRun) return { filePath: resolvedPath ?? null, summary: dryRunTallyXml(xml) }
+    // It now carries the diff as well: what is in the file is the wrong question, and what this
+    // would do to THESE books is the right one (roadmap O #296).
+    if (dryRun) {
+      return { filePath: resolvedPath ?? null, summary: dryRunTallyXml(xml), diff: diffTallyXml(c.db, xml) }
+    }
     await backupCompany(c.db, c.slug, 'pre-tally-import')
-    return { filePath: resolvedPath ?? null, summary: importTallyXml(c.db, xml) }
+    // Progress + cancel (roadmap O #300). The streaming import yields between chunks, which is
+    // the only reason the tally:cancel click below can be serviced at all — main is
+    // single-threaded, and the old synchronous loop could never have seen it.
+    importCancelled = false
+    const wc = BrowserWindow.getAllWindows()[0]?.webContents
+    const summary = await importTallyXmlStreaming(c.db, xml, {
+      onProgress: (progress) => wc?.send('total:import:progress', progress),
+      isCancelled: () => importCancelled
+    })
+    importCancelled = false
+    return { filePath: resolvedPath ?? null, summary }
+  })
+
+  /**
+   * The migration report a CA signs (roadmap O #298).
+   *
+   * Written as a PDF into the company's exports folder. Every figure on it is read back out of
+   * the books and the audit trail here in main — nothing the screen was holding is trusted,
+   * because a report whose numbers the caller supplies proves nothing to the person signing it.
+   */
+  handle('tally:migrationReport', async (p) => {
+    const { asOn } = z.object({ asOn: isoDate.optional() }).parse(p ?? {})
+    const c = requireCompany()
+    const date = asOn ?? todayISO()
+    const body = migrationReportBody(c.db, date)
+    const html = reportHtml({
+      title: 'Migration report',
+      company: c.info,
+      periodLabel: `as on ${date}`,
+      columns: [
+        { label: 'Stage', align: 'l' },
+        { label: 'What', align: 'l' },
+        { label: 'Figure', align: 'r' }
+      ],
+      rows: body.rows,
+      footNote: body.footNote
+    })
+    const path = await writeExportPdf(c.slug, 'migration-report.pdf', html)
+    auditExport(c.db, 'migrationReport', { asOn: date, outOfBalance: body.outOfBalance })
+    shell.showItemInFolder(path)
+    return { path, outOfBalance: body.outOfBalance }
+  }, 'viewer')
+
+  /** Ask the running import to stop. It rolls back: everything or nothing is the only honest
+   *  answer to "stop" halfway through somebody's books. */
+  handle('tally:cancel', () => {
+    importCancelled = true
+    return { cancelling: true }
   })
 
   // ---------- report print/export (task 3.6) ----------
@@ -2126,6 +2288,172 @@ export function registerIpc(): void {
     const { entity, entityId, from, to, page, pageSize } = auditListSchema.parse(p)
     return listAudit(requireCompany().db, { entity, entityId, from, to, page, pageSize })
   }, 'viewer')
+
+  /**
+   * The daily digest (roadmap V #390): what changed on a given day, for the owner who was not
+   * there. Defaults to yesterday, which is the question actually being asked — "what happened
+   * while I was out" — rather than to today, which is still happening.
+   */
+  handle('audit:digest', (p) => {
+    const { date } = z.object({ date: isoDate.optional() }).parse(p ?? {})
+    const day = date ?? addDays(todayISO(), -1)
+    return dailyDigest(requireCompany().db, day)
+  }, 'viewer')
+
+  // ---------- attachments: the scan of the bill (roadmap V #387) ----------
+  handle('voucher:attachments:list', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    return attachments.listAttachments(c.db, c.slug, id)
+  }, 'viewer')
+
+  /**
+   * Attach a file to a voucher.
+   *
+   * Three ways in, one code path: a path the file dialog just issued, an inline base64 blob (how
+   * a driver or a test attaches without native chrome — same trick as tally:import's xmlText),
+   * or no payload at all, which opens the picker. As with the Tally import, a bare `filePath`
+   * from the renderer is refused unless the dialog issued it this session: otherwise the
+   * renderer could name any file on disk and have it copied into the company folder.
+   */
+  handle('voucher:attachments:add', async (p) => {
+    const { voucherId, filePath, fileName, bytesBase64, note } = attachmentAddSchema.parse(p)
+    const c = requireCompany()
+    let sourcePath = filePath
+    let name = fileName
+    if (!bytesBase64 && !sourcePath) {
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose the bill to attach',
+        filters: [{ name: 'Bill or scan', extensions: [...ATTACHMENT_EXTENSIONS] }],
+        properties: ['openFile']
+      })
+      if (picked.canceled || !picked.filePaths[0]) return null
+      sourcePath = picked.filePaths[0]
+      dialogIssuedAttachmentPaths.add(sourcePath)
+      name = basename(sourcePath)
+    } else if (sourcePath && !dialogIssuedAttachmentPaths.has(sourcePath)) {
+      throw new Error('File path must come from the file picker')
+    }
+    return attachments.addAttachment(c.db, c.slug, {
+      voucherId,
+      sourcePath,
+      bytes: bytesBase64 ? Buffer.from(bytesBase64, 'base64') : undefined,
+      fileName: name ?? (sourcePath ? basename(sourcePath) : 'attachment'),
+      note
+    })
+  })
+
+  handle('voucher:attachments:remove', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    attachments.removeAttachment(c.db, c.slug, id)
+    return { removed: true }
+  })
+
+  // Opening is a read, so a viewer (and an auditor) can see the bill without being able to
+  // change anything about it.
+  handle('voucher:attachments:open', async (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    const row = attachments.getAttachment(c.db, c.slug, id)
+    if (!row) throw new Error('Attachment not found')
+    if (row.missing) throw new Error(`"${row.fileName}" is no longer in the company folder`)
+    const error = await shell.openPath(attachments.attachmentPath(c.slug, row.storedName))
+    if (error) throw new Error(error)
+    return { opened: true }
+  }, 'viewer')
+
+  handle('voucher:attachments:reveal', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    const row = attachments.getAttachment(c.db, c.slug, id)
+    if (!row) throw new Error('Attachment not found')
+    shell.showItemInFolder(attachments.attachmentPath(c.slug, row.storedName))
+    return { revealed: true }
+  }, 'viewer')
+
+  /** What the copies are costing, so "copy the file in" stays a decision the user can see. */
+  handle('voucher:attachments:footprint', () => attachments.attachmentsFootprint(requireCompany().db), 'viewer')
+
+  // ---------- approvals (roadmap V #386) ----------
+  handle('approvals:list', () => {
+    const c = requireCompany()
+    return {
+      threshold: configSvc.getApprovalThreshold(c.db),
+      pending: approvals.listPending(c.db),
+      decided: approvals.listDecided(c.db)
+    }
+  }, 'viewer')
+
+  handle('approvals:decide', (p) => {
+    const { voucherId, approve, note } = z
+      .object({ voucherId: z.number().int().positive(), approve: z.boolean(), note: z.string().trim().max(500).nullable().optional() })
+      .parse(p)
+    const c = requireCompany()
+    return approvals.decide(c.db, { voucherId, approve, note }, {
+      role: sessionUser?.role ?? null,
+      name: sessionUser?.name ?? null
+    })
+  }, 'owner')
+
+  handle('config:approvalThreshold:get', () => ({ threshold: configSvc.getApprovalThreshold(requireCompany().db) }), 'viewer')
+  handle('config:approvalThreshold:set', (p) => {
+    // `null` is off; `0` is "everything waits". Both are real answers, so the schema keeps them
+    // apart rather than coercing (see src/shared/approvals.ts).
+    const { threshold } = z.object({ threshold: z.number().int().min(0).nullable() }).parse(p)
+    return { threshold: configSvc.setApprovalThreshold(requireCompany().db, threshold) }
+  }, 'owner')
+
+  // ---------- the two-person rule on bank details (roadmap V #388) ----------
+  handle('bankChange:list', () => {
+    const c = requireCompany()
+    return { pending: bankChanges.listPendingBankChanges(c.db), decided: bankChanges.listDecidedBankChanges(c.db) }
+  }, 'viewer')
+
+  handle('bankChange:decide', (p) => {
+    const { id, approve, note } = z
+      .object({ id: z.number().int().positive(), approve: z.boolean(), note: z.string().trim().max(500).nullable().optional() })
+      .parse(p)
+    const c = requireCompany()
+    return bankChanges.decideBankChange(c.db, id, approve, {
+      role: sessionUser?.role ?? null,
+      name: sessionUser?.name ?? null
+    }, note)
+  })
+
+  // ---------- auditor mode (roadmap V #391) ----------
+  /**
+   * Hand the books to an auditor for a stated number of hours.
+   *
+   * What happens instead today is that the auditor is given the owner's PIN, which is never
+   * withdrawn and makes the audit trail unable to tell the two people apart. This session is a
+   * viewer (so every write channel already refuses it), it is stamped as 'Auditor' on everything
+   * it touches, and it ends by itself.
+   *
+   * Only the owner can open one, and doing so signs the owner OUT — the point is to hand the
+   * machine over, and leaving the owner's own session live underneath would defeat it.
+   */
+  handle('auditor:begin', (p) => {
+    const { hours } = z.object({ hours: z.number().int().refine((h) => (AUDITOR_DURATIONS_HOURS as readonly number[]).includes(h), 'Not an offered duration') }).parse(p)
+    const c = requireCompany()
+    const now = Date.now()
+    auditorSession = {
+      startedAt: new Date(now).toISOString(),
+      expiresAt: auditorExpiry(now, hours),
+      grantedBy: sessionUser?.name ?? null
+    }
+    writeAudit(c.db, 'user', 0, 'login', null, { auditorSessionUntil: auditorSession.expiresAt, grantedBy: auditorSession.grantedBy })
+    sessionUser = { id: 0, name: AUDITOR_SESSION_NAME, role: 'viewer' }
+    return auditorStatus()
+  }, 'owner')
+
+  handle('auditor:end', () => {
+    if (current && auditorSession) writeAudit(current.db, 'user', 0, 'logout', null, { auditorSession: 'ended' })
+    endAuditorSession()
+    return auditorStatus()
+  }, 'viewer')
+
+  handle('auditor:status', () => auditorStatus(), 'viewer')
 
   // ---------- audit retention (lane Q, task Q1 #92) ----------
   handle('config:audit:get', () => ({ keepDays: configSvc.getAuditKeepDays(requireCompany().db) }), 'viewer')

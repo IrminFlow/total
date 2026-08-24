@@ -94,7 +94,24 @@ export const ledgerInputSchema = z.object({
   // Stored as typed. Normalising to E.164 happens at the point of use, because a user pasting
   // a number from a phonebook should not have it silently rewritten in their master data.
   phone: z.string().trim().max(24).nullable().optional(),
-  email: z.string().trim().max(120).nullable().optional()
+  email: z.string().trim().max(120).nullable().optional(),
+  /** Where this party is paid. Stored as typed apart from the length cap — the comparison that
+   *  matters (is this the same account as another party's?) normalises at the point of use, see
+   *  src/shared/bankDetails.ts. Absent leaves whatever is already on the master alone; the
+   *  two-person rule (roadmap V #388) is applied above this schema, not by it. */
+  bankAccount: z.string().trim().max(34).nullable().optional(),
+  bankIfsc: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .max(11)
+    .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'Not an IFSC (e.g. HDFC0001234)')
+    .nullable()
+    .optional(),
+  bankHolder: z.string().trim().max(120).nullable().optional(),
+  /** The user has said this account is knowingly shared with another party — a proprietor and
+   *  their firm. Silences the shared-account exception for this party only. */
+  bankSharedOk: z.boolean().optional()
 })
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
  *  service callers (tests, importers) don't have to spell out every defaulted field. */

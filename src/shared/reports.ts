@@ -268,6 +268,9 @@ export interface ExceptionSection {
     | 'numberGaps'
     /** Buyers past the section 206C(1H) receipts threshold, where TCS may be collectible. */
     | 'tcsThreshold'
+    /** Two or more parties paid into one bank account — a data error, or the fraud the
+     *  two-person rule on bank details guards against. */
+    | 'sharedBankAccount'
   label: string
   count: number
   /** Detail rows, capped at 200 per section (count is the true total). */

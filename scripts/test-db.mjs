@@ -6,10 +6,14 @@ import { spawnSync } from 'child_process'
 
 const require = createRequire(import.meta.url)
 const electronBinaryPath = require('electron')
+// Resolved rather than spelled as './node_modules/...': a git worktree has no node_modules of
+// its own and inherits the main checkout's by Node's upward lookup, so a literal relative path
+// works in the repo and fails in every worktree.
+const vitestBin = require.resolve('vitest/vitest.mjs')
 
 const result = spawnSync(
   electronBinaryPath,
-  ['node_modules/vitest/vitest.mjs', 'run', '-c', 'vitest.db.config.ts', ...process.argv.slice(2)],
+  [vitestBin, 'run', '-c', 'vitest.db.config.ts', ...process.argv.slice(2)],
   {
     stdio: 'inherit',
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
