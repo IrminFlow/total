@@ -164,3 +164,30 @@ export function setBackupKeep(db: DB, keep: number): number {
   writeAudit(db, 'company', 0, 'update', { backupKeep: before }, { backupKeep: clamped })
   return clamped
 }
+
+/**
+ * How long a binned voucher sits before being purged automatically.
+ *
+ * Thirty days was a guess, and the right answer is a business's own: a shop that bins a mistyped
+ * receipt daily wants them gone; a business under audit wants nothing to disappear at all. Zero
+ * means never auto-purge, which is a legitimate policy rather than a disabled feature.
+ *
+ * Auto-purge only ever touches vouchers dated on or before the books lock date — see
+ * purgeOldDeleted — so this setting cannot reach anything in a period still open.
+ */
+export const BIN_PURGE_DAYS_DEFAULT = 30
+
+export function getBinPurgeDays(db: DB): number {
+  const raw = readMeta(db, 'bin.purgeDays')
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= 3650
+    ? raw
+    : BIN_PURGE_DAYS_DEFAULT
+}
+
+export function setBinPurgeDays(db: DB, days: number): number {
+  const clamped = Math.min(3650, Math.max(0, Math.round(days)))
+  const before = getBinPurgeDays(db)
+  writeMeta(db, 'bin.purgeDays', clamped)
+  writeAudit(db, 'company', 0, 'update', { binPurgeDays: before }, { binPurgeDays: clamped })
+  return clamped
+}

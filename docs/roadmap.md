@@ -314,7 +314,8 @@ Ordering within a section is roughly by value.
 244. One-click "move my data out of a synced folder" (M)
 245. Backup to an external drive or folder on a schedule (M)
 246. Restore preview: what will change before it changes (M)
-247. Integrity check run on a timer, not only on open (S)
+247. ✓ Integrity check run on a timer (S) — already shipped: the full PRAGMA integrity_check
+     runs at most once every 7 days, throttled through meta, alongside the per-open quick_check.
 248. Corrupt-database recovery guidance in the UI, not just an error (M)
 249. Transaction log of every write, replayable (L)
 250. Crash-safe voucher draft recovery (M)
@@ -325,7 +326,8 @@ Ordering within a section is roughly by value.
 254. Data export in a documented open format, guaranteed round-trip (M)
 255. ✓ A "what would I lose" summary before a restore (S) — counted by opening the backup,
      since a backup file is the only authority on what is in it.
-256. Bin auto-purge policy with a warning before it runs (S)
+256. ✓ Bin auto-purge policy, configurable, with what the next purge would take shown on the
+     Bin screen (S) — 0 means never, which is a policy rather than a disabled feature.
 257. Company-level read-only lock for archived years (M)
 258. Year-end close reversal, if it was run in error (M)
 259. Multi-device conflict detection via a file lock and a heartbeat (M)

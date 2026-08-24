@@ -143,4 +143,23 @@ await scenario('09-backup-restore', async (h) => {
   }
   assert(refused, 'a retention of one is refused')
   await h.invoke('config:backupKeep:set', { keep: 20 })
+
+  // ---- the bin's auto-purge policy is visible and its zero means never ----
+  // A policy that silently deletes is a policy nobody can check.
+  const policy = await h.invoke('config:binPurge:get')
+  assert(policy.days === 30, `thirty days by default (got ${policy.days})`)
+  assert(typeof policy.count === 'number', 'and it says how many the next purge would take')
+
+  const never = await h.invoke('config:binPurge:set', { days: 0 })
+  assert(never.days === 0, 'Never is a policy, not a disabled feature')
+  const afterNever = await h.invoke('config:binPurge:get')
+  assert(afterNever.count === 0, 'and with it set, nothing is ever a candidate')
+
+  await h.invoke('config:binPurge:set', { days: 30 })
+  await h.goto('settings')
+  await h.page.click('[data-testid="tab-settings-bin"]')
+  await h.page.waitForSelector('[data-testid="select-bin-purge-days"]', { timeout: 15000 })
+  const shownDays = await h.page.inputValue('[data-testid="select-bin-purge-days"]')
+  assert(shownDays === '30', `the screen shows the policy (got ${shownDays})`)
+  await h.shot('07-bin-policy')
 })

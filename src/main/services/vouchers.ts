@@ -631,6 +631,8 @@ export function purgeVoucher(db: DB, id: number): void {
  *    referenced by payroll_runs, which has no ON DELETE CASCADE) must not stop the whole
  *    purge forever. */
 export function purgeOldDeleted(db: DB, days = 30): number {
+  // Zero is a policy, not a disabled feature: a business under audit wants nothing to disappear.
+  if (days <= 0) return 0
   const lock = getLockDate(db)
   if (!lock) return 0
   const rows = db
@@ -759,4 +761,24 @@ export function latestVoucherOfType(db: DB, voucherTypeId: number): number | nul
     )
     .get(voucherTypeId) as { id: number } | undefined
   return row?.id ?? null
+}
+
+/**
+ * What the next auto-purge would remove, without removing it.
+ *
+ * A policy that silently deletes is a policy nobody can check. The Bin screen shows this so the
+ * answer to "is anything about to disappear" is on the screen where it would disappear from,
+ * rather than discovered afterwards.
+ */
+export function binPurgeCandidates(db: DB, days: number): { count: number; oldestDate: string | null } {
+  if (days <= 0) return { count: 0, oldestDate: null }
+  const lock = getLockDate(db)
+  if (!lock) return { count: 0, oldestDate: null }
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count, MIN(v.date) AS oldestDate FROM vouchers v
+       WHERE v.deleted_at IS NOT NULL AND v.deleted_at <= datetime('now', ?) AND v.date <= ?`
+    )
+    .get(`-${days} days`, lock) as { count: number; oldestDate: string | null }
+  return row
 }

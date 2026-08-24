@@ -484,6 +484,10 @@ export const api = {
     latestOfType: (voucherTypeId: number) =>
       call<{ voucherId: number | null }>('voucher:latestOfType', { voucherTypeId }),
     count: () => call<number>('voucher:count'),
+    /** The bin's auto-purge policy, and what the next purge would take. */
+    purgePolicy: () =>
+      call<{ days: number; count: number; oldestDate: string | null }>('config:binPurge:get'),
+    setPurgeDays: (days: number) => call<{ days: number }>('config:binPurge:set', { days }),
     bin: () => call<BinRow[]>('voucher:bin'),
     restore: (id: number) => call<null>('voucher:restore', { id }),
     purge: (id: number) => call<null>('voucher:purge', { id })

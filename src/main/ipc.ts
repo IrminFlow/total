@@ -316,7 +316,7 @@ export function registerIpc(): void {
       log('warn', 'integrity-weekly-failed', { slug, detail: weekly.detail })
     }
     try {
-      const purged = vouchers.purgeOldDeleted(db, 30)
+      const purged = vouchers.purgeOldDeleted(db, configSvc.getBinPurgeDays(db))
       if (purged > 0) log('info', 'bin-purge', { purged })
     } catch (err) {
       // e.g. an over-age binned voucher still referenced by payroll_runs — housekeeping must
@@ -406,6 +406,16 @@ export function registerIpc(): void {
   }, 'viewer')
 
   handle('backup:run', runManualBackup)
+
+  handle('config:binPurge:get', () => {
+    const c = requireCompany()
+    const days = configSvc.getBinPurgeDays(c.db)
+    return { days, ...vouchers.binPurgeCandidates(c.db, days) }
+  }, 'viewer')
+  handle('config:binPurge:set', (p) => {
+    const { days } = z.object({ days: z.number().int().min(0).max(3650) }).parse(p)
+    return { days: configSvc.setBinPurgeDays(requireCompany().db, days) }
+  }, 'owner')
 
   handle('config:backupKeep:get', () => ({ keep: configSvc.getBackupKeep(requireCompany().db) }), 'viewer')
   handle('config:backupKeep:set', (p) => {

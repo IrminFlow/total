@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BinRow } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle, TextInput } from '../../components/ui'
+import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
 import { toDisplayDate } from '@shared/dates'
 
 export function BinSection(): React.JSX.Element {
@@ -34,6 +34,7 @@ export function BinSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>Bin</SectionTitle>
+      <PurgePolicy canEdit={canPurge} />
       <Panel>
         {rows.length === 0 ? (
           <EmptyState title="Bin is empty" />
@@ -125,5 +126,60 @@ function PurgeModal({ row, onClose }: { row: BinRow; onClose: () => void }): Rea
         </Button>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * The bin's auto-purge policy, and what the next purge would take.
+ *
+ * A policy that silently deletes is a policy nobody can check, so the warning belongs on the
+ * screen the vouchers would disappear from rather than in a log. Thirty days was a guess: a shop
+ * that bins a mistyped receipt daily wants them gone, and a business under audit wants nothing to
+ * disappear at all — which "Never" expresses as a policy rather than as a disabled feature.
+ */
+function PurgePolicy({ canEdit }: { canEdit: boolean }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data } = useQuery({ queryKey: ['binPurge'], queryFn: api.vouchers.purgePolicy })
+
+  const save = async (days: number): Promise<void> => {
+    try {
+      await api.vouchers.setPurgeDays(days)
+      await queryClient.invalidateQueries({ queryKey: ['binPurge'] })
+      toast.push('success', days === 0 ? 'Nothing will be purged automatically' : `Purging after ${days} days`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <div className="mb-3 flex items-center gap-3 rounded-md border border-line bg-panel2 px-3.5 py-2.5 text-body-sm">
+      <span>Purge binned vouchers after</span>
+      <Select
+        data-testid="select-bin-purge-days"
+        className="w-36"
+        value={data?.days ?? 30}
+        disabled={!canEdit}
+        onChange={(e) => void save(Number(e.target.value))}
+      >
+        <option value={0}>Never</option>
+        {[30, 90, 180, 365].map((d) => (
+          <option key={d} value={d}>
+            {d} days
+          </option>
+        ))}
+      </Select>
+      <span className="flex-1" />
+      {data && data.count > 0 ? (
+        <span className="text-amber" data-testid="bin-purge-warning">
+          {data.count} will be purged the next time these books open
+          {data.oldestDate && `, the oldest dated ${toDisplayDate(data.oldestDate)}`}.
+        </span>
+      ) : (
+        <span className="text-hint text-muted">
+          Only vouchers dated on or before the books lock date are ever purged automatically.
+        </span>
+      )}
+    </div>
   )
 }
