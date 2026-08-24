@@ -4,6 +4,7 @@ import { api } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
 import { Button, Field, Panel, SectionTitle, TextInput } from '../../components/ui'
 import { DEFAULT_INVOICE_CONFIG, type InvoiceConfig } from '@shared/invoiceConfig'
+import { isValidVpa } from '@shared/upi'
 
 const MAX_LOGO_BYTES = 200 * 1024
 const PREVIEW_DEBOUNCE_MS = 400
@@ -140,6 +141,22 @@ export function InvoiceConfigSection(): React.JSX.Element {
                 disabled={!canEdit}
                 rows={3}
                 className="w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body-sm disabled:opacity-60"
+              />
+            </Field>
+            <Field
+              label="UPI address for payment QR"
+              hint="A QR beside the invoice total that a customer can pay from any UPI app. Blank = no QR."
+              error={
+                value.upiVpa && !isValidVpa(value.upiVpa) ? 'Not a UPI address (name@handle)' : null
+              }
+            >
+              <TextInput
+                data-testid="input-upi-vpa"
+                value={value.upiVpa ?? ''}
+                onChange={(e) => set({ upiVpa: e.target.value.trim() || null })}
+                disabled={!canEdit}
+                className="num"
+                placeholder="yourshop@ybl"
               />
             </Field>
             <Field label="Signatory line">

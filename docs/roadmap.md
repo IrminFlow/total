@@ -239,16 +239,19 @@ Ordering within a section is roughly by value.
 188. Sales order and purchase order with fulfilment tracking (L)
 189. Delivery note and receipt note (M)
 190. Terms and conditions block, per voucher type (S)
-191. QR code on the invoice, UPI payment intent (S)
+191. ✓ QR code on the invoice, UPI payment intent (S)
 192. Invoice email with the PDF attached (M)
 193. WhatsApp invoice send (S)
 194. Multi-page invoices with carried-forward totals (M)
 195. Custom fields on a voucher, defined per company (L)
-196. Document numbering with a configurable prefix and suffix (S)
+196. ✓ Document numbering with a configurable prefix and suffix (S) — already shipped:
+     per-voucher-type prefix, suffix, zero-pad width and restart-each-FY.
 197. Print an entire period's invoices in one job (M)
-198. Duplicate/triplicate copy markings (S)
+198. ✓ Duplicate/triplicate copy markings (S) — already shipped as configurable copyLabels,
+     one printed page per label.
 199. Round-off and amount-in-words in the chosen language (S)
-200. Company logo, letterhead and footer configuration (already partly there) (S)
+200. ✓ Company logo, letterhead and footer configuration (S) — already shipped: logo, title,
+     declaration, bank block, terms, signatory and an entered-by footer.
 201. Export invoices as a zip of PDFs for the CA (S)
 202. Watermark for drafts and cancelled documents (S)
 203. Invoice-level discount in addition to line discounts (S)

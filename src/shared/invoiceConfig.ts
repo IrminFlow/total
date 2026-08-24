@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isValidVpa } from './upi'
 
 /**
  * Company-wide invoice print customization (Tally's F12 invoice print config, roughly). Stored
@@ -31,6 +32,14 @@ export interface InvoiceConfig {
   /** Footer line "Entered by X · Altered by Y" sourced from the voucher's audit trail (first
    *  create + latest update user) — lane Q, task Q1 #91. Off by default. */
   showEnteredBy: boolean
+  /**
+   * UPI virtual payment address the invoice's payment QR pays into. Null = no payment QR.
+   *
+   * An invoice that says what is owed and leaves the customer to type an account number into a
+   * banking app gets paid late. A UPI QR turns "I'll transfer it" into a five-second act, and
+   * this market pays by UPI more than by anything else.
+   */
+  upiVpa: string | null
 }
 
 export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
@@ -46,7 +55,8 @@ export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
   copyLabels: ['Original for Recipient'],
   showQr: true,
   showItemBarcode: false,
-  showEnteredBy: false
+  showEnteredBy: false,
+  upiVpa: null
 }
 
 /** ~200KB of base64 (280,000 chars covers 200KB with base64's ~4/3 expansion plus headroom). */
@@ -76,7 +86,17 @@ export const invoiceConfigSchema = z.object({
   showQr: z.boolean(),
   showItemBarcode: z.boolean(),
   // .default(false) so configs saved before this field existed still parse as-is.
-  showEnteredBy: z.boolean().default(false)
+  showEnteredBy: z.boolean().default(false),
+  // Shape-checked, not existence-checked: a typo in a VPA does not bounce, so the only local
+  // check possible is that it looks like one at all. See src/shared/upi.ts.
+  upiVpa: z
+    .string()
+    .trim()
+    .max(80)
+    .nullable()
+    .default(null)
+    .refine((v) => v === null || v === '' || isValidVpa(v), 'Not a UPI address (name@handle)')
+    .transform((v) => (v === '' ? null : v))
 })
 
 /** Every field optional — for previewing unsaved edits. The renderer's draft form state is

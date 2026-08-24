@@ -181,4 +181,28 @@ await scenario('06-gst', async (h) => {
   await h.shot('01-gstr1')
   await h.goto('gstr3b')
   await h.shot('02-gstr3b')
+
+  // ---- a UPI payment QR on the invoice ----
+  // An invoice that says what is owed and leaves the customer to type an account number into a
+  // banking app gets paid late.
+  const cfg = await h.invoke('config:invoice:get')
+  const withoutQr = await h.invoke('invoice:previewHtml', { voucherId })
+  assert(!/Scan to pay/.test(withoutQr.html), 'no payment QR before a UPI address is set')
+
+  await h.invoke('config:invoice:set', { ...cfg, upiVpa: 'demotraders@ybl' })
+  const withQr = await h.invoke('invoice:previewHtml', { voucherId })
+  assert(/Scan to pay/.test(withQr.html), 'the QR appears once a UPI address is set')
+  assert(/demotraders@ybl/.test(withQr.html), 'and names the address it pays into')
+
+  // A malformed address is refused by the config itself rather than rendering a QR that would
+  // open a payment app pointed at nothing.
+  let rejected = false
+  try {
+    await h.invoke('config:invoice:set', { ...cfg, upiVpa: 'not a vpa' })
+  } catch {
+    rejected = true
+  }
+  assert(rejected, 'a malformed UPI address is rejected on save')
+
+  await h.invoke('config:invoice:set', { ...cfg, upiVpa: null })
 })

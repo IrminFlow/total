@@ -181,6 +181,42 @@ describe('hsnSummaryForInvoice (Q2 #96 — HSN-wise tax summary block)', () => {
     expect(rows[1]).toMatchObject({ igst: 18000, cgst: 0, sgst: 0 })
   })
 
+  it('prints a UPI payment QR when a VPA is configured, and none when it is not', () => {
+    // An invoice that says what is owed and leaves the customer to type an account number into a
+    // banking app gets paid late.
+    const without = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)
+    expect(without).not.toContain('Scan to pay')
+
+    const withUpi = buildInvoiceHtml(
+      COMPANY,
+      { ...DEFAULT_INVOICE_CONFIG, upiVpa: 'totaltraders@ybl' },
+      SAMPLE_INVOICE
+    )
+    expect(withUpi).toContain('Scan to pay')
+    expect(withUpi).toContain('totaltraders@ybl')
+  })
+
+  it('never offers to collect on a credit note', () => {
+    // A document that reduces what is owed must not carry a QR that takes money.
+    const html = buildInvoiceHtml(
+      COMPANY,
+      { ...DEFAULT_INVOICE_CONFIG, upiVpa: 'totaltraders@ybl' },
+      { ...SAMPLE_INVOICE, docType: 'CRN' }
+    )
+    expect(html).not.toContain('Scan to pay')
+  })
+
+  it('prints no payment QR for a VPA that could not be turned into a link', () => {
+    // Better no QR than one that opens an app with the wrong payee: the customer believes they
+    // have paid. (The config schema rejects this shape too; this is the render-side guard.)
+    const html = buildInvoiceHtml(
+      COMPANY,
+      { ...DEFAULT_INVOICE_CONFIG, upiVpa: 'not a vpa' },
+      SAMPLE_INVOICE
+    )
+    expect(html).not.toContain('Scan to pay')
+  })
+
   it('prints a composition dealer a bill of supply, with the rule 5(1)(f) line and no tax', () => {
     // A composition dealer may not collect tax and may not issue a tax invoice. Printing one
     // with nil CGST/SGST rows is the dealer holding out a document they are barred from issuing.

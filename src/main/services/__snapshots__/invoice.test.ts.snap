@@ -36,6 +36,13 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
     .r { text-align: right; } .c { text-align: center; }
     .bottom { display: flex; border-top: 1.5px solid #16181f; }
     .words { flex: 1; padding: 10px 16px; border-right: 1px solid #16181f; }
+    /* The payment QR sits beside the totals, not next to the verification QR in the header:
+       one says the document is genuine, the other collects money, and putting them together
+       invites scanning the wrong one. */
+    .tot-wrap { display: flex; align-items: flex-start; gap: 14px; }
+    .upi { text-align: center; }
+    .upi-cap { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.06em; color: #555; margin-top: 2px; }
+    .upi-vpa { font-size: 8.5px; color: #555; }
     table.tot { width: 260px; border-collapse: collapse; }
     table.tot td { padding: 5px 12px; }
     table.tot tr.grand td { border-top: 1px solid #16181f; border-bottom: 3px double #16181f; font-weight: 700; font-size: 13px; }
@@ -124,11 +131,14 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
           
           
         </div>
+        <div class="tot-wrap">
+        
         <table class="tot">
           <tr><td>Taxable value</td><td class="r num">10,000.00</td></tr>
           <tr><td>CGST</td><td class="r num">900.00</td></tr><tr><td>SGST</td><td class="r num">900.00</td></tr>
           <tr class="grand"><td>Total</td><td class="r num">₹ 11,800.00</td></tr>
         </table>
+        </div>
       </div>
       <div class="sig">
         <div>Receiver's signature</div>

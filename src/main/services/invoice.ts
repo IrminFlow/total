@@ -16,6 +16,7 @@ import {
 } from '@shared/gst/billOfSupply'
 import { mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
 import { einvoiceQrPayload } from '@shared/einvoiceQr'
+import { upiIntentUrl } from '@shared/upi'
 import { extractEdocInvoices } from './edocs'
 import { getInvoiceConfig } from './config'
 import { companyExportsDir } from '../paths'
@@ -295,6 +296,32 @@ export function buildInvoiceHtml(
        </div>`
     : ''
 
+  /**
+   * A UPI payment QR next to the total, when a VPA is configured.
+   *
+   * Placed by the amount rather than by the header QR: one is how the document is verified, the
+   * other is how it gets paid, and putting them together invites scanning the wrong one. Carries
+   * the invoice total and number, so a payment arrives already tied to the bill.
+   *
+   * Never on a credit note — a document that reduces what is owed must not offer to collect it.
+   */
+  const upiUrl =
+    config.upiVpa && inv.docType !== 'CRN'
+      ? upiIntentUrl({
+          vpa: config.upiVpa,
+          payeeName: company.name,
+          amountPaise: inv.total,
+          note: inv.number
+        })
+      : null
+  const upiBlock = upiUrl
+    ? `<div class="upi">
+         ${qrSvg(upiUrl, 24)}
+         <div class="upi-cap">Scan to pay · UPI</div>
+         <div class="upi-vpa num">${esc(config.upiVpa)}</div>
+       </div>`
+    : ''
+
   const sheet = `
     <div class="sheet">
       <div class="head">
@@ -340,11 +367,14 @@ export function buildInvoiceHtml(
           ${bankBlock}
           ${termsBlock}
         </div>
+        <div class="tot-wrap">
+        ${upiBlock}
         <table class="tot">
           <tr><td>${withTax ? 'Taxable value' : 'Value of supply'}</td><td class="r num">${money(inv.taxable)}</td></tr>
           ${taxRows}
           <tr class="grand"><td>Total</td><td class="r num">₹ ${money(inv.total)}</td></tr>
         </table>
+        </div>
       </div>
       <div class="sig">
         <div>Receiver's signature</div>
@@ -407,6 +437,13 @@ export function buildInvoiceHtml(
     .r { text-align: right; } .c { text-align: center; }
     .bottom { display: flex; border-top: 1.5px solid #16181f; }
     .words { flex: 1; padding: 10px 16px; border-right: 1px solid #16181f; }
+    /* The payment QR sits beside the totals, not next to the verification QR in the header:
+       one says the document is genuine, the other collects money, and putting them together
+       invites scanning the wrong one. */
+    .tot-wrap { display: flex; align-items: flex-start; gap: 14px; }
+    .upi { text-align: center; }
+    .upi-cap { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.06em; color: #555; margin-top: 2px; }
+    .upi-vpa { font-size: 8.5px; color: #555; }
     table.tot { width: 260px; border-collapse: collapse; }
     table.tot td { padding: 5px 12px; }
     table.tot tr.grand td { border-top: 1px solid #16181f; border-bottom: 3px double #16181f; font-weight: 700; font-size: 13px; }
