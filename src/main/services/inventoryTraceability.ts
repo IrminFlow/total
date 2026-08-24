@@ -227,14 +227,68 @@ export function setTransferStatus(
       const company = new Map(
         stockSummary(db, before.transferDate).map((r) => [r.stockItemId, r]),
       );
+      const requestedByItem = new Map<number, number>();
+      const requestedByBatch = new Map<
+        number,
+        { stockItemId: number; batchName: string; qtyMilli: number }
+      >();
       for (const line of before.lines) {
-        if (
-          (positions.get(line.stockItemId)?.closingQtyMilli ?? 0) <
-          line.qtyMilli
-        )
+        requestedByItem.set(
+          line.stockItemId,
+          (requestedByItem.get(line.stockItemId) ?? 0) + line.qtyMilli,
+        );
+        if (line.batchId != null) {
+          const batch = db
+            .prepare(
+              "SELECT stock_item_id AS stockItemId,name FROM batches WHERE id=?",
+            )
+            .get(line.batchId) as
+            | { stockItemId: number; name: string }
+            | undefined;
+          if (!batch) throw new Error("Batch not found");
+          if (batch.stockItemId !== line.stockItemId)
+            throw new Error(
+              `Batch ${batch.name} belongs to a different stock item`,
+            );
+          const requested = requestedByBatch.get(line.batchId);
+          requestedByBatch.set(line.batchId, {
+            stockItemId: line.stockItemId,
+            batchName: batch.name,
+            qtyMilli: (requested?.qtyMilli ?? 0) + line.qtyMilli,
+          });
+        }
+      }
+      for (const [stockItemId, requestedQty] of requestedByItem) {
+        if ((positions.get(stockItemId)?.closingQtyMilli ?? 0) < requestedQty) {
+          const itemName = before.lines.find(
+            (line) => line.stockItemId === stockItemId,
+          )!.itemName;
           throw new Error(
-            `${line.itemName} is short at ${before.fromGodownName}`,
+            `${itemName} is short at ${before.fromGodownName}`,
           );
+        }
+      }
+      const batchBalance = db.prepare(
+        `SELECT COALESCE(SUM(CASE WHEN il.direction='in' THEN il.qty_milli ELSE -il.qty_milli END),0) AS qtyMilli
+         FROM inventory_lines il
+         JOIN vouchers v ON v.id=il.voucher_id
+         WHERE il.batch_id=? AND il.stock_item_id=? AND il.godown_id=?
+           AND il.is_absolute=0 AND v.date<=? AND ${IN_BOOKS}`,
+      );
+      for (const [batchId, requested] of requestedByBatch) {
+        const available = batchBalance.get(
+          batchId,
+          requested.stockItemId,
+          before.fromGodownId,
+          before.transferDate,
+        ) as { qtyMilli: number };
+        if (available.qtyMilli < requested.qtyMilli) {
+          throw new Error(
+            `Batch ${requested.batchName} is short at ${before.fromGodownName}`,
+          );
+        }
+      }
+      for (const line of before.lines) {
         const item = company.get(line.stockItemId);
         const rate =
           item && item.closingQtyMilli > 0

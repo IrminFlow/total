@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { seededDb } from "../db/testdb";
 import type { DB } from "../db/connection";
-import { createGodown, createStockItem } from "./masters";
+import { createBatch, createGodown, createStockItem } from "./masters";
 import { deleteVoucher, saveVoucher } from "./vouchers";
 import { stockSummary } from "./stockAnalysis";
 import * as trace from "./inventoryTraceability";
@@ -34,6 +34,7 @@ function move(
   qtyMilli: number,
   direction: "in" | "out",
   amount = 0,
+  batchId: number | null = null,
 ): { voucherId: number; lineId: number } {
   const type = (
     db
@@ -58,7 +59,7 @@ function move(
       {
         stockItemId: itemId,
         godownId,
-        batchId: null,
+        batchId,
         qtyMilli,
         ratePaise: qtyMilli ? Math.round((amount * 1000) / qtyMilli) : 0,
         amount,
@@ -119,6 +120,69 @@ describe("inventory traceability and production", () => {
       stockSummary(db, "2025-07-12").find((r) => r.stockItemId === id)
         ?.closingValue,
     ).toBe(100000);
+  });
+  it("blocks batch dispatch above the selected lot held at the source godown", () => {
+    const db = seededDb();
+    const id = item(db, "Godown batch item");
+    const from = createGodown(db, {
+      name: "Batch source",
+      address: null,
+      gstRegistrationId: null,
+    }).id;
+    const other = createGodown(db, {
+      name: "Other batch store",
+      address: null,
+      gstRegistrationId: null,
+    }).id;
+    const to = createGodown(db, {
+      name: "Batch destination",
+      address: null,
+      gstRegistrationId: null,
+    }).id;
+    const batch = createBatch(db, {
+      stockItemId: id,
+      name: "LOT-SOURCE",
+      mfgDate: null,
+      expiryDate: null,
+    });
+    move(db, "2025-07-01", id, from, 1000, "in", 10000, batch.id);
+    move(db, "2025-07-01", id, from, 2000, "in", 20000);
+    move(db, "2025-07-01", id, other, 5000, "in", 50000, batch.id);
+    const transfer = trace.createTransfer(
+      db,
+      {
+        transferDate: "2025-07-10",
+        fromGodownId: from,
+        toGodownId: to,
+        expectedArrival: null,
+        note: null,
+        lines: [{ stockItemId: id, batchId: batch.id, qtyMilli: 1200 }],
+      },
+      "owner",
+    );
+    const voucherCount = db.prepare("SELECT COUNT(*) AS n FROM vouchers").get();
+
+    expect(() =>
+      trace.setTransferStatus(db, transfer.id, "dispatched", "owner"),
+    ).toThrow(/Batch LOT-SOURCE is short at Batch source/);
+
+    expect(
+      db
+        .prepare(
+          "SELECT status,dispatch_voucher_id AS dispatchVoucherId FROM stock_transfers WHERE id=?",
+        )
+        .get(transfer.id),
+    ).toEqual({ status: "draft", dispatchVoucherId: null });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM vouchers").get()).toEqual(
+      voucherCount,
+    );
+    expect(
+      db
+        .prepare(
+          "SELECT unit_cost_paise AS unitCostPaise FROM stock_transfer_lines WHERE transfer_id=? ORDER BY id",
+        )
+        .all(transfer.id),
+    ).toEqual([{ unitCostPaise: null }]);
   });
   it("enforces one live lifecycle per serial number", () => {
     const db = seededDb();

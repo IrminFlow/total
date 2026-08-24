@@ -381,6 +381,78 @@ describe('bank rules v2 fields', () => {
 })
 
 describe('importStatement v2', () => {
+  it('rolls back accounting, evidence, rule hits, and audit together, then retries once', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Atomic bank import expense')
+    const matchedLineId = bookBankEntry(db, bank.id, office.id, '2026-08-10', 150000, 'cr')
+    const rule = saveRule(db, {
+      pattern: 'ATOMIC SUBSCRIPTION', ledgerId: office.id, kind: 'payment', active: true, autoApply: true
+    })
+    const csv = [
+      CSV_HEADER,
+      '2026-08-10,BOOKED PAYMENT,1500.00,',
+      '2026-08-11,ATOMIC SUBSCRIPTION,999.00,'
+    ].join('\n')
+    const vouchersBefore = (db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n
+    const auditBefore = (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n
+
+    db.exec(`CREATE TRIGGER fail_statement_evidence
+      BEFORE INSERT ON bank_statement_rows
+      BEGIN SELECT RAISE(ABORT, 'injected statement evidence failure'); END`)
+    expect(() => importStatement(db, bank.id, csv)).toThrow(/injected statement evidence failure/)
+
+    expect(db.prepare('SELECT bank_date AS bankDate FROM voucher_lines WHERE id=?').get(matchedLineId))
+      .toEqual({ bankDate: null })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM vouchers').get()).toEqual({ n: vouchersBefore })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bank_statement_imports').get()).toEqual({ n: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bank_statement_rows').get()).toEqual({ n: 0 })
+    expect(db.prepare('SELECT hits FROM bank_rules WHERE id=?').get(rule.id)).toEqual({ hits: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM audit_log').get()).toEqual({ n: auditBefore })
+
+    db.exec('DROP TRIGGER fail_statement_evidence')
+    const applied = importStatement(db, bank.id, csv)
+    expect(applied).toMatchObject({ matched: 1, autoCreated: [expect.objectContaining({ ruleId: rule.id })] })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bank_statement_imports').get()).toEqual({ n: 1 })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bank_statement_rows').get()).toEqual({ n: 2 })
+    expect(db.prepare('SELECT hits FROM bank_rules WHERE id=?').get(rule.id)).toEqual({ hits: 1 })
+
+    const voucherCountAfterApply = db.prepare('SELECT COUNT(*) AS n FROM vouchers').get()
+    const retry = importStatement(db, bank.id, csv)
+    expect(retry.importId).toBe(applied.importId)
+    expect(retry.autoCreated).toHaveLength(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM vouchers').get()).toEqual(voucherCountAfterApply)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bank_statement_rows').get()).toEqual({ n: 2 })
+    expect(db.prepare('SELECT hits FROM bank_rules WHERE id=?').get(rule.id)).toEqual({ hits: 1 })
+  })
+
+  it('refuses to reclassify a matched row without breaking its reconciliation link', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Matched row guard expense')
+    const matchedLineId = bookBankEntry(db, bank.id, office.id, '2026-08-10', 150000, 'cr')
+    importStatement(db, bank.id, [CSV_HEADER, '2026-08-10,BOOKED PAYMENT,1500.00,'].join('\n'))
+    const row = db.prepare(
+      'SELECT id,status,matched_line_id AS matchedLineId FROM bank_statement_rows'
+    ).get() as { id: number; status: string; matchedLineId: number | null }
+    expect(row).toMatchObject({ status: 'matched', matchedLineId })
+    const auditBefore = (db.prepare(
+      "SELECT COUNT(*) AS n FROM audit_log WHERE entity='bank_statement_row'"
+    ).get() as { n: number }).n
+
+    expect(() => classifyStatementRow(db, row.id, 'ignored', 'Not actually matched', 'Reviewer'))
+      .toThrow(/Matched statement rows cannot be reclassified/)
+
+    expect(db.prepare(
+      'SELECT status,matched_line_id AS matchedLineId,note,reviewed_by AS reviewedBy FROM bank_statement_rows WHERE id=?'
+    ).get(row.id)).toEqual({ status: 'matched', matchedLineId, note: null, reviewedBy: null })
+    expect(db.prepare('SELECT bank_date AS bankDate FROM voucher_lines WHERE id=?').get(matchedLineId))
+      .toEqual({ bankDate: '2026-08-10' })
+    expect(db.prepare(
+      "SELECT COUNT(*) AS n FROM audit_log WHERE entity='bank_statement_row'"
+    ).get()).toEqual({ n: auditBefore })
+  })
+
   it('reports alreadyReconciled truthfully for re-imported rows', () => {
     const db = seededDb()
     const bank = bankLedger(db)

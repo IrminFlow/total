@@ -307,6 +307,14 @@ export function importStatement(
   const apply = opts.apply !== false
   const { statement, matches, alreadyReconciled, unmatched } = matchStatement(db, ledgerId, csv)
 
+  const firstWithBalance = statement.find((row) => row.balance != null)
+  const lastWithBalance = [...statement].reverse().find((row) => row.balance != null)
+  const openingBalance = firstWithBalance?.balance == null
+    ? null
+    : firstWithBalance.balance - firstWithBalance.deposit + firstWithBalance.withdrawal
+  const closingBalance = lastWithBalance?.balance ?? null
+  const sourceHash = statement.length > 0 ? createHash('sha256').update(csv).digest('hex') : null
+
   const matchDetail = matches.map((m) => ({
     date: m.row.date,
     description: m.row.description,
@@ -314,13 +322,31 @@ export function importStatement(
     kind: (m.row.deposit > 0 ? 'deposit' : 'withdrawal') as 'deposit' | 'withdrawal',
     lineId: m.lineId
   }))
-  const autoCreated: ImportResult['autoCreated'] = []
+  let autoCreated: ImportResult['autoCreated'] = []
   let remaining = unmatched
+  let importId: number | null = null
 
-  if (apply) {
-    const setStmt = db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?')
-    const run = db.transaction(() => {
-      for (const m of matches) setStmt.run(m.row.date, m.lineId)
+  // A retry of byte-identical evidence must be a true no-op. In particular, do this before
+  // auto-apply rules run, otherwise a retried statement could create fresh accounting entries
+  // before INSERT OR IGNORE reveals that its evidence already exists.
+  const existingImport = apply && sourceHash != null
+    ? db.prepare('SELECT id FROM bank_statement_imports WHERE ledger_id = ? AND source_hash = ?')
+      .get(ledgerId, sourceHash) as { id: number } | undefined
+    : undefined
+  if (existingImport) importId = existingImport.id
+
+  if (apply && !existingImport) {
+    const applied = db.transaction(() => {
+      const txAutoCreated: ImportResult['autoCreated'] = []
+      let txRemaining = unmatched
+      let txImportId: number | null = null
+      const createdByRowNo = new Map<number, number>()
+      const setStmt = db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ? AND bank_date IS NULL')
+      for (const m of matches) {
+        if (setStmt.run(m.row.date, m.lineId).changes !== 1) {
+          throw new Error('A matched bank entry changed during import; retry the statement')
+        }
+      }
 
       // Opt-in auto-apply: rules flagged auto_apply create the voucher outright (same draft
       // shape suggestVouchers offers) and reconcile its bank line against the statement row.
@@ -379,67 +405,55 @@ export function importStatement(
             tds: null
           })
           const bankLine = voucher.lines.find((l) => l.ledgerId === ledgerId)
-          if (bankLine) setStmt.run(u.date, bankLine.id)
+          if (!bankLine || setStmt.run(u.date, bankLine.id).changes !== 1) {
+            throw new Error('Auto-created voucher is missing its unreconciled bank line')
+          }
           recordRuleHit(db, rule.id)
-          autoCreated.push({ date: u.date, description: u.description, amount: u.amount, kind: u.kind, voucherId: voucher.id, ruleId: rule.id })
+          createdByRowNo.set(u.rowNo, voucher.id)
+          txAutoCreated.push({ date: u.date, description: u.description, amount: u.amount, kind: u.kind, voucherId: voucher.id, ruleId: rule.id })
         }
-        remaining = stillUnmatched
+        txRemaining = stillUnmatched
       }
-    })
-    run()
-  }
 
-  const firstWithBalance = statement.find((row) => row.balance != null)
-  const lastWithBalance = [...statement].reverse().find((row) => row.balance != null)
-  const openingBalance = firstWithBalance?.balance == null
-    ? null
-    : firstWithBalance.balance - firstWithBalance.deposit + firstWithBalance.withdrawal
-  const closingBalance = lastWithBalance?.balance ?? null
-  let importId: number | null = null
-
-  // Applying an import persists its evidence. A byte-identical re-import is idempotent: the
-  // existing workspace is returned instead of producing duplicate statement lines.
-  if (apply && statement.length > 0) {
-    const sourceHash = createHash('sha256').update(csv).digest('hex')
-    const dates = statement.map((row) => row.date).sort()
-    const inserted = db.prepare(
-      `INSERT OR IGNORE INTO bank_statement_imports
-       (ledger_id, format, file_name, period_from, period_to, opening_balance, closing_balance, source_hash, row_count, imported_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      ledgerId, opts.format ?? 'csv', opts.fileName ?? null, dates[0], dates[dates.length - 1],
-      openingBalance, closingBalance, sourceHash, statement.length, opts.actor ?? 'Local user'
-    )
-    if (inserted.changes > 0) {
-      importId = Number(inserted.lastInsertRowid)
-      const exact = new Map(matches.map((match) => [match.row.rowNo, match.lineId]))
-      const already = new Map(alreadyReconciled.map((match) => [match.row.rowNo, match.lineId]))
-      const created = new Map(autoCreated.map((row) => [`${row.date}|${row.description}|${row.amount}|${row.kind}`, row.voucherId]))
-      const insertRow = db.prepare(
-        `INSERT INTO bank_statement_rows
-         (import_id, row_no, date, description, reference, direction, amount, running_balance, status, matched_line_id, created_voucher_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const row of statement) {
-        const direction = row.deposit > 0 ? 'deposit' : 'withdrawal'
-        const amount = row.deposit || row.withdrawal
-        const createdVoucherId = created.get(`${row.date}|${row.description}|${amount}|${direction}`) ?? null
-        const matchedLineId = exact.get(row.rowNo) ?? already.get(row.rowNo) ?? null
-        insertRow.run(
-          importId, row.rowNo, row.date, row.description, row.reference, direction, amount, row.balance,
-          matchedLineId != null || createdVoucherId != null ? 'matched' : 'bank_only', matchedLineId, createdVoucherId
+      // Evidence, accounting effects, rule hit counts, and the summary audit are one commit.
+      // Any malformed row or storage failure rolls the complete import back.
+      if (statement.length > 0) {
+        const dates = statement.map((row) => row.date).sort()
+        const inserted = db.prepare(
+          `INSERT INTO bank_statement_imports
+           (ledger_id, format, file_name, period_from, period_to, opening_balance, closing_balance, source_hash, row_count, imported_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          ledgerId, opts.format ?? 'csv', opts.fileName ?? null, dates[0], dates[dates.length - 1],
+          openingBalance, closingBalance, sourceHash, statement.length, opts.actor ?? 'Local user'
         )
+        txImportId = Number(inserted.lastInsertRowid)
+        const exact = new Map(matches.map((match) => [match.row.rowNo, match.lineId]))
+        const already = new Map(alreadyReconciled.map((match) => [match.row.rowNo, match.lineId]))
+        const insertRow = db.prepare(
+          `INSERT INTO bank_statement_rows
+           (import_id, row_no, date, description, reference, direction, amount, running_balance, status, matched_line_id, created_voucher_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        for (const row of statement) {
+          const direction = row.deposit > 0 ? 'deposit' : 'withdrawal'
+          const amount = row.deposit || row.withdrawal
+          const createdVoucherId = createdByRowNo.get(row.rowNo) ?? null
+          const matchedLineId = exact.get(row.rowNo) ?? already.get(row.rowNo) ?? null
+          insertRow.run(
+            txImportId, row.rowNo, row.date, row.description, row.reference, direction, amount, row.balance,
+            matchedLineId != null || createdVoucherId != null ? 'matched' : 'bank_only', matchedLineId, createdVoucherId
+          )
+        }
       }
-    } else {
-      importId = (db.prepare('SELECT id FROM bank_statement_imports WHERE ledger_id = ? AND source_hash = ?').get(ledgerId, sourceHash) as { id: number }).id
-    }
-  }
 
-  // [lane-Q audit block — keep as one unit when merging] statement-import summary audit row.
-  // Not written for dry runs (lane Y's preview-confirm flow) — only an applied import is an event.
-  if (apply) {
-    writeAudit(db, 'bank_statement', ledgerId, 'import', null,
-      { statementRows: statement.length, matched: matches.length, unmatched: remaining.length })
+      writeAudit(db, 'bank_statement', ledgerId, 'import', null,
+        { statementRows: statement.length, matched: matches.length, unmatched: txRemaining.length })
+      return { autoCreated: txAutoCreated, remaining: txRemaining, importId: txImportId }
+    })()
+    autoCreated = applied.autoCreated
+    remaining = applied.remaining
+    importId = applied.importId
   }
 
   return {
@@ -558,12 +572,22 @@ export function classifyStatementRow(
   note: string | null,
   actor: string
 ): void {
-  const before = db.prepare('SELECT * FROM bank_statement_rows WHERE id = ?').get(rowId) as Record<string, unknown> | undefined
-  if (!before) throw new Error('Statement row not found')
-  db.prepare(
-    `UPDATE bank_statement_rows SET status = ?, note = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?`
-  ).run(status, note, actor, rowId)
-  writeAudit(db, 'bank_statement_row', rowId, 'update', before, { status, note, actor })
+  db.transaction(() => {
+    const before = db.prepare('SELECT * FROM bank_statement_rows WHERE id = ?').get(rowId) as
+      | (Record<string, unknown> & { status: string; matched_line_id: number | null; created_voucher_id: number | null })
+      | undefined
+    if (!before) throw new Error('Statement row not found')
+    if (before.status === 'matched' || before.matched_line_id != null || before.created_voucher_id != null) {
+      throw new Error('Matched statement rows cannot be reclassified')
+    }
+    const updated = db.prepare(
+      `UPDATE bank_statement_rows
+       SET status = ?, note = ?, reviewed_by = ?, reviewed_at = datetime('now')
+       WHERE id = ? AND status <> 'matched' AND matched_line_id IS NULL AND created_voucher_id IS NULL`
+    ).run(status, note, actor, rowId)
+    if (updated.changes !== 1) throw new Error('Statement row changed during review; retry')
+    writeAudit(db, 'bank_statement_row', rowId, 'update', before, { status, note, actor })
+  })()
 }
 
 export interface BankTransferSuggestion {
