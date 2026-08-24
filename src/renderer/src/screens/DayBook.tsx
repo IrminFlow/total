@@ -9,7 +9,7 @@ import { Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, T
 import { useStickyFlag } from '../lib/useStickyTab'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
-import { csvReport, printReport } from '../lib/reportExport'
+import { csvReport, printReport, xlsReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
@@ -396,6 +396,14 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
     const complete = await api.reports.dayBook(from, to, true)
     return toExportRows(applyFilters(complete.rows))
   }
+  /** Same whole-period refetch, but as typed cells: the spreadsheet gets numbers and real dates
+   *  rather than the display strings the PDF and CSV want. */
+  const fullExportXlsRows = async (): Promise<{ cells: (string | number | null)[] }[]> => {
+    const complete = await api.reports.dayBook(from, to, true)
+    return applyFilters(complete.rows).map((r) => ({
+      cells: [r.date, r.voucherType, r.number, r.account, r.narration ?? '', r.debit, r.credit]
+    }))
+  }
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
   const hasOutOfBooks = rows.length !== bookRows.length
 
@@ -454,6 +462,40 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
               }}
             >
               CSV
+            </Button>
+            <Button
+              variant="ghost"
+              data-testid="btn-daybook-xls"
+              disabled={exporting}
+              onClick={() => {
+                setExporting(true)
+                void fullExportXlsRows()
+                  .then((rowsForSheet) =>
+                    xlsReport(
+                      'day-book',
+                      [
+                        {
+                          name: 'Day book',
+                          columns: [
+                            { label: 'Date', kind: 'date' },
+                            { label: 'Type', kind: 'text' },
+                            { label: 'Number', kind: 'text' },
+                            { label: 'Account', kind: 'text' },
+                            { label: 'Narration', kind: 'text' },
+                            { label: 'Debit', kind: 'money' },
+                            { label: 'Credit', kind: 'money' }
+                          ],
+                          rows: rowsForSheet
+                        }
+                      ],
+                      toast
+                    )
+                  )
+                  .catch((err: Error) => toast.push('error', err.message))
+                  .finally(() => setExporting(false))
+              }}
+            >
+              XLS
             </Button>
           </div>
         }

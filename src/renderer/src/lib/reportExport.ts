@@ -1,7 +1,7 @@
 import { rowsToCsv } from '@shared/csv'
 import { formatPaise } from '@shared/money'
 import type { StatementNode } from '@shared/reports'
-import { api, type ReportColumn, type ReportPdfInput, type ReportRow } from './client'
+import { api, type ReportColumn, type ReportPdfInput, type ReportRow, type XlsExportSheet } from './client'
 import type { ToastState } from '../state/stores'
 
 /** Slugifies a screen title into the `[a-z0-9-_]+` filename the report:pdf/export:csv IPC
@@ -67,4 +67,28 @@ export function flattenNodes(nodes: StatementNode[], depth = 0): ReportRow[] {
     if (n.children.length) out.push(...flattenNodes(n.children, depth + 1))
   }
   return out
+}
+
+/**
+ * Spreadsheet export.
+ *
+ * Unlike the PDF and CSV helpers, this one is NOT given display strings: money crosses as integer
+ * paise and dates as ISO, and main turns them into real spreadsheet numbers and dates. A column
+ * of "₹1,23,456.00" is text to Excel, and text does not add up — which is the only reason to
+ * offer a spreadsheet beside the CSV at all.
+ *
+ * Written as .xls (SpreadsheetML), a single XML file Excel opens natively. See
+ * src/shared/spreadsheet.ts for why that beat adding a ZIP dependency for real XLSX.
+ */
+export async function xlsReport(
+  filename: string,
+  sheets: XlsExportSheet[],
+  toast: ToastState
+): Promise<void> {
+  try {
+    const r = await api.exportReport.xls(slugFilename(filename), sheets)
+    toast.push('success', `Saved to exports — ${r.path}`)
+  } catch (err) {
+    toast.push('error', (err as Error).message)
+  }
 }

@@ -6,7 +6,7 @@ import { Button, DateInput, Money, Panel, SectionTitle } from '../components/ui'
 import { ComparedStatementTree, StatementTree } from '../components/StatementTree'
 import { compareStatements } from '@shared/statementCompare'
 import type { StatementNode } from '@shared/reports'
-import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
+import { csvReport, flattenNodes, printReport, xlsReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { useStickyFlag } from '../lib/useStickyTab'
 import { toDisplayDate } from '@shared/dates'
@@ -129,6 +129,41 @@ export function ProfitLossScreen(): React.JSX.Element {
             >
               CSV
             </Button>
+            <Button
+              variant="ghost"
+              data-testid="btn-pnl-xls"
+              onClick={() =>
+                void xlsReport(
+                  'profit-loss',
+                  [
+                    {
+                      name: 'Profit and Loss',
+                      columns: [
+                        { label: 'Particulars', kind: 'text' },
+                        { label: 'Amount', kind: 'money' }
+                      ],
+                      // Typed cells straight from the statement: the spreadsheet gets paise as a
+                      // number, so a column of expenses can be totalled in the sheet itself.
+                      rows: [
+                        { cells: ['Expenses', null], bold: true },
+                        ...xlsStatementRows(data.tradingExpenses, 1),
+                        ...xlsStatementRows(data.indirectExpenses, 1),
+                        { cells: ['Incomes', null], bold: true },
+                        ...xlsStatementRows(data.tradingIncomes, 1),
+                        ...xlsStatementRows(data.indirectIncomes, 1),
+                        { cells: ['Opening stock', data.openingStock] },
+                        { cells: ['Closing stock', data.closingStock] },
+                        { cells: ['Gross profit', data.grossProfit], bold: true },
+                        { cells: ['Net profit', data.netProfit], bold: true }
+                      ]
+                    }
+                  ],
+                  toast
+                )
+              }
+            >
+              XLS
+            </Button>
           </div>
         }
       >
@@ -222,4 +257,17 @@ function Section({
       <ComparedStatementTree nodes={compareStatements(nodes, prior)} />
     </>
   )
+}
+
+/** StatementNode tree → typed spreadsheet rows. Money stays integer paise. */
+function xlsStatementRows(
+  nodes: StatementNode[],
+  depth = 0
+): { cells: (string | number | null)[]; bold?: boolean }[] {
+  const out: { cells: (string | number | null)[]; bold?: boolean }[] = []
+  for (const n of nodes) {
+    out.push({ cells: [`${'   '.repeat(depth)}${n.name}`, n.amount], bold: n.kind !== 'ledger' })
+    if (n.children.length) out.push(...xlsStatementRows(n.children, depth + 1))
+  }
+  return out
 }

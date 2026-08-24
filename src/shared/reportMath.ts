@@ -115,6 +115,10 @@ export interface RatioPanel {
   /** Ratios are plain numbers (not paise); null when the denominator is zero/unknown. */
   currentRatio: number | null
   quickRatio: number | null
+  /** Borrowings ÷ owners' funds. Null when there is no equity to divide by — a company whose
+   *  capital account is nil is not infinitely geared, it is unmeasurable, and printing a huge
+   *  number would be a confident answer to a question the books cannot answer. */
+  debtEquity: number | null
   debtorDays: number | null
   creditorDays: number | null
   inventoryTurnover: number | null
@@ -129,6 +133,11 @@ export interface RatioInput {
   stock: number
   receivables: number
   payables: number
+  /** Loans (liability) + bank OD, as a positive figure. */
+  borrowings?: number
+  /** Capital account + reserves, as a positive figure. Negative (accumulated losses beyond
+   *  capital) is left as-is — a negative gearing ratio is meaningful and hiding it is not. */
+  equity?: number
   /** Period (FY-to-date) flow figures, paise. */
   sales: number
   purchases: number
@@ -149,6 +158,7 @@ export function computeRatios(i: RatioInput): RatioPanel {
   return {
     currentRatio: ratio(i.currentAssets, i.currentLiabilities),
     quickRatio: ratio(i.currentAssets - i.stock, i.currentLiabilities),
+    debtEquity: ratio(i.borrowings ?? 0, i.equity ?? 0),
     debtorDays: i.sales === 0 ? null : round2((i.receivables / i.sales) * i.periodDays),
     creditorDays: i.purchases === 0 ? null : round2((i.payables / i.purchases) * i.periodDays),
     inventoryTurnover: avgStock === 0 ? null : round2(cogs / avgStock),

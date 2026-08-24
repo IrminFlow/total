@@ -100,19 +100,31 @@ export function CostCentresScreen(): React.JSX.Element {
                 <th scope="col" className="r w-36">Income</th>
                 <th scope="col" className="r w-36">Expense</th>
                 <th scope="col" className="r w-36">Net</th>
+                <th scope="col" className="r w-24">Margin</th>
               </tr>
             </thead>
             <tbody>
               {report.map((r) => (
                 <Fragment key={r.costCentreId}>
-                  <tr className="cursor-pointer" onClick={() => setDrillId(drillId === r.costCentreId ? null : r.costCentreId)}>
+                  {/* The "Not allocated" line (id -1) is a reconciling row, not a cost centre:
+                      it has nothing to drill into, and without it the sections would quietly sum
+                      to less than the company's own P&L. */}
+                  <tr
+                    className={r.costCentreId === -1 ? 'total-row' : 'cursor-pointer'}
+                    data-testid={r.costCentreId === -1 ? 'cc-unallocated' : undefined}
+                    onClick={() => r.costCentreId !== -1 && setDrillId(drillId === r.costCentreId ? null : r.costCentreId)}
+                  >
                     <td>
-                      <span className="mr-1.5 inline-block w-3 text-label text-muted">{drillId === r.costCentreId ? '▾' : '▸'}</span>
+                      {r.costCentreId !== -1 && (
+                        <span className="mr-1.5 inline-block w-3 text-label text-muted">{drillId === r.costCentreId ? '▾' : '▸'}</span>
+                      )}
                       {r.name}
                     </td>
                     <td className="r"><Money paise={r.income} /></td>
                     <td className="r"><Money paise={r.expense} /></td>
                     <td className="r font-medium"><Money paise={r.net} signed /></td>
+                    {/* An em dash, not 0%: a centre carrying only expense has no margin to state. */}
+                    <td className="r num text-muted">{r.marginPct === null ? '–' : `${r.marginPct}%`}</td>
                   </tr>
                   {drillId === r.costCentreId && (
                     <DrillRows
@@ -155,7 +167,7 @@ function DrillRows({
       <>
         {[0, 1].map((i) => (
           <tr key={i} className="bg-panel2/50">
-            <td colSpan={4} className="pl-9">
+            <td colSpan={5} className="pl-9">
               <Skeleton className={`h-3 ${i === 0 ? 'w-56' : 'w-40'}`} />
             </td>
           </tr>
@@ -166,7 +178,7 @@ function DrillRows({
   if (!rows.length) {
     return (
       <tr className="bg-panel2/50">
-        <td colSpan={4} className="pl-9 text-muted">
+        <td colSpan={5} className="pl-9 text-muted">
           No postings in this period
         </td>
       </tr>
@@ -188,6 +200,7 @@ function DrillRows({
           <td className="r">
             <Money paise={r.drCr === 'dr' ? r.amount : -r.amount} signed />
           </td>
+          <td />
         </tr>
       ))}
     </>

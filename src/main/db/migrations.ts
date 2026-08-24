@@ -968,5 +968,52 @@ export const MIGRATIONS: string[] = [
     line_order INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX idx_landed_costs_voucher ON landed_costs(voucher_id);
+  `,
+
+  // 33 — saved report views, and reports written on a timer.
+  //
+  //
+  // A saved view is display state and nothing else: which columns, which period, which flags.
+  // It is stored in the company database rather than in localStorage because it is a thing a
+  // firm agrees on ("open the March view") and a thing that should survive a reinstall, unlike
+  // the per-machine column preferences that already live in localStorage.
+  //
+  // A schedule is a standing instruction, not a daemon. The app is offline and has no background
+  // process, so a due schedule is written the next time the company is opened — which is stated
+  // on the screen rather than implied. `next_run` rolls forward from the day it actually runs,
+  // so three weeks away from the laptop produces today's report, not twenty-one stale ones.
   `
+  CREATE TABLE report_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The screen the view belongs to ('trial-balance', 'day-book', ...). Views are never shown
+    -- on a screen that cannot restore them.
+    screen TEXT NOT NULL,
+    name TEXT NOT NULL,
+    -- Opaque to the main process: the screen wrote it, the screen reads it back. Validated only
+    -- as "is JSON", because a schema here would have to be revised every time a screen gains a
+    -- filter, and a stale schema would silently refuse to save the view.
+    state_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (screen, name)
+  );
+
+  CREATE TABLE report_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report TEXT NOT NULL,
+    -- 'mtd' | 'lastMonth' | 'fytd' | 'lastFy' — resolved against the date the run happens.
+    period_kind TEXT NOT NULL,
+    format TEXT NOT NULL CHECK (format IN ('csv', 'xls', 'pdf')),
+    frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly', 'monthly')),
+    -- NULL means the company's own exports folder. An absolute path elsewhere is allowed so a
+    -- firm can point it at a synced folder the accountant also sees.
+    folder TEXT,
+    next_run TEXT NOT NULL,
+    last_run TEXT,
+    last_path TEXT,
+    -- The last failure, kept so a schedule that silently stopped working can say why.
+    last_error TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_report_schedules_due ON report_schedules(active, next_run);  `
 ]

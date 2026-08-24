@@ -80,33 +80,63 @@ Ordering within a section is roughly by value.
 51. ✓ Quarterly, half-yearly and annual period granularity (M)
 52. ✓ Day Book paged at the IPC boundary (M)
 53. ✓ Ledger Statement paged; Outstandings sends a summary and fetches bills on expand (M)
-54. Row virtualization so a 30,000-row report scrolls without 30,000 DOM nodes (M)
+54. ✓ Row virtualization so a 30,000-row report scrolls without 30,000 DOM nodes (M) — windowed
+    with spacer `<tr>`s (never CSS transforms, which break table layout), and only above 300
+    rows, so a short report keeps find-in-page working on every line.
 55. ✓ Comparative columns: this period against the same period last year (M)
 56. ✓ Drill-down from any figure in P&L or Balance Sheet to its ledger (M) — already shipped:
     StatementTree opens the ledger statement on a leaf click, and the comparison view does too.
-57. A time-travel Balance Sheet: a date scrubber that recomputes as-on any date (M)
-58. Saved report views: filters, columns and period stored by name (M)
-59. Schedule a report to be written to a folder on a timer (M)
-60. Ratio analysis: current ratio, quick ratio, debt-equity, inventory turnover (M)
-61. Cash flow forecast from open bills, PDCs and recurring templates (L)
-62. Monthly trend sparklines on every Gateway tile (S)
-63. Group-wise summary rows in the Trial Balance, collapsible (M)
+57. ✓ A time-travel Balance Sheet: a date scrubber that recomputes as-on any date (M) — the
+    slider runs over the financial year the as-on date falls in, and the previous figures stay
+    on screen while the new ones load rather than strobing through "Loading…".
+58. ✓ Saved report views: filters, columns and period stored by name (M) — stored in the company
+    database (a firm agrees on "the March view"), opaque display state only: restoring a view can
+    change what is asked for, never what is computed.
+59. ✓ Schedule a report to be written to a folder on a timer (M) — honoured on the next company
+    open, which the screen says in as many words: an offline app has no daemon, and a missed run
+    produces one current report rather than twenty-one stale ones.
+60. ✓ Ratio analysis: current ratio, quick ratio, debt-equity, inventory turnover (M) — on the
+    Balance Sheet, with the figures behind each one. A nil denominator reports as unknown, never
+    as 0 or ∞.
+61. ✓ Cash flow forecast from open bills, PDCs and recurring templates (L) — no trend line and no
+    growth rate: every row can be opened. Two closing lines per week, contracted and with
+    recurring, because a recurring payment against a supplier bill is also that open bill.
+62. ✓ Monthly trend sparklines on every Gateway tile (S) — twelve months, baseline anchored at
+    zero so a ten-rupee movement cannot fill the box and imply volatility that is not there.
+63. ✓ Group-wise summary rows in the Trial Balance, collapsible (M) — by group or by primary
+    group; every subtotal is computed from exactly the rows folded under it, and the export
+    always carries every row whatever is collapsed on screen.
 64. ✓ Multi-column Trial Balance: opening, movement, closing (S) — already shipped
 65. ✓ Negative-balance highlighting on ledgers that should never be negative (S)
-66. A "what changed" report between two dates for any ledger (M)
-67. Export any report to XLSX rather than only CSV (M)
-68. Print layouts that fit A4 without cutting columns (M)
+66. ✓ A "what changed" report between two dates for any ledger (M) — a tab on the Trial Balance,
+    ranked by the size of the move rather than by name, which is exactly what the alphabetical
+    list hides.
+67. ✓ Export any report to XLSX rather than only CSV (M) — as SpreadsheetML `.xls`, not XLSX.
+    Real XLSX is a ZIP of a dozen XML parts and would mean adding a compression dependency to an
+    offline app whose export path is otherwise plain text. SpreadsheetML is one XML file Excel,
+    Numbers and LibreOffice open natively, carries several named sheets, and keeps amounts as
+    numbers that sum — which is the whole reason CSV was not enough.
+68. ✓ Print layouts that fit A4 without cutting columns (M) — `table-layout: fixed` with wrapping
+    cells, so a long narration wraps instead of pushing the amount off the sheet; over six
+    columns the report goes landscape and loses a point of type rather than a column.
 69. ✓ Report headers carrying the company name, GSTIN and period on every page (S)
-70. A CA-facing summary pack: TB, P&L, BS, ageing in one PDF (M)
-71. Cost-centre profitability report (M)
-72. Item-wise gross margin by period (M)
+70. ✓ A CA-facing summary pack: TB, P&L, BS, ageing in one PDF (M) — plus the same five
+    statements as one workbook. The CSVs are still written beside them: whoever wants to re-total
+    a column wants the column, not a picture of it.
+71. ✓ Cost-centre profitability report (M) — margin per centre, and a reconciling "Not allocated"
+    line so the sections cannot quietly sum to less than the company's own P&L. Suppressed
+    entirely on books that use no cost centres, where it would just be the P&L mislabelled.
+72. ✓ Item-wise gross margin by period (M) — a margin matrix, item by sub-period, each bucket
+    valued independently through the consumption engine rather than smeared across the range.
 73. ✓ Party-wise sales ranking with concentration warning (S)
 74. ✓ Day Book grouped by voucher type with subtotals (S) — shipped as a summary view rather
     than in-list subtotals: the list is paged, and subtotals over a page are subtotals of an
     arbitrary slice.
 75. ✓ An audit-trail report of who changed what, per voucher (S)
 76. ✓ Reconciliation status column on the Day Book for bank vouchers (S)
-77. Exception report: vouchers with no narration, over a threshold (S)
+77. ✓ Exception report: vouchers with no narration, over a threshold (S) — missing narration was
+    already there; the threshold is now a parameter with a one-lakh default, because the amount
+    that means "look at this" differs between a kirana shop and a distributor.
 78. ✓ Report footers stating the exact query period, so a screenshot is unambiguous (S)
 79. ✓ Zero-balance ledgers hidden by default with a toggle (S)
 80. ✓ Percentage-of-total column on P&L lines (S)

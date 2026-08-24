@@ -2,15 +2,18 @@ import type { DB } from '../db/connection'
 import type {
   BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, DayBookTypeRow, ExceptionRow, ExceptionSection, ExceptionsReport,
   PurchaseSuggestionRow,
-  ItemProfitRow, LedgerStatement, LedgerStatementRow,
-  ProfitAndLoss, StatementNode, StockAgeingRow, StockSummaryRow, TopLedgerRow, TrialBalance
+  ItemProfitPeriod, ItemProfitRow, LedgerStatement, LedgerStatementRow,
+  ProfitAndLoss, RatioReport, StatementNode, StockAgeingRow, StockSummaryRow, TileSpark, TileSparkKey,
+  TopLedgerRow, TrialBalance
 } from '@shared/reports'
 import type { Group, Nature } from '@shared/domain'
 import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
-import { periodKey, periodLabel, periodRange, type Period } from '@shared/period'
+import { periodBounds, periodKey, periodLabel, periodRange, type Period } from '@shared/period'
+import { summariseChanges, type ChangeInput, type ChangeReport } from '@shared/whatChanged'
 import { todayISO } from '@shared/dates'
+import { plainRupees } from '@shared/money'
 import type { CompanyInfo } from '@shared/domain'
 import { itcRisk } from '@shared/gst/itcAgeing'
 import { describeGap, gapSize, numberGaps } from '@shared/numberSeries'
@@ -320,7 +323,22 @@ export function itemProfitability(db: DB, from: string, to: string): ItemProfitR
 const EXCEPTION_ROW_CAP = 200
 
 /** Exception reports (v0.3 #60): things that are almost certainly mistakes, with drillable rows. */
-export function exceptions(db: DB, from: string, to: string, company?: CompanyInfo): ExceptionsReport {
+/**
+ * The default "tell me about anything above this" line, in paise: one lakh.
+ *
+ * Not a rule about anything — a voucher over a lakh is perfectly ordinary in most businesses.
+ * It is a review threshold, which is why it is a parameter with a default rather than a constant:
+ * the number that means "look at this" is different for a kirana shop and a distributor.
+ */
+export const DEFAULT_LARGE_VOUCHER_PAISE = 100_000_00
+
+export function exceptions(
+  db: DB,
+  from: string,
+  to: string,
+  company?: CompanyInfo,
+  largeVoucherPaise: number = DEFAULT_LARGE_VOUCHER_PAISE
+): ExceptionsReport {
   const sections: ExceptionSection[] = []
   const section = (key: ExceptionSection['key'], label: string, rows: ExceptionRow[]): void => {
     sections.push({ key, label, count: rows.length, rows: rows.slice(0, EXCEPTION_ROW_CAP) })
@@ -513,6 +531,17 @@ export function exceptions(db: DB, from: string, to: string, company?: CompanyIn
     }
   }
   section('tcsThreshold', 'Buyers past the TCS threshold (206C(1H))', tcsRows)
+
+  // Large vouchers. Scoped to the period and ordered by amount rather than by date: this section
+  // exists to be read top-down and stopped at, not scrolled.
+  const large = (db
+    .prepare(
+      `${baseVoucherSql} WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       AND (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr') >= ?
+       ORDER BY total DESC, v.date`
+    )
+    .all(from, to, largeVoucherPaise) as VRow[]).map((v) => voucherRow(v, `over ${plainRupees(largeVoucherPaise)}`))
+  section('largeVouchers', `Vouchers over ${plainRupees(largeVoucherPaise)}`, large)
 
   return { sections }
 }
@@ -831,6 +860,10 @@ export function trialBalance(db: DB, asOn: string, includeZeroBalances = false):
       opening: number; movementDebit: number; movementCredit: number
     }[]
 
+  // The primary (root) group each group descends from, so the screen can subtotal at
+  // balance-sheet level without a second query. Computed once per report, not per row.
+  const topNameByGroupId = rootGroupNames(listGroups(db))
+
   const result = rows
     .map((r) => {
       const bal = r.opening + r.movementDebit - r.movementCredit
@@ -838,6 +871,7 @@ export function trialBalance(db: DB, asOn: string, includeZeroBalances = false):
         ledgerId: r.ledgerId,
         ledgerName: r.ledgerName,
         groupName: r.groupName,
+        topGroupName: topNameByGroupId.get(r.groupId) ?? r.groupName,
         nature: r.nature,
         debit: bal > 0 ? bal : 0,
         credit: bal < 0 ? -bal : 0,
@@ -865,7 +899,8 @@ export function trialBalance(db: DB, asOn: string, includeZeroBalances = false):
   )
   if (stockOpening !== 0 && !hasStockLedger) {
     result.push({
-      ledgerId: -1, ledgerName: 'Stock-in-Hand (opening)', groupName: 'Stock-in-Hand', nature: 'asset',
+      ledgerId: -1, ledgerName: 'Stock-in-Hand (opening)', groupName: 'Stock-in-Hand',
+      topGroupName: 'Current Assets', nature: 'asset',
       debit: stockOpening, credit: 0, opening: stockOpening, movementDebit: 0, movementCredit: 0
     })
   }
@@ -1072,6 +1107,30 @@ function descendantIdSet(groups: Group[], names: string[]): Set<number> {
   return result
 }
 
+/**
+ * Group id → the name of the primary (root) group it descends from.
+ *
+ * Walks up rather than down so a chart of accounts nested five deep still resolves, and stops on
+ * a cycle instead of looping forever — a self-parented group is corrupt data, not a reason for
+ * the trial balance to hang.
+ */
+function rootGroupNames(groups: Group[]): Map<number, string> {
+  const byId = new Map(groups.map((g) => [g.id, g]))
+  const out = new Map<number, string>()
+  for (const g of groups) {
+    let cur = g
+    const seen = new Set<number>([g.id])
+    while (cur.parentId !== null) {
+      const parent = byId.get(cur.parentId)
+      if (!parent || seen.has(parent.id)) break
+      seen.add(parent.id)
+      cur = parent
+    }
+    out.set(g.id, cur.name)
+  }
+  return out
+}
+
 /** Top 5 ledgers under the given group-id set by outstanding balance, descending, zero/negative
  *  excluded. `sign` flips the dr-positive figure onto the "amount owed" axis (1 for debtors, -1
  *  for creditors, whose natural balance is credit i.e. negative dr-positive). */
@@ -1256,6 +1315,250 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
     partyCount,
     itemCount: counts.itemCount,
     hasEmployees: !!counts.hasEmployees,
-    ratios
+    ratios,
+    tileSparks: tileSparks(db, today, groups, ledgers, balances)
   }
+}
+
+// ---------- what changed between two dates (C66) ----------
+
+/**
+ * Every ledger whose balance moved between two dates, largest move first.
+ *
+ * The window is (from, to] — the balance as on `from` is where we started, so entries dated
+ * `from` itself are already in the opening figure and counting them again would report a move
+ * that has not happened. A one-day report (from === to) therefore correctly shows nothing.
+ */
+export function whatChanged(db: DB, from: string, to: string): ChangeReport {
+  const openingByLedger = closingBalances(db, from)
+  const closingByLedger = closingBalances(db, to)
+
+  const touched = db
+    .prepare(
+      `SELECT vl.ledger_id AS ledgerId, COUNT(DISTINCT v.id) AS n
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE v.date > ? AND v.date <= ? AND ${IN_BOOKS}
+       GROUP BY vl.ledger_id`
+    )
+    .all(from, to) as { ledgerId: number; n: number }[]
+  const voucherCount = new Map(touched.map((r) => [r.ledgerId, r.n]))
+
+  const groupNames = new Map(listGroups(db).map((g) => [g.id, g.name]))
+  const inputs: ChangeInput[] = ledgersLite(db).map((l) => ({
+    ledgerId: l.id,
+    ledgerName: l.name,
+    groupName: groupNames.get(l.groupId) ?? '',
+    opening: openingByLedger.get(l.id) ?? 0,
+    closing: closingByLedger.get(l.id) ?? 0,
+    vouchers: voucherCount.get(l.id) ?? 0
+  }))
+
+  return summariseChanges(from, to, inputs)
+}
+
+// ---------- ratio panel as a report of its own (C60) ----------
+
+/**
+ * The ratio panel with the figures behind it.
+ *
+ * The Gateway already computes these, but only as six numbers with no workings — and a ratio
+ * whose inputs you cannot see is one you cannot argue with when the bank disagrees. This returns
+ * both, for an arbitrary as-on date rather than only for today.
+ */
+export function ratios(db: DB, fyFrom: string, asOn: string): RatioReport {
+  const balances = closingBalances(db, asOn)
+  const ledgers = ledgersLite(db)
+  const groups = listGroups(db)
+
+  const sumGroupSet = (ids: Set<number>, sign: 1 | -1, onlyPositive = false): number => {
+    let total = 0
+    for (const l of ledgers) {
+      if (!ids.has(l.groupId)) continue
+      const bal = sign * (balances.get(l.id) ?? 0)
+      total += onlyPositive ? Math.max(0, bal) : bal
+    }
+    return total
+  }
+
+  const pnl = profitAndLoss(db, fyFrom, asOn)
+  const flows = db
+    .prepare(
+      `SELECT vt.kind AS kind, COALESCE(SUM(t.total), 0) AS total
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
+         ON t.voucher_id = v.id
+       WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       GROUP BY vt.kind`
+    )
+    .all(fyFrom, asOn) as { kind: 'sales' | 'purchase'; total: number }[]
+  const flowTotals = new Map(flows.map((r) => [r.kind, r.total]))
+
+  const inputs = {
+    currentAssets: sumGroupSet(descendantIdSet(groups, ['Current Assets']), 1) + pnl.closingStock,
+    currentLiabilities: sumGroupSet(descendantIdSet(groups, ['Current Liabilities']), -1),
+    stock: pnl.closingStock,
+    receivables: sumGroupSet(descendantIdSet(groups, ['Sundry Debtors']), 1, true),
+    payables: sumGroupSet(descendantIdSet(groups, ['Sundry Creditors']), -1, true),
+    // Gearing counts what the business has borrowed, which includes an overdrawn current
+    // account: an OD used as working capital is debt whatever group it sits in.
+    borrowings: sumGroupSet(
+      descendantIdSet(groups, ['Loans (Liability)', 'Bank OD A/c', 'Secured Loans', 'Unsecured Loans']),
+      -1
+    ),
+    // Reserves are part of owners' funds, and so is the year's profit — it belongs to the owners
+    // the moment it is earned, not when it is transferred at year end.
+    equity: sumGroupSet(descendantIdSet(groups, ['Capital Account', 'Reserves & Surplus']), -1) + pnl.netProfit,
+    sales: flowTotals.get('sales') ?? 0,
+    purchases: flowTotals.get('purchase') ?? 0,
+    grossProfit: pnl.grossProfit,
+    netProfit: pnl.netProfit,
+    periodDays: Math.max(1, Math.round((Date.parse(asOn) - Date.parse(fyFrom)) / 86_400_000) + 1)
+  }
+
+  return {
+    asOn,
+    from: fyFrom,
+    inputs,
+    ratios: computeRatios({
+      ...inputs,
+      openingStock: pnl.openingStock,
+      closingStock: pnl.closingStock
+    })
+  }
+}
+
+// ---------- item-wise gross margin, period by period (C72) ----------
+
+/**
+ * The same item margin the whole-period report gives, cut into sub-periods.
+ *
+ * A single margin for the year hides the month the price went up and the month a discount ran;
+ * the per-period cut is what makes the two visible. Each bucket is valued independently through
+ * the same consumption engine, so a bucket's COGS reflects the cost of the stock actually
+ * consumed inside it rather than an average smeared across the year.
+ */
+export function itemProfitabilityByPeriod(db: DB, from: string, to: string, period: Period): ItemProfitPeriod[] {
+  return periodRange(from, to, period).map((key) => {
+    const bounds = periodBounds(key, period)
+    // Clamped to the requested window: a report headed "April to June" must not quietly value
+    // the whole of a quarter that starts in March.
+    const bFrom = bounds.from < from ? from : bounds.from
+    const bTo = bounds.to > to ? to : bounds.to
+    const rows = itemProfitability(db, bFrom, bTo)
+    return {
+      key,
+      label: periodLabel(key, period),
+      from: bFrom,
+      to: bTo,
+      rows,
+      salesValue: rows.reduce((s, r) => s + r.salesValue, 0),
+      cogs: rows.reduce((s, r) => s + r.cogs, 0),
+      profit: rows.reduce((s, r) => s + r.profit, 0)
+    }
+  })
+}
+
+// ---------- Gateway tile sparklines (C62) ----------
+
+/** Twelve `YYYY-MM` keys ending in the month `today` falls in, oldest first. */
+function trailingMonths(today: string, count = 12): string[] {
+  const out: string[] = []
+  let y = Number(today.slice(0, 4))
+  let m = Number(today.slice(5, 7))
+  for (let i = 0; i < count; i++) {
+    out.unshift(`${y}-${String(m).padStart(2, '0')}`)
+    m -= 1
+    if (m === 0) {
+      m = 12
+      y -= 1
+    }
+  }
+  return out
+}
+
+/**
+ * A twelve-month trend behind every Gateway tile.
+ *
+ * Balance tiles are walked BACKWARDS from the balance the tile already shows: month-end balance
+ * for month i is the current balance minus every movement after month i. Deriving them forwards
+ * from opening balances would need a second full-history scan, and would disagree with the tile
+ * by a paisa the first time a voucher fell outside the window.
+ *
+ * Flow tiles (sales) are plain monthly totals, which is what a sales trend means — the balance of
+ * the sales ledger would grow monotonically and say nothing.
+ */
+function tileSparks(
+  db: DB,
+  today: string,
+  groups: Group[],
+  ledgers: LedgerLite[],
+  balances: Map<number, number>
+): TileSpark[] {
+  const months = trailingMonths(today)
+  const windowStart = `${months[0]!}-01`
+
+  const monthlyMovement = db
+    .prepare(
+      `SELECT substr(v.date, 1, 7) AS ym, vl.ledger_id AS ledgerId,
+              SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS m
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE v.date >= ? AND v.date <= ? AND ${IN_BOOKS}
+       GROUP BY ym, vl.ledger_id`
+    )
+    .all(windowStart, today) as { ym: string; ledgerId: number; m: number }[]
+
+  // Walked per LEDGER, not per group set, because `onlyPositive` (receivables, payables) drops
+  // negative balances one ledger at a time — the same rule the tile itself uses. Summing the set
+  // first and clamping the total would let a customer in credit net off against the rest, and the
+  // spark's last point would then disagree with the figure printed above it.
+  const balanceSeries = (ids: Set<number>, sign: 1 | -1, onlyPositive = false): { month: string; value: number }[] => {
+    const running = new Map<number, number>()
+    for (const l of ledgers) if (ids.has(l.groupId)) running.set(l.id, balances.get(l.id) ?? 0)
+    if (running.size === 0) return months.map((month) => ({ month, value: 0 }))
+
+    const movementByMonth = new Map<string, Map<number, number>>()
+    for (const r of monthlyMovement) {
+      if (!running.has(r.ledgerId)) continue
+      const perLedger = movementByMonth.get(r.ym) ?? new Map<number, number>()
+      perLedger.set(r.ledgerId, (perLedger.get(r.ledgerId) ?? 0) + r.m)
+      movementByMonth.set(r.ym, perLedger)
+    }
+
+    const out: { month: string; value: number }[] = []
+    for (let i = months.length - 1; i >= 0; i--) {
+      let total = 0
+      for (const bal of running.values()) {
+        const signed = sign * bal
+        total += onlyPositive ? Math.max(0, signed) : signed
+      }
+      out.unshift({ month: months[i]!, value: total })
+      for (const [ledgerId, m] of movementByMonth.get(months[i]!) ?? []) {
+        running.set(ledgerId, (running.get(ledgerId) ?? 0) - m)
+      }
+    }
+    return out
+  }
+
+  const kindMonths = db
+    .prepare(
+      `SELECT substr(v.date, 1, 7) AS ym, COALESCE(SUM(t.total), 0) AS total
+       FROM vouchers v
+       JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
+         ON t.voucher_id = v.id
+       WHERE vt.kind = 'sales' AND v.date >= ? AND v.date <= ? AND ${IN_BOOKS}
+       GROUP BY ym`
+    )
+    .all(windowStart, today) as { ym: string; total: number }[]
+  const salesByMonth = new Map(kindMonths.map((r) => [r.ym, r.total]))
+
+  return [
+    { key: 'cash' as TileSparkKey, points: balanceSeries(descendantIdSet(groups, ['Cash-in-Hand']), 1) },
+    { key: 'bank' as TileSparkKey, points: balanceSeries(descendantIdSet(groups, ['Bank Accounts', 'Bank OD A/c']), 1) },
+    { key: 'receivables' as TileSparkKey, points: balanceSeries(descendantIdSet(groups, ['Sundry Debtors']), 1, true) },
+    { key: 'payables' as TileSparkKey, points: balanceSeries(descendantIdSet(groups, ['Sundry Creditors']), -1, true) },
+    { key: 'sales' as TileSparkKey, points: months.map((month) => ({ month, value: salesByMonth.get(month) ?? 0 })) },
+    { key: 'gst' as TileSparkKey, points: balanceSeries(descendantIdSet(groups, ['Duties & Taxes']), -1) }
+  ]
 }

@@ -11,6 +11,7 @@ import { FeaturesSection } from './settings/FeaturesSection'
 import { InvoiceConfigSection } from './settings/InvoiceConfigSection'
 import { AgentBridgeSection } from './settings/AgentBridgeSection'
 import { CollectionsSection } from './settings/CollectionsSection'
+import { SchedulesSection } from './settings/SchedulesSection'
 import { AiSection } from './settings/AiSection'
 import { LicenseSection } from './settings/LicenseSection'
 import { AboutSection } from './settings/AboutSection'
@@ -27,6 +28,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'features', label: 'Features' },
   { id: 'invoice', label: 'Invoice print' },
   { id: 'collections', label: 'Collections' },
+  { id: 'schedules', label: 'Scheduled reports' },
   { id: 'agents', label: 'Agent access' },
   { id: 'ai', label: 'AI assistant' },
   { id: 'license', label: 'Licence' },
@@ -63,6 +65,7 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
         {active === 'features' && <FeaturesSection />}
         {active === 'invoice' && <InvoiceConfigSection />}
         {active === 'collections' && <CollectionsSection />}
+        {active === 'schedules' && <SchedulesSection />}
         {active === 'agents' && <AgentBridgeSection />}
         {active === 'ai' && <AiSection />}
         {active === 'license' && <LicenseSection />}

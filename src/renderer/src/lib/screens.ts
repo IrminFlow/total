@@ -124,7 +124,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'books',
     accel: 'T',
     card: { sub: 'All closing balances' },
-    invalidates: ['trialBalance']
+    invalidates: ['trialBalance', 'whatChanged', 'reportViews']
   },
   {
     name: 'profit-loss',
@@ -142,7 +142,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'books',
     accel: 'B',
     card: { sub: 'Assets and liabilities' },
-    invalidates: ['balanceSheet']
+    invalidates: ['balanceSheet', 'ratios', 'reportViews']
   },
   {
     name: 'cash-flow',
@@ -151,7 +151,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'cash-flow' },
     navSection: 'books',
     accel: 'F',
-    invalidates: ['cashFlow']
+    invalidates: ['cashFlow', 'cashForecast']
   },
   {
     name: 'stock-summary',
@@ -396,7 +396,8 @@ export const SCREENS: ScreenDef[] = [
     accel: 'E',
     invalidates: [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
-      'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig', 'collectionsPolicy'
+      'features', 'invoiceConfig', 'invoicePreview', 'appInfo', 'companyLock', 'agentConfig', 'collectionsPolicy',
+      'reportSchedules'
     ]
   },
 

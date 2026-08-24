@@ -7,12 +7,18 @@ import type { TallyGroup, TallyLedger, TallyUnit, TallyItem, TallyVoucher } from
 import { buildTallyMastersXml, buildTallyVouchersXml } from '@shared/tallyExport'
 import { rowsToCsv } from '@shared/csv'
 import { plainRupees } from '@shared/money'
-import { fyFromStartYear, gstPeriodOf } from '@shared/dates'
+import { fyFromStartYear, gstPeriodOf, todayISO } from '@shared/dates'
 import { GST_STATES } from '@shared/gst/states'
 import { companyExportsDir } from '../paths'
 import { descendantIdsByName, listGroups, listLedgers, listStockItems, listUnits, listVoucherTypes } from './masters'
 import { getVoucher, IN_BOOKS } from './vouchers'
 import { balanceSheet, dayBook, ledgerStatement, profitAndLoss, trialBalance } from './reports'
+import {
+  renderBalanceSheet, renderOutstandings, renderProfitAndLoss, renderTrialBalance,
+  toPdfColumns, toPdfRows, toWorkbook
+} from './reportRender'
+import { reportPackHtml } from './reportHtml'
+import { writeExportPdf } from './pdf'
 import { outstandings } from './analysis'
 import { gstr1 } from './gst'
 
@@ -291,4 +297,72 @@ export function exportCaPack(db: DB, company: CompanyInfo, slug: string, from: s
 
   if (!existsSync(dir)) throw new Error('CA pack export failed')
   return { path: dir }
+}
+
+/**
+ * The same pack as one PDF: trial balance, P&L, balance sheet, receivables ageing.
+ *
+ * The CSV folder is what a machine wants. This is what a person wants — an accountant opening
+ * the pack should see the four statements without importing seven files first, each starting on
+ * its own sheet so any one of them can be printed alone.
+ *
+ * Written beside the CSVs, never instead of them: whoever wants to re-total a column wants the
+ * column, not a picture of it.
+ */
+export async function exportCaPackPdf(
+  db: DB,
+  company: CompanyInfo,
+  slug: string,
+  from: string,
+  to: string
+): Promise<{ path: string }> {
+  const booksFrom = fyFromStartYear(company.booksFrom).from
+  const reports = [
+    renderTrialBalance(db, to),
+    renderProfitAndLoss(db, from, to),
+    renderBalanceSheet(db, booksFrom, to),
+    renderOutstandings(db, to, 'receivable'),
+    renderOutstandings(db, to, 'payable')
+  ]
+
+  const html = reportPackHtml({
+    title: 'CA pack',
+    company,
+    periodLabel: `${from} to ${to}`,
+    preparedOn: todayISO(),
+    sections: reports.map((r) => ({
+      title: r.title,
+      periodLabel: r.periodLabel,
+      columns: toPdfColumns(r),
+      rows: toPdfRows(r)
+    }))
+  })
+
+  const path = await writeExportPdf(slug, `ca-pack-${from}_${to}.pdf`, html, {
+    pageSize: 'A4',
+    pageNumbers: true,
+    runningHead: { company: company.name, gstin: company.gstin, title: 'CA pack', periodLabel: `${from} to ${to}` }
+  })
+  return { path }
+}
+
+/** The same four statements as one spreadsheet workbook, one sheet each. */
+export function exportCaPackWorkbook(
+  db: DB,
+  company: CompanyInfo,
+  slug: string,
+  from: string,
+  to: string
+): { path: string } {
+  const booksFrom = fyFromStartYear(company.booksFrom).from
+  const xml = toWorkbook([
+    renderTrialBalance(db, to),
+    renderProfitAndLoss(db, from, to),
+    renderBalanceSheet(db, booksFrom, to),
+    renderOutstandings(db, to, 'receivable'),
+    renderOutstandings(db, to, 'payable')
+  ])
+  const path = join(companyExportsDir(slug), `ca-pack-${from}_${to}.xls`)
+  writeFileSync(path, xml, 'utf8')
+  return { path }
 }
