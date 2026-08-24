@@ -600,5 +600,19 @@ export const MIGRATIONS: string[] = [
   // yes/no would have forced a migration to guess an answer for items nobody has an opinion on.
   `
   ALTER TABLE stock_items ADD COLUMN block_negative INTEGER;
+  `,
+
+  // 21 — employee bank details, for the salary transfer file.
+  //
+  // Paying salaries one transfer at a time is how a business with fifteen people spends an hour
+  // every month typing account numbers into a banking portal, and how one of them eventually goes
+  // to the wrong account. Every bank accepts a bulk file; none of them can be given one without
+  // the account number and IFSC being somewhere.
+  //
+  // Nullable, because an employee genuinely paid in cash has neither, and requiring them would
+  // make the payroll refuse a run it should accept.
+  `
+  ALTER TABLE employees ADD COLUMN bank_account TEXT;
+  ALTER TABLE employees ADD COLUMN ifsc TEXT;
   `
 ]

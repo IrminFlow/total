@@ -1,6 +1,7 @@
 import type { DB } from '../db/connection'
 import type { CompanyInfo, Employee, PayrollHeadAmount, PayrollLine, PayrollRun } from '@shared/domain'
 import type { PayrollTrendPoint } from '@shared/reports'
+import { buildTransferFile, type TransferFile } from '@shared/salaryTransfer'
 import type { EmployeeInput, EmployeeHeadsSetInput, PayHeadInput } from '@shared/schemas'
 import { buildEcr, buildEsiCsv, buildPtCsv, computeMonthlyPay, daysInMonth, type PayHeadSpec } from '@shared/payroll'
 import { amountInWords, formatPaise } from '@shared/money'
@@ -16,6 +17,7 @@ interface EmployeeRow {
   pan: string | null; uan: string | null; esic_no: string | null
   basic: number; hra: number; special: number
   pf_enabled: number; esi_enabled: number; pt_enabled: number; pt_state: string; active: number
+  bank_account: string | null; ifsc: string | null
 }
 
 const mapEmployee = (r: EmployeeRow): Employee => ({
@@ -23,7 +25,7 @@ const mapEmployee = (r: EmployeeRow): Employee => ({
   pan: r.pan, uan: r.uan, esicNo: r.esic_no,
   basic: r.basic, hra: r.hra, special: r.special,
   pfEnabled: !!r.pf_enabled, esiEnabled: !!r.esi_enabled, ptEnabled: !!r.pt_enabled,
-  ptState: r.pt_state, active: !!r.active
+  ptState: r.pt_state, bankAccount: r.bank_account, ifsc: r.ifsc, active: !!r.active
 })
 
 export function listEmployees(db: DB): Employee[] {
@@ -48,15 +50,19 @@ export function saveEmployee(db: DB, input: EmployeeInput, id?: number): Employe
   if (id) {
     db.prepare(
       `UPDATE employees SET name = ?, code = ?, designation = ?, joined = ?, pan = ?, uan = ?, esic_no = ?,
-       basic = ?, hra = ?, special = ?, pf_enabled = ?, esi_enabled = ?, pt_enabled = ?, pt_state = ?, active = ? WHERE id = ?`
+       basic = ?, hra = ?, special = ?, pf_enabled = ?, esi_enabled = ?, pt_enabled = ?, pt_state = ?,
+       bank_account = ?, ifsc = ?, active = ? WHERE id = ?`
     ).run(input.name, input.code, input.designation, input.joined, input.pan, input.uan, input.esicNo,
-      input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, input.ptState, +input.active, id)
+      input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, input.ptState,
+      input.bankAccount ?? null, input.ifsc ?? null, +input.active, id)
   } else {
     const res = db.prepare(
       `INSERT INTO employees (name, code, designation, joined, pan, uan, esic_no, basic, hra, special,
-        pf_enabled, esi_enabled, pt_enabled, pt_state, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        pf_enabled, esi_enabled, pt_enabled, pt_state, bank_account, ifsc, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(input.name, input.code, input.designation, input.joined, input.pan, input.uan, input.esicNo,
-      input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, input.ptState, +input.active)
+      input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, input.ptState,
+      input.bankAccount ?? null, input.ifsc ?? null, +input.active)
     id = Number(res.lastInsertRowid)
   }
   syncSeededHeads(db, id, input)
@@ -539,3 +545,28 @@ export function payrollTrend(db: DB, months = 24): PayrollTrendPoint[] {
 const MONTH_LABELS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ]
+
+/**
+ * The month's salary transfer file, ready to upload to a banking portal.
+ *
+ * Reads net pay from the committed run rather than recomputing it: the file has to move exactly
+ * what the payslips said, and a second computation is a second chance to disagree with them.
+ */
+export function salaryTransferFile(db: DB, runId: number): TransferFile {
+  const run = getRun(db, runId)
+  if (!run) throw new Error('Pay run not found')
+
+  const employees = new Map(listEmployees(db).map((e) => [e.id, e]))
+  return buildTransferFile(
+    run.lines.map((l) => {
+      const emp = employees.get(l.employeeId)
+      return {
+        employeeName: l.employeeName,
+        bankAccount: emp?.bankAccount ?? null,
+        ifsc: emp?.ifsc ?? null,
+        netPaise: l.net
+      }
+    }),
+    `Salary ${run.month}`
+  )
+}

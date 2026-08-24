@@ -225,7 +225,10 @@ Ordering within a section is roughly by value.
 172. PF ECR file format validation before upload (S)
 173. ESI return file generation (M)
 174. Payslip email or WhatsApp delivery (S)
-175. Salary bank transfer file per bank format (M)
+175. ✓ Salary bank transfer file (M) — the common shape (name, account, IFSC, amount,
+     reference), deliberately not branded as any one bank's. The formats differ in ways this
+     cannot verify without a real portal, and a file labelled "HDFC format" that the portal
+     rejects is worse than an unlabelled one the user maps once.
 176. Employee self-service payslip export (S)
 177. Statutory rate table with effective dates, not hardcoded (M)
 178. Full-and-final settlement workflow (M)
@@ -300,12 +303,14 @@ Ordering within a section is roughly by value.
 230. Incremental report recomputation rather than full recompute (L)
 231. Move PDF generation off the main process (M)
 232. Streaming CSV export rather than building the whole string (M)
-233. Debounce the global search to one query per keystroke burst (S)
+233. ✓ Debounce the global search (S) — already shipped: 150 ms, and only once the query is 2+
+     characters.
 234. Index review against the actual query plans (S)
 235. Lazy-load the AI SDK only when the assistant is enabled (done) (S)
 236. Startup time budget with a test that fails if it regresses (M)
 237. Memory ceiling test on a large book (M)
-238. Avoid re-fetching the whole features object on every screen (S)
+238. ✓ Avoid re-fetching the whole features object on every screen (S) — already shipped: the
+     nine call sites share one react-query cache entry, so they make one request between them.
 239. Batch IPC calls that always happen together (M)
 240. Web worker for CSV parsing on import (M)
 241. Progressive rendering of very long reports (M)

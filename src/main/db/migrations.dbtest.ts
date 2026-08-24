@@ -75,6 +75,16 @@ describe('migrate', () => {
     expect(col!.dflt_value).toBeNull()
   })
 
+  it('adds employee bank details as nullable, so cash-paid employees still save', () => {
+    const db = freshDb()
+    const cols = db.prepare('PRAGMA table_info(employees)').all() as { name: string; notnull: number }[]
+    for (const name of ['bank_account', 'ifsc']) {
+      const col = cols.find((c) => c.name === name)
+      expect(col, name).toBeDefined()
+      expect(col!.notnull, name).toBe(0)
+    }
+  })
+
   it('creates the partial index backing the bin (deleted_at lookups)', () => {
     const db = freshDb()
     const row = db

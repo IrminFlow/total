@@ -276,6 +276,18 @@ export const employeeInputSchema = z.object({
   esiEnabled: z.boolean().default(true),
   ptEnabled: z.boolean().default(true),
   ptState: z.enum(PT_STATES).default('MH'),
+  // Optional rather than defaulted: an employee paid in cash genuinely has neither, and
+  // requiring them would make payroll refuse a run it should accept.
+  bankAccount: z.string().trim().max(30).nullable().optional(),
+  // Shape-checked only. An IFSC that is well-formed but wrong still sends money somewhere, so
+  // the check that matters is the bank's, not ours — this only catches obvious typos.
+  ifsc: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'Not an IFSC (e.g. HDFC0001234)')
+    .nullable()
+    .optional(),
   active: z.boolean().default(true)
 })
 export type EmployeeInput = z.infer<typeof employeeInputSchema>

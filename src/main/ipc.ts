@@ -774,6 +774,16 @@ export function registerIpc(): void {
       limit == null ? undefined : { limit, offset }
     )
   }, 'viewer')
+  handle('payroll:transferFile', (p) => {
+    const { runId } = z.object({ runId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const file = payroll.salaryTransferFile(c.db, runId)
+    const path = join(companyExportsDir(c.slug), `salary-transfer-${runId}.csv`)
+    writeFileSync(path, file.csv, 'utf8')
+    auditExport(c.db, 'csv', { filename: `salary-transfer-${runId}`, path })
+    return { path, count: file.count, totalPaise: file.totalPaise, skipped: file.skipped }
+  }, 'accountant')
+
   handle('payroll:trend', (p) => {
     const { months } = z.object({ months: z.number().int().min(1).max(120).optional() }).parse(p ?? {})
     return payroll.payrollTrend(requireCompany().db, months)

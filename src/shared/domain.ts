@@ -439,6 +439,9 @@ export interface Employee {
   ptEnabled: boolean
   /** Professional-tax state code (PT_SLABS key in src/shared/payroll.ts), e.g. 'MH'. */
   ptState: string
+  /** Where salary is transferred. Null for an employee genuinely paid in cash. */
+  bankAccount: string | null
+  ifsc: string | null
   active: boolean
 }
 

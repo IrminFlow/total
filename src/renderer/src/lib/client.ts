@@ -669,6 +669,14 @@ export const api = {
     employees: () => call<Employee[]>('payroll:employees:list'),
     /** What payroll cost, month by month, and how many people it covered. */
     trend: (months?: number) => call<PayrollTrendPoint[]>('payroll:trend', { months }),
+    /** The month's bulk transfer file, and who could not be included. */
+    transferFile: (runId: number) =>
+      call<{
+        path: string
+        count: number
+        totalPaise: number
+        skipped: { employeeName: string; reason: string }[]
+      }>('payroll:transferFile', { runId }),
     saveEmployee: (data: EmployeeInputPayload, id?: number) => call<Employee>('payroll:employees:save', { data, id }),
     removeEmployee: (id: number) => call<null>('payroll:employees:delete', { id }),
     preview: (month: string, days: { employeeId: number; payableDays: number }[]) =>

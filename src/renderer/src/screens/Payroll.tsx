@@ -165,6 +165,8 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
   const [code, setCode] = useState(employee?.code ?? '')
   const [pan, setPan] = useState(employee?.pan ?? '')
   const [uan, setUan] = useState(employee?.uan ?? '')
+  const [bankAccount, setBankAccount] = useState(employee?.bankAccount ?? '')
+  const [ifsc, setIfsc] = useState(employee?.ifsc ?? '')
   const [basic, setBasic] = useState<number | null>(employee?.basic ?? null)
   const [hra, setHra] = useState<number | null>(employee?.hra ?? null)
   const [special, setSpecial] = useState<number | null>(employee?.special ?? null)
@@ -184,6 +186,8 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           pan: pan.trim() || null,
           uan: uan.trim() || null,
           esicNo: employee?.esicNo ?? null,
+          bankAccount: bankAccount.trim() || null,
+          ifsc: ifsc.trim().toUpperCase() || null,
           basic: basic ?? 0,
           hra: hra ?? 0,
           special: special ?? 0,
@@ -233,6 +237,30 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           </Field>
           <Field label="UAN">
             <TextInput value={uan} onChange={(e) => setUan(e.target.value)} className="num" />
+          </Field>
+        </div>
+        {/* Needed only for the bulk transfer file. An employee genuinely paid in cash has
+            neither, and payroll must not refuse a run over it. */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Bank account" hint="For the salary transfer file. Leave blank if paid in cash.">
+            <TextInput
+              data-testid="input-employee-account"
+              value={bankAccount}
+              onChange={(e) => setBankAccount(e.target.value)}
+              className="num"
+            />
+          </Field>
+          <Field
+            label="IFSC"
+            error={ifsc.trim() && !/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/.test(ifsc.trim()) ? 'Not an IFSC (e.g. HDFC0001234)' : null}
+          >
+            <TextInput
+              data-testid="input-employee-ifsc"
+              value={ifsc}
+              onChange={(e) => setIfsc(e.target.value.toUpperCase())}
+              className="num"
+              placeholder="HDFC0001234"
+            />
           </Field>
         </div>
         <div className="grid grid-cols-3 gap-3">
@@ -830,6 +858,30 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
     }
   }
 
+  /**
+   * The bulk transfer file for this run.
+   *
+   * Anyone left out is named in the toast rather than reported only in the file. A transfer file
+   * that silently omits someone is how a person does not get paid, and the business finds out
+   * from them rather than from the file.
+   */
+  const transferFile = async (): Promise<void> => {
+    try {
+      const r = await api.payroll.transferFile(run.id)
+      if (r.skipped.length > 0) {
+        toast.push(
+          'warning',
+          `${r.count} of ${r.count + r.skipped.length} in the file — ` +
+            r.skipped.map((s) => `${s.employeeName} (${s.reason})`).join(', ')
+        )
+      } else {
+        toast.push('success', `${r.count} transfers: ${r.path}`)
+      }
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
   const remove = async (): Promise<void> => {
     const proceed = await confirmDialog({
       title: 'Delete pay run',
@@ -890,6 +942,14 @@ function RunRow({ run }: { run: PayrollRun }): React.JSX.Element {
               </span>
             )}
           </span>
+          <button
+            className="text-muted hover:text-ink"
+            data-testid="btn-payroll-transfer"
+            onClick={() => void transferFile()}
+            title="Bulk salary transfer CSV for your bank"
+          >
+            Transfer file
+          </button>
           <button className="text-muted hover:text-ink" data-testid="btn-payroll-ecr" onClick={() => void exportFile('ecr')} title="EPFO ECR upload file">
             PF ECR
           </button>
