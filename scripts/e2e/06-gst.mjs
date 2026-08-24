@@ -253,4 +253,31 @@ await scenario('06-gst', async (h) => {
   )
 
   await h.invoke('voucher:delete', { id: proforma.id })
+
+  // ---- signature image and per-document terms ----
+  // A scanned signature is what most small businesses actually do; the alternative is printing
+  // every invoice to sign it by hand.
+  const cfg2 = await h.invoke('config:invoice:get')
+  await h.invoke('config:invoice:set', {
+    ...cfg2,
+    signatureDataUrl: 'data:image/png;base64,c2lnbmF0dXJl',
+    terms: 'Payment due in 30 days',
+    termsByKind: { credit_note: 'Refund within 7 working days' }
+  })
+
+  const signed = await h.invoke('invoice:previewHtml', { voucherId })
+  assert(/base64,c2lnbmF0dXJl/.test(signed.html), 'the signature image prints')
+  assert(/Payment due in 30 days/.test(signed.html), 'a sale carries the general terms')
+  assert(!/Refund within 7/.test(signed.html), 'and not the credit-note terms')
+
+  // A credit note takes its own terms — "payment due in 30 days" on one is nonsense.
+  const notes = await h.invoke('edoc:list', { from, to })
+  const creditNote = notes.find((n) => n.docType === 'CRN')
+  if (creditNote) {
+    const cn = await h.invoke('invoice:previewHtml', { voucherId: creditNote.voucherId ?? creditNote.id })
+    assert(/Refund within 7 working days/.test(cn.html), 'the credit note takes its own terms')
+    assert(!/Payment due in 30 days/.test(cn.html), 'and not the sales terms')
+  }
+
+  await h.invoke('config:invoice:set', cfg2)
 })

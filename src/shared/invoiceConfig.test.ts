@@ -30,9 +30,30 @@ describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
       showQr: false,
       showItemBarcode: true,
       showEnteredBy: true,
-      upiVpa: 'totaltraders@ybl'
+      upiVpa: 'totaltraders@ybl',
+      signatureDataUrl: 'data:image/png;base64,c2ln',
+      termsByKind: { credit_note: 'Refund within 7 working days' }
     }
     expect(invoiceConfigSchema.parse(input)).toEqual(input)
+  })
+
+  it('defaults an older saved config to no signature and no per-kind terms', () => {
+    const { signatureDataUrl: _s, termsByKind: _t, ...older } = DEFAULT_INVOICE_CONFIG
+    const parsed = invoiceConfigSchema.parse(older)
+    expect(parsed.signatureDataUrl).toBeNull()
+    expect(parsed.termsByKind).toEqual({})
+  })
+
+  it('rejects a signature that is not an image data URL, or is too large', () => {
+    expect(() =>
+      invoiceConfigSchema.parse({ ...DEFAULT_INVOICE_CONFIG, signatureDataUrl: 'https://example.com/sig.png' })
+    ).toThrow()
+    expect(() =>
+      invoiceConfigSchema.parse({
+        ...DEFAULT_INVOICE_CONFIG,
+        signatureDataUrl: 'data:image/png;base64,' + 'A'.repeat(300_000)
+      })
+    ).toThrow()
   })
 
   it('accepts a UPI address that looks like one and rejects one that does not', () => {

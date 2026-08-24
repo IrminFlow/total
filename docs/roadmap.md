@@ -236,13 +236,13 @@ Ordering within a section is roughly by value.
 182. Two or three genuinely beautiful invoice templates (M)
 183. Thermal 3-inch receipt template for retail (M)
 184. Bilingual invoice printing: Devanagari alongside English (M)
-185. Signature and stamp images on the invoice (S)
+185. ✓ Signature and stamp images on the invoice (S)
 186. Live invoice preview while editing the layout (M)
 187. ✓ Proforma invoice (M) — a memorandum sales voucher, which the books already model as
      out-of-books, printed as a proforma rather than as a tax invoice.
 188. Sales order and purchase order with fulfilment tracking (L)
 189. Delivery note and receipt note (M)
-190. Terms and conditions block, per voucher type (S)
+190. ✓ Terms and conditions block, per voucher type (S)
 191. ✓ QR code on the invoice, UPI payment intent (S)
 192. Invoice email with the PDF attached (M)
 193. WhatsApp invoice send (S)
@@ -250,13 +250,16 @@ Ordering within a section is roughly by value.
 195. Custom fields on a voucher, defined per company (L)
 196. ✓ Document numbering with a configurable prefix and suffix (S) — already shipped:
      per-voucher-type prefix, suffix, zero-pad width and restart-each-FY.
-197. Print an entire period's invoices in one job (M)
+197. ✓ Print an entire period's invoices in one job (M) — already shipped as invoice:pdfBatch,
+     which renders them sequentially into one exports folder.
 198. ✓ Duplicate/triplicate copy markings (S) — already shipped as configurable copyLabels,
      one printed page per label.
 199. Round-off and amount-in-words in the chosen language (S)
 200. ✓ Company logo, letterhead and footer configuration (S) — already shipped: logo, title,
      declaration, bank block, terms, signatory and an entered-by footer.
-201. Export invoices as a zip of PDFs for the CA (S)
+201. ✗ Export invoices as a zip of PDFs (S) — pdfBatch already writes one folder of PDFs, which
+     is as portable as a zip on both macOS and Windows. Adding a hand-rolled archive writer to an
+     accounting app to save one drag is a bad trade; revisit if a real user asks.
 202. ✓ Watermark for proforma documents (S) — cancelled documents live in the bin and are not
      printable, so there is nothing there to watermark.
 203. Invoice-level discount in addition to line discounts (S)

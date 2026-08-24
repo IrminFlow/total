@@ -151,7 +151,11 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
       </div>
       <div class="sig">
         <div>Receiver's signature</div>
-        <div class="for">For <b>Total Traders</b><br/><br/><br/>Authorised Signatory</div>
+        <div class="for">
+          For <b>Total Traders</b>
+          <br/><br/><br/>
+          Authorised Signatory
+        </div>
       </div>
       
     </div>

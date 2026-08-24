@@ -40,6 +40,22 @@ export interface InvoiceConfig {
    * this market pays by UPI more than by anything else.
    */
   upiVpa: string | null
+  /**
+   * Signature or stamp image, printed above the signatory line. data: URL, same cap as the logo.
+   *
+   * A scanned signature on an invoice is what most small businesses actually do, and the
+   * alternative is printing every invoice to sign it by hand. Null = the blank space stays blank,
+   * which is what a business that signs physically wants.
+   */
+  signatureDataUrl: string | null
+  /**
+   * Terms per voucher kind, overriding `terms`.
+   *
+   * A sales invoice says "payment due in 30 days"; a credit note saying that is nonsense, and a
+   * purchase document has no business carrying our own terms at all. One block for every document
+   * meant the block had to be generic enough to be useless.
+   */
+  termsByKind: Partial<Record<'sales' | 'credit_note' | 'debit_note', string>>
 }
 
 export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
@@ -56,7 +72,9 @@ export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
   showQr: true,
   showItemBarcode: false,
   showEnteredBy: false,
-  upiVpa: null
+  upiVpa: null,
+  signatureDataUrl: null,
+  termsByKind: {}
 }
 
 /** ~200KB of base64 (280,000 chars covers 200KB with base64's ~4/3 expansion plus headroom). */
@@ -96,7 +114,22 @@ export const invoiceConfigSchema = z.object({
     .nullable()
     .default(null)
     .refine((v) => v === null || v === '' || isValidVpa(v), 'Not a UPI address (name@handle)')
-    .transform((v) => (v === '' ? null : v))
+    .transform((v) => (v === '' ? null : v)),
+  signatureDataUrl: z
+    .string()
+    .max(MAX_LOGO_DATA_URL_LEN, 'Signature image is too large (max ~200KB)')
+    .regex(/^data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+$/i, 'Signature must be an image data URL')
+    .nullable()
+    .default(null),
+  // Partial by design: a kind with no entry falls back to the general terms rather than to blank,
+  // so configuring one document's terms never silently clears the others'.
+  termsByKind: z
+    .object({
+      sales: z.string().trim().max(2000).optional(),
+      credit_note: z.string().trim().max(2000).optional(),
+      debit_note: z.string().trim().max(2000).optional()
+    })
+    .default({})
 })
 
 /** Every field optional — for previewing unsaved edits. The renderer's draft form state is

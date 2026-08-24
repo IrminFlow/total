@@ -278,8 +278,17 @@ export function buildInvoiceHtml(
        <div style="font-size:10.5px">${esc(config.bankDetails.name)}<br/>A/c ${esc(config.bankDetails.account)} · IFSC ${esc(config.bankDetails.ifsc)}<br/>${esc(config.bankDetails.branch)}</div>`
     : ''
 
-  const termsBlock = config.terms.trim()
-    ? `<div style="margin-top:10px" class="lbl">Terms</div><div style="font-size:10.5px">${esc(config.terms).replace(/\n/g, '<br/>')}</div>`
+  /**
+   * Terms for this document's kind, falling back to the general block.
+   *
+   * A sales invoice says "payment due in 30 days"; a credit note saying that is nonsense. Falling
+   * back rather than blanking means configuring one kind never silently clears the others.
+   */
+  const kindKey =
+    inv.docType === 'CRN' ? 'credit_note' : inv.docType === 'DBN' ? 'debit_note' : 'sales'
+  const terms = (config.termsByKind?.[kindKey] ?? config.terms).trim()
+  const termsBlock = terms
+    ? `<div style="margin-top:10px" class="lbl">Terms</div><div style="font-size:10.5px">${esc(terms).replace(/\n/g, '<br/>')}</div>`
     : ''
 
   // Verification QR — see src/shared/einvoiceQr.ts for why this is never labelled "IRN QR": it's
@@ -389,7 +398,15 @@ export function buildInvoiceHtml(
       </div>
       <div class="sig">
         <div>Receiver's signature</div>
-        <div class="for">For <b>${esc(company.name)}</b><br/><br/><br/>${esc(config.signatory)}</div>
+        <div class="for">
+          For <b>${esc(company.name)}</b>
+          ${
+            config.signatureDataUrl
+              ? `<div><img src="${esc(config.signatureDataUrl)}" alt="" style="max-height:46px;max-width:170px;object-fit:contain;margin:2px 0" /></div>`
+              : '<br/><br/><br/>'
+          }
+          ${esc(config.signatory)}
+        </div>
       </div>
       ${
         config.showEnteredBy && audit && (audit.enteredBy || audit.alteredBy)

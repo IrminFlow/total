@@ -17,6 +17,7 @@ export function InvoiceConfigSection(): React.JSX.Element {
   const [draft, setDraft] = useState<InvoiceConfig | null>(null)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const signatureRef = useRef<HTMLInputElement>(null)
   const value = draft ?? existing ?? DEFAULT_INVOICE_CONFIG
   const canEdit = user?.role === 'owner'
 
@@ -50,15 +51,21 @@ export function InvoiceConfigSection(): React.JSX.Element {
     setDraft({ ...value, ...patch })
   }
 
-  const onLogoFile = (file: File | null): void => {
+  /** Same size cap and same failure behaviour for every image the invoice can carry. */
+  const onImageFile = (
+    file: File | null,
+    field: 'logoDataUrl' | 'signatureDataUrl',
+    label: string,
+    inputRef: React.RefObject<HTMLInputElement | null>
+  ): void => {
     if (!file) return
     if (file.size > MAX_LOGO_BYTES) {
-      toast.push('error', `Logo is ${(file.size / 1024).toFixed(0)}KB — must be under 200KB`)
-      if (fileRef.current) fileRef.current.value = ''
+      toast.push('error', `${label} is ${(file.size / 1024).toFixed(0)}KB — must be under 200KB`)
+      if (inputRef.current) inputRef.current.value = ''
       return
     }
     const reader = new FileReader()
-    reader.onload = () => set({ logoDataUrl: typeof reader.result === 'string' ? reader.result : null })
+    reader.onload = () => set({ [field]: typeof reader.result === 'string' ? reader.result : null })
     reader.readAsDataURL(file)
   }
 
@@ -119,7 +126,7 @@ export function InvoiceConfigSection(): React.JSX.Element {
                   type="file"
                   accept="image/png,image/jpeg"
                   disabled={!canEdit}
-                  onChange={(e) => onLogoFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => onImageFile(e.target.files?.[0] ?? null, 'logoDataUrl', 'Logo', fileRef)}
                   className="text-small"
                 />
                 {value.logoDataUrl && (
@@ -142,6 +149,37 @@ export function InvoiceConfigSection(): React.JSX.Element {
                 rows={3}
                 className="w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body-sm disabled:opacity-60"
               />
+            </Field>
+            <Field
+              label="Signature or stamp"
+              hint="Printed above the signatory line. Leave empty to keep the space blank for signing by hand."
+            >
+              <div className="flex items-center gap-3">
+                <input
+                  ref={signatureRef}
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  data-testid="input-signature-file"
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    onImageFile(e.target.files?.[0] ?? null, 'signatureDataUrl', 'Signature', signatureRef)
+                  }
+                  className="text-small"
+                />
+                {value.signatureDataUrl && (
+                  <>
+                    <img src={value.signatureDataUrl} alt="Signature preview" className="h-8 max-w-32 object-contain" />
+                    {canEdit && (
+                      <button
+                        className="text-hint text-cr hover:underline"
+                        onClick={() => set({ signatureDataUrl: null })}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </Field>
             <Field
               label="UPI address for payment QR"
@@ -171,6 +209,30 @@ export function InvoiceConfigSection(): React.JSX.Element {
                 className="w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body-sm disabled:opacity-60"
               />
             </Field>
+
+            {/* Per-document terms. A sales invoice says "payment due in 30 days"; a credit note
+                saying that is nonsense. Blank falls back to the general block above, so filling
+                one in never silently clears the others. */}
+            {(['credit_note', 'debit_note'] as const).map((kind) => (
+              <Field
+                key={kind}
+                label={kind === 'credit_note' ? 'Terms on a credit note' : 'Terms on a debit note'}
+                hint="Blank uses the general terms above"
+              >
+                <textarea
+                  data-testid={`input-terms-${kind}`}
+                  value={value.termsByKind?.[kind] ?? ''}
+                  onChange={(e) =>
+                    set({
+                      termsByKind: { ...value.termsByKind, [kind]: e.target.value || undefined }
+                    })
+                  }
+                  disabled={!canEdit}
+                  rows={2}
+                  className="w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body-sm disabled:opacity-60"
+                />
+              </Field>
+            ))}
 
             <fieldset className="rounded-md border border-line p-3">
               <label className="flex items-center gap-2 text-body-sm font-medium">

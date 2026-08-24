@@ -181,6 +181,47 @@ describe('hsnSummaryForInvoice (Q2 #96 — HSN-wise tax summary block)', () => {
     expect(rows[1]).toMatchObject({ igst: 18000, cgst: 0, sgst: 0 })
   })
 
+  it('prints a signature image above the signatory line, and blank space without one', () => {
+    // A scanned signature is what most small businesses actually do; the alternative is printing
+    // every invoice to sign it by hand.
+    const withSig = buildInvoiceHtml(
+      COMPANY,
+      { ...DEFAULT_INVOICE_CONFIG, signatureDataUrl: 'data:image/png;base64,c2ln' },
+      SAMPLE_INVOICE
+    )
+    expect(withSig).toContain('data:image/png;base64,c2ln')
+    expect(withSig).toContain(DEFAULT_INVOICE_CONFIG.signatory)
+
+    const without = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)
+    expect(without).not.toContain('base64,c2ln')
+  })
+
+  it('uses the terms for this document kind, falling back to the general block', () => {
+    // A sales invoice says "payment due in 30 days"; a credit note saying that is nonsense.
+    const config = {
+      ...DEFAULT_INVOICE_CONFIG,
+      terms: 'General terms',
+      termsByKind: { credit_note: 'Refund within 7 working days' }
+    }
+    const sale = buildInvoiceHtml(COMPANY, config, SAMPLE_INVOICE)
+    expect(sale).toContain('General terms')
+    expect(sale).not.toContain('Refund within 7')
+
+    const note = buildInvoiceHtml(COMPANY, config, { ...SAMPLE_INVOICE, docType: 'CRN' })
+    expect(note).toContain('Refund within 7 working days')
+    expect(note).not.toContain('General terms')
+  })
+
+  it('never blanks the terms just because another kind was configured', () => {
+    // Falling back rather than blanking is what stops configuring one document clearing the rest.
+    const html = buildInvoiceHtml(
+      COMPANY,
+      { ...DEFAULT_INVOICE_CONFIG, terms: 'General terms', termsByKind: { debit_note: 'Other' } },
+      SAMPLE_INVOICE
+    )
+    expect(html).toContain('General terms')
+  })
+
   it('prints a memorandum sales voucher as a proforma, watermarked and with no payment QR', () => {
     // A proforma that looks like a tax invoice is one a customer may pay against and one an
     // auditor will ask about.
