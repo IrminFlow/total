@@ -69,7 +69,7 @@ function validCase(value: unknown): value is SupportCaseRecord {
   const item = value as Record<string, unknown>;
   return (
     typeof item.id === "string" &&
-    /^TOT-\d{8}-[A-F0-9]{6}$/.test(item.id) &&
+    /^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/.test(item.id) &&
     ["question", "bug", "idea", "accessibility"].includes(
       String(item.category),
     ) &&
@@ -102,7 +102,7 @@ function writeCases(path: string, cases: SupportCaseRecord[]): void {
 
 export function newSupportCaseId(now = new Date()): string {
   const date = now.toISOString().slice(0, 10).replace(/-/g, "");
-  return `TOT-${date}-${randomBytes(3).toString("hex").toUpperCase()}`;
+  return `TOT-${date}-${randomBytes(6).toString("hex").toUpperCase()}`;
 }
 
 export function createSupportCase(

@@ -43,7 +43,7 @@ await scenario("48-support-cases", async (h) => {
     category: "bug",
     consent,
   });
-  assert(/^TOT-\d{8}-[A-F0-9]{6}$/.test(supportCase.id), "trackable case ID is generated");
+  assert(/^TOT-\d{8}-[A-F0-9]{12}$/.test(supportCase.id), "high-entropy trackable case ID is generated");
 
   const encryptedPath = path.join(h.dataDir, "offline-support.zip.enc");
   await h.stubDialogs({ savePath: encryptedPath });

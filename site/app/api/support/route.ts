@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { intakeStoreConfigured, jsonExists, listJson, readJson, storeJson } from "@/lib/intakeStore";
-import { protectIntake } from "@/lib/intakeProtection";
+import { allowProtectedLookup, protectIntake } from "@/lib/intakeProtection";
 import { deleteSupportCase, indexForRetention, removeRetentionIndex, retentionHoldFor, supportDeleteAfter } from "@/lib/intakeRetention";
 
 export const runtime = "nodejs";
 
 const WINDOW_MS = 10 * 60_000;
 const MAX_REQUESTS = 8;
+const CASE_ID_PATTERN = /^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/;
+const CASE_ID_SUFFIX_LENGTH = 12;
+const TRACKING_WINDOW_MS = 10 * 60_000;
+const TRACKING_MAX_ACTOR_REQUESTS = 12;
+const TRACKING_MAX_REFERENCE_REQUESTS = 30;
 
 interface StoredCase {
   caseId: string;
@@ -96,8 +101,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const generatedCaseId = `TOT-${new Date()
     .toISOString()
     .slice(0, 10)
-    .replaceAll("-", "")}-${randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase()}`;
-  const caseId = /^TOT-\d{8}-[A-F0-9]{6}$/.test(String(body.caseId))
+    .replaceAll("-", "")}-${randomUUID().replaceAll("-", "").slice(0, CASE_ID_SUFFIX_LENGTH).toUpperCase()}`;
+  const caseId = CASE_ID_PATTERN.test(String(body.caseId))
     ? String(body.caseId)
     : generatedCaseId;
   const rawFocus =
@@ -299,10 +304,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const caseId = request.nextUrl.searchParams.get("caseId") ?? "";
   const email = request.nextUrl.searchParams.get("email") ?? "";
-  if (!/^TOT-\d{8}-[A-F0-9]{6}$/.test(caseId) || !email)
-    return NextResponse.json({ error: "Case ID and email are required" }, { status: 400 });
+  if (!CASE_ID_PATTERN.test(caseId) || !email)
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
   if (!intakeStoreConfigured())
     return NextResponse.json({ error: "Case tracking is unavailable" }, { status: 503 });
+  const allowed = await allowProtectedLookup({
+    request,
+    keyMaterial: `${caseId}\n${email.trim().toLowerCase()}`,
+    maxActorRequests: TRACKING_MAX_ACTOR_REQUESTS,
+    maxKeyRequests: TRACKING_MAX_REFERENCE_REQUESTS,
+    windowMs: TRACKING_WINDOW_MS,
+  });
+  if (!allowed) return NextResponse.json({ error: "Case not found" }, { status: 404 });
   const pathname = casePath(caseId);
   if (!await jsonExists(pathname))
     return NextResponse.json({ error: "Case not found" }, { status: 404 });
@@ -317,7 +330,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await request.json().catch(() => null) as { caseId?: string; status?: StoredCase["status"] } | null;
-  if (!body?.caseId || !/^TOT-\d{8}-[A-F0-9]{6}$/.test(body.caseId) || !["submitted", "in_review", "waiting_for_customer", "resolved"].includes(String(body.status)))
+  if (!body?.caseId || !CASE_ID_PATTERN.test(body.caseId) || !["submitted", "in_review", "waiting_for_customer", "resolved"].includes(String(body.status)))
     return NextResponse.json({ error: "Invalid status update" }, { status: 400 });
   const pathname = casePath(body.caseId);
   if (!await jsonExists(pathname)) return NextResponse.json({ error: "Case not found" }, { status: 404 });
@@ -345,7 +358,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const caseId = request.nextUrl.searchParams.get("caseId") ?? "";
-  if (!/^TOT-\d{8}-[A-F0-9]{6}$/.test(caseId))
+  if (!CASE_ID_PATTERN.test(caseId))
     return NextResponse.json({ error: "Invalid case ID" }, { status: 400 });
   if (await retentionHoldFor("support", caseId))
     return NextResponse.json({ error: "This case is subject to a temporary legal or security hold" }, { status: 423 });

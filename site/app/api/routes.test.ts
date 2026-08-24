@@ -48,14 +48,17 @@ function installBlobStore(seed: Record<string, unknown> = {}): Map<string, strin
     const value = objects.get(pathname);
     return value === undefined ? null : { statusCode: 200, stream: new Blob([value]).stream() };
   });
-  blobMocks.list.mockImplementation(async ({ prefix, limit = 1_000 }: { prefix: string; limit?: number }) => ({
-    blobs: [...objects.keys()].filter((key) => key.startsWith(prefix)).sort().slice(0, limit).map((pathname) => ({
-      pathname,
-      url: `https://blob.example/${pathname}`,
-    })),
-    hasMore: false,
-    cursor: undefined,
-  }));
+  blobMocks.list.mockImplementation(async ({ prefix, limit = 1_000, cursor }: { prefix: string; limit?: number; cursor?: string }) => {
+    const keys = [...objects.keys()].filter((key) => key.startsWith(prefix)).sort();
+    const start = cursor ? keys.findIndex((key) => key > cursor) : 0;
+    const page = start < 0 ? [] : keys.slice(start, start + limit);
+    const hasMore = page.length > 0 && keys.some((key) => key > page.at(-1)!);
+    return {
+      blobs: page.map((pathname) => ({ pathname, url: `https://blob.example/${pathname}` })),
+      hasMore,
+      cursor: hasMore ? page.at(-1) : undefined,
+    };
+  });
   blobMocks.del.mockImplementation(async (target: string | string[]) => {
     for (const item of Array.isArray(target) ? target : [target]) {
       const pathname = item.startsWith("https://blob.example/") ? item.slice("https://blob.example/".length) : item;
@@ -129,7 +132,7 @@ describe("support intake", () => {
 
     expect(response.status).toBe(200);
     expect(result.status).toBe("submitted");
-    expect(result.caseId).toMatch(/^TOT-\d{8}-[A-F0-9]{6}$/);
+    expect(result.caseId).toMatch(/^TOT-\d{8}-[A-F0-9]{12}$/);
     expect(fetchMock).toHaveBeenCalledWith(
       new URL("https://support.example/intake"),
       expect.objectContaining({
@@ -154,7 +157,7 @@ describe("support intake", () => {
 
     expect(response.status).toBe(202);
     expect(result.status).toBe("fallback");
-    expect(result.caseId).toMatch(/^TOT-\d{8}-[A-F0-9]{6}$/);
+    expect(result.caseId).toMatch(/^TOT-\d{8}-[A-F0-9]{12}$/);
     expect(result.fallbackEmail).toBe("help@example.com");
     expect(result.mailto).toContain(encodeURIComponent(result.caseId));
   });
@@ -203,6 +206,51 @@ describe("support intake", () => {
     expect(await tracked.json()).toMatchObject({ caseId: receipt.caseId, status: "submitted" });
     const hidden = await GET(new NextRequest(`https://total.example/api/support?caseId=${receipt.caseId}&email=wrong%40example.com`));
     expect(hidden.status).toBe(404);
+  });
+
+  it("rate limits public tracking without storing raw lookup data", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.INTAKE_SECURITY_SECRET = "a-separate-test-secret-with-32-bytes";
+    const caseId = "TOT-20260824-A1B2C3D4E5F6";
+    const email = "owner@example.com";
+    const objects = installBlobStore({
+      [`support/2026/08/${caseId}.json`]: {
+        caseId,
+        category: "question",
+        email,
+        status: "submitted",
+        receivedAt: "2026-08-24T10:00:00.000Z",
+        updatedAt: "2026-08-24T10:00:00.000Z",
+      },
+    });
+    const { GET } = await import("./support/route");
+    const lookup = () => GET(new NextRequest(
+      `https://total.example/api/support?caseId=${caseId}&email=${encodeURIComponent(email)}`,
+      { headers: { "x-forwarded-for": "203.0.113.90", "user-agent": "test-browser" } },
+    ));
+
+    for (let attempt = 1; attempt <= 12; attempt += 1)
+      expect((await lookup()).status).toBe(200);
+    const rateObjectsAtLimit = [...objects.keys()].filter((key) => key.startsWith("intake-security/rate/support-")).length;
+    const limited = await lookup();
+    expect(limited.status).toBe(404);
+    expect(await limited.json()).toEqual({ error: "Case not found" });
+    const persisted = [...objects.entries()]
+      .filter(([key]) => key.startsWith("intake-security/rate/support-"))
+      .map(([key, value]) => `${key}\n${value}`)
+      .join("\n");
+    expect(persisted).not.toContain(email);
+    expect(persisted).not.toContain("203.0.113.90");
+    expect([...objects.keys()].some((key) => key.startsWith("intake-security/rate/support-lookup/"))).toBe(true);
+    expect([...objects.keys()].filter((key) => key.startsWith("intake-security/rate/support-")).length).toBe(rateObjectsAtLimit);
+  });
+
+  it("uses a generic response for malformed public tracking references", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    const { GET } = await import("./support/route");
+    const response = await GET(new NextRequest("https://total.example/api/support?caseId=not-a-case&email=owner%40example.com"));
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Case not found" });
   });
 
   it("deduplicates retries across instances without storing a raw client address", async () => {
@@ -255,7 +303,7 @@ describe("support intake", () => {
 
     expect(response.status).toBe(200);
     expect(Date.parse(result.deleteAfter) - Date.parse(result.updatedAt)).toBe(90 * 24 * 60 * 60_000);
-    expect([...objects.keys()].some((key) => key.startsWith("retention-index/support/"))).toBe(true);
+    expect([...objects.keys()].some((key) => key.startsWith("retention-index-v2/support/"))).toBe(true);
     expect(objects.has(`retention-pointers/support/${caseId}.json`)).toBe(true);
   });
 
@@ -333,6 +381,38 @@ describe("feedback board", () => {
       expect.any(String),
       expect.objectContaining({ access: "private", addRandomSuffix: false }),
     );
+  });
+
+  it("materializes vote totals and updates them when an event is deleted", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.SUPPORT_WEBHOOK_SECRET = "feedback-secret";
+    const objects = installBlobStore();
+    const { GET, POST, DELETE } = await import("./feedback/route");
+    const created = await POST(post("/api/feedback", { action: "vote", ideaId: "mobile-companion" }));
+    const receipt = await created.json() as { id: string; receivedAt: string };
+
+    expect(created.status).toBe(200);
+    expect(objects.has("feedback/materialized/public-summary.json")).toBe(true);
+    blobMocks.list.mockClear();
+    const firstBoard = await (await GET()).json() as { ideas: Array<{ id: string; votes: number }> };
+    expect(firstBoard.ideas.find((idea) => idea.id === "mobile-companion")?.votes).toBe(1);
+    expect(blobMocks.list.mock.calls.some(([options]) => options.prefix === "feedback/events/")).toBe(false);
+
+    const removed = await DELETE(new NextRequest("https://total.example/api/feedback", {
+      method: "DELETE",
+      headers: { authorization: "Bearer feedback-secret", "content-type": "application/json" },
+      body: JSON.stringify({ events: [{ id: receipt.id, receivedAt: receipt.receivedAt }] }),
+    }));
+    expect(removed.status).toBe(200);
+    const secondBoard = await (await GET()).json() as { ideas: Array<{ id: string; votes: number }> };
+    expect(secondBoard.ideas.find((idea) => idea.id === "mobile-companion")?.votes).toBe(0);
+  });
+
+  it("rejects votes for unknown public ideas", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    installBlobStore();
+    const { POST } = await import("./feedback/route");
+    expect((await POST(post("/api/feedback", { action: "vote", ideaId: "invented-idea" }))).status).toBe(400);
   });
 
   it("deletes only exact authenticated feedback event references", async () => {
@@ -414,5 +494,48 @@ describe("intake retention maintenance", () => {
     expect(objects.has(casePath)).toBe(false);
     expect(objects.has(feedbackPath)).toBe(false);
     expect([...objects.keys()].some((key) => key.includes(caseId) || key.includes(feedbackId))).toBe(false);
+  });
+
+  it("migrates future legacy indexes into the deadline-sorted retention index", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.CRON_SECRET = "cron-test-secret";
+    const caseId = "TOT-20990101-ABCDEF";
+    const objectPath = `support/2099/01/${caseId}.json`;
+    const legacyPath = `retention-index/support/2099-04/${caseId}.json`;
+    const index = { entity: "support", id: caseId, objectPath, deleteAfter: "2099-04-01T00:00:00.000Z" };
+    const objects = installBlobStore({
+      [objectPath]: { caseId, status: "resolved" },
+      [legacyPath]: index,
+      [`retention-pointers/support/${caseId}.json`]: { indexPath: legacyPath },
+    });
+    const { GET } = await import("./maintenance/intake/route");
+    const response = await GET(new NextRequest("https://total.example/api/maintenance/intake?limit=10", {
+      headers: { authorization: "Bearer cron-test-secret" },
+    }));
+    const result = await response.json() as { support: { migrated: number; deleted: number } };
+
+    expect(result.support).toMatchObject({ migrated: 1, deleted: 0 });
+    expect(objects.has(legacyPath)).toBe(false);
+    expect(objects.has(`retention-index-v2/support/2099-04-01T00-00-00-000Z/${caseId}.json`)).toBe(true);
+  });
+
+  it("drains cursor-paginated security records and reports remaining backlog", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.CRON_SECRET = "cron-test-secret";
+    const expired = Object.fromEntries(Array.from({ length: 205 }, (_, index) => [
+      `intake-security/rate/test/${String(index).padStart(3, "0")}.json`,
+      { expiresAt: "2020-01-01T00:00:00.000Z" },
+    ]));
+    const objects = installBlobStore(expired);
+    const { GET } = await import("./maintenance/intake/route");
+    const run = () => GET(new NextRequest("https://total.example/api/maintenance/intake?limit=201", {
+      headers: { authorization: "Bearer cron-test-secret" },
+    }));
+
+    const first = await (await run()).json() as { security: { deleted: number; backlog: boolean } };
+    expect(first.security).toEqual(expect.objectContaining({ deleted: 201, backlog: true }));
+    const second = await (await run()).json() as { security: { deleted: number; backlog: boolean } };
+    expect(second.security).toEqual(expect.objectContaining({ deleted: 4, backlog: false }));
+    expect([...objects.keys()].filter((key) => key.startsWith("intake-security/rate/"))).toHaveLength(0);
   });
 });

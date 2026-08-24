@@ -263,7 +263,7 @@ credentials must never exist in the repository.
 - 268 — a device-only spaced-text reading mode with alternate system typography that never changes printed documents
 - 269 — state and GST-registration-aware help for filing context, payroll checks and suitable invoice languages
 - 270 — accessibility support reports with value-free focus metadata and a separately consented, bounded screenshot preview
-- 271 — trackable `TOT-YYYYMMDD-XXXXXX` support references with a device-local status/consent ledger that never retains message or email text
+- 271 — trackable `TOT-YYYYMMDD-XXXXXXXXXXXX` support references (with legacy six-character references still accepted) and a device-local status/consent ledger that never retains message or email text
 - 272 — separate, explicit consent for message, diagnostics, allow-listed activity events, company metadata, focus context and screenshot, each with an exact preview
 - 273 — standard offline support ZIPs containing only selected fields, protected by AES-256-GCM passphrases for out-of-band delivery
 - 274 — screen-aware help matched to enabled company features, GST registration, state terminology and the work currently visible

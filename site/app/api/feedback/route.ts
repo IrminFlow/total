@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { deleteJson, intakeStoreConfigured, listJson, storeJson } from "@/lib/intakeStore";
+import { intakeStoreConfigured } from "@/lib/intakeStore";
 import { protectIntake } from "@/lib/intakeProtection";
-import { deleteFeedbackEvent, feedbackDeleteAfter, indexForRetention, retentionHoldFor } from "@/lib/intakeRetention";
+import { feedbackDeleteAfter, retentionHoldFor } from "@/lib/intakeRetention";
+import { deleteFeedbackEvent, feedbackVoteSummary, recordFeedbackEvent, TRACKED_FEEDBACK_IDEA_IDS, type StoredFeedbackEvent } from "@/lib/feedbackSummary";
 import { latestRelease } from "@/lib/release";
 
 export const runtime = "nodejs";
 
 const WINDOW_MS = 10 * 60_000;
 const MAX_REQUESTS = 20;
+const trackedIdeas = new Set<string>(TRACKED_FEEDBACK_IDEA_IDS);
 
 const SHIPPED_IDEAS = [
   { id: "mobile-companion", title: "Read-only mobile companion", detail: "View key balances, invoices and reminders without moving the writable books off the desktop.", status: "considering", votes: 0, releaseVersion: null },
@@ -61,11 +63,8 @@ export async function GET(): Promise<NextResponse> {
   const ideas = await publicIdeas();
   if (!target && intakeStoreConfigured()) {
     try {
-      const events = await listJson<{ action: string; ideaId?: string }>("feedback/events/");
-      const votes = new Map<string, number>();
-      for (const event of events)
-        if (event.action === "vote" && event.ideaId) votes.set(event.ideaId, (votes.get(event.ideaId) ?? 0) + 1);
-      return NextResponse.json({ ideas: ideas.map((idea) => ({ ...idea, votes: votes.get(idea.id) ?? 0 })) });
+      const votes = await feedbackVoteSummary();
+      return NextResponse.json({ ideas: ideas.map((idea) => ({ ...idea, votes: votes[idea.id] ?? 0 })) });
     } catch {
       return NextResponse.json({ ideas });
     }
@@ -95,11 +94,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const title = typeof body.title === "string" ? body.title.trim().slice(0, 120) : "";
   const detail = typeof body.detail === "string" ? body.detail.trim().slice(0, 2000) : "";
   const email = typeof body.email === "string" ? body.email.trim().slice(0, 200) : "";
-  if (!(["vote", "follow"].includes(action) && ideaId) && !(action === "submit" && title.length >= 5 && detail.length >= 10))
+  if (!(["vote", "follow"].includes(action) && ideaId && trackedIdeas.has(ideaId)) && !(action === "submit" && title.length >= 5 && detail.length >= 10))
     return NextResponse.json({ error: "Check the feedback fields" }, { status: 400 });
   if ((action === "follow" || (action === "submit" && email)) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     return NextResponse.json({ error: "A valid email is required for updates" }, { status: 400 });
-  const event = { id: randomUUID(), action, ideaId, title, detail, email, source: body.source === "app" ? "app" : "website", receivedAt: new Date().toISOString() };
+  const event: StoredFeedbackEvent = { id: randomUUID(), action, ideaId, title, detail, email, source: body.source === "app" ? "app" : "website", receivedAt: new Date().toISOString() };
   const protection = await protectIntake({
     request,
     scope: "feedback",
@@ -120,16 +119,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   if (!target && intakeStoreConfigured()) {
     const objectPath = `feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`;
-    await storeJson(objectPath, event);
     try {
-      await indexForRetention({
-        entity: "feedback",
-        id: event.id,
-        objectPath,
-        deleteAfter: feedbackDeleteAfter(event.receivedAt),
-      });
+      await recordFeedbackEvent(event, objectPath, feedbackDeleteAfter(event.receivedAt));
     } catch {
-      await deleteJson(objectPath).catch(() => undefined);
       return NextResponse.json({ error: "Feedback storage is unavailable" }, { status: 503 });
     }
     return NextResponse.json({ ok: true, id: event.id, receivedAt: event.receivedAt, status: action === "submit" ? "awaiting_review" : "recorded" });
@@ -166,6 +158,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   const held = (await Promise.all(events.map(async (event) => await retentionHoldFor("feedback", event.id) ? event.id : null))).filter(Boolean);
   if (held.length)
     return NextResponse.json({ error: "One or more feedback events are subject to a temporary legal or security hold", held }, { status: 423 });
-  await Promise.all(events.map((event) => deleteFeedbackEvent(event.id, `feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`)));
+  for (const event of events)
+    await deleteFeedbackEvent(event.id, `feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`);
   return NextResponse.json({ ok: true, deleted: events.length });
 }

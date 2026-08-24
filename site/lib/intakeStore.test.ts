@@ -9,7 +9,7 @@ const blob = vi.hoisted(() => ({
 
 vi.mock("@vercel/blob", () => blob);
 
-import { listJson } from "./intakeStore";
+import { listJson, listJsonEntriesPage } from "./intakeStore";
 
 describe("intakeStore listJson", () => {
   beforeEach(() => {
@@ -52,5 +52,21 @@ describe("intakeStore listJson", () => {
     await listJson("support/status/", 1);
     expect(blob.list).toHaveBeenCalledTimes(1);
     expect(blob.list).toHaveBeenCalledWith({ prefix: "support/status/", limit: 1 });
+  });
+
+  it("exposes the storage cursor when callers drain work in bounded pages", async () => {
+    blob.list.mockResolvedValueOnce({
+      blobs: [{ pathname: "retention-index-v2/support/2026-08-24/one.json" }],
+      hasMore: true,
+      cursor: "opaque-next-page",
+    });
+    await expect(listJsonEntriesPage<{ pathname: string }>("retention-index-v2/support/", 25)).resolves.toEqual({
+      entries: [{
+        pathname: "retention-index-v2/support/2026-08-24/one.json",
+        value: { pathname: "retention-index-v2/support/2026-08-24/one.json" },
+      }],
+      hasMore: true,
+      cursor: "opaque-next-page",
+    });
   });
 });

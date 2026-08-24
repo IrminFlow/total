@@ -44,7 +44,7 @@ const supportFocusSchema = z
   .default(null);
 
 const supportPayloadSchema = z.object({
-  caseId: z.string().regex(/^TOT-\d{8}-[A-F0-9]{6}$/),
+  caseId: z.string().regex(/^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/),
   category: z.enum(["question", "bug", "idea", "accessibility"]),
   email: z.string().trim().email().max(200).or(z.literal("")),
   message: z.string().trim().min(10).max(5000),

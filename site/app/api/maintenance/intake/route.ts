@@ -1,8 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { deleteJson, intakeStoreConfigured, listJsonEntries, readJson, storeJson } from "@/lib/intakeStore";
+import { deleteJson, intakeStoreConfigured, listJsonEntriesPage, readJson, storeJson } from "@/lib/intakeStore";
 import {
-  deleteFeedbackEvent,
   deleteSupportCase,
   holdPath,
   indexForRetention,
@@ -11,6 +10,7 @@ import {
   type RetentionHold,
   type RetentionIndex,
 } from "@/lib/intakeRetention";
+import { deleteFeedbackEvent } from "@/lib/feedbackSummary";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,43 +28,104 @@ function authorized(request: NextRequest): boolean {
 
 function requestLimit(request: NextRequest): number {
   const parsed = Number(request.nextUrl.searchParams.get("limit") ?? 100);
-  return Number.isInteger(parsed) ? Math.max(1, Math.min(200, parsed)) : 100;
+  return Number.isInteger(parsed) ? Math.max(1, Math.min(500, parsed)) : 100;
 }
 
-async function cleanupEntity(entity: RetentionIndex["entity"], limit: number, now: Date): Promise<{ scanned: number; deleted: number; held: number }> {
-  const entries = await listJsonEntries<RetentionIndex>(`retention-index/${entity}/`, limit);
+async function cleanupEntity(entity: RetentionIndex["entity"], limit: number, now: Date): Promise<{ scanned: number; deleted: number; held: number; migrated: number; backlog: boolean }> {
   let deleted = 0;
   let held = 0;
-  for (const entry of entries) {
-    if (entry.value.entity !== entity || Date.parse(entry.value.deleteAfter) > now.getTime()) continue;
-    const hold = await readJson<RetentionHold>(holdPath(entity, entry.value.id));
-    if (hold && Date.parse(hold.holdUntil) > now.getTime()) {
-      held += 1;
-      continue;
+  let migrated = 0;
+  let scanned = 0;
+  let backlog = false;
+  const scanBudget = Math.min(1_000, Math.max(200, limit * 5));
+  const sources = [
+    { prefix: `retention-index-v2/${entity}/`, legacy: false },
+    { prefix: `retention-index/${entity}/`, legacy: true },
+  ];
+  for (const source of sources) {
+    let cursor: string | undefined;
+    let stopSource = false;
+    do {
+      const page = await listJsonEntriesPage<RetentionIndex>(source.prefix, Math.min(200, scanBudget - scanned), cursor);
+      for (const entry of page.entries) {
+        scanned += 1;
+        if (entry.value.entity !== entity) continue;
+        const deleteAt = Date.parse(entry.value.deleteAfter);
+        if (!Number.isFinite(deleteAt)) continue;
+        if (deleteAt > now.getTime()) {
+          if (source.legacy) {
+            await indexForRetention(entry.value);
+            await deleteJson(entry.pathname).catch(() => undefined);
+            migrated += 1;
+          } else {
+            // V2 keys contain the full UTC deadline, so no later entry can be due.
+            stopSource = true;
+            break;
+          }
+          continue;
+        }
+        if (deleted >= limit) {
+          backlog = true;
+          continue;
+        }
+        const hold = await readJson<RetentionHold>(holdPath(entity, entry.value.id));
+        if (hold && Date.parse(hold.holdUntil) > now.getTime()) {
+          held += 1;
+          continue;
+        }
+        if (hold) await deleteJson(holdPath(entity, entry.value.id)).catch(() => undefined);
+        if (entity === "support") await deleteSupportCase(entry.value.id, entry.value.objectPath);
+        else await deleteFeedbackEvent(entry.value.id, entry.value.objectPath);
+        deleted += 1;
+      }
+      if (stopSource) break;
+      if (!page.hasMore || !page.cursor || scanned >= scanBudget || deleted >= limit) {
+        backlog ||= Boolean(page.hasMore && page.cursor) || deleted >= limit;
+        break;
+      }
+      cursor = page.cursor;
+    } while (cursor);
+    if (scanned >= scanBudget || deleted >= limit) {
+      backlog = true;
+      break;
     }
-    if (hold) await deleteJson(holdPath(entity, entry.value.id)).catch(() => undefined);
-    if (entity === "support") await deleteSupportCase(entry.value.id, entry.value.objectPath);
-    else await deleteFeedbackEvent(entry.value.id, entry.value.objectPath);
-    deleted += 1;
   }
-  return { scanned: entries.length, deleted, held };
+  return { scanned, deleted, held, migrated, backlog };
 }
 
-async function cleanupSecurity(limit: number, now: Date): Promise<{ scanned: number; deleted: number }> {
+async function cleanupSecurity(limit: number, now: Date): Promise<{ scanned: number; deleted: number; backlog: boolean }> {
   const prefixes = ["intake-security/rate/", "intake-security/dedup/"];
   let scanned = 0;
   let deleted = 0;
+  let backlog = false;
   for (const prefix of prefixes) {
-    const entries = await listJsonEntries<{ expiresAt?: string }>(prefix, limit);
-    scanned += entries.length;
-    for (const entry of entries) {
-      if (typeof entry.value.expiresAt === "string" && Date.parse(entry.value.expiresAt) <= now.getTime()) {
-        await deleteJson(entry.pathname);
-        deleted += 1;
+    let cursor: string | undefined;
+    let prefixDeleted = 0;
+    let prefixScanned = 0;
+    const scanBudget = Math.min(5_000, Math.max(1_000, limit * 5));
+    do {
+      const page = await listJsonEntriesPage<{ expiresAt?: string }>(
+        prefix,
+        Math.min(200, limit - prefixDeleted, scanBudget - prefixScanned),
+        cursor,
+      );
+      scanned += page.entries.length;
+      prefixScanned += page.entries.length;
+      for (const entry of page.entries) {
+        if (typeof entry.value.expiresAt === "string" && Date.parse(entry.value.expiresAt) <= now.getTime()) {
+          await deleteJson(entry.pathname);
+          deleted += 1;
+          prefixDeleted += 1;
+        }
       }
-    }
+      if (!page.hasMore || !page.cursor || prefixDeleted >= limit || prefixScanned >= scanBudget) {
+        backlog ||= Boolean(page.hasMore && page.cursor);
+        break;
+      }
+      cursor = page.cursor;
+    } while (cursor);
   }
-  return { scanned, deleted };
+  return { scanned, deleted, backlog };
 }
 
 async function cleanup(request: NextRequest): Promise<NextResponse> {
@@ -95,7 +156,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   const entity = body?.entity === "support" || body?.entity === "feedback" ? body.entity : null;
   const id = typeof body?.id === "string" ? body.id : "";
   const validId = entity === "support"
-    ? /^TOT-\d{8}-[A-F0-9]{6}$/.test(id)
+    ? /^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/.test(id)
     : /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
   const holdUntil = typeof body?.holdUntil === "string" ? new Date(body.holdUntil) : new Date(Number.NaN);
   const reasonCode = body?.reasonCode === "legal" || body?.reasonCode === "security" ? body.reasonCode : null;

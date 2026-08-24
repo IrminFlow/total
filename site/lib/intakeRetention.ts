@@ -23,8 +23,9 @@ export interface RetentionHold {
   originalDeleteAfter: string;
 }
 
-function monthPath(prefix: string, date: Date, id: string): string {
-  return `${prefix}/${date.toISOString().slice(0, 7)}/${id}.json`;
+function datedPath(prefix: string, date: Date, id: string): string {
+  const timestamp = date.toISOString().replace(/[:.]/g, "-");
+  return `${prefix}/${timestamp}/${id}.json`;
 }
 
 function addUtcMonths(value: Date, months: number): Date {
@@ -65,7 +66,7 @@ export async function retentionHoldFor(entity: RetentionIndex["entity"], id: str
 
 export async function indexForRetention(index: RetentionIndex): Promise<void> {
   const deleteAt = new Date(index.deleteAfter);
-  const indexPath = monthPath(`retention-index/${index.entity}`, deleteAt, index.id);
+  const indexPath = datedPath(`retention-index-v2/${index.entity}`, deleteAt, index.id);
   const previous = await readJson<RetentionPointer>(pointerPath(index.entity, index.id));
   if (previous?.indexPath && previous.indexPath !== indexPath)
     await deleteJson(previous.indexPath).catch(() => undefined);
@@ -87,10 +88,4 @@ export async function deleteSupportCase(caseId: string, objectPath: string): Pro
   await removeRetentionIndex("support", caseId);
   await deleteJson(holdPath("support", caseId)).catch(() => undefined);
   return { deleted, statusEventsDeleted };
-}
-
-export async function deleteFeedbackEvent(id: string, objectPath: string): Promise<void> {
-  await deleteJson(objectPath);
-  await removeRetentionIndex("feedback", id);
-  await deleteJson(holdPath("feedback", id)).catch(() => undefined);
 }

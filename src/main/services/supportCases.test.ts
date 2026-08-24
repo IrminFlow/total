@@ -28,7 +28,7 @@ describe("support case ledger", () => {
       { category: "bug", consent },
       new Date("2026-08-24T10:00:00.000Z"),
     );
-    expect(created.id).toMatch(/^TOT-20260824-[A-F0-9]{6}$/);
+    expect(created.id).toMatch(/^TOT-20260824-[A-F0-9]{12}$/);
     updateSupportCase(
       path,
       created.id,

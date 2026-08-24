@@ -7,7 +7,7 @@ notification path, not the system of record.
 
 ## Case workflow
 
-1. A valid submission receives a `TOT-YYYYMMDD-XXXXXX` reference only after the private object is
+1. A valid submission receives a `TOT-YYYYMMDD-XXXXXXXXXXXX` reference only after the private object is
    written. If storage fails, the UI preserves the reference and opens a prepared email fallback.
 2. Confirm intake in Vercel Storage under `support/YYYY/MM/<case-id>.json`. Never download case
    content to an unmanaged device or paste it into issues, chat, CI logs or screenshots.

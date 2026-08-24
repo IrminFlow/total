@@ -48,6 +48,60 @@ function actorFor(request: Request): string {
   return digest(`${address.trim().slice(0, 128)}\n${agent.slice(0, 256)}`);
 }
 
+function reserveMemoryRate(subject: string, now: number, windowMs: number, maxRequests: number): boolean {
+  const current = memoryAttempts.get(subject);
+  const count = !current || current.resetAt <= now ? 1 : current.count + 1;
+  const resetAt = !current || current.resetAt <= now ? now + windowMs : current.resetAt;
+  memoryAttempts.set(subject, { count, resetAt });
+  return count <= maxRequests;
+}
+
+async function reserveStoredRate(
+  scope: string,
+  subject: string,
+  now: number,
+  windowMs: number,
+  maxRequests: number,
+): Promise<boolean> {
+  const windowStart = Math.floor(now / windowMs) * windowMs;
+  const windowKey = new Date(windowStart).toISOString().replace(/[-:.TZ]/g, "");
+  const prefix = `intake-security/rate/${scope}/${windowKey}/${subject}/`;
+  const record: ProtectionRecord = {
+    at: new Date(now).toISOString(),
+    expiresAt: new Date(windowStart + windowMs * 2).toISOString(),
+    scope,
+    payload: subject,
+  };
+  if ((await listJson<ProtectionRecord>(prefix, maxRequests)).length >= maxRequests)
+    return false;
+  await storeJson(`${prefix}${randomUUID()}.json`, record);
+  return (await listJson<ProtectionRecord>(prefix, maxRequests + 1)).length <= maxRequests;
+}
+
+/** Bounds public metadata lookups without persisting an address, email or case reference. */
+export async function allowProtectedLookup(options: {
+  request: Request;
+  keyMaterial: string;
+  maxActorRequests: number;
+  maxKeyRequests: number;
+  windowMs: number;
+  now?: Date;
+}): Promise<boolean> {
+  const now = options.now?.getTime() ?? Date.now();
+  const actor = actorFor(options.request);
+  const key = digest(options.keyMaterial.slice(0, 1_000));
+  const memory = () => reserveMemoryRate(`support-lookup:${actor}`, now, options.windowMs, options.maxActorRequests)
+    && reserveMemoryRate(`support-key:${key}`, now, options.windowMs, options.maxKeyRequests);
+  if (!intakeStoreConfigured()) return memory();
+  try {
+    const actorAllowed = await reserveStoredRate("support-lookup", actor, now, options.windowMs, options.maxActorRequests);
+    if (!actorAllowed) return false;
+    return await reserveStoredRate("support-key", key, now, options.windowMs, options.maxKeyRequests);
+  } catch {
+    return memory();
+  }
+}
+
 function memoryProtection(
   actor: string,
   duplicateKey: string,

@@ -47,14 +47,34 @@ export interface JsonEntry<T> {
   value: T;
 }
 
-export async function listJsonEntries<T>(prefix: string, maxItems: number): Promise<JsonEntry<T>[]> {
+export interface JsonEntryPage<T> {
+  entries: JsonEntry<T>[];
+  cursor?: string;
+  hasMore: boolean;
+}
+
+export async function listJsonEntriesPage<T>(
+  prefix: string,
+  maxItems: number,
+  cursor?: string,
+): Promise<JsonEntryPage<T>> {
   const limit = Math.max(1, Math.min(1_000, Math.floor(maxItems)));
-  const result = await list({ prefix, limit });
+  const result = await list({ prefix, limit, ...(cursor ? { cursor } : {}) });
+  if (result.hasMore && !result.cursor)
+    throw new Error("Blob listing reported another page without a cursor");
   const rows = await Promise.all(result.blobs.map(async (blob) => ({
     pathname: blob.pathname,
     value: await readJson<T>(blob.pathname),
   })));
-  return rows.flatMap((row) => row.value === null ? [] : [{ pathname: row.pathname, value: row.value }]);
+  return {
+    entries: rows.flatMap((row) => row.value === null ? [] : [{ pathname: row.pathname, value: row.value }]),
+    cursor: result.hasMore ? result.cursor : undefined,
+    hasMore: result.hasMore,
+  };
+}
+
+export async function listJsonEntries<T>(prefix: string, maxItems: number): Promise<JsonEntry<T>[]> {
+  return (await listJsonEntriesPage<T>(prefix, maxItems)).entries;
 }
 
 export async function deleteJson(pathname: string): Promise<void> {
