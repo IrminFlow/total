@@ -306,6 +306,19 @@ tr.kbar-row[data-active='true'] td:first-child {
   opacity: 0;
   transition: opacity 120ms ease;
 }
+
+/* The cell those actions live in.
+ *
+ * Two actions in one cell wrapped onto a second line, which made every sales row in the day book
+ * two pixels short of a line taller than every purchase row next to it. Invisible until you scan
+ * the column and find the rhythm jittering, and then impossible to unsee. The actions are hidden
+ * until the row is hovered or active, so the wrap was happening in rows that looked empty.
+ *
+ * `nowrap` on the cell rather than a width on the buttons: the number of actions differs by row
+ * kind, and a fixed width would only move the problem to whichever row grows a third one. */
+td:has(> .row-action) {
+  white-space: nowrap;
+}
 .group:hover .row-action,
 .group:focus-within .row-action,
 .group[data-active='true'] .row-action,
