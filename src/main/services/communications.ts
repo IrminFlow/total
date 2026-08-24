@@ -7,6 +7,8 @@ import tls from "tls";
 import { safeStorage } from "electron";
 import type { DB } from "../db/connection";
 import {
+  communicationDisplayNameSchema,
+  communicationEmailSchema,
   outboundDraftInputSchema,
   outboundDraftUpdateSchema,
   partyContactInputSchema,
@@ -29,7 +31,14 @@ import {
 import { writeAudit } from "./audit";
 
 const SMTP_TIMEOUT_MS = 20_000;
-const MAX_SMTP_RESPONSE = 2_000;
+const SMTP_SESSION_DEADLINE_MS = 120_000;
+const DELIVERY_LEASE_MS = 5 * 60_000;
+const MAX_STORED_DIAGNOSTIC = 2_000;
+const MAX_SMTP_LINE_BYTES = 8 * 1024;
+const MAX_SMTP_REPLY_BYTES = 64 * 1024;
+const MAX_SMTP_REPLY_LINES = 200;
+
+const activeDeliveries = new WeakMap<DB, Set<string>>();
 
 interface SmtpProfileSecret extends SmtpProfileSummary {
   password: string;
@@ -40,8 +49,9 @@ export interface SmtpTransport {
     profile: SmtpProfileSecret,
     eml: string,
     recipients: string[],
+    signal?: AbortSignal,
   ): Promise<SmtpAcceptance>;
-  test(profile: SmtpProfileSecret): Promise<string>;
+  test(profile: SmtpProfileSecret, signal?: AbortSignal): Promise<string>;
 }
 
 /** The DATA body was submitted but the server's final acceptance response was not received. */
@@ -57,6 +67,14 @@ function cleanActor(actor: string): string {
   if (!value || value.length > 160 || /[\r\n\0]/.test(value))
     throw new Error("A valid actor is required");
   return value;
+}
+
+function safeDiagnostic(value: unknown): string {
+  return String(value)
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "�")
+    .slice(0, MAX_STORED_DIAGNOSTIC);
 }
 
 function jsonArray(value: unknown): string[] {
@@ -123,6 +141,15 @@ export function savePartyContact(
   const actor = cleanActor(actorInput);
   const before = id ? contactById(db, id) : null;
   if (id && !before) throw new Error("Contact not found");
+  if (before && before.ledgerId !== data.ledgerId) {
+    const referenced = db
+      .prepare("SELECT 1 FROM outbound_messages WHERE contact_id=? LIMIT 1")
+      .get(id);
+    if (referenced)
+      throw new Error(
+        "This contact is referenced by message history and cannot move to another ledger",
+      );
+  }
   const savedId = db.transaction(() => {
     if (data.isPrimary && data.active) {
       db.prepare(
@@ -616,6 +643,7 @@ export function queueOutboundMessage(
     const result = db
       .prepare(
         `UPDATE outbound_messages SET status='queued',smtp_profile_id=?,sender_json=?,queued_at=?,last_error=NULL,
+         delivery_attempt_id=NULL,delivery_lease_expires_at=NULL,
        updated_at=? WHERE id=? AND status IN ('reviewed','failed')`,
       )
       .run(
@@ -700,7 +728,8 @@ export function resolveUnknownAcceptance(
         : "queued";
     const result = db
       .prepare(
-        `UPDATE outbound_messages SET status=?,accepted_at=?,queued_at=?,last_error=NULL,updated_at=?
+        `UPDATE outbound_messages SET status=?,accepted_at=?,queued_at=?,last_error=NULL,
+         delivery_attempt_id=NULL,delivery_lease_expires_at=NULL,updated_at=?
          WHERE id=? AND status='acceptance_unknown'`,
       )
       .run(
@@ -732,20 +761,30 @@ export function resolveUnknownAcceptance(
 }
 
 export function recoverInterruptedDeliveries(db: DB, actor = "System"): number {
-  const stale = db
-    .prepare(
-      `SELECT id FROM outbound_messages
-     WHERE status='sending' AND julianday(updated_at) < julianday('now','-10 minutes')`,
-    )
-    .all() as { id: string }[];
+  const active = activeDeliveries.get(db);
+  const stale = (
+    db
+      .prepare(
+        `SELECT id,delivery_attempt_id AS attemptId FROM outbound_messages
+       WHERE status='sending' AND delivery_lease_expires_at IS NOT NULL
+         AND julianday(delivery_lease_expires_at) <= julianday('now')`,
+      )
+      .all() as { id: string; attemptId: string | null }[]
+  ).filter((row) => !active?.has(row.id));
   if (!stale.length) return 0;
+  let recovered = 0;
   db.transaction(() => {
     for (const row of stale) {
-      db.prepare(
-        `UPDATE outbound_messages SET status='acceptance_unknown',
+      const result = db
+        .prepare(
+          `UPDATE outbound_messages SET status='acceptance_unknown',delivery_attempt_id=NULL,
+         delivery_lease_expires_at=NULL,
          last_error='Delivery was interrupted; SMTP acceptance is unknown',
-         updated_at=? WHERE id=? AND status='sending'`,
-      ).run(new Date().toISOString(), row.id);
+         updated_at=? WHERE id=? AND status='sending' AND delivery_attempt_id IS ?`,
+        )
+        .run(new Date().toISOString(), row.id, row.attemptId);
+      if (result.changes !== 1) continue;
+      recovered += 1;
       appendEvent(db, row.id, "acceptance_unknown", actor, {
         interrupted: true,
         meaning:
@@ -753,7 +792,7 @@ export function recoverInterruptedDeliveries(db: DB, actor = "System"): number {
       });
     }
   })();
-  return stale.length;
+  return recovered;
 }
 
 export function listOutboundMessages(
@@ -764,7 +803,6 @@ export function listOutboundMessages(
     limit?: number;
   } = {},
 ): OutboundMessage[] {
-  recoverInterruptedDeliveries(db);
   const where: string[] = [];
   const params: unknown[] = [];
   if (filter.ledgerId !== undefined) {
@@ -785,6 +823,13 @@ export function listOutboundMessages(
       )
       .all(...params) as Record<string, unknown>[]
   ).map(publicMessage);
+}
+
+function headerText(value: string, label: string, max: number): string {
+  const text = value.trim();
+  if (!text || text.length > max || /[\x00-\x1f\x7f]/.test(text))
+    throw new Error(`Stored ${label} is not safe for an email header`);
+  return text;
 }
 
 function headerWord(value: string): string {
@@ -811,11 +856,12 @@ function headerWord(value: string): string {
 }
 
 function mailbox(email: string, name = ""): string {
-  const safeName = name.replace(/["\\]/g, "").trim();
-  if (!safeName) return `<${email}>`;
+  const safeEmail = communicationEmailSchema.parse(email);
+  const safeName = communicationDisplayNameSchema.parse(name);
+  if (!safeName) return `<${safeEmail}>`;
   return /[^\x20-\x7e]/.test(safeName)
-    ? `${headerWord(safeName)} <${email}>`
-    : `"${safeName}" <${email}>`;
+    ? `${headerWord(safeName)} <${safeEmail}>`
+    : `"${safeName.replace(/["\\]/g, "")}" <${safeEmail}>`;
 }
 
 function addressHeader(name: string, addresses: string[]): string {
@@ -841,18 +887,25 @@ export function buildEml(
     fromName: "Total",
     replyTo: null,
   };
-  const domain = sender.fromEmail.split("@")[1] ?? "total.local";
+  const fromEmail = communicationEmailSchema.parse(sender.fromEmail);
+  const fromName = communicationDisplayNameSchema.parse(sender.fromName);
+  const replyTo = sender.replyTo
+    ? communicationEmailSchema.parse(sender.replyTo)
+    : null;
+  const subject = headerText(message.subject, "message subject", 400);
+  const to = message.to.map((email) => communicationEmailSchema.parse(email));
+  const cc = message.cc.map((email) => communicationEmailSchema.parse(email));
+  const bcc = message.bcc.map((email) => communicationEmailSchema.parse(email));
+  const domain = fromEmail.split("@")[1] ?? "total.local";
   const headers = [
     `Date: ${new Date(message.createdAt).toUTCString()}`,
     `Message-ID: <${message.id}.${message.contentSha256.slice(0, 12)}@${domain}>`,
-    `From: ${mailbox(sender.fromEmail, sender.fromName)}`,
-    addressHeader("To", message.to),
-    ...(message.cc.length ? [addressHeader("Cc", message.cc)] : []),
-    ...(includeBcc && message.bcc.length
-      ? [addressHeader("Bcc", message.bcc)]
-      : []),
-    ...(sender.replyTo ? [`Reply-To: ${mailbox(sender.replyTo)}`] : []),
-    `Subject: ${headerWord(message.subject)}`,
+    `From: ${mailbox(fromEmail, fromName)}`,
+    addressHeader("To", to),
+    ...(cc.length ? [addressHeader("Cc", cc)] : []),
+    ...(includeBcc && bcc.length ? [addressHeader("Bcc", bcc)] : []),
+    ...(replyTo ? [`Reply-To: ${mailbox(replyTo)}`] : []),
+    `Subject: ${headerWord(subject)}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
@@ -881,6 +934,7 @@ export function exportMessageEml(
   if (smtpProfileId !== undefined && !selectedProfile)
     throw new Error("SMTP profile not found");
   const profile = selectedProfile ? publicProfile(selectedProfile) : undefined;
+  if (profile && !profile.active) throw new Error("SMTP profile is inactive");
   writeFileSync(path, buildEml(before, profile, true), {
     encoding: "utf8",
     flag: "wx",
@@ -926,9 +980,28 @@ class SmtpLineReader {
       const index = this.buffer.indexOf("\n");
       const line = this.buffer.slice(0, index).replace(/\r$/, "");
       this.buffer = this.buffer.slice(index + 1);
+      if (Buffer.byteLength(line, "utf8") > MAX_SMTP_LINE_BYTES) {
+        const error = new Error("SMTP server response line is too large");
+        this.onError(error);
+        this.socket.destroy(error);
+        return;
+      }
       const waiter = this.waiters.shift();
       if (waiter) waiter.resolve(line);
-      else this.lines.push(line);
+      else {
+        if (this.lines.length >= MAX_SMTP_REPLY_LINES) {
+          const error = new Error("SMTP server sent too many response lines");
+          this.onError(error);
+          this.socket.destroy(error);
+          return;
+        }
+        this.lines.push(line);
+      }
+    }
+    if (Buffer.byteLength(this.buffer, "utf8") > MAX_SMTP_LINE_BYTES) {
+      const error = new Error("SMTP server response line is too large");
+      this.onError(error);
+      this.socket.destroy(error);
     }
   };
   private readonly onError = (error: Error) => {
@@ -962,6 +1035,7 @@ class SmtpLineReader {
 
   async reply(): Promise<{ code: number; text: string }> {
     const lines: string[] = [];
+    let responseBytes = 0;
     let code = 0;
     for (;;) {
       const line = await this.nextLine();
@@ -971,9 +1045,15 @@ class SmtpLineReader {
       if (!code) code = current;
       if (current !== code)
         throw new Error("SMTP server returned an inconsistent response");
-      lines.push(line.slice(4));
-      if (line[3] === " ")
-        return { code, text: lines.join("\n").slice(0, MAX_SMTP_RESPONSE) };
+      const content = line.slice(4);
+      responseBytes += Buffer.byteLength(content, "utf8");
+      if (
+        lines.length >= MAX_SMTP_REPLY_LINES ||
+        responseBytes > MAX_SMTP_REPLY_BYTES
+      )
+        throw new Error("SMTP server response is too large");
+      lines.push(content);
+      if (line[3] === " ") return { code, text: lines.join("\n") };
     }
   }
 }
@@ -1073,6 +1153,7 @@ async function smtpSession<T>(
     socket: net.Socket | tls.TLSSocket,
     reader: SmtpLineReader,
   ) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   let socket: net.Socket | tls.TLSSocket;
   let reader: SmtpLineReader;
@@ -1091,7 +1172,6 @@ async function smtpSession<T>(
     );
     socket = secure;
     reader = new SmtpLineReader(socket);
-    await waitForConnect(secure, "secureConnect");
   } else {
     const plain = net.connect({ host: profile.host, port: profile.port });
     plain.setTimeout(SMTP_TIMEOUT_MS, () =>
@@ -1099,9 +1179,23 @@ async function smtpSession<T>(
     );
     socket = plain;
     reader = new SmtpLineReader(socket);
-    await waitForConnect(plain, "connect");
   }
+  const deadlineError = new Error("SMTP session deadline exceeded");
+  const abort = () =>
+    socket.destroy(
+      signal?.reason instanceof Error ? signal.reason : deadlineError,
+    );
+  const deadline = setTimeout(
+    () => socket.destroy(deadlineError),
+    SMTP_SESSION_DEADLINE_MS,
+  );
+  signal?.addEventListener("abort", abort, { once: true });
   try {
+    if (signal?.aborted) abort();
+    await waitForConnect(
+      socket,
+      profile.security === "tls" ? "secureConnect" : "connect",
+    );
     expectReply(await reader.reply(), [220], "SMTP greeting");
     const clientName =
       hostname().replace(/[^A-Za-z0-9.-]/g, "-") || "localhost";
@@ -1132,6 +1226,8 @@ async function smtpSession<T>(
     await authenticate(socket, reader, profile, ehlo.text);
     return await operation(socket, reader);
   } finally {
+    clearTimeout(deadline);
+    signal?.removeEventListener("abort", abort);
     try {
       await command(socket, reader, "QUIT");
     } catch {
@@ -1143,49 +1239,57 @@ async function smtpSession<T>(
 }
 
 export const networkSmtpTransport: SmtpTransport = {
-  async test(profile) {
-    return smtpSession(profile, async (socket, reader) => {
-      const reply = await command(socket, reader, "NOOP");
-      expectReply(reply, [250], "SMTP NOOP");
-      return reply.text;
-    });
+  async test(profile, signal) {
+    return smtpSession(
+      profile,
+      async (socket, reader) => {
+        const reply = await command(socket, reader, "NOOP");
+        expectReply(reply, [250], "SMTP NOOP");
+        return reply.text;
+      },
+      signal,
+    );
   },
-  async send(profile, eml, recipients) {
-    return smtpSession(profile, async (socket, reader) => {
-      expectReply(
-        await command(socket, reader, `MAIL FROM:<${profile.fromEmail}>`),
-        [250],
-        "SMTP sender",
-      );
-      for (const recipient of recipients)
+  async send(profile, eml, recipients, signal) {
+    return smtpSession(
+      profile,
+      async (socket, reader) => {
         expectReply(
-          await command(socket, reader, `RCPT TO:<${recipient}>`),
-          [250, 251],
-          `SMTP recipient ${recipient}`,
+          await command(socket, reader, `MAIL FROM:<${profile.fromEmail}>`),
+          [250],
+          "SMTP sender",
         );
-      expectReply(await command(socket, reader, "DATA"), [354], "SMTP DATA");
-      const stuffed = eml
-        .replace(/\r?\n/g, "\r\n")
-        .replace(/(^|\r\n)\./g, "$1..")
-        .replace(/\r\n$/, "");
-      let reply: { code: number; text: string };
-      try {
-        reply = await command(socket, reader, `${stuffed}\r\n.`);
-      } catch (error) {
-        throw new SmtpAcceptanceUnknownError(
-          `SMTP acceptance is unknown after DATA: ${error instanceof Error ? error.message : String(error)}`,
+        for (const recipient of recipients)
+          expectReply(
+            await command(socket, reader, `RCPT TO:<${recipient}>`),
+            [250, 251],
+            `SMTP recipient ${recipient}`,
+          );
+        expectReply(await command(socket, reader, "DATA"), [354], "SMTP DATA");
+        const stuffed = eml
+          .replace(/\r?\n/g, "\r\n")
+          .replace(/(^|\r\n)\./g, "$1..")
+          .replace(/\r\n$/, "");
+        let reply: { code: number; text: string };
+        try {
+          reply = await command(socket, reader, `${stuffed}\r\n.`);
+        } catch (error) {
+          throw new SmtpAcceptanceUnknownError(
+            `SMTP acceptance is unknown after DATA: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        expectReply(reply, [250], "SMTP message acceptance");
+        const match = reply.text.match(
+          /(?:queued as|id[= :]?)\s*<?([^\s<>]+)>?/i,
         );
-      }
-      expectReply(reply, [250], "SMTP message acceptance");
-      const match = reply.text.match(
-        /(?:queued as|id[= :]?)\s*<?([^\s<>]+)>?/i,
-      );
-      return {
-        accepted: true,
-        serverResponse: reply.text,
-        serverMessageId: match?.[1] ?? null,
-      };
-    });
+        return {
+          accepted: true,
+          serverResponse: reply.text,
+          serverMessageId: match?.[1] ?? null,
+        };
+      },
+      signal,
+    );
   },
 };
 
@@ -1196,18 +1300,15 @@ export async function testSmtpProfile(
 ): Promise<{ ok: true; serverResponse: string }> {
   const profile = secretProfile(db, id, false);
   try {
-    const response = (await transport.test(profile)).slice(
-      0,
-      MAX_SMTP_RESPONSE,
-    );
+    const response = safeDiagnostic(await transport.test(profile));
     db.prepare(
       "UPDATE smtp_profiles SET last_tested_at=?,last_error=NULL,updated_at=? WHERE id=?",
     ).run(new Date().toISOString(), new Date().toISOString(), id);
     return { ok: true, serverResponse: response };
   } catch (error) {
-    const message = (
-      error instanceof Error ? error.message : String(error)
-    ).slice(0, MAX_SMTP_RESPONSE);
+    const message = safeDiagnostic(
+      error instanceof Error ? error.message : String(error),
+    );
     db.prepare(
       "UPDATE smtp_profiles SET last_tested_at=?,last_error=?,updated_at=? WHERE id=?",
     ).run(new Date().toISOString(), message, new Date().toISOString(), id);
@@ -1233,20 +1334,36 @@ export async function deliverOutboundMessage(
     ? { ...profile, ...before.sender }
     : profile;
   const now = new Date().toISOString();
+  const attemptId = randomUUID();
+  const leaseExpiresAt = new Date(Date.now() + DELIVERY_LEASE_MS).toISOString();
   db.transaction(() => {
     const result = db
       .prepare(
-        `UPDATE outbound_messages SET status='sending',attempts=attempts+1,updated_at=?
+        `UPDATE outbound_messages SET status='sending',attempts=attempts+1,delivery_attempt_id=?,
+         delivery_lease_expires_at=?,updated_at=?
        WHERE id=? AND status='queued'`,
       )
-      .run(now, id);
+      .run(attemptId, leaseExpiresAt, now, id);
     if (result.changes !== 1)
       throw new Error("Message is already being processed");
     appendEvent(db, id, "delivery_started", actor, {
       attempt: before.attempts + 1,
+      attemptId,
+      leaseExpiresAt,
       smtpProfileId: profile.id,
     });
   })();
+  const active = activeDeliveries.get(db) ?? new Set<string>();
+  activeDeliveries.set(db, active);
+  active.add(id);
+  const abortController = new AbortController();
+  const attemptDeadline = setTimeout(
+    () =>
+      abortController.abort(
+        new Error("SMTP delivery attempt deadline exceeded"),
+      ),
+    SMTP_SESSION_DEADLINE_MS,
+  );
   let serverAccepted = false;
   try {
     const eml = buildEml(getOutboundMessage(db, id), deliveryProfile, false);
@@ -1255,59 +1372,76 @@ export async function deliverOutboundMessage(
       ...before.cc,
       ...before.bcc,
     ]);
-    const acceptance = await transport.send(deliveryProfile, eml, recipients);
+    const acceptance = await transport.send(
+      deliveryProfile,
+      eml,
+      recipients,
+      abortController.signal,
+    );
     serverAccepted = true;
     const acceptedAt = new Date().toISOString();
     db.transaction(() => {
       const result = db
         .prepare(
-          `UPDATE outbound_messages SET status='accepted_by_smtp',accepted_at=?,last_error=NULL,updated_at=?
-         WHERE id=? AND status='sending'`,
+          `UPDATE outbound_messages SET status='accepted_by_smtp',accepted_at=?,last_error=NULL,
+           delivery_attempt_id=NULL,delivery_lease_expires_at=NULL,updated_at=?
+           WHERE id=? AND status='sending' AND delivery_attempt_id=?`,
         )
-        .run(acceptedAt, acceptedAt, id);
+        .run(acceptedAt, acceptedAt, id, attemptId);
       if (result.changes !== 1)
         throw new Error(
           "Message state changed before SMTP acceptance was recorded",
         );
       appendEvent(db, id, "accepted_by_smtp", actor, {
-        serverResponse: acceptance.serverResponse.slice(0, MAX_SMTP_RESPONSE),
-        serverMessageId: acceptance.serverMessageId,
+        serverResponse: safeDiagnostic(acceptance.serverResponse),
+        serverMessageId:
+          acceptance.serverMessageId === null
+            ? null
+            : safeDiagnostic(acceptance.serverMessageId),
         meaning:
           "The configured SMTP server accepted the message; recipient delivery is not confirmed",
       });
     })();
   } catch (error) {
-    const message = (
-      error instanceof Error ? error.message : String(error)
-    ).slice(0, MAX_SMTP_RESPONSE);
+    const message = safeDiagnostic(
+      error instanceof Error ? error.message : String(error),
+    );
     const acceptanceUnknown =
       serverAccepted || error instanceof SmtpAcceptanceUnknownError;
     db.transaction(() => {
-      db.prepare(
-        `UPDATE outbound_messages SET status=?,last_error=?,updated_at=?
-         WHERE id=? AND status='sending'`,
-      ).run(
-        acceptanceUnknown ? "acceptance_unknown" : "failed",
-        message,
-        new Date().toISOString(),
-        id,
-      );
-      appendEvent(
-        db,
-        id,
-        acceptanceUnknown ? "acceptance_unknown" : "failed",
-        actor,
-        {
-          error: message,
-          ...(acceptanceUnknown
-            ? {
-                meaning:
-                  "Do not retry until you check the SMTP provider; a retry could duplicate the message",
-              }
-            : {}),
-        },
-      );
+      const result = db
+        .prepare(
+          `UPDATE outbound_messages SET status=?,last_error=?,delivery_attempt_id=NULL,
+         delivery_lease_expires_at=NULL,updated_at=?
+         WHERE id=? AND status='sending' AND delivery_attempt_id=?`,
+        )
+        .run(
+          acceptanceUnknown ? "acceptance_unknown" : "failed",
+          message,
+          new Date().toISOString(),
+          id,
+          attemptId,
+        );
+      if (result.changes === 1)
+        appendEvent(
+          db,
+          id,
+          acceptanceUnknown ? "acceptance_unknown" : "failed",
+          actor,
+          {
+            error: message,
+            ...(acceptanceUnknown
+              ? {
+                  meaning:
+                    "Do not retry until you check the SMTP provider; a retry could duplicate the message",
+                }
+              : {}),
+          },
+        );
     })();
+  } finally {
+    clearTimeout(attemptDeadline);
+    active.delete(id);
   }
   const after = getOutboundMessage(db, id);
   writeAudit(db, "outbound_message", 0, "update", before, after);

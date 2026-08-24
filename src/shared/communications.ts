@@ -6,7 +6,19 @@ const singleLine = (max: number) =>
     .trim()
     .min(1)
     .max(max)
-    .refine((value) => !/[\r\n\0]/.test(value), "Must be a single line");
+    .refine(
+      (value) => !/[\x00-\x1f\x7f]/.test(value),
+      "Must be a single line without control characters",
+    );
+
+export const communicationDisplayNameSchema = z
+  .string()
+  .trim()
+  .max(160)
+  .refine(
+    (value) => !/[\x00-\x1f\x7f]/.test(value),
+    "Must be a single line without control characters",
+  );
 
 export const communicationEmailSchema = z
   .string()
@@ -14,7 +26,7 @@ export const communicationEmailSchema = z
   .toLowerCase()
   .email()
   .max(320)
-  .refine((value) => !/[\r\n\0]/.test(value), "Invalid email address");
+  .refine((value) => !/[\x00-\x1f\x7f]/.test(value), "Invalid email address");
 
 export const partyContactInputSchema = z
   .object({
@@ -64,7 +76,7 @@ export const smtpProfileInputSchema = z
     username: singleLine(320),
     password: z.string().min(1).max(1024),
     fromEmail: communicationEmailSchema,
-    fromName: z.string().trim().max(160).default(""),
+    fromName: communicationDisplayNameSchema.default(""),
     replyTo: communicationEmailSchema.nullable().default(null),
     active: z.boolean().default(true),
   })

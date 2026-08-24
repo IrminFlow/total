@@ -2537,4 +2537,12 @@ export const MIGRATIONS: string[] = [
     BEFORE DELETE ON outbound_message_events
     BEGIN SELECT RAISE(ABORT,'outbound message events are append-only'); END;
   `,
+  // 060 - crash-safe SMTP delivery leases. Kept separate because migration 059
+  // shipped as the communications foundation and may already exist locally.
+  `
+  ALTER TABLE outbound_messages ADD COLUMN delivery_attempt_id TEXT;
+  ALTER TABLE outbound_messages ADD COLUMN delivery_lease_expires_at TEXT;
+  CREATE INDEX idx_outbound_messages_delivery_lease
+    ON outbound_messages(status,delivery_lease_expires_at);
+  `,
 ];

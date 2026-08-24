@@ -13,6 +13,7 @@ function registrations() {
     rows.push({ channel, handler, role });
   let companyReads = 0;
   let actorReads = 0;
+  const destinationRequests: string[] = [];
   registerCommunicationsHandlers({
     handle,
     requireCompany: () => {
@@ -23,8 +24,16 @@ function registrations() {
       actorReads += 1;
       return "Asha";
     },
+    chooseEmlDestination: async (suggestedFileName) => {
+      destinationRequests.push(suggestedFileName);
+      return null;
+    },
   });
-  return { rows, reads: () => ({ companyReads, actorReads }) };
+  return {
+    rows,
+    destinationRequests,
+    reads: () => ({ companyReads, actorReads }),
+  };
 }
 
 describe("communications IPC handlers", () => {
@@ -78,5 +87,19 @@ describe("communications IPC handlers", () => {
       byChannel.get("communications:messages:deliver")!({ id: "not-a-uuid" }),
     ).toThrow();
     expect(state.reads()).toEqual({ companyReads: 0, actorReads: 0 });
+  });
+
+  it("chooses the export destination in the main process and returns null on cancel", async () => {
+    const state = registrations();
+    const handler = state.rows.find(
+      (row) => row.channel === "communications:messages:exportEml",
+    )!.handler;
+    const id = "00000000-0000-4000-8000-000000000001";
+    await expect(handler({ id })).resolves.toBeNull();
+    expect(state.destinationRequests).toEqual([`Total-message-${id}.eml`]);
+    expect(state.reads()).toEqual({ companyReads: 0, actorReads: 0 });
+    await expect(
+      handler({ id, destinationPath: "/tmp/renderer-controlled.eml" }),
+    ).rejects.toThrow();
   });
 });

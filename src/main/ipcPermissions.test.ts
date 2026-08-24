@@ -4,6 +4,7 @@ import * as ts from "typescript";
 import {
   EXPLICIT_PERMISSION_ACTIONS,
   IPC_EXPORT_CONTRACTS,
+  IPC_OUTBOUND_DATA_CONTRACTS,
   PAYLOAD_PERMISSION_CONTRACTS,
   companyWideExportLabelForChannel,
   companyWideSurfaceLabelForChannel,
@@ -103,14 +104,11 @@ describe("IPC permission contracts", () => {
     ["payroll:salaryRevisions:save", "draft", "create"],
     ["ai:documents:review", "approved", "approve"],
     ["ai:documents:review", "dismissed", "approve"],
-  ] as const)(
-    "classifies %s status %s as %s",
-    (channel, status, action) => {
-      expect(
-        permissionActionForChannel(channel, { id: 1, status }, "accountant"),
-      ).toBe(action);
-    },
-  );
+  ] as const)("classifies %s status %s as %s", (channel, status, action) => {
+    expect(
+      permissionActionForChannel(channel, { id: 1, status }, "accountant"),
+    ).toBe(action);
+  });
 
   it.each(Object.keys(PAYLOAD_PERMISSION_CONTRACTS))(
     "fails closed when %s has a missing or unknown status",
@@ -138,18 +136,15 @@ describe("IPC permission contracts", () => {
     "communications:messages:queue",
     "communications:messages:deliver",
     "communications:messages:resolveAcceptance",
-  ])(
-    "classifies %s as an approval decision",
-    (channel) => {
-      expect(
-        permissionActionForChannel(
-          channel,
-          { file: "proposal.json" },
-          "accountant",
-        ),
-      ).toBe("approve");
-    },
-  );
+  ])("classifies %s as an approval decision", (channel) => {
+    expect(
+      permissionActionForChannel(
+        channel,
+        { file: "proposal.json" },
+        "accountant",
+      ),
+    ).toBe("approve");
+  });
 
   it.each(Object.keys(IPC_EXPORT_CONTRACTS))(
     "classifies registered file channel %s as an export",
@@ -163,6 +158,18 @@ describe("IPC permission contracts", () => {
       );
     },
   );
+
+  it("keeps outbound disclosures separate from local file exports", () => {
+    expect(IPC_OUTBOUND_DATA_CONTRACTS).toEqual({
+      "communications:messages:queue": "full_data",
+      "communications:messages:deliver": "full_data",
+      "communications:messages:resolveAcceptance": "full_data",
+    });
+    for (const channel of Object.keys(IPC_OUTBOUND_DATA_CONTRACTS))
+      expect(permissionActionForChannel(channel, {}, "accountant")).toBe(
+        "approve",
+      );
+  });
 
   it("classifies transport updates as edits", () => {
     expect(

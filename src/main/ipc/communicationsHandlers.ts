@@ -15,6 +15,7 @@ interface CommunicationsHandlerContext {
   handle: IpcHandle;
   requireCompany: () => CompanyContext;
   actor: () => string;
+  chooseEmlDestination: (suggestedFileName: string) => Promise<string | null>;
 }
 
 const positiveId = z.number().int().positive();
@@ -24,6 +25,7 @@ export function registerCommunicationsHandlers({
   handle,
   requireCompany,
   actor,
+  chooseEmlDestination,
 }: CommunicationsHandlerContext): void {
   handle(
     "communications:contacts:list",
@@ -213,19 +215,22 @@ export function registerCommunicationsHandlers({
       actor(),
     );
   });
-  handle("communications:messages:exportEml", (payload) => {
+  handle("communications:messages:exportEml", async (payload) => {
     const input = z
       .object({
         id: messageId,
-        destinationPath: z.string().trim().min(1).max(4096),
         smtpProfileId: positiveId.optional(),
       })
       .strict()
       .parse(payload);
+    const destinationPath = await chooseEmlDestination(
+      `Total-message-${input.id}.eml`,
+    );
+    if (destinationPath === null) return null;
     return communications.exportMessageEml(
       requireCompany().db,
       input.id,
-      input.destinationPath,
+      destinationPath,
       actor(),
       input.smtpProfileId,
     );

@@ -23,6 +23,17 @@ export interface IpcExportContract {
 }
 
 /**
+ * Network operations that disclose full message content. They deliberately keep
+ * their primary `approve` action and add both the role-level export permission
+ * and the per-format full-data gate.
+ */
+export const IPC_OUTBOUND_DATA_CONTRACTS = {
+  "communications:messages:queue": "full_data",
+  "communications:messages:deliver": "full_data",
+  "communications:messages:resolveAcceptance": "full_data",
+} as const satisfies Record<string, ExportFormat>;
+
+/**
  * Exhaustive registry for IPC operations that materialize sensitive data into a
  * user-visible file or full local mirror. The permission action, format gate,
  * department-scope policy, and completeness tests all derive from this table.
@@ -450,5 +461,15 @@ export function assertIpcPermissionAllowed(
   const action = permissionActionForChannel(channel, payload, minRole);
   if (!permissionAllows(db, role, action))
     throw new Error("You do not have permission to do that");
+  const outboundFormat =
+    IPC_OUTBOUND_DATA_CONTRACTS[
+      channel as keyof typeof IPC_OUTBOUND_DATA_CONTRACTS
+    ];
+  if (outboundFormat) {
+    if (!permissionAllows(db, role, "export"))
+      throw new Error("You do not have permission to send company data");
+    if (!exportAllowed(db, role, outboundFormat))
+      throw new Error("Your role is not allowed to send full company data");
+  }
   return action;
 }

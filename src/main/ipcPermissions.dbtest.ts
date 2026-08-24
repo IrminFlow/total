@@ -10,12 +10,43 @@ import {
 } from "./services/internalControls";
 import {
   IPC_EXPORT_CONTRACTS,
+  IPC_OUTBOUND_DATA_CONTRACTS,
   assertAutomationRunAllowed,
   assertIpcExportFormatAllowed,
   assertIpcPermissionAllowed,
 } from "./ipcPermissions";
 
 describe("IPC permission denial gate", () => {
+  it.each(Object.keys(IPC_OUTBOUND_DATA_CONTRACTS))(
+    "requires export authority as well as approval for %s",
+    (channel) => {
+      const db = freshDb();
+      const matrix = structuredClone(DEFAULT_PERMISSION_MATRIX);
+      matrix.accountant.approve = true;
+      matrix.accountant.export = false;
+      setPermissionMatrix(db, matrix);
+      const formats = getExportPermissions(db);
+      formats.accountant.full_data = true;
+      setExportPermissions(db, formats);
+      expect(() =>
+        assertIpcPermissionAllowed(db, "accountant", channel, {}, "accountant"),
+      ).toThrow("permission to send company data");
+    },
+  );
+
+  it.each(Object.keys(IPC_OUTBOUND_DATA_CONTRACTS))(
+    "requires the full-data format grant for %s",
+    (channel) => {
+      const db = freshDb();
+      const matrix = structuredClone(DEFAULT_PERMISSION_MATRIX);
+      matrix.accountant.approve = true;
+      matrix.accountant.export = true;
+      setPermissionMatrix(db, matrix);
+      expect(() =>
+        assertIpcPermissionAllowed(db, "accountant", channel, {}, "accountant"),
+      ).toThrow("not allowed to send full company data");
+    },
+  );
   it.each(Object.keys(IPC_EXPORT_CONTRACTS))(
     "denies %s when create is allowed but export is disabled",
     (channel) => {
@@ -127,9 +158,9 @@ describe("IPC permission denial gate", () => {
       action: "export",
       format: "json_mirror",
     });
-    expect(
-      assertAutomationRunAllowed(db, "accountant", "report_pack"),
-    ).toEqual({ action: "export", format: "full_data" });
+    expect(assertAutomationRunAllowed(db, "accountant", "report_pack")).toEqual(
+      { action: "export", format: "full_data" },
+    );
   });
 
   it("denies dynamic automation when settings is allowed but its exact action is denied", () => {
@@ -171,60 +202,74 @@ describe("IPC permission denial gate", () => {
 
   it.each([
     ["payroll:attendance:approveMonth", { month: "2026-08" }],
+    ["payroll:reimbursements:decide", { id: 7, decision: "approved" }],
     [
-      "payroll:reimbursements:decide",
-      { id: 7, decision: "approved" },
+      "communications:messages:review",
+      { id: "00000000-0000-4000-8000-000000000001" },
     ],
-    ["communications:messages:review", { id: "00000000-0000-4000-8000-000000000001" }],
-    ["communications:messages:queue", { id: "00000000-0000-4000-8000-000000000001" }],
-    ["communications:messages:deliver", { id: "00000000-0000-4000-8000-000000000001" }],
-    ["communications:messages:resolveAcceptance", { id: "00000000-0000-4000-8000-000000000001" }],
-  ])(
-    "denies a default accountant invocation of %s",
-    (channel, payload) => {
-      const db = freshDb();
-      expect(DEFAULT_PERMISSION_MATRIX.accountant.create).toBe(true);
-      expect(DEFAULT_PERMISSION_MATRIX.accountant.edit).toBe(true);
-      expect(DEFAULT_PERMISSION_MATRIX.accountant.approve).toBe(false);
-      expect(() =>
-        assertIpcPermissionAllowed(
-          db,
-          "accountant",
-          channel,
-          payload,
-          "accountant",
-        ),
-      ).toThrow("You do not have permission");
-    },
-  );
+    [
+      "communications:messages:queue",
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ],
+    [
+      "communications:messages:deliver",
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ],
+    [
+      "communications:messages:resolveAcceptance",
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ],
+  ])("denies a default accountant invocation of %s", (channel, payload) => {
+    const db = freshDb();
+    expect(DEFAULT_PERMISSION_MATRIX.accountant.create).toBe(true);
+    expect(DEFAULT_PERMISSION_MATRIX.accountant.edit).toBe(true);
+    expect(DEFAULT_PERMISSION_MATRIX.accountant.approve).toBe(false);
+    expect(() =>
+      assertIpcPermissionAllowed(
+        db,
+        "accountant",
+        channel,
+        payload,
+        "accountant",
+      ),
+    ).toThrow("You do not have permission");
+  });
 
   it.each([
     ["payroll:attendance:approveMonth", { month: "2026-08" }],
+    ["payroll:reimbursements:decide", { id: 7, decision: "rejected" }],
     [
-      "payroll:reimbursements:decide",
-      { id: 7, decision: "rejected" },
+      "communications:messages:review",
+      { id: "00000000-0000-4000-8000-000000000001" },
     ],
-    ["communications:messages:review", { id: "00000000-0000-4000-8000-000000000001" }],
-    ["communications:messages:queue", { id: "00000000-0000-4000-8000-000000000001" }],
-    ["communications:messages:deliver", { id: "00000000-0000-4000-8000-000000000001" }],
-    ["communications:messages:resolveAcceptance", { id: "00000000-0000-4000-8000-000000000001" }],
+    [
+      "communications:messages:queue",
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ],
+    [
+      "communications:messages:deliver",
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ],
+    [
+      "communications:messages:resolveAcceptance",
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ],
   ])(
     "allows an owner and a configured approver to invoke %s",
     (channel, payload) => {
       const db = freshDb();
       expect(
-        assertIpcPermissionAllowed(
-          db,
-          "owner",
-          channel,
-          payload,
-          "accountant",
-        ),
+        assertIpcPermissionAllowed(db, "owner", channel, payload, "accountant"),
       ).toBe("approve");
 
       const matrix = structuredClone(DEFAULT_PERMISSION_MATRIX);
       matrix.accountant.approve = true;
       setPermissionMatrix(db, matrix);
+      if (channel.startsWith("communications:")) {
+        const formats = getExportPermissions(db);
+        formats.accountant.full_data = true;
+        setExportPermissions(db, formats);
+      }
       expect(
         assertIpcPermissionAllowed(
           db,
@@ -244,21 +289,18 @@ describe("IPC permission denial gate", () => {
     ["payroll:salaryRevisions:save", { status: "approved" }],
     ["ai:documents:review", { id: 7, status: "approved" }],
     ["ai:documents:review", { id: 7, status: "dismissed" }],
-  ])(
-    "denies a default accountant decision through %s",
-    (channel, payload) => {
-      const db = freshDb();
-      expect(() =>
-        assertIpcPermissionAllowed(
-          db,
-          "accountant",
-          channel,
-          payload,
-          "accountant",
-        ),
-      ).toThrow("You do not have permission");
-    },
-  );
+  ])("denies a default accountant decision through %s", (channel, payload) => {
+    const db = freshDb();
+    expect(() =>
+      assertIpcPermissionAllowed(
+        db,
+        "accountant",
+        channel,
+        payload,
+        "accountant",
+      ),
+    ).toThrow("You do not have permission");
+  });
 
   it.each([
     ["payroll:attendance:save", { status: "review" }],
@@ -291,13 +333,7 @@ describe("IPC permission denial gate", () => {
     (channel, payload) => {
       const db = freshDb();
       expect(
-        assertIpcPermissionAllowed(
-          db,
-          "owner",
-          channel,
-          payload,
-          "accountant",
-        ),
+        assertIpcPermissionAllowed(db, "owner", channel, payload, "accountant"),
       ).toBe("approve");
 
       const matrix = structuredClone(DEFAULT_PERMISSION_MATRIX);

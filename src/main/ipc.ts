@@ -203,6 +203,7 @@ import { registerOutstandingBillsHandlers } from "./ipc/outstandingBillsHandlers
 import { registerComplianceHandlers } from "./ipc/complianceHandlers";
 import { registerExtrasHandlers } from "./ipc/extrasHandlers";
 import { registerCommunicationsHandlers } from "./ipc/communicationsHandlers";
+import { recoverInterruptedDeliveries } from "./services/communications";
 import type { IpcHandler, OpenCompany } from "./ipc/types";
 import * as caPack from "./services/caPack";
 import { htmlToPdf, writeExportPdf } from "./services/pdf";
@@ -741,6 +742,12 @@ export function registerIpc(): void {
     const db = openExistingCompanyDb(slug);
     const info = readCompanyInfo(db);
     current = { slug, db, info, usersExist: users.usersExist(db) };
+    const recoveredDeliveries = recoverInterruptedDeliveries(db);
+    if (recoveredDeliveries > 0)
+      log("warn", "smtp-delivery-recovered", {
+        slug,
+        count: recoveredDeliveries,
+      });
     // Online backup needs an open handle, so this runs after open (not before, as it used to).
     // A backup failure here must never fail — or desync — the open itself.
     try {
@@ -5464,6 +5471,13 @@ export function registerIpc(): void {
     handle,
     requireCompany,
     actor: () => sessionUser?.name ?? "Local user",
+    chooseEmlDestination: async (suggestedFileName) => {
+      const picked = await dialog.showSaveDialog({
+        defaultPath: suggestedFileName,
+        filters: [{ name: "Email message", extensions: ["eml"] }],
+      });
+      return picked.canceled || !picked.filePath ? null : picked.filePath;
+    },
   });
 
   // ---------- payroll ----------

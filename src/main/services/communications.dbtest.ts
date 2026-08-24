@@ -21,9 +21,11 @@ import {
   exportMessageEml,
   getOutboundMessage,
   listMessageEvents,
+  listOutboundMessages,
   listPartyContacts,
   listSmtpProfiles,
   queueOutboundMessage,
+  recoverInterruptedDeliveries,
   reviewOutboundMessage,
   resolveUnknownAcceptance,
   savePartyContact,
@@ -128,6 +130,64 @@ describe("local customer communications", () => {
         "Owner",
       ),
     ).toThrow();
+  });
+
+  it("does not allow a referenced contact to move across ledgers", () => {
+    const db = seededDb();
+    const firstLedger = firstLedgerId(db);
+    const groupId = (
+      db
+        .prepare("SELECT group_id AS groupId FROM ledgers WHERE id=?")
+        .get(firstLedger) as { groupId: number }
+    ).groupId;
+    const secondLedger = Number(
+      db
+        .prepare("INSERT INTO ledgers(name,group_id) VALUES(?,?)")
+        .run("Second message party", groupId).lastInsertRowid,
+    );
+    const contact = savePartyContact(
+      db,
+      {
+        ledgerId: firstLedger,
+        name: "Asha",
+        role: "Accounts",
+        email: "asha@example.com",
+        phone: null,
+        isPrimary: true,
+        active: true,
+      },
+      "Owner",
+    );
+    createOutboundDraft(
+      db,
+      {
+        idempotencyKey: "contact-ledger-history-0001",
+        ledgerId: contact.ledgerId,
+        contactId: contact.id,
+        to: [contact.email!],
+        cc: [],
+        bcc: [],
+        subject: "Statement",
+        bodyText: "Reviewed account statement",
+      },
+      "Asha",
+    );
+    expect(() =>
+      savePartyContact(
+        db,
+        {
+          ledgerId: secondLedger,
+          name: contact.name,
+          role: contact.role,
+          email: contact.email,
+          phone: contact.phone,
+          isPrimary: contact.isPrimary,
+          active: contact.active,
+        },
+        "Owner",
+        contact.id,
+      ),
+    ).toThrow(/cannot move to another ledger/);
   });
 
   it("encrypts SMTP passwords and never returns them from list APIs", () => {
@@ -326,6 +386,55 @@ describe("local customer communications", () => {
     });
   });
 
+  it("does not recover an expired lease while its in-process attempt is active", async () => {
+    const db = seededDb();
+    const smtp = profile(db);
+    const reviewed = reviewOutboundMessage(db, draft(db).id, 1, "Reviewer");
+    queueOutboundMessage(db, reviewed.id, smtp.id, "Reviewer");
+    let accept!: (value: {
+      accepted: true;
+      serverResponse: string;
+      serverMessageId: null;
+    }) => void;
+    const transport: SmtpTransport = {
+      test: async () => "unused",
+      send: async () =>
+        new Promise((resolve) => {
+          accept = resolve;
+        }),
+    };
+    const delivery = deliverOutboundMessage(
+      db,
+      reviewed.id,
+      "Reviewer",
+      transport,
+    );
+    db.prepare(
+      "UPDATE outbound_messages SET delivery_lease_expires_at='2000-01-01T00:00:00.000Z' WHERE id=?",
+    ).run(reviewed.id);
+    expect(recoverInterruptedDeliveries(db)).toBe(0);
+    expect(getOutboundMessage(db, reviewed.id).status).toBe("sending");
+    accept({ accepted: true, serverResponse: "queued", serverMessageId: null });
+    await expect(delivery).resolves.toMatchObject({
+      status: "accepted_by_smtp",
+    });
+  });
+
+  it("recovers expired leases explicitly and never as a list side effect", () => {
+    const db = seededDb();
+    const message = draft(db);
+    db.prepare(
+      `UPDATE outbound_messages SET status='sending',delivery_attempt_id='crashed-attempt',
+       delivery_lease_expires_at='2000-01-01T00:00:00.000Z' WHERE id=?`,
+    ).run(message.id);
+    expect(listOutboundMessages(db)[0]?.status).toBe("sending");
+    expect(recoverInterruptedDeliveries(db)).toBe(1);
+    expect(getOutboundMessage(db, message.id)).toMatchObject({
+      status: "acceptance_unknown",
+      lastError: expect.stringMatching(/interrupted/),
+    });
+  });
+
   it("exports a reviewed RFC 5322 message as an exclusive local fallback", () => {
     const db = seededDb();
     const reviewed = reviewOutboundMessage(db, draft(db).id, 1, "Reviewer");
@@ -342,6 +451,34 @@ describe("local customer communications", () => {
         exportMessageEml(db, reviewed.id, path, "Reviewer"),
       ).toThrow();
       expect(getOutboundMessage(db, reviewed.id).status).toBe("exported");
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unsafe stored header data and inactive export profiles", () => {
+    const db = seededDb();
+    const smtp = profile(db);
+    const reviewed = reviewOutboundMessage(db, draft(db).id, 1, "Reviewer");
+    expect(() =>
+      buildEml(reviewed, {
+        fromEmail: "books@example.com",
+        fromName: "Accounts\r\nBcc: thief@example.com",
+        replyTo: null,
+      }),
+    ).toThrow();
+    db.prepare("UPDATE smtp_profiles SET active=0 WHERE id=?").run(smtp.id);
+    const folder = mkdtempSync(join(tmpdir(), "total-eml-inactive-"));
+    try {
+      expect(() =>
+        exportMessageEml(
+          db,
+          reviewed.id,
+          join(folder, "statement.eml"),
+          "Reviewer",
+          smtp.id,
+        ),
+      ).toThrow(/inactive/);
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }

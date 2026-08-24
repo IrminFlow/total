@@ -31,6 +31,18 @@ describe("communication boundary schemas", () => {
         fromEmail: "a@example.com",
       }),
     ).toThrow();
+    expect(() =>
+      smtpProfileInputSchema.parse({
+        name: "Office",
+        host: "smtp.example.com",
+        port: 587,
+        security: "starttls",
+        username: "a",
+        password: "b",
+        fromEmail: "a@example.com",
+        fromName: "Accounts\r\nBcc: thief@example.com",
+      }),
+    ).toThrow(/control characters/);
   });
 
   it("bounds the total recipient surface", () => {

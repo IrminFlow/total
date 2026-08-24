@@ -1511,4 +1511,55 @@ describe("migrate", () => {
       ]),
     );
   });
+
+  it("060: stores leased outbound delivery attempts for crash-safe recovery", () => {
+    const db = freshDb();
+    const columns = (
+      db.prepare("PRAGMA table_info(outbound_messages)").all() as {
+        name: string;
+      }[]
+    ).map((row) => row.name);
+    expect(columns).toEqual(
+      expect.arrayContaining([
+        "delivery_attempt_id",
+        "delivery_lease_expires_at",
+      ]),
+    );
+    const indexes = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as {
+        name: string;
+      }[]
+    ).map((row) => row.name);
+    expect(indexes).toContain("idx_outbound_messages_delivery_lease");
+  });
+
+  it("060: upgrades an already-applied communications schema with delivery leases", () => {
+    const db = freshPartialDb(59);
+    const before = (
+      db.prepare("PRAGMA table_info(outbound_messages)").all() as {
+        name: string;
+      }[]
+    ).map((row) => row.name);
+    expect(before).not.toContain("delivery_attempt_id");
+    expect(before).not.toContain("delivery_lease_expires_at");
+    migrate(db);
+    const after = (
+      db.prepare("PRAGMA table_info(outbound_messages)").all() as {
+        name: string;
+      }[]
+    ).map((row) => row.name);
+    expect(after).toEqual(
+      expect.arrayContaining([
+        "delivery_attempt_id",
+        "delivery_lease_expires_at",
+      ]),
+    );
+    expect(
+      (
+        db.prepare("SELECT MAX(id) AS version FROM migrations").get() as {
+          version: number;
+        }
+      ).version,
+    ).toBe(60);
+  });
 });
