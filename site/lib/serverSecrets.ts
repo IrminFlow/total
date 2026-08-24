@@ -20,9 +20,12 @@ export function serverSecretConfigurationError(): string | null {
     const value = process.env[name];
     if (value && value.length < 32) return `${name} must contain at least 32 characters`;
   }
-  const configured = [...privilegedSecretNames, ...providerSecretNames]
-    .map((name) => [name, process.env[name]] as const)
-    .filter((entry): entry is readonly [string, string] => Boolean(entry[1]));
+  const configured = [...privilegedSecretNames, ...providerSecretNames].flatMap(
+    (name) => {
+      const value = process.env[name];
+      return value ? [[name, value] as const] : [];
+    },
+  );
   const values = new Map<string, string>();
   for (const [name, value] of configured) {
     const previous = values.get(value);
