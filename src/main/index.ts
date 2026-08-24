@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, shell } from 'electron'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
@@ -11,6 +11,14 @@ import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
 import { deliverDueWebhooks, runDueAutomations } from './services/integrations'
 import { syncFolderWarning } from '@shared/syncpath'
 import { writeCrashEnvelope } from './services/crashReports'
+
+const isolatedUserDataDir = process.env.TOTAL_ELECTRON_USER_DATA_DIR
+if (isolatedUserDataDir) {
+  if (!isAbsolute(isolatedUserDataDir)) {
+    throw new Error('TOTAL_ELECTRON_USER_DATA_DIR must be an absolute path')
+  }
+  app.setPath('userData', isolatedUserDataDir)
+}
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 
