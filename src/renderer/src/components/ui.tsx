@@ -160,7 +160,7 @@ export function Button({
     default:
       "border border-line bg-panel hover:border-amber/60 text-ink panel-shadow",
     primary:
-      "border border-amberbar bg-amberbar/90 text-[#2b2000] hover:bg-amberbar font-semibold",
+      "border border-amberbar bg-amberbar text-[#2b2000] hover:brightness-95 font-semibold",
     danger: "border border-cr/50 bg-cr/10 text-cr hover:bg-cr/20",
     ghost:
       "border border-transparent text-muted hover:text-ink hover:border-line",

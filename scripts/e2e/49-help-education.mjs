@@ -40,7 +40,18 @@ await scenario("49-help-education", async (h) => {
   // Existing users see a new version once. First installs were marked current above.
   await h.page.evaluate(() => localStorage.setItem("total:release-notes:last-seen", "0.4.9"));
   await h.page.reload();
-  await h.clickText("Demo Traders");
-  await h.page.getByRole("dialog").getByText("A calmer, faster accounting workspace", { exact: true }).waitFor();
+  const releaseHeading = h.page
+    .getByRole("dialog")
+    .getByText("A calmer, faster accounting workspace", { exact: true });
+  // An active company restores asynchronously. Do not mistake the brief company-select
+  // bootstrap frame for a signed-out state and try to open the company a second time.
+  const restored = await releaseHeading.waitFor({ timeout: 20_000 }).then(() => true).catch(() => false);
+  if (!restored) {
+    await h.page.waitForSelector('[data-screen="company-select"]');
+    // Opening a remembered company restores the last screen (Registers here), not
+    // necessarily Gateway, so wait on the release dialog instead of a screen name.
+    await h.clickText("Demo Traders");
+  }
+  await releaseHeading.waitFor();
   await h.shot("04-upgrade-release-notes");
 });

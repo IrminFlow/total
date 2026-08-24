@@ -22,7 +22,7 @@ export function FeatureDiscovery({ screen }: { screen: string }): React.JSX.Elem
     <aside
       data-testid="feature-discovery"
       aria-label="Feature tip"
-      className="fixed right-5 bottom-5 z-30 w-[330px] rounded-lg border border-amber/35 bg-panel p-4 shadow-xl"
+      className="pointer-events-none fixed right-5 bottom-5 z-30 w-[330px] rounded-lg border border-amber/35 bg-panel p-4 shadow-xl"
     >
       <div className="flex items-start gap-3">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-amber/30 bg-amber/10 text-amber-deep">
@@ -37,7 +37,7 @@ export function FeatureDiscovery({ screen }: { screen: string }): React.JSX.Elem
         </div>
         <button
           aria-label="Dismiss feature tip"
-          className="rounded p-1 text-muted hover:bg-panel2 hover:text-ink"
+          className="pointer-events-auto rounded p-1 text-muted hover:bg-panel2 hover:text-ink"
           onClick={() => {
             dismissDiscovery(localStorage, tip.id, false);
             setTip(null);
@@ -48,7 +48,7 @@ export function FeatureDiscovery({ screen }: { screen: string }): React.JSX.Elem
       </div>
       <div className="mt-3 flex items-center justify-end gap-3 border-t border-line pt-2.5">
         <button
-          className="text-[10.5px] text-muted hover:text-ink"
+          className="pointer-events-auto text-[10.5px] text-muted hover:text-ink"
           onClick={() => {
             dismissDiscovery(localStorage, tip.id, true);
             setTip(null);
@@ -57,7 +57,7 @@ export function FeatureDiscovery({ screen }: { screen: string }): React.JSX.Elem
           Never show this tip
         </button>
         <button
-          className="rounded border border-line bg-panel2 px-2.5 py-1 text-[10.5px] font-medium text-ink hover:border-amber/50"
+          className="pointer-events-auto rounded border border-line bg-panel2 px-2.5 py-1 text-[10.5px] font-medium text-ink hover:border-amber/50"
           onClick={() => {
             dismissDiscovery(localStorage, tip.id, false);
             setTip(null);
