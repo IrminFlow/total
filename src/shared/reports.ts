@@ -358,6 +358,38 @@ export interface OutstandingParty {
   warnings?: string[]
 }
 
+/**
+ * One party as the owner thinks of them: the khata page.
+ *
+ * "Who owes me, how much, how long, and can they take more" is the question a small business asks
+ * every day, and answering it meant three screens. This is that one page — built from the same
+ * FIFO allocation the outstandings report uses, so the two can never disagree.
+ */
+export interface KhataParty {
+  ledgerId: number
+  name: string
+  side: 'receivable' | 'payable'
+  /** Balance in the books, positive = they owe us (or we owe them, on the payable side). */
+  balance: number
+  /** Unsettled bill total from the allocator. Differs from `balance` when payments are
+   *  unallocated, which is itself worth seeing. */
+  pending: number
+  billCount: number
+  /** Age of the oldest open bill, in days; 0 when nothing is open. */
+  oldestBillDays: number
+  /** Days past due on the most overdue bill; 0 when nothing is overdue. */
+  worstOverdueDays: number
+  /** Ageing buckets from the allocator: 0-30, 31-60, 61-90, 90+. */
+  buckets: [number, number, number, number]
+  creditLimit: number | null
+  /** Fraction of the limit used, or null when there is no limit. Can exceed 1. */
+  creditUsed: number | null
+  /** Date of the most recent receipt/payment against this party, or null if never. */
+  lastPaymentDate: string | null
+  phone: string | null
+  email: string | null
+}
+
 export interface BankLineRow {
   lineId: number
   voucherId: number

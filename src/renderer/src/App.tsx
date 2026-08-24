@@ -33,6 +33,7 @@ import { PayrollScreen } from './screens/Payroll'
 import { TdsScreen } from './screens/Tds'
 import { CompositionScreen } from './screens/Composition'
 import { FilingsScreen } from './screens/Filings'
+import { KhataScreen } from './screens/Khata'
 import { CostCentresScreen } from './screens/CostCentres'
 import { BudgetsScreen } from './screens/Budgets'
 import { YearEndScreen } from './screens/YearEnd'
@@ -196,6 +197,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'recurring' && <RecurringScreen />}
           {screen.name === 'banking' && <BankingScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}
+          {screen.name === 'khata' && <KhataScreen />}
           {screen.name === 'filings' && <FilingsScreen />}
           {screen.name === 'composition' && <CompositionScreen />}
           {screen.name === 'tds' && <TdsScreen />}

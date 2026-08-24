@@ -6,7 +6,7 @@ import type {
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, ExceptionsReport, GroupTreeNode,
-  DayBookTypeRow, ItemProfitRow, LedgerBalanceRow, PartyShareRow,
+  DayBookTypeRow, ItemProfitRow, KhataParty, LedgerBalanceRow, PartyShareRow,
   LedgerStatement, OutstandingBill, OutstandingParty, ProfitAndLoss, RegisterPeriodRow, StockAgeingRow,
   StockSummaryRow, TrialBalance,
   VoucherListRow
@@ -521,6 +521,8 @@ export const api = {
       call<RegisterPeriodRow[]>('analysis:register', { kind, from, to, groupBy }),
     outstandings: (side: 'receivable' | 'payable', asOn: string, includeBills = true) =>
       call<OutstandingParty[]>('analysis:outstandings', { side, asOn, includeBills }),
+    khata: (side: 'receivable' | 'payable', asOn: string) =>
+      call<KhataParty[]>('analysis:khata', { side, asOn }),
     partyShares: (kind: 'sales' | 'purchase', from: string, to: string) =>
       call<{ rows: PartyShareRow[]; total: number; concentration: Concentration }>('analysis:partyShares', {
         kind,

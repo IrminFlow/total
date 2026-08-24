@@ -58,6 +58,7 @@ export type Screen =
   | { name: 'recurring' }
   | { name: 'banking' }
   | { name: 'payroll' }
+  | { name: 'khata' }
   | { name: 'filings' }
   | { name: 'composition' }
   | { name: 'tds' }

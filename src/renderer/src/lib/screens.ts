@@ -284,6 +284,17 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['edocList', 'nicStatus', 'nicCreds']
   },
   {
+    name: 'khata',
+    title: 'Khata',
+    screen: { name: 'khata' },
+    navSection: 'analysis',
+    navLabel: 'Khata',
+    // 'K' was the TDS badge; TDS moves to 'J', which is free and equally arbitrary for a badge.
+    accel: 'K',
+    keywords: ['khata', 'credit book', 'who owes me', 'party balance', 'credit limit', 'overdue'],
+    invalidates: ['khata']
+  },
+  {
     name: 'filings',
     title: 'Filing register',
     screen: { name: 'filings' },
@@ -310,7 +321,9 @@ export const SCREENS: ScreenDef[] = [
     title: 'TDS',
     screen: { name: 'tds' },
     navSection: 'gst',
-    accel: 'K',
+    // A badge, not a highlight: every letter of "TDS" is taken. K went to Khata, where it is the
+    // word's own initial; J is equally arbitrary as a badge and was free.
+    accel: 'J',
     feature: 'tds',
     invalidates: ['tdsSummary', 'tdsSections']
   },

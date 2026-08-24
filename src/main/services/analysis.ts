@@ -1,5 +1,5 @@
 import type { DB } from '../db/connection'
-import type { OutstandingBill, OutstandingParty, PartyShareRow, RegisterPeriodRow } from '@shared/reports'
+import type { KhataParty, OutstandingBill, OutstandingParty, PartyShareRow, RegisterPeriodRow } from '@shared/reports'
 import { concentration, type Concentration } from '@shared/concentration'
 import { allocateBills, type BillEvent, type BillRef } from '@shared/outstanding'
 import { fyOf } from '@shared/dates'
@@ -251,4 +251,89 @@ export function partyShares(
   })
 
   return { rows: out, total, concentration: concentration(ranked.map((r) => r.amount)) }
+}
+
+/**
+ * The khata: every party on one page.
+ *
+ * "Who owes me, how much, how long, and can they take more" is the question a small business asks
+ * every day, and answering it meant the Outstandings screen for the amount, the ledger statement
+ * for the balance, and the party master for the credit limit.
+ *
+ * Built on the same `outstandings` allocation rather than a parallel query, so the khata and the
+ * ageing report can never disagree about what is open. Balance is read separately, because it and
+ * the allocated pending total are genuinely different numbers: an unallocated receipt lowers the
+ * balance without closing a bill, and seeing the two differ is the point rather than a bug.
+ */
+export function khata(db: DB, side: 'receivable' | 'payable', asOn: string): KhataParty[] {
+  const parties = outstandings(db, side, asOn, { includeBills: true })
+  if (parties.length === 0) return []
+
+  const ids = parties.map((p) => p.ledgerId)
+  const placeholders = ids.map(() => '?').join(',')
+
+  const limits = new Map(
+    (
+      db
+        .prepare(`SELECT id, credit_limit AS creditLimit FROM ledgers WHERE id IN (${placeholders})`)
+        .all(...ids) as { id: number; creditLimit: number | null }[]
+    ).map((r) => [r.id, r.creditLimit])
+  )
+
+  // Signed dr-positive balance per party, opening included.
+  const balances = new Map(
+    (
+      db
+        .prepare(
+          `SELECT l.id,
+                  l.opening_balance + COALESCE((
+                    SELECT SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END)
+                    FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+                    WHERE vl.ledger_id = l.id AND v.date <= ? AND ${IN_BOOKS}
+                  ), 0) AS balance
+           FROM ledgers l WHERE l.id IN (${placeholders})`
+        )
+        .all(asOn, ...ids) as { id: number; balance: number }[]
+    ).map((r) => [r.id, r.balance])
+  )
+
+  // The last time money actually moved with this party. A receipt on the receivable side, a
+  // payment on the payable side — the voucher kinds that settle rather than create a bill.
+  const settleKind = side === 'receivable' ? 'receipt' : 'payment'
+  const lastPayments = new Map(
+    (
+      db
+        .prepare(
+          `SELECT v.party_ledger_id AS ledgerId, MAX(v.date) AS date
+           FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+           WHERE vt.kind = ? AND v.date <= ? AND ${IN_BOOKS} AND v.party_ledger_id IN (${placeholders})
+           GROUP BY v.party_ledger_id`
+        )
+        .all(settleKind, asOn, ...ids) as { ledgerId: number; date: string }[]
+    ).map((r) => [r.ledgerId, r.date])
+  )
+
+  return parties.map((p) => {
+    const creditLimit = limits.get(p.ledgerId) ?? null
+    // Signed dr-positive; a payable party's balance is naturally negative, so flip it so both
+    // sides read as "what is owed" rather than making the caller remember which way round it is.
+    const raw = balances.get(p.ledgerId) ?? 0
+    const balance = side === 'receivable' ? raw : -raw
+    return {
+      ledgerId: p.ledgerId,
+      name: p.name,
+      side,
+      balance,
+      pending: p.pending,
+      billCount: p.billCount,
+      oldestBillDays: p.bills.reduce((max, b) => Math.max(max, b.ageDays), 0),
+      worstOverdueDays: p.bills.reduce((max, b) => Math.max(max, b.overdueDays), 0),
+      buckets: p.buckets,
+      creditLimit,
+      creditUsed: creditLimit && creditLimit > 0 ? balance / creditLimit : null,
+      lastPaymentDate: lastPayments.get(p.ledgerId) ?? null,
+      phone: p.phone,
+      email: p.email
+    }
+  })
 }

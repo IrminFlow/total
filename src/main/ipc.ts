@@ -895,6 +895,13 @@ export function registerIpc(): void {
   }, 'viewer')
 
   // ---------- analysis ----------
+  handle('analysis:khata', (p) => {
+    const { side, asOn } = z
+      .object({ side: z.enum(['receivable', 'payable']), asOn: isoDate })
+      .parse(p)
+    return analysis.khata(requireCompany().db, side, asOn)
+  }, 'viewer')
+
   handle('analysis:partyShares', (p) => {
     const { kind, from, to } = periodSchema
       .extend({ kind: z.enum(['sales', 'purchase']) })

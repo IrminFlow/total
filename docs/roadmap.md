@@ -187,7 +187,7 @@ Ordering within a section is roughly by value.
 
 ## G. Receivables, payables and khata
 
-149. A party-centric khata screen: running balance, credit limit, days overdue (M)
+149. ✓ A party-centric khata screen: running balance, credit limit, days overdue (M)
 150. ✓ WhatsApp payment reminders via `wa.me` (S)
 151. Reminder letters with configurable ageing bands (M)
 152. Promised-payment date per bill with a follow-up list (M)
