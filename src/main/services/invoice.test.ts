@@ -4,6 +4,7 @@ import {
   hsnSummaryForInvoice,
   INVOICE_ITEMS_PER_PAGE,
   SAMPLE_INVOICE,
+  upiPaymentUri,
 } from "./invoice";
 import { DEFAULT_INVOICE_CONFIG } from "@shared/invoiceConfig";
 import type { CompanyInfo } from "@shared/domain";
@@ -72,6 +73,22 @@ describe("buildInvoiceHtml (pure — invoice print config rendering)", () => {
       SAMPLE_INVOICE,
     );
     expect(withoutBank).not.toContain("Bank details");
+  });
+
+  it("renders an amount-bound UPI payment QR separately from the verification QR", () => {
+    const details = { vpa: "accounts@totalbank", payeeName: "Total Traders" };
+    const uri = upiPaymentUri(details, SAMPLE_INVOICE);
+    expect(uri).toContain("pa=accounts%40totalbank");
+    expect(uri).toContain("am=11800.00");
+    expect(uri).toContain("tn=Invoice%20SAMPLE-1");
+    const html = buildInvoiceHtml(COMPANY, {
+      ...DEFAULT_INVOICE_CONFIG,
+      upiDetails: details,
+      paymentInstructions: "Send the UTR after payment.",
+    }, SAMPLE_INVOICE);
+    expect(html).toContain("Pay by UPI");
+    expect(html).toContain("UPI payment QR");
+    expect(html).toContain("Send the UTR after payment.");
   });
 
   it("renders a terms block only when terms is non-empty", () => {

@@ -79,6 +79,22 @@ function qrSvg(text: string, sizeMm = 28): string {
   return `<div style="width:${sizeMm}mm;height:${sizeMm}mm">${inner}</div>`;
 }
 
+export function upiPaymentUri(
+  details: NonNullable<InvoiceConfig["upiDetails"]>,
+  invoice: Pick<EdocInvoice, "number" | "total">,
+): string {
+  const rupees = Math.floor(invoice.total / 100);
+  const paise = String(invoice.total % 100).padStart(2, "0");
+  const values = [
+    ["pa", details.vpa],
+    ["pn", details.payeeName],
+    ["am", `${rupees}.${paise}`],
+    ["cu", "INR"],
+    ["tn", `Invoice ${invoice.number}`],
+  ];
+  return `upi://pay?${values.map(([key, value]) => `${key}=${encodeURIComponent(value!)}`).join("&")}`;
+}
+
 /** One aggregated row of the invoice's HSN-wise tax summary (task Q2 #96). */
 export interface HsnSummaryRow {
   /** '' for lines whose stock item has no HSN — rendered as '—', never silently dropped. */
@@ -308,6 +324,17 @@ export function buildInvoiceHtml(
        <div style="font-size:10.5px">${esc(config.bankDetails.name)}<br/>${esc(labels.account)} ${esc(config.bankDetails.account)} | IFSC ${esc(config.bankDetails.ifsc)}<br/>${esc(config.bankDetails.branch)}</div>`
     : "";
 
+  const upiBlock = config.upiDetails
+    ? `<div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+         <div role="img" aria-label="UPI payment QR">${qrSvg(upiPaymentUri(config.upiDetails, inv), 24)}</div>
+         <div><div class="lbl">Pay by UPI</div><div class="num">${esc(config.upiDetails.vpa)}</div><div style="font-size:9px;color:#555">Amount ₹ ${money(inv.total)} · Ref ${esc(inv.number)}</div></div>
+       </div>`
+    : "";
+
+  const paymentInstructionsBlock = config.paymentInstructions.trim()
+    ? `<div style="margin-top:10px" class="lbl">Payment instructions</div><div style="font-size:10.5px">${esc(config.paymentInstructions).replace(/\n/g, "<br/>")}</div>`
+    : "";
+
   const termsBlock = config.terms.trim()
     ? `<div style="margin-top:10px" class="lbl">${esc(labels.terms)}</div><div style="font-size:10.5px">${esc(config.terms).replace(/\n/g, "<br/>")}</div>`
     : "";
@@ -371,7 +398,7 @@ export function buildInvoiceHtml(
           <div><i>${esc(amountInWords(inv.total))}</i></div>
           <div style="margin-top:10px" class="lbl">${esc(labels.declaration)}</div>
           <div style="font-size:10.5px">${esc(config.declaration)}</div>
-          ${bankBlock}
+          ${bankBlock}${upiBlock}${paymentInstructionsBlock}
           ${termsBlock}
         </div>
         <table class="tot" aria-label="${esc(labels.total)}">

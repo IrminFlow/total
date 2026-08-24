@@ -279,6 +279,50 @@ export function InvoiceConfigSection(): React.JSX.Element {
               )}
             </fieldset>
 
+            <fieldset className="rounded-md border border-line p-3">
+              <label className="flex items-center gap-2 text-[12.5px] font-medium">
+                <input
+                  type="checkbox"
+                  checked={!!value.upiDetails}
+                  disabled={!canEdit}
+                  onChange={(event) => set({
+                    upiDetails: event.target.checked ? { vpa: "", payeeName: "" } : null,
+                  })}
+                />
+                Add invoice-specific UPI payment QR
+              </label>
+              {value.upiDetails && (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <Field label="UPI ID" hint="Example: accounts@bank">
+                    <TextInput
+                      value={value.upiDetails.vpa}
+                      onChange={(event) => set({ upiDetails: { ...value.upiDetails!, vpa: event.target.value } })}
+                      disabled={!canEdit}
+                      className="num"
+                    />
+                  </Field>
+                  <Field label="Payee name">
+                    <TextInput
+                      value={value.upiDetails.payeeName}
+                      onChange={(event) => set({ upiDetails: { ...value.upiDetails!, payeeName: event.target.value } })}
+                      disabled={!canEdit}
+                    />
+                  </Field>
+                </div>
+              )}
+              <div className="mt-3">
+                <Field label="Payment instructions" hint="Optional bank, remittance or contact instructions printed below totals">
+                  <textarea
+                    value={value.paymentInstructions}
+                    onChange={(event) => set({ paymentInstructions: event.target.value })}
+                    disabled={!canEdit}
+                    rows={2}
+                    className="w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[12.5px] disabled:opacity-60"
+                  />
+                </Field>
+              </div>
+            </fieldset>
+
             <div className="flex gap-5">
               <label className="flex items-center gap-2 text-[12.5px]">
                 <input

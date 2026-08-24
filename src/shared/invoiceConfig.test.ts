@@ -22,6 +22,8 @@ describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
       logoDataUrl: 'data:image/png;base64,aGVsbG8=',
       declaration: 'Custom declaration text',
       bankDetails: { name: 'Total Bank', account: '1234567890', ifsc: 'TOTL0000001', branch: 'Main' },
+      upiDetails: { vpa: 'accounts@totalbank', payeeName: 'Total Traders' },
+      paymentInstructions: 'Quote the invoice number with every payment.',
       signatory: 'Director',
       terms: 'Payment due in 30 days',
       showHsn: false,
@@ -63,6 +65,13 @@ describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
 
   it('rejects an empty copyLabels array (at least one page must print)', () => {
     expect(() => invoiceConfigSchema.parse({ ...DEFAULT_INVOICE_CONFIG, copyLabels: [] })).toThrow()
+  })
+
+  it('rejects malformed UPI IDs before they can reach a printed payment QR', () => {
+    expect(() => invoiceConfigSchema.parse({
+      ...DEFAULT_INVOICE_CONFIG,
+      upiDetails: { vpa: 'not-a-vpa', payeeName: 'Total Traders' }
+    })).toThrow(/UPI ID/)
   })
 
   it('rejects more than 3 copy labels', () => {

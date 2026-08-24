@@ -11,6 +11,11 @@ export interface InvoiceBankDetails {
   branch: string;
 }
 
+export interface InvoiceUpiDetails {
+  vpa: string;
+  payeeName: string;
+}
+
 export type InvoiceLabelLanguage = "en" | "hi" | "mr" | "gu" | "ta";
 
 export interface InvoiceConfig {
@@ -19,6 +24,9 @@ export interface InvoiceConfig {
   logoDataUrl: string | null;
   declaration: string;
   bankDetails: InvoiceBankDetails | null;
+  /** Optional customer-payment QR. This is separate from the invoice verification/IRN QR. */
+  upiDetails: InvoiceUpiDetails | null;
+  paymentInstructions: string;
   signatory: string;
   terms: string;
   showHsn: boolean;
@@ -43,6 +51,8 @@ export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
   declaration:
     "We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.",
   bankDetails: null,
+  upiDetails: null,
+  paymentInstructions: "",
   signatory: "Authorised Signatory",
   terms: "",
   showHsn: true,
@@ -64,6 +74,11 @@ const bankDetailsSchema = z.object({
   branch: z.string().trim().max(120),
 });
 
+const upiDetailsSchema = z.object({
+  vpa: z.string().trim().min(5).max(255).regex(/^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+$/, "Enter a valid UPI ID"),
+  payeeName: z.string().trim().min(2).max(80),
+});
+
 export const invoiceConfigSchema = z.object({
   title: z.string().trim().min(1).max(80),
   logoDataUrl: z
@@ -76,6 +91,8 @@ export const invoiceConfigSchema = z.object({
     .nullable(),
   declaration: z.string().trim().max(1000),
   bankDetails: bankDetailsSchema.nullable(),
+  upiDetails: upiDetailsSchema.nullable().default(null),
+  paymentInstructions: z.string().trim().max(1000).default(""),
   signatory: z.string().trim().max(80),
   terms: z.string().trim().max(2000),
   showHsn: z.boolean(),
