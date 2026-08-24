@@ -12,6 +12,7 @@ import type { PermissionAction } from "./services/permissions";
 export const EXPLICIT_PERMISSION_ACTIONS = {
   "voucher:batchTag": "edit",
   "voucher:batchReview": "edit",
+  "voucher:batchReverse": "edit",
   "bank:setBankDate": "edit",
   "bank:chequeStatus": "edit",
   "agent:approveProposal": "approve",

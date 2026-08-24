@@ -8,6 +8,10 @@ describe("IPC permission contracts", () => {
   it.each([
     ["voucher:batchTag", { ids: [1, 2], tag: "review" }],
     ["voucher:batchReview", { ids: [1, 2] }],
+    [
+      "voucher:batchReverse",
+      { ids: [1, 2], date: "2026-08-24", reason: "Correction" },
+    ],
     ["bank:setBankDate", { lineId: 12, bankDate: "2026-08-24" }],
     [
       "bank:chequeStatus",
@@ -36,6 +40,7 @@ describe("IPC permission contracts", () => {
     expect(EXPLICIT_PERMISSION_ACTIONS).toEqual({
       "voucher:batchTag": "edit",
       "voucher:batchReview": "edit",
+      "voucher:batchReverse": "edit",
       "bank:setBankDate": "edit",
       "bank:chequeStatus": "edit",
       "agent:approveProposal": "approve",

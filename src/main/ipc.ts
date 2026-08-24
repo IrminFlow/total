@@ -168,6 +168,7 @@ import * as discountAuthorityService from "./services/discountAuthority";
 import * as voucherPostingControls from "./services/voucherPostingControls";
 import * as customerOperations from "./services/customerOperations";
 import * as internalControls from "./services/internalControls";
+import * as departmentScope from "./services/departmentScope";
 import * as procurementService from "./services/procurement";
 import * as vendorService from "./services/vendors";
 import { normalizeBankStatement } from "./services/bankStatementFormats";
@@ -319,6 +320,17 @@ const UNGATED_CHANNELS = new Set([
   "support:submit",
 ]);
 
+function companyWideSurfaceLabel(channel: string): string | null {
+  if (channel.startsWith("report:")) return "Reports";
+  if (channel.startsWith("analysis:")) return "Analysis reports";
+  if (channel === "search:global") return "Global search";
+  if (channel === "consol:run") return "Consolidated reports";
+  if (channel === "pdc:list") return "The post-dated cheque register";
+  if (channel === "voucher:smartDefaults") return "Company-wide smart defaults";
+  if (channel === "voucher:creditExposure") return "Company-wide credit exposure";
+  return null;
+}
+
 function exportFormatFor(channel: string): ExportFormat {
   if (channel === "agent:exportMirror") return "json_mirror";
   if (channel === "export:caPack" || channel === "export:tallyXml")
@@ -406,6 +418,13 @@ function handle(
           );
         }
         enforceDepartmentBoundaries(current.db, sessionUser.role, payload);
+        const companyWideSurface = companyWideSurfaceLabel(channel);
+        if (companyWideSurface)
+          departmentScope.assertCompanyWideSurfaceAllowed(
+            current.db,
+            sessionUser.role,
+            companyWideSurface,
+          );
         if (sessionToken)
           internalControls.touchSession(current.db, sessionToken);
       }
@@ -1657,7 +1676,14 @@ export function registerIpc(): void {
   );
   handle("pdc:list", () => vouchers.pdcRegister(requireCompany().db), "viewer");
   handle("pdc:mature", (p) => {
-    vouchers.maturePdcNow(requireCompany().db, idSchema.parse(p).id);
+    const c = requireCompany();
+    const id = idSchema.parse(p).id;
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      id,
+    );
+    vouchers.maturePdcNow(c.db, id);
     return null;
   });
 
@@ -1675,18 +1701,27 @@ export function registerIpc(): void {
       const { from, to, voucherTypeId } = periodSchema
         .extend({ voucherTypeId: z.number().int().positive().optional() })
         .parse(p);
-      return vouchers.listVouchers(
-        requireCompany().db,
-        from,
-        to,
-        voucherTypeId,
+      const c = requireCompany();
+      return departmentScope.filterVoucherRowsByDepartmentScope(
+        c.db,
+        sessionUser?.role ?? "owner",
+        vouchers.listVouchers(c.db, from, to, voucherTypeId),
       );
     },
     "viewer",
   );
   handle(
     "voucher:get",
-    (p) => vouchers.getVoucher(requireCompany().db, idSchema.parse(p).id),
+    (p) => {
+      const c = requireCompany();
+      const id = idSchema.parse(p).id;
+      departmentScope.assertVoucherDepartmentScope(
+        c.db,
+        sessionUser?.role ?? "owner",
+        id,
+      );
+      return vouchers.getVoucher(c.db, id);
+    },
     "viewer",
   );
   handle("voucher:save", (p) => {
@@ -1716,6 +1751,10 @@ export function registerIpc(): void {
       })
       .parse(p);
     const c = requireCompany();
+    const role = sessionUser?.role ?? "owner";
+    if (id)
+      departmentScope.assertVoucherDepartmentScope(c.db, role, id);
+    departmentScope.assertVoucherInputDepartmentScope(c.db, role, data);
     voucherPostingControls.assertVoucherDiscountAuthority(
       c.db,
       data,
@@ -1789,9 +1828,16 @@ export function registerIpc(): void {
       agentBridge.scheduleMirrorRefresh(c.db, c.slug);
     return result;
   });
-  handle("voucher:delete", (p) =>
-    vouchers.deleteVoucher(requireCompany().db, idSchema.parse(p).id),
-  );
+  handle("voucher:delete", (p) => {
+    const c = requireCompany();
+    const id = idSchema.parse(p).id;
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      id,
+    );
+    return vouchers.deleteVoucher(c.db, id);
+  });
   const voucherIdsSchema = z.array(z.number().int().positive()).min(1).max(500);
   handle("voucher:batchTag", (p) => {
     const { ids, tag } = z
@@ -1800,8 +1846,14 @@ export function registerIpc(): void {
         tag: z.string().trim().min(1).max(30),
       })
       .parse(p);
+    const c = requireCompany();
+    departmentScope.assertVoucherIdsDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      ids,
+    );
     voucherWorkflow.tagVouchers(
-      requireCompany().db,
+      c.db,
       ids,
       tag,
       sessionUser?.name ?? "Local user",
@@ -1810,8 +1862,14 @@ export function registerIpc(): void {
   });
   handle("voucher:batchReview", (p) => {
     const { ids } = z.object({ ids: voucherIdsSchema }).parse(p);
+    const c = requireCompany();
+    departmentScope.assertVoucherIdsDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      ids,
+    );
     voucherWorkflow.reviewVouchers(
-      requireCompany().db,
+      c.db,
       ids,
       sessionUser?.name ?? "Local user",
     );
@@ -1819,11 +1877,16 @@ export function registerIpc(): void {
   });
   handle(
     "voucher:comments",
-    (p) =>
-      voucherWorkflow.listVoucherComments(
-        requireCompany().db,
-        idSchema.parse(p).id,
-      ),
+    (p) => {
+      const c = requireCompany();
+      const id = idSchema.parse(p).id;
+      departmentScope.assertVoucherDepartmentScope(
+        c.db,
+        sessionUser?.role ?? "owner",
+        id,
+      );
+      return voucherWorkflow.listVoucherComments(c.db, id);
+    },
     "viewer",
   );
   handle("voucher:commentAdd", (p) => {
@@ -1833,8 +1896,14 @@ export function registerIpc(): void {
         body: z.string().trim().min(1).max(2000),
       })
       .parse(p);
+    const c = requireCompany();
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      id,
+    );
     return voucherWorkflow.addVoucherComment(
-      requireCompany().db,
+      c.db,
       id,
       body,
       sessionUser?.name ?? "Local user",
@@ -1852,11 +1921,26 @@ export function registerIpc(): void {
   handle("voucher:clipboardLines", () => ({ text: clipboard.readText().slice(0, 256 * 1024) }), "accountant");
   handle(
     "voucher:attachments",
-    (p) => voucherAccelerators.listAttachments(requireCompany().db, idSchema.parse(p).id),
+    (p) => {
+      const c = requireCompany();
+      const id = idSchema.parse(p).id;
+      departmentScope.assertVoucherDepartmentScope(
+        c.db,
+        sessionUser?.role ?? "owner",
+        id,
+      );
+      return voucherAccelerators.listAttachments(c.db, id);
+    },
     "viewer",
   );
   handle("voucher:attachmentAdd", async (p) => {
     const { id, kind } = z.object({ id: z.number().int().positive(), kind: z.enum(["invoice", "receipt", "email", "delivery", "other"]) }).parse(p);
+    const c = requireCompany();
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      id,
+    );
     const picked = await dialog.showOpenDialog({
       title: "Attach voucher evidence",
       properties: ["openFile", "multiSelections"],
@@ -1864,7 +1948,6 @@ export function registerIpc(): void {
     });
     if (picked.canceled) return [];
     if (picked.filePaths.length > 20) throw new Error("Attach at most 20 files at a time");
-    const c = requireCompany();
     const attachmentDir = join(companyDir(c.slug), "attachments", "vouchers", String(id));
     mkdirSync(attachmentDir, { recursive: true });
     return picked.filePaths.map((sourcePath) => {
@@ -1878,8 +1961,13 @@ export function registerIpc(): void {
   handle("voucher:attachmentOpen", async (p) => {
     const { id } = z.object({ id: z.number().int().positive() }).parse(p);
     const c = requireCompany();
-    const attachment = c.db.prepare("SELECT stored_path AS storedPath,original_name AS originalName FROM voucher_attachments WHERE id=?").get(id) as { storedPath: string; originalName: string } | undefined;
+    const attachment = c.db.prepare("SELECT voucher_id AS voucherId,stored_path AS storedPath,original_name AS originalName FROM voucher_attachments WHERE id=?").get(id) as { voucherId: number; storedPath: string; originalName: string } | undefined;
     if (!attachment) throw new Error("Attachment was not found");
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      attachment.voucherId,
+    );
     let openPath = attachment.storedPath;
     let temporaryPreview: ReturnType<typeof createBoundedTemporaryDirectory> | null = null;
     if (openPath.endsWith(".totalatt")) {
@@ -2799,6 +2887,11 @@ export function registerIpc(): void {
       })
       .parse(p);
     const c = requireCompany();
+    departmentScope.assertVoucherIdsDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      ids,
+    );
     const reversed = voucherWorkflow.reverseVouchers(
       c.db,
       ids,
@@ -2810,10 +2903,28 @@ export function registerIpc(): void {
       agentBridge.scheduleMirrorRefresh(c.db, c.slug);
     return reversed;
   });
-  handle("voucher:bin", () => vouchers.listBin(requireCompany().db), "viewer");
-  handle("voucher:restore", (p) =>
-    vouchers.restoreVoucher(requireCompany().db, idSchema.parse(p).id),
+  handle(
+    "voucher:bin",
+    () => {
+      const c = requireCompany();
+      return departmentScope.filterVoucherRowsByDepartmentScope(
+        c.db,
+        sessionUser?.role ?? "owner",
+        vouchers.listBin(c.db),
+      );
+    },
+    "viewer",
   );
+  handle("voucher:restore", (p) => {
+    const c = requireCompany();
+    const id = idSchema.parse(p).id;
+    departmentScope.assertVoucherDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      id,
+    );
+    return vouchers.restoreVoucher(c.db, id);
+  });
   handle(
     "voucher:purge",
     (p) => {
@@ -2861,11 +2972,22 @@ export function registerIpc(): void {
         excludeId: z.number().int().positive().optional(),
       })
       .parse(p);
-    return vouchers.findDuplicates(requireCompany().db, data, excludeId);
+    const c = requireCompany();
+    const role = sessionUser?.role ?? "owner";
+    departmentScope.assertVoucherInputDepartmentScope(c.db, role, data);
+    if (excludeId)
+      departmentScope.assertVoucherDepartmentScope(c.db, role, excludeId);
+    return vouchers.findDuplicates(c.db, data, excludeId);
   });
   handle("voucher:suspicious", (p) => {
     const data = voucherInputSchema.parse(p);
-    return vouchers.findSuspiciousEntry(requireCompany().db, data);
+    const c = requireCompany();
+    departmentScope.assertVoucherInputDepartmentScope(
+      c.db,
+      sessionUser?.role ?? "owner",
+      data,
+    );
+    return vouchers.findSuspiciousEntry(c.db, data);
   });
 
   // ---------- maker-checker ----------
