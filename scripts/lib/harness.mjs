@@ -162,8 +162,11 @@ export class Harness {
   /** Click the first button/row whose text matches (exact button text preferred). */
   async clickText(text) {
     const result = await this.page.evaluate((t) => {
+      const semantic = [...document.querySelectorAll('button, a, [role="button"]')]
       const clickables = [...document.querySelectorAll('button, a, [role="button"], .kbar-row, [class*="cursor-pointer"]')]
       const el =
+        semantic.find((e) => e.textContent?.trim() === t) ??
+        semantic.find((e) => e.textContent?.includes(t)) ??
         clickables.find((e) => e.textContent?.trim() === t) ??
         clickables.find((e) => e.textContent?.includes(t))
       if (!el) return false
