@@ -3039,7 +3039,7 @@ export const api = {
       call<{ enabled: boolean }>("agent:setConfig", { enabled }),
     listProposals: () => call<AgentProposal[]>("agent:listProposals"),
     approveProposal: (file: string) =>
-      call<Voucher>("agent:approveProposal", { file }),
+      call<VoucherSaveResult>("agent:approveProposal", { file }),
     discardProposal: (file: string) =>
       call<null>("agent:discardProposal", { file }),
   },

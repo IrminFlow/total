@@ -113,7 +113,14 @@ export function AgentBridgeSection(): React.JSX.Element {
     try {
       const saved = await api.agent.approveProposal(file);
       await qc.invalidateQueries();
-      toast.push("success", `Approved and posted voucher ${saved.number}`);
+      if (saved.approvalRequired) {
+        toast.push(
+          "success",
+          `Proposal reviewed · approval request #${saved.request.id} is waiting for a checker`,
+        );
+      } else {
+        toast.push("success", `Approved and posted voucher ${saved.number}`);
+      }
     } catch (error) {
       toast.push(
         "error",
