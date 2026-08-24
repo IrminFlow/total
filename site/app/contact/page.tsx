@@ -1,5 +1,9 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
+import SiteFooter from '@/components/SiteFooter'
 import SiteNav from '@/components/SiteNav'
+
+import { WHATSAPP_DISPLAY, WHATSAPP_NUMBER, hasWhatsApp } from '@/lib/product'
 
 export const metadata: Metadata = {
   title: 'Contact — Total',
@@ -13,8 +17,6 @@ export const metadata: Metadata = {
  * address in a footer reads as a formality; a number someone answers reads as a company. That it
  * costs support time is the point — it is the cheapest sales channel available here.
  */
-const WHATSAPP_NUMBER = '919822000000'
-const WHATSAPP_DISPLAY = '+91 98220 00000'
 
 export default function ContactPage(): React.JSX.Element {
   return (
@@ -29,19 +31,21 @@ export default function ContactPage(): React.JSX.Element {
           </p>
 
           <div className="two">
-            <div>
-              <h3>WhatsApp</h3>
-              <p>
-                Fastest, and usually within the working day.{' '}
-                <a href={`https://wa.me/${WHATSAPP_NUMBER}`} className="mono-inline">
-                  {WHATSAPP_DISPLAY}
-                </a>
-              </p>
-              <p>
-                Bring your question and, if it is about your own books, a screenshot. We will never ask
-                you to send us your data.
-              </p>
-            </div>
+            {hasWhatsApp && (
+              <div>
+                <h3>WhatsApp</h3>
+                <p>
+                  Fastest, and usually within the working day.{' '}
+                  <a href={`https://wa.me/${WHATSAPP_NUMBER}`} className="mono-inline">
+                    {WHATSAPP_DISPLAY}
+                  </a>
+                </p>
+                <p>
+                  Bring your question and, if it is about your own books, a screenshot. We will never ask
+                  you to send us your data.
+                </p>
+              </div>
+            )}
             <div>
               <h3>Email</h3>
               <p>
@@ -59,14 +63,20 @@ export default function ContactPage(): React.JSX.Element {
         </section>
 
         <section className="folio">
-          <h2 className="serif">Chartered accountants</h2>
+          <h2 className="serif">Chartered accountants and resellers</h2>
           <p className="sub">
             Total is free for practising accountants, with unlimited client companies. Write with your
-            membership number and we will send a licence.
+            membership number and a licence comes back.
+          </p>
+          <p className="prose">
+            <Link href="/ca">The CA edition</Link> sets out what it carries and how referral codes work.{' '}
+            <Link href="/partners">The partner page</Link> is for firms that install and support accounting
+            software for a living, and it includes the list of things not to say on our behalf.
           </p>
           <div className="folio-close" aria-hidden="true" />
         </section>
       </div>
+      <SiteFooter />
     </>
   )
 }

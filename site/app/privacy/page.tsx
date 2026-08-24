@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import SiteFooter from '@/components/SiteFooter'
 import SiteNav from '@/components/SiteNav'
 
 export const metadata: Metadata = {
@@ -128,6 +129,7 @@ export default function PrivacyPage(): React.JSX.Element {
           <div className="folio-close" aria-hidden="true" />
         </section>
       </div>
+      <SiteFooter />
     </>
   )
 }

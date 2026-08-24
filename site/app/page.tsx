@@ -1,5 +1,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
+import SiteFooter from '@/components/SiteFooter'
+import Testimonials from '@/components/Testimonials'
 import { latestRelease } from '@/lib/release'
 import gatewayLight from '@/public/gateway-light.jpg'
 import voucherDark from '@/public/voucher-dark.jpg'
@@ -34,7 +36,6 @@ const VOUCHER = [
 
 export default async function Home(): Promise<React.JSX.Element> {
   const release = await latestRelease()
-  const versionNote = release ? `v${release.version} · Apple Silicon` : 'Free beta · Apple Silicon'
 
   return (
     <>
@@ -46,17 +47,14 @@ export default async function Home(): Promise<React.JSX.Element> {
             <Link href="/docs">Docs</Link>
             <Link href="/pricing">Pricing</Link>
             <Link href="/compare">Compare</Link>
-            <Link href="/changelog">Changelog</Link>
-          </span>
-          <span className="cta-mini">
-            <a className="btn small" href="/api/download">
-              Download
-            </a>
+            <Link href="/roadmap">Roadmap</Link>
           </span>
         </div>
 
+        {/* Three things and no more: the claim, the sentence under it, and the way in. The
+            version note, the eyebrow and the nav's own Download button all used to live here and
+            all three were reading room the claim needed. */}
         <div className="hero">
-          <p className="eyebrow">Accounting for Indian businesses</p>
           <h1 className="serif">
             Your books. On your desk. <span className="quiet">Nowhere else.</span>
           </h1>
@@ -70,9 +68,15 @@ export default async function Home(): Promise<React.JSX.Element> {
             <a className="btn ghost" href="/api/download?platform=win">
               Windows
             </a>
-            <span className="hero-note">{versionNote}</span>
           </div>
+        </div>
 
+        <section className="folio">
+          <h2 className="serif">It foots, and you never typed the tax</h2>
+          <p className="sub">
+            One real sales invoice. Eighteen percent on ninety thousand, split into CGST and SGST because
+            the parties are in the same state, and the debits equal the credits.
+          </p>
           <div className="voucher" role="img" aria-label="A sales invoice in Total: one debit of 1,06,200.00 against three credits totalling the same, with CGST and SGST computed at 9 percent each.">
             <div className="voucher-head">
               <span className="kind serif">Sales</span>
@@ -95,10 +99,11 @@ export default async function Home(): Promise<React.JSX.Element> {
             </div>
           </div>
           <p className="vfoot">
-            It balances, and the GST is worked out as you type. The amber bar is the cursor:{' '}
-            <kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>↵</kbd> takes you to the next field, <kbd>Esc</kbd> backs out.
+            The amber bar is the cursor: <kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>↵</kbd> takes you to the next
+            field, <kbd>Esc</kbd> backs out.
           </p>
-        </div>
+          <div className="folio-close" aria-hidden="true" />
+        </section>
 
         <section className="folio" id="ledger">
           <h2 className="serif">The ledger of features</h2>
@@ -126,7 +131,7 @@ export default async function Home(): Promise<React.JSX.Element> {
                 <tr className="total">
                   <td className="f">Total</td>
                   <td className="p">no subscription, no per-user seats, no server</td>
-                  <td className="r amt">₹0 / month</td>
+                  <td className="r amt">one licence</td>
                 </tr>
               </tbody>
             </table>
@@ -205,7 +210,8 @@ export default async function Home(): Promise<React.JSX.Element> {
                 sizes="(max-width: 800px) 100vw, 486px"
               />
               <figcaption className="caption">
-                GSTR-1 computed from your books. No separate filing sheet, nothing re-keyed.
+                GSTR-1 computed from your books, exported as the JSON the portal takes.{' '}
+                <Link href="/demo">See it done end to end.</Link>
               </figcaption>
             </figure>
             <figure>
@@ -261,10 +267,13 @@ export default async function Home(): Promise<React.JSX.Element> {
       </div>
 
       <div className="wrap">
+        <Testimonials />
+
         <div className="get" id="get">
           <h2 className="serif">Open your books tonight</h2>
           <p className="sub">
-            macOS and Windows, free while in beta. Create a company and post your first voucher in under a minute.
+            Thirty days of everything, with no account and no card. Create a company and post your first
+            voucher in under a minute.
           </p>
           <div className="hero-ctas" style={{ justifyContent: 'center' }}>
             <a className="btn" href="/api/download?platform=mac">
@@ -275,18 +284,12 @@ export default async function Home(): Promise<React.JSX.Element> {
             </a>
           </div>
           <p className="fine num">
-            {release ? `Total ${release.version} · auto-updates itself` : 'your data never leaves the machine'}
+            {release ? `Total ${release.version}` : 'Your data never leaves the machine'}
           </p>
         </div>
 
-        <footer>
-          <span>Total. Offline accounting for Indian businesses.</span>
-          <span>
-            Questions? <a href="mailto:total@irminflow.com">total@irminflow.com</a>
-          </span>
-          <span>Made for the desk that used to hold the bahi khata.</span>
-        </footer>
       </div>
+      <SiteFooter />
     </>
   )
 }

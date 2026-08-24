@@ -1,6 +1,10 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import ReminderForm from '@/components/ReminderForm'
+import SiteFooter from '@/components/SiteFooter'
 import SiteNav from '@/components/SiteNav'
+import { PLANS } from '@/lib/product'
+import { approximately, inr, rateFor, RATES_REVIEWED, visitorCountry } from '@/lib/pricing'
 
 export const metadata: Metadata = {
   title: 'Pricing — Total',
@@ -8,45 +12,14 @@ export const metadata: Metadata = {
     'Total is a one-time or yearly licence for offline accounting. An expired licence never locks your books.'
 }
 
-const PLANS = [
-  {
-    name: 'Yearly',
-    price: '₹4,999',
-    unit: 'per business, per year',
-    lines: [
-      'Every feature, no per-user seats',
-      'Updates and new versions while it runs',
-      'Unlimited companies on your machine'
-    ]
-  },
-  {
-    name: 'Own it',
-    price: '₹14,999',
-    unit: 'once, yours permanently',
-    featured: true,
-    lines: [
-      'The version you buy keeps working forever',
-      'One year of updates included',
-      'Renew for updates only if you want them'
-    ]
-  },
-  {
-    name: 'Chartered accountants',
-    price: 'Free',
-    unit: 'for practising accountants',
-    lines: [
-      'Unlimited client companies',
-      'Consolidated reports across clients',
-      'Write to us with your membership number'
-    ]
-  }
-]
+export default async function Pricing(): Promise<React.JSX.Element> {
+  const country = await visitorCountry()
+  const rate = rateFor(country)
 
-export default function Pricing(): React.JSX.Element {
   return (
     <>
       <SiteNav />
-      <div className="wrap docs-content pricing" style={{ paddingBottom: 96 }}>
+      <div className="wrap docs-content pricing" style={{ paddingBottom: 40 }}>
         <h1 className="serif">Pricing</h1>
         <p className="sub">
           Software you install, not a subscription to a server. Thirty days free, no account and
@@ -54,18 +27,39 @@ export default function Pricing(): React.JSX.Element {
         </p>
 
         <div className="plans">
-          {PLANS.map((plan) => (
-            <div className={`plan${plan.featured ? ' featured' : ''}`} key={plan.name}>
-              <p className="plan-name">{plan.name}</p>
-              <p className="plan-price num serif">{plan.price}</p>
-              <p className="plan-unit">{plan.unit}</p>
-              <ul>
-                {plan.lines.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          {PLANS.map((plan) => {
+            const local = approximately(plan.paise, rate)
+            return (
+              <div className={`plan${plan.featured ? ' featured' : ''}`} key={plan.id}>
+                <p className="plan-name">{plan.name}</p>
+                <p className="plan-price num serif">{plan.paise > 0 ? inr(plan.paise) : 'Free'}</p>
+                <p className="plan-unit">{plan.unit}</p>
+                {local ? <p className="plan-local num">about {local}</p> : null}
+                <ul>
+                  {plan.lines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })}
+        </div>
+
+        {rate ? (
+          <p className="plan-fx">
+            You appear to be outside India, so a second figure is shown in {rate.code}. It is
+            indicative and it is not what you pay: the charge is in rupees and your card issuer
+            does the conversion at its own rate. Figures reviewed by hand on {RATES_REVIEWED}.
+          </p>
+        ) : null}
+
+        <div className="hero-ctas" style={{ marginTop: 26 }}>
+          <Link className="btn" href="/buy">
+            Buy a licence
+          </Link>
+          <Link className="btn ghost" href="/download">
+            Try it for thirty days
+          </Link>
         </div>
 
         {/* The commitment that matters more than the number. */}
@@ -84,8 +78,9 @@ export default function Pricing(): React.JSX.Element {
         <h2>How buying works</h2>
         <p>
           Total has no accounts and never contacts a server, so a licence is a key rather than a
-          login. You pay, we send a key by email and WhatsApp, and you paste it into{' '}
-          <b>Settings → Licence</b>. It is checked on your machine, offline, forever.
+          login. You pay by UPI, card or net banking, the key arrives by email and on WhatsApp if
+          you leave a number, and you paste it into <b>Settings → Licence</b>. It is checked on
+          your machine, offline, forever.
         </p>
 
         <h2>Common questions</h2>
@@ -106,6 +101,12 @@ export default function Pricing(): React.JSX.Element {
           Yes. Copy <span className="num">~/Documents/total</span> across and paste the same key.
         </p>
 
+        <h3>Are you free for chartered accountants?</h3>
+        <p>
+          Yes, with unlimited client companies, on a membership number.{' '}
+          <Link href="/ca">The CA edition</Link> explains why.
+        </p>
+
         <h3>Is it cheaper than Tally?</h3>
         <p>
           Meaningfully, and you should still check{' '}
@@ -113,19 +114,14 @@ export default function Pricing(): React.JSX.Element {
           would rather you stayed on Tally than bought this and found a gap.
         </p>
 
-        <div className="get" style={{ marginTop: 48 }}>
-          <h2 className="serif">Try it for thirty days</h2>
-          <p className="sub">No account, no card, no email. Download it and open your books.</p>
-          <div className="hero-ctas" style={{ justifyContent: 'center' }}>
-            <a className="btn" href="/api/download?platform=mac">
-              Download for macOS
-            </a>
-            <a className="btn ghost" href="/api/download?platform=win">
-              Download for Windows
-            </a>
-          </div>
-        </div>
+        <h2>A reminder before the trial ends</h2>
+        <p className="muted">
+          Only if you ask for it here. The app makes no network call, so it cannot tell us you
+          installed it, and it will never ask you for an address.
+        </p>
+        <ReminderForm />
       </div>
+      <SiteFooter />
     </>
   )
 }

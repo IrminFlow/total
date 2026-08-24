@@ -411,24 +411,32 @@ Ordering within a section is roughly by value.
 
 301. ✓ Pricing page with the fail-soft promise (S)
 302. ✓ Offline Ed25519 licensing (M)
-303. Payment integration: Razorpay or Cashfree, UPI first (M)
-304. Licence delivery by email and WhatsApp (S)
-305. A CA edition: free, unlimited client companies (M)
-306. CA referral programme with tracked coupons (M)
-307. Named beta users and testimonials on the site (S)
-308. A 90-second screen recording of a real GSTR-1 export (S)
+303. ✓ Payment integration: Razorpay or Cashfree, UPI first (M)
+304. ✓ Licence delivery by email and WhatsApp (S)
+305. ✓ A CA edition: free, unlimited client companies (M)
+306. ✓ CA referral programme with tracked coupons (M)
+307. Named beta users and testimonials on the site (S) — the component and the empty data file
+     are built (`site/lib/testimonials.ts`, renders nothing while empty). Not ticked because the
+     thing itself is a real person's words with their written permission, and there are none yet.
+     Inventing one would be a false statement of fact about a named firm.
+308. A 90-second screen recording of a real GSTR-1 export (S) — `/demo` has the slot and shows an
+     honest placeholder until `NEXT_PUBLIC_DEMO_VIDEO_URL` is set, and the nine-shot script is in
+     `site/content/screencast-shot-list.md`. Not ticked until somebody records it.
 309. ✓ Contact page with a WhatsApp number (S)
-310. SEO pages for the real queries people type (M)
-311. Downloads page with checksums and signing language (S)
-312. In-app feedback form posting to a real endpoint (M)
+310. ✓ SEO pages for the real queries people type (M)
+311. ✓ Downloads page with checksums and signing language (S)
+312. In-app feedback form posting to a real endpoint (M) — the endpoint exists:
+     `site/app/api/feedback/route.ts` stores each message as an issue in the private repo and
+     forwards it by mail, and returns 503 rather than swallowing anything when no sink is
+     configured. The in-app half is the other half of this item.
 313. ✓ Changelog surfaced in-app, not only on the site (S)
 314. ✓ Update notes shown before an update is applied (S)
-315. Referral or word-of-mouth tracking without telemetry (M)
-316. Comparison page kept honest and current (S)
-317. Trial-expiry email capture, opt-in only (S)
-318. Localised pricing display (S)
-319. Partner or reseller documentation (M)
-320. A public roadmap page (S)
+315. ✓ Referral or word-of-mouth tracking without telemetry (M)
+316. ✓ Comparison page kept honest and current (S)
+317. ✓ Trial-expiry email capture, opt-in only (S)
+318. ✓ Localised pricing display (S)
+319. ✓ Partner or reseller documentation (M)
+320. ✓ A public roadmap page (S)
 
 ## Q. Developer experience and testing
 
