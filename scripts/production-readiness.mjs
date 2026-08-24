@@ -58,7 +58,14 @@ const serviceDetail = serviceEvidence
     : "Run the production support and feedback exercise against the current deployment and set PRODUCTION_SERVICE_EVIDENCE to its fresh evidence file.";
 add("support-production", serviceStatus, serviceDetail, "operations");
 add("feedback-production", serviceStatus, serviceDetail, "operations");
-add("private-release-download", hasAll("GITHUB_TOKEN") ? "ready" : "external", "Set a read-only repository GITHUB_TOKEN in Vercel while releases are private.", "operations");
+add(
+  "private-release-download",
+  serviceEvidence?.privateReleaseDeliveryVerified ? "ready" : "external",
+  serviceEvidence?.privateReleaseDeliveryVerified
+    ? "The exact production deployment resolved both private release installers during the executed service check."
+    : "Verify both private release installers through the exact production deployment; configuration presence alone is not evidence.",
+  "operations",
+);
 add("mac-signing", hasAll("MAC_CSC_LINK", "MAC_CSC_KEY_PASSWORD", "APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER") || hasAll("CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER") ? "ready" : "external", "Configure Developer ID signing and App Store Connect notarization secrets in GitHub Actions.", "release-owner");
 add("windows-signing", hasAll("WIN_CSC_LINK", "WIN_CSC_KEY_PASSWORD") ? "ready" : "external", "Configure an Authenticode certificate and password in GitHub Actions.", "release-owner");
 add("release-workflow", text(".github/workflows/release.yml").includes("Create one complete public release") ? "ready" : "blocked", "Cross-platform signed artifacts converge into one non-draft release.");

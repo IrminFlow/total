@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { boundedWaitMs, releaseAssetProbeOk } from "./lib/production-live-probes.mjs";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
@@ -9,6 +10,8 @@ const syntheticEmail = process.env.TOTAL_SYNTHETIC_EMAIL ?? "";
 const intakeEvidence = process.argv.includes("--intake-evidence");
 const expectedSiteRevision = process.env.TOTAL_EXPECTED_SITE_REVISION?.trim() || process.env.GITHUB_SHA?.trim() || "";
 const requireSynthetic = intakeEvidence || process.env.TOTAL_REQUIRE_SYNTHETIC === "1";
+const deploymentWaitMs = boundedWaitMs(process.env.TOTAL_DEPLOYMENT_WAIT_MS, "TOTAL_DEPLOYMENT_WAIT_MS");
+const releaseWaitMs = boundedWaitMs(process.env.TOTAL_RELEASE_WAIT_MS, "TOTAL_RELEASE_WAIT_MS");
 const routes = ["/", "/support", "/feedback", "/pricing", "/privacy", "/terms", "/security", "/capture"];
 const requiredHeaders = ["strict-transport-security", "x-content-type-options", "referrer-policy", "permissions-policy", "x-frame-options", "content-security-policy"];
 
@@ -18,27 +21,34 @@ async function requestJson(path, init = {}) {
   return { response, body };
 }
 
+const delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+
 if (intakeEvidence && !/^[0-9a-f]{40}$/i.test(expectedSiteRevision)) throw new Error("Intake evidence requires TOTAL_EXPECTED_SITE_REVISION or GITHUB_SHA as a full commit SHA");
 
 let deployment = { ok: false, status: null, id: null, sourceRevision: null, productVersion: null, origin };
-try {
-  const { response, body } = await requestJson("/api/deployment");
-  deployment = {
-    ok: response.ok
-      && /^[0-9a-f]{40}$/i.test(body?.sourceRevision ?? "")
-      && typeof body?.deploymentId === "string"
-      && body.deploymentId.length >= 8
-      && body?.productVersion === pkg.version
-      && (!expectedSiteRevision || body.sourceRevision === expectedSiteRevision),
-    status: response.status,
-    id: body?.deploymentId ?? null,
-    sourceRevision: body?.sourceRevision ?? null,
-    productVersion: body?.productVersion ?? null,
-    origin,
-  };
-} catch (error) {
-  deployment = { ...deployment, error: error instanceof Error ? error.message : String(error) };
-}
+const deploymentDeadline = Date.now() + deploymentWaitMs;
+do {
+  try {
+    const { response, body } = await requestJson("/api/deployment");
+    deployment = {
+      ok: response.ok
+        && /^[0-9a-f]{40}$/i.test(body?.sourceRevision ?? "")
+        && typeof body?.deploymentId === "string"
+        && body.deploymentId.length >= 8
+        && body?.productVersion === pkg.version
+        && (!expectedSiteRevision || body.sourceRevision === expectedSiteRevision),
+      status: response.status,
+      id: body?.deploymentId ?? null,
+      sourceRevision: body?.sourceRevision ?? null,
+      productVersion: body?.productVersion ?? null,
+      origin,
+    };
+  } catch (error) {
+    deployment = { ...deployment, error: error instanceof Error ? error.message : String(error) };
+  }
+  if (deployment.ok || Date.now() >= deploymentDeadline) break;
+  await delay(Math.min(10_000, deploymentDeadline - Date.now()));
+} while (true);
 
 const routeResults = await Promise.all(routes.map(async (path) => {
   try {
@@ -50,23 +60,72 @@ const routeResults = await Promise.all(routes.map(async (path) => {
   }
 }));
 
-let release = { ok: false, status: null, version: null };
-try {
-  const { response, body } = await requestJson("/api/latest");
-  release = { ok: response.ok && body?.version === pkg.version, status: response.status, version: body?.version ?? null };
-} catch (error) {
-  release = { ...release, error: error instanceof Error ? error.message : String(error) };
-}
-
-const downloads = {};
-for (const platform of ["mac", "win"]) {
+async function inspectDownload(platform, version) {
   try {
     const response = await fetch(`${origin}/api/download?platform=${platform}`, { redirect: "manual", signal: AbortSignal.timeout(15_000) });
     const location = response.headers.get("location");
-    downloads[platform] = { ok: [302, 303, 307, 308].includes(response.status) && Boolean(location), status: response.status, location: location ? new URL(location, origin).origin : null };
+    const locationUrl = location ? new URL(location, origin) : null;
+    if (![302, 303, 307, 308].includes(response.status) || !locationUrl)
+      return { ok: false, status: response.status, location: locationUrl?.origin ?? null };
+    const asset = await fetch(locationUrl, { method: "HEAD", redirect: "follow", signal: AbortSignal.timeout(30_000) });
+    const disposition = asset.headers.get("content-disposition") ?? "";
+    const contentType = asset.headers.get("content-type") ?? "";
+    const size = Number(asset.headers.get("content-length") ?? 0);
+    return {
+      ok: releaseAssetProbeOk({
+        assetStatus: asset.status,
+        contentType,
+        disposition,
+        location: locationUrl.toString(),
+        platform,
+        size,
+        version,
+      }),
+      status: response.status,
+      assetStatus: asset.status,
+      location: locationUrl.origin,
+      finalOrigin: new URL(asset.url).origin,
+      contentType,
+      size,
+      disposition: disposition.slice(0, 200),
+    };
   } catch (error) {
-    downloads[platform] = { ok: false, status: null, error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, status: null, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+async function inspectPublishedRelease() {
+  let release = { ok: false, status: null, version: null, downloadUrl: null };
+  try {
+    const { response, body } = await requestJson("/api/latest");
+    const downloadUrl = typeof body?.downloadUrl === "string" ? new URL(body.downloadUrl, origin) : null;
+    const deliveryReady = response.ok
+      && typeof body?.version === "string"
+      && /^\d+\.\d+\.\d+$/.test(body.version)
+      && downloadUrl?.origin === new URL(origin).origin
+      && downloadUrl.pathname === "/api/download";
+    release = {
+      ok: deliveryReady && body.version === pkg.version,
+      deliveryReady,
+      status: response.status,
+      version: body?.version ?? null,
+      downloadUrl: downloadUrl?.toString() ?? null,
+    };
+  } catch (error) {
+    release = { ...release, error: error instanceof Error ? error.message : String(error) };
+  }
+  const downloads = {};
+  const deliveredVersion = release.version ?? pkg.version;
+  for (const platform of ["mac", "win"])
+    downloads[platform] = await inspectDownload(platform, deliveredVersion);
+  return { release, downloads };
+}
+
+let { release, downloads } = await inspectPublishedRelease();
+const releaseDeadline = Date.now() + releaseWaitMs;
+while ((!release.ok || !Object.values(downloads).every((download) => download.ok)) && Date.now() < releaseDeadline) {
+  await delay(Math.min(10_000, releaseDeadline - Date.now()));
+  ({ release, downloads } = await inspectPublishedRelease());
 }
 
 const synthetic = { enabled: Boolean(secret && syntheticEmail), ok: null, checks: {}, cleanup: {} };
@@ -104,13 +163,35 @@ if (synthetic.enabled) {
     const tracked = await requestJson(`/api/support?caseId=${encodeURIComponent(caseId)}&email=${encodeURIComponent(syntheticEmail)}`);
     const resolved = await requestJson("/api/support", { method: "PATCH", headers: authHeaders, body: JSON.stringify({ caseId, status: "resolved" }) });
     const trackedResolved = await requestJson(`/api/support?caseId=${encodeURIComponent(caseId)}&email=${encodeURIComponent(syntheticEmail)}`);
+    const deleteAfter = Date.parse(resolved.body?.deleteAfter ?? "");
+    const expectedRetentionMs = 90 * 24 * 60 * 60_000;
     synthetic.checks.support = {
-      ok: tracked.response.ok && tracked.body?.status === "submitted" && resolved.response.ok && trackedResolved.response.ok && trackedResolved.body?.status === "resolved",
+      ok: tracked.response.ok
+        && tracked.body?.status === "submitted"
+        && resolved.response.ok
+        && trackedResolved.response.ok
+        && trackedResolved.body?.status === "resolved"
+        && Number.isFinite(deleteAfter)
+        && Math.abs(deleteAfter - Date.parse(resolved.body?.updatedAt ?? "") - expectedRetentionMs) < 1_000,
       caseId,
       created: created.body?.status ?? null,
       final: trackedResolved.body?.status ?? null,
+      retentionDeleteAfter: Number.isFinite(deleteAfter) ? resolved.body.deleteAfter : null,
     };
     if (!synthetic.checks.support.ok) throw new Error("Support tracking or status transition failed");
+    const retention = await requestJson("/api/maintenance/intake?limit=1", { headers: { authorization: `Bearer ${secret}` } });
+    synthetic.checks.retention = {
+      ok: retention.response.ok
+        && retention.body?.ok === true
+        && Number.isInteger(retention.body?.support?.scanned)
+        && Number.isInteger(retention.body?.feedback?.scanned)
+        && Number.isInteger(retention.body?.security?.scanned),
+      status: retention.response.status,
+      supportScanned: retention.body?.support?.scanned ?? null,
+      feedbackScanned: retention.body?.feedback?.scanned ?? null,
+      securityScanned: retention.body?.security?.scanned ?? null,
+    };
+    if (!synthetic.checks.retention.ok) throw new Error("Retention maintenance authentication or execution failed");
   } catch (error) {
     synthetic.error = error instanceof Error ? error.message : String(error);
   } finally {
@@ -130,7 +211,7 @@ if (synthetic.enabled) {
       synthetic.cleanupError = error instanceof Error ? error.message : String(error);
     }
   }
-  synthetic.ok = Boolean(synthetic.checks.support?.ok && synthetic.checks.feedback?.ok && synthetic.cleanup.support?.ok && synthetic.cleanup.feedback?.ok && !synthetic.error && !synthetic.cleanupError);
+  synthetic.ok = Boolean(synthetic.checks.support?.ok && synthetic.checks.feedback?.ok && synthetic.checks.retention?.ok && synthetic.cleanup.support?.ok && synthetic.cleanup.feedback?.ok && !synthetic.error && !synthetic.cleanupError);
 }
 
 const securityHeadersOk = routeResults.every((row) => row.ok && requiredHeaders.every((name) => Boolean(row.headers?.[name])));

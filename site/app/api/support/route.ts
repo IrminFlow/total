@@ -327,18 +327,19 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   const event: CaseStatusEvent = { caseId: body.caseId, status: body.status!, updatedAt };
   await storeJson(`${caseStatusPrefix(body.caseId)}${updatedAt.replace(/[:.]/g, "-")}-${randomUUID()}.json`, event);
   const resolvedAt = body.status === "resolved" ? updatedAt : null;
+  const deleteAfter = resolvedAt ? supportDeleteAfter(resolvedAt) : null;
   await storeJson(pathname, { ...stored, status: body.status!, updatedAt, resolvedAt }, true);
   if (resolvedAt) {
     await indexForRetention({
       entity: "support",
       id: body.caseId,
       objectPath: pathname,
-      deleteAfter: supportDeleteAfter(resolvedAt),
+      deleteAfter: deleteAfter!,
     });
   } else {
     await removeRetentionIndex("support", body.caseId);
   }
-  return NextResponse.json({ ok: true, caseId: body.caseId, status: body.status, updatedAt });
+  return NextResponse.json({ ok: true, caseId: body.caseId, status: body.status, updatedAt, deleteAfter });
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {

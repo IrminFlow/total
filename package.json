@@ -11,6 +11,7 @@
     "build": "electron-vite build && node scripts/build-mcp.mjs",
     "preview": "electron-vite preview",
     "test": "vitest run",
+    "test:release": "node --test scripts/tests/*.test.mjs",
     "test:watch": "vitest",
     "test:db": "node scripts/test-db.mjs",
     "test:renderer": "vitest run -c vitest.renderer.config.ts",

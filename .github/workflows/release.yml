@@ -1,5 +1,5 @@
 # Production release: both platforms are built, signed and verified before one public
-# GitHub release is created. Tag with: npm version patch && git push --follow-tags
+# GitHub release is created. Merge the reviewed version commit to main, then push its matching tag.
 name: Release
 
 on:
@@ -47,6 +47,7 @@ jobs:
         run: npm run release:live -- --intake-evidence
         env:
           TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
+          TOTAL_DEPLOYMENT_WAIT_MS: 600000
           TOTAL_SYNTHETIC_EMAIL: synthetic-release-gate@irminflow.invalid
           SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
 
@@ -61,7 +62,6 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-          GITHUB_TOKEN: ${{ secrets.VERCEL_GITHUB_TOKEN }}
 
       - uses: actions/upload-artifact@v7
         with:
@@ -315,6 +315,7 @@ jobs:
         run: npm run release:live -- --intake-evidence
         env:
           TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
+          TOTAL_DEPLOYMENT_WAIT_MS: 600000
           TOTAL_SYNTHETIC_EMAIL: synthetic-publication-gate@irminflow.invalid
           SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
           PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/release/production-services.json
@@ -332,13 +333,12 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-          GITHUB_TOKEN: ${{ secrets.VERCEL_GITHUB_TOKEN }}
 
       - name: Validate cross-platform updater contract
         run: npm run release:contract
 
-      - name: Create one complete public release
-        shell: bash
+      - name: Refuse to replace an existing release
+        id: release-preflight
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -346,6 +346,92 @@ jobs:
             echo "Release $GITHUB_REF_NAME already exists; refusing to overwrite it." >&2
             exit 1
           fi
+          echo "creation_allowed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create one complete public release
+        id: create-publication
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           mapfile -d '' assets < <(find release -type f -print0)
-          gh release create "$GITHUB_REF_NAME" "${assets[@]}" --verify-tag --generate-notes --latest \
-            --title "Total ${GITHUB_REF_NAME#v}" --repo "$GITHUB_REPOSITORY"
+          created_release="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+            --raw-field "tag_name=$GITHUB_REF_NAME" \
+            --raw-field "name=Total ${GITHUB_REF_NAME#v}" \
+            --field draft=false \
+            --field prerelease=false \
+            --field generate_release_notes=true)"
+          release_id="$(jq -er '.id' <<<"$created_release")"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
+
+      - name: Remove a partially-created release
+        if: ${{ always() && steps.release-preflight.outputs.creation_allowed == 'true' && steps.create-publication.outcome == 'failure' && steps.create-publication.outputs.release_id != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.create-publication.outputs.release_id }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" >/dev/null 2>&1 || true
+            response="$(gh api --include "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" 2>&1)" && status=0 || status=$?
+            if [[ "$status" -ne 0 ]] && grep -Eq '^HTTP/[^ ]+ 404' <<<"$response"; then
+              exit 0
+            fi
+            sleep "$((attempt * 2))"
+          done
+          echo "Could not prove partial release ID $RELEASE_ID was removed." >&2
+          exit 1
+
+      - name: Require complete release creation
+        if: ${{ always() && steps.create-publication.outcome == 'failure' }}
+        run: |
+          echo "Public release creation or asset upload failed; any partial release was removed." >&2
+          exit 1
+
+      - name: Verify public updater and installer delivery
+        id: verify-publication
+        continue-on-error: true
+        run: npm run release:live
+        env:
+          TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
+          TOTAL_DEPLOYMENT_WAIT_MS: 600000
+          TOTAL_RELEASE_WAIT_MS: 600000
+          TOTAL_REQUIRE_SYNTHETIC: 1
+          TOTAL_SYNTHETIC_EMAIL: synthetic-post-publication@irminflow.invalid
+          SUPPORT_WEBHOOK_SECRET: ${{ secrets.SUPPORT_WEBHOOK_SECRET }}
+          PRODUCTION_SERVICE_EVIDENCE_OUT: ${{ github.workspace }}/release/post-publication-live.json
+
+      - name: Withdraw a release that failed public verification
+        if: ${{ always() && steps.verify-publication.outcome == 'failure' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.create-publication.outputs.release_id }}
+        run: |
+          test -n "$RELEASE_ID"
+          for attempt in 1 2 3 4 5; do
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" >/dev/null 2>&1 || true
+            response="$(gh api --include "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" 2>&1)" && status=0 || status=$?
+            if [[ "$status" -ne 0 ]] && grep -Eq '^HTTP/[^ ]+ 404' <<<"$response"; then
+              exit 0
+            fi
+            sleep "$((attempt * 2))"
+          done
+          echo "Could not prove failed release ID $RELEASE_ID was withdrawn." >&2
+          exit 1
+
+      - name: Upload publication verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-publication-verification
+          if-no-files-found: warn
+          path: release/post-publication-live.json
+
+      - name: Require successful public verification
+        if: ${{ always() && steps.verify-publication.outcome == 'failure' }}
+        run: |
+          echo "The public release failed updater, installer, or production-service verification and was withdrawn." >&2
+          exit 1

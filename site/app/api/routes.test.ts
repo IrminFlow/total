@@ -227,6 +227,38 @@ describe("support intake", () => {
     expect([...objects.keys()].some((key) => key.startsWith("intake-security/rate/support/"))).toBe(true);
   });
 
+  it("indexes resolved cases for 90-day deletion and returns the exact deadline", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.SUPPORT_WEBHOOK_SECRET = "support-admin-secret";
+    const caseId = "TOT-20260824-ABCDEF";
+    const casePath = `support/2026/08/${caseId}.json`;
+    const objects = installBlobStore({
+      [casePath]: {
+        caseId,
+        category: "question",
+        email: "owner@example.com",
+        message: "Please verify the retention deadline for this support case.",
+        source: "website",
+        status: "submitted",
+        receivedAt: "2026-08-24T10:00:00.000Z",
+        updatedAt: "2026-08-24T10:00:00.000Z",
+        resolvedAt: null,
+      },
+    });
+    const { PATCH } = await import("./support/route");
+    const response = await PATCH(new NextRequest("https://total.example/api/support", {
+      method: "PATCH",
+      headers: { authorization: "Bearer support-admin-secret", "content-type": "application/json" },
+      body: JSON.stringify({ caseId, status: "resolved" }),
+    }));
+    const result = await response.json() as { updatedAt: string; deleteAfter: string };
+
+    expect(response.status).toBe(200);
+    expect(Date.parse(result.deleteAfter) - Date.parse(result.updatedAt)).toBe(90 * 24 * 60 * 60_000);
+    expect([...objects.keys()].some((key) => key.startsWith("retention-index/support/"))).toBe(true);
+    expect(objects.has(`retention-pointers/support/${caseId}.json`)).toBe(true);
+  });
+
   it("enforces the shared Blob-backed request limit", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
     process.env.INTAKE_SECURITY_SECRET = "a-separate-test-secret-with-32-bytes";
@@ -244,12 +276,36 @@ describe("support intake", () => {
 });
 
 describe("feedback board", () => {
-  it("keeps the public roadmap readable when no provider is configured", async () => {
+  it("keeps unreleased roadmap work planned until its public version exists", async () => {
+    const releaseModule = await import("@/lib/release");
+    vi.mocked(releaseModule.latestRelease).mockResolvedValue({
+      version: "0.4.0",
+      htmlUrl: "https://github.com/IrminFlow/total/releases/tag/v0.4.0",
+      assets: {},
+    });
     const { GET } = await import("./feedback/route");
     const response = await GET();
-    const result = await response.json() as { ideas: Array<{ id: string }> };
+    const result = await response.json() as { ideas: Array<{ id: string; status: string; releaseVersion: string | null }> };
     expect(response.status).toBe(200);
-    expect(result.ideas.some((idea) => idea.id === "quarter-registers")).toBe(true);
+    expect(result.ideas.find((idea) => idea.id === "quarter-registers")).toMatchObject({
+      status: "planned",
+      releaseVersion: null,
+    });
+  });
+
+  it("marks roadmap work released only when its public version exists", async () => {
+    const releaseModule = await import("@/lib/release");
+    vi.mocked(releaseModule.latestRelease).mockResolvedValue({
+      version: "0.5.0",
+      htmlUrl: "https://github.com/IrminFlow/total/releases/tag/v0.5.0",
+      assets: {},
+    });
+    const { GET } = await import("./feedback/route");
+    const result = await (await GET()).json() as { ideas: Array<{ id: string; status: string; releaseVersion: string | null }> };
+    expect(result.ideas.find((idea) => idea.id === "quarter-registers")).toMatchObject({
+      status: "released",
+      releaseVersion: "0.5.0",
+    });
   });
 
   it("forwards votes and follows with the shared secret", async () => {

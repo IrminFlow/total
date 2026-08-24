@@ -3,6 +3,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { deleteJson, intakeStoreConfigured, listJson, storeJson } from "@/lib/intakeStore";
 import { protectIntake } from "@/lib/intakeProtection";
 import { deleteFeedbackEvent, feedbackDeleteAfter, indexForRetention, retentionHoldFor } from "@/lib/intakeRetention";
+import { latestRelease } from "@/lib/release";
 
 export const runtime = "nodejs";
 
@@ -12,8 +13,30 @@ const MAX_REQUESTS = 20;
 const SHIPPED_IDEAS = [
   { id: "mobile-companion", title: "Read-only mobile companion", detail: "View key balances, invoices and reminders without moving the writable books off the desktop.", status: "considering", votes: 0, releaseVersion: null },
   { id: "more-bank-formats", title: "More bank statement formats", detail: "Add reviewed presets for more Indian banks while keeping the generic mapper.", status: "planned", votes: 0, releaseVersion: null },
-  { id: "quarter-registers", title: "Quarterly sales and purchase registers", detail: "Switch monthly evidence into financial quarters with the same voucher drill-down.", status: "released", votes: 0, releaseVersion: "0.5.0" },
+  { id: "quarter-registers", title: "Quarterly sales and purchase registers", detail: "Switch monthly evidence into financial quarters with the same voucher drill-down.", status: "planned", votes: 0, releaseVersion: null },
 ] as const;
+
+function versionAtLeast(version: string | undefined, target: string): boolean {
+  const parse = (value: string) => value.split(".").slice(0, 3).map((part) => Number(part));
+  const current = version ? parse(version) : [];
+  const required = parse(target);
+  if (current.length !== 3 || current.some((part) => !Number.isInteger(part) || part < 0)) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (current[index]! > required[index]!) return true;
+    if (current[index]! < required[index]!) return false;
+  }
+  return true;
+}
+
+async function publicIdeas() {
+  const published = await latestRelease();
+  const quarterlyReleased = versionAtLeast(published?.version, "0.5.0");
+  return SHIPPED_IDEAS.map((idea) =>
+    idea.id === "quarter-registers" && quarterlyReleased
+      ? { ...idea, status: "released" as const, releaseVersion: "0.5.0" }
+      : idea,
+  );
+}
 
 function endpoint(): URL | null {
   try {
@@ -35,18 +58,19 @@ function authorized(request: NextRequest): boolean {
 
 export async function GET(): Promise<NextResponse> {
   const target = endpoint();
+  const ideas = await publicIdeas();
   if (!target && intakeStoreConfigured()) {
     try {
       const events = await listJson<{ action: string; ideaId?: string }>("feedback/events/");
       const votes = new Map<string, number>();
       for (const event of events)
         if (event.action === "vote" && event.ideaId) votes.set(event.ideaId, (votes.get(event.ideaId) ?? 0) + 1);
-      return NextResponse.json({ ideas: SHIPPED_IDEAS.map((idea) => ({ ...idea, votes: votes.get(idea.id) ?? 0 })) });
+      return NextResponse.json({ ideas: ideas.map((idea) => ({ ...idea, votes: votes.get(idea.id) ?? 0 })) });
     } catch {
-      return NextResponse.json({ ideas: SHIPPED_IDEAS });
+      return NextResponse.json({ ideas });
     }
   }
-  if (!target) return NextResponse.json({ ideas: SHIPPED_IDEAS });
+  if (!target) return NextResponse.json({ ideas });
   try {
     const response = await fetch(target, {
       headers: process.env.SUPPORT_WEBHOOK_SECRET
@@ -58,7 +82,7 @@ export async function GET(): Promise<NextResponse> {
     if (!response.ok) throw new Error("upstream");
     return NextResponse.json(await response.json());
   } catch {
-    return NextResponse.json({ ideas: SHIPPED_IDEAS });
+    return NextResponse.json({ ideas });
   }
 }
 

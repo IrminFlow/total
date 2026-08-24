@@ -20,10 +20,12 @@ function fixture() {
     sourceRevision: revision,
     productVersion: version,
     deployment: { id: "dpl_current123", origin: "https://total.example", verified: true },
+    release: { deliveryReady: true, version: "0.4.0" },
+    downloads: { mac: { ok: true }, win: { ok: true } },
     synthetic: {
       enabled: true,
       ok: true,
-      checks: { support: { ok: true }, feedback: { ok: true } },
+      checks: { support: { ok: true }, feedback: { ok: true }, retention: { ok: true } },
       cleanup: { support: { ok: true }, feedback: { ok: true, deleted: 3 } },
     },
   };
@@ -47,6 +49,12 @@ test("rejects configuration-shaped evidence without successful execution and cle
   const incomplete = fixture();
   incomplete.synthetic.cleanup.feedback.deleted = 2;
   assert.throws(() => validateProductionServiceEvidence(incomplete, { revision, version, now }), /three synthetic events/);
+  const noRetention = fixture();
+  noRetention.synthetic.checks.retention.ok = false;
+  assert.throws(() => validateProductionServiceEvidence(noRetention, { revision, version, now }), /retention maintenance/);
+  const badDownload = fixture();
+  badDownload.downloads.win.ok = false;
+  assert.throws(() => validateProductionServiceEvidence(badDownload, { revision, version, now }), /installer delivery/);
 });
 
 test("readiness never treats configured provider secrets as executed production evidence", () => {

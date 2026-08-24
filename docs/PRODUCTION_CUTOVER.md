@@ -24,10 +24,18 @@ Vercel (`site` as root directory):
 
 - `GITHUB_TOKEN`: fine-grained, read-only access to releases in `IrminFlow/total` while private.
 - `NEXT_PUBLIC_SITE_URL`: canonical HTTPS origin.
-- `BLOB_READ_WRITE_TOKEN`: private Vercel Blob intake storage (the current production backend), or
-  `CONVEX_SUPPORT_URL` / `SUPPORT_WEBHOOK_URL` for an alternate support service.
-- `CONVEX_FEEDBACK_URL`: optional alternate feedback backend; private Blob events are the default.
-- `SUPPORT_WEBHOOK_SECRET`: shared bearer secret for case status and deletion operations.
+- `BLOB_READ_WRITE_TOKEN`: required private Vercel Blob system of record for support cases,
+  tracking, status history, feedback events, retention indexes and exact deletion.
+- `INTAKE_SECURITY_SECRET`: independent random secret used to pseudonymize rate-limit and dedupe
+  records. Configure it separately from storage and webhook credentials.
+- `CRON_SECRET`: authenticates the scheduled retention-maintenance route.
+- `CONVEX_SUPPORT_URL` / `SUPPORT_WEBHOOK_URL`: optional support-notification destination. It does
+  not replace Blob storage or the case-tracking system of record.
+- `CONVEX_FEEDBACK_URL`: do not configure for v0.5 unless the provider implements authenticated
+  exact-event deletion and its cleanup contract is added to the release gate. Blob is the supported
+  v0.5 feedback backend.
+- `SUPPORT_WEBHOOK_SECRET`: shared bearer secret for case administration, deletion operations and
+  optional outbound notifications.
 
 Submit a synthetic support case and feedback idea after deployment. Verify private-store receipt, case ID,
 rate limiting, fallback behavior and that no book data appears unless explicitly selected.

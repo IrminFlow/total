@@ -21,7 +21,9 @@ export function validateProductionServiceEvidence(evidence, options) {
   assert(evidence.synthetic?.enabled === true && evidence.synthetic?.ok === true, "Production support and feedback were not exercised");
   assert(evidence.synthetic?.checks?.support?.ok === true && evidence.synthetic?.cleanup?.support?.ok === true, "Production support create, track, resolve and delete did not pass");
   assert(evidence.synthetic?.checks?.feedback?.ok === true && evidence.synthetic?.cleanup?.feedback?.ok === true, "Production feedback submit, vote, follow and cleanup did not pass");
+  assert(evidence.synthetic?.checks?.retention?.ok === true, "Production retention maintenance was not authenticated and executed");
   assert(evidence.synthetic.cleanup.feedback.deleted === 3, "Production feedback evidence did not delete all three synthetic events");
+  assert(evidence.release?.deliveryReady === true && evidence.downloads?.mac?.ok === true && evidence.downloads?.win?.ok === true, "Private release metadata and installer delivery were not verified");
   return {
     ok: true,
     checkedAt: evidence.checkedAt,
@@ -29,5 +31,6 @@ export function validateProductionServiceEvidence(evidence, options) {
     productVersion: evidence.productVersion,
     deploymentId: evidence.deployment.id,
     origin: evidence.deployment.origin,
+    privateReleaseDeliveryVerified: true,
   };
 }
