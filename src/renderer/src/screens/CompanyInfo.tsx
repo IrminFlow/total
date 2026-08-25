@@ -98,13 +98,13 @@ export function CompanyInfoScreen(): React.JSX.Element {
       <button
         data-testid="btn-company-info-invoice-layout"
         onClick={() => nav.go({ name: 'settings', tab: 'invoice' })}
-        className="mb-4 flex w-full items-center justify-between rounded-lg border-2 border-amber/50 bg-amber/10 px-4 py-3.5 text-left transition-colors hover:border-amber hover:bg-amber/15"
+        className="mb-4 flex w-full items-center justify-between rounded-lg border-2 border-accent/50 bg-accent/10 px-4 py-3.5 text-left transition-colors hover:border-accent hover:bg-accent/15"
       >
         <span>
           <span className="block text-lead font-semibold">Invoice layout &amp; contents…</span>
           <span className="block text-hint text-muted">Logo, declaration, bank details, QR, barcode column, copies to print</span>
         </span>
-        <span className="text-lead text-amber">→</span>
+        <span className="text-lead text-accent">→</span>
       </button>
       <Panel className="flex flex-col gap-4 p-5">
         <Field label="Name">
@@ -411,7 +411,7 @@ function Obligations({
         <li>
           {o.eInvoice ? (
             <span>
-              <b className="text-amber">e-Invoicing is mandatory</b> at this turnover — every B2B invoice needs an
+              <b className="text-accent">e-Invoicing is mandatory</b> at this turnover — every B2B invoice needs an
               IRN before it is issued.
             </span>
           ) : (

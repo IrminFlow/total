@@ -35,13 +35,16 @@ const CONSOLE_IGNORE = [
 ]
 
 export class Harness {
-  /** @param {{ dataDir?: string, outDir?: string, appDir?: string }} [opts] */
+  /** @param {{ dataDir?: string, outDir?: string, appDir?: string, createDataDir?: boolean }} [opts] */
   constructor(opts = {}) {
     this.appDir = opts.appDir ?? process.cwd()
     this.dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-'))
     this.userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-profile-'))
     this.outDir = opts.outDir ?? process.env.SMOKE_OUT ?? path.join(os.tmpdir(), 'total-e2e-out')
-    fs.mkdirSync(this.dataDir, { recursive: true })
+    // Normally the data dir is made for the app, because every scenario but one cares about what
+    // happens *after* first run. `createDataDir: false` leaves the path genuinely absent, which is
+    // the state of a machine that has never held the app (roadmap #346).
+    if (opts.createDataDir !== false) fs.mkdirSync(this.dataDir, { recursive: true })
     fs.mkdirSync(this.outDir, { recursive: true })
     this.app = null
     this.page = null
@@ -115,6 +118,22 @@ export class Harness {
   /** Close and relaunch against the SAME data dir (fresh renderer state, same books). */
   async relaunch() {
     await this.close()
+    await this.launch()
+  }
+
+  /**
+   * Close, throw away everything the *installation* owns, and launch again against the same
+   * books — an uninstall followed by a reinstall (roadmap #350).
+   *
+   * The Chromium profile is the honest stand-in for what an uninstaller removes: preferences,
+   * localStorage, the app's userData. What it must not remove is `~/Documents/total`, which is
+   * the whole promise. Relaunching with a fresh profile over the same TOTAL_DATA_DIR is exactly
+   * that sequence, and the books either survive it or they do not.
+   */
+  async reinstall() {
+    await this.close()
+    fs.rmSync(this.userDataDir, { recursive: true, force: true })
+    this.userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-profile-'))
     await this.launch()
   }
 

@@ -1,5 +1,5 @@
 // Scenario 11 — keyboard-only navigation: registry accelerators (the red letters), ↑↓↵ list
-// navigation on the Day Book (the amber bar), and the Cmd/Ctrl-K command palette — no mouse
+// navigation on the Day Book (the accent bar), and the Cmd/Ctrl-K command palette — no mouse
 // anywhere after the initial company build.
 //
 // The accelerator sweep deliberately ENUMERATES the letters from the running app rather than
@@ -15,7 +15,7 @@ await scenario('11-keyboard', async (h) => {
   await h.waitScreen('daybook')
   await h.shot('01-daybook-via-shortcut')
 
-  // ↓ moves the amber selection bar; the active row follows data-active.
+  // ↓ moves the accent selection bar; the active row follows data-active.
   await h.page.waitForSelector('[data-testid="rows-daybook"] tr[data-row-id]', { timeout: 10000 })
   const activeRowId = () =>
     h.page.evaluate(() => {
@@ -24,7 +24,7 @@ await scenario('11-keyboard', async (h) => {
       return el ? el.getAttribute('data-row-id') : null
     })
   const first = await activeRowId()
-  assert(first != null, 'daybook has an active (amber-bar) row')
+  assert(first != null, 'daybook has an active (accent-bar) row')
   await h.page.keyboard.press('ArrowDown')
   const second = await activeRowId()
   assert(second != null && second !== first, `ArrowDown moved the selection (${first} → ${second})`)
@@ -54,6 +54,14 @@ await scenario('11-keyboard', async (h) => {
   // matters: nav.back()/home() run the unsaved-changes guard asynchronously, so pressing the
   // next letter immediately after Escape can land on the screen we were trying to leave.
   const home = async () => {
+    // Blur first. Some screens focus a field on arrival — the counter puts the cursor in its scan
+    // box, which is right for a till — and a bare letter must never fire while somebody is typing
+    // into a field. Without this the sweep types 'g' into the scan box and waits for a Gateway
+    // that is never coming, which reads as a broken accelerator rather than as a working guard.
+    await h.page.evaluate(() => {
+      const el = document.activeElement
+      if (el && typeof el.blur === 'function') el.blur()
+    })
     await h.page.keyboard.press('Escape')
     await h.page.keyboard.press('g')
     await h.waitScreen('gateway', 20000)

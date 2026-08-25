@@ -48,9 +48,9 @@ function WarningsBox({ warnings }: { warnings: string[] }): React.JSX.Element | 
   const shown = expanded ? warnings : warnings.slice(0, WARNINGS_PREVIEW)
   const hidden = warnings.length - shown.length
   return (
-    <div className="mt-4 max-h-56 overflow-auto rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2">
+    <div className="mt-4 max-h-56 overflow-auto rounded-md border border-accentbar/50 bg-accentbar/10 px-3 py-2">
       <p className="flex items-center gap-2 py-0.5 text-body-sm font-medium text-ink">
-        <span data-testid="badge-import-tally-warnings" className="rounded-md bg-amberbar/40 px-1.5 py-0.5 num text-caption">
+        <span data-testid="badge-import-tally-warnings" className="rounded-md bg-accentbar/40 px-1.5 py-0.5 num text-caption">
           {warnings.length}
         </span>
         warning{warnings.length > 1 ? 's' : ''}
@@ -94,7 +94,7 @@ export function ImportTallyScreen(): React.JSX.Element {
                 data-testid={`tab-import-${t.id}`}
                 onClick={() => setSource(t.id)}
                 className={`rounded-md px-2.5 py-1 text-small whitespace-nowrap transition-colors ${
-                  source === t.id ? 'bg-amber/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
+                  source === t.id ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-panel2 hover:text-ink'
                 }`}
               >
                 {t.label}
@@ -219,7 +219,7 @@ function RunningStep({
         {progress?.phase === 'masters' ? 'Creating groups, ledgers and items…' : 'Importing vouchers…'}
       </p>
       <div className="mt-3 h-2 w-full overflow-hidden rounded-md bg-panel2">
-        <div className="h-full bg-amber transition-[width] duration-200" style={{ width: `${pct}%` }} />
+        <div className="h-full bg-accent transition-[width] duration-200" style={{ width: `${pct}%` }} />
       </div>
       <p className="mt-2 num text-body-sm text-muted" data-testid="import-progress-text">
         {progress ? `${progress.done} of ${progress.total}` : 'Reading the file…'}

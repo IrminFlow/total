@@ -54,7 +54,7 @@ export function BorrowingScreen(): React.JSX.Element {
                 aria-pressed={tab === id}
                 onClick={() => setTab(id)}
                 className={`rounded-md px-2.5 py-1 text-small ${
-                  tab === id ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+                  tab === id ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
                 }`}
               >
                 {label}

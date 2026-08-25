@@ -177,7 +177,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
         </div>
       )}
       {!balanced && (
-        <p className="mt-3 text-body-sm text-amber">
+        <p className="mt-3 text-body-sm text-accent">
           The two sides differ by {<Money paise={Math.abs(data.totalAssets - data.totalLiabilities)} />} — usually an opening balance entered on one side only.
         </p>
       )}
@@ -247,7 +247,7 @@ function DateScrubber({ asOn, onChange }: { asOn: string; onChange: (d: string) 
       aria-label={`As on date within ${fy.label}`}
       title={`${toDisplayDate(fy.from)} → ${toDisplayDate(fy.to)}`}
       data-testid="input-bs-scrubber"
-      className="h-1 w-32 cursor-pointer accent-amber"
+      className="h-1 w-32 cursor-pointer accent-accent"
       onChange={(e) => onChange(addDays(fy.from, Number(e.currentTarget.value)))}
     />
   )

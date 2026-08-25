@@ -44,6 +44,13 @@ const CALLS: { when: string; where: string; what: string; optional: string }[] =
     optional: 'Yes — the offline route exports a JSON file you upload yourself.'
   },
   {
+    when: 'Only if you write a message in Support and press Send',
+    where: 'This website’s /api/feedback',
+    what:
+      'What you typed, the address you gave if you gave one, the app version and platform, and — if you leave it ticked — the recent activity log. The log holds screen and event names, never ledgers, parties or amounts, and the dialog shows it to you in full before anything moves.',
+    optional: 'Yes — nothing is sent unless you press Send, and you can untick the log.'
+  },
+  {
     when: 'Only if you click a WhatsApp reminder',
     where: 'wa.me, in your browser',
     what: 'The reminder text and the party’s number, so WhatsApp can open the chat.',

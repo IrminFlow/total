@@ -2749,6 +2749,12 @@ export const api = {
         lines: string[]
       }>('log:diagnostics')
   },
+  support: {
+    /** Post the report the user just read. Main does the network call — the renderer's CSP is
+     *  `default-src 'self'` and could not reach the endpoint if it wanted to. */
+    send: (input: { message: string; email: string; log: string }) =>
+      call<{ delivered: true }>('support:send', input)
+  },
   search: {
     global: (q: string) => call<SearchHit[]>('search:global', { q })
   },

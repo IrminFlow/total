@@ -1,4 +1,4 @@
-// Scenario 32 — statutory depth: the documents and returns a CA asks for in the first meeting.
+// Scenario 34 — statutory depth: the documents and returns a CA asks for in the first meeting.
 //
 // Section S of the roadmap is mostly about producing paper the books could always have produced
 // and never did. This walks the five that a user can now do end to end: the reverse-charge
@@ -11,7 +11,7 @@
 // says so instead of reporting itself clean.
 import { scenario, assert } from '../lib/harness.mjs'
 
-await scenario('32-statutory-depth', async (h) => {
+await scenario('34-statutory-depth', async (h) => {
   await h.createDemoCompany()
 
   const { info } = await h.invoke('company:current')

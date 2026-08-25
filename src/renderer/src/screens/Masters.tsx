@@ -180,7 +180,7 @@ function SortTh({
         onClick={() => onSort(k)}
       >
         {label}
-        <span aria-hidden="true" className={active ? 'text-amber' : 'invisible'}>
+        <span aria-hidden="true" className={active ? 'text-accent' : 'invisible'}>
           {active && sort.dir === -1 ? '↓' : '↑'}
         </span>
       </button>
@@ -471,7 +471,7 @@ function GroupNode({
   onMove: (node: GroupTreeNode) => void
   onDelete: (node: GroupTreeNode) => Promise<void>
 }): React.JSX.Element {
-  const natureTone = { asset: 'text-dr', liability: 'text-cr', income: 'text-blue', expense: 'text-amber' }[node.nature]
+  const natureTone = { asset: 'text-dr', liability: 'text-cr', income: 'text-blue', expense: 'text-accent' }[node.nature]
   return (
     <>
       <div

@@ -81,7 +81,7 @@ export function RecentRing(): React.JSX.Element | null {
               data-testid={`ring-${s.name}`}
               data-active={i === cycle.index}
               className={`rounded-md px-2 py-1 text-body ${
-                i === cycle.index ? 'bg-amber/20 text-amber' : 'text-muted'
+                i === cycle.index ? 'bg-accent/20 text-accent' : 'text-muted'
               }`}
             >
               {screenDef(s.name)?.navLabel ?? screenDef(s.name)?.title ?? s.name}
