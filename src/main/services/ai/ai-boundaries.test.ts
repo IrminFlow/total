@@ -58,6 +58,31 @@ describe('AI service boundaries', () => {
     }
   })
 
+  /**
+   * The audit trail (roadmap #217) is the first thing on an AI path that writes anything at all,
+   * and the promise it must not weaken is "the assistant cannot change the books".
+   *
+   * Two halves. It lives OUTSIDE this directory, so the grep above still holds over every file
+   * here; and it may only touch its own table. A row recording that a model proposed a draft is
+   * provenance. A row in `vouchers` is books.
+   */
+  it('lets the AI service record provenance, and nothing else', () => {
+    const writers = files.filter((file) => /from '\.\.\/assistantLog'/.test(readFileSync(file, 'utf8')))
+    expect(writers.map((f) => f.split('/').pop())).toEqual(['runner.ts'])
+
+    // Comments stripped first: the file's own header talks about `vouchers` in prose, and prose
+    // about a table is not a query against it.
+    const log = readFileSync(join(__dirname, '..', 'assistantLog.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    // Every table it names must be its own.
+    // `(?!SET\b)` because an upsert's `ON CONFLICT DO UPDATE SET` is not a second table.
+    const tables = [...log.matchAll(/\b(?:INSERT INTO|UPDATE|DELETE FROM|FROM)\s+(?!SET\b)([a-z_]+)/gi)].map((m) =>
+      m[1]!.toLowerCase()
+    )
+    expect([...new Set(tables)]).toEqual(['assistant_runs'])
+  })
+
   it('confines the OpenAI SDK to provider.ts', () => {
     const importers = files.filter((file) => {
       const code = readFileSync(file, 'utf8')

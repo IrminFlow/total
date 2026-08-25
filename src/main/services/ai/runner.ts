@@ -19,9 +19,15 @@ import { buildSystemPrompt } from '@shared/ai/prompts'
 import { DeltaCoalescer, type AiFinish, type AiFrame, type AiFramePayload } from '@shared/ai/stream'
 import { Pseudonymiser } from '@shared/ai/redact'
 import { RunBudget } from '@shared/ai/truncate'
+import { frameToolResult } from '@shared/ai/injection'
+import { capVerdict, estimateCostPaise } from '@shared/ai/cost'
+import { approxTokens, type PayloadPreview, type PreviewMessage } from '@shared/ai/preview'
+import type { VoucherDraftProposal, DraftIssue } from '@shared/ai/draft'
 import { fyOf } from '@shared/dates'
 import { AiError, makeClient, type ChatClient, type ChatMessage, type ChatToolDef } from './provider'
 import { readConfig } from './config'
+import { recordSpend, spendSnapshot } from './spend'
+import { recordRun } from '../assistantLog'
 import { dispatch, TOOLS, type AiToolCtx } from './tools'
 import { toJsonSchema } from '@shared/ai/jsonSchema'
 import { log } from '../../log'
@@ -52,6 +58,8 @@ export interface StartOptions {
   screen?: string
   history?: { role: 'user' | 'assistant'; content: string }[]
   wc: WebContents
+  /** Signed-in user, for the audit trail. Null when nobody has signed in. */
+  askedBy?: string | null
   /** Injectable for tests; production passes nothing and gets the real provider. */
   client?: ChatClient
 }
@@ -78,6 +86,57 @@ export function abortAll(): void {
 
 export function activeRuns(): number {
   return runs.size
+}
+
+/**
+ * Exactly what would be posted for the first request of a run — without posting it.
+ *
+ * Built by calling the same prompt builder and the same tool definitions the runner uses, so
+ * there is no second implementation to drift out of agreement with the first. It contacts
+ * nothing: a user with no key, no network and a misconfigured endpoint can still read their own
+ * books going out, which is the whole point of offering the view before the decision.
+ *
+ * Tool results are not shown, because none exist yet — the note says so rather than inventing a
+ * plausible one. What the user can check here is the disclosure that is unconditional: the system
+ * prompt, the company context, their question, and the fact that no tool in the list writes.
+ */
+export function buildPreview(opts: {
+  info: CompanyInfo
+  today: string
+  question: string
+  screen?: string
+  history?: { role: 'user' | 'assistant'; content: string }[]
+}): PayloadPreview {
+  const config = readConfig()
+  const fy = fyOf(opts.today)
+  const messages: PreviewMessage[] = [
+    {
+      role: 'system',
+      content: buildSystemPrompt({
+        companyName: opts.info.name,
+        stateCode: opts.info.stateCode,
+        gstRegistrationType: opts.info.gstRegistrationType,
+        financialYear: { from: fy.from, to: fy.to },
+        today: opts.today,
+        screen: opts.screen,
+        namesRedacted: config.egress === 'names-redacted'
+      })
+    },
+    ...(opts.history ?? []).slice(-8).map((m) => ({ role: m.role, content: m.content })),
+    { role: 'user', content: opts.question }
+  ]
+  const characters = messages.reduce((sum, m) => sum + m.content.length, 0)
+  const local = isLocalEndpoint(config.baseUrl)
+  return {
+    host: endpointHost(config.baseUrl),
+    model: config.model,
+    local,
+    messages,
+    tools: TOOLS.map((t) => t.name),
+    characters,
+    estimatedCostPaise: estimateCostPaise(config.model, approxTokens(characters), 500, { local }).paise,
+    egress: config.egress
+  }
 }
 
 export function startRun(opts: StartOptions): string {
@@ -109,7 +168,33 @@ async function execute(runId: string, opts: StartOptions, controller: AbortContr
   const timeout = setTimeout(() => controller.abort(), RUN_TIMEOUT_MS)
   let finish: AiFinish = 'stop'
 
+  // Collected as the run goes, and written to the audit trail in `finally` — so a run that
+  // errors or is cancelled still leaves a record of what was asked and what it read.
+  const local = isLocalEndpoint(config.baseUrl)
+  const host = endpointHost(config.baseUrl)
+  const toolsCalled: string[] = []
+  let quarantined = 0
+  let answer = ''
+  let runCostPaise = 0
+  let draft: VoucherDraftProposal | null = null
+
   try {
+    // The cap is checked here, in main, before a single byte is sent. A renderer-side check is
+    // an affordance; this is the boundary. A local endpoint is never capped — see shared/ai/cost.
+    const before = spendSnapshot(opts.today)
+    const verdict = capVerdict({
+      sessionPaise: before.sessionPaise,
+      todayPaise: before.todayPaise,
+      sessionCapPaise: config.sessionCapPaise,
+      dailyCapPaise: config.dailyCapPaise,
+      local
+    })
+    if (verdict.blocked) {
+      send({ t: 'error', kind: 'cap', message: verdict.message })
+      finish = 'cap'
+      return
+    }
+
     const client = opts.client ?? makeClient()
     const fy = fyOf(opts.today)
     const pseudo = config.egress === 'names-redacted' ? new Pseudonymiser() : undefined
@@ -153,6 +238,8 @@ async function execute(runId: string, opts: StartOptions, controller: AbortContr
     const budget = new RunBudget()
     const defs = toolDefs()
     let toolErrors = 0
+    /** Set when a cap is crossed mid-run; the loop stops at the next turn boundary. */
+    let capReached: string | null = null
 
     for (let iteration = 0; iteration < config.maxToolIterations; iteration++) {
       let assistantText = ''
@@ -171,10 +258,39 @@ async function execute(runId: string, opts: StartOptions, controller: AbortContr
             promptTokens: chunk.usage.promptTokens,
             completionTokens: chunk.usage.completionTokens
           })
+          const cost = estimateCostPaise(config.model, chunk.usage.promptTokens, chunk.usage.completionTokens, { local })
+          runCostPaise += cost.paise
+          recordSpend(opts.today, cost.paise, cost.known)
+          const after = spendSnapshot(opts.today)
+          send({
+            t: 'spend',
+            runPaise: runCostPaise,
+            sessionPaise: after.sessionPaise,
+            todayPaise: after.todayPaise,
+            priced: cost.known
+          })
+          // Mid-run, not only at the start: one question that turns into six tool iterations is
+          // exactly the shape that runs past a cap, and stopping at the next turn boundary costs
+          // the user one exchange rather than five.
+          const stop = capVerdict({
+            sessionPaise: after.sessionPaise,
+            todayPaise: after.todayPaise,
+            sessionCapPaise: config.sessionCapPaise,
+            dailyCapPaise: config.dailyCapPaise,
+            local
+          })
+          if (stop.blocked) capReached = stop.message
         }
         if (chunk.finish) sawFinish = chunk.finish
       }
       coalescer.flush()
+      answer += pseudo ? pseudo.restore(assistantText) : assistantText
+
+      if (capReached) {
+        send({ t: 'error', kind: 'cap', message: capReached })
+        finish = 'cap'
+        break
+      }
 
       if (calls.length === 0) {
         finish = sawFinish === 'length' ? 'length' : 'stop'
@@ -201,13 +317,38 @@ async function execute(runId: string, opts: StartOptions, controller: AbortContr
         send({ t: 'tool_call', name: call.name, args })
 
         const result = dispatch(toolCtx, call.name, args)
-        const serialized = JSON.stringify(result)
+        toolsCalled.push(call.name)
+
+        // The renderer gets the REAL rows; the model gets them quarantined and framed as data.
+        // Two different audiences: the human is the one who can tell a hostile narration from an
+        // ordinary one, so blanking it for them would remove the only evidence that it existed.
         send({ t: 'tool_result', name: call.name, result })
+        const { framed, findings } = frameToolResult(call.name, result)
+        quarantined += findings.length
+        if (findings.length > 0) {
+          log('warn', 'ai-tool-result-quarantined', { tool: call.name, findings: findings.length })
+        }
+        const serialized = JSON.stringify(framed)
 
         if ((result as { ok?: boolean }).ok === false) {
           toolErrors++
         } else {
           toolErrors = 0
+        }
+
+        // A draft is surfaced to the renderer as its own frame, so the drawer's "open this in the
+        // voucher screen" button is wired to the object the validator checked rather than to
+        // whatever the model wrote about it afterwards.
+        const proposal = (result as { draft?: VoucherDraftProposal; openable?: boolean; summary?: string; issues?: DraftIssue[] })
+        if (call.name === 'propose_voucher' && proposal.draft) {
+          draft = proposal.draft
+          send({
+            t: 'draft',
+            draft: proposal.draft,
+            summary: proposal.summary ?? '',
+            openable: proposal.openable === true,
+            issues: proposal.issues ?? []
+          })
         }
 
         messages.push({ role: 'tool', tool_call_id: call.id, content: serialized })
@@ -251,6 +392,26 @@ async function execute(runId: string, opts: StartOptions, controller: AbortContr
     clearTimeout(timeout)
     coalescer.flush()
     coalescer.dispose()
+    try {
+      recordRun(opts.db, {
+        runId,
+        question: opts.question,
+        answer: answer || null,
+        model: config.model,
+        host,
+        local,
+        tools: toolsCalled,
+        quarantined,
+        draft,
+        costPaise: runCostPaise,
+        finish,
+        askedBy: opts.askedBy ?? null
+      })
+    } catch (err) {
+      // The trail is provenance, not books: failing to write it must never swallow an answer the
+      // user is already reading.
+      log('error', 'ai-audit-write-failed', { message: (err as Error).message })
+    }
     send({ t: 'done', finish })
   }
 }

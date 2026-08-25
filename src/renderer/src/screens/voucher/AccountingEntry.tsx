@@ -683,6 +683,15 @@ export function AccountingEntry({
         if (!proceed) return
       }
       const saved = await api.vouchers.save(input, voucherId)
+      // A draft the assistant proposed is joined to its run only now, after a human pressed Save.
+      // The link records what a person did, so it cannot be written before they did it.
+      if (draft?.aiRunId) {
+        try {
+          await api.ai.linkVoucher(draft.aiRunId, saved.id)
+        } catch {
+          // Provenance, not books: failing to record it must not fail the save.
+        }
+      }
       // In the books now, so the crash-safe copy of it must go — a draft that outlives its entry
       // is a prompt to re-type something already saved (roadmap #45 / #250).
       recovery.clear()

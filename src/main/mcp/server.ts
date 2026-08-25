@@ -16,6 +16,9 @@
  *  - Read tools reuse the AI tool set, so an agent and the in-app assistant see the same shapes.
  *  - Writes need BOTH `--allow-writes` on the command line AND agent access switched on in the
  *    app. Two independent switches, one of them visible to the owner in a UI they can revoke.
+ *  - And a rate limit, which is a different kind of control from the other two: consent is not a
+ *    rate, and a user who legitimately enabled writes has also enabled an agent in a loop. See
+ *    @shared/ai/rateLimit.
  *  - Without `--allow-writes` the database is opened read-only at the SQLite level, so a write
  *    is impossible rather than merely absent.
  */
@@ -29,6 +32,8 @@ import {
   ReadResourceRequestSchema
 } from '@modelcontextprotocol/sdk/types.js'
 import { toJsonSchema } from '@shared/ai/jsonSchema'
+import { MCP_WRITE_LIMIT, TokenBucket } from '@shared/ai/rateLimit'
+import { agentChangelogResource } from '@shared/ai/agentChangelog'
 import { fyOf, todayISO } from '@shared/dates'
 import { voucherInputSchema } from '@shared/schemas'
 import { TOOLS, dispatch, type AiToolCtx } from '../services/ai/tools'
@@ -60,6 +65,10 @@ export function buildServer(company: OpenedCompany): Server {
   /** Writes need the command-line flag AND the in-app switch. Checked per call, not at start-up,
    *  so revoking agent access in the app takes effect on the very next request. */
   const writesAllowed = (): boolean => company.writable && getAgentBridgeEnabled(company.db)
+
+  // Per server process, which is per connected agent: one agent's backfill must not spend
+  // another's budget.
+  const writeBudget = new TokenBucket(MCP_WRITE_LIMIT)
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: [
@@ -96,6 +105,18 @@ export function buildServer(company: OpenedCompany): Server {
           ]
         }
       }
+      const spent = writeBudget.take()
+      if (!spent.allowed) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: `Rate limited: too many writes in a row. Wait ${spent.retryAfterSeconds}s and try again. For a bulk backfill use the agent inbox instead — it is one atomic file drop rather than one request per voucher.`
+            }
+          ]
+        }
+      }
       const input = voucherInputSchema.parse(args)
       // Audited as its own pseudo-user, alongside the existing agent-inbox and agent-cli, so the
       // audit log always says which surface an entry came through.
@@ -124,6 +145,11 @@ export function buildServer(company: OpenedCompany): Server {
         uri: 'total://voucher-schema',
         name: 'Voucher input JSON Schema',
         mimeType: 'application/json'
+      },
+      {
+        uri: 'total://changelog',
+        name: 'What changed in this interface',
+        mimeType: 'application/json'
       }
     ]
   }))
@@ -148,6 +174,9 @@ export function buildServer(company: OpenedCompany): Server {
       return json(listLedgers(company.db).map((l) => ({ id: l.id, name: l.name, groupId: l.groupId })))
     }
     if (uri === 'total://voucher-schema') return json(voucherJsonSchema())
+    // An agent's picture of these tools is formed once and cached in a summary somewhere. This is
+    // how it finds out that picture is stale without having to notice an error first.
+    if (uri === 'total://changelog') return json(agentChangelogResource())
     throw new Error(`Unknown resource: ${uri}`)
   })
 

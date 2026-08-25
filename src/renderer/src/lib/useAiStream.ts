@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './client'
 import { isAiFrame, type AiFrame } from '@shared/ai/stream'
+import type { DraftIssue, VoucherDraftProposal } from '@shared/ai/draft'
 
 export interface ToolTrace {
   name: string
@@ -16,11 +17,23 @@ export interface ToolTrace {
   result?: unknown
 }
 
+/** A proposed voucher, as the drawer renders it. Never a saved one — see @shared/ai/draft. */
+export interface AiDraft {
+  draft: VoucherDraftProposal
+  summary: string
+  openable: boolean
+  issues: DraftIssue[]
+  /** The run that proposed it, so a save can be joined back to the question (roadmap #217). */
+  runId: string
+}
+
 export interface AiTurn {
   role: 'user' | 'assistant'
   content: string
   /** Populated for assistant turns: the tool calls behind the answer, shown as its sources. */
   tools?: ToolTrace[]
+  /** A draft the assistant proposed in this turn. */
+  draft?: AiDraft
   error?: string
 }
 
@@ -29,9 +42,11 @@ export interface AiStreamState {
   running: boolean
   usage: { promptTokens: number; completionTokens: number } | null
   endpoint: { host: string; model: string; local: boolean } | null
+  /** Running cost, in paise, as reported by main. Zero throughout on a local endpoint. */
+  spend: { runPaise: number; sessionPaise: number; todayPaise: number; priced: boolean } | null
 }
 
-const EMPTY: AiStreamState = { turns: [], running: false, usage: null, endpoint: null }
+const EMPTY: AiStreamState = { turns: [], running: false, usage: null, endpoint: null, spend: null }
 
 export function useAiStream(): {
   state: AiStreamState
@@ -85,6 +100,28 @@ export function useAiStream(): {
             ...prev,
             usage: { promptTokens: frame.promptTokens, completionTokens: frame.completionTokens }
           }
+        case 'spend':
+          return {
+            ...prev,
+            spend: {
+              runPaise: frame.runPaise,
+              sessionPaise: frame.sessionPaise,
+              todayPaise: frame.todayPaise,
+              priced: frame.priced
+            }
+          }
+        case 'draft': {
+          if (!assistant) return prev
+          assistant.draft = {
+            draft: frame.draft,
+            summary: frame.summary,
+            openable: frame.openable,
+            issues: frame.issues,
+            runId: frame.runId
+          }
+          turns[turns.length - 1] = assistant
+          return { ...prev, turns }
+        }
         case 'error':
           if (!assistant) return { ...prev, running: false }
           assistant.error = frame.message
@@ -153,6 +190,9 @@ export function useAiStream(): {
     if (runIdRef.current) void api.ai.cancel(runIdRef.current)
     runIdRef.current = null
     seqRef.current = -1
+    // Clearing the conversation clears the session spend budget with it: the cap is per
+    // conversation, and a user who starts again should not inherit the last one's bill.
+    void api.ai.resetSession()
     setState(EMPTY)
   }, [])
 

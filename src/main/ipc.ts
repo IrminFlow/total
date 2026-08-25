@@ -27,8 +27,10 @@ import {
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { addDays, todayISO } from '@shared/dates'
-import { aiSettingsSchema } from '@shared/ai/config'
+import { aiSettingsSchema, isLocalEndpoint } from '@shared/ai/config'
+import { alwaysRedactedFields, redactionPreview } from '@shared/ai/preview'
 import * as aiConfig from './services/ai/config'
+import * as assistantLog from './services/assistantLog'
 import * as licenseSvc from './services/license'
 import { mcpSnippet } from './mcp/snippet'
 import { formatPaise } from '@shared/money'
@@ -3582,10 +3584,76 @@ export function registerIpc(): void {
         question,
         screen,
         history,
-        wc
+        wc,
+        askedBy: sessionUser?.name ?? null
       })
     }
   }, 'viewer')
+
+  /**
+   * The payload viewer (roadmap #214) and the redaction preview (#222).
+   *
+   * Read-only and offline: it builds what would be sent and returns it. Gated on the feature flag
+   * like every other AI channel, but deliberately NOT on a key existing — the point is to let
+   * someone read the disclosure before deciding to configure anything.
+   */
+  handle('ai:preview', async (p) => {
+    const { question, screen, history } = z
+      .object({
+        question: z.string().trim().max(2000).default('(your question)'),
+        screen: z.string().max(60).optional(),
+        history: z
+          .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(8000) }))
+          .max(16)
+          .optional()
+      })
+      .parse(p ?? {})
+    const c = requireAiOn()
+    const { buildPreview } = await import('./services/ai/runner')
+    return {
+      payload: buildPreview({ info: c.info, today: todayISO(), question, screen, history }),
+      redaction: redactionPreview(),
+      alwaysRedacted: alwaysRedactedFields()
+    }
+  }, 'viewer')
+
+  /** What the assistant has cost. Machine-level, so it needs no company. */
+  handle('ai:spend', async () => {
+    const { spendSnapshot } = await import('./services/ai/spend')
+    const config = aiConfig.readConfig()
+    return {
+      ...spendSnapshot(todayISO()),
+      sessionCapPaise: config.sessionCapPaise,
+      dailyCapPaise: config.dailyCapPaise,
+      local: isLocalEndpoint(config.baseUrl)
+    }
+  }, 'viewer')
+
+  /** Clearing the conversation clears the session budget with it. */
+  handle('ai:resetSession', async () => {
+    const { resetSession } = await import('./services/ai/spend')
+    resetSession()
+    return { ok: true }
+  }, 'viewer')
+
+  /** The assistant audit trail (#217): question, draft, and the voucher a human saved. */
+  handle('ai:log', (p) => {
+    const { limit } = z.object({ limit: z.number().int().min(1).max(200).default(50) }).parse(p ?? {})
+    return assistantLog.listRuns(requireCompany().db, limit)
+  }, 'viewer')
+
+  /**
+   * Join a saved voucher to the run that proposed its draft.
+   *
+   * Called by the voucher screen AFTER a successful save, never by the assistant: the link is a
+   * record of what a person did, and it is only true once the save went through.
+   */
+  handle('ai:linkVoucher', (p) => {
+    const { runId, voucherId } = z
+      .object({ runId: z.string().min(1).max(80), voucherId: z.number().int().positive() })
+      .parse(p)
+    return { linked: assistantLog.linkVoucher(requireCompany().db, runId, voucherId) }
+  }, 'accountant')
 
   handle('ai:cancel', async (p) => {
     const { runId } = z.object({ runId: z.string().min(1).max(80) }).parse(p)

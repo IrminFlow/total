@@ -10,6 +10,8 @@
  * discovering that later over a different transport.
  */
 
+import type { DraftIssue, VoucherDraftProposal } from './draft'
+
 export type AiFinish = 'stop' | 'length' | 'cancelled' | 'cap' | 'error'
 
 export type AiFrame =
@@ -18,6 +20,31 @@ export type AiFrame =
   | { t: 'tool_call'; runId: string; seq: number; name: string; args: unknown }
   | { t: 'tool_result'; runId: string; seq: number; name: string; result: unknown }
   | { t: 'usage'; runId: string; seq: number; promptTokens: number; completionTokens: number }
+  /**
+   * A proposed voucher. Its own frame rather than a tool_result the renderer digs through,
+   * because the drawer renders it as a card with a button, and the type is what guarantees the
+   * button is wired to a draft the same code validated.
+   */
+  | {
+      t: 'draft'
+      runId: string
+      seq: number
+      draft: VoucherDraftProposal
+      summary: string
+      openable: boolean
+      issues: DraftIssue[]
+    }
+  /** Running cost, after each exchange. Zero throughout on a local endpoint. */
+  | {
+      t: 'spend'
+      runId: string
+      seq: number
+      runPaise: number
+      sessionPaise: number
+      todayPaise: number
+      /** False when the model was not in the price table and a fallback rate was used. */
+      priced: boolean
+    }
   | { t: 'done'; runId: string; seq: number; finish: AiFinish }
   | { t: 'error'; runId: string; seq: number; kind: string; message: string }
 

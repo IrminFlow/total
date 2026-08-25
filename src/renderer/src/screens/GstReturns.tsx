@@ -8,6 +8,7 @@ import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { posLabel } from '@shared/gst/states'
 import type { GstIssue } from '@shared/gst/validate'
+import { GST_ISSUE_EXPLANATIONS } from '@shared/ai/gstExplain'
 import type { Gst3bManualInput } from '@shared/schemas'
 
 export interface MonthChoice {
@@ -108,19 +109,32 @@ const SEVERITY_CLASS: Record<GstIssue['severity'], string> = {
   warning: 'border-accent/50 bg-accent/10 text-accent'
 }
 
+/**
+ * One validation issue, with an optional plain-English explanation underneath (roadmap #209).
+ *
+ * The explanation is WRITTEN, in @shared/ai/gstExplain, keyed by the issue code, and cited to the
+ * provision. It is not generated: an improvised account of a GST rule is the one kind of text a
+ * user will act on and cannot check, and it would be wrong on a machine with no assistant
+ * configured at all. The assistant's gst_explain tool quotes these same sentences.
+ */
 function IssueRow({
   severity,
+  code,
   message,
   voucherIds,
   onOpen
 }: {
   severity: GstIssue['severity']
+  /** Absent for the synthesised round-off rows, which have no code and no written explanation. */
+  code?: GstIssue['code']
   message: string
   voucherIds: number[]
   onOpen: (voucherId: number) => void
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
+  const [why, setWhy] = useState(false)
   const shown = expanded ? voucherIds : voucherIds.slice(0, 8)
+  const explanation = code ? GST_ISSUE_EXPLANATIONS[code] : undefined
   return (
     <div className="flex flex-col gap-1 border-b border-line px-3 py-2 last:border-b-0" data-row-id={voucherIds[0]}>
       <div className="flex items-start gap-2">
@@ -128,7 +142,25 @@ function IssueRow({
           {severity}
         </span>
         <span className="text-body-sm text-ink">{message}</span>
+        {explanation && (
+          <button
+            data-testid="btn-gst-explain"
+            className="ml-auto shrink-0 text-caption text-muted underline decoration-dotted underline-offset-2 hover:text-ink"
+            onClick={() => setWhy((v) => !v)}
+          >
+            {why ? 'Hide' : 'What does this mean?'}
+          </button>
+        )}
       </div>
+      {why && explanation && (
+        <div className="ml-1 rounded-md border border-line bg-panel2 px-3 py-2" data-testid="gst-explanation">
+          <p className="text-body-sm text-ink">{explanation.what}</p>
+          <p className="mt-1 text-body-sm text-muted">{explanation.why}</p>
+          <p className="mt-1 text-body-sm">
+            <b>Fix:</b> {explanation.fix}
+          </p>
+        </div>
+      )}
       {voucherIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 pl-1">
           {shown.map((id) => (
@@ -245,7 +277,7 @@ export function Gstr1Screen(): React.JSX.Element {
         <Panel className="mb-4" scroll={{ maxH: '18rem' }}>
           <div data-testid="rows-gstr1-issues">
             {[...blocking, ...warnings].map((issue, i) => (
-              <IssueRow key={`${issue.code}-${i}`} severity={issue.severity} message={issue.message} voucherIds={issue.voucherIds} onOpen={openVoucher} />
+              <IssueRow key={`${issue.code}-${i}`} severity={issue.severity} code={issue.code} message={issue.message} voucherIds={issue.voucherIds} onOpen={openVoucher} />
             ))}
             {roundOff.map((r) => (
               <IssueRow

@@ -5,6 +5,8 @@ import { useSession, useToasts } from '../../state/stores'
 import { Button, Field, Modal, Panel, SectionTitle, Select, SkeletonRows, Spinner, TextInput, inputCls } from '../../components/ui'
 import { useFeatures } from '../../lib/useFeatures'
 import { EGRESS_MODES, KEY_MASK, endpointHost, isLocalEndpoint, type AiSettings } from '@shared/ai/config'
+import { ENDPOINT_PRESETS, applyPreset, matchPreset } from '@shared/ai/presets'
+import { redactionPreview } from '@shared/ai/preview'
 import { formatPaise, parseRupees } from '@shared/money'
 
 /**
@@ -22,6 +24,7 @@ export function AiSection(): React.JSX.Element {
   const features = useFeatures()
   const canEdit = user?.role === 'owner'
   const { data: existing } = useQuery({ queryKey: ['aiConfig'], queryFn: api.ai.getConfig })
+  const { data: spend } = useQuery({ queryKey: ['aiSpend'], queryFn: api.ai.spend })
   const [draft, setDraft] = useState<AiSettings | null>(null)
   const [busy, setBusy] = useState<'save' | 'test' | null>(null)
   const [models, setModels] = useState<string[] | null>(null)
@@ -37,6 +40,7 @@ export function AiSection(): React.JSX.Element {
     try {
       await api.ai.setConfig(settings)
       await queryClient.invalidateQueries({ queryKey: ['aiConfig'] })
+      await queryClient.invalidateQueries({ queryKey: ['aiSpend'] })
       setDraft(null)
       toast.push('success', 'AI settings saved')
     } catch (err) {
@@ -137,6 +141,36 @@ export function AiSection(): React.JSX.Element {
       </Panel>
 
       <Panel className="p-5">
+        {/* Presets first, and the local ones first among them. A model on this machine is the
+            configuration that keeps Total's promise intact, and the only thing standing between a
+            user and it is knowing which port Ollama listens on. */}
+        <div className="mb-5">
+          <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">Start from</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {ENDPOINT_PRESETS.map((preset) => {
+              const active = matchPreset(value.baseUrl)?.id === preset.id
+              return (
+                <button
+                  key={preset.id}
+                  data-testid={`btn-ai-preset-${preset.id}`}
+                  disabled={!canEdit}
+                  title={preset.hint}
+                  className={`rounded-md border px-3 py-1.5 text-body-sm disabled:opacity-50 ${
+                    active ? 'border-accent bg-accent/10 text-accent' : 'border-line hover:bg-panel2'
+                  }`}
+                  onClick={() => set(applyPreset(preset))}
+                >
+                  {preset.label}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-2 text-hint text-muted">
+            {matchPreset(value.baseUrl)?.hint ??
+              'Or type any OpenAI-compatible endpoint below. A local one needs no key and sends nothing anywhere.'}
+          </p>
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
           <Field label="Endpoint" hint="Any OpenAI-compatible API, including a local one">
             <TextInput
@@ -196,6 +230,7 @@ export function AiSection(): React.JSX.Element {
           <Field label="Spend cap per session" hint="0 turns the assistant off as surely as the flag">
             <input
               className={inputCls}
+              data-testid="input-ai-session-cap"
               value={formatPaise(value.sessionCapPaise)}
               disabled={!canEdit}
               onChange={(e) => {
@@ -204,7 +239,30 @@ export function AiSection(): React.JSX.Element {
               }}
             />
           </Field>
+          <Field label="Spend cap per day" hint="Enforced in the app, not by your provider">
+            <input
+              className={inputCls}
+              data-testid="input-ai-daily-cap"
+              value={formatPaise(value.dailyCapPaise)}
+              disabled={!canEdit}
+              onChange={(e) => {
+                const paise = parseRupees(e.target.value)
+                if (paise != null && paise >= 0) set({ dailyCapPaise: paise })
+              }}
+            />
+          </Field>
         </div>
+
+        {/* Spend is an estimate from published list prices at a fixed exchange rate, and says so.
+            Its job is to stop a runaway loop, not to reconcile to an invoice. */}
+        {spend && !local && (
+          <p className="mt-4 text-body-sm text-muted" data-testid="ai-spend-summary">
+            Estimated spend: <span className="num text-ink">{formatPaise(spend.sessionPaise)}</span> this session,{' '}
+            <span className="num text-ink">{formatPaise(spend.todayPaise)}</span> today against a cap of{' '}
+            <span className="num">{formatPaise(spend.dailyCapPaise)}</span>.
+            {spend.unpricedRuns > 0 && ' Some runs used a model with no published price, so this is a floor.'}
+          </p>
+        )}
 
         {keyStorage === 'session' && (
           <div className="mt-4 rounded-md border border-accent/50 bg-accent/10 px-3.5 py-2.5 text-body-sm text-accent">
@@ -221,6 +279,42 @@ export function AiSection(): React.JSX.Element {
             Save
           </Button>
         </div>
+      </Panel>
+
+      {/* The redaction preview (roadmap #222). Pure shared code, so it renders with no key, no
+          endpoint and no network — the state someone is in when deciding whether to turn this on. */}
+      <Panel className="mt-4 p-5">
+        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">
+          What is stripped from every row
+        </p>
+        <p className="mt-2 text-body-sm text-muted">
+          A worked example, produced by running a sample party row through the same function every
+          tool result passes through. There is no toggle for this.
+        </p>
+        <table className="mt-3 w-full text-body-sm" data-testid="ai-redaction-preview">
+          <thead>
+            <tr className="text-caption text-muted">
+              <th className="py-1 text-left font-medium">Field</th>
+              <th className="py-1 text-left font-medium">In your books</th>
+              <th className="py-1 text-left font-medium">What leaves</th>
+              <th className="py-1 text-left font-medium">Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            {redactionPreview().withheld.map((field) => (
+              <tr key={field.field} className="border-t border-line align-top">
+                <td className="num py-1.5">{field.field}</td>
+                <td className="num py-1.5 text-muted line-through">{field.before}</td>
+                <td className="num py-1.5">{field.after}</td>
+                <td className="py-1.5 text-muted">{field.why}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-3 text-hint text-muted">
+          Sent: {redactionPreview().sent.join(', ')} — the parts a question about the books is
+          actually computed from.
+        </p>
       </Panel>
 
       {consentFor && (

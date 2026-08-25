@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNav, useSession, useToasts, type Screen } from '../state/stores'
+import { useAsk, useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { api } from '../lib/client'
 import { isAnyModalOpen, useFocusTrap, useKeyNav } from './ui'
 import { useFeatures } from '../lib/useFeatures'
 import { SCREENS } from '../lib/screens'
 import type { CompanyFeatures } from '@shared/features'
 import type { SearchHit } from '@shared/search'
+import { resolveAsk, type AskMatch } from '@shared/ai/askbar'
+import { todayISO } from '@shared/dates'
 
 interface Command {
   label: string
@@ -51,6 +53,17 @@ export const SCREEN_SEARCH_SCOPE: Partial<Record<Screen['name'], SearchHit['kind
   collections: ['ledger'],
   masters: ['ledger', 'item'],
   'stock-summary': ['item']
+}
+
+/**
+ * The screen an ask match opens.
+ *
+ * Kept here rather than in shared because `Screen` is a renderer type: the matcher returns a
+ * screen NAME and a window, and this is the one place that knows what those mean as navigation.
+ */
+export function screenForAsk(match: AskMatch): Screen {
+  if (match.screen === 'daybook' && match.span) return { name: 'daybook', span: match.span }
+  return { name: match.screen } as Screen
 }
 
 export function CommandPalette({
@@ -165,16 +178,58 @@ export function CommandPalette({
     ]
   }, [nav, toast, clearCompany])
 
+  /**
+   * The ask bar (roadmap #212): deterministic first, model second.
+   *
+   * A typed question is resolved against the report intents in @shared/ai/askbar BEFORE anything
+   * else. When one matches, the top row opens that report — exact, instant, free, and working
+   * with the assistant switched off, which is most companies. Only an unmatched question offers
+   * the assistant, and only when the feature is on.
+   *
+   * The ordering is the feature. Putting the model first would make the common questions slower,
+   * costlier and less exact than the screens that already answer them.
+   */
+  const askMatch = useMemo<AskMatch | null>(
+    () => (scope ? null : resolveAsk(query, todayISO())),
+    [query, scope]
+  )
+
+  const askCommands = useMemo<Command[]>(() => {
+    if (scope || query.trim().length < 3) return []
+    const out: Command[] = []
+    if (askMatch) {
+      out.push({
+        label: askMatch.label,
+        hint: 'Report',
+        run: () => nav.go(screenForAsk(askMatch))
+      })
+    }
+    // Offered only when nothing deterministic matched — the assistant is the fallback, not the
+    // front door. The feature gate is the same one Shell uses to render the drawer at all.
+    if (!askMatch && features.ai) {
+      out.push({
+        label: `Ask the assistant: “${query.trim()}”`,
+        hint: '⌘J',
+        feature: 'ai',
+        run: () => useAsk.getState().openAsk(query.trim())
+      })
+    }
+    return out
+  }, [askMatch, query, scope, features.ai, nav])
+
   const filtered = useMemo(() => {
     // A scoped search is a search, not a menu — the commands would bury the hits it was opened for.
     if (scope) return []
     const visible = commands.filter((c) => !c.feature || features[c.feature])
     const q = query.trim().toLowerCase()
     if (!q) return visible
-    return visible.filter(
-      (c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q))
-    )
-  }, [commands, query, features, scope])
+    return [
+      ...askCommands,
+      ...visible.filter(
+        (c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q))
+      )
+    ]
+  }, [commands, query, features, scope, askCommands])
 
   // Books search: debounced 150ms, only fires once the query is meaningfully specific (2+ chars).
   const [debounced, setDebounced] = useState('')

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useIsFetching } from '@tanstack/react-query'
-import { THEME_LABEL, THEME_ORDER, useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
+import { THEME_LABEL, THEME_ORDER, useAsk, useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
 import { useAutoLock } from '../lib/useAutoLock'
 import { useStickyNumber } from '../lib/useStickyTab'
@@ -39,13 +39,13 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   // Letters the active screen has taken over render grey rather than red, so a shadowed
   // shortcut is visible instead of being discovered by pressing it and going nowhere.
   const shadowed = useShadowedAccels()
-  const [askOpen, setAskOpen] = useState(false)
+  const ask = useAsk()
   // ⌘J from anywhere. Registered on the nav layer, so a dialog or a screen action still wins.
   useKeyLayer('nav', (e) => {
     if (!features.ai) return false
     if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'j') return false
     e.preventDefault()
-    setAskOpen((v) => !v)
+    ask.toggleAsk()
     return true
   })
   const { theme, toggle } = useTheme()
@@ -205,7 +205,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         </main>
         {/* Only rendered when the company has the assistant switched on — the drawer, its hook
             and its IPC surface are all invisible otherwise. */}
-        {features.ai && askOpen && <AskDrawer onClose={() => setAskOpen(false)} />}
+        {features.ai && ask.open && <AskDrawer onClose={ask.closeAsk} />}
       </div>
       <HintBar />
 

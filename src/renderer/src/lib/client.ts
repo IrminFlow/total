@@ -51,6 +51,31 @@ import type {
   ScheduleFrequency, SchedulePeriodKind, ScheduleReport
 } from '@shared/reportSchedule'
 import type { AiConfigView, AiSettings } from '@shared/ai/config'
+import type { PayloadPreview, redactionPreview } from '@shared/ai/preview'
+import type { VoucherDraftProposal } from '@shared/ai/draft'
+
+/**
+ * One row of the assistant audit trail. Mirrors src/main/services/assistantLog.ts — declared
+ * here, as everything else on this boundary is: the renderer cannot import from src/main, and
+ * duplicating a type is cheaper than a shared module for a shape only these two files use.
+ */
+export interface AssistantRunRow {
+  id: number
+  runId: string
+  askedAt: string
+  askedBy: string | null
+  question: string
+  answer: string | null
+  model: string
+  host: string
+  local: boolean
+  tools: string[]
+  quarantined: number
+  draft: VoucherDraftProposal | null
+  voucherId: number | null
+  costPaise: number
+  finish: string | null
+}
 import type { LicenseState } from '@shared/license'
 import type { Cmp08, CompositionCategory, Gstr4 } from '@shared/gst/composition'
 import type { FilingLiability, FilingRecord, FilingRow } from '@shared/gst/filings'
@@ -2527,7 +2552,29 @@ export const api = {
       call<{ ok: true; latencyMs: number; models: string[]; warnings: string[] }>('ai:testConnection'),
     chat: (input: { question: string; screen?: string; history?: { role: 'user' | 'assistant'; content: string }[] }) =>
       call<{ runId: string }>('ai:chat', input),
-    cancel: (runId: string) => call<{ cancelled: boolean }>('ai:cancel', { runId })
+    cancel: (runId: string) => call<{ cancelled: boolean }>('ai:cancel', { runId }),
+    /** Exactly what would be sent, built without sending it (roadmap #214, #222). */
+    preview: (input: { question?: string; screen?: string; history?: { role: 'user' | 'assistant'; content: string }[] }) =>
+      call<{
+        payload: PayloadPreview
+        redaction: ReturnType<typeof redactionPreview>
+        alwaysRedacted: string[]
+      }>('ai:preview', input),
+    spend: () =>
+      call<{
+        sessionPaise: number
+        todayPaise: number
+        unpricedRuns: number
+        recent: { date: string; paise: number }[]
+        sessionCapPaise: number
+        dailyCapPaise: number
+        local: boolean
+      }>('ai:spend'),
+    resetSession: () => call<{ ok: true }>('ai:resetSession'),
+    log: (limit?: number) => call<AssistantRunRow[]>('ai:log', { limit }),
+    /** Called after a human saves a draft the assistant proposed — never by the assistant. */
+    linkVoucher: (runId: string, voucherId: number) =>
+      call<{ linked: boolean }>('ai:linkVoucher', { runId, voucherId })
   },
   annual: {
     /** GSTR-9 working papers: the year's books beside the year's returns. */

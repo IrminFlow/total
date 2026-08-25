@@ -16,6 +16,14 @@ export interface VoucherDraft {
   partyLedgerId?: number
   narration?: string
   lines?: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
+  /**
+   * The assistant run that proposed this draft, when one did.
+   *
+   * Carried so that a SAVED voucher can be joined back to the question that produced it
+   * (roadmap #217). The link is written after the save succeeds, by the entry screen — never by
+   * the assistant, which has no way to write anything.
+   */
+  aiRunId?: string
 }
 
 /**
@@ -148,6 +156,41 @@ export const useNav = create<NavState>((set) => ({
 }))
 
 export const useScreen = (): Screen => useNav((s) => s.stack[s.stack.length - 1]!)
+
+// ---------- the ask drawer ----------
+
+/**
+ * Whether the assistant drawer is open, and a question waiting to be asked in it.
+ *
+ * A store rather than Shell state because three places open it and only one of them is Shell:
+ * ⌘J, the command palette when a typed question has no deterministic report behind it, and the
+ * GST screen's "explain these issues". Passing a callback down to all three would put the
+ * drawer's state in everyone's props for the sake of one boolean.
+ *
+ * `pending` is taken exactly once, by the drawer, on mount. A question that stayed in the store
+ * would be re-asked every time the drawer reopened.
+ */
+interface AskState {
+  open: boolean
+  pending: string | null
+  openAsk: (question?: string) => void
+  closeAsk: () => void
+  toggleAsk: () => void
+  takePending: () => string | null
+}
+
+export const useAsk = create<AskState>((set, get) => ({
+  open: false,
+  pending: null,
+  openAsk: (question) => set({ open: true, pending: question ?? null }),
+  closeAsk: () => set({ open: false, pending: null }),
+  toggleAsk: () => set((s) => ({ open: !s.open, pending: null })),
+  takePending: () => {
+    const pending = get().pending
+    if (pending) set({ pending: null })
+    return pending
+  }
+}))
 
 // ---------- session (open company + working period) ----------
 

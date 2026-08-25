@@ -26,7 +26,9 @@ import { SCREENS } from '../lib/screens'
  */
 const NOT_NAVIGATION_SCOPED = new Set([
   // Settings panels and their modals — reached by opening the thing, refreshed by saving it.
-  'aiConfig', 'backupKeep', 'backupVerify', 'binPurge', 'license', 'mcpSnippet', 'registry',
+  // aiSpend rides with aiConfig: both are machine-level, both are refreshed by saving the panel
+  // they live in, and neither is a fact about the company a screen could invalidate.
+  'aiConfig', 'aiSpend', 'backupKeep', 'backupVerify', 'binPurge', 'license', 'mcpSnippet', 'registry',
   'diagnostics', 'voucherCount',
   // The lock screen is not a screen in the registry — it replaces the shell entirely, and its
   // list of who can sign in is fetched when it appears.
