@@ -52,7 +52,7 @@ export function DisclosureScreen(): React.JSX.Element {
                 aria-pressed={tab === t.id}
                 onClick={() => setTab(t.id)}
                 className={`rounded-md px-2.5 py-1 text-small ${
-                  tab === t.id ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+                  tab === t.id ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
                 }`}
               >
                 {t.label}
@@ -383,7 +383,7 @@ function LutTab(): React.JSX.Element {
     status?.state === 'valid'
       ? 'border-dr/40 bg-dr/5 text-dr'
       : status?.state === 'expiring'
-        ? 'border-amberbar/60 bg-amberbar/10 text-ink'
+        ? 'border-accentbar/60 bg-accentbar/10 text-ink'
         : 'border-cr/40 bg-cr/5 text-cr'
 
   const remove = async (l: Lut): Promise<void> => {

@@ -60,7 +60,7 @@ export function CollectionsScreen(): React.JSX.Element {
                 aria-pressed={tab === t.id}
                 onClick={() => setTab(t.id)}
                 className={`rounded-md px-2.5 py-1 text-small ${
-                  tab === t.id ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+                  tab === t.id ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
                 }`}
               >
                 {t.label}
@@ -90,7 +90,7 @@ export function CollectionsScreen(): React.JSX.Element {
 
 const TONE_CLASS: Record<string, string> = {
   gentle: 'border-line text-muted',
-  firm: 'border-amberbar/60 text-ink',
+  firm: 'border-accentbar/60 text-ink',
   final: 'border-cr/50 text-cr'
 }
 
@@ -355,7 +355,7 @@ function InterestTab(): React.JSX.Element {
 const BAND_CLASS: Record<string, string> = {
   excellent: 'border-dr/50 text-dr',
   good: 'border-dr/30 text-dr',
-  fair: 'border-amberbar/60 text-ink',
+  fair: 'border-accentbar/60 text-ink',
   poor: 'border-cr/50 text-cr'
 }
 

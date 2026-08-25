@@ -101,7 +101,7 @@ export function VoucherEntry({
       {/* Crash-safe recovery (roadmap #250) — suppressed while altering an existing voucher, and
           while a draft has just been handed in by a nudge or a duplicate. */}
       {showFirstVoucherHint && (
-        <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5">
+        <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-accent/40 bg-accent/10 px-4 py-2.5">
           <p className="text-body-sm text-ink">
             First voucher? Pick a type above (or <Kbd>F8</Kbd> for Sales), fill in the lines, then{' '}
             <Kbd>⌘↵</Kbd> to save.
@@ -127,7 +127,7 @@ export function VoucherEntry({
                     data-testid={`tab-voucher-entry-${t.kind}`}
                     onClick={() => setTypeId(t.id)}
                     className={`rounded-md px-2.5 py-1 text-small whitespace-nowrap transition-colors ${
-                      t.id === currentType.id ? 'bg-amber/20 text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
+                      t.id === currentType.id ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-panel2 hover:text-ink'
                     }`}
                   >
                     {t.name}
@@ -210,7 +210,7 @@ function SameAsLast({ typeId, kind }: { typeId: number; kind: VoucherKind }): Re
       data-testid="btn-same-as-last"
       onClick={() => void start()}
       title="Start from the last voucher of this type — everything but its date"
-      className="ml-2 rounded-md border border-line px-2.5 py-1 text-small whitespace-nowrap text-muted hover:border-amber/60 hover:text-ink"
+      className="ml-2 rounded-md border border-line px-2.5 py-1 text-small whitespace-nowrap text-muted hover:border-accent/60 hover:text-ink"
     >
       Same as last
     </button>

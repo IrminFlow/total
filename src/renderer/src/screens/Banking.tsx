@@ -377,7 +377,7 @@ export function BankingScreen(): React.JSX.Element {
             key={t}
             data-testid={`tab-banking-${t}`}
             onClick={() => setTab(t)}
-            className={`rounded-md px-3 py-1.5 text-detail ${tab === t ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'}`}
+            className={`rounded-md px-3 py-1.5 text-detail ${tab === t ? 'bg-accentbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'}`}
           >
             {TAB_LABELS[t]}
           </button>
@@ -551,7 +551,7 @@ export function BankingScreen(): React.JSX.Element {
                             <span
                               className={
                                 s.suggestion.ambiguous
-                                  ? 'text-amber'
+                                  ? 'text-accent'
                                   : s.suggestion.confidence >= threshold
                                     ? 'text-dr font-medium'
                                     : 'text-muted'
@@ -1874,7 +1874,7 @@ function ReconciliationStatusPanel({ asOn }: { asOn: string }): React.JSX.Elemen
                       <span className="flex items-center gap-2">
                         <span className="h-1.5 w-24 overflow-hidden rounded-full bg-line">
                           <span
-                            className={`block h-full ${pct === 1 ? 'bg-dr' : pct >= 0.8 ? 'bg-amberbar' : 'bg-cr'}`}
+                            className={`block h-full ${pct === 1 ? 'bg-dr' : pct >= 0.8 ? 'bg-accentbar' : 'bg-cr'}`}
                             style={{ width: `${Math.round(pct * 100)}%` }}
                           />
                         </span>
@@ -1901,7 +1901,7 @@ function ReconciliationStatusPanel({ asOn }: { asOn: string }): React.JSX.Elemen
       </Panel>
       {rows.some((r) => r.ageing[3] > 0) && (
         <div
-          className="mt-3 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm text-amber"
+          className="mt-3 rounded-md border border-accent/50 bg-accent/10 px-3.5 py-2.5 text-body-sm text-accent"
           data-testid="recon-stale"
         >
           {rows

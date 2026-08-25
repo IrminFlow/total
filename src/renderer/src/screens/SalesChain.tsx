@@ -51,7 +51,7 @@ export function SalesChainScreen(): React.JSX.Element {
                 aria-pressed={tab === s.stage}
                 onClick={() => setTab(s.stage)}
                 className={`rounded-md px-2.5 py-1 text-small ${
-                  tab === s.stage ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+                  tab === s.stage ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
                 }`}
               >
                 {s.label}

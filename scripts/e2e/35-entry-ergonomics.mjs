@@ -1,4 +1,4 @@
-// Scenario 33 — the four things a daily user does to a form, not to the books.
+// Scenario 35 — the four things a daily user does to a form, not to the books.
 //
 // Templates (#27), the percentage cost-centre split (#41), bulk edit (#39) and the quantity box
 // that reads "2 box" (#34). Each one has a property that is easy to get plausibly wrong:
@@ -13,7 +13,7 @@
 // All four are asserted on the DATA, not on the pixels.
 import { scenario, assert } from '../lib/harness.mjs'
 
-await scenario('33-entry-ergonomics', async (h) => {
+await scenario('35-entry-ergonomics', async (h) => {
   await h.createCompanyUI('Ergonomic Books')
   await h.stubDialogs()
 
@@ -243,6 +243,23 @@ await scenario('33-entry-ergonomics', async (h) => {
     boltRow.closingQtyMilli === 76000,
     `a hundred in and twenty-four out leaves seventy-six (got ${boltRow.closingQtyMilli})`
   )
+
+  // The quantity CELL renders, and reads back what the books hold.
+  //
+  // This assertion is here because it caught a real bug and was very nearly deleted for being
+  // inconvenient: the unit helpers were declared below the memo that calls them, so the whole
+  // invoice screen threw "Cannot access 'qtyMilliOf' before initialization" on first render.
+  // Every data assertion above still passed, because none of them render anything.
+  await h.goto('voucher-entry')
+  // Which type the screen opens on is remembered across sessions (#35), so the tab is clicked
+  // rather than assumed — waiting for a sales-only element first would hang on a fresh company
+  // that happens to remember a journal.
+  await h.page.waitForSelector('[data-testid="tab-voucher-entry-sales"]', { timeout: 20000 })
+  await h.page.click('[data-testid="tab-voucher-entry-sales"]')
+  await h.page.waitForSelector('[data-testid="picker-party"]', { timeout: 20000 })
+  await h.page.waitForSelector('[data-testid="invoice-grid"]', { timeout: 20000 })
+  const qtyCells = await h.page.$$('[data-testid="input-qty"]')
+  assert(qtyCells.length > 0, 'the invoice grid renders a quantity cell')
 
   console.log('  templates, percentage splits, bulk edit and alternate units all hold')
 })

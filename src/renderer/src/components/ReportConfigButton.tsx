@@ -17,7 +17,7 @@ export function ReportConfigButton({
     <>
       <button
         data-testid="btn-report-config"
-        className="rounded-md border border-line bg-panel2 px-2 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
+        className="rounded-md border border-line bg-panel2 px-2 py-1 text-small text-muted hover:border-accent/60 hover:text-ink"
         onClick={() => setOpen(true)}
         title="Configure columns"
         aria-label="Configure columns"

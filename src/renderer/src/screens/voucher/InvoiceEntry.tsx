@@ -132,8 +132,43 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const fxRate = currencyCode && fxRateText.trim() ? Number(fxRateText) : null
   const fxActive = !!currencyCode && !!fxRate && Number.isFinite(fxRate) && fxRate > 0
 
+  // Declared ABOVE `computed`, which calls qtyMilliOf. A `const` arrow function is in the
+  // temporal dead zone until its own line runs, so having these below the memo threw
+  // "Cannot access 'qtyMilliOf' before initialization" on first render and took the whole
+  // invoice screen down — caught by scenario 21, which is why it asserts on a screen rendering
+  // at all before it asserts on anything in it.
+  const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
+  /**
+   * Everything the quantity cell needs to read what was typed: the base unit's symbol and
+   * precision, plus the item's alternate unit when it has one (#34).
+   *
+   * Resolved here rather than inside QtyInput because the units list is already loaded on this
+   * screen, and a component that fetched it per row would issue one query per line.
+   */
+  const unitInfoOf = (itemId: number | null): { symbol: string; decimals: number; alt: AltUnit | null } => {
+    const item = itemId ? itemMap.get(itemId) : null
+    const base = units?.find((u) => u.id === item?.unitId)
+    const altUnit = item?.altUnitId != null ? units?.find((u) => u.id === item.altUnitId) : undefined
+    const alt: AltUnit | null =
+      altUnit && item?.altConversionMilli != null
+        ? { symbol: altUnit.symbol, conversionMilli: item.altConversionMilli }
+        : null
+    return { symbol: base?.symbol ?? '', decimals: base?.decimals ?? 3, alt }
+  }
+
+  /**
+   * Base thousandths for a row, reading the alternate unit and any arithmetic in the cell.
+   *
+   * The single place qtyText becomes a number — the totals below and the payload sent to the
+   * books both come through here, so a box can never be twelve pieces in one and one in the
+   * other.
+   */
+  const qtyMilliOf = (itemId: number | null, qtyText: string): number | null => {
+    const { symbol, alt } = unitInfoOf(itemId)
+    return parseQtyExpression(qtyText, symbol, alt)?.baseQtyMilli ?? null
+  }
+
   const computed = useMemo(() => {
-    const itemMap = new Map(items.map((i) => [i.id, i]))
     const detail = rows
       .map((r) => {
         const item = r.itemId ? itemMap.get(r.itemId) : null
@@ -479,37 +514,6 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     toast.push(unmatched || skipped.length ? 'warning' : 'success', parts.join(' · '))
   }
 
-  const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
-  /**
-   * Everything the quantity cell needs to read what was typed: the base unit's symbol and
-   * precision, plus the item's alternate unit when it has one (#34).
-   *
-   * Resolved here rather than inside QtyInput because the units list is already loaded on this
-   * screen, and a component that fetched it per row would issue one query per line.
-   */
-  const unitInfoOf = (itemId: number | null): { symbol: string; decimals: number; alt: AltUnit | null } => {
-    const item = itemId ? itemMap.get(itemId) : null
-    const base = units?.find((u) => u.id === item?.unitId)
-    const altUnit = item?.altUnitId != null ? units?.find((u) => u.id === item.altUnitId) : undefined
-    const alt: AltUnit | null =
-      altUnit && item?.altConversionMilli != null
-        ? { symbol: altUnit.symbol, conversionMilli: item.altConversionMilli }
-        : null
-    return { symbol: base?.symbol ?? '', decimals: base?.decimals ?? 3, alt }
-  }
-
-  /**
-   * Base thousandths for a row, reading the alternate unit and any arithmetic in the cell.
-   *
-   * The single place qtyText becomes a number — the totals below and the payload sent to the
-   * books both come through here, so a box can never be twelve pieces in one and one in the
-   * other.
-   */
-  const qtyMilliOf = (itemId: number | null, qtyText: string): number | null => {
-    const { symbol, alt } = unitInfoOf(itemId)
-    return parseQtyExpression(qtyText, symbol, alt)?.baseQtyMilli ?? null
-  }
-
   /**
    * Barcode scan lands the cursor on the quantity (#47).
    *
@@ -596,7 +600,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
 
       {rcm.kind !== 'none' && (
         <p
-          className={`mt-2 text-hint ${rcm.kind === 'suggest' ? 'text-amber' : 'text-muted'}`}
+          className={`mt-2 text-hint ${rcm.kind === 'suggest' ? 'text-accent' : 'text-muted'}`}
           data-testid="hint-rcm"
         >
           {rcm.kind === 'suggest' ? (
@@ -615,7 +619,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       )}
 
       {b2cLarge && (
-        <p className="mt-2 text-hint text-amber" data-testid="hint-b2cl">
+        <p className="mt-2 text-hint text-accent" data-testid="hint-b2cl">
           Over ₹1,00,000 inter-state to an unregistered buyer — this goes into GSTR-1 table 5
           (B2C large) invoice by invoice, not into the table 7 summary. Worth checking the value
           and the place of supply now.

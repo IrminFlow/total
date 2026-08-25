@@ -22,7 +22,7 @@
 
 ## Keyboard
 
-`⌘K` command palette · `F4`–`F9` voucher type switching · `⌘↵` save voucher · `Esc` back · arrow keys + `Enter` drive every list (the amber bar is the cursor) · single letters on the Gateway (`V` voucher, `D` day book, `B` balance sheet…).
+`⌘K` command palette · `F4`–`F9` voucher type switching · `⌘↵` save voucher · `Esc` back · arrow keys + `Enter` drive every list (the accent bar is the cursor) · single letters on the Gateway (`V` voucher, `D` day book, `B` balance sheet…).
 
 ## Shipping: GitHub, Vercel, auto-updates
 

@@ -466,6 +466,20 @@ export const rendererLogSchema = z.object({
 })
 export type RendererLogInput = z.infer<typeof rendererLogSchema>
 
+/**
+ * A support message the user has read in full before pressing send (roadmap #345).
+ *
+ * `log` is the diagnostics block exactly as previewed, empty when they chose not to attach it —
+ * main sends the string it is given rather than rebuilding one, so the preview cannot drift from
+ * the payload.
+ */
+export const supportSendSchema = z.object({
+  message: z.string().trim().min(5).max(8000),
+  email: z.string().trim().max(200).default(''),
+  log: z.string().max(8000).default('')
+})
+export type SupportSendInput = z.infer<typeof supportSendSchema>
+
 // ---------- TDS ----------
 
 export const tdsSectionInputSchema = z.object({

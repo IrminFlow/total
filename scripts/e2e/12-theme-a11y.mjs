@@ -1,5 +1,5 @@
 // Scenario 12 — theme + a11y sanity: both themes paint real (different) backgrounds, body
-// text clears WCAG AA contrast in each, the amber selection bar is an inset box-shadow (the
+// text clears WCAG AA contrast in each, the accent selection bar is an inset box-shadow (the
 // tr::before phantom-cell rule), and every sidebar nav control has an accessible name.
 import { scenario, assert } from '../lib/harness.mjs'
 
@@ -81,7 +81,7 @@ await scenario('12-theme-a11y', async (h) => {
   await h.shot('01-contrast-muted')
   await setTheme('light') // the rest of the scenario checks structure, not colour
 
-  // The amber selection bar: inset box-shadow on the active row, never a ::before pseudo-cell.
+  // The accent selection bar: inset box-shadow on the active row, never a ::before pseudo-cell.
   await h.goto('daybook')
   await h.page.waitForSelector('tr.kbar-row[data-active="true"]', { timeout: 10000 })
   const bar = await h.page.evaluate(() => {
@@ -175,7 +175,7 @@ await scenario('12-theme-a11y', async (h) => {
   assert(unscoped === 0, `${unscoped} table headers without a scope`)
 
   // ---- row selection is announced (#275) ----
-  // The amber bar moving changes no accessible state at all, so without a live region the whole
+  // The accent bar moving changes no accessible state at all, so without a live region the whole
   // Day Book is silent to a screen reader. Assert the region exists, is polite, and says which
   // row of how many — the thing a sighted user gets free from the scrollbar.
   await h.goto('daybook')
@@ -213,20 +213,26 @@ await scenario('12-theme-a11y', async (h) => {
       assert(Number(onActiveRow) === 1, `${screen}: the action on the keyboard-active row is visible (opacity ${onActiveRow})`)
     }
     // And on focus, on a row the keyboard bar is NOT on — the pure Tab case.
-    const idleOpacity = await h.page.evaluate(() => {
+    const found = await h.page.evaluate(() => {
       const el = [...document.querySelectorAll('tr:not([data-active="true"]) .row-action')].find(
         (e) => e instanceof HTMLElement
       )
-      if (!el) return null
+      if (!el) return false
       el.dataset.a11yProbe = '1'
-      const before = getComputedStyle(el).opacity
-      el.focus()
-      return before
+      return true
     })
-    if (idleOpacity !== null) {
-      // Not `=== 0`: the row the selection just left is still fading out when this is read, and
-      // a mid-transition 0.02 is the same fact as 0 — the action is not on show.
-      assert(Number(idleOpacity) < 0.5, `${screen}: a row action on an idle row is hidden (opacity ${idleOpacity})`)
+    if (found) {
+      // Polled, not read once. The claim under test is about the RESTING state of an idle row,
+      // and the arrow press a few lines up left the row the selection came from part-way through
+      // a 120ms fade — so an immediate read is a coin toss on a fact that is not in doubt. What
+      // would actually be a bug is the opacity never coming down, which is what a timeout here
+      // reports.
+      await h.page.waitForFunction(
+        () => Number(getComputedStyle(document.querySelector('[data-a11y-probe]')).opacity) < 0.5,
+        undefined,
+        { timeout: 3000 }
+      )
+      await h.page.evaluate(() => document.querySelector('[data-a11y-probe]').focus())
       // Polled, not read once: the reveal is a 120ms opacity transition, so an immediate read
       // catches it a third of the way up and proves nothing either way.
       await h.page.waitForFunction(

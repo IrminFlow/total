@@ -1,4 +1,4 @@
-// Scenario 32 — the bank desk: the post-dated calendar (#137), the bounced-cheque register
+// Scenario 34 — the bank desk: the post-dated calendar (#137), the bounced-cheque register
 // (#138) and the reconciliation freeze (#142), driven through the Banking screen's own controls.
 //
 // Properties, not pixels: the calendar is six whole weeks starting on a Sunday with exactly the
@@ -16,7 +16,7 @@ const shiftMonth = (key, delta) => {
   return `${String(Math.floor(zero / 12)).padStart(4, '0')}-${String((zero % 12) + 1).padStart(2, '0')}`
 }
 
-await scenario('32-bank-desk', async (h) => {
+await scenario('34-bank-desk', async (h) => {
   await h.createDemoCompany()
 
   const bankLedgers = await h.invoke('bank:ledgers')

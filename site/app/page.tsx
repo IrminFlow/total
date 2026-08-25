@@ -99,7 +99,7 @@ export default async function Home(): Promise<React.JSX.Element> {
             </div>
           </div>
           <p className="vfoot">
-            The amber bar is the cursor: <kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>↵</kbd> takes you to the next
+            The accent bar is the cursor: <kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>↵</kbd> takes you to the next
             field, <kbd>Esc</kbd> backs out.
           </p>
           <div className="folio-close" aria-hidden="true" />
