@@ -103,6 +103,10 @@ jobs:
         run: npm run e2e
         env:
           SMOKE_OUT: ${{ runner.temp }}/e2e
+          # A shared runner is a contended machine and every number in this suite is wall clock.
+          # Scaled here rather than loosened in the file, so a developer's own run keeps the tight
+          # budget that would actually notice the suite doubling in cost.
+          E2E_SCALE: 3
 
       - name: Upload E2E screenshots + results
         if: always()
@@ -180,6 +184,7 @@ jobs:
         run: npm run e2e
         env:
           SMOKE_OUT: ${{ runner.temp }}\e2e
+          E2E_SCALE: 3
 
       - name: Upload E2E screenshots + results
         if: always()

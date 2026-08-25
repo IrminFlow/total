@@ -1,8 +1,13 @@
 # What happens next
 
-Written 25 August 2026. State at the time of writing: **279 of 392 roadmap items done** (269
-built, 10 declined with a reason on the line), 98 commits on `t3code/revamp-ledgers-shortcuts`,
-PR #2 open. All four harnesses green.
+Written 25 August 2026, updated the same evening. State now: **386 of 392 roadmap items
+settled** — 365 built, 20 declined with a reason on the line, 1 blocked on procurement — on
+`t3code/revamp-ledgers-shortcuts`, PR #2 open. All four harnesses green: 2264 engine · 1319 db ·
+192 renderer · 53/53 E2E.
+
+**The six still open are all blocked on a human**, and they are written up in `HUMAN.md`: two
+code-signing certificates, a customer testimonial, a demo recording, half an hour on a cheap
+Windows laptop, and NIC sandbox credentials. None of them is code.
 
 Two things changed the shape of this plan today. The accent colour moved from amber to indigo,
 which is a token change but touches every screen. And a full visual review of all 35 screens in
@@ -17,7 +22,7 @@ over months, and the fix is one deliberate pass, not thirty-five small ones.
 
 ---
 
-## Phase 1 — the recolour (done today)
+## Phase 1 — the recolour ✓ done
 
 Indigo replaces amber as the signature: the selection bar, the active tab, the active nav item
 and the primary button.
@@ -46,10 +51,16 @@ printed a minus sign for what is actually a refund.
 
 ---
 
-## Phase 2 — restart the six feature lanes (blocked until the limit resets)
+## Phase 2 — the six feature lanes ✓ done
 
-Six worktree-isolated lanes were running when the account hit its session limit. Their worktrees
-are intact with uncommitted work; they resume with context rather than starting over.
+All six resumed from their worktrees with context and all six merged. Both correctness bugs named
+below landed: QRMP filers were being shown monthly due dates when they file quarterly, and the
+GST validator was *blocking* composition dealers with an error telling them to go elsewhere.
+
+Two of the merges needed an arbitration rather than a resolution, because two lanes had each
+built the same feature. Both are recorded in their merge commits: GST rate history (competing —
+one won) and job work (complementary — one recorded the paperwork, the other moved the goods, and
+neither was optional).
 
 | Lane | Items | Where it stopped |
 |---|---|---|
@@ -71,11 +82,15 @@ want landed first:
 
 ---
 
-## Phase 3 — the chrome pass (one uninterrupted sweep, after the lanes land)
+## Phase 3 — the chrome pass (in progress)
 
 Deliberately not run in parallel with the feature lanes: it touches every screen file, and so do
-they. Doing both at once buys a day of wall-clock and pays for it in merge conflicts I resolve by
-hand.
+they. Doing both at once buys a day of wall-clock and pays for it in merge conflicts resolved by
+hand. Now that the lanes have landed, it is running as one job by one agent — six agents each
+doing five screens would produce six dialects of the same toolbar, which is the problem rather
+than the fix.
+
+The spec it follows is `docs/chrome-spec.md`, written from measurements of what the code is.
 
 Ranked by how much each one is responsible for the app looking unfinished:
 
@@ -105,6 +120,34 @@ Ranked by how much each one is responsible for the app looking unfinished:
 
 Not touching: the report tables, the serif-title-and-footnote voice, the day book and masters
 table archetypes, or the numerals. Those are the best things in the app.
+
+---
+
+## The declines, reviewed
+
+Twenty roadmap items are marked ✗ rather than done, each with its reasoning on the line. All
+twenty were re-read on 25 August 2026 to ask a single question: **has the reason expired?**
+
+One had. ISD (#355) was declined because multi-GSTIN did not exist; multi-GSTIN landed that
+morning, so the reason stopped being true and the item shipped that evening. That is the whole
+point of writing the reason down rather than just the verdict — a decline with a stated cause is
+a decline that can be re-opened by evidence, and one without is just a thing nobody did.
+
+None of the other nineteen has expired, and they fall into three shapes:
+
+- **Blocked on an artefact nobody here has.** A real Busy or Marg export file (#290), a Tally
+  backup in its proprietary format (#299), screenshots of Tally's own export dialog (#295).
+  Each was declined because a parser guessed at is worse than none, and that is still true.
+- **Declined on a measurement**, and the measurement was taken after the work that would have
+  changed it. All six performance items (#225, #229, #230, #231, #239, #240, #241) were re-timed
+  *after* pagination landed, which is the change most likely to have made them worth doing. It
+  did not.
+- **Declined on a principle the product still holds.** Bare letters belong to navigation (#8,
+  #22). A bill photograph cannot be redacted (#207). A statement PDF has no table in it (#132).
+  Encryption that can lose somebody's books is not a feature (#262).
+
+The next review should ask the same question rather than re-litigating the reasoning: what has
+changed since, and does anything here now have what it was waiting for?
 
 ---
 

@@ -19,6 +19,37 @@ message the app can show. Nothing accepts a message and drops it.
 If the token cannot read release assets, the checksum table on `/download` shows an honest empty
 state rather than a wrong hash.
 
+## The price
+
+**The number is not in the code.** `lib/product.ts` reads it from the environment, so a price is
+never invented by whoever last edited a page, and a stale one cannot survive in a second file.
+
+| Variable | Notes |
+|---|---|
+| `TOTAL_PRICE_ANNUAL_INR` | Whole rupees for the yearly plan, e.g. `4999`. A rupee sign, commas and spaces are tolerated. |
+| `TOTAL_PRICE_PERPETUAL_INR` | Whole rupees for the perpetual plan, e.g. `14999`. |
+| `TOTAL_PAYMENT_LINK` | Optional. A Razorpay Payment Page or UPI link, for selling before the full checkout keys exist. |
+
+Server-side only, by design: there is no `NEXT_PUBLIC_` prefix, because the price is rendered
+into HTML by server components and a price a browser can rewrite is not a price. Anything that is
+not a positive whole number of rupees — unset, `0`, `TBD`, a typo — reads as **not yet
+announced**, and every page that shows a price handles that state:
+
+- `/pricing` prints "Not yet announced" in the sans face where the figure goes, explains in plain
+  words that the number is being set, and offers the trial and an email address instead of a
+  Buy button.
+- `/buy` replaces the checkout form with the same explanation. Nobody can submit an order.
+- `/api/checkout/order` returns 503 for an unpriced plan, so no order for zero rupees can exist
+  even if somebody posts to it directly.
+- `/compare` drops its "starting at" clause rather than printing "starting at ₹0 a year".
+
+With `TOTAL_PAYMENT_LINK` set but no Razorpay keys, `/buy` shows the plans and a button to the
+hosted payment page, and says keys are issued by hand. That is a complete way to take money on
+day one; the full checkout is the upgrade, not the prerequisite.
+
+`/pricing` and `/buy` are dynamic, but Vercel bakes environment variables at build, so **a price
+change needs a redeploy** to reach `/compare`, which is static.
+
 ## Payments (Razorpay)
 
 | Variable | Notes |
@@ -120,18 +151,22 @@ recording has not been made.
 
 ## Things left empty on purpose
 
-**`lib/testimonials.ts` is an empty array.** The component renders nothing while it is empty.
-Do not put a quote in it that a named person did not write and give permission to publish. On a
-site selling accounting software to businesses, an invented testimonial from a named firm is a
-false statement of fact, and it takes one phone call to check.
+**`lib/testimonials.ts` is an empty array.** Do not put a quote in it that a named person did
+not write and give permission to publish. On a site selling accounting software to businesses, an
+invented testimonial from a named firm is a false statement of fact, and it takes one phone call
+to check. While it is empty the homepage says so in as many words and offers four things a
+stranger can check instead — the screenshots, the public roadmap, the page listing what Tally
+does better, and the trial. Add a real entry and that section becomes the quotes.
 
 **`lib/coupons.ts` is an empty array.** Add a code when a partner signs up, and delete the line
 to retire it. `/r/CODE` sets a first-party cookie and `/buy` reads it; that is the entire
 tracking apparatus and there is no analytics script on this site.
 
-**`WHATSAPP_NUMBER` in `lib/product.ts` is a placeholder.** It reads `+91 98220 00000`, which is
-not a real number, and it is on the contact page, the CA page, the partner page and the buy
-page. Replace it before anyone visits.
+**There is no WhatsApp number.** `NEXT_PUBLIC_WHATSAPP_NUMBER` is unset, so every page falls
+back to email and the contact page says plainly that there is no number yet rather than showing
+an invented one. Set it to international digits with no plus and no spaces (`919876543210`) and
+it appears on the contact, CA, partner and buy pages. A visible number is a conversion feature in
+this market, not a support cost.
 
 ## Things to keep current by hand
 
@@ -140,3 +175,4 @@ page. Replace it before anyone visits.
 | `lib/roadmap.ts` | `ROADMAP_REVIEWED`, and the groups. Nothing goes under "Being built" that is not being built. |
 | `app/compare/page.tsx` | `REVIEWED`, and the rows, against the current TallyPrime. |
 | `lib/pricing.ts` | `RATES_REVIEWED` and the exchange rates. They are indicative and labelled as such, and they should still not be a year old. |
+| `lib/product.ts` | The plan names and the three lines under each. The prices themselves are environment variables and are not in this file. |

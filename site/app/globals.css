@@ -90,6 +90,11 @@ body {
   .sitenav-links { margin-left: auto; gap: 14px; font-size: 13px; }
   .sitenav-row .btn { display: none; }
 }
+/* Six items on a 390px phone leave the last link touching the edge. */
+@media (max-width: 430px) {
+  .sitenav-links { gap: 11px; font-size: 12.5px; }
+  .top-links { gap: 11px; font-size: 12.5px; }
+}
 
 /* ---------- changelog ---------- */
 .notes { margin-top: 34px; display: grid; gap: 28px; padding-bottom: 88px; }
@@ -380,16 +385,6 @@ h3 { font-size: 20px; margin-bottom: 8px; letter-spacing: -0.01em; }
 
 footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 
-@media (prefers-reduced-motion: no-preference) {
-  .strip-row { animation: rise 0.5s ease both; }
-  .strip-row:nth-child(2) { animation-delay: 0.12s; }
-  .strip-row:nth-child(3) { animation-delay: 0.24s; }
-  @keyframes rise {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: none; }
-  }
-}
-
 /* ---------- pricing ----------
    Wider than the docs prose column: three cards in 720px wrap every second word. Paragraphs
    keep their own 62ch cap, so only the cards get the extra room. */
@@ -552,3 +547,157 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
    price, because the rupee price is the one that gets charged. */
 .plan-local { color: var(--muted); font-size: 13px; margin-top: 4px; }
 .plan-fx { color: var(--muted); font-size: 13px; margin-top: 16px; max-width: 62ch; }
+
+/* ==========================================================================================
+   Motion
+   ==========================================================================================
+   The page had none, which on a product whose whole argument is "this is a book on your desk"
+   read as a page that had not been finished rather than as restraint. What is here is one idea
+   used consistently: things arrive from slightly below as you reach them, and nothing moves
+   twice. Everything is inside prefers-reduced-motion, and the reveal classes are only ever
+   attached by components/Reveal.tsx, so the HTML itself never hides anything. */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Applied by Reveal.tsx to sections still below the fold at mount. */
+  .reveal { opacity: 0; transform: translateY(14px); }
+  .reveal.revealed {
+    opacity: 1;
+    transform: none;
+    transition: opacity 0.55s cubic-bezier(0.22, 0.61, 0.36, 1),
+                transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  /* The hero is above the fold and cannot wait for a scroll, so it plays once on load. Three
+     elements, 70ms apart: any more stagger and it reads as a slideshow. */
+  .hero h1 { animation: rise 0.62s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+  .hero .lede { animation: rise 0.62s cubic-bezier(0.22, 0.61, 0.36, 1) 0.07s both; }
+  .hero .hero-ctas { animation: rise 0.62s cubic-bezier(0.22, 0.61, 0.36, 1) 0.14s both; }
+
+  /* The voucher posts a line at a time, which is what posting a voucher looks like. The total
+     rules off last, after the line that makes it foot. */
+  .voucher .vrow { animation: post 0.44s ease both; }
+  .voucher .vrow:nth-child(2) { animation-delay: 0.20s; }
+  .voucher .vrow:nth-child(3) { animation-delay: 0.30s; }
+  .voucher .vrow:nth-child(4) { animation-delay: 0.40s; }
+  .voucher .vrow:nth-child(5) { animation-delay: 0.50s; }
+  .voucher .vtotal { animation: rise 0.5s ease 0.62s both; }
+
+  .strip-row { animation: rise 0.5s ease both; }
+  .strip-row:nth-child(2) { animation-delay: 0.12s; }
+  .strip-row:nth-child(3) { animation-delay: 0.24s; }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+  /* Sideways, from the margin rule, the way a line is written into a ledger. */
+  @keyframes post {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  .btn, .plan, .quotes figure, .instead > div, .ledger tbody tr td {
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease,
+                border-color 0.18s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active { transform: none; }
+  .plan:hover, .instead > div:hover { transform: translateY(-2px); }
+}
+
+/* A reveal that has not fired yet is invisible, and printing does not scroll. Somebody putting
+   the pricing page in front of a partner on paper must not get four blank sections. */
+@media print {
+  .reveal { opacity: 1 !important; transform: none !important; }
+}
+
+/* ==========================================================================================
+   Pricing: the commitment band
+   ==========================================================================================
+   "An expired licence never locks your books" was a callout under the fold. It is the most
+   reassuring fact about how this thing is sold, so it gets the largest type on the page and its
+   own dark band - which also breaks the run of identical folio sections the page used to be. */
+/* In dark the band's ground is only a shade off the page's, so it needs an edge to read as a
+   band at all. In light the hairline sits against the dark fill and disappears. */
+.promise-band {
+  margin-top: 88px; padding: 76px 0 80px;
+  border-top: 1px solid var(--band-line); border-bottom: 1px solid var(--band-line);
+}
+.promise-eyebrow {
+  font-size: 11.5px; letter-spacing: 0.16em; text-transform: uppercase; color: #a5a0f5;
+}
+.promise {
+  font-size: clamp(30px, 5.2vw, 58px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  color: var(--band-ink);
+  margin: 16px 0 0;
+  max-width: 18ch;
+  text-wrap: balance;
+}
+.promise-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 40px;
+  margin-top: 36px; padding-top: 30px; border-top: 1px solid var(--band-line);
+}
+.promise-grid p { color: var(--band-muted); font-size: 15.5px; max-width: 40ch; }
+@media (max-width: 800px) {
+  .promise-band { padding: 56px 0 58px; }
+  .promise-grid { grid-template-columns: 1fr; gap: 18px; }
+}
+
+/* The price nobody has set yet. Quieter than a figure and in the sans face, so it can never be
+   mistaken for one at a glance or in a screenshot. */
+.plan-price-pending { font-size: 21px; font-weight: 600; color: var(--muted); letter-spacing: -0.01em; }
+.price-pending { max-width: none; margin-top: 30px; }
+
+/* Pricing questions: two columns of short answers rather than a docs-style stack. */
+.qa h3 { margin-top: 26px; }
+.qa > div > h3:first-child { margin-top: 0; }
+.qa p { color: var(--muted); font-size: 15.5px; max-width: 34em; }
+.qa a { color: var(--accent-deep); }
+.price-head .plans { margin-top: 34px; }
+
+/* ==========================================================================================
+   Contact
+   ========================================================================================== */
+.contact-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 48px; margin-top: 34px; align-items: start; }
+@media (max-width: 860px) { .contact-grid { grid-template-columns: 1fr; gap: 32px; } }
+.contact-routes { display: grid; gap: 26px; }
+.contact-route h3 { margin: 0 0 4px; }
+.contact-route p { color: var(--muted); font-size: 15px; max-width: 34em; }
+.contact-route p + p { margin-top: 8px; }
+.contact-route a { color: var(--accent-deep); }
+.contact-form textarea {
+  font: inherit; font-size: 15px; color: var(--ink); background: var(--paper);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; width: 100%;
+  resize: vertical; min-height: 130px; line-height: 1.5;
+}
+.contact-form textarea::placeholder { color: var(--muted); opacity: 1; }
+.contact-form textarea:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
+}
+.contact-form .field-error a { color: var(--cr); }
+.contact-done { max-width: 40em; margin-top: 34px; }
+.contact-done p { font-size: 15.5px; }
+.contact-done p + p { margin-top: 6px; color: var(--muted); }
+
+/* ==========================================================================================
+   In place of testimonials
+   ==========================================================================================
+   There are none and none will be invented, so the shelf carries the things a stranger can check
+   for themselves instead. Four cards, deliberately not shaped like quote cards. */
+.instead { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; margin-top: 32px; }
+@media (max-width: 760px) { .instead { grid-template-columns: 1fr; } }
+.instead > div {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 22px 24px 20px; box-shadow: var(--shadow);
+  border-left: 3px solid color-mix(in oklab, var(--accent) 55%, transparent);
+}
+.instead h3 { font-size: 17px; margin: 0 0 6px; }
+.instead p { color: var(--muted); font-size: 14.5px; }
+.instead a {
+  display: inline-block; margin-top: 12px; color: var(--accent-deep);
+  font-size: 14px; font-weight: 600; text-decoration: none;
+}
+.instead a:hover { text-decoration: underline; }

@@ -3,7 +3,7 @@ import Link from 'next/link'
 import SiteFooter from '@/components/SiteFooter'
 import SiteNav from '@/components/SiteNav'
 import { inr } from '@/lib/pricing'
-import { planById } from '@/lib/product'
+import { planById, priceState } from '@/lib/product'
 
 export const metadata: Metadata = {
   title: 'Total vs TallyPrime',
@@ -67,6 +67,7 @@ const TALLY_WINS: { h: string; p: string }[] = [
 
 export default function ComparePage(): React.JSX.Element {
   const annual = planById('annual')
+  const annualPriced = annual ? priceState(annual) === 'priced' : false
 
   return (
     <>
@@ -102,7 +103,7 @@ export default function ComparePage(): React.JSX.Element {
             Prices are not on this table. Tally publishes its own and changes them, and quoting a competitor&rsquo;s
             price from memory is how comparison pages become fiction. Ours are on the{' '}
             <Link href="/pricing">pricing page</Link>
-            {annual ? `, starting at ${inr(annual.paise)} a year` : ''}.
+            {annual && annualPriced ? `, starting at ${inr(annual.paise)} a year` : ''}.
           </p>
 
           <div className="ledger" style={{ marginTop: 30 }}>

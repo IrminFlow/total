@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { applyCoupon, findCoupon } from '@/lib/coupons'
 import { createOrder, paymentsConfigured, publicKeyId } from '@/lib/payments'
-import { planById, rupees } from '@/lib/product'
+import { planById, priceState, rupees } from '@/lib/product'
 
 export const runtime = 'nodejs'
 
@@ -22,8 +22,17 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const plan = planById(String(body.plan ?? ''))
-  if (!plan || plan.paise === 0) {
+  if (!plan || !plan.sellable) {
     return NextResponse.json({ ok: false, error: 'Choose a plan that is sold online.' }, { status: 400 })
+  }
+  // An unannounced price must never become an order for zero rupees. Prices come from the
+  // environment (see lib/product.ts), so this is the state the site is in before an owner has
+  // set TOTAL_PRICE_*_INR, and a checkout that charges nothing is worse than one that is closed.
+  if (priceState(plan) !== 'priced') {
+    return NextResponse.json(
+      { ok: false, error: 'The price for that plan has not been published yet. Write to us and we will send a payment link.' },
+      { status: 503 }
+    )
   }
 
   const name = String(body.name ?? '').trim()
