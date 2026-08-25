@@ -128,3 +128,20 @@ export function todayISO(): string {
   const d = now.getDate().toString().padStart(2, '0')
   return `${y}-${m}-${d}`
 }
+
+/**
+ * `date` shifted by whole calendar months, clamped to the end of the target month.
+ *
+ * 31 January + 1 month is 28 February (29 in a leap year), not 3 March. JavaScript's own
+ * `setUTCMonth` overflows into the next month, which is how "one year from 31 March" quietly
+ * becomes 1 April — a day that matters when the number is a statutory deadline.
+ */
+export function addMonths(date: string, months: number): string {
+  const dt = new Date(`${date}T00:00:00Z`)
+  const day = dt.getUTCDate()
+  dt.setUTCDate(1)
+  dt.setUTCMonth(dt.getUTCMonth() + months)
+  const lastOfMonth = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate()
+  dt.setUTCDate(Math.min(day, lastOfMonth))
+  return dt.toISOString().slice(0, 10)
+}

@@ -21,6 +21,7 @@ import type { TransferItem, TransferPlan } from '@shared/stockTransfer'
 import type { LandedCostBasis } from '@shared/landedCost'
 import type { ReorderAlerts } from '@shared/reorder'
 import type { Concentration } from '@shared/concentration'
+import type { PriceRevisionInput, StandardCostInput, VarianceQueryInput } from '@shared/schemas'
 import type { VoucherDraft } from '../state/stores'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
@@ -1973,6 +1974,272 @@ export interface ExpiryAgeingRow extends BatchStockRow {
   bucket: 'none' | 'expired' | 'within30' | 'within90' | 'later'
 }
 
+/* ---------- the inventory lane's last five, and the foreign-currency bank account ---------- */
+
+/** Mirrors priceListVersions.PriceVersion (main-process only). */
+export interface PriceVersionRow {
+  effectiveFrom: string
+  itemCount: number
+  inForce: boolean
+}
+
+/** Mirrors priceListVersions.PriceListRow. */
+export interface PriceListAsOnRow {
+  stockItemId: number
+  itemName: string
+  unitSymbol: string
+  rate: number
+  effectiveFrom: string
+}
+
+export interface PriceRevisionPreview {
+  rows: { stockItemId: number; fromRate: number; rate: number; effectiveFrom: string }[]
+  effectiveFrom: string
+  errors: string[]
+  names: Record<number, string>
+}
+
+/** Mirrors serials.SerialRecord. */
+export interface SerialRecordRow {
+  id: number
+  serial: string
+  originalText: string
+  stockItemId: number
+  itemName: string
+  status: 'in_stock' | 'issued'
+  lastMovedOn: string
+  lastVoucherId: number
+  lastVoucherNumber: string
+  lastVoucherType: string
+  partyName: string | null
+  ratePaise: number
+}
+
+export interface SerialHistoryRow {
+  voucherId: number
+  voucherNumber: string
+  voucherType: string
+  direction: 'in' | 'out'
+  movedOn: string
+  partyName: string | null
+  ratePaise: number
+  godownName: string | null
+}
+
+export interface SerialCountRow {
+  stockItemId: number
+  itemName: string
+  inStock: number
+  issued: number
+}
+
+/** Mirrors standardCosts.StandardCost. */
+export interface StandardCostRecord {
+  id: number
+  stockItemId: number
+  itemName: string
+  effectiveFrom: string
+  standardCost: number
+  note: string | null
+}
+
+/** Mirrors @shared/standardCost.VarianceSummary, which the renderer also imports directly for
+ *  the pure helpers — this is the wire shape, so the two stay one type in practice. */
+export interface VarianceSummaryRow {
+  lines: {
+    stockItemId: number
+    name: string
+    actualQtyMilli: number
+    standardQtyMilli: number
+    standardRatePaise: number
+    actualCostPaise: number
+    standardCostPaise: number
+    priceVariancePaise: number
+    usageVariancePaise: number
+    totalVariancePaise: number
+    verdict: 'favourable' | 'adverse' | 'on standard'
+  }[]
+  actualCostPaise: number
+  standardCostPaise: number
+  priceVariancePaise: number
+  usageVariancePaise: number
+  totalVariancePaise: number
+  withoutStandard: { stockItemId: number; name: string; actualCostPaise: number }[]
+}
+
+/** Mirrors itemImages.ItemImage. */
+export interface ItemImageRow {
+  stockItemId: number
+  storedName: string
+  byteSize: number
+  missing: boolean
+}
+
+export interface LabelJobRequest {
+  items: { stockItemId: number; copies?: number; pricePaise?: number | null; detail?: string | null }[]
+  sizeId?: string
+  priceLevelId?: number | null
+  asOn?: string
+  includePrice?: boolean
+  humanReadable?: boolean
+  speed?: number
+  density?: number
+}
+
+/** Mirrors labels.LabelJob. `preview` is the plain-text rendering of each label. */
+export interface LabelJobPlan {
+  specs: { barcode: string; name?: string; detail?: string; pricePaise?: number; copies?: number }[]
+  preview: string[][]
+  totalLabels: number
+  errors: string[]
+  sizeId: string
+}
+
+/** Mirrors jobWork.JobWorkChallan. */
+export interface JobWorkChallanRow {
+  id: number
+  challanNo: string
+  partyLedgerId: number
+  partyName: string
+  godownId: number
+  godownName: string
+  sentOn: string
+  goodsType: 'input' | 'capital'
+  natureOfProcessing: string | null
+  voucherId: number | null
+  notes: string | null
+  lines: {
+    id: number
+    stockItemId: number
+    itemName: string
+    unitSymbol: string
+    qtyMilli: number
+    ratePaise: number
+    returnedQtyMilli: number
+    pendingQtyMilli: number
+  }[]
+  status: {
+    dueDate: string
+    daysLeft: number
+    state: 'closed' | 'open' | 'due-soon' | 'overdue'
+    pendingQtyMilli: number
+    deemedSupplyOn: string | null
+    lines: { stockItemId: number; name: string; sentQtyMilli: number; returnedQtyMilli: number; pendingQtyMilli: number }[]
+  }
+  returns: { id: number; receivedOn: string; voucherId: number | null; notes: string | null }[]
+}
+
+export interface JobWorkSendInput {
+  partyLedgerId: number
+  challanNo: string
+  sentOn: string
+  goodsType: 'input' | 'capital'
+  natureOfProcessing?: string | null
+  notes?: string | null
+  fromGodownId?: number | null
+  lines: { stockItemId: number; qtyMilli: number }[]
+}
+
+export interface JobWorkReceiveInput {
+  challanId: number
+  receivedOn: string
+  notes?: string | null
+  toGodownId?: number | null
+  lines: { stockItemId: number; qtyMilli: number; kind: 'goods' | 'waste' }[]
+}
+
+/** Mirrors jobWork.Itc04Row — the data roadmap D #89's return will be built from. */
+export interface Itc04Row {
+  challanNo: string
+  sentOn: string
+  partyGstin: string | null
+  partyName: string
+  goodsType: 'input' | 'capital'
+  itemName: string
+  hsn: string | null
+  unitSymbol: string
+  sentQtyMilli: number
+  returnedQtyMilli: number
+  pendingQtyMilli: number
+  taxableValue: number
+  dueDate: string
+  overdue: boolean
+}
+
+/** Mirrors fx.FcAccount. */
+export interface FcAccountRow {
+  ledgerId: number
+  ledgerName: string
+  currencyCode: string
+  symbol: string
+  decimals: number
+  bookPaise: number
+  fcMinor: number
+  unmatchedPaise: number
+  lastRevaluedOn: string | null
+  lastRateMicro: number | null
+}
+
+export interface RevaluationRequest {
+  ledgerId: number
+  asOn: string
+  closingRateMicro: number
+  narration?: string | null
+}
+
+/** Mirrors fx.RevaluationPreview. */
+export interface RevaluationPreviewRow {
+  ledgerId: number
+  ledgerName: string
+  currencyCode: string
+  decimals: number
+  asOn: string
+  closingRateMicro: number
+  fcMinor: number
+  bookPaise: number
+  restatedPaise: number
+  differencePaise: number
+  ledgerSide: 'dr' | 'cr'
+  effect: 'gain' | 'loss' | 'none'
+  isNil: boolean
+  narration: string
+  errors: string[]
+}
+
+/** Mirrors fx.RevaluationRecord. */
+export interface RevaluationRow {
+  id: number
+  ledgerId: number
+  ledgerName: string
+  asOn: string
+  currencyCode: string
+  closingRateMicro: number
+  fcMinor: number
+  bookPaise: number
+  restatedPaise: number
+  differencePaise: number
+  voucherId: number | null
+  voucherNumber: string | null
+}
+
+/** Mirrors scratchpad.ScratchpadSummary. */
+export interface ScratchpadSummaryRow {
+  ledgerId: number | null
+  balancePaise: number
+  entries: {
+    voucherLineId: number
+    voucherId: number
+    voucherNumber: string
+    voucherType: string
+    date: string
+    drCr: 'dr' | 'cr'
+    amount: number
+    narration: string | null
+    partyName: string | null
+    contraNames: string
+  }[]
+}
+
 /** Mirrors priceLevels.PriceRateRow (main-process only). */
 export interface PriceRateRow extends PriceListRate {
   itemName: string
@@ -2160,6 +2427,84 @@ export const api = {
     /** Rate in force for (level, item) on `date`, or null when no row applies. */
     rateFor: (priceLevelId: number, stockItemId: number, date: string) =>
       call<number | null>('priceLevels:rateFor', { priceLevelId, stockItemId, date })
+  },
+  /** A version of a price list: the set of rates that came into force on one date (#128). */
+  priceVersions: {
+    list: (priceLevelId: number, asOn: string) =>
+      call<PriceVersionRow[]>('priceLevels:versions', { priceLevelId, asOn }),
+    /** The whole list as it stood on a date — what a reprint or a credit note is argued from. */
+    asOn: (priceLevelId: number, asOn: string) =>
+      call<PriceListAsOnRow[]>('priceLevels:listAsOn', { priceLevelId, asOn }),
+    previewRevision: (data: PriceRevisionInput) =>
+      call<PriceRevisionPreview>('priceLevels:previewRevision', data),
+    applyRevision: (data: PriceRevisionInput) =>
+      call<{ rows: number; effectiveFrom: string }>('priceLevels:applyRevision', data),
+    deleteVersion: (priceLevelId: number, effectiveFrom: string) =>
+      call<{ removed: number }>('priceLevels:deleteVersion', { priceLevelId, effectiveFrom })
+  },
+  /** Serial numbers on high-value items (#115). */
+  serials: {
+    list: (q: { stockItemId?: number | null; status?: 'in_stock' | 'issued' | 'all'; search?: string | null } = {}) =>
+      call<SerialRecordRow[]>('stock:serials:list', q),
+    history: (id: number) => call<SerialHistoryRow[]>('stock:serials:history', { id }),
+    counts: () => call<SerialCountRow[]>('stock:serials:counts')
+  },
+  /** Standard costs and the variance against what actually happened (#118). */
+  standardCosts: {
+    list: (stockItemId?: number | null) =>
+      call<StandardCostRecord[]>('stock:standardCosts:list', { stockItemId: stockItemId ?? null }),
+    save: (data: StandardCostInput) => call<StandardCostRecord>('stock:standardCosts:save', data),
+    remove: (id: number) => call<{ removed: true }>('stock:standardCosts:delete', { id }),
+    variance: (q: VarianceQueryInput) => call<VarianceSummaryRow>('stock:variance', q)
+  },
+  /** The picture of the item, kept in the company folder (#119). */
+  itemImages: {
+    get: (id: number) =>
+      call<{ image: ItemImageRow | null; dataUrl: string | null }>('stock:image:get', { id }),
+    many: (ids: number[]) => call<Record<number, string>>('stock:image:many', { ids }),
+    /** No payload opens the native picker; `bytesBase64` is how a driver attaches one without it. */
+    set: (stockItemId: number, data: { bytesBase64?: string; fileName?: string } = {}) =>
+      call<ItemImageRow | null>('stock:image:set', { stockItemId, ...data }),
+    clear: (id: number) => call<{ cleared: true }>('stock:image:clear', { id })
+  },
+  /** Barcode labels for a thermal printer (#111). */
+  labels: {
+    preview: (job: LabelJobRequest) => call<LabelJobPlan>('stock:labels:preview', job),
+    print: (job: LabelJobRequest, printer: string | null, savePath?: string | null) =>
+      call<{ printer: string | null; bytes: number; path: string | null }>('stock:labels:print', {
+        job,
+        printer,
+        savePath: savePath ?? null
+      })
+  },
+  /** Goods sent out for processing, and what comes back (#127). */
+  jobWork: {
+    list: (q: { state?: 'all' | 'pending' | 'overdue'; partyLedgerId?: number | null; asOn?: string } = {}) =>
+      call<JobWorkChallanRow[]>('jobwork:list', q),
+    get: (id: number) => call<JobWorkChallanRow | null>('jobwork:get', { id }),
+    send: (data: JobWorkSendInput) => call<JobWorkChallanRow>('jobwork:send', data),
+    receive: (data: JobWorkReceiveInput) => call<JobWorkChallanRow>('jobwork:receive', data),
+    remove: (id: number) => call<{ removed: true }>('jobwork:delete', { id }),
+    /** The rows an ITC-04 would be built from. The return itself is roadmap D #89. */
+    itc04: (from: string, to: string) => call<Itc04Row[]>('jobwork:itc04', { from, to })
+  },
+  /** Foreign-currency accounts and their revaluation (#140). */
+  fx: {
+    accounts: (asOn: string) => call<FcAccountRow[]>('fx:accounts', { asOn }),
+    preview: (data: RevaluationRequest) => call<RevaluationPreviewRow>('fx:preview', data),
+    revalue: (data: RevaluationRequest) => call<RevaluationRow>('fx:revalue', data),
+    list: (ledgerId?: number | null) => call<RevaluationRow[]>('fx:revaluations', { ledgerId: ledgerId ?? null }),
+    remove: (id: number) => call<{ removed: true }>('fx:remove', { id })
+  },
+  /** The scratchpad ledger: entries nobody has decided about yet (#46). */
+  scratchpad: {
+    list: (limit = 200) => call<ScratchpadSummaryRow>('scratchpad:list', { limit }),
+    ensure: () => call<{ ledgerId: number }>('scratchpad:ensure'),
+    classify: (voucherLineId: number, targetLedgerId: number) =>
+      call<{ voucherId: number; fromLedger: string; toLedger: string; amount: number }>('scratchpad:classify', {
+        voucherLineId,
+        targetLedgerId
+      })
   },
   pdc: {
     list: () => call<PdcRow[]>('pdc:list'),

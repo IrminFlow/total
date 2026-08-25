@@ -15,6 +15,22 @@ import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { parseQtyWithUnit } from '@shared/units'
 import { LANDED_COST_BASES, type LandedCostBasis } from '@shared/landedCost'
+import { TabBar } from '../components/TabBar'
+import { useStickyTab } from '../lib/useStickyTab'
+import { SerialsTab } from './stock/SerialsTab'
+import { StandardCostsTab } from './stock/StandardCostsTab'
+import { JobWorkTab } from './stock/JobWorkTab'
+import { LabelsTab } from './stock/LabelsTab'
+
+type StockTab = 'summary' | 'serials' | 'costing' | 'jobwork' | 'labels'
+
+const STOCK_TABS: { id: StockTab; label: string }[] = [
+  { id: 'summary', label: 'Summary' },
+  { id: 'serials', label: 'Serials' },
+  { id: 'costing', label: 'Standard costing' },
+  { id: 'jobwork', label: 'Job work' },
+  { id: 'labels', label: 'Labels' }
+]
 
 /**
  * A sheet to walk the shelves with.
@@ -43,7 +59,7 @@ const COLUMNS: ReportColumn[] = [
   { key: 'closingValue', label: 'Closing value', defaultOn: true }
 ]
 
-export function StockSummaryScreen(): React.JSX.Element {
+function SummaryTab(): React.JSX.Element {
   const { to } = useSession()
   const toast = useToasts()
   const { data, isLoading } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.reports.stockSummary(to) })
@@ -103,79 +119,73 @@ export function StockSummaryScreen(): React.JSX.Element {
   const periodLabel = `as on ${toDisplayDate(to)}`
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <span className="num text-small text-muted">as on {toDisplayDate(to)}</span>
-            <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
-            <Button
-              variant="ghost"
-              data-testid="btn-stock-transfer"
-              title="Move stock from one godown to another — no purchase, no sale, no money"
-              onClick={() => setModal('transfer')}
-            >
-              Transfer
-            </Button>
-            <Button
-              variant="ghost"
-              data-testid="btn-landed-cost"
-              title="Carry freight, insurance and duty on a purchase into the cost of the goods"
-              onClick={() => setModal('landed')}
-            >
-              Landed cost
-            </Button>
-            <Button
-              variant="ghost"
-              data-testid="btn-count-sheet"
-              title="A printable sheet with blank columns, to walk the shelves with"
-              onClick={() =>
-                void printReport(
-                  {
-                    title: 'Physical stock count sheet',
-                    periodLabel: `as on ${toDisplayDate(to)}`,
-                    columns: COUNT_SHEET_COLUMNS,
-                    // The book quantity is deliberately included. A blind count sounds more
-                    // rigorous and produces a sheet nobody can check against anything while they
-                    // are standing at the shelf; the discrepancy column is what gets acted on.
-                    rows: rows.map((r) => ({
-                      cells: [
-                        r.name,
-                        r.unitSymbol,
-                        `${fmtQty(r.closingQtyMilli, r.decimals)}`,
-                        '',
-                        ''
-                      ]
-                    })),
-                    filename: `count-sheet-${to}`
-                  },
-                  toast
-                )
-              }
-            >
-              Count sheet
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void printReport({ title: 'Stock summary', periodLabel, columns: exportColumns, rows: exportRows }, toast)
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'stock-summary', toast)
-              }
-            >
-              CSV
-            </Button>
-          </div>
-        }
-      >
-        Stock summary
-      </SectionTitle>
+    <>
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        <span className="num text-small text-muted">as on {toDisplayDate(to)}</span>
+        <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
+        <Button
+          variant="ghost"
+          data-testid="btn-stock-transfer"
+          title="Move stock from one godown to another — no purchase, no sale, no money"
+          onClick={() => setModal('transfer')}
+        >
+          Transfer
+        </Button>
+        <Button
+          variant="ghost"
+          data-testid="btn-landed-cost"
+          title="Carry freight, insurance and duty on a purchase into the cost of the goods"
+          onClick={() => setModal('landed')}
+        >
+          Landed cost
+        </Button>
+        <Button
+          variant="ghost"
+          data-testid="btn-count-sheet"
+          title="A printable sheet with blank columns, to walk the shelves with"
+          onClick={() =>
+            void printReport(
+              {
+                title: 'Physical stock count sheet',
+                periodLabel: `as on ${toDisplayDate(to)}`,
+                columns: COUNT_SHEET_COLUMNS,
+                // The book quantity is deliberately included. A blind count sounds more
+                // rigorous and produces a sheet nobody can check against anything while they
+                // are standing at the shelf; the discrepancy column is what gets acted on.
+                rows: rows.map((r) => ({
+                  cells: [
+                    r.name,
+                    r.unitSymbol,
+                    `${fmtQty(r.closingQtyMilli, r.decimals)}`,
+                    '',
+                    ''
+                  ]
+                })),
+                filename: `count-sheet-${to}`
+              },
+              toast
+            )
+          }
+        >
+          Count sheet
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() =>
+            void printReport({ title: 'Stock summary', periodLabel, columns: exportColumns, rows: exportRows }, toast)
+          }
+        >
+          PDF
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() =>
+            void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'stock-summary', toast)
+          }
+        >
+          CSV
+        </Button>
+      </div>
       <Panel>
         {isLoading ? (
           <SkeletonRows />
@@ -263,6 +273,33 @@ export function StockSummaryScreen(): React.JSX.Element {
       <StockAnalysis asOn={to} />
       {modal === 'transfer' && <TransferModal asOn={to} onClose={() => setModal(null)} />}
       {modal === 'landed' && <LandedCostModal asOn={to} onClose={() => setModal(null)} />}
+    </>
+  )
+}
+
+/**
+ * The inventory screen, and the five things that hang off it.
+ *
+ * Tabs rather than five more sidebar entries: every letter A-Z is already an accelerator (see
+ * `__tests__/accel.test.ts`), and more to the point these are all the same subject — a person
+ * printing shelf labels, chasing a job worker or looking up a serial is doing stock work and
+ * expects to find it where stock is. The tab is remembered across sessions, which is roadmap
+ * A #10's rule applied here.
+ */
+export function StockSummaryScreen(): React.JSX.Element {
+  const [tab, setTab] = useStickyTab<StockTab>('stock-summary', STOCK_TABS.map((t) => t.id), 'summary')
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
+      <SectionTitle
+        right={<TabBar screen="stock-summary" tabs={STOCK_TABS} active={tab} onSelect={setTab} />}
+      >
+        Stock
+      </SectionTitle>
+      {tab === 'summary' && <SummaryTab />}
+      {tab === 'serials' && <SerialsTab />}
+      {tab === 'costing' && <StandardCostsTab />}
+      {tab === 'jobwork' && <JobWorkTab />}
+      {tab === 'labels' && <LabelsTab />}
     </div>
   )
 }

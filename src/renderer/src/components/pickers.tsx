@@ -30,6 +30,10 @@ interface PickerOption {
   /** Short code from the shelf label. Beats the barcode on an exact match: a person typing four
    *  characters means the code, and a scanner does not type slowly enough to reach here first. */
   code?: string | null
+  /** A data-URL thumbnail (roadmap E #119). Only the item picker sets one, and only for the items
+   *  that have a picture — half the point of an item image is telling two similar bolts apart in
+   *  a list, and the list is where the telling has to happen. */
+  imageUrl?: string
 }
 
 /** Generic type-ahead picker with the accent keyboard bar and an optional inline-create hook. */
@@ -186,6 +190,9 @@ function TypeAhead({
                 pick(o)
               }}
             >
+              {o.imageUrl && (
+                <img src={o.imageUrl} alt="" className="mr-2 inline-block h-6 w-6 rounded-md border border-line object-cover align-middle" />
+              )}
               <span className="text-detail">{o.label}</span>
               {o.sub && <span className="ml-2 text-caption text-muted">{o.sub}</span>}
             </div>
@@ -327,6 +334,15 @@ export function ItemPicker({
   testId?: string
 }): React.JSX.Element {
   const items = useStockItems()
+  // Only the items that actually carry a picture, and capped in the service: a hundred base64
+  // photographs down one IPC message is a frozen window, and the picker only ever shows fifty
+  // rows anyway.
+  const withImages = useMemo(() => items.filter((i) => i.imageName).map((i) => i.id), [items])
+  const { data: images } = useQuery({
+    queryKey: ['itemImages', withImages],
+    queryFn: () => api.itemImages.many(withImages),
+    enabled: withImages.length > 0
+  })
   const options = useMemo(
     () =>
       items.map((i) => ({
@@ -335,9 +351,10 @@ export function ItemPicker({
         // The code goes in the sub-line too: seeing it is how somebody learns to type it.
         sub: [i.code, i.gstRate != null ? `${i.gstRate}% GST` : null].filter(Boolean).join(' · ') || undefined,
         code: i.code,
-        barcode: i.barcode
+        barcode: i.barcode,
+        imageUrl: images?.[i.id]
       })),
-    [items]
+    [items, images]
   )
 
   // A hardware scanner types the barcode's characters in a fast burst terminated by Enter,

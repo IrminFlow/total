@@ -12,6 +12,8 @@ import { validateHsn } from '@shared/gst/validate'
 import { expandSeriesPattern, seriesHasFyToken, SERIES_TOKENS } from '@shared/numberSeries'
 import { fyOf, todayISO } from '@shared/dates'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
+import { PriceListsTab } from './masters/PriceListsTab'
+import { ITEM_IMAGE_HINT } from '@shared/itemImages'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
 
@@ -23,7 +25,8 @@ const TABS: { id: MastersTab; label: string }[] = [
   { id: 'godowns', label: 'Godowns' },
   { id: 'units', label: 'Units' },
   { id: 'types', label: 'Voucher types' },
-  { id: 'currencies', label: 'Currencies' }
+  { id: 'currencies', label: 'Currencies' },
+  { id: 'price-lists', label: 'Price lists' }
 ]
 
 export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
@@ -52,6 +55,7 @@ export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
       {active === 'units' && <UnitsTab />}
       {active === 'types' && <TypesTab />}
       {active === 'currencies' && <CurrenciesTab />}
+      {active === 'price-lists' && <PriceListsTab />}
     </div>
   )
 }
@@ -608,6 +612,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
   const [blockNegative, setBlockNegative] = useState<'' | 'block' | 'allow'>(
     item?.blockNegative == null ? '' : item.blockNegative ? 'block' : 'allow'
   )
+  const [trackSerials, setTrackSerials] = useState(item?.trackSerials ?? false)
 
   const hsnCheck = hsn.trim() ? validateHsn(hsn) : null
   const hsnError = hsnCheck && !hsnCheck.valid ? hsnCheck.error : null
@@ -634,7 +639,8 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         altConversionMilli:
           altUnitId === '' || !altConversion.trim() ? null : Math.round(parseFloat(altConversion) * 1000),
         reorderLevelMilli: reorderLevel.trim() ? Math.round(parseFloat(reorderLevel) * 1000) : null,
-        blockNegative: blockNegative === '' ? null : blockNegative === 'block'
+        blockNegative: blockNegative === '' ? null : blockNegative === 'block',
+        trackSerials
       }
       if (item) await api.stockItems.update(item.id, data)
       else await api.stockItems.create(data)
@@ -793,7 +799,22 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
               <option value="allow">Always allow it</option>
             </Select>
           </Field>
+          <Field
+            label="Serial numbers"
+            hint="Every movement then names the serials that moved, and the unit can be traced to the invoice that sold it."
+          >
+            <label className="flex items-center gap-2 py-1.5 text-body">
+              <input
+                type="checkbox"
+                data-testid="check-item-track-serials"
+                checked={trackSerials}
+                onChange={(e) => setTrackSerials(e.target.checked)}
+              />
+              Track serial numbers
+            </label>
+          </Field>
         </div>
+        {item && <ItemImageField itemId={item.id} />}
         {item && (
           <div>
             <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
@@ -1333,5 +1354,80 @@ function StockGroupsTab(): React.JSX.Element {
         </Modal>
       )}
     </>
+  )
+}
+
+/**
+ * The item's picture (roadmap E #119).
+ *
+ * Only offered on an item that already exists, because the file is stored under the item's id —
+ * there is nowhere to put a picture for something that has not been saved yet, and inventing a
+ * temporary name would leave orphan files behind every time somebody cancelled a new-item form.
+ *
+ * The image itself lives in `<company>/item-images/`, never in the database: a company.db carrying
+ * two hundred product photographs is a database backed up and integrity-checked at forty times its
+ * real size. It comes back over IPC as a data URL because the renderer has no filesystem access at
+ * all, and punching a hole in that to draw a thumbnail would be a poor trade.
+ */
+function ItemImageField({ itemId }: { itemId: number }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data } = useQuery({ queryKey: ['itemImage', itemId], queryFn: () => api.itemImages.get(itemId) })
+
+  const pick = async (): Promise<void> => {
+    try {
+      const result = await api.itemImages.set(itemId)
+      // Null is the user cancelling the native picker, not a failure.
+      if (result) {
+        await queryClient.invalidateQueries({ queryKey: ['itemImage', itemId] })
+        await queryClient.invalidateQueries({ queryKey: ['stockItems'] })
+        toast.push('success', 'Picture set')
+      }
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const clear = async (): Promise<void> => {
+    try {
+      await api.itemImages.clear(itemId)
+      await queryClient.invalidateQueries({ queryKey: ['itemImage', itemId] })
+      await queryClient.invalidateQueries({ queryKey: ['stockItems'] })
+      toast.push('success', 'Picture removed')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <Field label="Picture" hint={ITEM_IMAGE_HINT}>
+      <div className="flex items-center gap-3">
+        {data?.dataUrl ? (
+          <img
+            src={data.dataUrl}
+            alt=""
+            data-testid="img-item-image"
+            className="h-16 w-16 rounded-md border border-line object-cover"
+          />
+        ) : (
+          <div className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed border-line text-caption text-muted">
+            none
+          </div>
+        )}
+        <Button data-testid="btn-item-image-set" onClick={() => void pick()}>
+          {data?.dataUrl ? 'Replace' : 'Choose a picture'}
+        </Button>
+        {data?.image && (
+          <Button variant="ghost" data-testid="btn-item-image-clear" onClick={() => void clear()}>
+            Remove
+          </Button>
+        )}
+        {/* Shown, never hidden: a picture that quietly disappears is the app losing a file
+            without saying so. */}
+        {data?.image?.missing && (
+          <span className="text-hint text-cr">The file is no longer in the company folder.</span>
+        )}
+      </div>
+    </Field>
   )
 }

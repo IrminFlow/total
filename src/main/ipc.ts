@@ -27,7 +27,10 @@ import {
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema,
   // Statutory depth (roadmap section S).
   form16aSchema, imsDecisionSchema, imsWorklistSchema, itemGstRateSchema, rcmIssueSchema,
-  tdsChallanSchema, tdsFilingConfigSchema, tdsLinkSchema, tdsQuarterSchema, tdsReturnFileSchema, tdsReturnSchema
+  tdsChallanSchema, tdsFilingConfigSchema, tdsLinkSchema, tdsQuarterSchema, tdsReturnFileSchema, tdsReturnSchema,
+  // The inventory lane's last five, and the foreign-currency bank account.
+  jobWorkReceiveSchema, jobWorkSendSchema, labelJobSchema, priceRevisionSchema, reclassifySchema,
+  revaluationSchema, standardCostSchema, varianceQuerySchema
 } from '@shared/schemas'
 import { addDays, todayISO } from '@shared/dates'
 import { aiSettingsSchema, isLocalEndpoint } from '@shared/ai/config'
@@ -38,6 +41,7 @@ import * as licenseSvc from './services/license'
 import { mcpSnippet } from './mcp/snippet'
 import { formatPaise } from '@shared/money'
 import { ATTACHMENT_EXTENSIONS } from '@shared/attachments'
+import { ITEM_IMAGE_EXTENSIONS } from '@shared/itemImages'
 import * as configSvc from './services/config'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
@@ -85,6 +89,14 @@ import * as inventoryTransfer from './services/inventoryTransfer'
 import * as inventoryLandedCost from './services/inventoryLandedCost'
 import * as inventoryReorder from './services/inventoryReorder'
 import * as priceLevels from './services/priceLevels'
+import * as priceListVersions from './services/priceListVersions'
+import * as serials from './services/serials'
+import * as standardCosts from './services/standardCosts'
+import * as itemImages from './services/itemImages'
+import * as labels from './services/labels'
+import * as jobWork from './services/jobWork'
+import * as fx from './services/fx'
+import * as scratchpad from './services/scratchpad'
 import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
 import * as voucherTemplates from './services/voucherTemplates'
@@ -427,6 +439,16 @@ const attachmentAddSchema = z.object({
   note: z.string().trim().max(200).nullable().optional()
 })
 
+/** One item picture to set: a picked path, or the bytes inline (drivers/tests). Base64 capped a
+ *  little above the 2 MB byte limit, since base64 is ~4/3 the size — the real limit is enforced on
+ *  the decoded bytes in services/itemImages.ts. */
+const itemImageSetSchema = z.object({
+  stockItemId: z.number().int().positive(),
+  filePath: z.string().min(1).optional(),
+  fileName: z.string().min(1).max(255).optional(),
+  bytesBase64: z.string().max(4 * 1024 * 1024).optional()
+})
+
 /** The auditor session as the renderer sees it: enough to draw the banner, nothing more. */
 function auditorStatus(): { active: boolean; expiresAt: string | null; timeLeft: string | null; grantedBy: string | null } {
   if (!auditorSession) return { active: false, expiresAt: null, timeLeft: null, grantedBy: null }
@@ -532,6 +554,10 @@ export function registerIpc(): void {
         // remembered its attachments. Their copies would otherwise sit in the folder forever.
         const swept = attachments.sweepOrphanFiles(db, slug)
         if (swept > 0) log('info', 'attachment-sweep', { swept })
+        // The same housekeeping for item pictures (#119): deleting a stock item takes its row and
+        // leaves the file, and nothing in the database then remembers what the file was.
+        const sweptImages = itemImages.sweepOrphanItemImages(db, slug)
+        if (sweptImages > 0) log('info', 'item-image-sweep', { swept: sweptImages })
       }
     } catch (err) {
       // e.g. an over-age binned voucher still referenced by payroll_runs — housekeeping must
@@ -1139,6 +1165,8 @@ export function registerIpc(): void {
     // be shown the door explicitly.
     attachments.sweepOrphanFiles(c.db, c.slug)
   }, 'owner')
+  /** Item pictures whose item has gone (#119) — the same sweep, on the master side. */
+  handle('stock:image:sweep', () => ({ swept: itemImages.sweepOrphanItemImages(requireCompany().db, requireCompany().slug) }))
   handle('voucher:nextNumber', (p) => {
     const { voucherTypeId, date, excludeId } = z
       .object({ voucherTypeId: z.number().int().positive(), date: z.string(), excludeId: z.number().int().positive().optional() })
@@ -3761,6 +3789,181 @@ export function registerIpc(): void {
 
   /** What the copies are costing, so "copy the file in" stays a decision the user can see. */
   handle('voucher:attachments:footprint', () => attachments.attachmentsFootprint(requireCompany().db), 'viewer')
+
+
+  // ---------- price list versions (roadmap E #128) ----------
+  handle('priceLevels:versions', (p) => {
+    const q = z.object({ priceLevelId: z.number().int().positive(), asOn: isoDate }).parse(p)
+    return priceListVersions.listVersions(requireCompany().db, q.priceLevelId, q.asOn)
+  }, 'viewer')
+  handle('priceLevels:listAsOn', (p) => {
+    const q = z.object({ priceLevelId: z.number().int().positive(), asOn: isoDate }).parse(p)
+    return priceListVersions.listAsOn(requireCompany().db, q.priceLevelId, q.asOn)
+  }, 'viewer')
+  handle('priceLevels:previewRevision', (p) =>
+    priceListVersions.previewRevision(requireCompany().db, priceRevisionSchema.parse(p)), 'viewer')
+  handle('priceLevels:applyRevision', (p) =>
+    priceListVersions.applyRevision(requireCompany().db, priceRevisionSchema.parse(p)))
+  handle('priceLevels:deleteVersion', (p) => {
+    const q = z.object({ priceLevelId: z.number().int().positive(), effectiveFrom: isoDate }).parse(p)
+    return { removed: priceListVersions.deleteVersion(requireCompany().db, q.priceLevelId, q.effectiveFrom) }
+  })
+
+  // ---------- serial numbers (roadmap E #115) ----------
+  handle('stock:serials:list', (p) => {
+    const q = z
+      .object({
+        stockItemId: z.number().int().positive().nullable().default(null),
+        status: z.enum(['in_stock', 'issued', 'all']).default('all'),
+        search: z.string().trim().max(60).nullable().default(null),
+        limit: z.number().int().min(1).max(2000).default(500)
+      })
+      .parse(p ?? {})
+    return serials.listSerials(requireCompany().db, q)
+  }, 'viewer')
+  handle('stock:serials:history', (p) => serials.serialHistory(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('stock:serials:counts', () => serials.serialCounts(requireCompany().db), 'viewer')
+
+  // ---------- standard costing (roadmap E #118) ----------
+  handle('stock:standardCosts:list', (p) => {
+    const q = z.object({ stockItemId: z.number().int().positive().nullable().default(null) }).parse(p ?? {})
+    return standardCosts.listStandardCosts(requireCompany().db, q.stockItemId)
+  }, 'viewer')
+  handle('stock:standardCosts:save', (p) =>
+    standardCosts.saveStandardCost(requireCompany().db, standardCostSchema.parse(p)))
+  handle('stock:standardCosts:delete', (p) => {
+    standardCosts.deleteStandardCost(requireCompany().db, idSchema.parse(p).id)
+    return { removed: true }
+  })
+  handle('stock:variance', (p) => standardCosts.varianceReport(requireCompany().db, varianceQuerySchema.parse(p)), 'viewer')
+
+  // ---------- item images (roadmap E #119) ----------
+  handle('stock:image:get', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    return { image: itemImages.getItemImage(c.db, c.slug, id), dataUrl: itemImages.itemImageDataUrl(c.db, c.slug, id) }
+  }, 'viewer')
+  handle('stock:image:many', (p) => {
+    const { ids } = z.object({ ids: z.array(z.number().int().positive()).max(200) }).parse(p)
+    const c = requireCompany()
+    return itemImages.itemImageDataUrls(c.db, c.slug, ids)
+  }, 'viewer')
+  /**
+   * Put a picture on an item.
+   *
+   * The same three ways in as an attachment, and the same refusal: a bare `filePath` from the
+   * renderer is only accepted when the file dialog issued it this session, so the renderer can
+   * never name an arbitrary file and have it copied into the company folder.
+   */
+  handle('stock:image:set', async (p) => {
+    const { stockItemId, filePath, fileName, bytesBase64 } = itemImageSetSchema.parse(p)
+    const c = requireCompany()
+    let sourcePath = filePath
+    let name = fileName
+    if (!bytesBase64 && !sourcePath) {
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose a picture for this item',
+        filters: [{ name: 'Picture', extensions: [...ITEM_IMAGE_EXTENSIONS] }],
+        properties: ['openFile']
+      })
+      if (picked.canceled || !picked.filePaths[0]) return null
+      sourcePath = picked.filePaths[0]
+      dialogIssuedAttachmentPaths.add(sourcePath)
+      name = basename(sourcePath)
+    } else if (sourcePath && !dialogIssuedAttachmentPaths.has(sourcePath)) {
+      throw new Error('File path must come from the file picker')
+    }
+    return itemImages.setItemImage(c.db, c.slug, {
+      stockItemId,
+      sourcePath,
+      bytes: bytesBase64 ? Buffer.from(bytesBase64, 'base64') : undefined,
+      fileName: name ?? (sourcePath ? basename(sourcePath) : 'item.jpg')
+    })
+  })
+  handle('stock:image:clear', (p) => {
+    const { id } = idSchema.parse(p)
+    const c = requireCompany()
+    itemImages.clearItemImage(c.db, c.slug, id)
+    return { cleared: true }
+  })
+
+  // ---------- barcode labels (roadmap E #111) ----------
+  handle('stock:labels:preview', (p) => labels.planLabelJob(requireCompany().db, labelJobSchema.parse(p)), 'viewer')
+  /**
+   * Send the labels, or write them to a file.
+   *
+   * Save-to-file is not a fallback for the printerless — it is how the first person to try this on
+   * real hardware reads the job before sending it, because nothing in `@shared/labels` has ever
+   * been near a physical printer. Same honesty as the ESC/P invoice path.
+   */
+  handle('stock:labels:print', async (p) => {
+    const { job, printer, savePath } = z
+      .object({
+        job: labelJobSchema,
+        printer: z.string().trim().max(120).nullable().default(null),
+        savePath: z.string().trim().max(1024).nullable().default(null)
+      })
+      .parse(p)
+    const c = requireCompany()
+    const bytes = labels.renderLabelJob(c.db, job)
+    if (savePath !== null || printer === null) {
+      const target = savePath ?? join(companyExportsDir(c.slug), `labels-${backupStamp()}.tspl`)
+      return rawPrint.saveRaw(bytes, target)
+    }
+    return rawPrint.printRaw(bytes, printer)
+  })
+
+  // ---------- job work (roadmap E #127) ----------
+  handle('jobwork:list', (p) => {
+    const q = z
+      .object({
+        state: z.enum(['all', 'pending', 'overdue']).default('pending'),
+        partyLedgerId: z.number().int().positive().nullable().default(null),
+        asOn: isoDate.optional()
+      })
+      .parse(p ?? {})
+    return jobWork.listChallans(requireCompany().db, q)
+  }, 'viewer')
+  handle('jobwork:get', (p) => jobWork.getChallan(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('jobwork:send', (p) => jobWork.sendForJobWork(requireCompany().db, jobWorkSendSchema.parse(p)))
+  handle('jobwork:receive', (p) => jobWork.receiveFromJobWork(requireCompany().db, jobWorkReceiveSchema.parse(p)))
+  handle('jobwork:delete', (p) => {
+    jobWork.deleteChallan(requireCompany().db, idSchema.parse(p).id)
+    return { removed: true }
+  })
+  handle('jobwork:itc04', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return jobWork.itc04Rows(requireCompany().db, from, to)
+  }, 'viewer')
+
+  // ---------- foreign currency and revaluation (roadmap F #140) ----------
+  handle('fx:accounts', (p) => {
+    const { asOn } = z.object({ asOn: isoDate }).parse(p)
+    return fx.fcAccounts(requireCompany().db, asOn)
+  }, 'viewer')
+  handle('fx:preview', (p) => {
+    const q = revaluationSchema.parse(p)
+    return fx.previewRevaluation(requireCompany().db, q)
+  }, 'viewer')
+  handle('fx:revalue', (p) => fx.postRevaluation(requireCompany().db, revaluationSchema.parse(p)))
+  handle('fx:revaluations', (p) => {
+    const q = z.object({ ledgerId: z.number().int().positive().nullable().default(null) }).parse(p ?? {})
+    return fx.listRevaluations(requireCompany().db, q.ledgerId)
+  }, 'viewer')
+  handle('fx:remove', (p) => {
+    fx.removeRevaluation(requireCompany().db, idSchema.parse(p).id)
+    return { removed: true }
+  })
+
+  // ---------- the scratchpad ledger (roadmap B #46) ----------
+  handle('scratchpad:list', (p) => {
+    const q = z.object({ limit: z.number().int().min(1).max(1000).default(200) }).parse(p ?? {})
+    return scratchpad.scratchpad(requireCompany().db, q.limit)
+  }, 'viewer')
+  /** Creating the ledger is a write, and deliberately explicit: a Suspense ledger that appears in
+   *  every new company's trial balance at zero teaches people to ignore a Suspense balance. */
+  handle('scratchpad:ensure', () => ({ ledgerId: scratchpad.scratchpadLedgerId(requireCompany().db) }))
+  handle('scratchpad:classify', (p) => scratchpad.reclassify(requireCompany().db, reclassifySchema.parse(p)))
 
   // ---------- approvals (roadmap V #386) ----------
   handle('approvals:list', () => {

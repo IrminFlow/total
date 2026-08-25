@@ -5,6 +5,7 @@ import { useNav, useSession } from '../state/stores'
 import { EmptyState, Money, Panel, SectionTitle } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import type { ExceptionSection } from '@shared/reports'
+import { ScratchpadPanel } from './ScratchpadPanel'
 
 function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Element {
   const nav = useNav()
@@ -66,6 +67,9 @@ export function ExceptionsScreen(): React.JSX.Element {
       >
         Exception reports
       </SectionTitle>
+      {/* Above the exception sections, not below: the scratchpad is the one thing on this screen
+          that somebody put there on purpose and intends to come back to. */}
+      <ScratchpadPanel />
       {data && total === 0 && (
         <Panel className="mb-3">
           <EmptyState title="No exceptions found" hint="Every check came back clean for this period" />

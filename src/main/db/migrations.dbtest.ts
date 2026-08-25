@@ -86,6 +86,14 @@ const EXPECTED_TABLES = [
   'cma_facilities',
   'cheque_bounces',
   'voucher_templates',
+  'serial_numbers',
+  'serial_movements',
+  'standard_costs',
+  'job_work_challans',
+  'job_work_challan_lines',
+  'job_work_returns',
+  'job_work_return_lines',
+  'fx_revaluations',
   'migrations'
 ]
 

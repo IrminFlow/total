@@ -1783,5 +1783,167 @@ export const MIGRATIONS: string[] = [
   -- existing BOM keeps producing the numbers it produced yesterday.
   ALTER TABLE bom_lines ADD COLUMN scrap_bp INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE stock_items ADD COLUMN bom_yield_bp INTEGER NOT NULL DEFAULT 10000;
+  `,
+
+  // 42 — the inventory lane's last five, and the foreign-currency bank account.
+  //
+  // One migration rather than five because they land together and a database that has three of
+  // them is a database nobody ever had.
+  `
+  -- SERIAL NUMBERS (#115). A batch answers "which lot"; a serial answers "where is THAT one" —
+  -- the engine number, the IMEI, the compressor on the warranty card.
+  --
+  -- Two tables, because a serial is not a field on a movement: it is a thing with a history, and
+  -- the questions asked of it months later are all about dates ("was this in stock in March",
+  -- "what did we pay for it"). So the MOVEMENTS are stored and the status is derived from the
+  -- latest one. A a status column would be a second copy of a fact the movements already carry,
+  -- and the two would disagree the first time a voucher was altered.
+  --
+  -- serial is NOCASE-unique per item and not globally: two manufacturers genuinely do stamp the
+  -- same number on different things, and a global unique index would refuse the second one for a
+  -- reason the user cannot act on. original_text keeps what was typed, for the warranty card.
+  CREATE TABLE serial_numbers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    serial TEXT NOT NULL COLLATE NOCASE,
+    original_text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (stock_item_id, serial)
+  );
+
+  -- ON DELETE CASCADE from the voucher: a purged voucher's serial movements are not history, they
+  -- are a record of an entry that no longer exists, and leaving them would make a serial look
+  -- issued to an invoice nobody can open.
+  CREATE TABLE serial_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    serial_id INTEGER NOT NULL REFERENCES serial_numbers(id) ON DELETE CASCADE,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+    moved_on TEXT NOT NULL,
+    -- Paise per unit at the time, so "what did this one cost" is answerable without re-deriving a
+    -- weighted average that has moved on since.
+    rate_paise INTEGER NOT NULL DEFAULT 0,
+    party_ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    godown_id INTEGER REFERENCES godowns(id) ON DELETE SET NULL
+  );
+  CREATE INDEX idx_serial_movements_serial ON serial_movements(serial_id, moved_on);
+  CREATE INDEX idx_serial_movements_voucher ON serial_movements(voucher_id);
+
+  -- Nullable-free: an item either tracks serials or it does not, and every item that existed
+  -- before this migration did not.
+  ALTER TABLE stock_items ADD COLUMN track_serials INTEGER NOT NULL DEFAULT 0;
+
+  -- ITEM IMAGES (#119). The NAME of a file in <company>/item-images/, never the bytes. Images do
+  -- not go in the database: a company.db carrying two hundred product photographs is a database
+  -- that is copied, backed up and integrity-checked at forty times its real size, and the folder
+  -- is the unit a user syncs anyway. Same rule as attachments, same reasons — see
+  -- src/shared/itemImages.ts.
+  ALTER TABLE stock_items ADD COLUMN image_name TEXT;
+
+  -- STANDARD COSTING (#118). Dated data, not a column on the item: a standard revised in October
+  -- must leave September's variance report saying what it said in September. UNIQUE on
+  -- (item, date) so revising the same day's standard twice corrects it rather than stacking.
+  CREATE TABLE standard_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    effective_from TEXT NOT NULL,
+    -- Paise per whole unit.
+    standard_cost INTEGER NOT NULL CHECK (standard_cost >= 0),
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (stock_item_id, effective_from)
+  );
+
+  -- JOB WORK (#127). Goods sent out for processing are NOT a sale: title never leaves the
+  -- principal, so nothing is posted to the books and the stock moves to a godown named for the
+  -- job worker. The voucher that does the moving is a stock journal, and voucher_id points at
+  -- it, so the challan and the stock can never disagree about what went out.
+  --
+  -- goods_type decides the section 143 clock (one year for inputs, three for capital goods) and
+  -- is stored rather than inferred: the same item can be sent as an input on Monday and as a
+  -- capital good on Friday, and getting it wrong moves a statutory deadline by two years.
+  CREATE TABLE job_work_challans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),
+    godown_id INTEGER NOT NULL REFERENCES godowns(id),
+    challan_no TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    sent_on TEXT NOT NULL,
+    goods_type TEXT NOT NULL CHECK (goods_type IN ('input','capital')),
+    nature_of_processing TEXT,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_job_work_challans_party ON job_work_challans(party_ledger_id, sent_on);
+
+  CREATE TABLE job_work_challan_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    challan_id INTEGER NOT NULL REFERENCES job_work_challans(id) ON DELETE CASCADE,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    qty_milli INTEGER NOT NULL CHECK (qty_milli > 0),
+    -- The value the goods went out at. Not a price: nothing is being sold. It is what the challan
+    -- has to declare, and what the deemed supply under 143(3) would be taxed on.
+    rate_paise INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_job_work_challan_lines_challan ON job_work_challan_lines(challan_id);
+
+  CREATE TABLE job_work_returns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    challan_id INTEGER NOT NULL REFERENCES job_work_challans(id) ON DELETE CASCADE,
+    received_on TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_job_work_returns_challan ON job_work_returns(challan_id);
+
+  -- kind separates waste from goods because section 143(5) does: waste and scrap generated at
+  -- the job worker's premises may be supplied by the job worker directly, and counting it as goods
+  -- that failed to come back would leave every challan looking short by the scrap percentage.
+  CREATE TABLE job_work_return_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    return_id INTEGER NOT NULL REFERENCES job_work_returns(id) ON DELETE CASCADE,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+    qty_milli INTEGER NOT NULL CHECK (qty_milli > 0),
+    kind TEXT NOT NULL DEFAULT 'goods' CHECK (kind IN ('goods','waste'))
+  );
+  CREATE INDEX idx_job_work_return_lines_return ON job_work_return_lines(return_id);
+
+  -- MULTI-CURRENCY BANK ACCOUNTS AND REVALUATION (#140).
+  --
+  -- Three columns and a table, and each one exists because the alternative loses a fact.
+  --
+  -- ledgers.currency_code is what makes an account foreign. Without it there is nothing to
+  -- revalue: a rupee figure alone cannot say how many dollars it was, and dividing it back out by
+  -- today's rate invents a different dollar balance every day.
+  --
+  -- voucher_lines.fc_amount is the foreign amount as it was agreed — USD 1,200.00 stays USD
+  -- 1,200.00 forever. voucher_lines.fc_rate_micro is the rate that was USED, recorded on the
+  -- entry that used it rather than looked up again later, which is the whole point: a March
+  -- revaluation has to keep saying March's rate in June. Micro-units (millionths of a rupee per
+  -- one foreign unit) because a rate is not money and rounding it to paise before use would put
+  -- the error into every amount computed from it. See src/shared/fx.ts.
+  ALTER TABLE ledgers ADD COLUMN currency_code TEXT REFERENCES currencies(code);
+  ALTER TABLE voucher_lines ADD COLUMN fc_amount INTEGER;
+  ALTER TABLE voucher_lines ADD COLUMN fc_rate_micro INTEGER;
+
+  -- One row per account per period end. UNIQUE so a period cannot be revalued twice and post the
+  -- difference twice; the second run corrects the first by being refused, not by adding to it.
+  CREATE TABLE fx_revaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    as_on TEXT NOT NULL,
+    currency_code TEXT NOT NULL,
+    closing_rate_micro INTEGER NOT NULL CHECK (closing_rate_micro > 0),
+    -- All signed dr-positive, like every balance in this database.
+    fc_minor INTEGER NOT NULL,
+    book_paise INTEGER NOT NULL,
+    restated_paise INTEGER NOT NULL,
+    difference_paise INTEGER NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (ledger_id, as_on)
+  );
+  CREATE INDEX idx_fx_revaluations_as_on ON fx_revaluations(as_on);
   `
 ]

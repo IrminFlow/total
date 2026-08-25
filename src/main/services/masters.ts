@@ -30,6 +30,7 @@ interface LedgerRow {
   salesperson: string | null; territory: string | null
   phone: string | null; email: string | null
   bank_account: string | null; bank_ifsc: string | null; bank_holder: string | null; bank_shared_ok: number
+  currency_code: string | null
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
@@ -45,7 +46,8 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   salesperson: r.salesperson, territory: r.territory,
   phone: r.phone, email: r.email,
   bankAccount: r.bank_account, bankIfsc: r.bank_ifsc, bankHolder: r.bank_holder,
-  bankSharedOk: !!r.bank_shared_ok
+  bankSharedOk: !!r.bank_shared_ok,
+  currencyCode: r.currency_code
 })
 
 // ---------- groups ----------
@@ -171,8 +173,8 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
         tds_section_id, pan, credit_days, export_type, rcm, itc_eligibility, price_level_id, credit_limit,
         interest_rate_bp, interest_grace_days, msme_status, udyam_number, related_party, relationship,
         salesperson, territory, phone, email, default_cost_centre_id,
-        bank_account, bank_ifsc, bank_holder, bank_shared_ok, is_system)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+        bank_account, bank_ifsc, bank_holder, bank_shared_ok, currency_code, is_system)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
       input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
@@ -184,7 +186,7 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
       input.salesperson ?? null, input.territory ?? null,
       input.phone ?? null, input.email ?? null, input.defaultCostCentreId ?? null,
       input.bankAccount ?? null, input.bankIfsc ?? null, input.bankHolder ?? null,
-      input.bankSharedOk ? 1 : 0)
+      input.bankSharedOk ? 1 : 0, input.currencyCode ?? null)
   const created = getLedger(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'ledger', created.id, 'create', null, created)
   return created
@@ -200,7 +202,8 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
      rcm = ?, itc_eligibility = ?, price_level_id = ?, credit_limit = ?,
      interest_rate_bp = ?, interest_grace_days = ?, msme_status = ?, udyam_number = ?,
      related_party = ?, relationship = ?, salesperson = ?, territory = ?, phone = ?, email = ?,
-     default_cost_centre_id = ?, bank_account = ?, bank_ifsc = ?, bank_holder = ?, bank_shared_ok = ?
+     default_cost_centre_id = ?, bank_account = ?, bank_ifsc = ?, bank_holder = ?, bank_shared_ok = ?,
+     currency_code = ?
      WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
     input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
@@ -226,6 +229,9 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
     input.bankIfsc === undefined ? existing.bankIfsc : (input.bankIfsc ?? null),
     input.bankHolder === undefined ? existing.bankHolder : (input.bankHolder ?? null),
     (input.bankSharedOk === undefined ? existing.bankSharedOk : input.bankSharedOk) ? 1 : 0,
+    // Absent leaves it alone, for the same reason the bank details do: a form that never carried
+    // the field must not be able to un-designate a foreign-currency account by omission.
+    input.currencyCode === undefined ? existing.currencyCode : (input.currencyCode ?? null),
     id)
   const updated = getLedger(db, id)!
   writeAudit(db, 'ledger', id, 'update', existing, updated)
@@ -359,6 +365,7 @@ interface StockItemRow {
   barcode: string | null; reorder_level_milli: number | null; valuation_method: 'weighted_avg' | 'fifo'
   block_negative: number | null
   code: string | null; alt_unit_id: number | null; alt_conversion_milli: number | null
+  track_serials: number; image_name: string | null
 }
 const mapItem = (r: StockItemRow): StockItem => ({
   id: r.id, name: r.name, groupId: r.group_id, unitId: r.unit_id, hsn: r.hsn,
@@ -367,7 +374,9 @@ const mapItem = (r: StockItemRow): StockItem => ({
   altUnitId: r.alt_unit_id, altConversionMilli: r.alt_conversion_milli,
   valuationMethod: r.valuation_method,
   // NULL is a third state, not a missing false: it means "follow the company setting".
-  blockNegative: r.block_negative == null ? null : r.block_negative === 1
+  blockNegative: r.block_negative == null ? null : r.block_negative === 1,
+  trackSerials: r.track_serials === 1,
+  imageName: r.image_name
 })
 
 export function listStockItems(db: DB): StockItem[] {
@@ -377,13 +386,15 @@ export function listStockItems(db: DB): StockItem[] {
 export function createStockItem(db: DB, input: StockItemInput): StockItem {
   const res = db.prepare(
     `INSERT INTO stock_items (name, group_id, unit_id, hsn, gst_rate, cess_rate, opening_qty_milli, opening_value,
-      code, barcode, alt_unit_id, alt_conversion_milli, reorder_level_milli, valuation_method, block_negative)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      code, barcode, alt_unit_id, alt_conversion_milli, reorder_level_milli, valuation_method, block_negative,
+      track_serials)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
     input.openingQtyMilli, input.openingValue, normaliseCode(input.code), input.barcode,
     ...altColumns(input),
     input.reorderLevelMilli, input.valuationMethod ?? 'weighted_avg',
-    input.blockNegative == null ? null : input.blockNegative ? 1 : 0)
+    input.blockNegative == null ? null : input.blockNegative ? 1 : 0,
+    input.trackSerials ? 1 : 0)
   const created = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(res.lastInsertRowid) as StockItemRow)
   writeAudit(db, 'stockItem', created.id, 'create', null, created)
   return created
@@ -395,13 +406,16 @@ export function updateStockItem(db: DB, id: number, input: StockItemInput): Stoc
   db.prepare(
     `UPDATE stock_items SET name = ?, group_id = ?, unit_id = ?, hsn = ?, gst_rate = ?, cess_rate = ?,
      opening_qty_milli = ?, opening_value = ?, code = ?, barcode = ?, alt_unit_id = ?, alt_conversion_milli = ?,
-     reorder_level_milli = ?, valuation_method = ?, block_negative = ? WHERE id = ?`
+     reorder_level_milli = ?, valuation_method = ?, block_negative = ?, track_serials = ? WHERE id = ?`
   ).run(input.name, input.groupId, input.unitId, input.hsn, input.gstRate, input.cessRate,
     input.openingQtyMilli, input.openingValue, normaliseCode(input.code), input.barcode,
     ...altColumns(input),
     input.reorderLevelMilli,
     input.valuationMethod ?? existing.valuation_method,
-    input.blockNegative == null ? null : input.blockNegative ? 1 : 0, id)
+    input.blockNegative == null ? null : input.blockNegative ? 1 : 0,
+    // `undefined` means "leave it as it is". Reading it as false would quietly turn tracking off
+    // for an item that already has serials against it, stranding every one of them.
+    input.trackSerials === undefined ? existing.track_serials : input.trackSerials ? 1 : 0, id)
   const updated = mapItem(db.prepare('SELECT * FROM stock_items WHERE id = ?').get(id) as StockItemRow)
   writeAudit(db, 'stockItem', id, 'update', mapItem(existing), updated)
   return updated
@@ -412,6 +426,9 @@ export function deleteStockItem(db: DB, id: number): void {
   if (!existing) throw new Error('Stock item not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM inventory_lines WHERE stock_item_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Stock item has vouchers; delete those first')
+  // The picture goes with the item, but the file on disk cannot be reached from here (this module
+  // has no company slug). `sweepOrphanItemImages` catches it — same arrangement attachments use
+  // after a purge, and for the same reason: the row is gone, so nothing remembers the file.
   db.prepare('DELETE FROM stock_items WHERE id = ?').run(id)
   writeAudit(db, 'stockItem', id, 'delete', mapItem(existing), null)
 }
