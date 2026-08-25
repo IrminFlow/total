@@ -1,4 +1,5 @@
 import type { DB } from '../db/connection'
+import { prep } from '../db/stmt'
 import type { Batch, Godown, Group, Ledger, StockGroup, StockItem, Unit, VoucherType } from '@shared/domain'
 import { ledgerInputSchema } from '@shared/schemas'
 import type { BatchInput, GroupInput, GodownInput, LedgerInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput } from '@shared/schemas'
@@ -111,7 +112,7 @@ export function deleteGroup(db: DB, id: number): void {
 
 /** All ids in the subtrees rooted at the given group ids (inclusive). */
 export function descendantIds(db: DB, rootIds: number[]): Set<number> {
-  const groups = db.prepare('SELECT id, parent_id FROM groups').all() as { id: number; parent_id: number | null }[]
+  const groups = prep(db, 'SELECT id, parent_id FROM groups').all() as { id: number; parent_id: number | null }[]
   const children = new Map<number | null, number[]>()
   for (const g of groups) {
     const list = children.get(g.parent_id) ?? []

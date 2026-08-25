@@ -1,4 +1,5 @@
 import type { DB } from '../db/connection'
+import { prep } from '../db/stmt'
 import type {
   Voucher, VoucherLine, InventoryLine, VoucherType, NegativeStockWarning, SaveVoucherWarnings, DrCr
 } from '@shared/domain'
@@ -59,7 +60,7 @@ export const IN_BOOKS = `${NOT_DELETED} AND ${NOT_POSTDATED} AND ${NOT_OPTIONAL}
 /** Books-locked-up-to date (inclusive): vouchers dated on or before this date can't be
  *  saved/deleted/restored. Stored in `meta` under key 'lock_before'; null/absent = no lock. */
 export function getLockDate(db: DB): string | null {
-  const row = db.prepare("SELECT value FROM meta WHERE key = 'lock_before'").get() as { value: string } | undefined
+  const row = prep(db, "SELECT value FROM meta WHERE key = 'lock_before'").get() as { value: string } | undefined
   return row ? row.value : null
 }
 
@@ -67,15 +68,15 @@ export function getLockDate(db: DB): string | null {
 export function setLockDate(db: DB, date: string | null): void {
   const old = getLockDate(db)
   if (date === null) {
-    db.prepare("DELETE FROM meta WHERE key = 'lock_before'").run()
+    prep(db, "DELETE FROM meta WHERE key = 'lock_before'").run()
   } else {
-    db.prepare("INSERT INTO meta (key, value) VALUES ('lock_before', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(date)
+    prep(db, "INSERT INTO meta (key, value) VALUES ('lock_before', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(date)
   }
   writeAudit(db, 'company', 0, 'update', { lockBefore: old }, { lockBefore: date })
 }
 
 function getVoucherType(db: DB, id: number): VoucherType {
-  const row = db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as
+  const row = prep(db, 'SELECT * FROM voucher_types WHERE id = ?').get(id) as
     | {
         id: number; name: string; kind: VoucherType['kind']; numbering: 'auto' | 'manual'; prefix: string
         suffix: string; pad_width: number; restart_fy: number; is_system: number
@@ -89,13 +90,11 @@ function getVoucherType(db: DB, id: number): VoucherType {
 }
 
 export function getVoucher(db: DB, id: number): Voucher | null {
-  const v = db.prepare('SELECT * FROM vouchers WHERE id = ?').get(id) as VoucherRow | undefined
+  const v = prep(db, 'SELECT * FROM vouchers WHERE id = ?').get(id) as VoucherRow | undefined
   if (!v) return null
-  const lines = db
-    .prepare('SELECT id, ledger_id, dr_cr, amount, bank_date FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order, id')
+  const lines = prep(db, 'SELECT id, ledger_id, dr_cr, amount, bank_date FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as { id: number; ledger_id: number; dr_cr: 'dr' | 'cr'; amount: number; bank_date: string | null }[]
-  const inventory = db
-    .prepare('SELECT id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
+  const inventory = prep(db, 'SELECT id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as {
       id: number; stock_item_id: number; godown_id: number | null; batch_id: number | null
       qty_milli: number; rate_paise: number; discount_paise: number; amount: number; direction: 'in' | 'out'; is_absolute: number
@@ -116,12 +115,10 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     allocByLine.set(r.voucher_line_id, list)
   }
 
-  const billRefRows = db
-    .prepare('SELECT kind, name, amount, due_date FROM bill_refs WHERE voucher_id = ? ORDER BY id')
+  const billRefRows = prep(db, 'SELECT kind, name, amount, due_date FROM bill_refs WHERE voucher_id = ? ORDER BY id')
     .all(id) as { kind: 'new' | 'against'; name: string; amount: number; due_date: string | null }[]
 
-  const tdsRow = db
-    .prepare('SELECT section_id, base_amount, tds_amount FROM tds_entries WHERE voucher_id = ?')
+  const tdsRow = prep(db, 'SELECT section_id, base_amount, tds_amount FROM tds_entries WHERE voucher_id = ?')
     .get(id) as { section_id: number; base_amount: number; tds_amount: number } | undefined
 
   return {
@@ -240,8 +237,7 @@ export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, e
  *  SavedVoucher stays as the belt-and-braces warning for races). Binned vouchers don't
  *  count: restoring one back into a clash is already the restore flow's problem. */
 export function voucherNumberExists(db: DB, voucherTypeId: number, number: string, excludeId?: number): boolean {
-  const row = db
-    .prepare(
+  const row = prep(db,
       `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id IS NOT ? AND ${NOT_DELETED} LIMIT 1`
     )
     .get(voucherTypeId, number, excludeId ?? -1)
@@ -260,8 +256,7 @@ export function findDuplicates(db: DB, input: VoucherInputParsed, excludeId?: nu
   if (total === 0) return []
   // Narrow by type + party + date window FIRST (all indexed voucher columns); only the few
   // surviving candidates pay for the line-total subquery — not every voucher in the book.
-  const rows = db
-    .prepare(
+  const rows = prep(db,
       `SELECT v.id AS voucherId, v.number, v.date
        FROM vouchers v
        WHERE v.voucher_type_id = ? AND v.party_ledger_id IS ? AND v.id IS NOT ?
@@ -276,7 +271,7 @@ export function findDuplicates(db: DB, input: VoucherInputParsed, excludeId?: nu
 
 function ledgerFactsResolver(db: DB): (id: number) => LedgerFacts {
   const cashBank = cashBankGroupIds(db)
-  const stmt = db.prepare('SELECT group_id FROM ledgers WHERE id = ?')
+  const stmt = prep(db, 'SELECT group_id FROM ledgers WHERE id = ?')
   const cache = new Map<number, LedgerFacts>()
   return (id: number) => {
     const hit = cache.get(id)
@@ -308,7 +303,7 @@ export function checkStock(db: DB, stockItemIds: number[], date: string): Negati
        FROM stock_items si JOIN units u ON u.id = si.unit_id WHERE si.id IN (${placeholders})`
     )
     .all(...stockItemIds) as { id: number; name: string; openingQtyMilli: number; unitSymbol: string }[]
-  const movementsStmt = db.prepare(
+  const movementsStmt = prep(db,
     `SELECT il.qty_milli AS qtyMilli, il.direction, il.is_absolute AS isAbsolute
      FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
      WHERE il.stock_item_id = ? AND v.date <= ? AND ${IN_BOOKS}
@@ -385,7 +380,7 @@ export function saveVoucher(
   const run = db.transaction((): number => {
     let voucherId: number
     if (existingId) {
-      db.prepare(
+      prep(db,
         `UPDATE vouchers SET voucher_type_id = ?, date = ?, number = ?, party_ledger_id = ?,
          narration = ?, reference = ?, instrument_no = ?, instrument_date = ?,
          transporter_id = ?, vehicle_no = ?, transport_distance = ?, pos_override = ?,
@@ -394,11 +389,11 @@ export function saveVoucher(
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
         input.posOverride, input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0, existingId)
-      db.prepare('DELETE FROM voucher_lines WHERE voucher_id = ?').run(existingId)
-      db.prepare('DELETE FROM inventory_lines WHERE voucher_id = ?').run(existingId)
+      prep(db, 'DELETE FROM voucher_lines WHERE voucher_id = ?').run(existingId)
+      prep(db, 'DELETE FROM inventory_lines WHERE voucher_id = ?').run(existingId)
       voucherId = existingId
     } else {
-      const res = db.prepare(
+      const res = prep(db,
         `INSERT INTO vouchers (voucher_type_id, date, number, party_ledger_id, narration, reference,
           instrument_no, instrument_date, transporter_id, vehicle_no, transport_distance, pos_override,
           currency_code, exchange_rate, post_dated, is_optional)
@@ -409,10 +404,10 @@ export function saveVoucher(
       voucherId = Number(res.lastInsertRowid)
     }
 
-    const insertLine = db.prepare(
+    const insertLine = prep(db,
       'INSERT INTO voucher_lines (voucher_id, ledger_id, dr_cr, amount, line_order) VALUES (?, ?, ?, ?, ?)'
     )
-    const insertCostAlloc = db.prepare(
+    const insertCostAlloc = prep(db,
       'INSERT INTO voucher_line_cost_allocations (voucher_line_id, cost_centre_id, amount) VALUES (?, ?, ?)'
     )
     input.lines.forEach((l, i) => {
@@ -423,7 +418,7 @@ export function saveVoucher(
       }
     })
 
-    const insertInv = db.prepare(
+    const insertInv = prep(db,
       `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute, line_order)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
@@ -434,11 +429,11 @@ export function saveVoucher(
 
     // Bill refs and TDS ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade
     // their deletion the way replacing the line set does — clear and reinsert explicitly.
-    db.prepare('DELETE FROM bill_refs WHERE voucher_id = ?').run(voucherId)
-    db.prepare('DELETE FROM tds_entries WHERE voucher_id = ?').run(voucherId)
+    prep(db, 'DELETE FROM bill_refs WHERE voucher_id = ?').run(voucherId)
+    prep(db, 'DELETE FROM tds_entries WHERE voucher_id = ?').run(voucherId)
 
     if (input.billRefs.length > 0) {
-      const insertBillRef = db.prepare(
+      const insertBillRef = prep(db,
         'INSERT INTO bill_refs (voucher_id, party_ledger_id, kind, name, amount, due_date) VALUES (?, ?, ?, ?, ?, ?)'
       )
       for (const ref of input.billRefs) {
@@ -448,9 +443,9 @@ export function saveVoucher(
 
     if (input.tds) {
       const party = input.partyLedgerId
-        ? (db.prepare('SELECT pan FROM ledgers WHERE id = ?').get(input.partyLedgerId) as { pan: string | null } | undefined)
+        ? (prep(db, 'SELECT pan FROM ledgers WHERE id = ?').get(input.partyLedgerId) as { pan: string | null } | undefined)
         : undefined
-      db.prepare(
+      prep(db,
         'INSERT INTO tds_entries (voucher_id, section_id, party_ledger_id, pan, base_amount, tds_amount) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(voucherId, input.tds.sectionId, input.partyLedgerId, party?.pan ?? null, input.tds.baseAmount, input.tds.tdsAmount)
     }
@@ -463,8 +458,8 @@ export function saveVoucher(
     // more out of a batch than it holds (hard errors — a batch is a physical lot).
     const batchLines = input.inventory.filter((l) => l.batchId != null && !l.isAbsolute)
     if (batchLines.length > 0) {
-      const batchStmt = db.prepare('SELECT id, stock_item_id, name FROM batches WHERE id = ?')
-      const balanceStmt = db.prepare(
+      const batchStmt = prep(db, 'SELECT id, stock_item_id, name FROM batches WHERE id = ?')
+      const balanceStmt = prep(db,
         `SELECT COALESCE(SUM(CASE WHEN il.direction = 'in' THEN il.qty_milli ELSE -il.qty_milli END), 0) AS bal
          FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
          WHERE il.batch_id = ? AND il.is_absolute = 0 AND ${IN_BOOKS}`
@@ -535,14 +530,12 @@ export function saveVoucher(
         : false
 
     if (input.partyLedgerId !== null && !postDated && !isOptional && !heldForApproval) {
-      const party = db
-        .prepare('SELECT id, name, opening_balance, credit_limit FROM ledgers WHERE id = ?')
+      const party = prep(db, 'SELECT id, name, opening_balance, credit_limit FROM ledgers WHERE id = ?')
         .get(input.partyLedgerId) as
         | { id: number; name: string; opening_balance: number; credit_limit: number | null }
         | undefined
       if (party && party.credit_limit !== null) {
-        const { bal } = db
-          .prepare(
+        const { bal } = prep(db,
             `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS bal
              FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
              WHERE vl.ledger_id = ? AND ${IN_BOOKS}`
@@ -571,8 +564,7 @@ export function saveVoucher(
   const voucherId = run()
   const after = getVoucher(db, voucherId)!
   writeAudit(db, 'voucher', voucherId, existingId ? 'update' : 'create', before, after)
-  const duplicate = db
-    .prepare(
+  const duplicate = prep(db,
       `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id <> ? AND ${NOT_DELETED} LIMIT 1`
     )
     .get(vt.id, number, voucherId)
@@ -592,7 +584,7 @@ export function saveVoucher(
  * bank date matter: an unreconciled line in a frozen period was never part of the frozen figure.
  */
 function assertNoFrozenBankDates(db: DB, voucher: Voucher, verb: string): void {
-  const lockOf = db.prepare('SELECT value FROM meta WHERE key = ?')
+  const lockOf = prep(db, 'SELECT value FROM meta WHERE key = ?')
   for (const line of voucher.lines) {
     if (!line.bankDate) continue
     const row = lockOf.get(`recon_lock.${line.ledgerId}`) as { value: string } | undefined
@@ -623,7 +615,7 @@ export function restoreVoucher(db: DB, id: number): void {
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
   assertNoFrozenBankDates(db, before, 'restored')
-  db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
+  prep(db, 'UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
   // The full record on both sides, not a `{ restored: true }` marker. A reader comparing two
   // snapshots sees "deletedAt: a date -> none"; against a marker they would see every field on
   // the voucher reported as having been removed, which is the opposite of what happened.
@@ -645,8 +637,7 @@ export interface MaturePostDatedResult {
  *  each maturation is audit-logged individually. Vouchers dated inside the locked period are
  *  refused, not flipped (v0.3 review F3) — see MaturePostDatedResult.blockedByLock. */
 export function maturePostDated(db: DB, today: string): MaturePostDatedResult {
-  const rows = db
-    .prepare(`SELECT v.id, v.date FROM vouchers v WHERE v.post_dated = 1 AND v.date <= ? AND ${NOT_DELETED}`)
+  const rows = prep(db, `SELECT v.id, v.date FROM vouchers v WHERE v.post_dated = 1 AND v.date <= ? AND ${NOT_DELETED}`)
     .all(today) as { id: number; date: string }[]
   const lock = getLockDate(db)
   const due = lock === null ? rows : rows.filter((r) => r.date > lock)
@@ -728,14 +719,13 @@ export interface BulkEditResult {
  */
 function allocatableLines(db: DB, voucherId: number): { id: number; amount: number }[] {
   const cashBank = cashBankGroupIds(db)
-  const rows = db
-    .prepare(
+  const rows = prep(db,
       `SELECT vl.id, vl.amount, vl.ledger_id AS ledgerId, l.group_id AS groupId
        FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
        WHERE vl.voucher_id = ?`
     )
     .all(voucherId) as { id: number; amount: number; ledgerId: number; groupId: number }[]
-  const party = (db.prepare('SELECT party_ledger_id AS p FROM vouchers WHERE id = ?').get(voucherId) as
+  const party = (prep(db, 'SELECT party_ledger_id AS p FROM vouchers WHERE id = ?').get(voucherId) as
     | { p: number | null }
     | undefined)?.p ?? null
   return rows
@@ -749,7 +739,7 @@ export function bulkEditVouchers(db: DB, ids: number[], edit: BulkVoucherEdit): 
     throw new Error('Nothing to change')
   }
   if (edit.costCentreId != null) {
-    const centre = db.prepare('SELECT id FROM cost_centres WHERE id = ?').get(edit.costCentreId)
+    const centre = prep(db, 'SELECT id FROM cost_centres WHERE id = ?').get(edit.costCentreId)
     if (!centre) throw new Error('Cost centre not found')
   }
 
@@ -769,11 +759,11 @@ export function bulkEditVouchers(db: DB, ids: number[], edit: BulkVoucherEdit): 
 
   const run = db.transaction(() => {
     const setNarration = db.prepare("UPDATE vouchers SET narration = ?, updated_at = datetime('now') WHERE id = ?")
-    const clearAlloc = db.prepare(
+    const clearAlloc = prep(db,
       `DELETE FROM voucher_line_cost_allocations
        WHERE voucher_line_id IN (SELECT id FROM voucher_lines WHERE voucher_id = ?)`
     )
-    const addAlloc = db.prepare(
+    const addAlloc = prep(db,
       'INSERT INTO voucher_line_cost_allocations (voucher_line_id, cost_centre_id, amount) VALUES (?, ?, ?)'
     )
 
@@ -822,8 +812,7 @@ export interface PdcRow {
 /** PDC register (Banking view): every live post-dated voucher, soonest maturity first.
  *  Deliberately NOT filtered by IN_BOOKS — this is the one listing that shows PDCs. */
 export function pdcRegister(db: DB): PdcRow[] {
-  return db
-    .prepare(
+  return prep(db,
       `SELECT v.id, v.date, v.number, vt.name AS voucherTypeName, l.name AS partyName,
               v.instrument_no AS instrumentNo, v.instrument_date AS instrumentDate,
               (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr') AS amount
@@ -841,7 +830,7 @@ export function purgeVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
   if (!before.deletedAt) throw new Error('Voucher must be in the bin before it can be purged')
-  db.prepare('DELETE FROM vouchers WHERE id = ?').run(id)
+  prep(db, 'DELETE FROM vouchers WHERE id = ?').run(id)
   writeAudit(db, 'voucher', id, 'delete', { ...before, purged: true }, null)
 }
 
@@ -862,13 +851,12 @@ export function purgeOldDeleted(db: DB, days = 30): number {
   if (days <= 0) return 0
   const lock = getLockDate(db)
   if (!lock) return 0
-  const rows = db
-    .prepare(
+  const rows = prep(db,
       `SELECT id FROM vouchers v
        WHERE v.deleted_at IS NOT NULL AND v.deleted_at <= datetime('now', ?) AND v.date <= ?`
     )
     .all(`-${days} days`, lock) as { id: number }[]
-  const del = db.prepare('DELETE FROM vouchers WHERE id = ?')
+  const del = prep(db, 'DELETE FROM vouchers WHERE id = ?')
   let purged = 0
   for (const { id } of rows) {
     try {
@@ -896,8 +884,7 @@ export interface BinRow {
 
 /** Binned vouchers, most recently deleted first. Mirrors listVouchers' account/amount derivation. */
 export function listBin(db: DB): BinRow[] {
-  const rows = db
-    .prepare(
+  const rows = prep(db,
       `SELECT v.id, v.date, vt.name AS voucherType, v.number,
               COALESCE(pl.name, fl.name, '') AS account,
               COALESCE(t.total, 0) AS amount,
@@ -980,8 +967,7 @@ export function draftFromVoucher(db: DB, voucherId: number): VoucherDraftSource 
 
 /** Id of the newest voucher of a type that is still in the books, or null if there is none. */
 export function latestVoucherOfType(db: DB, voucherTypeId: number): number | null {
-  const row = db
-    .prepare(
+  const row = prep(db,
       `SELECT id FROM vouchers v
        WHERE voucher_type_id = ? AND ${IN_BOOKS}
        ORDER BY date DESC, id DESC LIMIT 1`
@@ -1001,8 +987,7 @@ export function binPurgeCandidates(db: DB, days: number): { count: number; oldes
   if (days <= 0) return { count: 0, oldestDate: null }
   const lock = getLockDate(db)
   if (!lock) return { count: 0, oldestDate: null }
-  const row = db
-    .prepare(
+  const row = prep(db,
       `SELECT COUNT(*) AS count, MIN(v.date) AS oldestDate FROM vouchers v
        WHERE v.deleted_at IS NOT NULL AND v.deleted_at <= datetime('now', ?) AND v.date <= ?`
     )
