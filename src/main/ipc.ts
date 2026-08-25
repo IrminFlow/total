@@ -161,8 +161,8 @@ import {
   auditRetentionSchema, invoicePdfBatchSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
-import { featuresSchema } from '@shared/features'
-import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig'
+import { featuresSchema } from '@shared/features.schema'
+import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig.schema'
 import { PERIODS } from '@shared/period'
 import { buildChecklist } from '@shared/onboarding'
 import { GITHUB_REPO, SITE_URL } from '@shared/product'

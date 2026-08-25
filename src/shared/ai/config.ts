@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod'
+import { EGRESS_MODES } from './endpoint'
 
 /** How the API key is being held. `session` means the OS keychain was unavailable. */
 export type KeyStorage = 'keychain' | 'session'
@@ -20,9 +21,6 @@ export type KeyStorage = 'keychain' | 'session'
  * to a third-party endpoint, at a real cost to answer quality. GSTIN, PAN, bank account numbers
  * and payroll data are never sent under either setting — that is not a toggle.
  */
-export const EGRESS_MODES = ['full', 'names-redacted'] as const
-export type EgressMode = (typeof EGRESS_MODES)[number]
-
 export const aiConfigSchema = z.object({
   version: z.literal(1).default(1),
   baseUrl: z.string().trim().max(300).default('https://api.openai.com/v1'),
@@ -45,8 +43,7 @@ export type AiConfig = z.infer<typeof aiConfigSchema>
 
 export const DEFAULT_AI_CONFIG: AiConfig = aiConfigSchema.parse({})
 
-/** The mask the renderer sees in place of a stored key, mirroring the NIC credentials pattern. */
-export const KEY_MASK = '••••••••'
+
 
 /**
  * What `ai:getConfig` returns. A DIFFERENT type from AiConfig on purpose: it carries the mask
@@ -74,33 +71,5 @@ export function mergeAiConfig(partial: unknown): AiConfig {
   return parsed.success ? parsed.data : { ...DEFAULT_AI_CONFIG }
 }
 
-/**
- * A loopback endpoint means the model runs on this machine: nothing leaves it, and there is no
- * cost. Both the consent copy and the cost display key off this.
- */
-export function isLocalEndpoint(baseUrl: string): boolean {
-  try {
-    const host = new URL(baseUrl).hostname.toLowerCase()
-    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]' || host.endsWith('.local')
-  } catch {
-    return false
-  }
-}
-
-/** Host shown in consent and error copy. Never the full URL — query strings can carry keys. */
-export function endpointHost(baseUrl: string): string {
-  try {
-    return new URL(baseUrl).host
-  } catch {
-    return baseUrl.slice(0, 60)
-  }
-}
-
-/** Refuse a plaintext endpoint that is not on this machine. */
-export function isInsecureEndpoint(baseUrl: string): boolean {
-  try {
-    return new URL(baseUrl).protocol === 'http:' && !isLocalEndpoint(baseUrl)
-  } catch {
-    return false
-  }
-}
+export { EGRESS_MODES, KEY_MASK, endpointHost, isInsecureEndpoint, isLocalEndpoint } from './endpoint'
+export type { EgressMode } from './endpoint'

@@ -14,7 +14,8 @@ import {
   supplyDocumentTitle,
   supplyEndorsements
 } from '@shared/gst/billOfSupply'
-import { mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
+import { type InvoiceConfig } from '@shared/invoiceConfig'
+import { mergeInvoiceConfig } from '@shared/invoiceConfig.schema'
 import { invoiceTemplateCss } from '@shared/invoiceTemplates'
 import { bilingualLabel, type InvoiceLabelKeys } from '@shared/i18n/invoiceLabels'
 import { amountInWordsIn } from '@shared/i18n/wordsIntl'

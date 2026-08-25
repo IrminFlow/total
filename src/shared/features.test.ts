@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_FEATURES, featuresSchema, mergeFeatures } from './features'
+import { DEFAULT_FEATURES } from './features'
+import { featuresSchema, mergeFeatures } from './features.schema'
 
 describe('featuresSchema / mergeFeatures', () => {
   it('DEFAULT_FEATURES has every module flag on and every guard flag off', () => {

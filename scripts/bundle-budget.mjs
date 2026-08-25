@@ -17,8 +17,14 @@ const BUDGETS_KB = {
   //
   // 3000 → 3200 when the last inventory lane landed: barcode labels, serial numbers, standard
   // costing, item images, price-list versioning and FX revaluation are six screens' worth of UI.
-  // The number that actually guards startup is ENTRY_CHUNK_KB below, which is at 1,421 of 1,600 —
-  // these bytes are in code-split chunks that are read when their screen is opened and not before.
+  // The number that actually guards startup is ENTRY_CHUNK_KB below — these bytes are in
+  // code-split chunks read when their screen is opened and not before.
+  //
+  // Sat at 99% of 3200 after zod 4 landed, and came back to 94% by getting zod out of the
+  // renderer entirely: every payload is validated in MAIN, and the renderer was pulling the whole
+  // validator in behind a handful of plain constants that happened to live in the same file as a
+  // schema. `__tests__/noZod.test.ts` keeps it out. The budget is NOT being lowered to match —
+  // the headroom is the point of having reclaimed it.
   'out/renderer/assets': 3200,
   // Main process: better-sqlite3 is native and not counted here, so this is our own code.
   //

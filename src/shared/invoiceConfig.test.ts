@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_INVOICE_CONFIG, invoiceConfigSchema, mergeInvoiceConfig } from './invoiceConfig'
+import { DEFAULT_INVOICE_CONFIG } from './invoiceConfig'
+import { invoiceConfigSchema, mergeInvoiceConfig } from './invoiceConfig.schema'
 
 describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
   it('defaults round-trip through the schema unchanged', () => {
