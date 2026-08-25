@@ -22,6 +22,8 @@ test("packaged install smoke tolerates transient NSIS directory locks", () => {
   const source = readFileSync(new URL("../install-smoke.mjs", import.meta.url), "utf8");
   assert.match(source, /maxRetries:\s*20/);
   assert.match(source, /\['EBUSY', 'EPERM'\]/);
+  assert.match(source, /waitForAbsent\(executable\)/);
+  assert.match(source, /timeoutMs = 15_000/);
 });
 
 function fixture(platform) {

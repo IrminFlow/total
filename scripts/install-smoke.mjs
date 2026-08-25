@@ -31,6 +31,14 @@ function artifact(path) {
   }
 }
 
+async function waitForAbsent(path, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs
+  while (existsSync(path) && Date.now() < deadline) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250))
+  }
+  return !existsSync(path)
+}
+
 function writeHostedRunnerEvidence(result) {
   const output = process.env.INSTALL_EVIDENCE?.trim()
   if (!output) return
@@ -190,7 +198,8 @@ try {
     execFileSync(uninstaller, ['/S'], { stdio: 'inherit' })
     uninstaller = null
   }
-  if (existsSync(executable)) throw new Error(`Uninstall left the application executable behind: ${executable}`)
+  // A silent NSIS uninstaller can return before its spawned cleanup process removes the app.
+  if (!(await waitForAbsent(executable))) throw new Error(`Uninstall left the application executable behind: ${executable}`)
   const preservedDb = join(result.dataDir, 'companies', result.slug, 'company.db')
   if (!existsSync(preservedDb)) throw new Error('Uninstall deleted the company database')
   writeHostedRunnerEvidence(result)
