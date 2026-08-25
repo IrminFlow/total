@@ -86,7 +86,7 @@ export type Screen =
       tab?:
         | 'appearance' | 'backups' | 'bin' | 'users' | 'audit' | 'approvals' | 'auditor' | 'nic'
         | 'features' | 'invoice' | 'collections' | 'schedules' | 'agents' | 'ai' | 'license'
-        | 'about'
+        | 'customFields' | 'about'
     }
 
 interface NavState {

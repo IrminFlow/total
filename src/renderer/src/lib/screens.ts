@@ -81,7 +81,9 @@ export const SCREENS: ScreenDef[] = [
       
       // The bill attached to the voucher being altered, and whether it is still waiting for the
       // owner — both can have changed on another screen since this one was last looked at.
-      'attachments', 'approvalThreshold'
+      'attachments', 'approvalThreshold',
+      // The company's own fields for the type being entered (roadmap #195).
+      'customFields'
     ]
   },
   {
@@ -370,12 +372,16 @@ export const SCREENS: ScreenDef[] = [
     title: 'Quotations, orders & challans',
     screen: { name: 'sales-chain' },
     navSection: 'top',
-    navLabel: 'Quotations',
+    navLabel: 'Orders',
     // Q is the filing register, U budgets, O outstandings, T trial balance, A year-end,
     // I import, N reconciliation, S stock summary. 8 rides as a badge.
     accel: '8',
-    keywords: ['quotation', 'quote', 'estimate', 'sales order', 'order', 'delivery challan', 'challan', 'proforma', 'pipeline'],
-    invalidates: ['salesDocs', 'salesPipeline', 'ledgers', 'stockItems']
+    keywords: [
+      'quotation', 'quote', 'estimate', 'sales order', 'order', 'delivery challan', 'challan', 'proforma', 'pipeline',
+      // The inward half of the same screen (roadmap #188/#189).
+      'purchase order', 'po', 'receipt note', 'goods receipt', 'grn', 'fulfilment', 'three-way match'
+    ],
+    invalidates: ['salesDocs', 'salesPipeline', 'salesDocMatch', 'ledgers', 'stockItems']
   },
   {
     name: 'job-work',
@@ -478,7 +484,7 @@ export const SCREENS: ScreenDef[] = [
     invalidates: [
       'agentConfig', 'appInfo', 'approvalThreshold', 'approvals', 'audit', 'auditChain',
       'auditorStatus', 'authCurrent', 'backups', 'bankChanges', 'bin', 'collectionsPolicy',
-      'companyArchive', 'companyLock', 'dataFolder', 'digest', 'externalBackup', 'features',
+      'companyArchive', 'companyLock', 'customFields', 'dataFolder', 'digest', 'externalBackup', 'features',
       'invoiceConfig', 'invoicePreview', 'nicCreds', 'nicStatus', 'recovery', 'reportSchedules',
       'restorePreview', 'users'
     ]

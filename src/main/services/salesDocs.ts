@@ -1,5 +1,5 @@
 /**
- * Quotation → order → challan → invoice (roadmap #378, and #188/#189 with it).
+ * Quotation → order → challan → invoice, and the same chain pointing inward (#378, #188, #189).
  *
  * The sale does not start at the invoice. It starts at a quotation — which is where the app was
  * silent — becomes an order when the customer says yes, is delivered on a challan, and is only
@@ -19,8 +19,26 @@ import { computeGst, supplyTypeFor, type GstBreakup } from '@shared/gst/calc'
 import type { CompanyInfo } from '@shared/domain'
 import { effectiveItemTax, getLedger } from './masters'
 import { writeAudit } from './audit'
+import {
+  documentFulfilment,
+  lineFulfilment,
+  threeWayMatch,
+  type Fulfilment,
+  type MatchLine,
+  type MatchResult
+} from '@shared/fulfilment'
+import { NOT_DELETED } from './vouchers'
 
 export type Stage = 'quotation' | 'order' | 'challan'
+/**
+ * Which way the document faces.
+ *
+ * Outward is the sale: quotation → sales order → delivery challan → tax invoice. Inward is the
+ * purchase, and it is the SAME three stages read the other way: an 'order' on the purchase side
+ * is the purchase order, a 'challan' on the purchase side is the goods receipt note. One
+ * implementation, because the conversion arithmetic — what is still owed — must have one answer.
+ */
+export type Side = 'sales' | 'purchase'
 export type DocStatus = 'open' | 'converted' | 'closed' | 'lost'
 
 /** What each stage becomes. The invoice is a voucher, so the chain ends outside this table. */
@@ -30,12 +48,26 @@ export const NEXT_STAGE: Record<Stage, Stage | 'invoice'> = {
   challan: 'invoice'
 }
 
-const PREFIX: Record<Stage, string> = { quotation: 'QT', order: 'SO', challan: 'DC' }
+const PREFIX: Record<Side, Record<Stage, string>> = {
+  sales: { quotation: 'QT', order: 'SO', challan: 'DC' },
+  // No RFQ stage: a purchase quotation is a document the SUPPLIER issues, and typing the
+  // supplier's own quotation into our books as ours would misattribute it.
+  purchase: { quotation: 'RFQ', order: 'PO', challan: 'GRN' }
+}
 
-export const STAGE_LABEL: Record<Stage, string> = {
-  quotation: 'Quotation',
-  order: 'Sales order',
-  challan: 'Delivery challan'
+const LABELS: Record<Side, Record<Stage, string>> = {
+  sales: { quotation: 'Quotation', order: 'Sales order', challan: 'Delivery challan' },
+  purchase: { quotation: 'Request for quotation', order: 'Purchase order', challan: 'Receipt note' }
+}
+
+export const STAGE_LABEL: Record<Stage, string> = LABELS.sales
+
+export const stageLabel = (stage: Stage, side: Side = 'sales'): string => LABELS[side][stage]
+
+/** The stages each side actually uses. */
+export const STAGES_FOR: Record<Side, Stage[]> = {
+  sales: ['quotation', 'order', 'challan'],
+  purchase: ['order', 'challan']
 }
 
 export interface SalesDocLine {
@@ -51,6 +83,8 @@ export interface SalesDocLine {
   fulfilledMilli: number
   /** qty − fulfilled: what a conversion would still take. */
   pendingMilli: number
+  /** fulfilled − qty: what arrived that nobody ordered. Only ever non-zero inward. */
+  overMilli: number
   /** Post-discount value, exclusive of tax. */
   amountPaise: number
 }
@@ -58,6 +92,9 @@ export interface SalesDocLine {
 export interface SalesDoc {
   id: number
   stage: Stage
+  side: Side
+  /** "Purchase order", "Receipt note", "Quotation" — the word this document is called by. */
+  stageLabel: string
   number: string
   date: string
   partyLedgerId: number | null
@@ -79,10 +116,26 @@ export interface SalesDoc {
   totalPaise: number
   /** A quotation past its validity is not a live price. */
   expired: boolean
+  /**
+   * The balance, which is the whole point of an order (#188).
+   *
+   * An order is not a document, it is what is still owed. `status` says whether anybody has
+   * closed it; this says what is actually outstanding, and the two are different for every
+   * part-delivered order in the book.
+   */
+  fulfilment: Fulfilment
+  /**
+   * Goods that arrived against no order at all (#189).
+   *
+   * It happens — a supplier ships a replacement, a sample turns up, somebody ordered by phone.
+   * The receipt note still has to exist, because the goods are physically in the godown; what it
+   * cannot do is pretend an order authorised them.
+   */
+  unordered: boolean
 }
 
 interface DocRow {
-  id: number; stage: Stage; number: string; date: string; party_ledger_id: number | null
+  id: number; stage: Stage; side: Side; number: string; date: string; party_ledger_id: number | null
   party_name: string | null; valid_until: string | null; reference: string | null; narration: string | null
   terms: string | null; from_document_id: number | null; converted_to_id: number | null
   invoice_voucher_id: number | null; converted_on: string | null; status: DocStatus
@@ -116,7 +169,8 @@ function hydrate(db: DB, row: DocRow, info: CompanyInfo, asOn: string): SalesDoc
     gstRate: r.gst_rate,
     hsn: r.hsn,
     fulfilledMilli: r.fulfilled_milli,
-    pendingMilli: Math.max(0, r.qty_milli - r.fulfilled_milli),
+    pendingMilli: lineFulfilment(r.qty_milli, r.fulfilled_milli).pendingMilli,
+    overMilli: lineFulfilment(r.qty_milli, r.fulfilled_milli).overMilli,
     amountPaise: lineAmount(r)
   }))
 
@@ -135,9 +189,12 @@ function hydrate(db: DB, row: DocRow, info: CompanyInfo, asOn: string): SalesDoc
     { taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, total: 0 }
   )
 
+  const side: Side = row.side ?? 'sales'
   return {
     id: row.id,
     stage: row.stage,
+    side,
+    stageLabel: stageLabel(row.stage, side),
     number: row.number,
     date: row.date,
     partyLedgerId: row.party_ledger_id,
@@ -157,7 +214,9 @@ function hydrate(db: DB, row: DocRow, info: CompanyInfo, asOn: string): SalesDoc
     taxablePaise: gst.taxable,
     gst,
     totalPaise: gst.total,
-    expired: row.stage === 'quotation' && row.status === 'open' && row.valid_until !== null && row.valid_until < asOn
+    expired: row.stage === 'quotation' && row.status === 'open' && row.valid_until !== null && row.valid_until < asOn,
+    fulfilment: documentFulfilment(lines.map((l) => ({ orderedMilli: l.qtyMilli, fulfilledMilli: l.fulfilledMilli }))),
+    unordered: side === 'purchase' && row.stage === 'challan' && row.from_document_id === null
   }
 }
 
@@ -169,10 +228,14 @@ export function getDocument(db: DB, id: number, info: CompanyInfo, asOn = todayI
 export function listDocuments(
   db: DB,
   info: CompanyInfo,
-  opts: { stage?: Stage; status?: DocStatus; asOn?: string } = {}
+  opts: { stage?: Stage; status?: DocStatus; asOn?: string; side?: Side } = {}
 ): SalesDoc[] {
   const clauses: string[] = []
   const args: unknown[] = []
+  // Defaulted rather than optional: a caller that forgets the side would get the sales chain and
+  // the purchase chain in one list, which reads as a duplicate-numbering bug.
+  clauses.push('side = ?')
+  args.push(opts.side ?? 'sales')
   if (opts.stage) {
     clauses.push('stage = ?')
     args.push(opts.stage)
@@ -188,12 +251,13 @@ export function listDocuments(
 }
 
 /** The next free number for a stage. Sequential per stage, never shared with the voucher series. */
-export function nextNumber(db: DB, stage: Stage): string {
+export function nextNumber(db: DB, stage: Stage, side: Side = 'sales'): string {
+  const prefix = PREFIX[side][stage]
   const row = db
     .prepare("SELECT number FROM sales_documents WHERE stage = ? AND number LIKE ? ORDER BY id DESC LIMIT 1")
-    .get(stage, `${PREFIX[stage]}-%`) as { number: string } | undefined
+    .get(stage, `${prefix}-%`) as { number: string } | undefined
   const last = row ? Number(row.number.split('-').pop()) : 0
-  return `${PREFIX[stage]}-${String((Number.isFinite(last) ? last : 0) + 1).padStart(4, '0')}`
+  return `${prefix}-${String((Number.isFinite(last) ? last : 0) + 1).padStart(4, '0')}`
 }
 
 export interface SalesDocLineInput {
@@ -208,6 +272,7 @@ export interface SalesDocLineInput {
 
 export interface SalesDocInput {
   stage: Stage
+  side?: Side
   number?: string
   date: string
   partyLedgerId?: number | null
@@ -220,7 +285,16 @@ export interface SalesDocInput {
 }
 
 export function saveDocument(db: DB, info: CompanyInfo, input: SalesDocInput, id?: number): SalesDoc {
+  const side: Side = input.side ?? 'sales'
   if (input.lines.length === 0) throw new Error('A document needs at least one line')
+  if (!STAGES_FOR[side].includes(input.stage)) {
+    throw new Error(`A ${side} chain has no ${stageLabel(input.stage, side).toLowerCase()} stage`)
+  }
+  if (side === 'purchase' && !input.partyLedgerId) {
+    // A purchase order commits the business to pay somebody. "Somebody" has to be a ledger: the
+    // bill that follows lands in it, and a payable addressed to a name is not a payable.
+    throw new Error('A purchase document needs a supplier ledger')
+  }
   if (!input.partyLedgerId && !input.partyName?.trim()) {
     // A quotation may go to somebody who is not a customer yet, but it still has to go to
     // somebody: a quotation addressed to nobody cannot be sent or followed up.
@@ -246,11 +320,11 @@ export function saveDocument(db: DB, info: CompanyInfo, input: SalesDocInput, id
       docId = Number(
         db
           .prepare(
-            `INSERT INTO sales_documents (stage, number, date, party_ledger_id, party_name, valid_until,
-              reference, narration, terms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO sales_documents (stage, side, number, date, party_ledger_id, party_name, valid_until,
+              reference, narration, terms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
-            input.stage, input.number?.trim() || nextNumber(db, input.stage), input.date,
+            input.stage, side, input.number?.trim() || nextNumber(db, input.stage, side), input.date,
             input.partyLedgerId ?? null, input.partyName ?? null, input.validUntil ?? null,
             input.reference ?? null, input.narration ?? null, input.terms ?? null
           ).lastInsertRowid
@@ -322,6 +396,16 @@ export interface ConvertInput {
   quantities?: { lineId: number; qtyMilli: number }[]
   date?: string
   number?: string
+  /**
+   * Accept more than was ordered (inward only).
+   *
+   * Outward this stays false: delivering more than the customer ordered on the strength of a
+   * typo is a loss, and the challan is ours to control. Inward it is the supplier's lorry that
+   * decides, and the goods are in the godown whether or not we authorised them — refusing to
+   * record them would leave the stock ledger short. The excess is carried and reported as an
+   * over-receipt rather than silently clipped.
+   */
+  allowOver?: boolean
 }
 
 /**
@@ -342,17 +426,29 @@ export function convert(db: DB, id: number, info: CompanyInfo, input: ConvertInp
     throw new Error(`${source.number} was ${source.status} — reopen it before converting it`)
   }
   const next = NEXT_STAGE[source.stage]
-  if (next === 'invoice') throw new Error('A challan becomes an invoice, which is a voucher — use the invoice draft')
+  if (next === 'invoice') {
+    throw new Error(
+      source.side === 'purchase'
+        ? 'A receipt note becomes the supplier’s bill, which is a voucher — use the bill draft'
+        : 'A challan becomes an invoice, which is a voucher — use the invoice draft'
+    )
+  }
   if (!source.partyLedgerId) {
     // A quotation may name a stranger; an order is a commitment, and a commitment needs a ledger
     // to carry the receivable when it is eventually invoiced.
-    throw new Error(`${STAGE_LABEL[next]} needs a party ledger, not just a name`)
+    throw new Error(`${stageLabel(next, source.side)} needs a party ledger, not just a name`)
   }
 
+  const over = input.allowOver === true
+  if (over && source.side !== 'purchase') {
+    throw new Error('Only an inward receipt may take more than was ordered')
+  }
   const wanted = new Map((input.quantities ?? []).map((q) => [q.lineId, q.qtyMilli]))
-  const carried = source.lines
-    .map((l) => ({ line: l, qty: input.quantities ? Math.min(wanted.get(l.id) ?? 0, l.pendingMilli) : l.pendingMilli }))
-    .filter((x) => x.qty > 0)
+  const cap = (l: SalesDocLine): number => {
+    const asked = input.quantities ? (wanted.get(l.id) ?? 0) : l.pendingMilli
+    return over ? asked : Math.min(asked, l.pendingMilli)
+  }
+  const carried = source.lines.map((l) => ({ line: l, qty: cap(l) })).filter((x) => x.qty > 0)
   if (carried.length === 0) throw new Error(`Nothing is left on ${source.number} to carry forward`)
 
   const date = input.date ?? todayISO()
@@ -360,11 +456,11 @@ export function convert(db: DB, id: number, info: CompanyInfo, input: ConvertInp
     const docId = Number(
       db
         .prepare(
-          `INSERT INTO sales_documents (stage, number, date, party_ledger_id, party_name, reference,
-            narration, terms, from_document_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO sales_documents (stage, side, number, date, party_ledger_id, party_name, reference,
+            narration, terms, from_document_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
-          next, input.number?.trim() || nextNumber(db, next), date, source.partyLedgerId, source.partyName,
+          next, source.side, input.number?.trim() || nextNumber(db, next, source.side), date, source.partyLedgerId, source.partyName,
           source.number, source.narration, source.terms, source.id
         ).lastInsertRowid
     )
@@ -387,11 +483,15 @@ export function convert(db: DB, id: number, info: CompanyInfo, input: ConvertInp
     const bump = db.prepare('UPDATE sales_document_lines SET fulfilled_milli = fulfilled_milli + ? WHERE id = ?')
     for (const x of carried) bump.run(x.qty, x.line.id)
 
-    const stillPending = db
-      .prepare('SELECT COALESCE(SUM(qty_milli - fulfilled_milli), 0) AS left FROM sales_document_lines WHERE document_id = ?')
-      .get(source.id) as { left: number }
+    // Per line, and MAX(0, …) per line rather than over the sum: an excess on one line must not
+    // cancel a shortfall on another, or an order half of which never arrived would close itself
+    // because the other half was over-delivered (see documentFulfilment).
+    const after = db
+      .prepare('SELECT qty_milli AS q, fulfilled_milli AS f FROM sales_document_lines WHERE document_id = ?')
+      .all(source.id) as { q: number; f: number }[]
+    const stillPending = documentFulfilment(after.map((r) => ({ orderedMilli: r.q, fulfilledMilli: r.f }))).pendingMilli
     db.prepare('UPDATE sales_documents SET converted_to_id = ?, converted_on = ?, status = ? WHERE id = ?')
-      .run(docId, date, stillPending.left > 0 ? 'open' : 'converted', source.id)
+      .run(docId, date, stillPending > 0 ? 'open' : 'converted', source.id)
     return docId
   })()
 
@@ -427,12 +527,26 @@ export function invoiceDraft(db: DB, id: number, info: CompanyInfo): InvoiceDraf
   if (doc.invoiceVoucherId) throw new Error(`${doc.number} has already been invoiced`)
   if (!doc.partyLedgerId) throw new Error('An invoice needs a party ledger')
 
-  const lines: InvoiceDraft['lines'] = [
-    { ledgerName: doc.partyName ?? 'Sundry Debtors', group: 'Sundry Debtors', drCr: 'dr', amount: doc.totalPaise },
-    { ledgerName: 'Sales Account', group: 'Sales Accounts', drCr: 'cr', amount: doc.gst.taxable }
-  ]
+  /**
+   * Inward, every debit and credit turns over.
+   *
+   * A sale debits the customer and credits sales; a purchase debits purchases and credits the
+   * supplier. The tax follows: output tax is a credit, input tax is a debit — and input tax is
+   * credit the business can claim, which is exactly why it must not be lumped into the purchase
+   * value. Same document, mirrored posting, one place that decides which way it goes.
+   */
+  const inward = doc.side === 'purchase'
+  const lines: InvoiceDraft['lines'] = inward
+    ? [
+        { ledgerName: 'Purchase Account', group: 'Purchase Accounts', drCr: 'dr', amount: doc.gst.taxable },
+        { ledgerName: doc.partyName ?? 'Sundry Creditors', group: 'Sundry Creditors', drCr: 'cr', amount: doc.totalPaise }
+      ]
+    : [
+        { ledgerName: doc.partyName ?? 'Sundry Debtors', group: 'Sundry Debtors', drCr: 'dr', amount: doc.totalPaise },
+        { ledgerName: 'Sales Account', group: 'Sales Accounts', drCr: 'cr', amount: doc.gst.taxable }
+      ]
   const tax = (name: string, amount: number): void => {
-    if (amount > 0) lines.push({ ledgerName: name, group: 'Duties & Taxes', drCr: 'cr', amount })
+    if (amount > 0) lines.push({ ledgerName: name, group: 'Duties & Taxes', drCr: inward ? 'dr' : 'cr', amount })
   }
   tax('CGST', doc.gst.cgst)
   tax('SGST', doc.gst.sgst)
@@ -444,7 +558,7 @@ export function invoiceDraft(db: DB, id: number, info: CompanyInfo): InvoiceDraf
     documentNumber: doc.number,
     date: todayISO(),
     partyLedgerId: doc.partyLedgerId,
-    narration: `Against ${STAGE_LABEL[doc.stage].toLowerCase()} ${doc.number}`,
+    narration: `Against ${stageLabel(doc.stage, doc.side).toLowerCase()} ${doc.number}`,
     lines,
     inventory: doc.lines
       .filter((l) => l.stockItemId !== null)
@@ -473,32 +587,145 @@ export function markInvoiced(db: DB, id: number, voucherId: number, info: Compan
   return after
 }
 
-// ---------- the pipeline, which is the report a sales desk actually wants ----------
+// ---------- the pipeline, which is the report a desk actually wants ----------
 
 export interface PipelineStage {
   stage: Stage
+  label: string
   open: number
   openValuePaise: number
   converted: number
   lost: number
+  /** Documents with something still owed on them — which is not the same as `open`. */
+  partlyFulfilled: number
+  pendingMilli: number
+  overMilli: number
 }
 
-export function pipeline(db: DB, info: CompanyInfo, asOn = todayISO()): { stages: PipelineStage[]; expiringSoon: SalesDoc[] } {
-  const docs = listDocuments(db, info, { asOn })
-  const stages: PipelineStage[] = (['quotation', 'order', 'challan'] as Stage[]).map((stage) => {
+export interface Pipeline {
+  side: Side
+  stages: PipelineStage[]
+  expiringSoon: SalesDoc[]
+  /** Inward only: goods that arrived with no order behind them. */
+  unordered: SalesDoc[]
+}
+
+export function pipeline(db: DB, info: CompanyInfo, asOn = todayISO(), side: Side = 'sales'): Pipeline {
+  const docs = listDocuments(db, info, { asOn, side })
+  const stages: PipelineStage[] = STAGES_FOR[side].map((stage) => {
     const mine = docs.filter((d) => d.stage === stage)
     const open = mine.filter((d) => d.status === 'open')
     return {
       stage,
+      label: stageLabel(stage, side),
       open: open.length,
       openValuePaise: open.reduce((s, d) => s + d.totalPaise, 0),
       converted: mine.filter((d) => d.status === 'converted').length,
-      lost: mine.filter((d) => d.status === 'lost').length
+      lost: mine.filter((d) => d.status === 'lost').length,
+      // Not the same count as `open`: a document can be open because nobody has touched it and
+      // open because half of it arrived last Tuesday, and only one of those needs chasing.
+      partlyFulfilled: mine.filter((d) => d.fulfilment.state === 'partial').length,
+      pendingMilli: open.reduce((s, d) => s + d.fulfilment.pendingMilli, 0),
+      overMilli: mine.reduce((s, d) => s + d.fulfilment.overMilli, 0)
     }
   })
   return {
+    side,
     stages,
     // A quotation about to expire is the only thing on this screen with a deadline.
-    expiringSoon: docs.filter((d) => d.stage === 'quotation' && d.status === 'open' && d.validUntil !== null && d.validUntil >= asOn).slice(0, 10)
+    expiringSoon: docs.filter((d) => d.stage === 'quotation' && d.status === 'open' && d.validUntil !== null && d.validUntil >= asOn).slice(0, 10),
+    unordered: docs.filter((d) => d.unordered).slice(0, 10)
+  }
+}
+
+// ---------- the three-way match (roadmap #189) ----------
+
+/**
+ * Order, receipt, invoice — and whether the three agree.
+ *
+ * This is the entire reason a receipt note is a document rather than a note in the margin. The
+ * order says what was asked for, the receipt says what the lorry actually brought, the bill says
+ * what the supplier wants paying for, and the three disagree far more often than anybody expects.
+ * A bill for more than arrived is money leaving the business for nothing, and it is invisible
+ * unless something holds all three quantities side by side.
+ *
+ * Quantities only. What a variance is WORTH is the invoice's arithmetic, and computing it a
+ * second time here would produce a second answer to the same question.
+ */
+export interface ThreeWayMatch extends MatchResult {
+  orderId: number | null
+  orderNumber: string | null
+  partyName: string | null
+  receiptNumbers: string[]
+  invoiceNumbers: string[]
+}
+
+interface InvoicedRow { stock_item_id: number | null; qty_milli: number; number: string }
+
+/** Quantities the linked supplier bills actually charged for, by item. */
+function invoicedQuantities(db: DB, voucherIds: number[]): InvoicedRow[] {
+  if (voucherIds.length === 0) return []
+  const placeholders = voucherIds.map(() => '?').join(',')
+  return db
+    .prepare(
+      `SELECT il.stock_item_id AS stock_item_id, il.qty_milli AS qty_milli, v.number AS number
+       FROM inventory_lines il
+       JOIN vouchers v ON v.id = il.voucher_id
+       WHERE il.voucher_id IN (${placeholders}) AND ${NOT_DELETED} AND il.direction = 'in'`
+    )
+    .all(...voucherIds) as InvoicedRow[]
+}
+
+const matchKey = (stockItemId: number | null, description: string): string =>
+  stockItemId != null ? `item:${stockItemId}` : `desc:${description.trim().toLowerCase()}`
+
+/**
+ * Match one purchase order against everything received and billed under it.
+ *
+ * Also answers for a receipt note with NO order behind it: pass the receipt's id and every line
+ * comes back `not_ordered`, which is the honest answer rather than an empty report.
+ */
+export function threeWayMatchFor(db: DB, id: number, info: CompanyInfo): ThreeWayMatch {
+  const doc = getDocument(db, id, info)
+  if (!doc) throw new Error('No such document')
+  if (doc.side !== 'purchase') throw new Error('The three-way match is an inward report')
+
+  const order = doc.stage === 'order' ? doc : null
+  const receipts = order
+    ? (db.prepare("SELECT id FROM sales_documents WHERE from_document_id = ? AND stage = 'challan'").all(order.id) as { id: number }[])
+        .map((r) => getDocument(db, r.id, info)!)
+    : [doc]
+
+  const rows = new Map<string, MatchLine>()
+  const take = (key: string, description: string): MatchLine => {
+    let row = rows.get(key)
+    if (!row) {
+      row = { key, description, orderedMilli: 0, receivedMilli: 0, invoicedMilli: 0 }
+      rows.set(key, row)
+    }
+    return row
+  }
+
+  for (const l of order?.lines ?? []) take(matchKey(l.stockItemId, l.description), l.description).orderedMilli += l.qtyMilli
+  for (const r of receipts) {
+    for (const l of r.lines) take(matchKey(l.stockItemId, l.description), l.description).receivedMilli += l.qtyMilli
+  }
+
+  const voucherIds = receipts.map((r) => r.invoiceVoucherId).filter((v): v is number => v != null)
+  const invoiceNumbers = new Set<string>()
+  for (const row of invoicedQuantities(db, voucherIds)) {
+    invoiceNumbers.add(row.number)
+    // An item on the bill that matches nothing ordered and nothing received still gets a row: it
+    // is the clearest case there is of being charged for goods that never came.
+    take(matchKey(row.stock_item_id, ''), `Item #${row.stock_item_id ?? '?'}`).invoicedMilli += row.qty_milli
+  }
+
+  return {
+    ...threeWayMatch([...rows.values()]),
+    orderId: order?.id ?? null,
+    orderNumber: order?.number ?? null,
+    partyName: doc.partyName,
+    receiptNumbers: receipts.map((r) => r.number),
+    invoiceNumbers: [...invoiceNumbers]
   }
 }

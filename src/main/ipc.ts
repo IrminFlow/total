@@ -57,6 +57,8 @@ import * as assets from './services/assets'
 import * as disclosure from './services/disclosure'
 import * as counter from './services/counter'
 import * as salesDocs from './services/salesDocs'
+import * as customFields from './services/customFields'
+import { CUSTOM_FIELD_KINDS, MAX_OPTIONS } from '@shared/customFields'
 import * as jobWork from './services/jobWork'
 import * as borrowing from './services/borrowing'
 import * as cma from './services/cma'
@@ -1918,9 +1920,10 @@ export function registerIpc(): void {
     return null
   })
 
-  // ---------- quotation → order → challan → invoice (roadmap #378) ----------
+  // ---------- quotation → order → challan → invoice, outward and inward (#378, #188, #189) ----
 
   const stageSchema = z.enum(['quotation', 'order', 'challan'])
+  const sideSchema = z.enum(['sales', 'purchase'])
   const docLineSchema = z.object({
     stockItemId: z.number().int().positive().nullable().optional(),
     description: z.string().trim().min(1).max(200),
@@ -1932,11 +1935,15 @@ export function registerIpc(): void {
   })
 
   handle('salesdoc:list', (p) => {
-    const { stage, status } = z
-      .object({ stage: stageSchema.optional(), status: z.enum(['open', 'converted', 'closed', 'lost']).optional() })
+    const { stage, status, side } = z
+      .object({
+        stage: stageSchema.optional(),
+        status: z.enum(['open', 'converted', 'closed', 'lost']).optional(),
+        side: sideSchema.optional()
+      })
       .parse(p ?? {})
     const c = requireCompany()
-    return salesDocs.listDocuments(c.db, c.info, { stage, status })
+    return salesDocs.listDocuments(c.db, c.info, { stage, status, side })
   }, 'viewer')
 
   handle('salesdoc:get', (p) => {
@@ -1945,8 +1952,8 @@ export function registerIpc(): void {
   }, 'viewer')
 
   handle('salesdoc:next', (p) => {
-    const { stage } = z.object({ stage: stageSchema }).parse(p)
-    return { number: salesDocs.nextNumber(requireCompany().db, stage) }
+    const { stage, side } = z.object({ stage: stageSchema, side: sideSchema.optional() }).parse(p)
+    return { number: salesDocs.nextNumber(requireCompany().db, stage, side) }
   }, 'viewer')
 
   handle('salesdoc:save', (p) => {
@@ -1954,6 +1961,7 @@ export function registerIpc(): void {
       .object({
         data: z.object({
           stage: stageSchema,
+          side: sideSchema.optional(),
           number: z.string().trim().max(40).optional(),
           date: isoDate,
           partyLedgerId: z.number().int().positive().nullable().optional(),
@@ -1990,16 +1998,18 @@ export function registerIpc(): void {
   })
 
   handle('salesdoc:convert', (p) => {
-    const { id, quantities, date, number } = z
+    const { id, quantities, date, number, allowOver } = z
       .object({
         id: z.number().int().positive(),
         quantities: z.array(z.object({ lineId: z.number().int().positive(), qtyMilli: z.number().int().min(0) })).max(200).optional(),
         date: isoDate.optional(),
-        number: z.string().trim().max(40).optional()
+        number: z.string().trim().max(40).optional(),
+        // Inward only, and the service says so — a delivery challan may never exceed the order.
+        allowOver: z.boolean().optional()
       })
       .parse(p)
     const c = requireCompany()
-    return salesDocs.convert(c.db, id, c.info, { quantities, date, number })
+    return salesDocs.convert(c.db, id, c.info, { quantities, date, number, allowOver })
   })
 
   handle('salesdoc:invoiceDraft', (p) => {
@@ -2013,9 +2023,62 @@ export function registerIpc(): void {
     return salesDocs.markInvoiced(c.db, id, voucherId, c.info)
   })
 
-  handle('salesdoc:pipeline', () => {
+  handle('salesdoc:pipeline', (p) => {
+    const { side } = z.object({ side: sideSchema.optional() }).parse(p ?? {})
     const c = requireCompany()
-    return salesDocs.pipeline(c.db, c.info)
+    return salesDocs.pipeline(c.db, c.info, undefined, side)
+  }, 'viewer')
+
+  /** Ordered vs received vs billed, for a purchase order or a bare receipt note (#189). */
+  handle('salesdoc:match', (p) => {
+    const c = requireCompany()
+    return salesDocs.threeWayMatchFor(c.db, idSchema.parse(p).id, c.info)
+  }, 'viewer')
+
+  // ---------- custom fields, defined per company and per voucher type (roadmap #195) ----------
+  //
+  // Defining a field changes what every future voucher of a type carries, which is a
+  // configuration decision rather than a book-keeping one — so writes are owner/accountant, and
+  // reads are 'viewer' because voucher entry has to know what to render.
+
+  handle('customField:list', (p) => {
+    const { voucherTypeId, includeRetired } = z
+      .object({ voucherTypeId: z.number().int().positive().optional(), includeRetired: z.boolean().optional() })
+      .parse(p ?? {})
+    const c = requireCompany()
+    return voucherTypeId
+      ? customFields.listFields(c.db, voucherTypeId, includeRetired ?? false)
+      : customFields.allFields(c.db)
+  }, 'viewer')
+
+  handle('customField:save', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          voucherTypeId: z.number().int().positive(),
+          label: z.string().trim().min(1).max(60),
+          kind: z.enum(CUSTOM_FIELD_KINDS),
+          // Bounded here rather than in the service: a list with a thousand choices is a master,
+          // not a field, and the entry screen renders it as a dropdown.
+          options: z.array(z.string().trim().min(1).max(60)).max(MAX_OPTIONS).optional(),
+          required: z.boolean().optional(),
+          printed: z.boolean().optional(),
+          sortOrder: z.number().int().min(0).max(999).optional()
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return customFields.saveField(requireCompany().db, data, id)
+  })
+
+  handle('customField:remove', (p) => {
+    // A retirement, not a delete: vouchers already carry values for it. The count of those comes
+    // back so the screen can say how many documents keep the field.
+    return customFields.removeField(requireCompany().db, idSchema.parse(p).id, new Date().toISOString())
+  })
+
+  handle('customField:forVoucher', (p) => {
+    return customFields.valuesFor(requireCompany().db, idSchema.parse(p).id)
   }, 'viewer')
 
   // ---------- job work: the challan out, what came back, the s.143 clock, ITC-04 (D-89) ----------

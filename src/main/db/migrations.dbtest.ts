@@ -64,6 +64,8 @@ const EXPECTED_TABLES = [
   'discount_schemes',
   'sales_documents',
   'sales_document_lines',
+  'custom_field_defs',
+  'custom_field_values',
   'loans',
   'loan_postings',
   'deposits',

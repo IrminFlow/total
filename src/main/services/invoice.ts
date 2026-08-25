@@ -27,6 +27,8 @@ import {
 } from '@shared/thermalReceipt'
 import { buildInvoiceShare, type InvoiceShare } from '@shared/invoiceShare'
 import { einvoiceQrPayload } from '@shared/einvoiceQr'
+import { formatCustomValue, type CustomFieldKind } from '@shared/customFields'
+import { valuesFor as customFieldValuesFor } from './customFields'
 import { upiIntentUrl } from '@shared/upi'
 import { extractEdocInvoices } from './edocs'
 import { getInvoiceConfig } from './config'
@@ -147,11 +149,24 @@ export const INVOICE_ITEMS_PER_PAGE = 16
 
 /** Pure HTML builder — no DB access — so the live preview and the real/sample invoice paths share
  *  one renderer. Prints one page per `config.copyLabels` entry. */
+/**
+ * A company-defined field as it appears on the document (roadmap #195).
+ *
+ * Label and text, nothing else. The print does not know what kind the field is beyond how to
+ * write the value down, and it certainly does not add it to anything.
+ */
+export interface PrintedCustomField {
+  label: string
+  kind: CustomFieldKind
+  value: string
+}
+
 export function buildInvoiceHtml(
   company: CompanyInfo,
   config: InvoiceConfig,
   inv: EdocInvoice,
-  audit?: InvoiceAuditTrail
+  audit?: InvoiceAuditTrail,
+  customFields: PrintedCustomField[] = []
 ): string {
   /**
    * Every printed label goes through here (roadmap I-184).
@@ -324,6 +339,20 @@ export function buildInvoiceHtml(
   const kindKey =
     inv.docType === 'CRN' ? 'credit_note' : inv.docType === 'DBN' ? 'debit_note' : 'sales'
   const terms = (config.termsByKind?.[kindKey] ?? config.terms).trim()
+  /**
+   * The company's own fields, printed under the party block.
+   *
+   * Above the terms and below the addresses because that is where a reader looks for "which
+   * order was this against" — and firmly outside the totals table, where a value that looked
+   * like a figure in a column of figures would invite somebody to add it up.
+   */
+  const customBlock = customFields.length
+    ? `<div style="margin-top:8px" class="lbl">${L('otherDetails', 'Other details')}</div>
+       <div style="font-size:10.5px" data-testid="invoice-custom-fields">${customFields
+         .map((f) => `<div>${esc(f.label)}: <span>${esc(formatCustomValue(f.kind, f.value))}</span></div>`)
+         .join('')}</div>`
+    : ''
+
   const termsBlock = terms
     ? `<div style="margin-top:10px" class="lbl">${L('terms', 'Terms')}</div><div style="font-size:10.5px">${esc(terms).replace(/\n/g, '<br/>')}</div>`
     : ''
@@ -429,7 +458,7 @@ export function buildInvoiceHtml(
           }
           <div style="margin-top:10px" class="lbl">${L('declaration', 'Declaration')}</div>
           <div style="font-size:10.5px">${esc(config.declaration)}</div>
-          ${bankBlock}
+          ${bankBlock}${customBlock}
           ${termsBlock}
         </div>
         <div class="tot-wrap">
@@ -503,12 +532,23 @@ function auditTrailFor(db: DB, voucherId: number): InvoiceAuditTrail {
   return { enteredBy: entered?.u ?? null, alteredBy: altered?.u ?? null }
 }
 
+/** Printable custom-field values for a voucher — retired definitions included, because the
+ *  document said what it said. */
+export function printedCustomFields(db: DB, voucherId: number): PrintedCustomField[] {
+  return customFieldValuesFor(db, voucherId)
+    .filter((v) => v.printed && v.value !== '')
+    .map((v) => ({ label: v.label, kind: v.kind, value: v.value }))
+}
+
 export function invoiceHtml(db: DB, company: CompanyInfo, voucherId: number): { html: string; number: string } {
   const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
   if (!inv) throw new Error('Invoice not found (only sales vouchers can be printed)')
   attachDiscounts(db, voucherId, inv)
   const config = getInvoiceConfig(db)
-  return { html: buildInvoiceHtml(company, config, inv, auditTrailFor(db, voucherId)), number: inv.number }
+  return {
+    html: buildInvoiceHtml(company, config, inv, auditTrailFor(db, voucherId), printedCustomFields(db, voucherId)),
+    number: inv.number
+  }
 }
 
 /** invoice:previewHtml — renders the current (unsaved) print config against a real voucher when
@@ -528,7 +568,9 @@ export function invoicePreviewHtml(
     const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
     if (!inv) throw new Error('Invoice not found (only sales vouchers can be printed)')
     attachDiscounts(db, voucherId, inv)
-    return { html: buildInvoiceHtml(company, config, inv, auditTrailFor(db, voucherId)) }
+    return {
+      html: buildInvoiceHtml(company, config, inv, auditTrailFor(db, voucherId), printedCustomFields(db, voucherId))
+    }
   }
   return { html: buildInvoiceHtml(company, config, SAMPLE_INVOICE) }
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type SalesDoc, type SalesDocInput, type Stage } from '../lib/client'
+import { api, type SalesDoc, type SalesDocInput, type Side, type Stage } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
 import {
   AmountInput,
@@ -19,81 +19,148 @@ import {
 import { useStickyTab } from '../lib/useStickyTab'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { formatPaise, parseMilli } from '@shared/money'
+import { FULFILMENT_LABEL, MATCH_LABEL } from '@shared/fulfilment'
 import { confirmDialog } from '../lib/dialogs'
 
 /**
- * Quotation → order → challan → invoice (roadmap #378).
+ * Quotation → order → challan → invoice, outward and inward (roadmap #378, #188, #189).
  *
- * The sale does not start at the invoice. None of the first three stages is an accounting entry,
- * so this screen posts nothing: it carries quantities and prices forward, and hands the last step
- * to voucher entry as a draft.
+ * The sale does not start at the invoice and the purchase does not start at the bill. None of the
+ * stages before the last is an accounting entry, so this screen posts nothing: it carries
+ * quantities and prices forward, and hands the last step to voucher entry as a draft.
+ *
+ * The inward half is the same three stages read the other way, and the column that matters on it
+ * is not the value — it is what is still owed. An order that reports itself as open or closed and
+ * nothing in between is the failure this screen exists to prevent.
  */
-const STAGES: { stage: Stage; label: string; sub: string }[] = [
-  { stage: 'quotation', label: 'Quotations', sub: 'What was offered, and until when' },
-  { stage: 'order', label: 'Orders', sub: 'What was agreed, and what is still to go out' },
-  { stage: 'challan', label: 'Challans', sub: 'What was delivered, and what is still to bill' }
+const TABS: Record<Side, { stage: Stage; label: string; sub: string }[]> = {
+  sales: [
+    { stage: 'quotation', label: 'Quotations', sub: 'What was offered, and until when' },
+    { stage: 'order', label: 'Orders', sub: 'What was agreed, and what is still to go out' },
+    { stage: 'challan', label: 'Challans', sub: 'What was delivered, and what is still to bill' }
+  ],
+  purchase: [
+    { stage: 'order', label: 'Purchase orders', sub: 'What was ordered, and what has arrived against it' },
+    { stage: 'challan', label: 'Receipt notes', sub: 'What actually arrived, and whether anybody ordered it' }
+  ]
+}
+
+const SIDES: { side: Side; label: string }[] = [
+  { side: 'sales', label: 'Outward' },
+  { side: 'purchase', label: 'Inward' }
 ]
 
 export function SalesChainScreen(): React.JSX.Element {
-  const [tab, setTab] = useStickyTab<Stage>('saleschain-tab', ['quotation', 'order', 'challan'], 'quotation')
-  const { data: pipeline } = useQuery({ queryKey: ['salesPipeline'], queryFn: api.salesDocs.pipeline })
+  const [side, setSide] = useStickyTab<Side>('saleschain-side', ['sales', 'purchase'], 'sales')
+  const [salesTab, setSalesTab] = useStickyTab<Stage>('saleschain-tab', ['quotation', 'order', 'challan'], 'quotation')
+  const [purchaseTab, setPurchaseTab] = useStickyTab<Stage>('purchasechain-tab', ['order', 'challan'], 'order')
+  const tab = side === 'sales' ? salesTab : purchaseTab
+  const setTab = side === 'sales' ? setSalesTab : setPurchaseTab
+  const { data: pipeline } = useQuery({
+    queryKey: ['salesPipeline', side],
+    queryFn: () => api.salesDocs.pipeline(side)
+  })
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
-          <div className="flex gap-1" role="group" aria-label="Sales chain stage">
-            {STAGES.map((s) => (
-              <button
-                key={s.stage}
-                type="button"
-                data-testid={`tab-saleschain-${s.stage}`}
-                aria-pressed={tab === s.stage}
-                onClick={() => setTab(s.stage)}
-                className={`rounded-md px-2.5 py-1 text-small ${
-                  tab === s.stage ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1" role="group" aria-label="Direction">
+              {SIDES.map((s) => (
+                <button
+                  key={s.side}
+                  type="button"
+                  data-testid={`tab-chain-side-${s.side}`}
+                  aria-pressed={side === s.side}
+                  onClick={() => setSide(s.side)}
+                  className={`rounded-md px-2.5 py-1 text-small ${
+                    side === s.side ? 'bg-accent/20 font-medium text-accent' : 'text-muted hover:bg-panel2'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1" role="group" aria-label="Stage">
+              {TABS[side].map((s) => (
+                <button
+                  key={s.stage}
+                  type="button"
+                  data-testid={`tab-saleschain-${side}-${s.stage}`}
+                  aria-pressed={tab === s.stage}
+                  onClick={() => setTab(s.stage)}
+                  className={`rounded-md px-2.5 py-1 text-small ${
+                    tab === s.stage ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
         }
       >
-        Quotations, orders & challans
+        {side === 'sales' ? 'Quotations, orders & challans' : 'Purchase orders & receipt notes'}
       </SectionTitle>
 
       {pipeline && (
         <div className="mb-3 flex gap-3" data-testid="panel-salespipeline">
           {pipeline.stages.map((s) => (
-            <Panel key={s.stage} className="flex-1 p-3">
-              <div className="text-caption tracking-[0.08em] text-muted uppercase">
-                {STAGES.find((x) => x.stage === s.stage)!.label}
-              </div>
+            <Panel key={s.stage} className="flex-1 p-3" data-testid={`card-pipeline-${side}-${s.stage}`}>
+              <div className="text-caption tracking-[0.08em] text-muted uppercase">{s.label}</div>
               <div className="num text-h2 font-semibold">{s.open}</div>
               <div className="text-hint text-muted">
                 open · <Money paise={s.openValuePaise} /> · {s.converted} converted
                 {s.lost > 0 ? ` · ${s.lost} lost` : ''}
               </div>
+              {/* The count that a two-valued open/closed flag cannot express. */}
+              {s.partlyFulfilled > 0 && (
+                <div className="text-hint text-muted" data-testid={`pipeline-partial-${s.stage}`}>
+                  {s.partlyFulfilled} part {side === 'sales' ? 'delivered' : 'received'}
+                </div>
+              )}
+              {s.overMilli > 0 && (
+                <div className="text-hint text-cr" data-testid={`pipeline-over-${s.stage}`}>
+                  {s.overMilli / 1000} over-received
+                </div>
+              )}
             </Panel>
           ))}
         </div>
       )}
 
-      <StageTab stage={tab} />
+      {pipeline && pipeline.unordered.length > 0 && (
+        <Panel className="mb-3 p-3" data-testid="panel-unordered">
+          <div className="text-caption tracking-[0.08em] text-muted uppercase">Arrived with no order</div>
+          <p className="mt-1 text-hint text-muted">
+            The goods are in the godown either way, so the receipt note exists. What it cannot do is
+            claim an order authorised them:{' '}
+            <span className="num">{pipeline.unordered.map((d) => d.number).join(', ')}</span>.
+          </p>
+        </Panel>
+      )}
+
+      <StageTab key={`${side}-${tab}`} side={side} stage={tab} />
     </div>
   )
 }
 
-function StageTab({ stage }: { stage: Stage }): React.JSX.Element {
+function StageTab({ side, stage }: { side: Side; stage: Stage }): React.JSX.Element {
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<SalesDoc | 'new' | null>(null)
   const [converting, setConverting] = useState<SalesDoc | null>(null)
-  const { data, isLoading } = useQuery({ queryKey: ['salesDocs', stage], queryFn: () => api.salesDocs.list(stage) })
+  const [matching, setMatching] = useState<SalesDoc | null>(null)
+  const { data, isLoading } = useQuery({
+    queryKey: ['salesDocs', side, stage],
+    queryFn: () => api.salesDocs.list(stage, undefined, side)
+  })
   const rows = data ?? []
   const table = useTableNav(rows, { rowId: (d) => d.id, onEnter: (d) => setEditing(d) })
+  const inward = side === 'purchase'
+  const meta = TABS[side].find((s) => s.stage === stage)!
 
   const refresh = async (): Promise<void> => {
     await queryClient.invalidateQueries({ queryKey: ['salesDocs'] })
@@ -102,15 +169,17 @@ function StageTab({ stage }: { stage: Stage }): React.JSX.Element {
 
   const lose = async (doc: SalesDoc): Promise<void> => {
     const ok = await confirmDialog({
-      title: `Mark ${doc.number} lost`,
-      message: 'It stays in the books as a record of what was quoted and not won.',
-      confirmLabel: 'Mark lost'
+      title: inward ? `Close ${doc.number}` : `Mark ${doc.number} lost`,
+      message: inward
+        ? 'It stays in the books as a record of what was ordered and never came.'
+        : 'It stays in the books as a record of what was quoted and not won.',
+      confirmLabel: inward ? 'Close short' : 'Mark lost'
     })
     if (!ok) return
     try {
-      await api.salesDocs.close(doc.id, 'lost', null)
+      await api.salesDocs.close(doc.id, inward ? 'closed' : 'lost', null)
       await refresh()
-      toast.push('success', `${doc.number} marked lost`)
+      toast.push('success', `${doc.number} ${inward ? 'closed' : 'marked lost'}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -121,7 +190,7 @@ function StageTab({ stage }: { stage: Stage }): React.JSX.Element {
       const draft = await api.salesDocs.invoiceDraft(doc.id)
       nav.go({
         name: 'voucher-entry',
-        kindHint: 'sales',
+        kindHint: inward ? 'purchase' : 'sales',
         draft: {
           date: draft.date,
           partyLedgerId: draft.partyLedgerId,
@@ -130,7 +199,7 @@ function StageTab({ stage }: { stage: Stage }): React.JSX.Element {
         },
         draftId: Date.now()
       } as never)
-      toast.push('info', `${doc.number} drafted as an invoice — save it, and it is billed`)
+      toast.push('info', `${doc.number} drafted as a ${inward ? 'purchase' : 'sales'} entry — save it, and it is billed`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -139,32 +208,30 @@ function StageTab({ stage }: { stage: Stage }): React.JSX.Element {
   return (
     <>
       <div className="mb-3 flex justify-end">
-        <Button variant="primary" data-testid={`btn-salesdoc-add-${stage}`} onClick={() => setEditing('new')}>
-          New {stage}
+        <Button variant="primary" data-testid={`btn-salesdoc-add-${side}-${stage}`} onClick={() => setEditing('new')}>
+          New {meta.label.replace(/s$/, '').toLowerCase()}
         </Button>
       </div>
 
-      <Panel scroll={{ maxH: '58vh' }} data-testid={`panel-salesdocs-${stage}`}>
+      <Panel scroll={{ maxH: '58vh' }} data-testid={`panel-salesdocs-${side}-${stage}`}>
         {isLoading ? (
           <SkeletonRows rows={6} />
         ) : rows.length === 0 ? (
-          <EmptyState
-            title={`No ${stage}s yet`}
-            hint={STAGES.find((s) => s.stage === stage)!.sub}
-          />
+          <EmptyState title={`No ${meta.label.toLowerCase()} yet`} hint={meta.sub} />
         ) : (
           <table className="ledger-table">
             <thead>
               <tr>
                 <th scope="col" className="w-28">Number</th>
                 <th scope="col" className="w-28">Date</th>
-                <th scope="col">For</th>
-                <th scope="col" className="w-28">Status</th>
+                <th scope="col">{inward ? 'From' : 'For'}</th>
+                <th scope="col" className="w-40">Status</th>
+                {stage === 'order' && <th scope="col" className="r w-28">Still owed</th>}
                 <th scope="col" className="r w-32">Value</th>
-                <th scope="col" className="w-56" />
+                <th scope="col" className="w-64" />
               </tr>
             </thead>
-            <tbody data-testid={`rows-salesdocs-${stage}`}>
+            <tbody data-testid={`rows-salesdocs-${side}-${stage}`}>
               {rows.map((d, i) => (
                 <tr key={d.id} {...table.rowProps(i, d)}>
                   <td className="num">{d.number}</td>
@@ -172,28 +239,53 @@ function StageTab({ stage }: { stage: Stage }): React.JSX.Element {
                   <td>
                     {d.partyName ?? '—'}
                     {d.reference && <span className="ml-2 text-hint text-muted">from {d.reference}</span>}
+                    {d.unordered && (
+                      <span className="ml-2 text-hint text-cr" data-testid={`badge-unordered-${d.id}`}>
+                        no order
+                      </span>
+                    )}
                   </td>
-                  <td className={d.status === 'lost' ? 'text-cr' : d.expired ? 'text-cr' : 'text-muted'}>
-                    {d.expired && d.status === 'open' ? 'expired' : d.status}
+                  <td
+                    className={d.status === 'lost' || d.expired || d.fulfilment.overMilli > 0 ? 'text-cr' : 'text-muted'}
+                    data-testid={`cell-status-${d.id}`}
+                  >
+                    {d.expired && d.status === 'open'
+                      ? 'expired'
+                      : d.status === 'open' && stage === 'order'
+                        ? FULFILMENT_LABEL[d.fulfilment.state].toLowerCase()
+                        : d.status}
+                    {d.fulfilment.overMilli > 0 && stage === 'order' && (
+                      <span className="ml-1">(+{d.fulfilment.overMilli / 1000})</span>
+                    )}
                   </td>
+                  {stage === 'order' && (
+                    <td className="r num" data-testid={`cell-pending-${d.id}`}>
+                      {d.fulfilment.pendingMilli / 1000}
+                    </td>
+                  )}
                   <td className="r"><Money paise={d.totalPaise} /></td>
                   <td onClick={(e) => e.stopPropagation()} className="r whitespace-nowrap">
                     {d.status === 'open' && stage !== 'challan' && (
                       <Button variant="ghost" data-testid={`btn-salesdoc-convert-${d.id}`} onClick={() => setConverting(d)}>
-                        {stage === 'quotation' ? 'To order' : 'To challan'}
+                        {inward ? 'Receive' : stage === 'quotation' ? 'To order' : 'To challan'}
                       </Button>
                     )}
                     {stage === 'challan' && !d.invoiceVoucherId && (
                       <Button variant="ghost" data-testid={`btn-salesdoc-invoice-${d.id}`} onClick={() => void toInvoice(d)}>
-                        Invoice
+                        {inward ? 'Bill' : 'Invoice'}
+                      </Button>
+                    )}
+                    {inward && (
+                      <Button variant="ghost" data-testid={`btn-salesdoc-match-${d.id}`} onClick={() => setMatching(d)}>
+                        Match
                       </Button>
                     )}
                     <Button variant="ghost" onClick={() => setEditing(d)}>
                       Open
                     </Button>
                     {d.status === 'open' && (
-                      <button className="ml-2 text-small text-cr hover:underline" onClick={() => void lose(d)}>
-                        Lost
+                      <button className="row-action ml-2 text-small text-cr hover:underline" onClick={() => void lose(d)}>
+                        {inward ? 'Close' : 'Lost'}
                       </button>
                     )}
                   </td>
@@ -205,13 +297,22 @@ function StageTab({ stage }: { stage: Stage }): React.JSX.Element {
       </Panel>
 
       <p className="mt-2 text-hint text-muted">
-        Nothing on this screen is an accounting entry. A quotation is a price, an order is a
-        promise and a challan is goods that have moved — the books only hear about it when the
-        invoice is saved.
+        {inward
+          ? 'Nothing on this screen is an accounting entry. An order is a commitment and a receipt note is goods that have arrived — the books only hear about it when the supplier’s bill is saved.'
+          : 'Nothing on this screen is an accounting entry. A quotation is a price, an order is a promise and a challan is goods that have moved — the books only hear about it when the invoice is saved.'}
       </p>
 
-      {editing && <DocModal stage={stage} doc={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={refresh} />}
+      {editing && (
+        <DocModal
+          side={side}
+          stage={stage}
+          doc={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={refresh}
+        />
+      )}
       {converting && <ConvertModal doc={converting} onClose={() => setConverting(null)} onDone={refresh} />}
+      {matching && <MatchModal doc={matching} onClose={() => setMatching(null)} />}
     </>
   )
 }
@@ -227,11 +328,13 @@ interface LineDraft {
 let lineKey = 1
 
 function DocModal({
+  side,
   stage,
   doc,
   onClose,
   onSaved
 }: {
+  side: Side
   stage: Stage
   doc: SalesDoc | null
   onClose: () => void
@@ -255,6 +358,7 @@ function DocModal({
     })) ?? [{ key: lineKey++, stockItemId: null, description: '', qtyMilli: 1000, ratePaise: 0 }]
   )
   const readOnly = doc?.status === 'converted'
+  const inward = side === 'purchase'
 
   const setLine = (key: number, patch: Partial<LineDraft>): void =>
     setLines((l) => l.map((x) => (x.key === key ? { ...x, ...patch } : x)))
@@ -262,6 +366,7 @@ function DocModal({
   const submit = async (): Promise<void> => {
     const payload: SalesDocInput = {
       stage,
+      side,
       date,
       partyLedgerId: partyLedgerId === '' ? null : partyLedgerId,
       partyName: partyName.trim() || null,
@@ -287,18 +392,21 @@ function DocModal({
   }
 
   return (
-    <Modal title={doc ? `${doc.number}` : `New ${stage}`} onClose={onClose} wide>
+    <Modal title={doc ? `${doc.number}` : `New ${TABS[side].find((s) => s.stage === stage)!.label.replace(/s$/, '').toLowerCase()}`} onClose={onClose} wide>
       <div className="grid grid-cols-4 gap-3">
         <Field label="Date">
           <TextInput type="date" data-testid="input-salesdoc-date" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
-        <Field label="Party" hint={stage === 'quotation' ? 'Or just a name, below' : 'An order needs a ledger'}>
+        <Field
+          label={inward ? 'Supplier' : 'Party'}
+          hint={inward ? 'A payable needs a ledger, not a name' : stage === 'quotation' ? 'Or just a name, below' : 'An order needs a ledger'}
+        >
           <Select
             data-testid="select-salesdoc-party"
             value={partyLedgerId}
             onChange={(e) => setPartyLedgerId(e.target.value ? Number(e.target.value) : '')}
           >
-            <option value="">Not a customer yet</option>
+            <option value="">{inward ? 'Pick a supplier' : 'Not a customer yet'}</option>
             {(ledgers ?? []).map((l) => (
               <option key={l.id} value={l.id}>
                 {l.name}
@@ -306,15 +414,25 @@ function DocModal({
             ))}
           </Select>
         </Field>
-        <Field label="Or a name">
-          <TextInput data-testid="input-salesdoc-name" value={partyName} onChange={(e) => setPartyName(e.target.value)} />
-        </Field>
+        {!inward && (
+          <Field label="Or a name">
+            <TextInput data-testid="input-salesdoc-name" value={partyName} onChange={(e) => setPartyName(e.target.value)} />
+          </Field>
+        )}
         {stage === 'quotation' && (
           <Field label="Valid until" hint="A quotation with no end is a price you are still held to">
             <TextInput type="date" data-testid="input-salesdoc-valid" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
           </Field>
         )}
       </div>
+
+      {inward && stage === 'challan' && !doc && (
+        <p className="mt-3 text-hint text-muted">
+          A receipt note raised here has no order behind it. That is allowed — goods do arrive
+          unannounced — and it is recorded as exactly that rather than as an order that was
+          fulfilled.
+        </p>
+      )}
 
       <table className="ledger-table mt-4">
         <thead>
@@ -376,7 +494,11 @@ function DocModal({
               <td className="r num">{formatPaise(Math.round((l.qtyMilli * l.ratePaise) / 1000))}</td>
               <td className="r">
                 {!readOnly && (
-                  <button className="text-small text-cr hover:underline" onClick={() => setLines((x) => x.filter((y) => y.key !== l.key))}>
+                  <button
+                    className="row-action text-small text-cr hover:underline"
+                    aria-label="Remove line"
+                    onClick={() => setLines((x) => x.filter((y) => y.key !== l.key))}
+                  >
                     ×
                   </button>
                 )}
@@ -427,13 +549,18 @@ function ConvertModal({
   const [quantities, setQuantities] = useState<Record<number, number>>(
     Object.fromEntries(doc.lines.map((l) => [l.id, l.pendingMilli]))
   )
-  const next = doc.stage === 'quotation' ? 'order' : 'challan'
+  const inward = doc.side === 'purchase'
+  const next = inward ? 'receipt note' : doc.stage === 'quotation' ? 'order' : 'challan'
+  // Only ever true inward: our own challan cannot exceed our own order, but the supplier's lorry
+  // is not ours to control, and the goods are in the godown either way.
+  const excess = doc.lines.some((l) => (quantities[l.id] ?? 0) > l.pendingMilli)
 
   const go = async (): Promise<void> => {
     try {
       const created = await api.salesDocs.convert(doc.id, {
         date,
-        quantities: doc.lines.map((l) => ({ lineId: l.id, qtyMilli: quantities[l.id] ?? 0 }))
+        quantities: doc.lines.map((l) => ({ lineId: l.id, qtyMilli: quantities[l.id] ?? 0 })),
+        allowOver: inward
       })
       await onDone()
       toast.push('success', `${doc.number} became ${created.number}`)
@@ -453,7 +580,7 @@ function ConvertModal({
           <tr>
             <th scope="col">Line</th>
             <th scope="col" className="r w-24">Ordered</th>
-            <th scope="col" className="r w-24">Already out</th>
+            <th scope="col" className="r w-24">{inward ? 'Already in' : 'Already out'}</th>
             <th scope="col" className="r w-28">Taking now</th>
           </tr>
         </thead>
@@ -475,15 +602,83 @@ function ConvertModal({
           ))}
         </tbody>
       </table>
+      {excess && inward && (
+        <p className="mt-2 text-hint text-cr" data-testid="hint-over-receipt">
+          More than was ordered. It is recorded as an over-receipt rather than clipped — the goods
+          are physically here, and the stock ledger has to agree with the godown.
+        </p>
+      )}
       <p className="mt-2 text-hint text-muted">
-        Take less than the whole and the {doc.stage} stays open with the rest still pending. Take
-        it all and it closes — a document converts once, and only once.
+        {inward
+          ? 'Take less than the whole and the order stays open with the rest still pending — an order is a balance, not a switch.'
+          : 'Take less than the whole and the ' + doc.stage + ' stays open with the rest still pending. Take it all and it closes — a document converts once, and only once.'}
       </p>
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" data-testid="btn-convert-go" onClick={() => void go()}>
-          Convert
+          {inward ? 'Receive' : 'Convert'}
         </Button>
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * Ordered, received, billed — side by side (roadmap #189).
+ *
+ * The three disagree far more often than anybody expects, and a bill for more than arrived is
+ * money leaving the business for nothing. Quantities only: what a variance is worth is the
+ * invoice's arithmetic, and a second answer to that question is worse than none.
+ */
+function MatchModal({ doc, onClose }: { doc: SalesDoc; onClose: () => void }): React.JSX.Element {
+  const { data, error } = useQuery({ queryKey: ['salesDocMatch', doc.id], queryFn: () => api.salesDocs.match(doc.id) })
+
+  return (
+    <Modal title={`${doc.number} — ordered, received, billed`} onClose={onClose} wide>
+      {error ? (
+        <p className="text-cr">{(error as Error).message}</p>
+      ) : !data ? (
+        <SkeletonRows rows={4} />
+      ) : (
+        <>
+          <p className="text-hint text-muted">
+            {data.orderNumber ? `Order ${data.orderNumber}` : 'No order behind this receipt'} ·{' '}
+            {data.receiptNumbers.length ? `received on ${data.receiptNumbers.join(', ')}` : 'nothing received'} ·{' '}
+            {data.invoiceNumbers.length ? `billed on ${data.invoiceNumbers.join(', ')}` : 'not billed yet'}
+          </p>
+          <table className="ledger-table mt-3">
+            <thead>
+              <tr>
+                <th scope="col">Item</th>
+                <th scope="col" className="r w-24">Ordered</th>
+                <th scope="col" className="r w-24">Received</th>
+                <th scope="col" className="r w-24">Billed</th>
+                <th scope="col" className="w-64">Says</th>
+              </tr>
+            </thead>
+            <tbody data-testid="rows-match">
+              {data.rows.map((r) => (
+                <tr key={r.key} data-testid={`row-match-${r.key}`}>
+                  <td>{r.description}</td>
+                  <td className="r num">{r.orderedMilli / 1000}</td>
+                  <td className="r num">{r.receivedMilli / 1000}</td>
+                  <td className="r num">{r.invoicedMilli / 1000}</td>
+                  <td className={r.status === 'matched' ? 'text-muted' : 'text-cr'} data-testid={`match-status-${r.key}`}>
+                    {MATCH_LABEL[r.status]}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-2 text-hint text-muted" data-testid="match-verdict">
+            {data.clean
+              ? 'All three agree.'
+              : `${data.exceptions.length} line${data.exceptions.length === 1 ? '' : 's'} disagree — worst first.`}
+          </p>
+        </>
+      )}
+      <div className="mt-5 flex justify-end">
+        <Button onClick={onClose}>Close</Button>
       </div>
     </Modal>
   )

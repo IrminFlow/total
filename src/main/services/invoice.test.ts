@@ -82,6 +82,25 @@ describe('buildInvoiceHtml (pure — invoice print config rendering)', () => {
     expect(html).toContain('Sam&#39;s &quot;Best&quot; Traders &lt;India&gt;')
   })
 
+  it('prints the company’s own custom fields, and nothing when there are none (roadmap #195)', () => {
+    const bare = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)
+    const withFields = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE, undefined, [
+      { label: 'Customer PO', kind: 'text', value: 'PO/2026/881' },
+      { label: 'Delivered on', kind: 'date', value: '2026-03-31' },
+      { label: 'Cartons', kind: 'number', value: '12.5' }
+    ])
+    expect(withFields).toContain('Customer PO: <span>PO/2026/881</span>')
+    // A date reads the way every other date on the sheet does.
+    expect(withFields).toContain('Delivered on: <span>31-03-2026</span>')
+    // A number prints exactly as typed: no separators, no two decimals, nothing that could be
+    // mistaken for an amount — and it appears nowhere near the totals table.
+    expect(withFields).toContain('Cartons: <span>12.5</span>')
+    expect(withFields).not.toContain('12.50')
+    // A company that defines no fields prints byte-for-byte what it printed before the feature.
+    expect(bare).toBe(buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE, undefined, []))
+    expect(bare).not.toContain('Other details')
+  })
+
   it('renders stably for the default config (snapshot)', () => {
     expect(buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)).toMatchSnapshot()
   })

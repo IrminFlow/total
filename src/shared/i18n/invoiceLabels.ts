@@ -47,6 +47,8 @@ export interface InvoiceLabelKeys {
   declaration: string
   bankDetails: string
   terms: string
+  /** Heading over the company's own custom fields (roadmap #195). */
+  otherDetails: string
   receiversSignature: string
   authorisedSignatory: string
   /** The "For <company name>" standing above the signatory line. */
@@ -109,6 +111,7 @@ export const INVOICE_LABELS: Record<Exclude<InvoiceLanguage, 'none'>, InvoiceLab
     declaration: 'घोषणा',
     bankDetails: 'बैंक विवरण',
     terms: 'शर्तें',
+    otherDetails: 'अन्य विवरण', // VERIFY: plain-Hindi heading; trade sometimes prints "अन्य जानकारी".
     receiversSignature: 'प्राप्तकर्ता के हस्ताक्षर',
     authorisedSignatory: 'अधिकृत हस्ताक्षरकर्ता',
     for: 'कृते', // VERIFY: letterhead convention; the plainer alternative is "के लिए".
@@ -154,6 +157,7 @@ export const INVOICE_LABELS: Record<Exclude<InvoiceLanguage, 'none'>, InvoiceLab
     declaration: 'घोषणापत्र',
     bankDetails: 'बँक तपशील',
     terms: 'अटी',
+    otherDetails: 'इतर तपशील', // VERIFY: plain-Marathi heading, checked against no printed sample.
     receiversSignature: 'प्राप्तकर्त्याची सही',
     authorisedSignatory: 'अधिकृत स्वाक्षरीकर्ता',
     for: 'करिता',

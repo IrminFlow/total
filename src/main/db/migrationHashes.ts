@@ -60,4 +60,6 @@ export const MIGRATION_HASHES: readonly string[] = [
   '7f2b67a2b36096a6', // 44: CREATE TABLE cma_packs (
   '73c693f56542e087', // 45: CREATE TABLE cheque_bounces (
   'e0c57da343b5561d', // 46: CREATE TABLE job_work_challans (
+  '1de73524d3942831', // 47: ALTER TABLE sales_documents ADD COLUMN side TEXT NOT NULL DEFAUL
+  '19be11f3f396cb74', // 48: CREATE TABLE custom_field_defs (
 ]

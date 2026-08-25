@@ -285,8 +285,27 @@ export interface Voucher {
   billRefs: VoucherBillRef[]
   /** TDS deducted on this voucher, if any. */
   tds: VoucherTds | null
+  /**
+   * Company-defined custom fields carried by this voucher (roadmap #195).
+   *
+   * Text values, always — a number here is a number and never paise, and nothing in any report
+   * sums them. Includes values whose field has since been retired, because they are what the
+   * document said when it was issued.
+   */
+  customFields: VoucherCustomField[]
   createdAt: string
   updatedAt: string
+}
+
+export interface VoucherCustomField {
+  fieldId: number
+  key: string
+  label: string
+  kind: 'text' | 'number' | 'date' | 'list'
+  value: string
+  printed: boolean
+  /** The definition was removed after this voucher was saved; the value stays, read-only. */
+  retired: boolean
 }
 
 /** Per-voucher transport + ship-to details (voucher_transport row) for e-way bills /
