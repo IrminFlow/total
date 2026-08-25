@@ -65,6 +65,12 @@ jobs:
       - name: Dependency and license policy
         run: npm run security:dependencies
 
+      - name: Static security and tracked-secret scan
+        run: npm run security:audit
+
+      - name: Threat-model contract
+        run: npm run security:threat-model
+
       - name: Production readiness contract
         run: npm run release:readiness
 

@@ -44,4 +44,26 @@ describe("XLSX container safety", () => {
     inconsistent.writeUInt32LE(1, inconsistent.length - 6);
     expect(() => assertSafeXlsxContainer(inconsistent)).toThrow(/inconsistent/);
   });
+
+  it("handles deterministic byte mutations as bounded validation failures", async () => {
+    const workbook = new ExcelJS.Workbook();
+    workbook.addWorksheet("Books").addRow(["Date", "Narration", "Amount"]);
+    const source = Buffer.from(await workbook.xlsx.writeBuffer());
+    let state = 0x51_58_4c_53;
+    const next = (): number => {
+      state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+      return state;
+    };
+    for (let index = 0; index < 250; index++) {
+      const end = Math.max(1, next() % (source.length + 1));
+      const candidate = Buffer.from(source.subarray(0, end));
+      for (let edits = 0; edits < 4 && candidate.length > 0; edits++) {
+        const offset = next() % candidate.length;
+        candidate[offset] = (candidate[offset]! ^ (1 << (next() % 8))) & 0xff;
+      }
+      let result: "accepted" | "rejected" = "accepted";
+      try { assertSafeXlsxContainer(candidate); } catch { result = "rejected"; }
+      expect(["accepted", "rejected"]).toContain(result);
+    }
+  });
 });

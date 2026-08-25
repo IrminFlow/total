@@ -56,6 +56,26 @@ describe("command registry", () => {
     expect(new Set(COMMANDS.map((command) => command.id)).size).toBe(COMMANDS.length);
   });
 
+  it("detects case-insensitive modifier collisions but permits the same key in another context", () => {
+    const conflicts = findCommandConflicts([
+      { id: "one", context: "global", label: "One", bindings: [{ key: "Z", context: "global", alt: true }] },
+      { id: "two", context: "global", label: "Two", bindings: [{ key: "z", context: "global", alt: true }] },
+      { id: "three", context: "voucher", label: "Three", bindings: [{ key: "z", context: "voucher", alt: true }] },
+    ]);
+    expect(conflicts).toEqual([{ context: "global", binding: "alt+z", commands: ["one", "two"] }]);
+  });
+
+  it("ignores corrupt or structurally invalid persisted overrides", () => {
+    localStorage.setItem("total.shortcut-overrides.v1", "{truncated");
+    expect(readShortcutOverrides()).toEqual({});
+    localStorage.setItem("total.shortcut-overrides.v1", JSON.stringify({
+      "navigate.daybook": [{ key: "", context: "global" }],
+      "navigate.registers": [{ key: "z", context: "unknown" }],
+    }));
+    expect(readShortcutOverrides()).toEqual({});
+    expect(findCommandConflicts()).toEqual([]);
+  });
+
   it("groups navigation in plain workflow language", () => {
     expect(NAV_SECTIONS.map((section) => section.title)).toEqual([
       "Home", "Create", "Sales", "Purchases", "Banking", "Inventory",

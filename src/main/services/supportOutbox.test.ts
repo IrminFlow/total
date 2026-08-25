@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { describe, expect, it } from "vitest";
@@ -49,5 +49,24 @@ describe("encrypted support outbox", () => {
     expect(removeSupportOutboxItem(path, latest.id)).toBe(true);
     expect(readSupportOutbox(path)).toEqual([]);
     expect(summarizeSupportOutbox([])).toEqual([]);
+  });
+
+  it("fails closed on corrupt files and drops malformed records without exposing payloads", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "total-support-outbox-")), "outbox.json");
+    writeFileSync(path, "{truncated");
+    expect(readSupportOutbox(path)).toEqual([]);
+    expect(() => getSupportOutboxItem(path, "00000000-0000-4000-8000-000000000001")).toThrow(
+      "Queued support submission not found",
+    );
+
+    writeFileSync(path, JSON.stringify({
+      schema: 1,
+      items: [
+        { id: "../../company.db", encryptedPayload: "c2VjcmV0" },
+        { id: "00000000-0000-4000-8000-000000000001", caseId: "wrong", status: "queued" },
+      ],
+    }));
+    expect(readSupportOutbox(path)).toEqual([]);
+    expect(readFileSync(path, "utf8")).toContain("../../company.db");
   });
 });

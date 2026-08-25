@@ -9,6 +9,8 @@ const ai = read("src/main/services/ai.ts");
 const manifest = read("src/shared/integrations.ts");
 const model = read("docs/THREAT_MODEL.md");
 const secrets = read("docs/SECURITY_SECRET_INVENTORY.md");
+const packageJson = read("package.json");
+const presence = read("src/main/services/mcpPresenceBroker.ts");
 
 const checks = [
   ["renderer sandbox", /sandbox:\s*true/.test(index)],
@@ -31,7 +33,10 @@ const checks = [
   ["bounded provider response", /AI_MAX_RESPONSE_BYTES/.test(ai) && /AbortSignal|timeout/.test(ai)],
   ["declarative plugins", /runtime:\s*z\.literal\("declarative-v1"\)/.test(manifest) && /\.strict\(\)/.test(manifest)],
   ["threat model boundaries", /## Assets and trust boundaries/.test(model) && /## Release review procedure/.test(model)],
+  ["threat model abuse cases and evidence", /## Abuse cases and required responses/.test(model) && /## Evidence and incident handling/.test(model)],
   ["secret inventory covers current surfaces", /Local MCP access token/.test(secrets) && /Integration webhook signing secret/.test(secrets)],
+  ["tracked secret scan is release-addressable", /"security:audit"\s*:/.test(packageJson) && /security:audit/.test(model)],
+  ["MCP presence replay protection", /REPLAY_DENIED/.test(presence) && /seenNonces/.test(presence)],
 ];
 
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);

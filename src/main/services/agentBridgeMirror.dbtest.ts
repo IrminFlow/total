@@ -100,6 +100,20 @@ describe('agent mirror manifest v2', () => {
     db.close()
   })
 
+  it('rejects truncated and wrong-schema manifests without reading adjacent company files', () => {
+    const db = setup()
+    exportMirror(db, slug)
+    const databasePath = join(companyDir(slug), 'company.db')
+    const sentinel = existsSync(databasePath) ? readFileSync(databasePath) : null
+    const metaPath = join(agentDir(slug), 'meta.json')
+    writeFileSync(metaPath, '{"schema":"total.agent-mirror"')
+    expect(() => verifyMirrorManifest(agentDir(slug))).toThrow()
+    writeFileSync(metaPath, JSON.stringify({ schema: 'wrong', schemaVersion: 2, files: [], manifest: { algorithm: 'sha256', files: [] } }))
+    expect(() => verifyMirrorManifest(agentDir(slug))).toThrow()
+    if (sentinel) expect(readFileSync(databasePath)).toEqual(sentinel)
+    db.close()
+  })
+
   it('refuses a symlinked mirror destination instead of writing outside company storage', () => {
     const db = setup()
     const outside = mkdtempSync(join(tmpdir(), 'total-mirror-outside-'))

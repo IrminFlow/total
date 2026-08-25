@@ -43,9 +43,33 @@ durability. Clipboard clearing only occurs if Total's copied value remains curre
 destroy unrelated user clipboard data. Offline operation reduces remote exposure but does not
 replace endpoint security, disk encryption or tested off-device backups.
 
+## Abuse cases and required responses
+
+| Abuse case | Boundary response | Verification |
+| --- | --- | --- |
+| A renderer sends malformed or oversized IPC data | Zod rejects the payload before company or actor state is read. The central permission gate still applies to valid data. | IPC handler validation tests and `ipcPermissions.test.ts` |
+| A copied MCP request is replayed | The app-presence broker binds authorization to a scoped token hash and rejects a reused nonce during the broker session. | `mcpPresenceBroker.test.ts` |
+| Several MCP clients pair while the broker starts or stops | Concurrent starts share one readiness promise. Shutdown destroys open local sockets and removes the Unix socket. | `mcpPresenceBroker.test.ts` |
+| A support retry contains corrupt ciphertext or loses its device key | The outbox retains the encrypted item, records the failed attempt, and does not send an unvalidated body. Attachment retries require fresh consent. | `supportHandlers.test.ts` and `supportOutbox.test.ts` |
+| A backup, portable package or JSON mirror is truncated or tampered with | Integrity, schema, path, count and digest checks run before live company data is replaced or adjacent files are read. | backup, complete-backup, migration-tools and agent-mirror DB tests |
+| A spreadsheet, image, XML file or plugin manifest is hostile | Size, container, nesting, schema and path bounds reject unsafe input. Parsed text remains inert. | XLSX safety, boundary fuzz and integration manifest tests |
+| A credential is committed to the repository | CI scans tracked text for private-key blocks and common provider token formats. Environment files with literal secret assignments are rejected. | `npm run security:audit` |
+
+## Evidence and incident handling
+
+Run `npm run security:evidence` from the candidate revision. It writes a JSON record containing the
+revision, dirty-tree state, threat-model result, tracked-file scan result and SHA-256 digests of this
+document and the secret inventory. Candidate evidence must come from the reviewed clean revision;
+locally generated dirty-tree evidence is diagnostic only.
+
+If a credential may have leaked, revoke it at the provider before removing it from source history.
+Preserve only redacted logs and file digests needed to establish scope. Disable the affected feature
+with its device or release flag, test the replacement credential, rerun the security evidence command
+and record which release first contains the correction.
+
 ## Release review procedure
 
-Run `npm run security:threat-model`. Any boundary change must update this document, the secret
+Run `npm run security:threat-model` and `npm run security:audit`. Any boundary change must update this document, the secret
 inventory, relevant tests and the automated gate before release. Reviewers must inspect new IPC
 channels, new URL/file operations, credential storage, network destinations, MCP tools, plugin
 permissions and updater configuration. Security-sensitive exceptions are release blockers.
