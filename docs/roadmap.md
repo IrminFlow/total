@@ -1381,7 +1381,24 @@ Ordering within a section is roughly by value.
      also asserts that every theme defines every token — a token missing from dark does not fail
      loudly, it silently falls back to the light value, which is exactly how one unreadable
      element after dark happens.
-327. Mutation testing on the money and GST engines (M)
+327. ✓ Mutation testing on the money and GST engines (M)
+     — `npm run mutate`. 103 mutants across money, GST calc, turnover, late fees and round-off;
+     **85.4% on the first run, 94.2% after**, and the six that remain are equivalent mutants,
+     listed in the script with the reason each one cannot be killed.
+
+     The nine real survivors were the point. `roundPaise` and `roundToRupee` lost their `Math.abs`
+     and nothing noticed, because every test used a positive amount — half-away-from-zero becomes
+     half-toward-zero for negatives, so −2.5 rounds to +2, the wrong magnitude and the wrong sign,
+     and a credit note is the ordinary case that hits it. `amountInWords` read one past the end of
+     its own table, and twenty is the only number that tells `< 20` from `<= 20`. `roundOffLine`
+     lost its `Math.abs` on the limit check, which is false for every negative difference however
+     large, so a credit-heavy voucher out by ₹500 would have been silently plugged instead of
+     refused. And only GSTR-3B's row of the late-fee table was ever read: GSTR-1's ₹50/day,
+     GSTR-4's ₹2,000 cap and both of their nil rates could have been anything.
+
+     Deliberately not a gate. A score used as a gate becomes a pressure to write tests that
+     satisfy the tool, and the equivalent mutants above are exactly what that pressure produces.
+     `--min` exists for anyone who wants one.
 328. ✓ Property-based tests for the posting rules (M)
      — `src/shared/posting.prop.test.ts`.
 329. ✓ A seeded large-book fixture reused across performance tests (S)

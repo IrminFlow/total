@@ -83,6 +83,35 @@ const MUTATIONS = [
   { from: /- 1\b/g, to: '- 0', why: 'an off-by-one' }
 ]
 
+/**
+ * The survivors that are EQUIVALENT, and why chasing them would be writing tests for a tool.
+ *
+ * An equivalent mutant is a change that cannot alter behaviour, so no test can kill it. They are
+ * the reason a mutation score is never 100% and the reason a score used as a gate becomes a
+ * pressure to write meaningless tests. As of the run that took this suite from 85.4% to 94.2%,
+ * six remain and each has been checked by hand:
+ *
+ *   lateFee.ts  daysBetween's Math.round → Math.floor. Both dates are parsed at midnight UTC, so
+ *               the difference is always an exact multiple of a day and the two agree on every
+ *               input the function can receive.
+ *
+ *   lateFee.ts  `rule.capPaise > 0` → `>= 0`, twice. Distinguishing them needs a form whose cap
+ *               is zero while its per-day rate is not. No form in the table is like that — the
+ *               three with a zero cap (CMP-08, PMT-06, IFF) charge no fee at all — so the two
+ *               expressions pick the same branch for every row that exists. A test would have to
+ *               invent a rule to have something to assert about.
+ *
+ *   roundOff.ts `totalDr <= 0 && totalCr <= 0` → `<`, twice. They differ only when one total is
+ *               exactly zero and the other is NEGATIVE, and a total is a sum of positive amounts.
+ *               A test for it would assert on a state the voucher form cannot produce.
+ *
+ *   roundOff.ts `diff > 0` → `>= 0`. The line above returns when diff is zero, so by the time
+ *               this runs the two are the same comparison.
+ *
+ * If one of these ever becomes killable — a rule table gains a form with a zero cap and a real
+ * rate, say — that is a behaviour change worth a test, and this list is where to notice it.
+ */
+
 /** Every distinct (file, offset, replacement) this produces — one mutant each. */
 function mutantsFor(file) {
   const src = readFileSync(file, 'utf8')

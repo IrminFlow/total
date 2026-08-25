@@ -129,3 +129,28 @@ describe('the rates that were in the table but not in the tests', () => {
   })
 })
 
+describe('the last three mutants worth killing', () => {
+  // Each form has TWO rates and the nil one was only ever read for GSTR-3B, so GSTR-1's and
+  // GSTR-4's could have been anything. A nil return is the common case for a dormant
+  // registration, which is exactly the filer who gets a late fee and does not expect one.
+  it('charges a nil GSTR-1 twenty rupees a day, not fifty', () => {
+    const c = lateCharge({ form: 'GSTR-1', dueDate: '2026-05-11', filedDate: '2026-05-21', taxPaise: 0 })
+    expect(c.lateFeePaise).toBe(200_00)
+  })
+
+  it('and a nil GSTR-4 the same', () => {
+    const c = lateCharge({ form: 'GSTR-4', dueDate: '2026-04-30', filedDate: '2026-05-10', taxPaise: 0 })
+    expect(c.lateFeePaise).toBe(200_00)
+  })
+
+  it('does not call a form with no fee "capped"', () => {
+    // CMP-08 is a payment statement: no late fee of its own, only interest. `capPaise > 0` is what
+    // keeps `feeCapped` false for it — with `>= 0`, a zero fee against a zero cap reads as having
+    // hit the ceiling, and the screen would tell a filer their late fee had been capped at nothing.
+    const c = lateCharge({ form: 'CMP-08', dueDate: '2026-04-18', filedDate: '2026-05-18', taxPaise: 5_00_000 })
+    expect(c.lateFeePaise).toBe(0)
+    expect(c.feeCapped).toBe(false)
+    expect(c.interestPaise).toBeGreaterThan(0) // interest still arises — that is the whole point
+  })
+})
+
