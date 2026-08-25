@@ -193,6 +193,11 @@ export interface RcmRegister {
 /** The month's reverse-charge desk: what needs a document, what has one, and what to look at. */
 export function rcmRegister(db: DB, company: CompanyInfo, from: string, to: string): RcmRegister {
   const supplies = rcmSupplies(db, company, from, to)
+  // Deliberately NOT filtered by IN_BOOKS. The join is here to read the voucher's date, and the
+  // question being asked is "which purchases already carry a document" — a self-invoice issued to
+  // satisfy Rule 46 does not stop having existed because the voucher behind it was later binned,
+  // and that combination is precisely what an auditor is looking for. It cannot widen `pending`
+  // either: that is computed from `rcmSupplies`, which is IN_BOOKS-filtered, minus this set.
   const documented = new Set(
     (
       db
