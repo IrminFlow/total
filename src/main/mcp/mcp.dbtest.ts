@@ -10,6 +10,7 @@ import { openForMcp } from './companyDb'
 import { buildServer } from './server'
 import { setAgentBridgeEnabled } from '../services/config'
 import { createLedger } from '../services/masters'
+import { MCP_WRITE_LIMIT } from '@shared/ai/rateLimit'
 import {
   CallToolRequestSchema,
   ListResourcesRequestSchema,
@@ -192,6 +193,67 @@ describe('MCP tools', () => {
     expect(audit.user_name).toBe('agent-mcp')
     company.db.close()
   })
+
+  /**
+   * The third control on writes (roadmap #218).
+   *
+   * The two switches are consent, and consent is not a rate: a user who legitimately turned
+   * writes on has also authorised an agent in a loop to post four thousand vouchers at machine
+   * speed. Every one would be soft-deletable and every one would also be a real row in a real
+   * trial balance until somebody noticed.
+   */
+  it('rate limits writes once a burst is spent, and says how long to wait', async () => {
+    const company = openForMcp('mcp-co', true)
+    setAgentBridgeEnabled(company.db, true)
+    const server = buildServer(company)
+
+    const cash = company.db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }
+    const group = company.db.prepare("SELECT id FROM groups WHERE name = 'Sales Accounts'").get() as { id: number }
+    const other = createLedger(company.db, {
+      name: 'Sales A/c',
+      groupId: group.id,
+      openingBalance: 0,
+      gstin: null,
+      stateCode: null,
+      address: null,
+      taxType: null,
+      gstRate: null,
+      hsn: null,
+      tdsSectionId: null,
+      pan: null,
+      creditDays: null,
+      creditLimit: null
+    })
+    const typeId = (company.db.prepare("SELECT id FROM voucher_types WHERE kind = 'receipt'").get() as { id: number }).id
+    const post = (): Promise<{ isError?: boolean; content: { text: string }[] }> =>
+      call<{ isError?: boolean; content: { text: string }[] }>(server, method(CallToolRequestSchema), {
+        name: 'post_voucher',
+        arguments: {
+          date: '2025-04-01',
+          voucherTypeId: typeId,
+          lines: [
+            { ledgerId: cash.id, drCr: 'dr', amount: 5000 },
+            { ledgerId: other.id, drCr: 'cr', amount: 5000 }
+          ]
+        }
+      })
+
+    // A burst of ordinary size goes through untouched — a genuine backfill must not trip this.
+    for (let i = 0; i < MCP_WRITE_LIMIT.capacity; i++) {
+      const res = await post()
+      expect(res.isError, `write ${i}`).toBeUndefined()
+    }
+
+    const refused = await post()
+    expect(refused.isError).toBe(true)
+    expect(refused.content[0]!.text).toMatch(/Rate limited/)
+    // It names the wait and the bulk alternative rather than just saying no.
+    expect(refused.content[0]!.text).toMatch(/agent inbox/)
+
+    const posted = (company.db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n
+    expect(posted).toBe(MCP_WRITE_LIMIT.capacity)
+    company.db.close()
+  })
 })
 
 describe('MCP resources', () => {
@@ -202,7 +264,8 @@ describe('MCP resources', () => {
     expect(resources.map((r) => r.uri)).toEqual([
       'total://company/mcp-co/meta',
       'total://company/mcp-co/ledgers',
-      'total://voucher-schema'
+      'total://voucher-schema',
+      'total://changelog'
     ])
 
     const meta = await call<{ contents: { text: string }[] }>(server, method(ReadResourceRequestSchema), {
@@ -213,6 +276,34 @@ describe('MCP resources', () => {
     expect(parsed.writable).toBe(false)
     // The units line is the thing an agent most needs and most often gets wrong.
     expect(parsed.units).toMatch(/integer paise/)
+    company.db.close()
+  })
+
+  /**
+   * The agent-facing changelog (roadmap #220).
+   *
+   * An agent's picture of these tools is formed once and cached in a summary somewhere. This is
+   * how it finds out that picture is stale without having to trip over an error first.
+   */
+  it('serves a dated changelog written for a model rather than for a person', async () => {
+    const company = openForMcp('mcp-co', false)
+    const server = buildServer(company)
+    const res = await call<{ contents: { text: string }[] }>(server, method(ReadResourceRequestSchema), {
+      uri: 'total://changelog'
+    })
+    const log = JSON.parse(res.contents[0]!.text) as {
+      latest: string
+      note: string
+      entries: { date: string; kind: string; subject: string; note: string }[]
+    }
+    expect(log.entries.length).toBeGreaterThan(3)
+    expect(log.latest).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(log.note).toMatch(/re-read the tool list/)
+    // Every entry is about the contract, not about the app: an agent can act on each one.
+    for (const entry of log.entries) {
+      expect(['added', 'changed', 'removed']).toContain(entry.kind)
+      expect(entry.note.length, entry.subject).toBeGreaterThan(30)
+    }
     company.db.close()
   })
 })

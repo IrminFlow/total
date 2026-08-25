@@ -35,6 +35,11 @@ import * as vouchers from '../../vouchers'
 import * as search from '../../search'
 import * as intel from '../../intel'
 import * as gst from '../../gst'
+import * as closeCheck from '../../closeCheck'
+import * as anomalies from '../../anomalies'
+import { VOUCHER_KINDS } from '@shared/domain'
+import { describeDraft, reviewDraft, type VoucherDraftProposal } from '@shared/ai/draft'
+import { explainIssues, summariseIssues } from '@shared/ai/gstExplain'
 
 export interface AiToolCtx {
   db: DB
@@ -363,6 +368,127 @@ export const TOOLS: AiTool[] = [
     run: (ctx, { from, to }) => {
       const issues = gst.gstValidate(ctx.db, ctx.info, from, to)
       return capRows(issues as unknown[], { from, to })
+    }
+  }),
+
+  tool({
+    name: 'gst_explain',
+    description:
+      'The same GST validation issues, each with a written explanation of what it means, why the portal or the law cares, and how to fix it. Quote these explanations verbatim — do not compose your own account of a GST rule.',
+    params: z.object({ from: dateSchema, to: dateSchema }),
+    run: (ctx, { from, to }) => {
+      const issues = gst.gstValidate(ctx.db, ctx.info, from, to)
+      return capRows(
+        explainIssues(issues).map((i) => ({
+          ref: `ex:${i.code}`,
+          code: i.code,
+          severity: i.severity,
+          message: i.message,
+          vouchers: i.voucherIds.length,
+          what: i.explanation.what,
+          why: i.explanation.why,
+          fix: i.explanation.fix
+        })),
+        {
+          from,
+          to,
+          rowCap: 20,
+          totals: {
+            summary: summariseIssues(issues),
+            blocking: issues.filter((i) => i.severity === 'blocking').length,
+            warnings: issues.filter((i) => i.severity === 'warning').length
+          }
+        }
+      )
+    }
+  }),
+
+  tool({
+    name: 'close_checklist',
+    description:
+      "Month-end close status: every check Total can compute, with its figure and whether it blocks. Use this for 'can I close March?' — quote the items rather than deciding readiness yourself.",
+    params: z.object({ from: dateSchema, to: dateSchema }),
+    run: (ctx, { from, to }) => {
+      const list = closeCheck.monthEndChecklist(ctx.db, ctx.slug, ctx.info, from, to, ctx.today)
+      return capRows(
+        list.items.map((i) => ({ ref: `chk:${i.id}`, check: i.label, status: i.status, detail: i.detail, why: i.why })),
+        {
+          from,
+          to,
+          rowCap: 30,
+          totals: { blocked: list.blocked, attention: list.attention, readyToLock: String(list.readyToLock) }
+        }
+      )
+    }
+  }),
+
+  tool({
+    name: 'anomaly_watch',
+    description:
+      "Entries in a period unlike anything in this company's history, each with the comparison that flagged it. These are flags for a human to look at, never findings of error — say so.",
+    params: z.object({ from: dateSchema, to: dateSchema, limit: z.number().int().min(1).max(30).default(15) }),
+    run: (ctx, { from, to, limit }) => {
+      const rows = anomalies.anomalyWatch(ctx.db, from, to)
+      return capRows(
+        rows.map((r) => ({
+          ref: `v:${r.voucherId}`,
+          voucherId: r.voucherId,
+          date: r.date,
+          type: r.voucherType,
+          number: r.number,
+          party: r.party,
+          narration: r.narration,
+          amount: money(r.amountPaise),
+          reasons: r.reasons,
+          why: r.explanation
+        })),
+        { from, to, rowCap: limit, totals: { flagged: rows.length } }
+      )
+    }
+  }),
+
+  tool({
+    name: 'propose_voucher',
+    description:
+      'Turn a described entry into a DRAFT voucher for the user to review and save. This does NOT post anything and never will: it returns a draft that the user opens in the voucher screen and saves themselves. Look every ledger up with find_ledger first and pass the real ids. All amounts are integer paise, and debits must equal credits.',
+    params: z.object({
+      kind: z.enum(VOUCHER_KINDS),
+      date: dateSchema,
+      narration: z.string().max(500).optional(),
+      partyLedgerId: z.number().int().positive().optional(),
+      lines: z
+        .array(
+          z.object({
+            ledgerId: z.number().int().positive(),
+            ledgerName: z.string().min(1).max(120),
+            drCr: z.enum(['dr', 'cr']),
+            amountPaise: z.number().int()
+          })
+        )
+        .min(1)
+        .max(20)
+    }),
+    run: (ctx, args) => {
+      const proposal = args as VoucherDraftProposal
+      // The ledger set is read from the books, not taken from the model: an id it invented has
+      // to fail here, and it can only fail here if the truth comes from this side.
+      const known = new Map(masters.listLedgers(ctx.db).map((l) => [l.id, l.name]))
+      const review = reviewDraft(proposal, {
+        today: ctx.today,
+        knownLedgers: known,
+        lockedUpTo: vouchers.getLockDate(ctx.db)
+      })
+      return {
+        // Named so that neither the model nor a later reader can mistake it for a saved voucher.
+        kind: 'draft-only',
+        posted: false,
+        note: 'Nothing has been saved. The user must open this draft and save it themselves.',
+        summary: describeDraft(proposal),
+        openable: review.openable,
+        issues: review.issues,
+        totals: { debit: money(review.totalDebit), credit: money(review.totalCredit), balanced: review.balanced },
+        draft: proposal
+      }
     }
   })
 ]

@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { freshDb, freshPartialDb } from './testdb'
 
 const EXPECTED_TABLES = [
+  'assistant_runs',
   'meta',
   'groups',
   'ledgers',

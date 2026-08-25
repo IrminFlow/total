@@ -1450,5 +1450,45 @@ export const MIGRATIONS: string[] = [
     decision_note TEXT
   );
   CREATE INDEX idx_bank_detail_requests_state ON bank_detail_requests(state);
+  `,
+  // ---- 40. the assistant audit trail (roadmap #217) ----
+  //
+  // Joins the question to the draft to the voucher that was finally saved. Three reasons this is
+  // a table in the company database rather than a log file beside the key:
+  //
+  //  1. The join. "Which entries in these books came out of a conversation with a model?" is a
+  //     question an auditor is entitled to ask, and it can only be answered where the vouchers
+  //     are. A voucher_id foreign key answers it; a log file elsewhere cannot.
+  //  2. It travels with the books. A CA restoring a client's backup gets the provenance too.
+  //  3. It is not the key. The API key stays machine-level, in the keychain, and nothing here
+  //     records the endpoint's credentials — only the host and model, which are the parts a
+  //     reviewer needs.
+  //
+  // Nothing in this table is on any read path for a report. It is provenance, not books.
+  `
+  CREATE TABLE assistant_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL UNIQUE,
+    asked_at TEXT NOT NULL DEFAULT (datetime('now')),
+    asked_by TEXT,
+    question TEXT NOT NULL,
+    answer TEXT,
+    model TEXT NOT NULL,
+    host TEXT NOT NULL,
+    local INTEGER NOT NULL DEFAULT 0,
+    -- JSON array of tool names, in call order.
+    tools TEXT,
+    -- How many tool-result fields were quarantined as instruction-shaped (roadmap #221).
+    quarantined INTEGER NOT NULL DEFAULT 0,
+    -- The proposed voucher as JSON, when the run produced one.
+    draft TEXT,
+    -- Set when the human saved that draft. ON DELETE SET NULL: deleting a voucher must not
+    -- delete the record that a model proposed it.
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    cost_paise INTEGER NOT NULL DEFAULT 0,
+    finish TEXT
+  );
+  CREATE INDEX idx_assistant_runs_at ON assistant_runs(asked_at);
+  CREATE INDEX idx_assistant_runs_voucher ON assistant_runs(voucher_id) WHERE voucher_id IS NOT NULL;
   `
 ]

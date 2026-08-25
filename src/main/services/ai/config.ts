@@ -27,13 +27,24 @@ import { readSecret, storageMode, writeSecret } from '../../secrets'
 
 const KEY_SECRET = 'ai:apiKey'
 
-function configPath(): string {
-  if (process.env.TOTAL_DATA_DIR) return join(dataRoot(), 'ai.json')
+/**
+ * A file beside the AI config, at machine level.
+ *
+ * Exported so the spend ledger lands in the same place by construction rather than by two copies
+ * of this fallback chain — which matters because the fallback is what keeps driver and CI runs
+ * (TOTAL_DATA_DIR) out of the real userData directory.
+ */
+export function machineFile(name: string): string {
+  if (process.env.TOTAL_DATA_DIR) return join(dataRoot(), name)
   try {
-    return join(app.getPath('userData'), 'ai.json')
+    return join(app.getPath('userData'), name)
   } catch {
-    return join(dataRoot(), 'ai.json')
+    return join(dataRoot(), name)
   }
+}
+
+function configPath(): string {
+  return machineFile('ai.json')
 }
 
 export function readConfig(): AiConfig {
