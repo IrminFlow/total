@@ -137,7 +137,11 @@ export class Harness {
     await this.page.waitForFunction(
       (screen) => {
         const main = document.querySelector(`[data-screen="${screen}"]`)
-        return main && !main.querySelector('[role="status"]')
+        // Voucher validation and other live regions legitimately persist with role=status.
+        // Only the App-level lazy-route fallback blocks readiness.
+        return main && ![...main.querySelectorAll('[role="status"]')].some((status) =>
+          status.textContent?.includes('Loading workspace')
+        )
       },
       name,
       { timeout }
@@ -150,21 +154,40 @@ export class Harness {
 
   /** Sidebar navigation: click nav-<name>, wait for the screen to render + go idle. */
   async goto(name, timeout = 15000) {
+    // Route effects can collapse the previously active accordion section. Let those effects
+    // commit before revealing a destination so the button cannot be detached mid-click.
+    await this.page.evaluate(() => new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    ))
     const target = this.page.locator(`[data-testid="nav-${name}"]`)
     if ((await target.count()) === 0) {
-      // Report sections are collapsed by default in the production sidebar. Expand only the
-      // closed groups when a scenario asks for a destination that is not currently mounted.
-      const collapsed = this.page.locator('nav[aria-label="Application"] button[aria-expanded="false"]')
-      while ((await collapsed.count()) > 0) await collapsed.first().click()
+      // The production sidebar is a single-open accordion: opening one section closes the
+      // previous section. Probe each section at most once and stop as soon as the requested
+      // destination is mounted; waiting for every section to be open would never terminate.
+      const sections = this.page.locator('nav[aria-label="Application"] button[aria-expanded]')
+      const sectionCount = await sections.count()
+      for (let index = 0; index < sectionCount && (await target.count()) === 0; index += 1) {
+        const section = sections.nth(index)
+        if ((await section.getAttribute('aria-expanded')) !== 'true') await section.click({ timeout })
+      }
     }
+    if ((await target.count()) === 0) throw new Error(`goto: navigation target ${JSON.stringify(name)} is unavailable`)
     await target.click({ timeout })
     await this.waitScreen(name, timeout)
   }
 
-  /** Make every workspace section visible for assertions that inspect the available destinations. */
-  async expandNavigation() {
-    const collapsed = this.page.locator('nav[aria-label="Application"] button[aria-expanded="false"]')
-    while ((await collapsed.count()) > 0) await collapsed.first().click()
+  /** Reveal one destination without navigating to it. */
+  async revealNavigation(name, timeout = 15000) {
+    const target = this.page.locator(`[data-testid="nav-${name}"]`)
+    if ((await target.count()) > 0) return target
+    const sections = this.page.locator('nav[aria-label="Application"] button[aria-expanded]')
+    const sectionCount = await sections.count()
+    for (let index = 0; index < sectionCount && (await target.count()) === 0; index += 1) {
+      const section = sections.nth(index)
+      if ((await section.getAttribute('aria-expanded')) !== 'true') await section.click({ timeout })
+    }
+    if ((await target.count()) === 0) throw new Error(`revealNavigation: target ${JSON.stringify(name)} is unavailable`)
+    return target
   }
 
   /** Click any control by data-testid. */

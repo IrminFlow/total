@@ -10,11 +10,11 @@ await scenario('11-keyboard', async (h) => {
     const operations = document.querySelector('[data-testid="gateway-operations"]')?.getBoundingClientRect()
     const firstTask = document.querySelector('[data-testid^="card-"]')?.getBoundingClientRect()
     return {
-      operationsBeforeTasks: Boolean(operations && firstTask && operations.top < firstTask.top),
+      tasksBeforeOperations: Boolean(operations && firstTask && firstTask.top < operations.top),
       visibleTaskCount: document.querySelectorAll('[data-testid^="card-"]').length,
     }
   })
-  assert(gatewayLayout.operationsBeforeTasks, 'cash and outstanding balances appear before task launchers')
+  assert(gatewayLayout.tasksBeforeOperations, 'daily task launchers appear before the operating snapshot')
   assert(gatewayLayout.visibleTaskCount <= 6, `Gateway keeps the first view focused (${gatewayLayout.visibleTaskCount} task launchers)`)
   await h.click('btn-all-gateway-tasks')
   await h.page.waitForSelector('[data-testid="all-task-month-close"]')

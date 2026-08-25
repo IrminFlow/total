@@ -21,7 +21,7 @@ await scenario('19-custom-gateway', async (h) => {
   await h.click('btn-save-home-layout')
   await assertLayout(h)
   await h.page.getByTestId('select-workspace-profile').selectOption('gst')
-  await h.expandNavigation()
+  await h.revealNavigation('gstr1')
   assert((await h.page.getByTestId('nav-gstr1').count()) === 1, 'GST workspace keeps return preparation visible')
   assert((await h.page.getByTestId('nav-payroll').count()) === 0, 'GST workspace removes unrelated payroll navigation')
   await h.shot('01-personalized-gateway')

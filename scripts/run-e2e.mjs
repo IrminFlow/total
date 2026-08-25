@@ -50,6 +50,10 @@ function runOne(file) {
     const child = spawn(process.execPath, [path.join(e2eDir, file)], {
       cwd: root,
       env: { ...process.env, SMOKE_OUT: outRoot },
+      // A dedicated POSIX process group lets a timeout terminate Electron and its Chromium
+      // helpers as well as the scenario's Node parent. Killing only the parent leaked every
+      // descendant into later scenarios and eventually exhausted the macOS runner.
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'inherit']
     })
     let tail = ''
@@ -60,7 +64,15 @@ function runOne(file) {
     // A hung scenario must not wedge the whole run.
     const timer = setTimeout(() => {
       console.error(`[runner] ${name} timed out after 5 minutes — killing`)
-      child.kill('SIGKILL')
+      if (child.pid && process.platform !== 'win32') {
+        try {
+          process.kill(-child.pid, 'SIGKILL')
+        } catch {
+          child.kill('SIGKILL')
+        }
+      } else {
+        child.kill('SIGKILL')
+      }
     }, 5 * 60 * 1000)
     child.on('close', (code) => {
       clearTimeout(timer)

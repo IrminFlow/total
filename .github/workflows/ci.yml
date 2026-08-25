@@ -87,6 +87,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Electron runtime
+        timeout-minutes: 5
+        run: |
+          node node_modules/electron/install.js
+          node -e "const fs = require('node:fs'); const executable = require('electron'); if (!fs.existsSync(executable)) throw new Error('Electron runtime is missing')"
+
       - name: Build
         run: npm run build
 
@@ -100,6 +106,7 @@ jobs:
           SMOKE_OUT: ${{ runner.temp }}/smoke
 
       - name: Large-workflow memory budget
+        timeout-minutes: 5
         run: npm run perf:memory
         env:
           SMOKE_OUT: ${{ runner.temp }}/performance
@@ -129,6 +136,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install Electron runtime
+        timeout-minutes: 5
+        run: |
+          node node_modules/electron/install.js
+          node -e "const fs = require('node:fs'); const executable = require('electron'); if (!fs.existsSync(executable)) throw new Error('Electron runtime is missing')"
 
       - name: Build
         run: npm run build
