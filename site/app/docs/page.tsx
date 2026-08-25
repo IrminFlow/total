@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Getting started | Total Docs'
+  title: 'Getting started - Docs'
 }
 
 export default function GettingStartedPage(): React.JSX.Element {

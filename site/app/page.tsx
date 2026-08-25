@@ -51,7 +51,7 @@ const CAPABILITIES = [
 
 export default async function Home(): Promise<React.JSX.Element> {
   const release = await latestRelease()
-  const releaseNote = release ? `Version ${release.version} available` : 'Public beta available'
+  const releaseNote = release ? `Version ${release.version} available` : 'Check download availability'
 
   return (
     <>
@@ -64,7 +64,7 @@ export default async function Home(): Promise<React.JSX.Element> {
               <h1 className="serif">Your books stay local.</h1>
               <p className="lede">Double-entry accounting, GST, inventory, banking and payroll. No cloud account is required.</p>
               <div className="hero-ctas">
-                <a className="btn" href="/api/download?platform=mac">Download for macOS</a>
+                <a className="btn" href="/api/download">Download Total</a>
                 <Link className="text-link" href="/docs">Read the guide</Link>
               </div>
             </div>

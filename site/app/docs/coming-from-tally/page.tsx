@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Coming from Tally | Total Docs'
+  title: 'Coming from Tally - Docs'
 }
 
 export default function ComingFromTallyPage(): React.JSX.Element {

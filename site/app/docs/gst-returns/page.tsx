@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'GST returns | Total Docs'
+  title: 'GST returns - Docs'
 }
 
 export default function GstReturnsPage(): React.JSX.Element {

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Backups & data | Total Docs'
+  title: 'Backups and data - Docs'
 }
 
 export default function BackupsPage(): React.JSX.Element {
@@ -59,9 +59,9 @@ export default function BackupsPage(): React.JSX.Element {
 
       <h2>Privacy</h2>
       <p>
-        Nothing about your business, including ledger names, amounts or company data, ever leaves the
-        machine. The only network call Total makes on its own is a periodic check against the update endpoint to see
-        whether a newer version is available; that request carries a version number and nothing else.
+        Your books, ledger names and amounts remain on the machine by default. The automatic update check carries the
+        installed version and no book contents. Data leaves only when you deliberately export it, submit support
+        context, or enable an optional provider or integration. Total shows that boundary before sharing.
       </p>
     </>
   )

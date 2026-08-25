@@ -1,7 +1,8 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import SiteNav from '@/components/SiteNav'
 
-export const metadata: Metadata = { title: 'Pricing | Total' }
+export const metadata: Metadata = { title: 'Pricing', description: 'Free public beta and planned perpetual licence pricing for Total accounting software.', alternates: { canonical: '/pricing' } }
 
 const PLANS = [
   {
@@ -21,6 +22,7 @@ export default function PricingPage(): React.JSX.Element {
     <p className="eyebrow">Founding commercial policy · 24 August 2026</p>
     <h1 className="serif">Own the software. Always own the books.</h1>
     <p className="lede">Total v0.5 is ₹0 during the public beta. When paid licences open, they will be one-time major-version licences, not a subscription required to read or export your accounting data.</p>
+    <div className="hero-ctas"><a className="btn" href="/api/download">Download the free beta</a><Link className="text-link" href="/compare">Compare with TallyPrime</Link></div>
 
     <section className="pricing-ledger" aria-labelledby="plans-heading">
       <div className="pricing-head"><h2 id="plans-heading" className="serif">Pricing after beta</h2><span>Sales not open yet</span></div>
@@ -38,5 +40,6 @@ export default function PricingPage(): React.JSX.Element {
       <section><h2 className="serif">Support response targets</h2><p>Support hours are Monday to Friday, 10:00 to 18:00 IST, excluding published holidays. We target acknowledgement within 4 business hours for suspected data-loss or security incidents, 1 business day for a blocked core workflow, and 2 business days for normal questions. These are operating targets, not guaranteed resolution times.</p></section>
     </div>
     <p className="pricing-fine">Prices are in Indian rupees and may change before sales open; any change will be dated here before purchase. This commercial policy supplements the <a href="/terms">terms of use</a> and remains subject to applicable law and qualified legal review.</p>
+    <p className="pricing-help">Need help deciding? <Link href="/support">Ask Total support</Link>.</p>
   </main></>
 }

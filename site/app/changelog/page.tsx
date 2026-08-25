@@ -6,7 +6,7 @@ import SiteNav from '@/components/SiteNav'
 export const revalidate = 300
 
 export const metadata: Metadata = {
-  title: 'Changelog | Total'
+  title: 'Changelog', description: 'Published Total accounting software release notes.', alternates: { canonical: '/changelog' }
 }
 
 function formatDate(iso: string): string {
