@@ -448,11 +448,18 @@ export const SCREENS: ScreenDef[] = [
     accel: '6',
     keywords: [
       'disclosure', 'related party', 'audit trail', 'rule 3(1)', 'lut', 'letter of undertaking',
-      'e-invoice', 'irp', 'reporting window', 'auditor'
+      'e-invoice', 'irp', 'reporting window', 'auditor',
+      // The last two GST items live here as tabs — there is no free accelerator for a screen of
+      // their own, and both are documents an auditor asks for, which is what this screen is.
+      'branch transfer', 'stock transfer', 'schedule i', 'distinct persons', 'rule 28',
+      'isd', 'input service distributor', 'gstr-6', 'gstr6', 'rule 39', 'section 20'
     ],
     invalidates: [
       'relatedParties', 'auditStatement', 'luts', 'lutStatus', 'eInvoiceWindow',
-      'rcmRegister', 'form3cd', 'rateAdvisory', 'itemRates'
+      'rcmRegister', 'form3cd', 'rateAdvisory', 'itemRates',
+      // #108 and #355. `gstRegistrations` because marking a registration as the ISD edits it, and
+      // `gstValidation` because raising a branch-transfer invoice retires a validation warning.
+      'branchTransferRegister', 'isdDesk', 'gstRegistrations'
     ]
   },
   {

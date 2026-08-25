@@ -392,8 +392,8 @@ describe('deleting a registration', () => {
 describe('stock moved between two registrations of the same PAN', () => {
   /**
    * Schedule I para 2: a supply between two registrations of the same person is a supply, and it
-   * is taxable, even though nothing was sold. This app does NOT raise that invoice — it finds the
-   * movement and reports it. See services/registrations.ts and docs/roadmap.md #108.
+   * is taxable, even though nothing was sold. THIS file covers finding the movement; raising the
+   * invoice for it is branchTransfer.dbtest.ts. See docs/roadmap.md #108.
    */
   function stockBook(): { db: DB; mh: number; gj: number; from: number; to: number; item: number } {
     const s = setup()
@@ -428,7 +428,7 @@ describe('stock moved between two registrations of the same PAN', () => {
     return { db: s.db, mh, gj, from: mumbai.id, to: surat.id, item }
   }
 
-  it('is reported as a taxable supply this app does not invoice, with both GSTINs named', () => {
+  it('is found as a taxable supply, with both GSTINs named', () => {
     const b = stockBook()
     saveTransfer(b.db, {
       date: '2026-07-12',

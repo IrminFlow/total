@@ -16,8 +16,8 @@
 //      two re-add to the whole book.
 //   4. The books stay whole: the trial balance does NOT split by registration.
 //   5. Stock moved from one registration to the other is REPORTED as a taxable supply under
-//      Schedule I para 2. This app does not raise that invoice, and the scenario pins the fact
-//      that it says so rather than letting the movement look innocent.
+//      Schedule I para 2, while it has no invoice against it. Raising that invoice is scenario
+//      52's subject; this one pins that the movement is never allowed to look innocent.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
 
 // Checksum-valid GSTINs on one PAN.
@@ -192,8 +192,8 @@ await scenario('42-multi-gstin', async (h) => {
   // ---- 8. stock moved between registrations is a supply, and it is reported ----
   //
   // Schedule I para 2: a supply between two registrations of the same person is taxable even
-  // without consideration. This app does NOT raise that invoice. What it must never do is let
-  // the movement pass silently, and that is what this asserts.
+  // without consideration. Raising that invoice is scenario 52's subject. What this app must
+  // never do is let the movement pass silently, and that is what this asserts.
   const godowns = await h.invoke('master:godowns:list')
   const mumbai = godowns[0]
   await h.invoke('master:godowns:update', {
@@ -249,6 +249,6 @@ await scenario('42-multi-gstin', async (h) => {
   assertEq(
     validation.crossRegistration.length,
     1,
-    'the return-preparation check reports the untaxed branch transfer'
+    'the return-preparation check reports the branch transfer that has no invoice yet'
   )
 })

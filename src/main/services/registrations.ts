@@ -262,10 +262,12 @@ export function defaultVoucherRegistrationId(
  * 28, reported in the sender's GSTR-1 and claimed in the receiver's return. Nothing was sold and
  * the books are unchanged, which is exactly why it is the thing multi-GSTIN software gets wrong.
  *
- * **This app does not raise that invoice.** What it does is find these movements and report them,
- * so they are visible rather than silently untaxed. Turning one into an invoice — rule 28
- * valuation, a self-party ledger per registration, output tax in one registration's return and
- * input tax in another's, all inside one set of books — is not built. See docs/roadmap.md #108.
+ * This finds those movements. `src/main/services/branchTransfer.ts` raises the invoice for one:
+ * rule 28 valuation, a serial from the sender's own series, output tax in the sender's GSTR-1 and
+ * input credit in the receiver's 4(A)(5) — and no posting at all, because a transfer between two
+ * branches of one business creates no revenue and no expense and the trial balance must not move.
+ * `undocumentedCrossTransfers` there is what the validation warning reads, so what is still warned
+ * about is only what still has no document. See docs/roadmap.md #108.
  */
 export function crossRegistrationTransfers(db: DB, from: string, to: string): CrossRegistrationTransfer[] {
   const regs = ensureRegistrations(db)

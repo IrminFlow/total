@@ -603,7 +603,7 @@ export function Gstr1Screen(): React.JSX.Element {
               <IssueRow
                 key={`crossreg-${t.voucherId}-${t.fromRegistrationId}-${t.toRegistrationId}`}
                 severity="warning"
-                message={`${t.number} moved ₹${formatPaise(t.valuePaise)} of stock from ${t.fromGstin ?? t.fromStateCode} to ${t.toGstin ?? t.toStateCode}. Under Schedule I para 2 that is a taxable supply between two registrations of the same PAN — Total does not raise the tax invoice for it, so it is not in this return. Raise it on the portal, valued under rule 28.`}
+                message={`${t.number} moved ₹${formatPaise(t.valuePaise)} of stock from ${t.fromGstin ?? t.fromStateCode} to ${t.toGstin ?? t.toStateCode}. Under Schedule I para 2 that is a taxable supply between two registrations of the same PAN, and it has no invoice yet — so it is not in this return. Raise it on Disclosure › Branch transfers, valued under rule 28; nothing posts and the books do not move.`}
                 voucherIds={[t.voucherId]}
                 onOpen={openVoucher}
               />

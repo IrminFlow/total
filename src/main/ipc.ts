@@ -32,7 +32,9 @@ import {
   tdsChallanSchema, tdsFilingConfigSchema, tdsLinkSchema, tdsQuarterSchema, tdsReturnFileSchema, tdsReturnSchema,
   // The inventory lane's last five, and the foreign-currency bank account.
   labelJobSchema, priceRevisionSchema, reclassifySchema,
-  revaluationSchema, standardCostSchema, varianceQuerySchema
+  revaluationSchema, standardCostSchema, varianceQuerySchema,
+  // The last two GST items: the branch-transfer invoice (#108) and the ISD (#355).
+  branchTransferIssueSchema, isdCreditSchema, isdMonthSchema
 } from '@shared/schemas'
 import { addDays, todayISO } from '@shared/dates'
 import { aiSettingsSchema, isLocalEndpoint } from '@shared/ai/config'
@@ -51,6 +53,10 @@ import * as reports from './services/reports'
 import { streamReportCsv, type StreamRequest } from './services/exportStream'
 import * as gst from './services/gst'
 import * as registrations from './services/registrations'
+import * as branchTransfer from './services/branchTransfer'
+import * as isd from './services/isd'
+import { branchTransferPdf } from './services/branchTransferPdf'
+import { isdInvoicePdf } from './services/isdPdf'
 import * as filings from './services/filings'
 import * as amendments from './services/amendments'
 import * as partyNotes from './services/partyNotes'
@@ -1492,9 +1498,10 @@ export function registerIpc(): void {
     const issues = gst.gstValidate(c.db, scope, from, to)
     const roundOff = edocs.einvoiceRoundOffIssues(c.db, scope, from, to)
     // Stock moved between two registrations of the same PAN is a taxable supply under Schedule I
-    // para 2, and this app does not raise the invoice for it — so it is REPORTED here rather than
-    // left looking innocent. See services/registrations.ts.
-    const crossRegistration = registrations.crossRegistrationTransfers(c.db, from, to)
+    // para 2. The app now RAISES that invoice (Disclosure › Branch transfers), so what is warned
+    // about here is only what still has no document — the warning shrinks as the work is done
+    // instead of standing there repeating something the user has already fixed.
+    const crossRegistration = branchTransfer.undocumentedCrossTransfers(c.db, from, to)
     return { issues, roundOff, crossRegistration }
   }, 'viewer')
   handle('gst:3bManualGet', (p) => {
@@ -2877,6 +2884,70 @@ export function registerIpc(): void {
     const c = requireCompany()
     const path = await rcm.selfInvoicePdf(c.db, c.info, c.slug, idSchema.parse(p).id)
     auditExport(c.db, 'rcm_self_invoice', { path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- branch-transfer invoices (roadmap #108) ----------
+  //
+  // Stock moved between two registrations of one PAN is a taxable supply under Schedule I para 2.
+  // These channels raise the invoice for it. None of them posts: the document feeds the sender's
+  // GSTR-1 and the receiver's ITC, and the trial balance does not move. See services/branchTransfer.ts.
+  handle('branchTransfer:register', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return branchTransfer.branchTransferRegister(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('branchTransfer:issue', (p) => {
+    const input = branchTransferIssueSchema.parse(p)
+    return branchTransfer.issueBranchTransfers(requireCompany().db, { ...input, by: sessionUser?.name ?? null })
+  })
+  handle('branchTransfer:delete', (p) =>
+    branchTransfer.deleteBranchTransferInvoice(requireCompany().db, idSchema.parse(p).id)
+  )
+  handle('branchTransfer:pdf', async (p) => {
+    const c = requireCompany()
+    const path = await branchTransferPdf(c.db, c.slug, idSchema.parse(p).id)
+    auditExport(c.db, 'branch_transfer_invoice', { path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- Input Service Distributor (roadmap #355) ----------
+  handle('isd:desk', (p) => {
+    const { month, overrides } = isdMonthSchema.parse(p)
+    return isd.isdDesk(requireCompany().db, month, overrides)
+  }, 'viewer')
+  handle('isd:setRegistration', (p) => {
+    const { id } = z.object({ id: z.number().int().positive().nullable() }).parse(p)
+    const c = requireCompany()
+    isd.setIsdRegistration(c.db, id)
+    // Returns the ISD itself rather than the whole registration list: `gstReg:list`'s shape is
+    // read by every GSTIN picker in the app, and widening it for one flag nothing else looks at
+    // would be a change to all of them for the benefit of none.
+    return isd.isdRegistration(c.db)
+  }, 'owner')
+  handle('isd:saveCredit', (p) => isd.saveIsdCredit(requireCompany().db, isdCreditSchema.parse(p)))
+  handle('isd:deleteCredit', (p) => {
+    isd.deleteIsdCredit(requireCompany().db, idSchema.parse(p).id)
+    return { ok: true }
+  })
+  handle('isd:distribute', (p) => {
+    const { month, overrides } = isdMonthSchema.parse(p)
+    return isd.distributeMonth(requireCompany().db, month, { overrides, by: sessionUser?.name ?? null })
+  })
+  handle('isd:withdraw', (p) => {
+    const { month } = isdMonthSchema.parse(p)
+    isd.withdrawDistribution(requireCompany().db, month)
+    return { ok: true }
+  })
+  handle('isd:gstr6', (p) => {
+    const { month } = isdMonthSchema.parse(p)
+    return isd.gstr6(requireCompany().db, month)
+  }, 'viewer')
+  handle('isd:pdf', async (p) => {
+    const c = requireCompany()
+    const path = await isdInvoicePdf(c.db, c.slug, idSchema.parse(p).id)
+    auditExport(c.db, 'isd_invoice', { path })
     shell.showItemInFolder(path)
     return { path }
   })

@@ -31,6 +31,10 @@ import type { GstIssue } from '@shared/gst/validate'
 import type {
   CrossRegistrationTransfer, GstRegistration, GstRegistrationInput
 } from '@shared/gst/registrations'
+import type { Rule28Basis } from '@shared/gst/branchTransfer'
+import type {
+  CreditHeads, DistributionResult, Gstr6Working, IsdCredit, IsdRecipient, RelevantPeriod
+} from '@shared/gst/isd'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type { ImsAction, ImsWorklist } from '@shared/gst/ims'
 import type { AmendmentWindow, Gstr1aResult } from '@shared/gst/gstr1a'
@@ -1875,6 +1879,107 @@ export interface RcmRegister {
   unflagged: { voucherId: number; date: string; voucherNumber: string; partyName: string | null; category: string; reason: string }[]
 }
 
+/** Mirrors services/branchTransfer.ts BranchTransferRecord (main-process only). */
+export interface BranchTransferRecord {
+  id: number
+  number: string
+  date: string
+  voucherId: number | null
+  fromRegistrationId: number
+  fromGstin: string | null
+  fromStateCode: string
+  toRegistrationId: number
+  toGstin: string | null
+  toStateCode: string
+  supplyType: 'intra' | 'inter'
+  basis: Rule28Basis
+  recipientFullItc: boolean
+  bookValue: number
+  taxable: number
+  igst: number
+  cgst: number
+  sgst: number
+  cess: number
+  total: number
+  issuedAt: string
+  warnings: string[]
+}
+
+/** Mirrors services/branchTransfer.ts BranchTransferRegister (main-process only). */
+export interface BranchTransferRegister {
+  from: string
+  to: string
+  pending: {
+    voucherId: number
+    date: string
+    number: string
+    fromRegistrationId: number
+    fromGstin: string | null
+    fromStateCode: string
+    toRegistrationId: number
+    toGstin: string | null
+    toStateCode: string
+    supplyType: 'intra' | 'inter'
+    bookValue: number
+    estimatedTax: number
+    lines: number
+  }[]
+  issued: BranchTransferRecord[]
+  skipped: { voucherId: number; date: string; number: string; reason: string }[]
+  multiRegistration: boolean
+}
+
+/** Mirrors services/isd.ts IsdCreditInput — what the ISD credit form sends (main-process only). */
+export interface IsdCreditInput {
+  id?: number | null
+  date: string
+  supplierName: string
+  supplierGstin: string | null
+  invoiceNumber: string
+  description: string | null
+  taxable: number
+  igst: number
+  cgst: number
+  sgst: number
+  cess: number
+  eligibility: 'eligible' | 'ineligible'
+  attribution: 'all' | 'some' | 'one'
+  recipientRegistrationIds: number[]
+  reverseCharge: boolean
+}
+
+/** Mirrors services/isd.ts IsdInvoiceRecord (main-process only). */
+export interface IsdInvoiceRecord {
+  id: number
+  number: string
+  date: string
+  month: string
+  recipientRegistrationId: number
+  recipientGstin: string | null
+  recipientStateCode: string
+  eligible: CreditHeads
+  ineligible: CreditHeads
+  total: number
+  turnoverPaise: number
+  totalTurnoverPaise: number
+  issuedAt: string
+  warnings: string[]
+}
+
+/** Mirrors services/isd.ts IsdDesk (main-process only). */
+export interface IsdDesk {
+  month: string
+  dueDate: string
+  isd: { id: number; gstin: string | null; stateCode: string; tradeName: string } | null
+  period: RelevantPeriod
+  recipients: IsdRecipient[]
+  credits: (IsdCredit & { distributedMonth: string | null })[]
+  preview: DistributionResult | null
+  issued: IsdInvoiceRecord[]
+  blocked: string | null
+  multiRegistration: boolean
+}
+
 /** Mirrors services/gstr1a.ts Gstr1aState. */
 export interface Gstr1aState {
   period: string
@@ -2887,7 +2992,7 @@ export const api = {
     save: (input: GstRegistrationInput) => call<GstRegistration>('gstReg:save', input),
     setPrimary: (id: number) => call<GstRegistration[]>('gstReg:setPrimary', { id }),
     delete: (id: number) => call<{ ok: true }>('gstReg:delete', { id }),
-    /** Stock that moved between two registrations — a taxable supply this app does not invoice. */
+    /** Stock that moved between two registrations — a taxable supply; see api.branchTransfer. */
     crossTransfers: (from: string, to: string) =>
       call<CrossRegistrationTransfer[]>('gstReg:crossTransfers', { from, to })
   },
@@ -2932,6 +3037,44 @@ export const api = {
       call<{ issued: SelfInvoiceRecord[]; skipped: number[] }>('rcm:issue', { from, to, consolidate, voucherIds }),
     remove: (id: number) => call<null>('rcm:delete', { id }),
     pdf: (id: number) => call<{ path: string }>('rcm:pdf', { id })
+  },
+
+  /**
+   * Branch-transfer invoices (roadmap #108).
+   *
+   * Stock moved between two registrations of one PAN is a taxable supply under Schedule I para 2.
+   * Nothing here posts — the document feeds the sender's GSTR-1 and the receiver's ITC, and the
+   * trial balance does not move.
+   */
+  branchTransfer: {
+    register: (from: string, to: string) =>
+      call<BranchTransferRegister>('branchTransfer:register', { from, to }),
+    issue: (input: {
+      from: string
+      to: string
+      basis: Rule28Basis
+      recipientFullItc: boolean
+      voucherIds?: number[]
+      declaredPaise?: number | null
+      recipientPricePaise?: number | null
+    }) => call<{ issued: BranchTransferRecord[]; skipped: number[] }>('branchTransfer:issue', input),
+    remove: (id: number) => call<null>('branchTransfer:delete', { id }),
+    pdf: (id: number) => call<{ path: string }>('branchTransfer:pdf', { id })
+  },
+
+  /** Input Service Distributor (roadmap #355). Monthly; GSTR-6 is due by the 13th. */
+  isd: {
+    desk: (month: string, overrides?: Record<string, number>) =>
+      call<IsdDesk>('isd:desk', { month, overrides }),
+    setRegistration: (id: number | null) => call<IsdDesk['isd']>('isd:setRegistration', { id }),
+    saveCredit: (input: IsdCreditInput) =>
+      call<IsdCredit & { distributedMonth: string | null }>('isd:saveCredit', input),
+    deleteCredit: (id: number) => call<{ ok: true }>('isd:deleteCredit', { id }),
+    distribute: (month: string, overrides?: Record<string, number>) =>
+      call<{ month: string; invoices: IsdInvoiceRecord[]; gstr6: Gstr6Working }>('isd:distribute', { month, overrides }),
+    withdraw: (month: string) => call<{ ok: true }>('isd:withdraw', { month }),
+    gstr6: (month: string) => call<Gstr6Working>('isd:gstr6', { month }),
+    pdf: (id: number) => call<{ path: string }>('isd:pdf', { id })
   },
 
   /** IMS decisions taken from the 2B reconciliation (roadmap #352). */

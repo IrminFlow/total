@@ -409,8 +409,7 @@ Ordering within a section is roughly by value.
      session crypto) and has never been run against the portal, because there are no sandbox
      credentials to run it with. Nothing in this pass changed that. It stays experimental, and the
      first person with a sandbox login should treat every response shape in it as a guess.
-108. Multi-GSTIN companies: one book, several registrations (L) — **built, except the
-     branch-transfer invoice, and therefore not ticked.** `gst_registrations` holds one
+108. ✓ Multi-GSTIN companies: one book, several registrations (L) — `gst_registrations` holds one
      row per registration (GSTIN, state, trade name, address, registered/surrendered dates, one
      primary), and the company's single GSTIN migrates in as the first row. Every voucher carries
      `gst_registration_id`, **stamped at save rather than inferred at report time** — a voucher
@@ -433,10 +432,48 @@ Ordering within a section is roughly by value.
      `company.gstin` still works. Aggregate turnover (GSTR-1's GT) is deliberately PAN-level and
      stays unscoped. Printed invoices (A4, thermal, ESC/P) carry the ISSUING registration's GSTIN,
      because rule 46(b) asks for the supplier's and a defective invoice is the buyer's credit
-     denied. **Still computed against the primary registration only:** the reverse-charge
-     self-invoice register (#356) and counter sales — both read the company's own state rather
-     than the supplying one, which is exact for every single-GSTIN book and approximate for a
-     second registration's RCM purchases or counter till.
+     denied.
+
+     **The branch-transfer invoice, which is what kept this item open.** Stock moved between two
+     registrations of one PAN is a taxable supply under Schedule I para 2 read with section 25(4),
+     even though nothing is sold and no money moves — the single most common thing multi-GSTIN
+     software gets wrong. It is now raised, not just reported: `crossRegistrationTransfers` finds
+     the movement, and Disclosure › Branch transfers values it under rule 28, numbers it in the
+     SENDING registration's own rule 46(b) series (`BT/27/2026-27/0001` — per registration, because
+     two registrations are two registered persons), puts both GSTINs on its face, and prints it.
+     Place of supply is where the movement terminates (section 10(1)(a) IGST Act), so Maharashtra
+     to Gujarat is IGST and two registrations in one state are CGST+SGST. The document then feeds
+     BOTH returns: it is appended to the sender's outward documents, so it lands in GSTR-1 B2B and
+     GSTR-3B 3.1(a), and its tax is added to the receiver's 4(A)(5) — read off the stored document
+     on both sides rather than recomputed, which is what makes the two registrations' returns tie
+     to the paise. Rule 28's five limbs are offered as dated data (`RULE28_HISTORY`, renumbered to
+     rule 28(1) on 26 October 2023), and the app refuses to invent an open market value it does not
+     hold: only the second proviso — where the recipient takes full ITC, the declared value IS the
+     open market value — and 110%-of-cost can be computed, and the others require a number from the
+     user. The validation warning now reports only what has NO invoice, so it retires as the work
+     is done. **Not covered:** the branch-transfer series is absent from GSTR-1 Table 13
+     (documents issued), which is computed from voucher numbering and these documents are not
+     vouchers — the serials are consecutive and printable from the register, but Table 13 must be
+     completed by hand for them.
+
+     **It posts nothing, and that is the design, not a shortfall.** One business, one set of books:
+     the transfer creates output tax in one return and input credit in the other, but no revenue,
+     no expense and no change in closing stock value — so the trial balance, the P&L and the stock
+     value are byte-identical before and after. `branchTransfer.dbtest.ts` and E2E 52 assert exactly
+     that, alongside both returns carrying their side. **What it therefore does NOT do:** the tax is
+     in the returns and not in the ledgers. Where the receiving registration takes full credit — the
+     ordinary case, and the same case rule 28's second proviso is written for — the two amounts are
+     equal and opposite across one PAN and the net effect really is nil. Where it does not, the tax
+     is a real cost that is not in the books, the document says so on its face, and the credit is
+     withheld from the receiver's 4(A)(5) rather than claimed. A stock journal that fans out to more
+     than one registration is not invoiced at all: which goods went where is not recorded, and an
+     invoice built on a guess about that is worse than the warning it would replace — those come
+     back listed, with the reason.
+
+     **Still computed against the primary registration only:** the reverse-charge self-invoice
+     register (#356) and counter sales — both read the company's own state rather than the supplying
+     one, which is exact for every single-GSTIN book and approximate for a second registration's RCM
+     purchases or counter till.
 
      **Not built, and marked rather than half-built: the branch-transfer invoice.** Under Schedule
      I para 2 a supply between two registrations of the same person is a taxable supply even
@@ -1506,14 +1543,43 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      turnover band must report an invoice to the IRP within 30 days of its date, after which the
      portal simply refuses it. `turnover.ts` already knows the band; nothing counts the days.
      — `src/shared/gst/eInvoiceWindow.ts`, with the countdown on the Disclosure screen.
-355. Input Service Distributor for multi-GSTIN businesses (L) — still open, but no longer blocked.
-     The reason it was declined was that #108 did not exist: ISD distributes common input credit
-     from one registration to the others on the same PAN, and a company with one GSTIN has nothing
-     to distribute to. #108 now exists, so an ISD screen has second registrations to name, an ISD
-     invoice has a recipient, and a GSTR-6 has a set of GSTINs to apportion across. The
-     apportionment rule (section 20 read with rule 39 — pro rata on the previous period's turnover
-     of the recipients, eligible and ineligible credit split, and the reversal path when a
-     recipient's turnover is nil) is the work, and none of it is built.
+355. ✓ Input Service Distributor for multi-GSTIN businesses (L) — the mechanism, complete, and
+     marked where it is unverified. It was declined once because #108 did not exist; #108 exists, so
+     an ISD registration has other registrations to distribute to. `is_isd` is a flag on
+     `gst_registrations` — an ISD IS a registration, and section 24(viii) makes it a separate one —
+     and there is only ever one, because a second would give a common invoice two homes and the
+     distribution two possible ratios. Invoices received centrally are recorded with their credit,
+     their eligibility, and **who the credit is attributable to**: all the registrations, some of
+     them, or exactly one. That distinction is the user's judgement about the service and the app
+     never infers it, because credit attributable to one recipient goes to that one whole and is
+     never apportioned. The ratio is the statutory one — the recipient's turnover in the State over
+     the total, for the relevant period — computed per registration from the books through the same
+     income-group movement GSTR-1's header uses, scoped by `gst_registration_id`, with the relevant
+     period resolved as rule 39's Explanation says (the preceding financial year, or the last
+     quarter when a recipient had no turnover in it) and a per-recipient OVERRIDE, because rule 39
+     wants turnover in the State including exempt supplies and any part of the period before these
+     books begin. Apportionment is largest-remainder in integer paise, so the shares sum to the
+     credit exactly: a distribution that loses a paisa is a credit ledger that never reconciles.
+     The head conversion is the part that is invisible until a return is filed and is implemented:
+     IGST distributes as IGST, and CGST+SGST distributes as CGST+SGST inside the distributor's own
+     State and as IGST — their aggregate — outside it. Distribution is monthly, issues one rule
+     54(1) ISD invoice per recipient from its own dated series (a recipient whose share rounds to
+     nil gets no document rather than a serial spent on nothing), prints it with the ratio on its
+     face, and can be withdrawn and re-run. The credit then appears in the recipient's GSTR-3B
+     Table 4(A)(4) — the `ISD` row that had always been hard zero because nothing in the books
+     could fill it — eligible credit only, read off the issued documents. Nothing posts: distribution
+     moves credit between two of the business's own electronic credit ledgers, so the trial balance
+     and the P&L are unchanged, and `isd.dbtest.ts` and E2E 53 assert it. GSTR-6 is produced as
+     DATA with its section 39(4) due date of the 13th, never as a portal JSON.
+     **Needs verification, and said on the screen as well as in the code:** the commencement date of
+     the Finance (No. 2) Act 2024 substitution of sections 2(61) and 20 is taken as 1 April 2025 and
+     has not been checked against the gazette; the clause lettering of substituted rule 39 is not
+     reproduced, and the substance is stated on the pre-substitution rule 39(1)(d)/(f)/(g); the
+     treatment of compensation cess on distribution is modelled cess-to-cess and is NOT verified;
+     and the GSTR-6 table numbering is the shape of the working, not a claim about the current form
+     layout. The rules are dated data (`ISD_RULES_HISTORY`), so a month before April 2025 is told
+     the mechanism was optional then rather than being judged by today's rule.
+     — `src/shared/gst/isd.ts`, `src/main/services/isd.ts`, Disclosure › ISD.
 356. ✓ The reverse-charge self-invoice (M) — the document section 31(3)(f) makes the recipient
      raise, issued from its own Rule 46(b) serial series, with the Rule 46 particulars the books
      cannot supply named on the face rather than invented. Built over exactly the supplies

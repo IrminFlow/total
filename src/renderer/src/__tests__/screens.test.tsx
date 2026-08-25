@@ -59,6 +59,13 @@ describe('screen registry invalidation families', () => {
     expect(fams).not.toContain('edocs')
   })
 
+  it('disclosure covers the two multi-GSTIN tabs it now hosts (#108, #355)', () => {
+    // Neither has a screen of its own: every accelerator is taken, and both are documents an
+    // auditor asks for, which is what this screen is for.
+    const fams = invalidationFamilies('disclosure')
+    for (const f of ['branchTransferRegister', 'isdDesk', 'gstRegistrations']) expect(fams).toContain(f)
+  })
+
   it('no screen lists a family twice', () => {
     for (const s of SCREENS) {
       expect(new Set(s.invalidates).size).toBe(s.invalidates.length)
