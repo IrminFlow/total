@@ -157,7 +157,29 @@ visibly when each one is missing.
 
 ---
 
-## 6. Test it on a cheap Windows laptop (#347)
+## 6. Electron is seven majors behind, and the reason is written down
+
+Not urgent, and not yours to do — but you should know it exists, because it is the
+one piece of technical debt with a security dimension. Electron 37 → 44 is seven majors
+of Chromium, which is seven majors of browser security fixes the app is not getting.
+
+An upgrade was attempted and **deliberately reverted**. Both API breaks were found and fixed,
+and every unit, database and renderer test passed on Electron 44. What stopped it is a
+three-line reproducer: navigate to a screen, away, and back, and the second synthesised click
+never returns — the whole debug connection wedges. It passes on 37 and hangs identically on 43
+and 44, so it bisects into Electron 38–43, and it is the test harness rather than the app.
+
+It was reverted rather than shipped because the E2E suite is the only thing covering the
+keychain, the clipboard, PDF printing and the app's launch path — all of which that upgrade
+touches. Shipping the bump without that net is how a signed release turns out to be broken on
+somebody else's machine.
+
+The full diagnosis is in the merge commit for `zod 4 and openai 7`. Whoever picks it up starts
+from a reproducer rather than from scratch.
+
+---
+
+## 7. Test it on a cheap Windows laptop (#347)
 
 Not a VM. A real ₹40,000 machine at 1366×768 with 125% display scaling, which is what a large
 part of this market actually runs. Half an hour of clicking is enough. What I want to know:
@@ -170,7 +192,7 @@ I can test everything else in CI. I cannot test this.
 
 ---
 
-## 7. Validate NIC e-invoicing on the sandbox (#349, #107)
+## 8. Validate NIC e-invoicing on the sandbox (#349, #107)
 
 `src/main/services/nic.ts` is built to the published NIC API spec — RSA plus AES-ECB session
 crypto, the lot — and **has never run against the real portal**, because there are no
@@ -182,7 +204,7 @@ through end to end. Until then, keep leading with the offline JSON export, which
 
 ---
 
-## 8. One decision I need from you soon
+## 9. One decision I need from you soon
 
 The app currently talks to a **local Ollama or an OpenAI-compatible endpoint using your own API
 key**. There is no hosted service and no account. That is the right design and I do not want to
