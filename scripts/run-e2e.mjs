@@ -28,10 +28,25 @@ fs.mkdirSync(outRoot, { recursive: true })
 const argv = process.argv.slice(2)
 const noRetry = argv.includes('--no-retry')
 const budgetArg = argv.find((a) => a.startsWith('--budget='))
-// A suite nobody will wait for is a suite nobody runs. The default is generous — this is 29
+// A suite nobody will wait for is a suite nobody runs. The default is generous — this is fifty-odd
 // scenarios each booting a real Electron app — but it has to have a number, or it grows without
-// anyone noticing until it is twenty minutes.
+// anyone noticing until it is twenty minutes. On a quiet machine the suite runs in about 200-300
+// seconds, so 600 is roughly double what it costs.
 const budgetSeconds = budgetArg ? Number(budgetArg.split('=')[1]) : Number(process.env.E2E_BUDGET_SECONDS ?? 600)
+
+/**
+ * Everything timed here is wall clock, and wall clock is a statement about the MACHINE.
+ *
+ * `E2E_SCALE=3` multiplies both the suite budget and the per-scenario kill. It exists because
+ * these numbers have already produced two false failures: a run that took 834 seconds against
+ * the 600-second budget, and `12-theme-a11y` — normally 8 seconds — taking 141 seconds and being
+ * killed, both while several agents were saturating an 8-core machine. Neither was a regression,
+ * and a suite that cries wolf is a suite people start ignoring.
+ *
+ * A multiplier rather than a bigger default, so a developer's own run keeps the tight number that
+ * would actually notice the suite doubling in cost.
+ */
+const scale = Math.max(1, Number(process.env.E2E_SCALE ?? 1))
 const filters = argv.filter((a) => !a.startsWith('--'))
 const files = fs
   .readdirSync(e2eDir)
@@ -65,10 +80,14 @@ function runOne(file) {
       tail = (tail + buf.toString()).slice(-20000)
     })
     // A hung scenario must not wedge the whole run.
+    const scenarioTimeoutMs = 5 * 60 * 1000 * scale
     const timer = setTimeout(() => {
-      console.error(`[runner] ${name} timed out after 5 minutes — killing`)
+      console.error(
+        `[runner] ${name} timed out after ${Math.round(scenarioTimeoutMs / 60000)} minutes — killing.` +
+          (scale === 1 ? ' If the machine is busy, E2E_SCALE=3 raises this.' : '')
+      )
       child.kill('SIGKILL')
-    }, 5 * 60 * 1000)
+    }, scenarioTimeoutMs)
     child.on('close', (code) => {
       clearTimeout(timer)
       const lines = tail.trim().split('\n').reverse()
@@ -109,7 +128,8 @@ for (const file of files) {
 
 const flakes = results.filter((r) => r.flake)
 const totalMs = Date.now() - t0
-const overBudget = budgetSeconds > 0 && totalMs > budgetSeconds * 1000
+const effectiveBudget = budgetSeconds * scale
+const overBudget = effectiveBudget > 0 && totalMs > effectiveBudget * 1000
 
 const summary = {
   startedAt,
@@ -139,14 +159,14 @@ console.log(
   `\n${summary.passed}/${results.length} passed` +
     `${flakes.length ? `, ${flakes.length} FLAKY` : ''}` +
     `${summary.failed ? `, ${summary.failed} failed` : ''}` +
-    ` in ${(totalMs / 1000).toFixed(0)}s of a ${budgetSeconds}s budget`
+    ` in ${(totalMs / 1000).toFixed(0)}s of a ${effectiveBudget}s budget${scale > 1 ? ` (E2E_SCALE=${scale})` : ''}`
 )
 console.log(`slowest: ${slowest.map((r) => `${r.scenario} ${(r.ms / 1000).toFixed(0)}s`).join(', ')}`)
 console.log(`results + screenshots in ${outRoot}`)
 
 if (overBudget) {
   console.error(
-    `\n[runner] the suite took ${(totalMs / 1000).toFixed(0)}s against a ${budgetSeconds}s budget. ` +
+    `\n[runner] the suite took ${(totalMs / 1000).toFixed(0)}s against a ${effectiveBudget}s budget. ` +
       'Speed up the slowest scenarios or raise the budget deliberately — do not let it drift.'
   )
 }
