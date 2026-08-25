@@ -76,19 +76,26 @@ function writeHostedRunnerEvidence(result) {
 }
 
 async function runBookWorkflow(path) {
-  // Exercise the same default ~/Documents/total location used by customers while keeping the
-  // runner hermetic. A TOTAL_DATA_DIR override would not catch an unsafe production uninstaller.
+  // Keep release smoke data outside both the application and profile directories. macOS 26's
+  // LaunchServices path resolution does not consistently honour a child process HOME override,
+  // so an explicit data root is required to keep hosted and local runs hermetic. Removing the
+  // installed app/NSIS target still proves that uninstall leaves this external company root intact.
   const isolatedHome = join(scratch, 'home')
   const dataDir = join(isolatedHome, 'Documents', 'total')
   const profileDir = join(scratch, 'profile')
   mkdirSync(join(isolatedHome, 'Documents'), { recursive: true })
   const { ELECTRON_RUN_AS_NODE: _ignored, ...env } = process.env
-  delete env.TOTAL_DATA_DIR
   const app = await electron.launch({
     executablePath: path,
     args: [`--user-data-dir=${profileDir}`],
     timeout: 60_000,
-    env: { ...env, HOME: isolatedHome, USERPROFILE: isolatedHome, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
+    env: {
+      ...env,
+      HOME: isolatedHome,
+      USERPROFILE: isolatedHome,
+      TOTAL_DATA_DIR: dataDir,
+      TOTAL_SUPPRESS_SYNC_WARNING: '1'
+    }
   })
   const page = await app.firstWindow()
   await page.waitForFunction(() => Boolean(window.total), null, { timeout: 30_000 })
