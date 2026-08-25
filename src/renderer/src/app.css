@@ -394,8 +394,13 @@ tr[data-active='true'] .row-action,
 }
 
 /* Two actions in a cell are spaced by the rule, not by a margin the call site remembers to add.
-   Rows of different kinds carry different numbers of actions, and the gap was drifting. */
-.row-action + .row-action {
+   Rows of different kinds carry different numbers of actions, and the gap was drifting — and a
+   quiet action sitting next to a link (Active/Paused, then Edit) had no gap at all. `.row-link`
+   earns nothing else: it is here only so the pair rule can see both kinds. */
+.row-action + .row-action,
+.row-action + .row-link,
+.row-link + .row-action,
+.row-link + .row-link {
   margin-left: 0.5rem;
 }
 

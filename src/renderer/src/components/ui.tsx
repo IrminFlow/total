@@ -256,7 +256,7 @@ export function RowLink({
     <button
       type="button"
       {...props}
-      className={`hover:underline disabled:opacity-40 disabled:hover:no-underline ${
+      className={`row-link hover:underline disabled:opacity-40 disabled:hover:no-underline ${
         tone === 'danger' ? 'text-cr' : 'text-blue'
       } ${className}`}
     />
