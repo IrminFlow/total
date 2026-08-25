@@ -137,7 +137,15 @@ export const ledgerInputSchema = z.object({
   bankHolder: z.string().trim().max(120).nullable().optional(),
   /** The user has said this account is knowingly shared with another party — a proprietor and
    *  their firm. Silences the shared-account exception for this party only. */
-  bankSharedOk: z.boolean().optional()
+  bankSharedOk: z.boolean().optional(),
+  /**
+   * The currency this account is KEPT in (roadmap #140) — a dollar bank account, a euro supplier.
+   *
+   * Null on almost every ledger, and that is not the same as INR: it means the ledger has no
+   * foreign side at all and is never revalued. Absent leaves whatever is on the master alone, so
+   * an importer or a party edited from the invoice screen cannot clear it by omission.
+   */
+  currencyCode: z.string().trim().length(3).toUpperCase().nullable().optional()
 })
 /** Unparsed shape (defaults optional) — createLedger/updateLedger parse internally, so direct
  *  service callers (tests, importers) don't have to spell out every defaulted field. */
@@ -206,7 +214,15 @@ export const stockItemInputSchema = z.object({
   // Optional rather than defaulted: "not specified" and "explicitly null" both mean follow the
   // company, so there is nothing for a default to add — and requiring it would make every
   // existing caller state an opinion it does not have.
-  blockNegative: z.boolean().nullable().optional()
+  blockNegative: z.boolean().nullable().optional(),
+  /**
+   * Every movement of this item names the serial numbers that moved (roadmap #115).
+   *
+   * Optional so callers written before serials existed keep working unchanged; the service reads
+   * `undefined` as "leave it as it is" on an update rather than as `false`, because silently
+   * turning tracking OFF for an item that has serials against it would strand them.
+   */
+  trackSerials: z.boolean().optional()
 })
 export type StockItemInput = z.infer<typeof stockItemInputSchema>
 
@@ -227,7 +243,19 @@ export const voucherLineSchema = z.object({
   ledgerId: id,
   drCr: z.enum(['dr', 'cr']),
   amount: positivePaise,
-  costAllocations: z.array(costAllocationSchema).max(20).default([])
+  costAllocations: z.array(costAllocationSchema).max(20).default([]),
+  /**
+   * The foreign-currency side of this line (roadmap #140), when the ledger keeps one.
+   *
+   * `fcAmount` is an integer in the currency's own minor unit — USD 1,200.00 is 120000 — because a
+   * foreign currency is no more a float than the rupee is. `fcRateMicro` is the rate that was
+   * USED, in millionths of a rupee per major unit, recorded on the entry rather than looked up
+   * again later: a March revaluation has to keep saying March's rate in June. See @shared/fx.
+   *
+   * Always both or neither. Half of the pair is a line nobody can read back.
+   */
+  fcAmount: z.number().int().nullable().optional(),
+  fcRateMicro: z.number().int().positive().max(1_000_000_000_000).nullable().optional()
 })
 
 export const billRefSchema = z.object({
@@ -258,7 +286,15 @@ export const inventoryLineSchema = z
     amount: paise.min(0),
     direction: z.enum(['in', 'out']),
     /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
-    isAbsolute: z.boolean().optional()
+    isAbsolute: z.boolean().optional(),
+    /**
+     * Serial numbers moving on this line (roadmap #115), for an item that tracks them.
+     *
+     * Optional so every caller written before serials existed still parses. An item that tracks
+     * serials and gets none is refused at save time rather than here: the schema does not know
+     * which items track, and a rule that lives in two places is a rule that will disagree.
+     */
+    serials: z.array(z.string().trim().min(1).max(40)).max(500).optional()
   })
   .refine((l) => l.isAbsolute || l.qtyMilli > 0, {
     message: 'Inventory quantity must be positive',
@@ -1098,3 +1134,79 @@ export const stockQuerySchema = z.object({
   godownId: id.optional()
 })
 export type StockQueryInput = z.infer<typeof stockQuerySchema>
+
+// ---------- the inventory lane's last five, and the foreign-currency bank account ----------
+
+/** A price-list revision: move a whole level by a percentage from a date (roadmap E #128). */
+export const priceRevisionSchema = z.object({
+  priceLevelId: id,
+  effectiveFrom: isoDate,
+  /** Basis points, integer: +500 is +5%. Capped at ±50%, which is a repricing, not a typo. */
+  changeBp: z.number().int().min(-5000).max(5000),
+  rounding: z.enum(['paise', 'rupee', 'ten']).default('paise'),
+  skip: z.array(id).max(500).default([])
+})
+export type PriceRevisionInput = z.infer<typeof priceRevisionSchema>
+
+/** A standard cost for an item, in force from a date (roadmap E #118). */
+export const standardCostSchema = z.object({
+  stockItemId: id,
+  effectiveFrom: isoDate,
+  standardCost: paise.min(0),
+  note: z.string().trim().max(200).nullable().default(null)
+})
+export type StandardCostInput = z.infer<typeof standardCostSchema>
+
+export const varianceQuerySchema = z.object({
+  from: isoDate,
+  to: isoDate,
+  basis: z.enum(['purchase', 'consumption']).default('purchase'),
+  stockItemId: id.nullable().default(null)
+})
+export type VarianceQueryInput = z.infer<typeof varianceQuerySchema>
+
+/** A thermal-printer label job (roadmap E #111). */
+export const labelJobSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        stockItemId: id,
+        copies: z.number().int().min(1).max(500).default(1),
+        pricePaise: paise.min(0).nullable().default(null),
+        detail: z.string().trim().max(60).nullable().default(null)
+      })
+    )
+    .min(1)
+    .max(500),
+  sizeId: z.string().trim().max(20).default('50x25'),
+  priceLevelId: id.nullable().default(null),
+  asOn: isoDate.optional(),
+  includePrice: z.boolean().default(true),
+  humanReadable: z.boolean().default(true),
+  speed: z.number().int().min(1).max(14).default(4),
+  density: z.number().int().min(0).max(15).default(8)
+})
+export type LabelJobInputSchema = z.infer<typeof labelJobSchema>
+
+/**
+ * A foreign-currency revaluation (roadmap F #140).
+ *
+ * The rate arrives as micro-units — millionths of a rupee per one major unit of the currency — and
+ * as an INTEGER. Parsing the typed form happens in the renderer through `@shared/fx.parseRate`,
+ * which refuses a seventh decimal rather than rounding one away; letting a float across this
+ * boundary would undo that at the last step.
+ */
+export const revaluationSchema = z.object({
+  ledgerId: id,
+  asOn: isoDate,
+  closingRateMicro: z.number().int().positive().max(1_000_000_000_000),
+  narration: z.string().trim().max(500).nullable().default(null)
+})
+export type RevaluationInputSchema = z.infer<typeof revaluationSchema>
+
+/** Moving one parked line off the scratchpad onto the ledger it belongs on (roadmap B #46). */
+export const reclassifySchema = z.object({
+  voucherLineId: id,
+  targetLedgerId: id
+})
+export type ReclassifyInputSchema = z.infer<typeof reclassifySchema>

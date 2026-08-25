@@ -48,7 +48,10 @@ export type Screen =
   | { name: 'voucher-entry'; voucherId?: number; kindHint?: VoucherKind; draft?: VoucherDraft; draftId?: number }
   // Like 'settings', the active tab lives in the nav stack (nav.go per tab) so Esc/back
   // retraces tabs and other screens can deep-link straight to one.
-  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' }
+  | {
+      name: 'masters'
+      tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' | 'price-lists'
+    }
   | { name: 'trial-balance' }
   | { name: 'profit-loss' }
   | { name: 'balance-sheet' }

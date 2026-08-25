@@ -320,6 +320,7 @@ function ChallanModal({
   const toast = useToasts()
   const { data: ledgers } = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers.list })
   const { data: items } = useQuery({ queryKey: ['stockItems'], queryFn: api.stockItems.list })
+  const { data: godowns } = useQuery({ queryKey: ['godowns'], queryFn: api.godowns.list })
   const [date, setDate] = useState(challan?.date ?? todayISO())
   const [jobWorkerLedgerId, setJobWorkerLedgerId] = useState<number | ''>(challan?.jobWorkerLedgerId ?? '')
   const [goodsType, setGoodsType] = useState<JobWorkGoodsType>(challan?.goodsType ?? 'input')
@@ -334,6 +335,7 @@ function ChallanModal({
   const [receivedOn, setReceivedOn] = useState(challan?.receivedByJobWorkerOn ?? '')
   const [extended, setExtended] = useState(challan?.extendedDueBackBy ?? '')
   const [notes, setNotes] = useState(challan?.notes ?? '')
+  const [fromGodownId, setFromGodownId] = useState<number | ''>(challan?.fromGodownId ?? '')
 
   const submit = async (): Promise<void> => {
     const payload: JobWorkChallanInput = {
@@ -350,7 +352,8 @@ function ChallanModal({
       mouldsDiesJigsTools: mould,
       receivedByJobWorkerOn: receivedOn || null,
       extendedDueBackBy: extended || null,
-      notes: notes.trim() || null
+      notes: notes.trim() || null,
+      fromGodownId: fromGodownId === '' ? null : fromGodownId
     }
     try {
       const saved = await api.jobWork.save(payload, challan?.id)
@@ -448,6 +451,53 @@ function ChallanModal({
         </Field>
       </div>
 
+      {/*
+        Only the SOURCE is a choice. Where the goods go is not: they go to a godown named for the
+        job worker, made on first use, so that a stock report can answer "what is lying with whom"
+        without the user having to invent and remember a godown per job worker.
+      */}
+      <div className="mt-3 grid grid-cols-5 gap-3">
+        <div className="col-span-2">
+          <Field
+            label="Sent from"
+            hint={
+              stockItemId === ''
+                ? 'Pick a stock item above and the goods will move as well as be recorded'
+                : 'Where the goods are standing now'
+            }
+          >
+            <Select
+              data-testid="select-jobwork-from-godown"
+              value={fromGodownId}
+              disabled={stockItemId === ''}
+              onChange={(e) => setFromGodownId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value="">Unallocated stock</option>
+              {(godowns ?? []).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <div className="col-span-3 self-end pb-1 text-micro text-muted">
+          {stockItemId === '' ? (
+            <>
+              This challan records paperwork only — no stock moves. Name a stock item to have the
+              goods move to the job worker&rsquo;s godown as well, where they stay in your closing
+              stock because they are still yours.
+            </>
+          ) : (
+            <>
+              Saving this moves the goods to a godown named for the job worker, with a stock
+              journal that touches no ledger — sending goods for job work is not a supply
+              (section 143), so nothing is posted to the books.
+            </>
+          )}
+        </div>
+      </div>
+
       <div className="mt-3 grid grid-cols-4 gap-3">
         <Field label="Value of the goods" hint="What is at stake if they do not come back">
           <AmountInput testId="input-jobwork-value" paise={taxablePaise} onPaise={(p) => setTaxablePaise(p ?? 0)} />
@@ -531,7 +581,11 @@ function ReceiptModal({
   const [qtyMilli, setQtyMilli] = useState(challan.balanceMilli)
   const [disposition, setDisposition] = useState<JobWorkDisposition>('returned')
   const [notes, setNotes] = useState('')
+  const [toGodownId, setToGodownId] = useState<number | ''>('')
+  const { data: godowns } = useQuery({ queryKey: ['godowns'], queryFn: api.godowns.list })
   const chosen = DISPOSITIONS.find((d) => d.value === disposition) as (typeof DISPOSITIONS)[number]
+  /** Waste does not come back at all — section 143(5). So there is nowhere to put it. */
+  const comesBack = disposition !== 'waste_and_scrap'
 
   const submit = async (): Promise<void> => {
     const payload: JobWorkReturnInput = {
@@ -540,7 +594,8 @@ function ReceiptModal({
       number: number.trim() || null,
       qtyMilli,
       disposition,
-      notes: notes.trim() || null
+      notes: notes.trim() || null,
+      toGodownId: comesBack && toGodownId !== '' ? toGodownId : null
     }
     try {
       await api.jobWork.saveReturn(payload)
@@ -606,11 +661,39 @@ function ReceiptModal({
         </Field>
       </div>
 
-      <div className="mt-3">
-        <Field label="Nature of the job work done">
-          <TextInput data-testid="input-jwreturn-notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      <div className="mt-3 grid grid-cols-3 gap-3">
+        <div className="col-span-2">
+          <Field label="Nature of the job work done">
+            <TextInput data-testid="input-jwreturn-notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </Field>
+        </div>
+        <Field
+          label="Received into"
+          hint={comesBack ? 'Where the goods go on your side' : 'Waste does not come back — section 143(5)'}
+        >
+          <Select
+            data-testid="select-jwreturn-to-godown"
+            value={comesBack ? toGodownId : ''}
+            disabled={!comesBack}
+            onChange={(e) => setToGodownId(e.target.value ? Number(e.target.value) : '')}
+          >
+            <option value="">Unallocated stock</option>
+            {(godowns ?? []).map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </Select>
         </Field>
       </div>
+
+      {!comesBack && challan.stockItemId !== null && (
+        <p className="callout-warn mt-3 rounded-md p-2 text-micro">
+          Waste and scrap leaves the job worker&rsquo;s godown and does NOT come back into stock. Under
+          section 143(5) it may be supplied by the job worker directly on payment of tax, and it is not
+          on your shelf to count.
+        </p>
+      )}
 
       {disposition === 'sent_to_other_job_worker' && (
         <p className="callout-warn mt-3 rounded-md p-2 text-micro">

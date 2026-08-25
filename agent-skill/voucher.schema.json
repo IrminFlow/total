@@ -182,6 +182,20 @@
             },
             "maxItems": 20,
             "default": []
+          },
+          "fcAmount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "fcRateMicro": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "maximum": 1000000000000
           }
         },
         "required": [
@@ -246,6 +260,15 @@
           },
           "isAbsolute": {
             "type": "boolean"
+          },
+          "serials": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "maxItems": 500
           }
         },
         "required": [

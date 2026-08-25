@@ -53,6 +53,15 @@ export function companyAttachmentsDir(slug: string): string {
   return join(companyDir(slug), 'attachments')
 }
 
+/**
+ * Where an item's picture lives. Inside the company folder for exactly the reason attachments are
+ * (see above): the folder is the unit a user copies, syncs and backs up, and a picture kept
+ * anywhere else would be missing from the copy.
+ */
+export function companyItemImagesDir(slug: string): string {
+  return join(companyDir(slug), 'item-images')
+}
+
 export function ensureDataTree(): void {
   mkdirSync(companiesDir(), { recursive: true })
 }
@@ -62,6 +71,7 @@ export function ensureCompanyTree(slug: string): void {
   mkdirSync(companyBackupsDir(slug), { recursive: true })
   mkdirSync(companyExportsDir(slug), { recursive: true })
   mkdirSync(companyAttachmentsDir(slug), { recursive: true })
+  mkdirSync(companyItemImagesDir(slug), { recursive: true })
 }
 
 export function slugify(name: string): string {

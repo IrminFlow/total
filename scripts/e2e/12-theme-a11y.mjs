@@ -356,5 +356,220 @@ await scenario('12-theme-a11y', async (h) => {
   const back = await h.page.evaluate(() => document.documentElement.dataset.motion ?? null)
   assert(back === null, 'and it goes back to following the system')
 
+
+  // ---- the focus-ring audit (#20) ----
+  //
+  // The deliverable for "every interactive control reachable by Tab" is a test, not a component,
+  // and the thing it has to catch is not "is there an outline property" — there is, globally, in
+  // app.css. It is a ring that EXISTS and is INVISIBLE: drawn in a colour that does not separate
+  // from the surface behind it, or on a control the tab order never reaches at all. So this
+  // asserts on computed style and on contrast, the way the rest of this scenario does.
+  //
+  // WCAG 2.2 SC 1.4.11 puts non-text contrast at 3:1, and a focus ring is the example the
+  // specification itself gives. That is the floor used here.
+  const FOCUS_RING_MIN_CONTRAST = 3
+
+  await setTheme('light')
+
+  // Transitions off for the duration of the audit.
+  //
+  // `transition-colors` on every button includes `outline-color`, so a computed style read the
+  // instant after .focus() catches the ring part-way from its resting `currentColor` to the
+  // accent — which reports a white ring on a white primary button and a grey one on a ghost. The
+  // claim under test is about the RESTING focused state, not the 150ms getting there.
+  await h.page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; }' })
+
+  // One real Tab first. Chromium decides :focus-visible from the last input modality, so a
+  // script-driven .focus() only matches it once the browser believes the keyboard is in use —
+  // and without this every ring below would read as absent for a reason that is not a bug.
+  await h.goto('gateway')
+  await h.page.evaluate(() => {
+    document.body.setAttribute('tabindex', '-1')
+    document.body.focus()
+  })
+  await h.page.keyboard.press('Tab')
+
+  // Proof that the modality trick worked, before anything is concluded from it. If Chromium ever
+  // stops honouring it, this fails here rather than passing the whole audit vacuously.
+  const modality = await h.page.evaluate(() => {
+    const el = document.querySelector('[data-testid="skip-to-content"]')
+    if (!(el instanceof HTMLElement)) return null
+    el.focus()
+    const cs = getComputedStyle(el)
+    return { matches: el.matches(':focus-visible'), outline: cs.outlineWidth, style: cs.outlineStyle }
+  })
+  assert(
+    modality?.matches === true,
+    `script focus counts as keyboard focus after a real Tab (got ${JSON.stringify(modality)}) — the audit below depends on it`
+  )
+
+  /**
+   * Walk every focusable control on the current screen and report the ones that are wrong.
+   *
+   * `bg` is resolved up the ancestor chain, because a ring is painted over whatever is actually
+   * behind the control and almost every control sits on a transparent background of its own.
+   */
+  const auditScreen = async (screenName) =>
+    h.page.evaluate((name) => {
+      const FOCUSABLE = 'button, a[href], input:not([type="hidden"]), select, textarea, [tabindex]'
+      /**
+       * What is actually painted behind the control.
+       *
+       * Composited, not just "the first ancestor with a background". The selected row's tint is
+       * `rgba(67, 56, 202, 0.1)` — 10% indigo — and comparing an indigo ring against that raw
+       * value says 1:1, which is nonsense: over paper the tint renders as pale lavender and the
+       * ring is perfectly visible. An audit that reports a fault where there is none gets
+       * switched off, which is worse than not having it.
+       */
+      const behind = (el) => {
+        const layers = []
+        let node = el.parentElement
+        while (node) {
+          const bg = getComputedStyle(node).backgroundColor
+          const m = bg && bg.match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/)
+          if (m) {
+            const alpha = m[4] === undefined ? 1 : Number(m[4])
+            if (alpha > 0) {
+              layers.push({ r: Number(m[1]), g: Number(m[2]), b: Number(m[3]), a: alpha })
+              if (alpha >= 1) break
+            }
+          }
+          node = node.parentElement
+        }
+        // Bottom-up: the opaque layer first, then each translucent one over it.
+        let out = { r: 255, g: 255, b: 255 }
+        for (const layer of layers.reverse()) {
+          out = {
+            r: layer.r * layer.a + out.r * (1 - layer.a),
+            g: layer.g * layer.a + out.g * (1 - layer.a),
+            b: layer.b * layer.a + out.b * (1 - layer.a)
+          }
+        }
+        return `rgb(${Math.round(out.r)}, ${Math.round(out.g)}, ${Math.round(out.b)})`
+      }
+      const id = (el) =>
+        `${name}:${el.getAttribute('data-testid') ?? `${el.tagName.toLowerCase()}.${(el.className || '').toString().slice(0, 30)}`}`
+
+      // A control, as opposed to a focus TARGET. `<main id="main-content" tabindex="-1">` is in
+      // the selector because it can be focused, but it is where the skip link lands, not something
+      // a person operates — and demanding it be in the tab order would be demanding a second stop
+      // between the skip link and the first real control.
+      const isControl = (el) =>
+        el.matches('button, a[href], input, select, textarea') ||
+        ['button', 'link', 'checkbox', 'radio', 'switch', 'menuitem', 'tab', 'combobox'].includes(
+          el.getAttribute('role') ?? ''
+        )
+
+      const unreachable = []
+      const ringless = []
+      const rings = []
+      const active = document.activeElement
+
+      for (const el of document.querySelectorAll(FOCUSABLE)) {
+        if (!(el instanceof HTMLElement) || !isControl(el)) continue
+        // Hidden or disabled controls cannot be reached, so they cannot be unreachable.
+        if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') continue
+        if (el.hasAttribute('disabled') || el.getAttribute('aria-hidden') === 'true') continue
+        if (getComputedStyle(el).visibility === 'hidden') continue
+
+        // A visible, enabled control the tab order skips. Not a style problem — a control a
+        // keyboard user simply cannot get to.
+        if (el.getAttribute('tabindex') === '-1') {
+          unreachable.push(id(el))
+          continue
+        }
+
+        // Measured as a DIFFERENCE, before and after focus. Reading only the focused state
+        // would count every button's resting `panel-shadow` as a focus indicator, which is how a
+        // ring that never actually appears passes an audit — the bug this test exists to catch.
+        const before = getComputedStyle(el)
+        const resting = { outline: before.outlineStyle, width: before.outlineWidth, shadow: before.boxShadow }
+
+        el.focus()
+        if (document.activeElement !== el) {
+          unreachable.push(`${id(el)} (refused focus)`)
+          continue
+        }
+        const cs = getComputedStyle(el)
+        const width = parseFloat(cs.outlineWidth) || 0
+        const gainedOutline =
+          cs.outlineStyle !== 'none' && width >= 1 && (resting.outline === 'none' || resting.width !== cs.outlineWidth)
+        // A ring drawn as a box-shadow counts, but only when the shadow CHANGED: several controls
+        // in this app indicate focus that way, and what matters to a keyboard user is that
+        // something appeared that was not there a moment ago.
+        const gainedShadow = cs.boxShadow !== resting.shadow
+
+        if (!gainedOutline && !gainedShadow) {
+          ringless.push(id(el))
+          continue
+        }
+        const colour = gainedOutline
+          ? cs.outlineColor
+          : (cs.boxShadow.match(/rgba?\([^)]+\)/) ?? [])[0]
+        if (colour) rings.push({ id: id(el), colour, bg: behind(el) })
+      }
+
+      if (active instanceof HTMLElement) active.focus()
+      return { unreachable, ringless, rings }
+    }, screenName)
+
+  const screensToAudit = await h.page.$$eval('[data-testid^="nav-"]', (els) =>
+    els.map((el) => (el.dataset.testid || '').replace(/^nav-/, ''))
+  )
+
+  const unreachable = []
+  const ringless = []
+  const lowContrast = []
+  let ringsChecked = 0
+
+  for (const name of screensToAudit) {
+    await h.goto(name, 20000)
+    // Navigating CLICKS a sidebar button, and a click puts Chromium back into pointer modality —
+    // at which point :focus-visible stops matching a scripted .focus() and every ring on the
+    // screen would read as absent. One Tab per screen puts the keyboard back in charge. (This is
+    // not a workaround for a bug: it is the same reason a mouse user does not see focus rings.)
+    await h.page.keyboard.press('Tab')
+    const result = await auditScreen(name)
+    unreachable.push(...result.unreachable)
+    ringless.push(...result.ringless)
+    for (const ring of result.rings) {
+      ringsChecked++
+      const ratio = contrast(ring.colour, ring.bg)
+      if (ratio < FOCUS_RING_MIN_CONTRAST) {
+        lowContrast.push(`${ring.id}: ${ratio.toFixed(2)}:1 (${ring.colour} on ${ring.bg})`)
+      }
+    }
+  }
+
+  // A floor, so a refactor that quietly stops finding controls fails here rather than passing
+  // an audit of nothing.
+  assert(ringsChecked > 1000, `the audit actually looked at controls (checked ${ringsChecked} rings)`)
+  assert(unreachable.length === 0, `controls a keyboard cannot reach: ${unreachable.join(' | ')}`)
+  assert(ringless.length === 0, `focused controls that draw nothing at all: ${ringless.join(' | ')}`)
+  assert(
+    lowContrast.length === 0,
+    `focus rings that exist but are invisible against what is behind them (need ${FOCUS_RING_MIN_CONTRAST}:1): ${lowContrast.join(' | ')}`
+  )
+  console.log(`[12-theme-a11y] focus-ring audit: ${ringsChecked} rings across ${screensToAudit.length} screens`)
+
+  // And the same in the dark and high-contrast themes: a ring tuned against paper is exactly the
+  // one that disappears on a dark panel, and that is the bug this half exists to catch.
+  for (const theme of ['dark', 'contrast']) {
+    await setTheme(theme)
+    await h.goto('daybook')
+    await h.page.keyboard.press('Tab') // pointer modality again — see the loop above
+    const result = await auditScreen(`${theme}:daybook`)
+    const bad = result.rings
+      .map((r) => ({ ...r, ratio: contrast(r.colour, r.bg) }))
+      .filter((r) => r.ratio < FOCUS_RING_MIN_CONTRAST)
+    assert(
+      bad.length === 0,
+      `${theme}: focus rings invisible against the panel: ${bad.map((b) => `${b.id} ${b.ratio.toFixed(2)}:1`).join(' | ')}`
+    )
+    assert(result.ringless.length === 0, `${theme}: focused controls that draw nothing: ${result.ringless.join(' | ')}`)
+  }
+  await setTheme('light')
+  await h.shot('05-focus-ring-audit')
+
   await setTheme('light') // leave the shared profile as the next scenario expects it
 })

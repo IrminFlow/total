@@ -20,6 +20,28 @@
  * The engine carries `// VERIFY:` markers on three points — ITC-04 Table 5B's limb, the
  * periodicity notification number, and the anniversary-day boundary. They are reproduced in the
  * UI where a user would rely on them; do not delete them here without reading `itc04.ts` first.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * THE STOCK HALF (roadmap E #127, grafted on at merge)
+ *
+ * The paragraph above used to end "It does not move stock", and that was an accounting error
+ * rather than a missing nicety. Goods sent for job work are STILL THE PRINCIPAL'S STOCK — title
+ * never leaves him — so they have to stay in his closing stock, which is a figure that goes on
+ * the balance sheet. Left unmoved they sat in the despatching godown as though they had never
+ * gone out, and a stock report could not answer "what is lying with whom".
+ *
+ * So a challan with a stock item on it now also MOVES that item, into a godown named for the job
+ * worker and created on first use. The mover is a **stock journal with no ledger lines at all**,
+ * exactly like a godown transfer: nothing is bought, nothing is sold, no money moves and no
+ * ledger is touched. Both legs are valued at `outwardCostOf`, so the pair cancels exactly and
+ * company-wide stock VALUE does not move — only its location does.
+ *
+ * It hangs off `saveChallan` / `saveReturn` rather than being a second entry point, because two
+ * ways to record the same despatch is how the paperwork and the stock come to disagree.
+ *
+ * A challan with no `stockItemId` (a description of something not in the item master, which this
+ * form has always allowed) moves nothing and behaves exactly as it did before. So does every
+ * challan saved before this shipped: the columns are nullable and empty means "paperwork only".
  */
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
@@ -40,9 +62,11 @@ import {
   type JobWorkGoodsType,
   type JobWorkReturn as EngineReturn
 } from '@shared/gst/itc04'
+import { jobWorkGodownName } from '@shared/jobWork'
 import { getLedger } from './masters'
 import { writeAudit } from './audit'
-import { NOT_DELETED } from './vouchers'
+import { NOT_DELETED, deleteVoucher, saveVoucher } from './vouchers'
+import { outwardCostOf } from './stockAnalysis'
 
 /** Its own series, like the sales chain's DC — never shared with the voucher numbering. */
 const PREFIX = 'JW'
@@ -69,6 +93,10 @@ export interface JobWorkReturnRow {
   /** The invoice raised when the goods were sold from the job worker's premises, if any. */
   invoiceNumber: string | null
   notes: string | null
+  /** The stock journal that brought the goods back out of the job worker's godown, if any. */
+  voucherId: number | null
+  /** Where they came back TO. Null is unallocated stock, the inventory_lines convention. */
+  toGodownId: number | null
 }
 
 export interface JobWorkChallanRow {
@@ -92,6 +120,13 @@ export interface JobWorkChallanRow {
   extendedDueBackBy: string | null
   notes: string | null
   createdAt: string
+  /** The godown named for this job worker, once something has actually been sent there. */
+  godownId: number | null
+  godownName: string | null
+  /** Where the goods left from. Null is unallocated stock. */
+  fromGodownId: number | null
+  /** The stock journal that moved them out. Null on a paperwork-only challan. */
+  voucherId: number | null
   returns: JobWorkReturnRow[]
   /** Everything accounted for: returned, moved on, supplied out, waste. */
   accountedMilli: number
@@ -106,12 +141,13 @@ interface ChallanDbRow {
   qty_milli: number; uqc: string; taxable_paise: number; gst_rate: number
   moulds_dies_jigs_tools: number; received_by_job_worker_on: string | null
   extended_due_back_by: string | null; notes: string | null; created_at: string
+  godown_id: number | null; from_godown_id: number | null; voucher_id: number | null
 }
 
 interface ReturnDbRow {
   id: number; challan_id: number; date: string; number: string | null; qty_milli: number
   disposition: JobWorkDisposition; invoice_voucher_id: number | null; invoice_number: string | null
-  notes: string | null
+  notes: string | null; voucher_id: number | null; to_godown_id: number | null
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -144,7 +180,9 @@ function returnsOf(db: DB, challanIds: number[]): Map<number, JobWorkReturnRow[]
       disposition: r.disposition,
       invoiceVoucherId: r.invoice_voucher_id,
       invoiceNumber: r.invoice_number,
-      notes: r.notes
+      notes: r.notes,
+      voucherId: r.voucher_id,
+      toGodownId: r.to_godown_id
     })
     out.set(r.challan_id, list)
   }
@@ -153,6 +191,9 @@ function returnsOf(db: DB, challanIds: number[]): Map<number, JobWorkReturnRow[]
 
 function hydrate(db: DB, rows: ChallanDbRow[], info: CompanyInfo): JobWorkChallanRow[] {
   const returns = returnsOf(db, rows.map((r) => r.id))
+  const godownNames = new Map(
+    (db.prepare('SELECT id, name FROM godowns').all() as { id: number; name: string }[]).map((g) => [g.id, g.name])
+  )
   return rows.map((r) => {
     const mine = returns.get(r.id) ?? []
     const accountedMilli = mine.reduce((s, x) => s + x.qtyMilli, 0)
@@ -180,6 +221,10 @@ function hydrate(db: DB, rows: ChallanDbRow[], info: CompanyInfo): JobWorkChalla
       extendedDueBackBy: r.extended_due_back_by,
       notes: r.notes,
       createdAt: r.created_at,
+      godownId: r.godown_id,
+      godownName: r.godown_id ? godownNames.get(r.godown_id) ?? null : null,
+      fromGodownId: r.from_godown_id,
+      voucherId: r.voucher_id,
       returns: mine,
       accountedMilli,
       balanceMilli: Math.max(0, r.qty_milli - accountedMilli)
@@ -228,6 +273,171 @@ export function nextChallanNumber(db: DB): string {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The stock half — the job worker's godown, and the journal that moves goods into it
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The godown that holds a job worker's stock, created on first use.
+ *
+ * A named godown PER job worker rather than one shared "Job work" godown, because the question a
+ * principal is asked in an audit is "what is lying with WHOM", and one pooled godown answers that
+ * with a single number covering four job workers. `jobWorkGodownName` in `@shared/jobWork` is the
+ * only place the name is spelt, so the lookup and the creation can never drift apart.
+ *
+ * Created lazily and not when the ledger is made: most parties are not job workers, and a godown
+ * list padded with one empty godown per supplier is a list nobody reads.
+ */
+export function jobWorkGodown(db: DB, partyLedgerId: number): { id: number; name: string } {
+  const party = getLedger(db, partyLedgerId)
+  if (!party) throw new Error('That job worker is not a ledger in this company')
+  const name = jobWorkGodownName(party.name)
+  const existing = db.prepare('SELECT id, name FROM godowns WHERE name = ?').get(name) as
+    | { id: number; name: string }
+    | undefined
+  if (existing) return existing
+  const created = { id: Number(db.prepare('INSERT INTO godowns (name) VALUES (?)').run(name).lastInsertRowid), name }
+  writeAudit(db, 'godown', created.id, 'create', null, created)
+  return created
+}
+
+function stockJournalTypeId(db: DB): number {
+  const vt = db
+    .prepare("SELECT id FROM voucher_types WHERE kind = 'stock_journal' ORDER BY is_system DESC, id LIMIT 1")
+    .get() as { id: number } | undefined
+  if (!vt) throw new Error('No stock journal voucher type exists')
+  return vt.id
+}
+
+interface MoveLeg {
+  godownId: number | null
+  direction: 'in' | 'out'
+}
+
+/**
+ * Post (or repost) the stock journal behind one challan or one receipt.
+ *
+ * No ledger lines, ever — `lines: []`. That is the whole point: this is a movement, not a
+ * transaction, and a single ledger line here would put a job-work despatch into the trial balance
+ * as if something had been bought or sold.
+ *
+ * Both legs carry the SAME value, taken from `outwardCostOf`, so a transfer cancels to zero and
+ * company-wide closing stock value is unchanged by where the goods are standing. Passing one leg
+ * only (waste — see `returnLegs`) is how stock genuinely leaves.
+ */
+function postMovement(
+  db: DB,
+  opts: {
+    date: string
+    stockItemId: number
+    qtyMilli: number
+    legs: MoveLeg[]
+    narration: string
+    existingVoucherId: number | null
+  }
+): number {
+  const costPaise = outwardCostOf(db, opts.date, opts.stockItemId, opts.qtyMilli)
+  const ratePaise = opts.qtyMilli ? Math.round((costPaise * 1000) / opts.qtyMilli) : 0
+  const saved = saveVoucher(
+    db,
+    {
+      voucherTypeId: stockJournalTypeId(db),
+      date: opts.date,
+      lines: [],
+      inventory: opts.legs.map((leg) => ({
+        stockItemId: opts.stockItemId,
+        godownId: leg.godownId,
+        qtyMilli: opts.qtyMilli,
+        ratePaise,
+        amount: costPaise,
+        direction: leg.direction
+      })),
+      // The only trace of this in a day book listing, so it names who holds the goods rather than
+      // leaving a bare stock journal nobody can place.
+      narration: opts.narration,
+      billRefs: [],
+      tds: null
+    },
+    opts.existingVoucherId ?? undefined
+  )
+  return saved.id
+}
+
+/** Drop a movement that should no longer exist — an edit that removed the stock item, or a
+ *  deleted challan. Soft-deletes like any other voucher, so it is recoverable from the bin. */
+function dropMovement(db: DB, voucherId: number | null): void {
+  if (voucherId != null) deleteVoucher(db, voucherId)
+}
+
+/**
+ * Move the goods out to the job worker, for a challan that has just been saved.
+ *
+ * A challan with no stock item on it moves nothing — that is not an oversight, it is the
+ * "describe something not in the item master" case the form has always supported, and inventing
+ * an item for it would be worse than moving nothing. Neither does one with no job worker ledger:
+ * there is no godown to name.
+ */
+function syncChallanMovement(
+  db: DB,
+  challanId: number,
+  input: ChallanInput,
+  existing: { voucherId: number | null }
+): void {
+  if (!input.stockItemId || !input.jobWorkerLedgerId) {
+    // Nothing to move, or nowhere to move it TO. Any movement posted under an earlier version of
+    // the row is withdrawn rather than left behind saying goods are somewhere they are not.
+    dropMovement(db, existing.voucherId)
+    db.prepare(
+      'UPDATE job_work_challans SET godown_id = NULL, from_godown_id = ?, voucher_id = NULL WHERE id = ?'
+    ).run(input.fromGodownId ?? null, challanId)
+    return
+  }
+  const godown = jobWorkGodown(db, input.jobWorkerLedgerId)
+  const ledger = getLedger(db, input.jobWorkerLedgerId)
+  const voucherId = postMovement(db, {
+    date: input.date,
+    stockItemId: input.stockItemId,
+    qtyMilli: input.qtyMilli,
+    legs: [
+      { godownId: input.fromGodownId ?? null, direction: 'out' },
+      { godownId: godown.id, direction: 'in' }
+    ],
+    narration: `Job work challan — sent to ${ledger?.name ?? 'job worker'}`,
+    existingVoucherId: existing.voucherId
+  })
+  db.prepare('UPDATE job_work_challans SET godown_id = ?, from_godown_id = ?, voucher_id = ? WHERE id = ?').run(
+    godown.id,
+    input.fromGodownId ?? null,
+    voucherId,
+    challanId
+  )
+}
+
+/**
+ * Which legs a receipt posts, by what the goods did.
+ *
+ * `waste_and_scrap` has NO inward leg. Section 143(5): waste and scrap generated at the job
+ * worker's premises may be supplied by him directly on payment of tax — it does not come back and
+ * it is not the principal's stock any more. Bringing it back in would inflate closing stock by the
+ * scrap of every job the business has ever sent out.
+ *
+ * Everything else comes back into stock, including the two dispositions where the goods never
+ * physically reach the principal's premises:
+ *
+ *  - `sent_to_other_job_worker` — the goods stay out, but they stay HIS. Returning them to
+ *    unallocated stock is what lets the follow-on challan to the second job worker despatch them;
+ *    the alternative, leaving them nowhere, is the disappearing-stock bug this whole change
+ *    exists to fix.
+ *  - `supplied_from_job_worker_premises` — the goods were sold, and the SALES INVOICE is what
+ *    takes them out of stock. If this removed them too the item would go out twice and the stock
+ *    would go negative; that invoice is already linked on the receipt row.
+ */
+function returnLegs(disposition: JobWorkDisposition, godownId: number, toGodownId: number | null): MoveLeg[] {
+  const out: MoveLeg = { godownId, direction: 'out' }
+  if (disposition === 'waste_and_scrap') return [out]
+  return [out, { godownId: toGodownId, direction: 'in' }]
+}
+
+// ---------------------------------------------------------------------------------------------
 // Writing
 // ---------------------------------------------------------------------------------------------
 
@@ -249,6 +459,8 @@ export interface ChallanInput {
   receivedByJobWorkerOn?: string | null
   extendedDueBackBy?: string | null
   notes?: string | null
+  /** Where the goods leave FROM. Null (the default) takes them from unallocated stock. */
+  fromGodownId?: number | null
 }
 
 /**
@@ -322,6 +534,11 @@ export function saveChallan(db: DB, info: CompanyInfo, input: ChallanInput, id?:
           ).lastInsertRowid
       )
 
+  // The stock leg. After the row exists (it needs the id) and before the row is read back, so
+  // `after` — and therefore the audit entry — carries the godown and the voucher that were
+  // actually written rather than the nulls they were inserted with.
+  syncChallanMovement(db, saved, input, { voucherId: before?.voucherId ?? null })
+
   const after = getChallan(db, saved, info) as JobWorkChallanRow
   writeAudit(db, 'job_work_challan', saved, before ? 'update' : 'create', before, after)
   return after
@@ -336,6 +553,8 @@ export function deleteChallan(db: DB, id: number, info: CompanyInfo): void {
     )
   }
   db.prepare('DELETE FROM job_work_challans WHERE id = ?').run(id)
+  // The goods never went out, so the stock journal that said they did must go with the paperwork.
+  dropMovement(db, before.voucherId)
   writeAudit(db, 'job_work_challan', id, 'delete', before, null)
 }
 
@@ -347,6 +566,8 @@ export interface ReturnInput {
   disposition: JobWorkDisposition
   invoiceVoucherId?: number | null
   notes?: string | null
+  /** Where the goods come back TO. Null (the default) returns them to unallocated stock. */
+  toGodownId?: number | null
 }
 
 /**
@@ -379,35 +600,62 @@ export function saveReturn(db: DB, info: CompanyInfo, input: ReturnInput, id?: n
     if (!v) throw new Error('That invoice is not in the books')
   }
 
+  let returnId: number
   if (id) {
     db.prepare(
       `UPDATE job_work_returns SET date = ?, number = ?, qty_milli = ?, disposition = ?,
-         invoice_voucher_id = ?, notes = ? WHERE id = ?`
+         invoice_voucher_id = ?, notes = ?, to_godown_id = ? WHERE id = ?`
     ).run(
       input.date, input.number?.trim() || null, input.qtyMilli, input.disposition,
-      input.invoiceVoucherId ?? null, input.notes ?? null, id
+      input.invoiceVoucherId ?? null, input.notes ?? null, input.toGodownId ?? null, id
     )
+    returnId = id
   } else {
-    db.prepare(
-      `INSERT INTO job_work_returns (challan_id, date, number, qty_milli, disposition,
-         invoice_voucher_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      input.challanId, input.date, input.number?.trim() || null, input.qtyMilli, input.disposition,
-      input.invoiceVoucherId ?? null, input.notes ?? null
+    returnId = Number(
+      db
+        .prepare(
+          `INSERT INTO job_work_returns (challan_id, date, number, qty_milli, disposition,
+             invoice_voucher_id, notes, to_godown_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          input.challanId, input.date, input.number?.trim() || null, input.qtyMilli, input.disposition,
+          input.invoiceVoucherId ?? null, input.notes ?? null, input.toGodownId ?? null
+        ).lastInsertRowid
     )
   }
+
+  // The stock leg back. Only a challan that actually moved goods has anything to move back: a
+  // paperwork-only challan (no stock item, or no job-worker godown) has no godown to take them
+  // out of, and posting half a movement from nowhere would create stock out of thin air.
+  if (challan.stockItemId && challan.godownId) {
+    const voucherId = postMovement(db, {
+      date: input.date,
+      stockItemId: challan.stockItemId,
+      qtyMilli: input.qtyMilli,
+      legs: returnLegs(input.disposition, challan.godownId, input.toGodownId ?? null),
+      narration: `Job work ${challan.number} — ${DISPOSITION_LABEL[input.disposition].toLowerCase()} from ${challan.jobWorkerName ?? 'job worker'}`,
+      existingVoucherId: existing?.voucherId ?? null
+    })
+    db.prepare('UPDATE job_work_returns SET voucher_id = ? WHERE id = ?').run(voucherId, returnId)
+  } else {
+    dropMovement(db, existing?.voucherId ?? null)
+    db.prepare('UPDATE job_work_returns SET voucher_id = NULL WHERE id = ?').run(returnId)
+  }
+
   const after = getChallan(db, input.challanId, info) as JobWorkChallanRow
   writeAudit(db, 'job_work_challan', input.challanId, 'update', challan, after)
   return after
 }
 
 export function deleteReturn(db: DB, id: number, info: CompanyInfo): JobWorkChallanRow {
-  const row = db.prepare('SELECT challan_id AS challanId FROM job_work_returns WHERE id = ?').get(id) as
-    | { challanId: number }
-    | undefined
+  const row = db
+    .prepare('SELECT challan_id AS challanId, voucher_id AS voucherId FROM job_work_returns WHERE id = ?')
+    .get(id) as { challanId: number; voucherId: number | null } | undefined
   if (!row) throw new Error('No such receipt')
   const before = getChallan(db, row.challanId, info)
   db.prepare('DELETE FROM job_work_returns WHERE id = ?').run(id)
+  // The goods are back out with the job worker, so the movement that brought them home goes too.
+  dropMovement(db, row.voucherId)
   const after = getChallan(db, row.challanId, info) as JobWorkChallanRow
   writeAudit(db, 'job_work_challan', row.challanId, 'update', before, after)
   return after

@@ -12,6 +12,7 @@ import { expandSeriesPattern, seriesHasFyToken } from '@shared/numberSeries'
 import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { writeAudit } from './audit'
+import { checkSerialLines, itemNames, serialTrackedItems, writeSerialMovements } from './serials'
 import { applyApprovalGate } from './approvals'
 import { setValues as setCustomFieldValues, valuesFor as customFieldValuesFor } from './customFields'
 import type { Role } from './roles'
@@ -95,8 +96,14 @@ function getVoucherType(db: DB, id: number): VoucherType {
 export function getVoucher(db: DB, id: number): Voucher | null {
   const v = prep(db, 'SELECT * FROM vouchers WHERE id = ?').get(id) as VoucherRow | undefined
   if (!v) return null
-  const lines = prep(db, 'SELECT id, ledger_id, dr_cr, amount, bank_date FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order, id')
-    .all(id) as { id: number; ledger_id: number; dr_cr: 'dr' | 'cr'; amount: number; bank_date: string | null }[]
+  const lines = prep(db,
+    `SELECT id, ledger_id, dr_cr, amount, bank_date, fc_amount, fc_rate_micro
+     FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order, id`
+  )
+    .all(id) as {
+      id: number; ledger_id: number; dr_cr: 'dr' | 'cr'; amount: number; bank_date: string | null
+      fc_amount: number | null; fc_rate_micro: number | null
+    }[]
   const inventory = prep(db, 'SELECT id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute FROM inventory_lines WHERE voucher_id = ? ORDER BY line_order, id')
     .all(id) as {
       id: number; stock_item_id: number; godown_id: number | null; batch_id: number | null
@@ -123,6 +130,20 @@ export function getVoucher(db: DB, id: number): Voucher | null {
 
   const tdsRow = prep(db, 'SELECT section_id, base_amount, tds_amount FROM tds_entries WHERE voucher_id = ?')
     .get(id) as { section_id: number; base_amount: number; tds_amount: number } | undefined
+
+  // Serial numbers this voucher moved (#115), so altering an invoice reloads the serials it sold
+  // rather than presenting an empty box that would un-issue them on save.
+  const serialsByItem = new Map<number, string[]>()
+  for (const r of prep(
+    db,
+    `SELECT sn.stock_item_id AS stockItemId, sn.serial
+       FROM serial_movements sm JOIN serial_numbers sn ON sn.id = sm.serial_id
+      WHERE sm.voucher_id = ? ORDER BY sn.serial`
+  ).all(id) as { stockItemId: number; serial: string }[]) {
+    const list = serialsByItem.get(r.stockItemId) ?? []
+    list.push(r.serial)
+    serialsByItem.set(r.stockItemId, list)
+  }
 
   return {
     id: v.id,
@@ -158,7 +179,8 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     lines: lines.map(
       (l): VoucherLine => ({
         id: l.id, ledgerId: l.ledger_id, drCr: l.dr_cr, amount: l.amount, bankDate: l.bank_date,
-        costAllocations: allocByLine.get(l.id) ?? []
+        costAllocations: allocByLine.get(l.id) ?? [],
+        fcAmount: l.fc_amount, fcRateMicro: l.fc_rate_micro
       })
     ),
     inventory: inventory.map(
@@ -166,7 +188,11 @@ export function getVoucher(db: DB, id: number): Voucher | null {
         id: l.id, stockItemId: l.stock_item_id, godownId: l.godown_id, batchId: l.batch_id,
         qtyMilli: l.qty_milli, ratePaise: l.rate_paise, discountPaise: l.discount_paise,
         amount: l.amount, direction: l.direction,
-        isAbsolute: !!l.is_absolute
+        isAbsolute: !!l.is_absolute,
+        // Serials belong to the voucher, not to a particular inventory row: the movement table
+        // records which voucher moved which unit, and a voucher is re-saved as a whole. They are
+        // grouped back onto the line by ITEM, which is the only key both sides share.
+        serials: serialsByItem.get(l.stock_item_id) ?? []
       })
     ),
     billRefs: billRefRows.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.due_date })),
@@ -430,13 +456,21 @@ export function saveVoucher(
     }
 
     const insertLine = prep(db,
-      'INSERT INTO voucher_lines (voucher_id, ledger_id, dr_cr, amount, line_order) VALUES (?, ?, ?, ?, ?)'
+      `INSERT INTO voucher_lines (voucher_id, ledger_id, dr_cr, amount, line_order, fc_amount, fc_rate_micro)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
     const insertCostAlloc = prep(db,
       'INSERT INTO voucher_line_cost_allocations (voucher_line_id, cost_centre_id, amount) VALUES (?, ?, ?)'
     )
     input.lines.forEach((l, i) => {
-      const res = insertLine.run(voucherId, l.ledgerId, l.drCr, l.amount, i)
+      // Both or neither (#140): half of the foreign-currency pair is a line nobody can read back
+      // — an amount with no rate cannot be checked and a rate with no amount says nothing.
+      const fcPaired = l.fcAmount != null && l.fcRateMicro != null
+      const res = insertLine.run(
+        voucherId, l.ledgerId, l.drCr, l.amount, i,
+        fcPaired ? l.fcAmount : null,
+        fcPaired ? l.fcRateMicro : null
+      )
       const lineId = Number(res.lastInsertRowid)
       for (const alloc of l.costAllocations ?? []) {
         insertCostAlloc.run(lineId, alloc.costCentreId, alloc.amount)
@@ -464,6 +498,35 @@ export function saveVoucher(
      */
     if (input.customFields) {
       setCustomFieldValues(db, voucherId, vt.id, input.customFields)
+    }
+
+    // ---- serial numbers (#115) ----
+    // Inside the transaction and before the stock checks, so a voucher that names a serial it
+    // cannot move is refused whole rather than saved and then complained about. Physical-stock
+    // lines are skipped: an absolute count is a statement of what is on the shelf, not a movement
+    // of particular units, and there is nothing for a serial to attach to.
+    const serialCandidates = input.inventory.filter((l) => !l.isAbsolute)
+    const tracked = serialTrackedItems(db, [...new Set(serialCandidates.map((l) => l.stockItemId))])
+    if (tracked.size > 0) {
+      const serialLines = serialCandidates
+        .filter((l) => tracked.has(l.stockItemId))
+        .map((l) => ({
+          stockItemId: l.stockItemId,
+          direction: l.direction,
+          qtyMilli: l.qtyMilli,
+          serials: l.serials ?? []
+        }))
+      const names = itemNames(db, [...tracked])
+      const problems = checkSerialLines(db, serialLines, names)
+      if (problems.length > 0) throw new Error(problems.join('; '))
+      writeSerialMovements(db, voucherId, input.date, serialLines, {
+        partyLedgerId: input.partyLedgerId,
+        godownId: serialCandidates[0]?.godownId ?? null
+      })
+    } else {
+      // An item that STOPPED tracking, or a voucher altered to drop its serial lines, must not
+      // leave yesterday's movements behind saying a unit is still out.
+      prep(db, 'DELETE FROM serial_movements WHERE voucher_id = ?').run(voucherId)
     }
 
     // Bill refs and TDS ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade
