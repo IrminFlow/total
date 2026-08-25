@@ -6,6 +6,7 @@ import {
   AmountInput,
   Button,
   EmptyState,
+  ExportGroup,
   Field,
   Modal,
   Money,
@@ -128,33 +129,29 @@ export function KhataScreen(): React.JSX.Element {
             >
               {overdueOnly ? 'Show all' : 'Overdue only'}
             </Button>
-            <Button
-              variant="ghost"
-              disabled={!rows.length}
-              onClick={() =>
-                void printReport(
-                  {
-                    title,
-                    periodLabel: `as on ${toDisplayDate(to)}`,
-                    columns: COLUMNS,
-                    rows: exportRows,
-                    filename: `khata-${side}`
-                  },
-                  toast
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={!rows.length}
-              onClick={() =>
-                void csvReport(COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `khata-${side}`, toast)
-              }
-            >
-              CSV
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  disabled: !rows.length,
+                  onClick: () => void printReport(
+                    {
+                      title,
+                      periodLabel: `as on ${toDisplayDate(to)}`,
+                      columns: COLUMNS,
+                      rows: exportRows,
+                      filename: `khata-${side}`
+                    },
+                    toast
+                  )
+                },
+                {
+                  label: 'CSV',
+                  disabled: !rows.length,
+                  onClick: () => void csvReport(COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `khata-${side}`, toast)
+                }
+              ]}
+            />
           </div>
         }
       >

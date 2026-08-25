@@ -5,7 +5,21 @@ import { nextDraftId, useNav, useSession, useToasts } from '../state/stores'
 import { useKeyLayer } from '../lib/keyboard'
 import { confirmDialog } from '../lib/dialogs'
 import type { VoucherKind } from '@shared/domain'
-import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput, useKeyNav, useTableNav } from '../components/ui'
+import {
+  Button,
+  EmptyState,
+  ExportGroup,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  TextInput,
+  useKeyNav,
+  useTableNav
+} from '../components/ui'
 import { useStickyFlag } from '../lib/useStickyTab'
 import { useVirtualRows } from '../lib/useVirtualRows'
 import { ReportConfigButton } from '../components/ReportConfigButton'
@@ -701,96 +715,94 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
               {byType ? 'Show entries' : 'By type'}
             </Button>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
-            <Button
-              variant="ghost"
-              disabled={exporting}
-              onClick={() => {
-                setExporting(true)
-                void fullExportRows()
-                  .then((all) => printReport({ title: 'Day book', periodLabel, columns: exportColumns, rows: all }, toast))
-                  .catch((err: Error) => toast.push('error', err.message))
-                  .finally(() => setExporting(false))
-              }}
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={exporting}
-              onClick={() => {
-                setExporting(true)
-                /**
-                 * An unfiltered export is written by main straight out of the database, a page at
-                 * a time — three years of entries never becomes one string in this process.
-                 *
-                 * A FILTERED export cannot be: the scope, the drill chip and the text box are all
-                 * state that lives here, and main knows none of it. So a filtered export takes the
-                 * old road, which is honest because a filtered export is by definition smaller.
-                 */
-                const streamed = !filtering
-                  ? api.exportReport
-                      .streamCsv('day-book', {
-                        kind: 'dayBook',
-                        from,
-                        to,
-                        // `filtering` is false only when the scope is the default 'books', and that
-                        // scope means optional and post-dated vouchers are excluded — which is
-                        // exactly what includeOutOfBooks: false asks the service for. The two have
-                        // to agree or the streamed file would carry rows the screen was hiding.
-                        includeOutOfBooks: false,
-                        columns: {
-                          type: !!visible.type,
-                          number: !!visible.number,
-                          account: !!visible.account,
-                          debit: !!visible.debit,
-                          credit: !!visible.credit
-                        }
-                      })
-                      .then((r) => toast.push('success', `Saved to exports — ${r.path}`))
-                  : fullExportRows().then((all) =>
-                      csvReport(exportColumns.map((c) => c.label), all.map((r) => r.cells), 'day-book', toast)
-                    )
-                void streamed
-                  .catch((err: Error) => toast.push('error', err.message))
-                  .finally(() => setExporting(false))
-              }}
-            >
-              CSV
-            </Button>
-            <Button
-              variant="ghost"
-              data-testid="btn-daybook-xls"
-              disabled={exporting}
-              onClick={() => {
-                setExporting(true)
-                void fullExportXlsRows()
-                  .then((rowsForSheet) =>
-                    xlsReport(
-                      'day-book',
-                      [
-                        {
-                          name: 'Day book',
-                          columns: [
-                            { label: 'Date', kind: 'date' },
-                            { label: 'Type', kind: 'text' },
-                            { label: 'Number', kind: 'text' },
-                            { label: 'Account', kind: 'text' },
-                            { label: 'Narration', kind: 'text' },
-                            { label: 'Debit', kind: 'money' },
-                            { label: 'Credit', kind: 'money' }
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  disabled: exporting,
+                  onClick: () => {
+                    setExporting(true)
+                    void fullExportRows()
+                      .then((all) => printReport({ title: 'Day book', periodLabel, columns: exportColumns, rows: all }, toast))
+                      .catch((err: Error) => toast.push('error', err.message))
+                      .finally(() => setExporting(false))
+                  }
+                },
+                {
+                  label: 'CSV',
+                  disabled: exporting,
+                  onClick: () => {
+                    setExporting(true)
+                    /**
+                     * An unfiltered export is written by main straight out of the database, a page at
+                     * a time — three years of entries never becomes one string in this process.
+                     *
+                     * A FILTERED export cannot be: the scope, the drill chip and the text box are all
+                     * state that lives here, and main knows none of it. So a filtered export takes the
+                     * old road, which is honest because a filtered export is by definition smaller.
+                     */
+                    const streamed = !filtering
+                      ? api.exportReport
+                          .streamCsv('day-book', {
+                            kind: 'dayBook',
+                            from,
+                            to,
+                            // `filtering` is false only when the scope is the default 'books', and that
+                            // scope means optional and post-dated vouchers are excluded — which is
+                            // exactly what includeOutOfBooks: false asks the service for. The two have
+                            // to agree or the streamed file would carry rows the screen was hiding.
+                            includeOutOfBooks: false,
+                            columns: {
+                              type: !!visible.type,
+                              number: !!visible.number,
+                              account: !!visible.account,
+                              debit: !!visible.debit,
+                              credit: !!visible.credit
+                            }
+                          })
+                          .then((r) => toast.push('success', `Saved to exports — ${r.path}`))
+                      : fullExportRows().then((all) =>
+                          csvReport(exportColumns.map((c) => c.label), all.map((r) => r.cells), 'day-book', toast)
+                        )
+                    void streamed
+                      .catch((err: Error) => toast.push('error', err.message))
+                      .finally(() => setExporting(false))
+                  }
+                },
+                {
+                  label: 'XLS',
+                  testId: 'btn-daybook-xls',
+                  disabled: exporting,
+                  onClick: () => {
+                    setExporting(true)
+                    void fullExportXlsRows()
+                      .then((rowsForSheet) =>
+                        xlsReport(
+                          'day-book',
+                          [
+                            {
+                              name: 'Day book',
+                              columns: [
+                                { label: 'Date', kind: 'date' },
+                                { label: 'Type', kind: 'text' },
+                                { label: 'Number', kind: 'text' },
+                                { label: 'Account', kind: 'text' },
+                                { label: 'Narration', kind: 'text' },
+                                { label: 'Debit', kind: 'money' },
+                                { label: 'Credit', kind: 'money' }
+                              ],
+                              rows: rowsForSheet
+                            }
                           ],
-                          rows: rowsForSheet
-                        }
-                      ],
-                      toast
-                    )
-                  )
-                  .catch((err: Error) => toast.push('error', err.message))
-                  .finally(() => setExporting(false))
-              }}
-            >
-              XLS
-            </Button>
+                          toast
+                        )
+                      )
+                      .catch((err: Error) => toast.push('error', err.message))
+                      .finally(() => setExporting(false))
+                  }
+                }
+              ]}
+            />
           </div>
         }
       >

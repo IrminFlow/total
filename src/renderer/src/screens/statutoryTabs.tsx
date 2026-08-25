@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Field, Money, Panel, Select, TextInput } from '../components/ui'
+import { Button, EmptyState, ExportGroup, Field, Money, Panel, Select, TextInput } from '../components/ui'
 import { useStockItems } from '../components/pickers'
 import { fyOf, toDisplayDate } from '@shared/dates'
 
@@ -256,9 +256,11 @@ export function Form3cdTab(): React.JSX.Element {
         <span className="text-body-sm text-muted">
           {data ? `FY ${data.fyLabel}` : ''} · clause-wise extracts for the tax audit
         </span>
-        <Button data-testid="btn-3cd-csv" variant="ghost" onClick={() => void exportCsv()}>
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            { label: 'CSV', testId: 'btn-3cd-csv', onClick: () => void exportCsv() }
+          ]}
+        />
       </div>
 
       {isLoading && <div className="text-body-sm text-muted">Loading…</div>}
@@ -669,9 +671,11 @@ export function ScheduleIIIFace({ booksFrom, asOn }: { booksFrom: string; asOn: 
         <span className="text-hint text-muted">
           Division I of Schedule III to the Companies Act 2013 — the non-Ind AS face.
         </span>
-        <Button data-testid="btn-schedule3-csv" variant="ghost" onClick={() => void exportCsv()}>
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            { label: 'CSV', testId: 'btn-schedule3-csv', onClick: () => void exportCsv() }
+          ]}
+        />
       </div>
 
       {!data.balanceSheet.balanced && (

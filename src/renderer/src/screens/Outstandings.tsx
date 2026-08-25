@@ -2,7 +2,16 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useTableNav } from '../components/ui'
+import {
+  Button,
+  EmptyState,
+  ExportGroup,
+  Money,
+  Panel,
+  SectionTitle,
+  SkeletonRows,
+  useTableNav
+} from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -135,25 +144,21 @@ export function OutstandingsScreen(): React.JSX.Element {
               active={side}
               onSelect={setSide}
             />
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void printReport(
-                  { title: side === 'receivable' ? 'Receivables · ageing' : 'Payables · ageing', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows },
-                  toast
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `outstandings-${side}`, toast)
-              }
-            >
-              CSV
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  onClick: () => void printReport(
+                    { title: side === 'receivable' ? 'Receivables · ageing' : 'Payables · ageing', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows },
+                    toast
+                  )
+                },
+                {
+                  label: 'CSV',
+                  onClick: () => void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `outstandings-${side}`, toast)
+                }
+              ]}
+            />
           </div>
         }
       >

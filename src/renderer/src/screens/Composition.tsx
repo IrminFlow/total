@@ -2,7 +2,17 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, useTableNav } from '../components/ui'
+import {
+  Button,
+  EmptyState,
+  ExportGroup,
+  Money,
+  Panel,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  useTableNav
+} from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -180,38 +190,34 @@ export function CompositionScreen(): React.JSX.Element {
               {toDisplayDate(quarter.from)} → {toDisplayDate(quarter.to)}
             </span>
             <span className="flex-1" />
-            <Button
-              variant="ghost"
-              disabled={!cmp}
-              onClick={() =>
-                void printReport(
-                  {
-                    title: `CMP-08 · ${quarterKey}`,
-                    periodLabel: `${toDisplayDate(quarter.from)} → ${toDisplayDate(quarter.to)}`,
-                    columns: CMP08_COLUMNS,
-                    rows: cmpRows,
-                    filename: `cmp08-${quarterKey}`
-                  },
-                  toast
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={!cmp}
-              onClick={() =>
-                void csvReport(
-                  CMP08_COLUMNS.map((c) => c.label),
-                  cmpRows.map((r) => r.cells),
-                  `cmp08-${quarterKey}`,
-                  toast
-                )
-              }
-            >
-              CSV
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  disabled: !cmp,
+                  onClick: () => void printReport(
+                    {
+                      title: `CMP-08 · ${quarterKey}`,
+                      periodLabel: `${toDisplayDate(quarter.from)} → ${toDisplayDate(quarter.to)}`,
+                      columns: CMP08_COLUMNS,
+                      rows: cmpRows,
+                      filename: `cmp08-${quarterKey}`
+                    },
+                    toast
+                  )
+                },
+                {
+                  label: 'CSV',
+                  disabled: !cmp,
+                  onClick: () => void csvReport(
+                    CMP08_COLUMNS.map((c) => c.label),
+                    cmpRows.map((r) => r.cells),
+                    `cmp08-${quarterKey}`,
+                    toast
+                  )
+                }
+              ]}
+            />
           </div>
 
           <Panel>
@@ -264,40 +270,36 @@ export function CompositionScreen(): React.JSX.Element {
             {categorySelect}
             <span className="whitespace-nowrap text-hint text-muted">FY {fy.label}</span>
             <span className="flex-1" />
-            <Button
-              variant="ghost"
-              disabled={!annual?.quarters.length}
-              onClick={() =>
-                void printReport(
-                  {
-                    title: `GSTR-4 · FY ${fy.label}`,
-                    periodLabel: annual?.missingQuarters.length
-                      ? `${annual.quarters.map((q) => q.quarter).join(', ')} — ${annual.missingQuarters.join(', ')} not started`
-                      : 'Q1 to Q4',
-                    columns: GSTR4_COLUMNS,
-                    rows: gstr4Rows,
-                    filename: `gstr4-${fy.label}`
-                  },
-                  toast
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={!annual?.quarters.length}
-              onClick={() =>
-                void csvReport(
-                  GSTR4_COLUMNS.map((c) => c.label),
-                  gstr4Rows.map((r) => r.cells),
-                  `gstr4-${fy.label}`,
-                  toast
-                )
-              }
-            >
-              CSV
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  disabled: !annual?.quarters.length,
+                  onClick: () => void printReport(
+                    {
+                      title: `GSTR-4 · FY ${fy.label}`,
+                      periodLabel: annual?.missingQuarters.length
+                        ? `${annual.quarters.map((q) => q.quarter).join(', ')} — ${annual.missingQuarters.join(', ')} not started`
+                        : 'Q1 to Q4',
+                      columns: GSTR4_COLUMNS,
+                      rows: gstr4Rows,
+                      filename: `gstr4-${fy.label}`
+                    },
+                    toast
+                  )
+                },
+                {
+                  label: 'CSV',
+                  disabled: !annual?.quarters.length,
+                  onClick: () => void csvReport(
+                    GSTR4_COLUMNS.map((c) => c.label),
+                    gstr4Rows.map((r) => r.cells),
+                    `gstr4-${fy.label}`,
+                    toast
+                  )
+                }
+              ]}
+            />
           </div>
           {annual && annual.missingQuarters.length > 0 && (
             <div className="mb-3 rounded-md border border-accent/50 bg-accent/10 px-3.5 py-2.5 text-body-sm text-accent">

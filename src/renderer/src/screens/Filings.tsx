@@ -8,6 +8,7 @@ import {
   Button,
   DateInput,
   EmptyState,
+  ExportGroup,
   Field,
   Modal,
   Money,
@@ -167,38 +168,34 @@ export function FilingsScreen(): React.JSX.Element {
                 </option>
               ))}
             </Select>
-            <Button
-              variant="ghost"
-              disabled={!rows?.length}
-              onClick={() =>
-                void printReport(
-                  {
-                    title: `Filing register · FY ${fyFromStartYear(fyStartYear).label}`,
-                    periodLabel: `as on ${toDisplayDate(todayISO())}`,
-                    columns: COLUMNS,
-                    rows: csvRows.map((cells) => ({ cells })),
-                    filename: `filings-${fyFromStartYear(fyStartYear).label}`
-                  },
-                  toast
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={!rows?.length}
-              onClick={() =>
-                void csvReport(
-                  COLUMNS.map((c) => c.label),
-                  csvRows,
-                  `filings-${fyFromStartYear(fyStartYear).label}`,
-                  toast
-                )
-              }
-            >
-              CSV
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  disabled: !rows?.length,
+                  onClick: () => void printReport(
+                    {
+                      title: `Filing register · FY ${fyFromStartYear(fyStartYear).label}`,
+                      periodLabel: `as on ${toDisplayDate(todayISO())}`,
+                      columns: COLUMNS,
+                      rows: csvRows.map((cells) => ({ cells })),
+                      filename: `filings-${fyFromStartYear(fyStartYear).label}`
+                    },
+                    toast
+                  )
+                },
+                {
+                  label: 'CSV',
+                  disabled: !rows?.length,
+                  onClick: () => void csvReport(
+                    COLUMNS.map((c) => c.label),
+                    csvRows,
+                    `filings-${fyFromStartYear(fyStartYear).label}`,
+                    toast
+                  )
+                }
+              ]}
+            />
           </div>
         }
       >
@@ -684,23 +681,23 @@ function Gstr9Papers({ fyStartYear }: { fyStartYear: number }): React.JSX.Elemen
           <>The books and the filings differ. The lines below show where.</>
         )}
         <span className="ml-2">
-          <Button
-            variant="ghost"
-            onClick={() =>
-              void printReport(
-                {
-                  title: `GSTR-9 working papers · FY ${data.financialYear}`,
-                  periodLabel: 'Books against returns',
-                  columns,
-                  rows: exportRows,
-                  filename: `gstr9-papers-${data.financialYear}`
-                },
-                toast
-              )
-            }
-          >
-            PDF
-          </Button>
+          <ExportGroup
+            items={[
+              {
+                label: 'PDF',
+                onClick: () => void printReport(
+                  {
+                    title: `GSTR-9 working papers · FY ${data.financialYear}`,
+                    periodLabel: 'Books against returns',
+                    columns,
+                    rows: exportRows,
+                    filename: `gstr9-papers-${data.financialYear}`
+                  },
+                  toast
+                )
+              }
+            ]}
+          />
         </span>
       </div>
 

@@ -5,6 +5,7 @@ import { useNav, useSession, useToasts } from '../state/stores'
 import {
   Button,
   EmptyState,
+  ExportGroup,
   Field,
   Modal,
   Money,
@@ -109,59 +110,55 @@ function RelatedPartiesTab(): React.JSX.Element {
   return (
     <>
       <div className="mb-3 flex justify-end gap-2">
-        <Button
-          variant="ghost"
-          disabled={!rows.length}
-          onClick={() =>
-            void csvReport(
-              ['Party', 'Relationship', 'Debits', 'Credits', 'Closing balance'],
-              rows.map((r) => [
-                r.name,
-                r.relationship ?? '',
-                formatPaise(r.debits),
-                formatPaise(r.credits),
-                formatPaise(r.closingBalance)
-              ]),
-              'related-parties',
-              toast
-            )
-          }
-        >
-          CSV
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={!rows.length}
-          onClick={() =>
-            void printReport(
-              {
-                title: 'Related-party transactions',
-                periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`,
-                columns: [
-                  { label: 'Party', align: 'l' },
-                  { label: 'Relationship', align: 'l' },
-                  { label: 'Debits', align: 'r' },
-                  { label: 'Credits', align: 'r' },
-                  { label: 'Closing', align: 'r' }
-                ],
-                rows: rows.map((r) => ({
-                  cells: [
-                    r.name,
-                    r.relationship ?? '—',
-                    formatPaise(r.debits),
-                    formatPaise(r.credits),
-                    formatPaise(r.closingBalance)
-                  ]
-                })),
-                footNote: 'Parties flagged as related in Masters. A party with no transactions is disclosed as nil.',
-                filename: 'related-parties'
-              },
-              toast
-            )
-          }
-        >
-          PDF
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              disabled: !rows.length,
+              onClick: () => void printReport(
+                {
+                  title: 'Related-party transactions',
+                  periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`,
+                  columns: [
+                    { label: 'Party', align: 'l' },
+                    { label: 'Relationship', align: 'l' },
+                    { label: 'Debits', align: 'r' },
+                    { label: 'Credits', align: 'r' },
+                    { label: 'Closing', align: 'r' }
+                  ],
+                  rows: rows.map((r) => ({
+                    cells: [
+                      r.name,
+                      r.relationship ?? '—',
+                      formatPaise(r.debits),
+                      formatPaise(r.credits),
+                      formatPaise(r.closingBalance)
+                    ]
+                  })),
+                  footNote: 'Parties flagged as related in Masters. A party with no transactions is disclosed as nil.',
+                  filename: 'related-parties'
+                },
+                toast
+              )
+            },
+            {
+              label: 'CSV',
+              disabled: !rows.length,
+              onClick: () => void csvReport(
+                ['Party', 'Relationship', 'Debits', 'Credits', 'Closing balance'],
+                rows.map((r) => [
+                  r.name,
+                  r.relationship ?? '',
+                  formatPaise(r.debits),
+                  formatPaise(r.credits),
+                  formatPaise(r.closingBalance)
+                ]),
+                'related-parties',
+                toast
+              )
+            }
+          ]}
+        />
       </div>
 
       <Panel scroll={{ maxH: '62vh' }} data-testid="panel-related-parties">
@@ -251,6 +248,39 @@ function AuditStatementTab(): React.JSX.Element {
 
   return (
     <>
+      {/* The export sits above the statement, in the same place as every other tab's, rather than
+          alone on a band at the foot of the screen with 1100px of nothing beside it. */}
+      <div className="mb-3 flex justify-end gap-2">
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              title: 'The audit trail statement, for the auditor',
+              onClick: () =>
+                void printReport(
+                  {
+                    title: 'Audit trail statement',
+                    periodLabel: `${toDisplayDate(data.from)} to ${toDisplayDate(data.to)}`,
+                    columns: [
+                      { label: 'Item', align: 'l' },
+                      { label: 'Entries', align: 'r' }
+                    ],
+                    rows: [
+                      { cells: ['Total audit entries in the period', String(data.entries)], bold: true },
+                      ...data.entities.map((e) => ({ cells: [`  ${e.entity}`, String(e.entries)] })),
+                      { cells: ['Users who made changes', String(data.users.length)], bold: true },
+                      ...data.users.map((u) => ({ cells: [`  ${u.userName}`, String(u.entries)] }))
+                    ],
+                    footNote:
+                      'The audit trail cannot be disabled: there is no setting for it and no write path that skips it. Figures are measured from the log.',
+                    filename: 'audit-trail-statement'
+                  },
+                  toast
+                )
+            }
+          ]}
+        />
+      </div>
       <Panel className="p-4" data-testid="panel-audit-statement">
         <p className="text-body">
           For the period <b>{toDisplayDate(data.from)}</b> to <b>{toDisplayDate(data.to)}</b>, this
@@ -351,35 +381,6 @@ function AuditStatementTab(): React.JSX.Element {
         </Panel>
       </div>
 
-      <div className="mt-3 flex justify-end">
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void printReport(
-              {
-                title: 'Audit trail statement',
-                periodLabel: `${toDisplayDate(data.from)} to ${toDisplayDate(data.to)}`,
-                columns: [
-                  { label: 'Item', align: 'l' },
-                  { label: 'Entries', align: 'r' }
-                ],
-                rows: [
-                  { cells: ['Total audit entries in the period', String(data.entries)], bold: true },
-                  ...data.entities.map((e) => ({ cells: [`  ${e.entity}`, String(e.entries)] })),
-                  { cells: ['Users who made changes', String(data.users.length)], bold: true },
-                  ...data.users.map((u) => ({ cells: [`  ${u.userName}`, String(u.entries)] }))
-                ],
-                footNote:
-                  'The audit trail cannot be disabled: there is no setting for it and no write path that skips it. Figures are measured from the log.',
-                filename: 'audit-trail-statement'
-              },
-              toast
-            )
-          }
-        >
-          PDF for the auditor
-        </Button>
-      </div>
     </>
   )
 }

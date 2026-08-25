@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, useTableNav } from '../components/ui'
+import { Button, EmptyState, ExportGroup, Money, Panel, SectionTitle, useTableNav } from '../components/ui'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { addDays, toDisplayDate, todayISO } from '@shared/dates'
@@ -111,24 +111,20 @@ function StatementTab(): React.JSX.Element {
     <>
       <div className="mb-2 flex items-center justify-end gap-2">
             <span className="num text-small text-muted">{periodLabel}</span>
-            <Button
-              variant="ghost"
-              data-testid="cash-flow-pdf"
-              onClick={() =>
-                void printReport({ title: 'Cash flow statement', periodLabel, columns: exportColumns, rows: exportRows }, toast)
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              data-testid="cash-flow-csv"
-              onClick={() =>
-                void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'cash-flow', toast)
-              }
-            >
-              CSV
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  testId: 'cash-flow-pdf',
+                  onClick: () => void printReport({ title: 'Cash flow statement', periodLabel, columns: exportColumns, rows: exportRows }, toast)
+                },
+                {
+                  label: 'CSV',
+                  testId: 'cash-flow-csv',
+                  onClick: () => void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'cash-flow', toast)
+                }
+              ]}
+            />
       </div>
       <Panel className="card-fit overflow-y-auto">
         {!data || !hasAnything ? (
@@ -232,20 +228,20 @@ function ForecastTab(): React.JSX.Element {
     <>
       <div className="mb-2 flex items-center justify-end gap-2">
         <span className="num text-small text-muted">{periodLabel}</span>
-        <Button
-          variant="ghost"
-          data-testid="btn-forecast-pdf"
-          onClick={() => void printReport({ title: 'Cash forecast', periodLabel, columns, rows: exportRows }, toast)}
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          data-testid="btn-forecast-csv"
-          onClick={() => void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'cash-forecast', toast)}
-        >
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              testId: 'btn-forecast-pdf',
+              onClick: () => void printReport({ title: 'Cash forecast', periodLabel, columns, rows: exportRows }, toast)
+            },
+            {
+              label: 'CSV',
+              testId: 'btn-forecast-csv',
+              onClick: () => void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'cash-forecast', toast)
+            }
+          ]}
+        />
       </div>
 
       <div className="mb-3 grid grid-cols-4 gap-3">

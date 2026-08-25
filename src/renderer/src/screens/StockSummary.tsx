@@ -4,8 +4,20 @@ import { api } from '../lib/client'
 import type { LandedCostInputRow, TransferInput } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import {
-  AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select,
-  SkeletonRows, TextInput, useTableNav
+  AmountInput,
+  Button,
+  DateInput,
+  EmptyState,
+  ExportGroup,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
@@ -167,22 +179,18 @@ function SummaryTab(): React.JSX.Element {
         >
           Count sheet
         </Button>
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void printReport({ title: 'Stock summary', periodLabel, columns: exportColumns, rows: exportRows }, toast)
-          }
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'stock-summary', toast)
-          }
-        >
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              onClick: () => void printReport({ title: 'Stock summary', periodLabel, columns: exportColumns, rows: exportRows }, toast)
+            },
+            {
+              label: 'CSV',
+              onClick: () => void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'stock-summary', toast)
+            }
+          ]}
+        />
       </div>
       <Panel>
         {isLoading ? (
@@ -458,23 +466,23 @@ function PurchaseSuggestions({ asOn }: { asOn: string }): React.JSX.Element | nu
               about <Money paise={total} /> at last prices
             </span>
           )}
-          <Button
-            variant="ghost"
-            onClick={() =>
-              void printReport(
-                {
-                  title: 'Purchase suggestions',
-                  periodLabel: `as on ${toDisplayDate(asOn)}`,
-                  columns,
-                  rows: exportRows,
-                  filename: 'purchase-suggestions'
-                },
-                toast
-              )
-            }
-          >
-            PDF
-          </Button>
+          <ExportGroup
+            items={[
+              {
+                label: 'PDF',
+                onClick: () => void printReport(
+                  {
+                    title: 'Purchase suggestions',
+                    periodLabel: `as on ${toDisplayDate(asOn)}`,
+                    columns,
+                    rows: exportRows,
+                    filename: 'purchase-suggestions'
+                  },
+                  toast
+                )
+              }
+            ]}
+          />
         </span>
       </div>
       <table className="ledger-table" data-testid="rows-purchase-suggestions">
@@ -582,25 +590,25 @@ function NearExpiry({ asOn }: { asOn: string }): React.JSX.Element | null {
           <Button variant="ghost" data-testid="btn-expiry-show-all" onClick={() => setShowAll(!showAll)}>
             {showAll ? 'At risk only' : `All ${data.rows.length} batches`}
           </Button>
-          <Button
-            variant="ghost"
-            disabled={!shown.length}
-            onClick={() =>
-              void printReport(
-                {
-                  title: 'Shelf life',
-                  periodLabel: `as on ${toDisplayDate(asOn)}`,
-                  columns,
-                  rows: exportRows,
-                  footNote: 'Value is each batch at the item\u2019s own valuation, so it foots to closing stock.',
-                  filename: 'shelf-life'
-                },
-                toast
-              )
-            }
-          >
-            PDF
-          </Button>
+          <ExportGroup
+            items={[
+              {
+                label: 'PDF',
+                disabled: !shown.length,
+                onClick: () => void printReport(
+                  {
+                    title: 'Shelf life',
+                    periodLabel: `as on ${toDisplayDate(asOn)}`,
+                    columns,
+                    rows: exportRows,
+                    footNote: 'Value is each batch at the item\u2019s own valuation, so it foots to closing stock.',
+                    filename: 'shelf-life'
+                  },
+                  toast
+                )
+              }
+            ]}
+          />
         </span>
       </div>
 

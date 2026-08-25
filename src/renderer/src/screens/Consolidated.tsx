@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, ScrollList, SectionTitle, SkeletonRows } from '../components/ui'
+import { Button, EmptyState, ExportGroup, Money, Panel, ScrollList, SectionTitle, SkeletonRows } from '../components/ui'
 import { csvReport } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
 import { plainRupees } from '@shared/money'
@@ -117,11 +117,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
           <Button data-testid="btn-consolidated-run" variant="primary" onClick={() => void run()} disabled={isFetching}>
             {isFetching ? 'Running…' : 'Run'}
           </Button>
-          {data && (
-            <Button data-testid="btn-consolidated-csv" onClick={() => void exportCsv()}>
-              Export CSV
-            </Button>
-          )}
+          {data && <ExportGroup items={[{ label: 'CSV', testId: 'btn-consolidated-csv', onClick: () => void exportCsv() }]} />}
         </div>
       </Panel>
 

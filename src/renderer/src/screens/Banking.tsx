@@ -8,8 +8,22 @@ import {
 } from '../lib/client'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
 import {
-  AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, SkeletonRows,
-  Spinner, TextInput, useTableNav
+  AmountInput,
+  Button,
+  DateInput,
+  EmptyState,
+  ExportGroup,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  ScrollList,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  Spinner,
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { LedgerPicker } from '../components/pickers'
 import { toDisplayDate, todayISO } from '@shared/dates'
@@ -1083,9 +1097,10 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
         <Field label="As on">
           <DateInput value={asOn} context={defaultAsOn} onChange={setAsOn} testId="input-brs-date" className="w-40" />
         </Field>
-        <Button disabled={printing || !brs} data-testid="btn-banking-brs-pdf" onClick={() => void pdf()}>
-          Export PDF
-        </Button>
+        <ExportGroup
+          busy={printing}
+          items={[{ label: 'PDF', testId: 'btn-banking-brs-pdf', disabled: !brs, onClick: () => void pdf() }]}
+        />
       </div>
 
       {isLoading || !brs ? (

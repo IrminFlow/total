@@ -7,7 +7,21 @@ import { api, type EmployeeHeadRow, type PayHead } from '../lib/client'
 import { formatPaise, parseRupees } from '@shared/money'
 import { useNav, useToasts } from '../state/stores'
 import {
-  AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, Select, SkeletonRows, Spinner, TextInput, inputCls, useTableNav
+  AmountInput,
+  Button,
+  EmptyState,
+  ExportGroup,
+  Field,
+  inputCls,
+  Modal,
+  Money,
+  Panel,
+  ScrollList,
+  Select,
+  SkeletonRows,
+  Spinner,
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
@@ -1325,31 +1339,27 @@ function TrendTab(): React.JSX.Element {
           </span>
         )}
         <span className="flex-1" />
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void printReport(
-              {
-                title: 'Payroll cost over time',
-                periodLabel: `${rows[0]!.label} to ${latest.label}`,
-                columns,
-                rows: exportRows,
-                filename: 'payroll-trend'
-              },
-              toast
-            )
-          }
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'payroll-trend', toast)
-          }
-        >
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              onClick: () => void printReport(
+                {
+                  title: 'Payroll cost over time',
+                  periodLabel: `${rows[0]!.label} to ${latest.label}`,
+                  columns,
+                  rows: exportRows,
+                  filename: 'payroll-trend'
+                },
+                toast
+              )
+            },
+            {
+              label: 'CSV',
+              onClick: () => void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'payroll-trend', toast)
+            }
+          ]}
+        />
       </div>
 
       <Panel>

@@ -6,6 +6,7 @@ import {
   AmountInput,
   Button,
   EmptyState,
+  ExportGroup,
   Field,
   Modal,
   Money,
@@ -113,29 +114,29 @@ function RegisterTab(): React.JSX.Element {
           <Button variant="ghost" data-testid="btn-assets-show-disposed" onClick={() => setShowDisposed(!showDisposed)}>
             {showDisposed ? 'Hide disposed' : 'Include disposed'}
           </Button>
-          <Button
-            variant="ghost"
-            disabled={!rows.length}
-            onClick={() =>
-              void csvReport(
-                ['Asset', 'Code', 'Block', 'Bought', 'In use from', 'Cost', 'Depreciated', 'Book value'],
-                rows.map((a) => [
-                  a.name,
-                  a.code ?? '',
-                  a.blockName ?? '',
-                  a.purchaseDate,
-                  a.putToUseDate ?? '',
-                  formatPaise(a.cost),
-                  formatPaise(a.accumulated),
-                  formatPaise(a.bookValue)
-                ]),
-                'fixed-assets',
-                toast
-              )
-            }
-          >
-            CSV
-          </Button>
+          <ExportGroup
+            items={[
+              {
+                label: 'CSV',
+                disabled: !rows.length,
+                onClick: () => void csvReport(
+                  ['Asset', 'Code', 'Block', 'Bought', 'In use from', 'Cost', 'Depreciated', 'Book value'],
+                  rows.map((a) => [
+                    a.name,
+                    a.code ?? '',
+                    a.blockName ?? '',
+                    a.purchaseDate,
+                    a.putToUseDate ?? '',
+                    formatPaise(a.cost),
+                    formatPaise(a.accumulated),
+                    formatPaise(a.bookValue)
+                  ]),
+                  'fixed-assets',
+                  toast
+                )
+              }
+            ]}
+          />
         </div>
         <Button variant="primary" data-testid="btn-asset-add" onClick={() => setEditing('new')}>
           Add asset
@@ -630,34 +631,34 @@ function ScheduleTab(): React.JSX.Element {
       </Panel>
 
       <div className="mt-3 flex justify-end gap-2">
-        <Button
-          variant="ghost"
-          disabled={!s?.companiesAct.length}
-          onClick={() =>
-            void printReport(
-              {
-                title: 'Depreciation schedule — Companies Act',
-                periodLabel: `${toDisplayDate(s!.from)} to ${toDisplayDate(s!.to)}`,
-                columns: [
-                  { label: 'Asset', align: 'l' },
-                  { label: 'Method', align: 'l' },
-                  { label: 'Opening', align: 'r' },
-                  { label: 'Depreciation', align: 'r' },
-                  { label: 'Closing', align: 'r' }
-                ],
-                rows: s!.companiesAct.map((r) => ({
-                  cells: [r.name, r.method.toUpperCase(), formatPaise(r.openingWdv), formatPaise(r.depreciation), formatPaise(r.closingWdv)]
-                })),
-                footNote:
-                  'Companies Act only. The income-tax schedule is computed per block and gives a different figure by design.',
-                filename: 'depreciation-companies-act'
-              },
-              toast
-            )
-          }
-        >
-          PDF
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              disabled: !s?.companiesAct.length,
+              onClick: () => void printReport(
+                {
+                  title: 'Depreciation schedule — Companies Act',
+                  periodLabel: `${toDisplayDate(s!.from)} to ${toDisplayDate(s!.to)}`,
+                  columns: [
+                    { label: 'Asset', align: 'l' },
+                    { label: 'Method', align: 'l' },
+                    { label: 'Opening', align: 'r' },
+                    { label: 'Depreciation', align: 'r' },
+                    { label: 'Closing', align: 'r' }
+                  ],
+                  rows: s!.companiesAct.map((r) => ({
+                    cells: [r.name, r.method.toUpperCase(), formatPaise(r.openingWdv), formatPaise(r.depreciation), formatPaise(r.closingWdv)]
+                  })),
+                  footNote:
+                    'Companies Act only. The income-tax schedule is computed per block and gives a different figure by design.',
+                  filename: 'depreciation-companies-act'
+                },
+                toast
+              )
+            }
+          ]}
+        />
       </div>
 
       <p className="mt-2 text-hint text-muted">
