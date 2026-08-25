@@ -19,6 +19,7 @@
     "smoke": "node scripts/smoke-ci.mjs",
     "e2e": "node scripts/run-e2e.mjs",
     "visual": "node scripts/visual-regression.mjs",
+    "mutate": "node scripts/mutate.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "postinstall": "electron-builder install-app-deps",
     "build:mac": "electron-vite build && electron-builder --mac",
