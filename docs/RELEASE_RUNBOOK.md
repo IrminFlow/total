@@ -18,6 +18,12 @@ Never store certificates or secret values in the repository. The release workflo
 build when any credential is absent and electron-builder's `forceCodeSigning` prevents an
 unsigned fallback.
 
+Store the seven signing secrets on the reviewer-protected `release-signing` GitHub environment,
+not as plaintext variables or repository files. `APPLE_API_KEY` is the base64 encoding of the
+complete `.p8` file (including its BEGIN/END lines); the workflow decodes it to a permission-limited
+temporary file because Apple's `notarytool` requires a filesystem path. GitHub environment access
+must remain limited to the `main` branch and require release-owner approval.
+
 ## Release
 
 1. Merge the reviewed version commit to protected `main` and wait for the exact commit's push CI to

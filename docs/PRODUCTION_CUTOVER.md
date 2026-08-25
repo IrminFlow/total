@@ -57,6 +57,10 @@ GitHub Actions release secrets:
 - macOS: `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`.
 - Windows: `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`.
 
+Configure these as secrets on the reviewer-protected `release-signing` environment. Encode the
+Developer ID `.p12`, App Store Connect `.p8` and Authenticode `.pfx` files as base64 without changing
+their contents; the workflow materializes the `.p8` as a temporary key file for `notarytool`.
+
 Never place these values in source, local evidence, screenshots or support cases.
 
 ## 3. Release
