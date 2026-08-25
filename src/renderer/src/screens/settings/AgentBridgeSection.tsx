@@ -27,6 +27,7 @@ import {
   TextInput,
 } from "../../components/ui";
 import { useDeviceSafetyControls } from "../../lib/useDeviceSafety";
+import { proposalReviewSummary } from "../../lib/proposalReview";
 
 export function AgentBridgeSection(): React.JSX.Element {
   const toast = useToasts();
@@ -529,12 +530,13 @@ function ProposalList({
     <div className="divide-y divide-line">
       {rows.map((proposal) => {
         const parsed = voucherInputSchema.safeParse(proposal.voucher);
-        const debit = parsed.success
-          ? parsed.data.lines.filter((line) => line.drCr === "dr").reduce((sum, line) => sum + line.amount, 0)
-          : 0;
-        const credit = parsed.success
-          ? parsed.data.lines.filter((line) => line.drCr === "cr").reduce((sum, line) => sum + line.amount, 0)
-          : 0;
+        const review = parsed.success
+          ? proposalReviewSummary(
+              parsed.data,
+              ledgerNames,
+              voucherTypeNames.get(parsed.data.voucherTypeId) ?? `Voucher type #${parsed.data.voucherTypeId}`,
+            )
+          : null;
         return (
         <div
           key={proposal.id}
@@ -555,8 +557,12 @@ function ProposalList({
                 <div className="grid gap-3 sm:grid-cols-4">
                   <div><p className="text-[9px] uppercase tracking-wide text-muted">Voucher</p><p className="mt-0.5 text-[11px] font-medium">{voucherTypeNames.get(parsed.data.voucherTypeId) ?? `Type #${parsed.data.voucherTypeId}`}</p></div>
                   <div><p className="text-[9px] uppercase tracking-wide text-muted">Date</p><p className="num mt-0.5 text-[11px] font-medium">{parsed.data.date}</p></div>
-                  <div><p className="text-[9px] uppercase tracking-wide text-muted">Debit</p><p className="num mt-0.5 text-[11px] font-medium">{formatPaise(debit, { symbol: true })}</p></div>
-                  <div><p className="text-[9px] uppercase tracking-wide text-muted">Credit</p><p className={`num mt-0.5 text-[11px] font-medium ${debit === credit ? "text-dr" : "text-cr"}`}>{formatPaise(credit, { symbol: true })}</p></div>
+                  <div><p className="text-[9px] uppercase tracking-wide text-muted">Debit</p><p className="num mt-0.5 text-[11px] font-medium">{formatPaise(review!.debit, { symbol: true })}</p></div>
+                  <div><p className="text-[9px] uppercase tracking-wide text-muted">Credit</p><p className={`num mt-0.5 text-[11px] font-medium ${review!.balanced ? "text-dr" : "text-cr"}`}>{formatPaise(review!.credit, { symbol: true })}</p></div>
+                </div>
+                <div className="mt-3 rounded border border-line bg-panel px-3 py-2">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-muted">What approval will post</p>
+                  <p className="mt-1 text-[10.5px] leading-4 text-ink">{review!.explanation}</p>
                 </div>
                 <div className="mt-3 divide-y divide-line border-t border-line">
                   {parsed.data.lines.map((line, index) => (
@@ -567,10 +573,15 @@ function ProposalList({
                     </div>
                   ))}
                 </div>
-                <p className={`mt-2 text-[10px] ${debit === credit ? "text-dr" : "text-cr"}`}>
-                  {debit === credit
+                {review!.warnings.length > 0 && (
+                  <ul className="mt-2 space-y-1 rounded border border-amber/30 bg-amber/5 px-3 py-2 text-[10px] text-amber">
+                    {review!.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  </ul>
+                )}
+                <p className={`mt-2 text-[10px] ${review!.balanced ? "text-dr" : "text-cr"}`}>
+                  {review!.balanced
                     ? "Balanced. Approval still applies Total’s accounting, lock and permission checks."
-                    : `Blocked: debits and credits differ by ${formatPaise(Math.abs(debit - credit), { symbol: true })}.`}
+                    : `Blocked: debits and credits differ by ${formatPaise(Math.abs(review!.debit - review!.credit), { symbol: true })}.`}
                 </p>
               </div>
             ) : (
@@ -596,7 +607,7 @@ function ProposalList({
             </Button>
             <Button
               variant="primary"
-              disabled={reviewing !== null || viewer || !parsed.success || debit !== credit}
+              disabled={reviewing !== null || viewer || !parsed.success || !review?.balanced}
               onClick={() => void onApprove(proposal.id)}
             >
               {reviewing === proposal.id ? "Reviewing…" : "Approve & post"}
