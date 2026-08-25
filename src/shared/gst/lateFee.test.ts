@@ -97,3 +97,35 @@ describe('lateCharge', () => {
     expect(c.daysLate).toBe(31)
   })
 })
+
+describe('the rates that were in the table but not in the tests', () => {
+  // Mutation testing found that only GSTR-3B's row was exercised: the ₹50/day and the ₹2,000 cap
+  // on the other two forms could have been anything (roadmap #327). A rate table nothing reads is
+  // a rate table nobody notices going wrong.
+  it('charges GSTR-1 at fifty rupees a day', () => {
+    const c = lateCharge({ form: 'GSTR-1', dueDate: '2026-05-11', filedDate: '2026-05-21', taxPaise: 1_00_000 })
+    expect(c.daysLate).toBe(10)
+    expect(c.lateFeePaise).toBe(500_00) // ₹50 × 10
+    expect(c.interestPaise).toBe(0) // GSTR-1 is a statement of supplies; interest arises on 3B
+  })
+
+  it('caps GSTR-4 at two thousand rupees, not five', () => {
+    // 100 days at ₹50 would be ₹5,000 — the general cap. GSTR-4's own cap is lower, and only a
+    // delay long enough to reach it can tell the two numbers apart.
+    const c = lateCharge({ form: 'GSTR-4', dueDate: '2026-04-30', filedDate: '2026-08-08', taxPaise: 1_00_000 })
+    expect(c.daysLate).toBe(100)
+    expect(c.feeCapped).toBe(true)
+    expect(c.lateFeePaise).toBe(2000_00)
+  })
+
+  it('charges a nil return the nil rate', () => {
+    // `taxPaise > 0` is what picks between the two columns of the table. With `>= 0` a nil return
+    // would be charged the full ₹50 instead of ₹20 — on the filer least able to argue about it.
+    const nil = lateCharge({ form: 'GSTR-3B', dueDate: '2026-05-20', filedDate: '2026-05-30', taxPaise: 0 })
+    expect(nil.lateFeePaise).toBe(200_00) // ₹20 × 10
+    expect(nil.interestPaise).toBe(0) // no tax, no interest
+    const withTax = lateCharge({ form: 'GSTR-3B', dueDate: '2026-05-20', filedDate: '2026-05-30', taxPaise: 1_00_000 })
+    expect(withTax.lateFeePaise).toBe(500_00)
+  })
+})
+

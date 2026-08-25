@@ -185,7 +185,10 @@ try {
     if (!killed) survivors.push(m)
   }
 } finally {
-  restore()
+  // Files back, journal deliberately KEPT: the survivor re-check below mutates them again, and a
+  // kill during that phase would otherwise leave a mutated engine with nothing to recover from.
+  // That happened once. The journal is removed at the very end, after the last write.
+  for (const [file, src] of originals) writeFileSync(file, src)
 }
 
 // Re-check every survivor against the WHOLE suite before reporting it. Scoping the runs above

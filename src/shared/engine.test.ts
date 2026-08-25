@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { amountInWords, formatPaise, parseMilli, parseRupees, percentOf, plainMilli, plainRupees, roundToRupee } from './money'
+import { amountInWords, formatPaise, parseMilli, parseRupees, percentOf, plainMilli, plainRupees, roundPaise, roundToRupee } from './money'
 import { fyOf, parseSmartDate, gstPeriodOf, toPortalDate, isValidISODate, toDisplayDateTime } from './dates'
 import { validateGstin, gstinCheckChar, validateHsn } from './gst/validate'
 import { computeGst, supplyTypeFor } from './gst/calc'
@@ -564,5 +564,42 @@ describe('parseMilli', () => {
     for (const milli of [0, 1, 999, 1000, 12500, -4500, 1200000]) {
       expect(parseMilli(plainMilli(milli))).toBe(milli)
     }
+  })
+})
+
+/**
+ * The cases mutation testing found nothing was checking (roadmap #327).
+ *
+ * Each of these kills a specific mutant that survived `npm run mutate` — a line the suite ran
+ * and did not check. They are written as the smallest input that tells the two apart, because
+ * that is what makes them useful when one fails later.
+ */
+describe('rounding a negative amount', () => {
+  // `Math.sign(v) * Math.round(Math.abs(v))` is half-AWAY-from-zero, which is the GST convention.
+  // Dropping the Math.abs gives `Math.sign(v) * Math.round(v)` — which for -2.5 rounds to -2 and
+  // then multiplies by -1, producing +2: the wrong magnitude AND the wrong sign. Only a negative
+  // half-value tells them apart, and nothing had one.
+  it('goes away from zero on a half, in both directions', () => {
+    expect(roundPaise(2.5)).toBe(3)
+    expect(roundPaise(-2.5)).toBe(-3)
+    expect(roundPaise(-1.5)).toBe(-2)
+    expect(roundPaise(-0.5)).toBe(-1)
+  })
+
+  it('and the same for rounding to the rupee — a credit note rounds like an invoice', () => {
+    expect(roundToRupee(-250)).toBe(-300)
+    expect(roundToRupee(-249)).toBe(-200)
+    expect(roundToRupee(-123450)).toBe(-123500)
+  })
+})
+
+describe('amount in words at the boundaries of its own table', () => {
+  // `n < 20` reads a 20-entry table of ones and teens; `n <= 20` reads one past the end, gets
+  // undefined, and the `?? ''` turns a missing word into silence. Twenty is the only number that
+  // tells them apart, and it is not a number an invoice can avoid.
+  it('says twenty', () => {
+    expect(amountInWords(20 * 100)).toBe('Twenty Rupees Only')
+    expect(amountInWords(19 * 100)).toBe('Nineteen Rupees Only')
+    expect(amountInWords(21 * 100)).toBe('Twenty One Rupees Only')
   })
 })

@@ -37,3 +37,24 @@ describe('isRoundingDifference', () => {
     expect(isRoundingDifference(200000, 100000)).toBe(false)
   })
 })
+
+describe('a difference too big to be rounding', () => {
+  // `Math.abs(diff) > limit` is what refuses a difference that is a mistake rather than a
+  // rounding artefact. Without the Math.abs the comparison is `diff > limit`, which is false for
+  // every NEGATIVE difference however large — so a credit-heavy voucher out by ₹500 would be
+  // silently plugged with a ₹500 round-off line instead of refused. Only a negative overshoot
+  // tells the two apart, and the suite only had positive ones (roadmap #327).
+  it('refuses one, whichever side it falls on', () => {
+    const over = ROUND_OFF_LIMIT_PAISE + 1
+    expect(roundOffLine(over, 0)).toBeNull()
+    expect(roundOffLine(0, over)).toBeNull()
+    expect(roundOffLine(1000, 1000 + over)).toBeNull()
+  })
+
+  it('still plugs one that is exactly at the limit, on either side', () => {
+    const at = ROUND_OFF_LIMIT_PAISE
+    expect(roundOffLine(at, 0)).toEqual({ drCr: 'cr', amount: at })
+    expect(roundOffLine(0, at)).toEqual({ drCr: 'dr', amount: at })
+  })
+})
+
