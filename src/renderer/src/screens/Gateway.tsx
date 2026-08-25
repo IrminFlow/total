@@ -19,6 +19,12 @@ import type { RecurringTemplate } from "@shared/domain";
 import type { CashSparkPoint, TopLedgerRow } from "@shared/reports";
 import { templateOpenTarget } from "./recurringDraft";
 import { CARD_SCREENS } from "../lib/screens";
+import {
+  commandForScreen,
+  effectiveBindings,
+  matchesShortcut,
+  useShortcutOverrides,
+} from "../lib/commands";
 import { MnemonicText } from "../components/MnemonicText";
 import {
   readWorkspacePrefs,
@@ -60,6 +66,7 @@ export function Gateway(): React.JSX.Element {
   const today = todayISO();
   const features = useFeatures();
   const language = useAccessibilityPreferences((state) => state.language);
+  const shortcutOverrides = useShortcutOverrides();
   const [homePrefs, setHomePrefs] = useState<WorkspacePrefs>(() =>
     readWorkspacePrefs(slug, identity),
   );
@@ -71,8 +78,17 @@ export function Gateway(): React.JSX.Element {
     [slug, identity],
   );
   const availableCards = useMemo(
-    () => CARDS.filter((c) => !c.feature || features[c.feature]),
-    [features],
+    () =>
+      CARDS.filter((c) => !c.feature || features[c.feature]).map((card) => {
+        const command = commandForScreen(card.screen.name);
+        const binding = command
+          ? effectiveBindings(command, shortcutOverrides).find(
+              (candidate) => candidate.context === "gateway",
+            )
+          : undefined;
+        return { ...card, key: binding?.key.toUpperCase() ?? card.key };
+      }),
+    [features, shortcutOverrides],
   );
   const cards = useMemo(() => {
     const rank = new Map(
@@ -102,14 +118,20 @@ export function Gateway(): React.JSX.Element {
       if (isAnyModalOpen()) return;
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      const card = cards.find(
-        (c) => c.key.toLowerCase() === e.key.toLowerCase(),
-      );
+      const card = availableCards.find((candidate) => {
+        const command = commandForScreen(candidate.screen.name);
+        const binding = command
+          ? effectiveBindings(command, shortcutOverrides).find(
+              (item) => item.context === "gateway",
+            )
+          : undefined;
+        return binding ? matchesShortcut(e, binding) : false;
+      });
       if (card) nav.go(card.screen);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [nav, cards]);
+  }, [nav, availableCards, shortcutOverrides]);
 
   const tiles: { label: string; value?: number; text?: string }[] = [
     { label: "Cash in hand", value: data?.cashBalance ?? 0 },

@@ -17,6 +17,7 @@ import {
 } from "../components/ui";
 import { useKeyNav } from "../components/useKeyNav";
 import { ReportConfigButton } from "../components/ReportConfigButton";
+import { ReportToolbar } from "../components/ReportToolbar";
 import { useReportConfig, type ReportColumn } from "../lib/reportConfig";
 import { csvReport, printReport } from "../lib/reportExport";
 import type {
@@ -482,7 +483,7 @@ export function DayBook({
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <div className="flex items-center gap-2">
+          <ReportToolbar compact>
             <TextInput
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -536,7 +537,7 @@ export function DayBook({
             >
               CSV
             </Button>
-          </div>
+          </ReportToolbar>
         }
       >
         Day book

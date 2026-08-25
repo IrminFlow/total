@@ -13,6 +13,7 @@ import {
   SkeletonRows,
 } from '../components/ui'
 import { TabBar } from '../components/TabBar'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type {
   ReportColumn as PdfColumn,
@@ -60,7 +61,7 @@ export function RegistersScreen(): React.JSX.Element {
   const kind = tab === 'items' ? 'sales' : tab
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['register', kind, from, to, granularity],
-    queryFn: () => api.analysis.register(kind, from, to, granularity),
+    queryFn: () => api.analysis.register({ kind, from, to, granularity }),
     enabled: tab !== 'items',
   })
   const rows = data ?? []
@@ -123,7 +124,7 @@ export function RegistersScreen(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl">
       <SectionTitle>{title}</SectionTitle>
-      <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3 border-y border-line py-2">
+      <ReportToolbar className="mb-3">
         <TabBar
           screen="registers"
           tabs={(['sales', 'purchase', 'items'] as const).map((k) => ({
@@ -232,7 +233,7 @@ export function RegistersScreen(): React.JSX.Element {
             </div>
           </details>
         </div>
-      </div>
+      </ReportToolbar>
       {tab === 'items' ? (
         <ItemProfitPanel from={from} to={to} periodLabel={periodLabel} />
       ) : (

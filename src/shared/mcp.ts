@@ -5,6 +5,8 @@ export const MCP_SCOPES = [
   "mirror:read",
   "attachment:read",
   "proposal:create",
+  "proposal:read",
+  "proposal:discard",
   "mirror:refresh",
 ] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { certificationProgress, cohortPayload, freshCommercialState, recordCohortEvent, referralCode, validReferralCode, writeCommercialState } from "../lib/commercialOps";
+import { setProductFlag } from "../lib/productFlags";
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -18,12 +19,22 @@ describe("commercial operations preferences", () => {
     const state = freshCommercialState("install123456", new Date("2026-08-01T00:00:00Z"));
     state.analytics.enabled = true;
     writeCommercialState(storage, state);
+    setProductFlag(storage, "telemetry", true);
     recordCohortEvent(storage, "first_voucher_posted", new Date("2026-08-02T00:00:00Z"));
     recordCohortEvent(storage, "voucher_amount_999", new Date("2026-08-02T00:00:00Z"));
     const payload = cohortPayload(JSON.parse(storage.getItem("total:commercial:v1")!), "0.5.0", "darwin");
     expect(JSON.stringify(payload)).toContain("first_voucher_posted");
     expect(JSON.stringify(payload)).not.toContain("voucher_amount_999");
     expect(payload).not.toHaveProperty("company");
+  });
+
+  it("records nothing when the independent telemetry kill switch is off", () => {
+    const storage = memoryStorage();
+    const state = freshCommercialState("install123456", new Date("2026-08-01T00:00:00Z"));
+    state.analytics.enabled = true;
+    writeCommercialState(storage, state);
+    recordCohortEvent(storage, "first_voucher_posted", new Date("2026-08-02T00:00:00Z"));
+    expect(JSON.parse(storage.getItem("total:commercial:v1")!).analytics.events).toEqual({});
   });
 
   it("does not claim certification before every module is completed", () => {

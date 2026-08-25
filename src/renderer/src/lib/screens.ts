@@ -8,7 +8,19 @@ import type { CompanyFeatures } from "@shared/features";
  */
 
 export type NavSectionId =
-  "top" | "books" | "analysis" | "banking" | "payroll" | "gst" | "system";
+  | "home"
+  | "create"
+  | "sales"
+  | "purchases"
+  | "banking"
+  | "inventory"
+  | "parties"
+  | "compliance"
+  | "payroll"
+  | "reports"
+  | "automation";
+
+type LegacyNavSectionId = "top" | "books" | "analysis" | "banking" | "payroll" | "gst" | "system";
 
 /** Sidebar section order + titles (null = the untitled block at the top). */
 export const NAV_SECTIONS: {
@@ -16,13 +28,17 @@ export const NAV_SECTIONS: {
   title: string | null;
   feature?: keyof CompanyFeatures;
 }[] = [
-  { id: "top", title: null },
-  { id: "books", title: "Books" },
-  { id: "analysis", title: "Analysis" },
+  { id: "home", title: "Home" },
+  { id: "create", title: "Create" },
+  { id: "sales", title: "Sales" },
+  { id: "purchases", title: "Purchases" },
   { id: "banking", title: "Banking" },
+  { id: "inventory", title: "Inventory" },
+  { id: "parties", title: "Parties" },
+  { id: "compliance", title: "Compliance" },
   { id: "payroll", title: "Payroll", feature: "payroll" },
-  { id: "gst", title: "GST" },
-  { id: "system", title: "System" },
+  { id: "reports", title: "Reports" },
+  { id: "automation", title: "Automation" },
 ];
 
 export interface ScreenDef {
@@ -32,15 +48,13 @@ export interface ScreenDef {
   /** Default navigation target (screens with required params aren't navigable from here). */
   screen: Screen | null;
   /** Sidebar placement; null = not in the sidebar. */
-  navSection: NavSectionId | null;
+  navSection: NavSectionId | LegacyNavSectionId | null;
   /** Sidebar label when shorter than the palette title. */
   navLabel?: string;
   /** Hidden everywhere (render-only) when this feature is off. */
   feature?: keyof CompanyFeatures;
   /** Gateway card: subtitle + single-letter shortcut (also ShortcutHelp's Gateway group). */
   card?: { sub: string; key: string };
-  /** App-wide navigation mnemonic. Alt+key by default; shift resolves deliberate collisions. */
-  shortcut?: { key: string; shift?: boolean };
   /** Extra command-palette search terms beyond the title. */
   keywords?: string[];
   /**
@@ -101,7 +115,6 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: "control-room" },
     navSection: "top",
     card: { sub: "Reviews, access & sign-off", key: "O" },
-    shortcut: { key: "o", shift: true },
     invalidates: [
       "controlReport",
       "controlReviews",
@@ -341,7 +354,6 @@ export const SCREENS: ScreenDef[] = [
     navSection: "books",
     feature: "inventory",
     card: { sub: "Supply, commitments & counts", key: "I" },
-    shortcut: { key: "n" },
     invalidates: [
       "inventoryPlanner",
       "inventoryReservations",
@@ -598,57 +610,58 @@ export const SCREENS: ScreenDef[] = [
   },
 ];
 
-/** Central navigation bindings. Kept beside the screen registry so sidebar, dispatch and help agree. */
-export const SCREEN_SHORTCUTS: Partial<
-  Record<Screen["name"], NonNullable<ScreenDef["shortcut"]>>
-> = {
-  gateway: { key: "g" },
-  "action-centre": { key: "a" },
-  assist: { key: "a", shift: true },
-  "task-inbox": { key: "h" },
-  "voucher-entry": { key: "v" },
-  "voucher-drafts": { key: "v", shift: true },
-  "entry-templates": { key: "e", shift: true },
-  "sales-documents": { key: "r" },
-  communications: { key: "g", shift: true },
-  daybook: { key: "d" },
-  masters: { key: "m" },
-  recurring: { key: "c" },
-  "import-tally": { key: "i" },
-  "trial-balance": { key: "t" },
-  "profit-loss": { key: "l" },
-  "balance-sheet": { key: "b" },
-  "cash-flow": { key: "f" },
-  procurement: { key: "r", shift: true },
-  "stock-summary": { key: "s" },
-  "month-close": { key: "q" },
-  "year-end": { key: "y" },
-  registers: { key: "e" },
-  outstandings: { key: "o" },
-  collections: { key: "l", shift: true },
-  consolidated: { key: "n" },
-  "cost-centres": { key: "c", shift: true },
-  budgets: { key: "u" },
-  "management-insights": { key: "i", shift: true },
-  exceptions: { key: "x" },
-  banking: { key: "k" },
-  "supplier-dues": { key: "u", shift: true },
-  payroll: { key: "p" },
-  gstr1: { key: "1" },
-  gstr3b: { key: "3" },
-  gstr2b: { key: "2" },
-  edocs: { key: "w" },
-  tds: { key: "t", shift: true },
-  "compliance-centre": { key: "j" },
-  settings: { key: "s", shift: true },
-};
-
-for (const def of SCREENS) def.shortcut = SCREEN_SHORTCUTS[def.name];
-
 const byName = new Map(SCREENS.map((s) => [s.name, s]));
 
 export function screenDef(name: Screen["name"]): ScreenDef | undefined {
   return byName.get(name);
+}
+
+const WORKFLOW_SECTIONS: Partial<Record<Screen["name"], NavSectionId>> = {
+  gateway: "home",
+  "action-centre": "home",
+  "task-inbox": "home",
+  "control-room": "home",
+  "voucher-entry": "create",
+  "voucher-drafts": "create",
+  "entry-templates": "create",
+  daybook: "create",
+  "sales-documents": "sales",
+  communications: "sales",
+  collections: "sales",
+  procurement: "purchases",
+  "supplier-dues": "purchases",
+  banking: "banking",
+  "stock-summary": "inventory",
+  "inventory-control": "inventory",
+  masters: "parties",
+  outstandings: "parties",
+  gstr1: "compliance",
+  gstr2b: "compliance",
+  gstr3b: "compliance",
+  edocs: "compliance",
+  tds: "compliance",
+  "compliance-centre": "compliance",
+  "month-close": "compliance",
+  "year-end": "compliance",
+  payroll: "payroll",
+  "trial-balance": "reports",
+  "profit-loss": "reports",
+  "balance-sheet": "reports",
+  "cash-flow": "reports",
+  registers: "reports",
+  consolidated: "reports",
+  "cost-centres": "reports",
+  budgets: "reports",
+  "management-insights": "reports",
+  exceptions: "reports",
+  assist: "automation",
+  recurring: "automation",
+  "import-tally": "automation",
+  settings: "automation",
+};
+
+export function navigationSection(def: ScreenDef): NavSectionId | null {
+  return WORKFLOW_SECTIONS[def.name] ?? null;
 }
 
 /** Gateway cards, in registry order. */
@@ -667,63 +680,4 @@ export const CARD_SCREENS: (ScreenDef & {
 /** Query-key families to refresh when `name` becomes the visible screen. */
 export function invalidationFamilies(name: Screen["name"]): string[] {
   return byName.get(name)?.invalidates ?? [];
-}
-
-export interface ShortcutConflict {
-  scope: "gateway" | "navigation";
-  binding: string;
-  screens: Screen["name"][];
-}
-
-/** Reject duplicate bindings within a keyboard scope. Gateway bare letters and app-wide Alt
- * bindings are intentionally separate scopes, so V and Alt+V may coexist. This guard runs when
- * the registry loads: a new or user-configured binding cannot silently steal another action. */
-export function findShortcutConflicts(
-  defs: ScreenDef[] = SCREENS,
-  shortcuts: Partial<
-    Record<Screen["name"], NonNullable<ScreenDef["shortcut"]>>
-  > = SCREEN_SHORTCUTS,
-): ShortcutConflict[] {
-  const conflicts: ShortcutConflict[] = [];
-  const collect = (
-    scope: ShortcutConflict["scope"],
-    entries: { binding: string; name: Screen["name"] }[],
-  ): void => {
-    const groups = new Map<string, Screen["name"][]>();
-    for (const entry of entries)
-      groups.set(entry.binding, [
-        ...(groups.get(entry.binding) ?? []),
-        entry.name,
-      ]);
-    for (const [binding, screens] of groups)
-      if (screens.length > 1) conflicts.push({ scope, binding, screens });
-  };
-  collect(
-    "gateway",
-    defs
-      .filter((def) => def.card)
-      .map((def) => ({ binding: def.card!.key.toLowerCase(), name: def.name })),
-  );
-  collect(
-    "navigation",
-    defs.flatMap((def) => {
-      const shortcut = shortcuts[def.name];
-      return shortcut
-        ? [
-            {
-              binding: `${shortcut.shift ? "alt+shift" : "alt"}+${shortcut.key.toLowerCase()}`,
-              name: def.name,
-            },
-          ]
-        : [];
-    }),
-  );
-  return conflicts;
-}
-
-const shortcutConflicts = findShortcutConflicts();
-if (shortcutConflicts.length) {
-  throw new Error(
-    `Shortcut conflict: ${shortcutConflicts.map((conflict) => `${conflict.scope} ${conflict.binding} (${conflict.screens.join(", ")})`).join("; ")}`,
-  );
 }

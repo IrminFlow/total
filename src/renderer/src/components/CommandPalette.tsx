@@ -4,7 +4,13 @@ import { useNav, useSession, useToasts, type Screen } from "../state/stores";
 import { api } from "../lib/client";
 import { useKeyNav } from "./useKeyNav";
 import { useFeatures } from "../lib/useFeatures";
-import { SCREENS } from "../lib/screens";
+import {
+  NAVIGATION_COMMANDS,
+  commandAvailable,
+  effectiveBindings,
+  formatShortcut,
+  useShortcutOverrides,
+} from "../lib/commands";
 import type { CompanyFeatures } from "@shared/features";
 import type { SearchHit } from "@shared/search";
 import { readWorkspacePrefs } from "../lib/workspacePrefs";
@@ -41,8 +47,9 @@ export function CommandPalette({
 }): React.JSX.Element {
   const nav = useNav();
   const toast = useToasts();
-  const { clearCompany, setPeriod, slug } = useSession();
+  const { clearCompany, setPeriod, slug, user } = useSession();
   const features = useFeatures();
+  const shortcutOverrides = useShortcutOverrides();
   const language = useAccessibilityPreferences((state) => state.language);
   const [query, setQuery] = useState("");
   const listboxId = useId();
@@ -55,21 +62,32 @@ export function CommandPalette({
     const go = (screen: Screen) => () => nav.go(screen);
     // Every navigable screen comes from the single registry; action commands are appended below.
     const prefs = readWorkspacePrefs(slug);
-    const defs = SCREENS.filter((s) => s.screen != null);
+    const defs = NAVIGATION_COMMANDS.filter(
+      (command) =>
+        command.navigationTarget &&
+        commandAvailable(command, features, user?.role ?? "owner"),
+    );
     const recentDefs = prefs.recent.flatMap((name) => {
-      const found = defs.find((s) => s.name === name);
+      const found = defs.find((command) => command.navigationTarget?.name === name);
       return found ? [found] : [];
     });
     const orderedDefs = [
       ...recentDefs,
-      ...defs.filter((s) => !prefs.recent.includes(s.name)),
+      ...defs.filter((command) => !prefs.recent.includes(command.navigationTarget!.name)),
     ];
-    const screenCommands: Command[] = orderedDefs.map((s) => ({
-      label: localizedLabel(s.title, language),
-      hint: prefs.recent.includes(s.name) ? "Recent" : s.card?.key,
-      keywords: s.keywords,
-      feature: s.feature,
-      run: s.name === "gateway" ? () => nav.home() : go(s.screen!),
+    const screenCommands: Command[] = orderedDefs.map((command) => ({
+      label: localizedLabel(command.label, language),
+      hint: prefs.recent.includes(command.navigationTarget!.name)
+        ? "Recent"
+        : effectiveBindings(command, shortcutOverrides)
+            .filter((binding) => binding.context === "global")
+            .map(formatShortcut)[0],
+      keywords: command.keywords,
+      feature: command.feature,
+      run:
+        command.navigationTarget!.name === "gateway"
+          ? () => nav.home()
+          : go(command.navigationTarget!),
     }));
     const today = todayISO();
     const currentMonth = (() => {
@@ -223,7 +241,7 @@ export function CommandPalette({
         },
       },
     ];
-  }, [nav, toast, clearCompany, setPeriod, slug, language]);
+  }, [nav, toast, clearCompany, setPeriod, slug, language, features, user, shortcutOverrides]);
 
   const filtered = useMemo(() => {
     const visible = commands.filter((c) => !c.feature || features[c.feature]);

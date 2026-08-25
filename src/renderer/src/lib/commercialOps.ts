@@ -100,7 +100,7 @@ export function recordCohortEvent(
   now = new Date(),
 ): CommercialState {
   const state = readCommercialState(storage);
-  if (!state.analytics.enabled || !EVENT_ALLOWLIST.has(event)) return state;
+  if (!readProductFlags(storage).flags.telemetry || !state.analytics.enabled || !EVENT_ALLOWLIST.has(event)) return state;
   const timestamp = now.toISOString();
   const before = state.analytics.events[event];
   state.analytics.events[event] = {
@@ -139,3 +139,4 @@ export function certificationProgress(state: CommercialState): {
   ).length;
   return { completed, total: LEARNING_MODULES.length, eligible: completed === LEARNING_MODULES.length };
 }
+import { readProductFlags } from "./productFlags";

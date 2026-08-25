@@ -132,6 +132,7 @@ import type {
   VoucherInputParsed,
 } from "@shared/schemas";
 import type { CompanyFeatures } from "@shared/features";
+import type { DeviceSafetyControls } from "@shared/deviceSafety";
 import type { SearchHit } from "@shared/search";
 import type { InvoiceConfig } from "@shared/invoiceConfig";
 import type { CloseLedgerRow } from "@shared/yearEnd";
@@ -139,6 +140,8 @@ import type { ConsolidatedResult } from "@shared/consolidate";
 import type { Registry } from "../types";
 import type {
   AiAnswer,
+  AiConversation,
+  AiConversationMessage,
   AiContextFieldId,
   AiContextPreview,
   AiProviderConfig,
@@ -1177,7 +1180,7 @@ export interface PdcRow {
 
 export type SupportCategory = "question" | "bug" | "idea" | "accessibility";
 export type SupportCaseStatus =
-  "draft" | "sending" | "submitted" | "failed" | "saved_offline";
+  "draft" | "sending" | "queued" | "submitted" | "failed" | "saved_offline";
 export interface SupportConsent {
   message: boolean;
   diagnostics: boolean;
@@ -1225,6 +1228,45 @@ export interface SupportPayload {
   includeCompanyMetadata: boolean;
   focusContext: SupportFocusContext | null;
   screenshotDataUrl: string | null;
+}
+export interface SupportOutboxSummary {
+  id: string;
+  caseId: string;
+  status: "queued" | "retrying" | "failed";
+  createdAt: string;
+  updatedAt: string;
+  attempts: number;
+  nextAttemptAt: string | null;
+  hasAttachment: boolean;
+  attachmentRetryApproved: boolean;
+  lastError: string | null;
+}
+
+export interface RegisterQuery {
+  kind: "sales" | "purchase";
+  from: string;
+  to: string;
+  granularity?: RegisterGranularity;
+}
+
+function analysisRegister(input: RegisterQuery): Promise<RegisterPeriodRow[]>;
+/** @deprecated Use the object-shaped RegisterQuery overload. */
+function analysisRegister(
+  kind: "sales" | "purchase",
+  from: string,
+  to: string,
+  granularity?: RegisterGranularity,
+): Promise<RegisterPeriodRow[]>;
+function analysisRegister(
+  inputOrKind: RegisterQuery | "sales" | "purchase",
+  from?: string,
+  to?: string,
+  granularity: RegisterGranularity = "month",
+): Promise<RegisterPeriodRow[]> {
+  const input = typeof inputOrKind === "string"
+    ? { kind: inputOrKind, from: from!, to: to!, granularity }
+    : { ...inputOrKind, granularity: inputOrKind.granularity ?? "month" };
+  return call<RegisterPeriodRow[]>("analysis:register", input);
 }
 export interface FeedbackIdea {
   id: string;
@@ -1291,6 +1333,11 @@ export interface SmartLedgerDefaults {
 }
 
 export const api = {
+  deviceSafety: {
+    get: () => call<DeviceSafetyControls>("device-safety:get"),
+    set: (controls: DeviceSafetyControls) =>
+      call<DeviceSafetyControls>("device-safety:set", controls),
+  },
   company: {
     list: () => call<Registry>("company:list"),
     create: (
@@ -2277,18 +2324,7 @@ export const api = {
       }),
   },
   analysis: {
-    register: (
-      kind: "sales" | "purchase",
-      from: string,
-      to: string,
-      granularity: RegisterGranularity = "month",
-    ) =>
-      call<RegisterPeriodRow[]>("analysis:register", {
-        kind,
-        from,
-        to,
-        granularity,
-      }),
+    register: analysisRegister,
     outstandings: (side: "receivable" | "payable", asOn: string) =>
       call<OutstandingParty[]>("analysis:outstandings", { side, asOn }),
   },
@@ -3440,16 +3476,32 @@ export const api = {
       to: string,
       includeContext: boolean,
       contextFields?: AiContextFieldId[],
+      requestId?: string,
+      conversationId?: string,
     ) =>
-      call<AiAnswer>("ai:ask", {
+      call<AiAnswer & { requestId: string }>("ai:ask", {
         prompt,
         from,
         to,
         includeContext,
         contextFields,
+        requestId,
+        conversationId,
       }),
-    draftVoucher: (prompt: string, shareMasterData: boolean) =>
-      call<AgentProposal>("ai:draftVoucher", { prompt, shareMasterData }),
+    cancel: (requestId: string) =>
+      call<{ cancelled: boolean }>("ai:cancel", { requestId }),
+    conversations: () =>
+      call<AiConversation[]>("ai:conversations:list"),
+    createConversation: (title: string) =>
+      call<AiConversation>("ai:conversations:create", { title }),
+    conversationMessages: (conversationId: string) =>
+      call<AiConversationMessage[]>("ai:conversations:messages", { conversationId }),
+    deleteConversation: (conversationId: string) =>
+      call<{ deleted: boolean }>("ai:conversations:delete", { conversationId }),
+    deleteAllConversations: () =>
+      call<{ deleted: number }>("ai:conversations:deleteAll"),
+    draftVoucher: (prompt: string, shareMasterData: boolean, conversationId?: string) =>
+      call<AgentProposal>("ai:draftVoucher", { prompt, shareMasterData, conversationId }),
     documents: () => call<DocumentInboxRow[]>("ai:documents:list"),
     captureDocument: (kind: "supplier_invoice" | "receipt") =>
       call<DocumentInboxRow | null>("ai:documents:capture", { kind }),
@@ -3527,16 +3579,30 @@ export const api = {
         "support:captureScreenshot",
       ),
     cases: () => call<SupportCaseRecord[]>("support:case:list"),
+    outbox: () => call<SupportOutboxSummary[]>("support:outbox:list"),
     createCase: (input: {
       category: SupportCategory;
       consent: SupportConsent;
     }) => call<SupportCaseRecord>("support:case:create", input),
     contextPreview: () => call<SupportContextPreview>("support:contextPreview"),
     submit: (input: SupportPayload) =>
-      call<{ ok: true; caseId: string; status: SupportCaseStatus }>(
+      call<{
+        ok: true;
+        queued: boolean;
+        outboxId?: string;
+        caseId: string;
+        status: SupportCaseStatus;
+      }>(
         "support:submit",
         input,
       ),
+    retryQueued: (id: string, approveAttachmentRetry: boolean) =>
+      call<{ ok: true; caseId: string; status: SupportCaseStatus }>(
+        "support:outbox:retry",
+        { id, approveAttachmentRetry },
+      ),
+    discardQueued: (id: string) =>
+      call<{ ok: true }>("support:outbox:discard", { id }),
     bundleOffline: (input: SupportPayload & { passphrase: string }) =>
       call<{
         path: string;

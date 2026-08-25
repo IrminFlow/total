@@ -18,11 +18,13 @@ import { useDraftAwareUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
 import { CostAllocModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
 import { TransportModal } from './TransportModal'
-import type { VoucherWorkDraft } from '@shared/voucherDrafts'
+import type { VoucherWorkDraft, VoucherWorkDraftInput } from '@shared/voucherDrafts'
 import { saveEntryTemplate } from '../../lib/saveEntryTemplate'
 import { recordCohortEvent } from '../../lib/commercialOps'
 import { parseVoucherClipboard } from '../../lib/voucherClipboard'
 import { EntryValidationStatus } from './EntryValidationStatus'
+import { useVoucherDraftAutosave } from '../../lib/useVoucherDraftAutosave'
+import { useFormHistory } from '../../lib/useFormHistory'
 
 // ---------- accounting mode (payment / receipt / contra / journal + alteration) ----------
 
@@ -42,6 +44,18 @@ interface SavedAccountingPayload {
   rows?: { drCr?: string; ledgerId?: number | null; amount?: number | null; costAllocations?: AcctRow['costAllocations'] }[]
   billRefs?: VoucherBillRef[]; advanceReceipt?: boolean; optionalVoucher?: boolean
   tds?: { sectionId: number; baseAmount: number; tdsAmount: number } | null
+}
+
+interface AccountingHistoryState {
+  date: string
+  number: string
+  rows: AcctRow[]
+  narration: string
+  instrumentNo: string
+  billRefs: VoucherBillRef[]
+  advanceReceipt: boolean
+  optionalVoucher: boolean
+  tds: { sectionId: number; baseAmount: number; tdsAmount: number } | null
 }
 
 function accountingPayload(draft?: VoucherWorkDraft): SavedAccountingPayload {
@@ -161,7 +175,45 @@ export function AccountingEntry({
   // rows are seeded from the stored voucher, so content alone can't distinguish edited from
   // pristine — guarding them would also fire on the programmatic nav.back() after save.
   const draftFingerprint = JSON.stringify({ date, rows: rows.map(({ key: _key, ...row }) => row), narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds })
-  useDraftAwareUnsavedGuard(workDraft?.id, !voucherId && (rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== ''), draftFingerprint)
+  const hasMeaningfulDraft = !voucherId && (rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== '')
+  const autosaveInput = useMemo<VoucherWorkDraftInput>(() => ({
+    voucherTypeId: typeId,
+    mode: 'accounting',
+    title: narration.trim().slice(0, 120) || `${kind.replace('_', ' ')} on ${date}`,
+    payloadVersion: 1,
+    payload: { date, number: numberField.forPayload, rows: rows.map(({ key: _key, ...row }) => row), narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds }
+  }), [advanceReceipt, billRefs, date, instrumentNo, kind, narration, numberField.forPayload, optionalVoucher, rows, tds, typeId])
+  const autosave = useVoucherDraftAutosave({
+    enabled: !saving && !voucherId,
+    meaningful: hasMeaningfulDraft,
+    initialDraftId: workDraft?.id,
+    draft: autosaveInput
+  })
+  useDraftAwareUnsavedGuard(autosave.draftId ?? workDraft?.id, hasMeaningfulDraft, draftFingerprint)
+  const historyState = useMemo<AccountingHistoryState>(() => ({
+    date,
+    number: numberField.value === NUMBER_LOADING ? '' : numberField.value,
+    rows,
+    narration,
+    instrumentNo,
+    billRefs,
+    advanceReceipt,
+    optionalVoucher,
+    tds,
+  }), [advanceReceipt, billRefs, date, instrumentNo, narration, numberField.value, optionalVoucher, rows, tds])
+  const applyHistory = useCallback((state: AccountingHistoryState): void => {
+    setDate(state.date)
+    numberField.onChange(state.number)
+    setRows(state.rows)
+    setNarration(state.narration)
+    setInstrumentNo(state.instrumentNo)
+    setBillRefs(state.billRefs)
+    setAdvanceReceipt(state.advanceReceipt)
+    setOptionalVoucher(state.optionalVoucher)
+    setTds(state.tds)
+    setRevealValidationIssues(true)
+  }, [numberField.onChange])
+  const formHistory = useFormHistory(historyState, applyHistory, !voucherId && !saving && numberField.value !== NUMBER_LOADING)
 
   const setRow = (i: number, patch: Partial<AcctRow>): void => {
     setRevealValidationIssues(true)
@@ -511,7 +563,8 @@ export function AccountingEntry({
         })
         if (!proceed) return
       }
-      const saved = await api.vouchers.save(input, voucherId, workDraft?.id)
+      const saved = await api.vouchers.save(input, voucherId, autosave.draftId ?? workDraft?.id)
+      autosave.markCommitted()
       if (!saved.approvalRequired)
         recordCohortEvent(localStorage, 'first_voucher_posted')
       toast.push('success', saved.approvalRequired
@@ -537,19 +590,13 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, immutable, validationIssues, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset])
+  }, [saving, immutable, validationIssues, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset, autosave.draftId, autosave.markCommitted, workDraft?.id])
 
   const saveDraft = async (): Promise<void> => {
     if (saving || voucherId) return
     setSaving(true)
     try {
-      await api.voucherDrafts.save({
-        voucherTypeId: typeId,
-        mode: 'accounting',
-        title: narration.trim().slice(0, 120) || `${kind.replace('_', ' ')} on ${date}`,
-        payloadVersion: 1,
-        payload: { date, number: numberField.forPayload, rows: rows.map(({ key: _key, ...row }) => row), narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds }
-      }, workDraft?.id)
+      await autosave.saveNow()
       await queryClient.invalidateQueries({ queryKey: ['voucher-drafts'] })
       toast.push('success', workDraft ? 'Draft updated' : 'Voucher draft saved')
       nav.replace({ name: 'voucher-drafts' })
@@ -898,6 +945,12 @@ export function AccountingEntry({
       <div className="flex justify-between">
         <div>{voucherId && <Button variant="danger" disabled={immutable} disabledTitle="Linked reversal entries are immutable" onClick={() => void remove()}>Delete voucher</Button>}</div>
         <div className="flex gap-2">
+          {!voucherId && (
+            <div className="mr-1 flex overflow-hidden rounded-md border border-line" role="group" aria-label="Voucher edit history">
+              <button type="button" data-testid="btn-undo-voucher" disabled={!formHistory.canUndo} onClick={formHistory.undo} className="px-2.5 py-1.5 text-[11.5px] text-muted hover:bg-panel2 hover:text-ink disabled:opacity-35" title="Undo form edit (Cmd/Ctrl+Z)">Undo</button>
+              <button type="button" data-testid="btn-redo-voucher" disabled={!formHistory.canRedo} onClick={formHistory.redo} className="border-l border-line px-2.5 py-1.5 text-[11.5px] text-muted hover:bg-panel2 hover:text-ink disabled:opacity-35" title="Redo form edit (Cmd/Ctrl+Shift+Z)">Redo</button>
+            </div>
+          )}
           {voucherId && kind === 'payment' && bankCrLine && (
             <>
               <Button onClick={() => void printCheque()}>Print cheque</Button>
@@ -912,6 +965,7 @@ export function AccountingEntry({
           {balanced && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
           {!voucherId && <Button data-testid="btn-paste-voucher-lines" onClick={() => setClipboardOpen(true)}>Paste lines…</Button>}
           {!voucherId && balanced && <Button data-testid="btn-save-entry-template" onClick={() => void saveTemplate()}>Record safe macro…</Button>}
+          {!voucherId && <span className="self-center text-[10.5px] text-muted" aria-live="polite">{autosave.status === 'saving' || autosave.status === 'waiting' ? 'Saving draft…' : autosave.status === 'saved' ? 'Draft saved' : autosave.status === 'error' ? 'Draft not saved' : ''}</span>}
           {!voucherId && <Button data-testid="btn-save-voucher-draft" disabled={saving} onClick={() => void saveDraft()}>Save draft</Button>}
           <Button onClick={() => nav.back()}>Cancel</Button>
           <Button variant="primary" data-testid="btn-save-voucher" disabled={immutable || saving} disabledTitle={immutable ? 'Linked reversal entries are immutable' : undefined} onClick={() => void save()}>

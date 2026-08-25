@@ -27,6 +27,8 @@ export type AiProviderInput = z.infer<typeof aiProviderInputSchema>
 export type AiProviderConfig = Omit<AiProviderInput, 'apiKey' | 'clearApiKey'> & { hasApiKey: boolean }
 
 export const aiAskSchema = z.object({
+  requestId: z.string().uuid().optional(),
+  conversationId: z.string().uuid().optional(),
   prompt: z.string().trim().min(1).max(8_000),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -36,7 +38,8 @@ export const aiAskSchema = z.object({
 
 export const aiDraftVoucherSchema = z.object({
   prompt: z.string().trim().min(8).max(4_000),
-  shareMasterData: z.boolean().default(false)
+  shareMasterData: z.boolean().default(false),
+  conversationId: z.string().uuid().optional()
 })
 
 export type AiContextFieldId = 'company' | 'period' | 'dashboard' | 'trial_balance' | 'receivables' | 'payables' | 'units'
@@ -87,4 +90,33 @@ export interface AiAnswer {
   model: string
   provider: AiProviderConfig['provider']
   citations: AiCitation[]
+  usage: AiUsage | null
+}
+
+export interface AiUsage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+}
+
+export interface AiConversation {
+  id: string
+  title: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AiConversationMessage {
+  id: number
+  conversationId: string
+  requestId: string | null
+  role: 'user' | 'assistant'
+  content: string
+  citations: AiCitation[]
+  provider: string | null
+  model: string | null
+  usage: AiUsage | null
+  status: 'completed' | 'cancelled' | 'failed'
+  createdAt: string
 }

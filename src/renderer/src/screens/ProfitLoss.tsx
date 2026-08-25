@@ -9,6 +9,7 @@ import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/clie
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { SavedReportViews } from '../components/SavedReportViews'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { useSavedReportViews } from '../lib/reportConfig'
 
 interface ProfitLossView { from: string; to: string; comparePrior: boolean }
@@ -71,7 +72,7 @@ export function ProfitLossScreen(): React.JSX.Element {
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <div className="flex items-center gap-2">
+          <ReportToolbar compact>
             {isPlaceholderData && (
               <span data-testid="pnl-refreshing" className="text-[11px] text-muted" aria-live="polite">
                 Updating…
@@ -98,7 +99,7 @@ export function ProfitLossScreen(): React.JSX.Element {
             >
               CSV
             </Button>
-          </div>
+          </ReportToolbar>
         }
       >
         Profit &amp; Loss

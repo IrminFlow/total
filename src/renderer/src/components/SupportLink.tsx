@@ -7,9 +7,11 @@ import {
   type SupportConsent,
   type SupportContextPreview,
   type SupportPayload,
+  type SupportOutboxSummary,
 } from "../lib/client";
-import { Camera, CursorClick, Eye, ShieldCheck } from "@phosphor-icons/react";
+import { ArrowClockwise, Camera, CursorClick, Eye, ShieldCheck, Trash } from "@phosphor-icons/react";
 import { focusContextFor, type FocusContext } from "../lib/supportContext";
+import { useDeviceSafetyControls } from "../lib/useDeviceSafety";
 
 export const SUPPORT_EMAIL = "total@irminflow.com";
 
@@ -65,6 +67,8 @@ function SupportModal({
   onClose: () => void;
   initialFocusContext: FocusContext | null;
 }): React.JSX.Element {
+  const deviceSafety = useDeviceSafetyControls();
+  const uploadsEnabled = deviceSafety.supportUploads;
   const [category, setCategory] = useState<SupportCategory>("question");
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -80,10 +84,11 @@ function SupportModal({
     height: number;
   } | null>(null);
   const [capturing, setCapturing] = useState(false);
-  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+  const [state, setState] = useState<"idle" | "sending" | "sent" | "queued">("idle");
   const [error, setError] = useState("");
   const [caseRecord, setCaseRecord] = useState<SupportCaseRecord | null>(null);
   const [recentCases, setRecentCases] = useState<SupportCaseRecord[]>([]);
+  const [outbox, setOutbox] = useState<SupportOutboxSummary[]>([]);
   const [context, setContext] = useState<SupportContextPreview | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [passphrase, setPassphrase] = useState("");
@@ -105,7 +110,14 @@ function SupportModal({
       .cases()
       .then(setRecentCases)
       .catch(() => setRecentCases([]));
+    void api.support.outbox().then(setOutbox).catch(() => setOutbox([]));
   }, []);
+
+  useEffect(() => {
+    if (uploadsEnabled) return;
+    setIncludeScreenshot(false);
+    setScreenshot(null);
+  }, [uploadsEnabled]);
 
   useEffect(() => {
     setCaseRecord(null);
@@ -160,6 +172,7 @@ function SupportModal({
 
   const refreshCases = (): void => {
     void api.support.cases().then(setRecentCases).catch(() => undefined);
+    void api.support.outbox().then(setOutbox).catch(() => undefined);
   };
 
   const submit = async (): Promise<void> => {
@@ -170,8 +183,8 @@ function SupportModal({
         caseRecord ??
         (await api.support.createCase({ category, consent: consent() }));
       setCaseRecord(supportCase);
-      await api.support.submit(payload(supportCase.id));
-      setState("sent");
+      const result = await api.support.submit(payload(supportCase.id));
+      setState(result.queued ? "queued" : "sent");
       refreshCases();
     } catch (err) {
       setState("idle");
@@ -204,6 +217,7 @@ function SupportModal({
     ({
       draft: "Draft",
       sending: "Sending",
+      queued: "Queued securely",
       submitted: "Submitted",
       failed: "Delivery failed",
       saved_offline: "Saved offline",
@@ -212,11 +226,15 @@ function SupportModal({
   return (
     <Modal title="Get support" onClose={onClose} wide>
       <div data-support-surface="true">
-        {state === "sent" ? (
+        {state === "sent" || state === "queued" ? (
           <div className="rounded-md border border-dr/30 bg-dr/5 px-4 py-5 text-center">
-            <p className="text-[14px] font-medium text-dr">Feedback received</p>
+            <p className="text-[14px] font-medium text-dr">
+              {state === "queued" ? "Saved securely for retry" : "Feedback received"}
+            </p>
             <p className="mt-1 text-[12px] text-muted">
-              Thank you. We’ll follow up at the email you provided.
+              {state === "queued"
+                ? "Support is offline. Open this panel when you are connected and retry the encrypted submission."
+                : "Thank you. We’ll follow up at the email you provided."}
             </p>
             {caseRecord && (
               <p
@@ -406,7 +424,7 @@ function SupportModal({
                     className="mt-0.5"
                     type="checkbox"
                     checked={includeScreenshot}
-                    disabled={capturing}
+                    disabled={capturing || !uploadsEnabled}
                     onChange={async (event) => {
                       const checked = event.target.checked;
                       setIncludeScreenshot(checked);
@@ -425,8 +443,9 @@ function SupportModal({
                       }
                     }}
                   />
-                  Include a screenshot of the current app window. Capture starts
-                  only after this box is checked.
+                  Include a screenshot of the current app window. {uploadsEnabled
+                    ? "Capture starts only after this box is checked."
+                    : "Support attachments are disabled in Settings > Features."}
                 </label>
                 {capturing && (
                   <p className="mt-2 text-[10.5px] text-muted">
@@ -509,6 +528,59 @@ function SupportModal({
             )}
           </>
         )}
+        {outbox.length > 0 && (
+          <div className="mt-4 border-t border-line pt-3" data-testid="support-outbox">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
+              Waiting to send
+            </p>
+            <p className="mt-1 text-[10px] leading-4 text-muted">
+              Message contents remain encrypted by this device. Screenshots are retried only after you confirm again.
+            </p>
+            <div className="mt-2 space-y-2">
+              {outbox.map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-3 rounded border border-line bg-panel2 px-2.5 py-2">
+                  <div className="min-w-0">
+                    <p className="num truncate text-[10px] font-medium text-ink">{item.caseId}</p>
+                    <p className="mt-0.5 text-[9.5px] text-muted">
+                      {item.status === "retrying" ? "Retrying" : item.status === "failed" ? "Retry failed" : "Queued"}
+                      {item.hasAttachment ? " · screenshot selected" : ""}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-1.5">
+                    <Button
+                      data-testid={`btn-retry-support-${item.id}`}
+                      disabled={item.hasAttachment && !uploadsEnabled}
+                      disabledTitle={item.hasAttachment && !uploadsEnabled ? "Enable support attachments in Settings > Features before retrying this upload" : undefined}
+                      onClick={() => {
+                        const approved = !item.hasAttachment || window.confirm("Retry this submission with its previously reviewed screenshot?");
+                        if (!approved) return;
+                        setError("");
+                        void api.support.retryQueued(item.id, item.hasAttachment).then(() => {
+                          setState("sent");
+                          refreshCases();
+                        }).catch((err) => {
+                          setError((err as Error).message);
+                          refreshCases();
+                        });
+                      }}
+                    >
+                      <ArrowClockwise size={14} /> Retry
+                    </Button>
+                    <Button
+                      data-testid={`btn-discard-support-${item.id}`}
+                      onClick={() => {
+                        if (!window.confirm("Delete this encrypted queued submission from this device?")) return;
+                        void api.support.discardQueued(item.id).then(refreshCases).catch((err) => setError((err as Error).message));
+                      }}
+                    >
+                      <Trash size={14} /> Delete
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {recentCases.length > 0 && (
           <div className="mt-4 border-t border-line pt-3">
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
@@ -547,7 +619,7 @@ function SupportModal({
           >
             Open in email app
           </Button>
-          {state !== "sent" && (
+          {state !== "sent" && state !== "queued" && (
             <Button
               variant="primary"
               data-testid="btn-submit-support"

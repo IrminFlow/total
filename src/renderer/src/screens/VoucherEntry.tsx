@@ -29,15 +29,7 @@ import { ManufactureEntry } from './voucher/ManufactureEntry'
 import { PhysicalStockEntry } from './voucher/PhysicalStockEntry'
 import { MnemonicText } from '../components/MnemonicText'
 import { VoucherReverseModal } from './DayBook'
-
-const FKEYS: Record<string, VoucherKind> = {
-  F4: 'contra',
-  F5: 'payment',
-  F6: 'receipt',
-  F7: 'journal',
-  F8: 'sales',
-  F9: 'purchase',
-}
+import { VOUCHER_MNEMONICS, voucherKindForKeyboardEvent } from '../lib/commands'
 
 const FKEY_LABELS: Partial<Record<VoucherKind, string>> = {
   contra: 'F4',
@@ -46,19 +38,6 @@ const FKEY_LABELS: Partial<Record<VoucherKind, string>> = {
   journal: 'F7',
   sales: 'F8',
   purchase: 'F9',
-}
-
-const LETTER_KEYS: Partial<Record<VoucherKind, string>> = {
-  contra: 'c',
-  payment: 'p',
-  receipt: 'r',
-  journal: 'j',
-  sales: 's',
-  purchase: 'u',
-  credit_note: 'n',
-  debit_note: 'd',
-  stock_journal: 'k',
-  physical_stock: 'h',
 }
 
 const PRIMARY_VOUCHER_KINDS = new Set<VoucherKind>([
@@ -151,7 +130,6 @@ export function VoucherEntry({
       if (voucherId || !types) return
       // Never switch voucher type underneath an open dialog (quick-create ledger, confirm…).
       if (isAnyModalOpen()) return
-      const functionKind = FKEYS[e.key]
       const targetElement = e.target as HTMLElement | null
       const editable =
         targetElement?.matches(
@@ -164,24 +142,9 @@ export function VoucherEntry({
         targetElement instanceof HTMLInputElement &&
         targetElement.value === '' &&
         !!targetElement.closest('[data-testid="rows-voucher-lines"]')
-      const letterKind = Object.entries(LETTER_KEYS).find(
-        ([, key]) => key === e.key.toLowerCase(),
-      )?.[0] as VoucherKind | undefined
-      if (
-        !functionKind &&
-        (!letterKind ||
-          (editable && !emptyFirstLedger && !e.altKey) ||
-          e.metaKey ||
-          e.ctrlKey)
-      )
-        return
-      const withNoteModifier = !!functionKind && (e.ctrlKey || e.altKey)
-      const target =
-        withNoteModifier && functionKind === 'sales'
-          ? 'credit_note'
-          : withNoteModifier && functionKind === 'purchase'
-            ? 'debit_note'
-            : (functionKind ?? letterKind)
+      const target = voucherKindForKeyboardEvent(e)
+      const letterShortcut = e.key.length === 1
+      if (!target || (letterShortcut && editable && !emptyFirstLedger && !e.altKey)) return
       const t = types.find((candidate) => candidate.kind === target)
       if (t) {
         e.preventDefault()
@@ -404,7 +367,7 @@ export function VoucherEntry({
               <span>
                 <MnemonicText
                   label={type.name}
-                  mnemonic={LETTER_KEYS[type.kind] ?? ''}
+                  mnemonic={VOUCHER_MNEMONICS[type.kind] ?? ''}
                 />
               </span>
               <kbd
@@ -450,7 +413,7 @@ export function VoucherEntry({
                   >
                     <MnemonicText
                       label={type.name}
-                      mnemonic={LETTER_KEYS[type.kind] ?? ''}
+                      mnemonic={VOUCHER_MNEMONICS[type.kind] ?? ''}
                     />
                   </button>
                 ))}

@@ -4,6 +4,7 @@ import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
 import { useKeyNav } from '../components/useKeyNav'
 import { ReportConfigButton } from '../components/ReportConfigButton'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -81,7 +82,7 @@ export function TrialBalanceScreen(): React.JSX.Element {
     <div className="mx-auto max-w-4xl">
       <SectionTitle
         right={
-          <div className="flex items-center gap-2">
+          <ReportToolbar compact>
             <span className="num text-[12px] text-muted">as on {toDisplayDate(to)}</span>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
             <Button
@@ -103,7 +104,7 @@ export function TrialBalanceScreen(): React.JSX.Element {
             >
               CSV
             </Button>
-          </div>
+          </ReportToolbar>
         }
       >
         Trial balance

@@ -11,6 +11,12 @@ describe("local product flags", () => {
     const storage = memoryStorage();
     expect(readProductFlags(storage).flags.guidedHelp).toBe(true);
     expect(readProductFlags(storage).flags.smtpDeliveryPreview).toBe(false);
+    expect(readProductFlags(storage).flags).toMatchObject({
+      aiCopilot: false,
+      mcpAccess: false,
+      supportUploads: false,
+      telemetry: false,
+    });
     setProductFlag(storage, "featureDiscovery", false, new Date("2026-08-24T00:00:00Z"));
     const state = readProductFlags(storage);
     expect(state.flags.featureDiscovery).toBe(false);

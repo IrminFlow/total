@@ -12,6 +12,8 @@ import {
 } from "@phosphor-icons/react";
 import { MCP_SCOPES, type McpScope } from "@shared/mcp";
 import { toDisplayDateTime } from "@shared/dates";
+import { formatPaise } from "@shared/money";
+import { voucherInputSchema } from "@shared/schemas";
 import { api } from "../../lib/client";
 import { useSession, useToasts } from "../../state/stores";
 import {
@@ -24,38 +26,44 @@ import {
   Skeleton,
   TextInput,
 } from "../../components/ui";
+import { useDeviceSafetyControls } from "../../lib/useDeviceSafety";
 
 export function AgentBridgeSection(): React.JSX.Element {
   const toast = useToasts();
   const qc = useQueryClient();
   const { user, slug } = useSession();
   const owner = !user || user.role === "owner";
+  const deviceSafety = useDeviceSafetyControls();
+  const mcpEnabled = deviceSafety.mcpAccess;
   const config = useQuery({
     queryKey: ["agentConfig"],
     queryFn: api.agent.getConfig,
+    enabled: mcpEnabled,
   });
   const proposals = useQuery({
     queryKey: ["agentProposals"],
     queryFn: api.agent.listProposals,
+    enabled: mcpEnabled,
   });
   const mirror = useQuery({
     queryKey: ["mcpMirrorStatus"],
     queryFn: api.mcp.mirrorStatus,
+    enabled: mcpEnabled,
   });
   const tokens = useQuery({
     queryKey: ["mcpTokens"],
     queryFn: api.mcp.tokens,
-    enabled: owner,
+    enabled: owner && mcpEnabled,
   });
   const audit = useQuery({
     queryKey: ["mcpAudit"],
     queryFn: () => api.mcp.audit(100),
-    enabled: owner,
+    enabled: owner && mcpEnabled,
   });
   const requests = useQuery({
     queryKey: ["mcpRefreshRequests"],
     queryFn: api.mcp.refreshRequests,
-    enabled: owner,
+    enabled: owner && mcpEnabled,
   });
   const [toggling, setToggling] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -177,6 +185,20 @@ export function AgentBridgeSection(): React.JSX.Element {
       );
     }
   };
+
+  if (!mcpEnabled) {
+    return (
+      <div data-testid="agent-access-settings">
+        <SectionTitle>Agent access</SectionTitle>
+        <Panel className="px-5 py-5">
+          <p className="text-[13.5px] font-medium text-ink">Local MCP access is disabled</p>
+          <p className="mt-1 max-w-2xl text-[12px] leading-5 text-muted">
+            Enable the device kill switch in Settings &gt; Features before creating tokens or exposing company mirrors.
+          </p>
+        </Panel>
+      </div>
+    );
+  }
 
   return (
     <div data-testid="agent-access-settings">
@@ -490,6 +512,10 @@ function ProposalList({
   onApprove: (id: string) => Promise<void>;
   onDiscard: (id: string) => Promise<void>;
 }): React.JSX.Element {
+  const ledgers = useQuery({ queryKey: ["ledgers"], queryFn: api.ledgers.list });
+  const voucherTypes = useQuery({ queryKey: ["voucherTypes"], queryFn: api.voucherTypes.list });
+  const ledgerNames = new Map((ledgers.data ?? []).map((ledger) => [ledger.id, ledger.name]));
+  const voucherTypeNames = new Map((voucherTypes.data ?? []).map((type) => [type.id, type.name]));
   if (!rows.length)
     return (
       <div className="px-5 py-8 text-center">
@@ -501,7 +527,15 @@ function ProposalList({
     );
   return (
     <div className="divide-y divide-line">
-      {rows.map((proposal) => (
+      {rows.map((proposal) => {
+        const parsed = voucherInputSchema.safeParse(proposal.voucher);
+        const debit = parsed.success
+          ? parsed.data.lines.filter((line) => line.drCr === "dr").reduce((sum, line) => sum + line.amount, 0)
+          : 0;
+        const credit = parsed.success
+          ? parsed.data.lines.filter((line) => line.drCr === "cr").reduce((sum, line) => sum + line.amount, 0)
+          : 0;
+        return (
         <div
           key={proposal.id}
           className="grid gap-4 px-5 py-4 md:grid-cols-[1fr_auto]"
@@ -516,6 +550,34 @@ function ProposalList({
               </span>
             </div>
             <p className="mt-1.5 text-[12px] font-medium">{proposal.summary}</p>
+            {parsed.success ? (
+              <div className="mt-3 rounded-md border border-line bg-panel2 p-3">
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <div><p className="text-[9px] uppercase tracking-wide text-muted">Voucher</p><p className="mt-0.5 text-[11px] font-medium">{voucherTypeNames.get(parsed.data.voucherTypeId) ?? `Type #${parsed.data.voucherTypeId}`}</p></div>
+                  <div><p className="text-[9px] uppercase tracking-wide text-muted">Date</p><p className="num mt-0.5 text-[11px] font-medium">{parsed.data.date}</p></div>
+                  <div><p className="text-[9px] uppercase tracking-wide text-muted">Debit</p><p className="num mt-0.5 text-[11px] font-medium">{formatPaise(debit, { symbol: true })}</p></div>
+                  <div><p className="text-[9px] uppercase tracking-wide text-muted">Credit</p><p className={`num mt-0.5 text-[11px] font-medium ${debit === credit ? "text-dr" : "text-cr"}`}>{formatPaise(credit, { symbol: true })}</p></div>
+                </div>
+                <div className="mt-3 divide-y divide-line border-t border-line">
+                  {parsed.data.lines.map((line, index) => (
+                    <div key={`${line.ledgerId}-${index}`} className="grid grid-cols-[auto_1fr_auto] gap-2 py-1.5 text-[10.5px]">
+                      <span className="font-semibold">{line.drCr === "dr" ? "Dr" : "Cr"}</span>
+                      <span>{ledgerNames.get(line.ledgerId) ?? `Unknown ledger #${line.ledgerId}`}</span>
+                      <span className="num">{formatPaise(line.amount, { symbol: true })}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className={`mt-2 text-[10px] ${debit === credit ? "text-dr" : "text-cr"}`}>
+                  {debit === credit
+                    ? "Balanced. Approval still applies Total’s accounting, lock and permission checks."
+                    : `Blocked: debits and credits differ by ${formatPaise(Math.abs(debit - credit), { symbol: true })}.`}
+                </p>
+              </div>
+            ) : (
+              <div className="mt-3 rounded-md border border-cr/30 bg-cr/5 px-3 py-2 text-[10.5px] text-cr">
+                This proposal does not match Total’s voucher schema and cannot be approved.
+              </div>
+            )}
             <details className="mt-2">
               <summary className="cursor-pointer text-[10px] text-blue">
                 Inspect exact JSON
@@ -534,14 +596,14 @@ function ProposalList({
             </Button>
             <Button
               variant="primary"
-              disabled={reviewing !== null || viewer}
+              disabled={reviewing !== null || viewer || !parsed.success || debit !== credit}
               onClick={() => void onApprove(proposal.id)}
             >
               {reviewing === proposal.id ? "Reviewing…" : "Approve & post"}
             </Button>
           </div>
         </div>
-      ))}
+      )})}
     </div>
   );
 }
@@ -586,6 +648,8 @@ const scopeLabels: Record<McpScope, string> = {
   "mirror:read": "Read generated mirrors",
   "attachment:read": "Read managed attachments",
   "proposal:create": "Create review-only proposals",
+  "proposal:read": "List review-only proposals",
+  "proposal:discard": "Discard pending proposals",
   "mirror:refresh": "Request mirror refresh",
 };
 function IssueTokenModal({

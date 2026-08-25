@@ -20,10 +20,12 @@ import { confirmDialog, promptDialog } from '../../lib/dialogs'
 import { useDraftAwareUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { addDaysLocal, nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
-import type { VoucherWorkDraft } from '@shared/voucherDrafts'
+import type { VoucherWorkDraft, VoucherWorkDraftInput } from '@shared/voucherDrafts'
 import { saveEntryTemplate } from '../../lib/saveEntryTemplate'
 import { recordCohortEvent } from '../../lib/commercialOps'
 import { EntryValidationStatus } from './EntryValidationStatus'
+import { useVoucherDraftAutosave } from '../../lib/useVoucherDraftAutosave'
+import { useFormHistory } from '../../lib/useFormHistory'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -48,6 +50,29 @@ interface SavedInvoicePayload {
   billNameTouched?: boolean; billDueDateTouched?: boolean; manualNewBillMode?: boolean; noteBillRefs?: VoucherBillRef[]
   goodsReceiptId?: number | null
   procurementClaimKey?: string | null
+}
+
+interface InvoiceHistoryState {
+  date: string
+  number: string
+  partyId: number | null
+  accountId: number | null
+  rows: ItemRow[]
+  narration: string
+  vehicleNo: string
+  transporterId: string
+  distanceKm: string
+  currencyCode: string
+  fxRateText: string
+  posOverride: string | null
+  optionalVoucher: boolean
+  goodsReceiptId: number | null
+  billName: string
+  billNameTouched: boolean
+  billDueDate: string
+  billDueDateTouched: boolean
+  manualNewBillMode: boolean
+  noteBillRefs: VoucherBillRef[]
 }
 
 function invoicePayload(draft?: VoucherWorkDraft): SavedInvoicePayload {
@@ -111,7 +136,6 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
   // Unsaved-entry guard: anything meaningful typed into a fresh invoice blocks accidental
   // navigation until it's saved (save resets all of these).
   const draftFingerprint = JSON.stringify({ date, partyId, accountId, rows: rows.map(({ key: _key, ...row }) => row), narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, goodsReceiptId, procurementClaimKey })
-  useDraftAwareUnsavedGuard(workDraft?.id, partyId != null || rows.some((r) => r.itemId != null) || narration.trim() !== '', draftFingerprint)
 
   const party = ledgers.find((l) => l.id === partyId) ?? null
   const account = ledgers.find((l) => l.id === accountId) ?? null
@@ -130,6 +154,68 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
   const [manualNewBillMode, setManualNewBillMode] = useState(savedDraft.manualNewBillMode ?? false)
   const [noteBillRefs, setNoteBillRefs] = useState<VoucherBillRef[]>(savedDraft.noteBillRefs ?? [])
   const skipFirstPartyReset = useRef(!!workDraft)
+  const hasMeaningfulDraft = partyId != null || rows.some((row) => row.itemId != null) || narration.trim() !== ''
+  const autosaveInput = useMemo<VoucherWorkDraftInput>(() => ({
+    voucherTypeId: typeId,
+    mode: 'invoice',
+    title: narration.trim().slice(0, 120) || `${kind.replace('_', ' ')} on ${date}`,
+    payloadVersion: 1,
+    payload: { date, number: numberField.forPayload, partyId, accountId, rows: rows.map(({ key: _key, ...row }) => row), narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, billNameTouched, billDueDateTouched, manualNewBillMode, noteBillRefs, goodsReceiptId, procurementClaimKey }
+  }), [accountId, billDueDate, billDueDateTouched, billName, billNameTouched, currencyCode, date, distanceKm, fxRateText, goodsReceiptId, kind, manualNewBillMode, narration, noteBillRefs, numberField.forPayload, optionalVoucher, partyId, posOverride, procurementClaimKey, rows, transporterId, typeId, vehicleNo])
+  const autosave = useVoucherDraftAutosave({
+    enabled: !saving,
+    meaningful: hasMeaningfulDraft,
+    initialDraftId: workDraft?.id,
+    draft: autosaveInput
+  })
+  useDraftAwareUnsavedGuard(autosave.draftId ?? workDraft?.id, hasMeaningfulDraft, draftFingerprint)
+  const historyState = useMemo<InvoiceHistoryState>(() => ({
+    date,
+    number: numberField.value === NUMBER_LOADING ? '' : numberField.value,
+    partyId,
+    accountId,
+    rows,
+    narration,
+    vehicleNo,
+    transporterId,
+    distanceKm,
+    currencyCode,
+    fxRateText,
+    posOverride,
+    optionalVoucher,
+    goodsReceiptId,
+    billName,
+    billNameTouched,
+    billDueDate,
+    billDueDateTouched,
+    manualNewBillMode,
+    noteBillRefs,
+  }), [accountId, billDueDate, billDueDateTouched, billName, billNameTouched, currencyCode, date, distanceKm, fxRateText, goodsReceiptId, manualNewBillMode, narration, noteBillRefs, numberField.value, optionalVoucher, partyId, posOverride, rows, transporterId, vehicleNo])
+  const applyHistory = useCallback((state: InvoiceHistoryState): void => {
+    skipFirstPartyReset.current = true
+    setDate(state.date)
+    numberField.onChange(state.number)
+    setPartyId(state.partyId)
+    setAccountId(state.accountId)
+    setRows(state.rows)
+    setNarration(state.narration)
+    setVehicleNo(state.vehicleNo)
+    setTransporterId(state.transporterId)
+    setDistanceKm(state.distanceKm)
+    setCurrencyCode(state.currencyCode)
+    setFxRateText(state.fxRateText)
+    setPosOverride(state.posOverride)
+    setOptionalVoucher(state.optionalVoucher)
+    setGoodsReceiptId(state.goodsReceiptId)
+    setBillName(state.billName)
+    setBillNameTouched(state.billNameTouched)
+    setBillDueDate(state.billDueDate)
+    setBillDueDateTouched(state.billDueDateTouched)
+    setManualNewBillMode(state.manualNewBillMode)
+    setNoteBillRefs(state.noteBillRefs)
+    setRevealValidationIssues(true)
+  }, [numberField.onChange])
+  const formHistory = useFormHistory(historyState, applyHistory, !saving && numberField.value !== NUMBER_LOADING)
 
   useEffect(() => {
     if (savedDraft.number !== undefined) numberField.onChange(savedDraft.number)
@@ -377,7 +463,8 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
           creditOverrideReason = reason.trim()
         }
       }
-      const saved = await api.vouchers.save(input, undefined, workDraft?.id, invoiceMatchInput ?? undefined, procurementClaimKey ?? undefined, creditOverrideReason)
+      const saved = await api.vouchers.save(input, undefined, autosave.draftId ?? workDraft?.id, invoiceMatchInput ?? undefined, procurementClaimKey ?? undefined, creditOverrideReason)
+      autosave.markCommitted()
       if (!saved.approvalRequired)
         recordCohortEvent(localStorage, 'first_voucher_posted')
       toast.push('success', saved.approvalRequired
@@ -406,19 +493,13 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
     } finally {
       setSaving(false)
     }
-  }, [saving, validationIssues, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, toast, setWorkingDate, queryClient, numberField.reset, workDraft?.id, invoiceMatchInput, procurementClaimKey])
+  }, [saving, validationIssues, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, toast, setWorkingDate, queryClient, numberField.reset, workDraft?.id, invoiceMatchInput, procurementClaimKey, autosave.draftId, autosave.markCommitted])
 
   const saveDraft = async (): Promise<void> => {
     if (saving) return
     setSaving(true)
     try {
-      await api.voucherDrafts.save({
-        voucherTypeId: typeId,
-        mode: 'invoice',
-        title: narration.trim().slice(0, 120) || `${kind.replace('_', ' ')} on ${date}`,
-        payloadVersion: 1,
-        payload: { date, number: numberField.forPayload, partyId, accountId, rows: rows.map(({ key: _key, ...row }) => row), narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, billNameTouched, billDueDateTouched, manualNewBillMode, noteBillRefs, goodsReceiptId, procurementClaimKey }
-      }, workDraft?.id)
+      await autosave.saveNow()
       await queryClient.invalidateQueries({ queryKey: ['voucher-drafts'] })
       toast.push('success', workDraft ? 'Draft updated' : 'Voucher draft saved')
       nav.replace({ name: 'voucher-drafts' })
@@ -855,8 +936,13 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
           guidance={['Choose the party and sales or purchase ledger', 'Add an item with quantity and rate', 'Review the calculated invoice total']}
         />
       <div className="flex justify-end gap-2">
+        <div className="mr-1 flex overflow-hidden rounded-md border border-line" role="group" aria-label="Voucher edit history">
+          <button type="button" data-testid="btn-undo-voucher" disabled={!formHistory.canUndo} onClick={formHistory.undo} className="px-2.5 py-1.5 text-[11.5px] text-muted hover:bg-panel2 hover:text-ink disabled:opacity-35" title="Undo form edit (Cmd/Ctrl+Z)">Undo</button>
+          <button type="button" data-testid="btn-redo-voucher" disabled={!formHistory.canRedo} onClick={formHistory.redo} className="border-l border-line px-2.5 py-1.5 text-[11.5px] text-muted hover:bg-panel2 hover:text-ink disabled:opacity-35" title="Redo form edit (Cmd/Ctrl+Shift+Z)">Redo</button>
+        </div>
         {formValid && !goodsReceiptId && !procurementClaimKey && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
         {formValid && !procurementClaimKey && <Button data-testid="btn-save-entry-template" onClick={() => void saveTemplate()}>Record safe macro…</Button>}
+        <span className="self-center text-[10.5px] text-muted" aria-live="polite">{autosave.status === 'saving' || autosave.status === 'waiting' ? 'Saving draft…' : autosave.status === 'saved' ? 'Draft saved' : autosave.status === 'error' ? 'Draft not saved' : ''}</span>
         <Button data-testid="btn-save-voucher-draft" disabled={saving} onClick={() => void saveDraft()}>Save draft</Button>
         <Button onClick={() => nav.back()}>Cancel</Button>
         {kind === 'sales' && (

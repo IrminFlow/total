@@ -6,6 +6,7 @@ import {
   useSession,
   useTheme,
   useToasts,
+  type Screen,
 } from "../state/stores";
 import { api } from "../lib/client";
 import { Button, DateInput, Kbd, Modal } from "./ui";
@@ -23,9 +24,16 @@ import { useFeatures } from "../lib/useFeatures";
 import {
   NAV_SECTIONS,
   SCREENS,
-  SCREEN_SHORTCUTS,
+  navigationSection,
   screenDef,
 } from "../lib/screens";
+import {
+  commandForScreen,
+  effectiveBindings,
+  formatShortcut,
+  matchesShortcut,
+  useShortcutOverrides,
+} from "../lib/commands";
 import {
   readWorkspacePrefs,
   rememberWorkspaceScreen,
@@ -64,6 +72,7 @@ import { useAccessibilityPreferences } from "../lib/accessibilityPrefs";
 import { localizedLabel } from "../lib/localization";
 import { FeatureDiscovery } from "./FeatureDiscovery";
 import { recordCohortEvent } from "../lib/commercialOps";
+import { useDeviceSafetyControls } from "../lib/useDeviceSafety";
 
 const QUICK_NAV_NAMES = new Set([
   "gateway",
@@ -75,10 +84,10 @@ const QUICK_NAV_NAMES = new Set([
 /** Sidebar derived from the single screen registry (lib/screens.ts). */
 const NAV = NAV_SECTIONS.map((section) => ({
   ...section,
-  title: section.id === "top" ? "Daily work" : section.title,
+  title: section.title,
   items: SCREENS.filter(
     (s) =>
-      s.navSection === section.id &&
+      navigationSection(s) === section.id &&
       s.screen != null &&
       !QUICK_NAV_NAMES.has(s.name),
   ).map((s) => ({
@@ -139,6 +148,16 @@ export function Shell({
   const { theme, toggle } = useTheme();
   const language = useAccessibilityPreferences((state) => state.language);
   const identity = workspaceIdentity(user);
+  const deviceSafety = useDeviceSafetyControls();
+  const shortcutOverrides = useShortcutOverrides();
+  const navigationBinding = (name: Screen["name"]) => {
+    const command = commandForScreen(name);
+    return command
+      ? effectiveBindings(command, shortcutOverrides).find(
+          (binding) => binding.context === "global",
+        )
+      : undefined;
+  };
   const [periodOpen, setPeriodOpen] = useState(false);
   const [companySwitcherOpen, setCompanySwitcherOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -308,14 +327,12 @@ export function Shell({
           target.closest('[contenteditable="true"]'))
       )
         return;
-      if (!e.altKey || e.metaKey || e.ctrlKey) return;
-      const key = e.key.toLowerCase();
       const item = [
         ...quickNav,
         ...visibleNav.flatMap((section) => section.items),
       ].find((candidate) => {
-        const shortcut = SCREEN_SHORTCUTS[candidate.screen.name];
-        return shortcut?.key === key && !!shortcut.shift === e.shiftKey;
+        const shortcut = navigationBinding(candidate.screen.name);
+        return shortcut ? matchesShortcut(e, shortcut) : false;
       });
       if (item) {
         e.preventDefault();
@@ -324,7 +341,7 @@ export function Shell({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [nav, visibleNav, quickNav, canFocus]);
+  }, [nav, visibleNav, quickNav, canFocus, shortcutOverrides]);
 
   return (
     <div
@@ -461,10 +478,11 @@ export function Shell({
             </button>
             <button
               data-testid="btn-copilot"
-              className="shell-action shrink-0 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] font-medium text-ink hover:border-amber/60"
+              className="shell-action shrink-0 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] font-medium text-ink hover:border-amber/60 disabled:cursor-not-allowed disabled:opacity-50"
               onClick={onOpenCopilot}
-              title="Ask Total copilot"
-              aria-label="Ask Total copilot"
+              disabled={!deviceSafety.aiCopilot}
+              title={deviceSafety.aiCopilot ? "Ask Total copilot" : "AI copilot is off in Settings > Features"}
+              aria-label={deviceSafety.aiCopilot ? "Ask Total copilot" : "AI copilot is off"}
             >
               <Sparkle size={15} className="inline-block -translate-y-px" />
               <span className="shell-action-label ml-1.5">Copilot</span>
@@ -586,7 +604,7 @@ export function Shell({
               </p>
               {quickNav.map((item) => {
                 const active = screen.name === item.screen.name;
-                const shortcut = SCREEN_SHORTCUTS[item.screen.name];
+                const shortcut = navigationBinding(item.screen.name);
                 return (
                   <button
                     key={item.screen.name}
@@ -595,9 +613,7 @@ export function Shell({
                     onClick={() => nav.go(item.screen)}
                     className="app-nav-item flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-muted hover:bg-panel2 hover:text-ink"
                     title={
-                      shortcut
-                        ? `${shortcut.shift ? "Alt+Shift" : "Alt"}+${shortcut.key.toUpperCase()}`
-                        : undefined
+                      shortcut ? formatShortcut(shortcut) : undefined
                     }
                     aria-label={localizedLabel(item.label, language)}
                     data-voice-command={item.label}
@@ -617,8 +633,7 @@ export function Shell({
                         className="num shrink-0 text-[9.5px] text-muted/65"
                         aria-hidden="true"
                       >
-                        {shortcut.shift ? "⌥⇧" : "⌥"}
-                        {shortcut.key.toUpperCase()}
+                        {formatShortcut(shortcut)}
                       </span>
                     )}
                   </button>
@@ -676,7 +691,7 @@ export function Shell({
                     {expanded &&
                       section.items.map((item) => {
                         const active = screen.name === item.screen.name;
-                        const shortcut = SCREEN_SHORTCUTS[item.screen.name];
+                        const shortcut = navigationBinding(item.screen.name);
                         return (
                           <button
                             key={item.label}
@@ -685,9 +700,7 @@ export function Shell({
                             onClick={() => nav.go(item.screen)}
                             className="app-nav-item block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] text-muted hover:bg-panel2 hover:text-ink"
                             title={
-                              shortcut
-                                ? `${shortcut.shift ? "Alt+Shift" : "Alt"}+${shortcut.key.toUpperCase()}`
-                                : undefined
+                              shortcut ? formatShortcut(shortcut) : undefined
                             }
                             aria-label={localizedLabel(item.label, language)}
                             data-voice-command={item.label}

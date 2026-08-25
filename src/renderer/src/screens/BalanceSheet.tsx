@@ -9,6 +9,7 @@ import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/clie
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { SavedReportViews } from '../components/SavedReportViews'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { useSavedReportViews } from '../lib/reportConfig'
 
 interface BalanceSheetView { asOn: string; comparePrior: boolean }
@@ -52,7 +53,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <div className="flex items-center gap-2">
+          <ReportToolbar compact>
             {isPlaceholderData && (
               <span data-testid="bs-refreshing" className="text-[11px] text-muted" aria-live="polite">
                 Updating…
@@ -78,7 +79,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
             >
               CSV
             </Button>
-          </div>
+          </ReportToolbar>
         }
       >
         Balance sheet
