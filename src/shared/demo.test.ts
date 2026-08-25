@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   DEMO_COMPANY, DEMO_PARTIES, DEMO_ITEMS, DEMO_EXTRA_LEDGERS,
-  DEMO_DEBTORS, DEMO_CREDITORS, demoVouchers, demoWindow
+  DEMO_DEBTORS, DEMO_CREDITORS, demoVouchers, demoWindow,
+  DEMO_TRADES, DEMO_TRADE_PROFILES, demoProfile
 } from './demo'
 import { validateGstin } from './gst/validate'
 import { fyOf } from './dates'
@@ -145,6 +146,183 @@ describe('demoVouchers', () => {
     for (const v of vouchers.filter((v) => v.kind === 'sales' || v.kind === 'purchase')) {
       const inv = v.inventory![0]!
       expect(inv.amount).toBe((inv.qtyMilli * inv.ratePaise) / 1000)
+    }
+  })
+})
+
+// ---------- the three trades (roadmap #293) ----------
+
+describe('DEMO_TRADE_PROFILES', () => {
+  const TODAY = '2026-08-15'
+
+  it('covers every trade in DEMO_TRADES, once each', () => {
+    expect(DEMO_TRADE_PROFILES.map((p) => p.trade)).toEqual([...DEMO_TRADES])
+    for (const trade of DEMO_TRADES) expect(demoProfile(trade).trade).toBe(trade)
+  })
+
+  it('gives each trade a distinct company and a valid GSTIN for its state', () => {
+    const names = DEMO_TRADE_PROFILES.map((p) => p.company.name)
+    expect(new Set(names).size).toBe(names.length)
+    for (const p of DEMO_TRADE_PROFILES) {
+      const check = validateGstin(p.company.gstin!)
+      expect(check.valid, `${p.trade} GSTIN`).toBe(true)
+      expect(check.stateCode).toBe(p.company.stateCode)
+      for (const party of p.parties) expect(validateGstin(party.gstin).valid, party.name).toBe(true)
+    }
+  })
+
+  it('says on screen what each sample is, in a label and a blurb', () => {
+    for (const p of DEMO_TRADE_PROFILES) {
+      expect(p.label.length).toBeGreaterThan(0)
+      expect(p.blurb.length).toBeGreaterThan(0)
+    }
+  })
+
+  for (const profile of DEMO_TRADE_PROFILES) {
+    describe(profile.trade, () => {
+      const vouchers = profile.vouchers(TODAY)
+
+      it('posts a book worth looking at', () => {
+        expect(vouchers.length).toBeGreaterThan(10)
+      })
+
+      it('every voucher balances: sum(dr) === sum(cr)', () => {
+        for (const v of vouchers) {
+          const dr = v.lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+          const cr = v.lines.filter((l) => l.drCr === 'cr').reduce((s, l) => s + l.amount, 0)
+          expect(dr, v.narration ?? v.kind).toBe(cr)
+        }
+      })
+
+      it('is deterministic for a fixed today — the same books twice', () => {
+        expect(JSON.stringify(profile.vouchers(TODAY))).toBe(JSON.stringify(vouchers))
+      })
+
+      it('comes out sorted by date, inside the demo window', () => {
+        const { from, to } = demoWindow(TODAY)
+        for (let i = 1; i < vouchers.length; i++) {
+          expect(vouchers[i]!.date >= vouchers[i - 1]!.date).toBe(true)
+        }
+        for (const v of vouchers) {
+          expect(v.date >= from).toBe(true)
+          expect(v.date <= to).toBe(true)
+        }
+      })
+
+      it('references only ledgers and items the profile actually creates', () => {
+        // Party ledgers, the profile's extra ledgers, and Cash — which db/seed.ts gives every
+        // company. A name in none of those is a voucher that will not post.
+        const known = new Set([
+          ...profile.parties.map((p) => p.name),
+          ...profile.extraLedgers.map((l) => l.name),
+          'Cash'
+        ])
+        const items = new Set(profile.items.map((i) => i.name))
+        for (const v of vouchers) {
+          for (const l of v.lines) expect(known.has(l.ledgerName), l.ledgerName).toBe(true)
+          for (const inv of v.inventory ?? []) expect(items.has(inv.itemName), inv.itemName).toBe(true)
+        }
+      })
+
+      it('closes with the stock it bought, made and sold accounted for', () => {
+        // Closing quantity per item is exactly ins minus outs. Not asserted non-negative for
+        // every trade: the trading sample has always sold from an assumed shelf rather than
+        // buying first, and that is its own (deliberate) shape — see the manufacturing tests
+        // below for the trade where consuming before you have it would be a real error.
+        const onHand = new Map<string, number>()
+        for (const v of vouchers) {
+          for (const inv of v.inventory ?? []) {
+            onHand.set(inv.itemName, (onHand.get(inv.itemName) ?? 0) + (inv.direction === 'in' ? inv.qtyMilli : -inv.qtyMilli))
+          }
+        }
+        if (profile.items.length === 0) expect(onHand.size).toBe(0)
+        for (const [name] of onHand) expect(profile.items.some((i) => i.name === name), name).toBe(true)
+      })
+    })
+  }
+})
+
+describe('the services profile', () => {
+  it('has no stock items at all, and switches inventory off', () => {
+    const svc = demoProfile('services')
+    expect(svc.items).toEqual([])
+    expect(svc.bom).toEqual([])
+    expect(svc.featureOverrides.inventory).toBe(false)
+  })
+
+  it('invoices fees with no inventory line anywhere', () => {
+    for (const v of demoProfile('services').vouchers('2026-08-15')) {
+      expect(v.inventory ?? []).toEqual([])
+    }
+  })
+})
+
+describe('the manufacturing profile', () => {
+  const mfg = demoProfile('manufacturing')
+  const vouchers = mfg.vouchers('2026-08-15')
+
+  it('carries a work-in-progress stage between raw material and finished goods', () => {
+    expect(mfg.items.map((i) => i.name)).toContain('Pulley Housing (WIP)')
+  })
+
+  it('has a bill of materials whose every component is a real item', () => {
+    const names = new Set(mfg.items.map((i) => i.name))
+    expect(mfg.bom.length).toBeGreaterThan(0)
+    for (const b of mfg.bom) {
+      expect(names.has(b.itemName), b.itemName).toBe(true)
+      expect(b.components.length).toBeGreaterThan(0)
+      for (const c of b.components) {
+        expect(names.has(c.itemName), c.itemName).toBe(true)
+        expect(c.qtyMilliPerUnit).toBeGreaterThan(0)
+        expect(Number.isInteger(c.qtyMilliPerUnit)).toBe(true)
+        expect(c.itemName).not.toBe(b.itemName)
+      }
+    }
+  })
+
+  it('manufactures with stock journals that consume and produce', () => {
+    const journals = vouchers.filter((v) => v.kind === 'stock_journal')
+    expect(journals.length).toBeGreaterThanOrEqual(2)
+    for (const j of journals) {
+      expect(j.lines).toEqual([])
+      const inv = j.inventory!
+      expect(inv.some((l) => l.direction === 'out')).toBe(true)
+      expect(inv.filter((l) => l.direction === 'in')).toHaveLength(1)
+      // Value is conserved: what leaves the components is exactly what the produced item is
+      // worth. Manufacture moves value between stock items and never touches the P&L.
+      const out = inv.filter((l) => l.direction === 'out').reduce((s, l) => s + l.amount, 0)
+      expect(inv.find((l) => l.direction === 'in')!.amount).toBe(out)
+    }
+  })
+
+  it('never takes an item below zero — a factory cannot consume what it has not got', () => {
+    const onHand = new Map<string, number>()
+    for (const v of vouchers) {
+      for (const inv of v.inventory ?? []) {
+        const next = (onHand.get(inv.itemName) ?? 0) + (inv.direction === 'in' ? inv.qtyMilli : -inv.qtyMilli)
+        expect(next, `${inv.itemName} after ${v.date}`).toBeGreaterThanOrEqual(0)
+        onHand.set(inv.itemName, next)
+      }
+    }
+    // And what is left on the shelf at the end is the point of the WIP stage being visible.
+    expect(onHand.get('Pulley Housing (WIP)')).toBeGreaterThan(0)
+  })
+
+  it('never manufactures before the components it consumes were bought or made', () => {
+    const firstIn = new Map<string, string>()
+    for (const v of vouchers) {
+      for (const inv of v.inventory ?? []) {
+        if (inv.direction !== 'in') continue
+        const seen = firstIn.get(inv.itemName)
+        if (seen === undefined || v.date < seen) firstIn.set(inv.itemName, v.date)
+      }
+    }
+    for (const j of vouchers.filter((v) => v.kind === 'stock_journal')) {
+      for (const consumed of j.inventory!.filter((l) => l.direction === 'out')) {
+        const arrived = firstIn.get(consumed.itemName)
+        expect(arrived, `${consumed.itemName} has to arrive before it is consumed`).toBeDefined()
+        expect(arrived! <= j.date).toBe(true)
+      }
     }
   })
 })

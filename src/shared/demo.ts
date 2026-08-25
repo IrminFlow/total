@@ -350,7 +350,9 @@ export interface DemoTradeProfile {
 const MFG_COMPANY: CompanyInfo = {
   ...DEMO_COMPANY,
   name: 'Demo Manufacturing',
-  gstin: '27AABCM4567N1Z1',
+  // Check digit computed, not invented: the GST screens validate it, and a sample that opens
+  // with its own GSTIN flagged teaches the user to ignore that flag.
+  gstin: '27AABCM4567N1ZY',
   pan: 'AABCM4567N',
   address: 'Plot 21, MIDC Chakan, Pune 410501',
   email: 'accounts@demomfg.test'
@@ -411,7 +413,7 @@ const MFG_LEDGERS: DemoLedger[] = [
 const SVC_COMPANY: CompanyInfo = {
   ...DEMO_COMPANY,
   name: 'Demo Consulting',
-  gstin: '27AABCS2345P1ZG',
+  gstin: '27AABCS2345P1Z0',
   pan: 'AABCS2345P',
   address: '304 Amar Chambers, Baner, Pune 411045',
   email: 'accounts@democonsulting.test'

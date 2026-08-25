@@ -35,6 +35,7 @@ import type {
   VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
+import type { DemoTrade } from '@shared/demo'
 import type { CartTotals, DrawerReconciliation, PricingMode, Tender, TenderResult } from '@shared/counter'
 import type { Scheme, SchemeApplication } from '@shared/scheme'
 import type { LoanSchedule } from '@shared/loan'
@@ -1755,7 +1756,8 @@ export const api = {
   company: {
     list: () => call<Registry>('company:list'),
     create: (input: CompanyCreateInput) => call<{ slug: string }>('company:create', input),
-    createDemo: () => call<{ slug: string }>('company:createDemo'),
+    /** Omitting the trade builds the original 'trading' sample. */
+    createDemo: (trade?: DemoTrade) => call<{ slug: string }>('company:createDemo', { trade }),
     remove: (slug: string, confirmName: string, pin?: string) =>
       call<null>('company:delete', { slug, confirmName, pin }),
     open: (slug: string) =>

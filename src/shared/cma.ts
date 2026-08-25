@@ -585,15 +585,32 @@ function buildFundFlow(resolved: ResolvedColumn[]): CmaFundFlow {
     delta(prev, curr, 'iii_net_worth') - d(curr, 'ii_retained')
   const nonCurrentAssets = (m: Map<string, number>): number =>
     d(m, 'iii_net_fixed_assets') + d(m, 'iii_investments') + d(m, 'iii_other_nca') + d(m, 'iii_intangibles')
+  /**
+   * Capital expenditure, which is what the form's "increase in fixed assets" line means — not the
+   * movement in the net block.
+   *
+   * Form III carries fixed assets NET of depreciation, so the movement in it is already the year's
+   * additions less the year's depreciation. Depreciation is separately a source above, being a
+   * charge that consumed no funds. Showing the net movement as the use would therefore report the
+   * depreciation twice, once as a source and once as a smaller use, and the statement would fail
+   * to balance by exactly the depreciation. Adding it back here restores the gross figure, which
+   * is what was actually spent.
+   */
+  const capitalExpenditure = (prev: Map<string, number>, curr: Map<string, number>): number =>
+    nonCurrentAssets(curr) - nonCurrentAssets(prev) + d(curr, 'ii_depreciation')
   const pos = (n: number): number => Math.max(0, n)
 
+  const sourcesTotal = (p: Map<string, number>, c: Map<string, number>): number =>
+    pos(d(c, 'ii_pat')) + d(c, 'ii_depreciation') + pos(freshCapital(p, c)) + pos(delta(p, c, 'iii_ttl')) + pos(-capitalExpenditure(p, c))
+  const usesTotal = (p: Map<string, number>, c: Map<string, number>): number =>
+    pos(-d(c, 'ii_pat')) + d(c, 'ii_drawings') + pos(-freshCapital(p, c)) + pos(-delta(p, c, 'iii_ttl')) + pos(capitalExpenditure(p, c))
   const sources: CmaFundFlowLine[] = [
     line('vi_s_pat', 'Net profit after tax', (_p, c) => pos(d(c, 'ii_pat'))),
     line('vi_s_depreciation', 'Depreciation', (_p, c) => d(c, 'ii_depreciation')),
     line('vi_s_capital', 'Capital introduced', (p, c) => pos(freshCapital(p, c))),
     line('vi_s_term', 'Increase in term liabilities', (p, c) => pos(delta(p, c, 'iii_ttl'))),
-    line('vi_s_nca', 'Decrease in non-current assets', (p, c) => pos(-(nonCurrentAssets(c) - nonCurrentAssets(p)))),
-    line('vi_s_total', 'Total sources', (p, c) => pos(d(c, 'ii_pat')) + d(c, 'ii_depreciation') + pos(freshCapital(p, c)) + pos(delta(p, c, 'iii_ttl')) + pos(-(nonCurrentAssets(c) - nonCurrentAssets(p))), true)
+    line('vi_s_nca', 'Sale of fixed assets and investments', (p, c) => pos(-capitalExpenditure(p, c))),
+    line('vi_s_total', 'Total sources', (p, c) => sourcesTotal(p, c), true)
   ]
 
   const uses: CmaFundFlowLine[] = [
@@ -601,14 +618,10 @@ function buildFundFlow(resolved: ResolvedColumn[]): CmaFundFlow {
     line('vi_u_drawings', 'Dividend / withdrawals', (_p, c) => d(c, 'ii_drawings')),
     line('vi_u_capital', 'Capital withdrawn', (p, c) => pos(-freshCapital(p, c))),
     line('vi_u_term', 'Decrease in term liabilities', (p, c) => pos(-delta(p, c, 'iii_ttl'))),
-    line('vi_u_nca', 'Increase in non-current assets', (p, c) => pos(nonCurrentAssets(c) - nonCurrentAssets(p))),
-    line('vi_u_total', 'Total uses', (p, c) => pos(-d(c, 'ii_pat')) + d(c, 'ii_drawings') + pos(-freshCapital(p, c)) + pos(-delta(p, c, 'iii_ttl')) + pos(nonCurrentAssets(c) - nonCurrentAssets(p)), true)
+    line('vi_u_nca', 'Capital expenditure on fixed assets and investments', (p, c) => pos(capitalExpenditure(p, c))),
+    line('vi_u_total', 'Total uses', (p, c) => usesTotal(p, c), true)
   ]
 
-  const sourcesTotal = (p: Map<string, number>, c: Map<string, number>): number =>
-    pos(d(c, 'ii_pat')) + d(c, 'ii_depreciation') + pos(freshCapital(p, c)) + pos(delta(p, c, 'iii_ttl')) + pos(-(nonCurrentAssets(c) - nonCurrentAssets(p)))
-  const usesTotal = (p: Map<string, number>, c: Map<string, number>): number =>
-    pos(-d(c, 'ii_pat')) + d(c, 'ii_drawings') + pos(-freshCapital(p, c)) + pos(-delta(p, c, 'iii_ttl')) + pos(nonCurrentAssets(c) - nonCurrentAssets(p))
   const wcg = (m: Map<string, number>): number => d(m, 'iii_tca') - (d(m, 'iii_tcl') - d(m, 'iii_bank_borrowing'))
 
   const summary: CmaFundFlowLine[] = [
@@ -751,4 +764,70 @@ export function facilityTotals(rows: CmaFacility[]): {
     outstandingPaise: rows.reduce((s, r) => s + (r.outstandingPaise ?? 0), 0),
     proposedLimitPaise: rows.reduce((s, r) => s + r.proposedLimitPaise, 0)
   }
+}
+
+// ---------- classifying a chart of accounts into CMA buckets ----------
+
+/**
+ * Which Form II line an expense ledger belongs on.
+ *
+ * The buckets are EXHAUSTIVE, which is the whole design: a ledger nobody anticipated falls into
+ * `otherIndirectExpenses` rather than being dropped. That is what makes Form II's profit before
+ * tax tie, to the paisa, to the profit in the audited accounts attached to the same loan
+ * application — and a CMA pack whose bottom line disagrees with the accounts beside it is the one
+ * thing guaranteed to get the file sent back.
+ *
+ * The name patterns are a convenience, not a contract. They exist because a chart of accounts in
+ * this market puts "Depreciation" and "Interest on Term Loan" under Indirect Expenses along with
+ * everything else, and a credit officer reading Form II expects to see them on their own lines.
+ * When a pattern misses, the amount is still counted; it is just counted one line lower down.
+ */
+export type CmaExpenseBucket =
+  | 'rawMaterials'
+  | 'directWages'
+  | 'powerAndFuel'
+  | 'otherManufacturingExpenses'
+  | 'depreciation'
+  | 'sellingExpenses'
+  | 'administrativeExpenses'
+  | 'otherIndirectExpenses'
+  | 'interest'
+  | 'taxProvision'
+
+const DEPRECIATION = /depreciat|amortis|amortiz/i
+const INTEREST = /interest|bank charge|processing fee|loan charge/i
+const TAX_PROVISION = /income[\s-]?tax|provision for tax|corporate tax/i
+const WAGES = /wage|labour|labor|contract staff|piece ?rate|bonus|gratuity|pf |esic?\b/i
+const POWER = /power|fuel|electric|diesel|furnace oil|\bgas\b|water charge/i
+const SELLING = /sell|market|advert|publicity|commission|brokerage|freight out|outward|carriage out|distribut|discount allowed|sales promo/i
+const ADMIN = /salar|rent\b|office|admin|legal|professional|audit|telephone|internet|insurance|stationery|printing|travel|conveyance|repair|postage|subscription|security charge|housekeep/i
+
+/**
+ * @param topGroupName the ROOT group the ledger hangs under — 'Indirect Expenses', not the
+ *        sub-group the user created beneath it.
+ */
+export function classifyExpenseLedger(topGroupName: string, ledgerName: string): CmaExpenseBucket {
+  // These three are read off the name before the group, because a chart of accounts almost always
+  // files them under Indirect Expenses and Form II wants them called out.
+  if (DEPRECIATION.test(ledgerName)) return 'depreciation'
+  if (TAX_PROVISION.test(ledgerName)) return 'taxProvision'
+  if (INTEREST.test(ledgerName)) return 'interest'
+
+  if (topGroupName === 'Purchase Accounts') return 'rawMaterials'
+  if (topGroupName === 'Direct Expenses') {
+    if (WAGES.test(ledgerName)) return 'directWages'
+    if (POWER.test(ledgerName)) return 'powerAndFuel'
+    return 'otherManufacturingExpenses'
+  }
+  if (SELLING.test(ledgerName)) return 'sellingExpenses'
+  if (ADMIN.test(ledgerName)) return 'administrativeExpenses'
+  return 'otherIndirectExpenses'
+}
+
+export type CmaIncomeBucket = 'netSales' | 'otherOperatingIncome' | 'otherIncome'
+
+export function classifyIncomeLedger(topGroupName: string): CmaIncomeBucket {
+  if (topGroupName === 'Sales Accounts') return 'netSales'
+  if (topGroupName === 'Direct Incomes') return 'otherOperatingIncome'
+  return 'otherIncome'
 }

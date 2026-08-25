@@ -7,6 +7,7 @@ import { SupportLink } from '../components/SupportLink'
 import { GST_STATES } from '@shared/gst/states'
 import { gstinErrorMessage } from '../lib/gstinError'
 import { fyOf, todayISO } from '@shared/dates'
+import { DEMO_TRADE_PROFILES, type DemoTrade } from '@shared/demo'
 import type { CompanyCreateInput } from '@shared/schemas'
 import type { CompanyInfo, CompanySummary } from '@shared/domain'
 
@@ -19,6 +20,7 @@ export function CompanySelect(): React.JSX.Element {
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [demoLoading, setDemoLoading] = useState(false)
+  const [picking, setPicking] = useState(false)
   const [deleting, setDeleting] = useState<CompanySummary | null>(null)
   const [integrityIssue, setIntegrityIssue] = useState<{
     pending: { slug: string; info: CompanyInfo; locked: boolean }
@@ -42,6 +44,22 @@ export function CompanySelect(): React.JSX.Element {
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
+  }
+
+  const createSample = (trade: DemoTrade): void => {
+    void (async () => {
+      setDemoLoading(true)
+      try {
+        const r = await api.company.createDemo(trade)
+        await queryClient.invalidateQueries({ queryKey: ['registry'] })
+        setPicking(false)
+        await open(r.slug)
+      } catch (err) {
+        toast.push('error', (err as Error).message)
+      } finally {
+        setDemoLoading(false)
+      }
+    })()
   }
 
   const { active, setActive } = useKeyNav(companies.length, (i) => {
@@ -145,24 +163,40 @@ export function CompanySelect(): React.JSX.Element {
             onClick={() => setImporting(true)}
           />
           <StartRow
+            testId="btn-company-demo"
             title={demoLoading ? 'Setting up sample data…' : 'Explore with sample data'}
-            sub="Demo Traders — a year of vouchers, returns and stock"
+            sub={
+              picking
+                ? 'Pick the one that looks most like your books'
+                : 'A ready-made set of books — vouchers, returns and reports'
+            }
             disabled={demoLoading}
-            onClick={() => {
-              void (async () => {
-                setDemoLoading(true)
-                try {
-                  const r = await api.company.createDemo()
-                  await queryClient.invalidateQueries({ queryKey: ['registry'] })
-                  await open(r.slug)
-                } catch (err) {
-                  toast.push('error', (err as Error).message)
-                } finally {
-                  setDemoLoading(false)
-                }
-              })()
-            }}
+            onClick={() => setPicking((p) => !p)}
           />
+          {/* The trade is asked at the point the sample is made, not in a dialog on top of it:
+              three lines is a smaller interruption than a modal, and the answer is needed
+              exactly once. A distributor should not have to learn what a bill of materials is
+              before seeing their own kind of invoice. */}
+          {picking && (
+            <div data-testid="demo-trade-picker" className="border-t border-line bg-panel2/40">
+              {DEMO_TRADE_PROFILES.map((p) => (
+                <button
+                  key={p.trade}
+                  type="button"
+                  data-testid={`btn-demo-trade-${p.trade}`}
+                  disabled={demoLoading}
+                  onClick={() => createSample(p.trade)}
+                  className="flex w-full items-center justify-between gap-4 border-t border-line/50 px-5 py-2 pl-8 text-left transition-colors first:border-t-0 hover:bg-panel2 disabled:opacity-60"
+                >
+                  <span>
+                    <span className="block text-detail font-medium">{p.label}</span>
+                    <span className="block text-caption text-muted">{p.blurb}</span>
+                  </span>
+                  <span className="text-accent text-detail">→</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

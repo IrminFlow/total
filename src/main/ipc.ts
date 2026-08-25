@@ -86,6 +86,7 @@ import { writeExportPdf } from './services/pdf'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch } from './services/search'
 import { createDemoCompany } from './services/demo'
+import { DEMO_TRADES } from '@shared/demo'
 import {
   setAuditContext, writeAudit, listAudit, pruneAudit, verifyAuditChain, dailyDigest
 } from './services/audit'
@@ -445,7 +446,13 @@ export function registerIpc(): void {
     return { slug }
   })
 
-  handle('company:createDemo', () => createDemoCompany())
+  // The trade is optional and defaults to 'trading': an older renderer (or a driver script)
+  // that sends no payload at all still gets the original Demo Traders books.
+  handle('company:createDemo', (payload) =>
+    createDemoCompany(
+      z.object({ trade: z.enum(DEMO_TRADES).optional() }).parse(payload ?? {}).trade ?? 'trading'
+    )
+  )
 
   handle('company:delete', (payload) => {
     const { slug, confirmName, pin } = z

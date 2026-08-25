@@ -142,6 +142,12 @@
   --color-muted: var(--t-muted);
   --color-amber: var(--t-amber);
   --color-amberbar: var(--t-amber-bar);
+  /* The signature colour is no longer amber, so new markup says `accent` and means "the app's
+     one accent" rather than a hue. The amber* names stay as aliases of the same tokens — there
+     are hundreds of them in place and renaming them all is not what any single change is for. */
+  --color-accent: var(--t-amber);
+  --color-accentbar: var(--t-amber-bar);
+  --color-onaccent: var(--t-on-amber);
   --color-dr: var(--t-dr);
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);

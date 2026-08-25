@@ -706,38 +706,86 @@ function ccUtilised(db: DB, asOn: string, ccLedgerId: number | null): number {
   return Math.max(0, -row.balance)
 }
 
+/**
+ * The one classification of this borrower's working capital.
+ *
+ * The monthly stock statement (#372), the drawing-power computation (#373) and the CMA pack
+ * (#371) all describe the same stock, the same book debts and the same creditors to the same
+ * bank. They publish different cut-offs — drawing power excludes debts past the bank's limit,
+ * usually 90 days; Form III of the CMA splits receivables at six months, which is the CMA's own
+ * convention — but they must not disagree about what the figures ARE.
+ *
+ * So the cut-off is a parameter and everything else is computed once, here. Two callers deriving
+ * "book debts" separately is two answers to a question the bank asks once, and the borrower is
+ * the one who has to explain the difference.
+ */
+export interface WorkingCapitalBasis {
+  asOn: string
+  stockPaise: number
+  /** Book debts at or within `ageLimitDays` of the invoice date. */
+  withinLimitPaise: number
+  /** Book debts beyond it. */
+  beyondLimitPaise: number
+  totalDebtorsPaise: number
+  creditorsPaise: number
+  /** Cash-credit / overdraft actually drawn, reported positive. */
+  utilisedPaise: number
+  /** Parties with debt beyond the limit, largest first — what was excluded and by whom. */
+  beyondLimitParties: { name: string; pending: number }[]
+}
+
+export function workingCapitalBasis(
+  db: DB,
+  asOn: string,
+  ageLimitDays: number,
+  ccLedgerId: number | null = null
+): WorkingCapitalBasis {
+  const debtors = outstandings(db, 'receivable', asOn, { includeBills: true })
+  const creditors = outstandings(db, 'payable', asOn, { includeBills: false })
+
+  let within = 0
+  let beyond = 0
+  const beyondLimitParties: { name: string; pending: number }[] = []
+  for (const p of debtors) {
+    let old = 0
+    for (const bill of p.bills) {
+      // Age, not overdue days: a bank's cut-off runs from the invoice, not from the due date.
+      if (bill.ageDays > ageLimitDays) old += bill.pending
+      else within += bill.pending
+    }
+    if (old > 0) {
+      beyond += old
+      beyondLimitParties.push({ name: p.name, pending: old })
+    }
+  }
+
+  return {
+    asOn,
+    stockPaise: stockValue(db, asOn),
+    withinLimitPaise: within,
+    beyondLimitPaise: beyond,
+    totalDebtorsPaise: within + beyond,
+    creditorsPaise: creditors.reduce((s, c) => s + c.pending, 0),
+    utilisedPaise: ccUtilised(db, asOn, ccLedgerId),
+    beyondLimitParties: beyondLimitParties.sort((a, b) => b.pending - a.pending)
+  }
+}
+
 export function computeStockStatement(
   db: DB,
   asOn: string,
   margins: DrawingPowerMargins = DEFAULT_MARGINS,
   ccLedgerId: number | null = null
 ): StockStatement {
-  const debtors = outstandings(db, 'receivable', asOn, { includeBills: true })
-  const creditors = outstandings(db, 'payable', asOn, { includeBills: false })
-
-  let eligible = 0
-  let ineligible = 0
-  const excludedParties: { name: string; pending: number }[] = []
-  for (const p of debtors) {
-    let old = 0
-    for (const bill of p.bills) {
-      // Age, not overdue days: a bank's cut-off runs from the invoice, not from the due date.
-      if (bill.ageDays > margins.debtorAgeLimitDays) old += bill.pending
-      else eligible += bill.pending
-    }
-    if (old > 0) {
-      ineligible += old
-      excludedParties.push({ name: p.name, pending: old })
-    }
-  }
+  const basis = workingCapitalBasis(db, asOn, margins.debtorAgeLimitDays, ccLedgerId)
 
   const input = {
     asOn,
-    stockPaise: stockValue(db, asOn),
-    eligibleDebtorsPaise: eligible,
-    ineligibleDebtorsPaise: ineligible,
-    creditorsPaise: creditors.reduce((s, c) => s + c.pending, 0),
-    utilisedPaise: ccUtilised(db, asOn, ccLedgerId)
+    stockPaise: basis.stockPaise,
+    eligibleDebtorsPaise: basis.withinLimitPaise,
+    ineligibleDebtorsPaise: basis.beyondLimitPaise,
+    creditorsPaise: basis.creditorsPaise,
+    utilisedPaise: basis.utilisedPaise
   }
 
   const filed = db.prepare('SELECT id, filed_on AS filedOn, notes FROM stock_statements WHERE as_on = ?').get(asOn) as
@@ -750,7 +798,7 @@ export function computeStockStatement(
     filedOn: filed?.filedOn ?? null,
     notes: filed?.notes ?? null,
     margins,
-    excludedParties: excludedParties.sort((a, b) => b.pending - a.pending)
+    excludedParties: basis.beyondLimitParties
   }
 }
 
