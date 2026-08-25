@@ -8,9 +8,9 @@
   "reviewer": { "name": "", "qualification": "" },
   "jurisdictions": ["India"],
   "documents": [
-    { "id": "privacy", "result": "pending" },
-    { "id": "terms", "result": "pending" },
-    { "id": "security", "result": "pending" },
-    { "id": "commercial-policy", "result": "pending" }
+    { "id": "privacy", "sha256": "", "result": "pending" },
+    { "id": "terms", "sha256": "", "result": "pending" },
+    { "id": "security", "sha256": "", "result": "pending" },
+    { "id": "commercial-policy", "sha256": "", "result": "pending" }
   ]
 }

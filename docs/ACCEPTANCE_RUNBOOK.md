@@ -74,6 +74,14 @@ sharing, import it on desktop and exercise duplicate review. Simulator-only evid
 
 ## Legal review
 
+A fresh review packet with the exact current document digests can be created with:
+
+```sh
+npm run acceptance:legal-packet
+```
+
 A qualified lawyer reviews privacy, terms, security and the commercial policy for India and every
 intended selling jurisdiction. Engineering cannot self-approve this file. Record reviewer identity,
-qualification, document decision and date without including privileged advice in the repository.
+qualification, document decision, date and the SHA-256 supplied in the review packet without including
+privileged advice in the repository. The gate recomputes each source digest, so a later policy edit
+requires a new legal approval rather than silently inheriting the old decision.

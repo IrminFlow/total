@@ -352,6 +352,37 @@ test('keeps approved commercial policy reusable across code revisions and age', 
   assert.equal(result.status, 0, result.stderr)
 })
 
+test('binds qualified legal approval to the exact reviewed policy sources', () => {
+  const legalDocuments = {
+    privacy: 'site/app/privacy/page.tsx',
+    terms: 'site/app/terms/page.tsx',
+    security: 'site/app/security/page.tsx',
+    'commercial-policy': 'docs/COMMERCIAL_POLICY.md',
+  }
+  const evidence = {
+    schema: 1,
+    kind: 'legal',
+    status: 'approved',
+    productVersion,
+    approvedAt,
+    approvers,
+    reviewer: { name: 'Qualified counsel', qualification: 'Advocate, India' },
+    jurisdictions: ['India'],
+    documents: Object.entries(legalDocuments).map(([id, path]) => ({
+      id,
+      sha256: createHash('sha256').update(readFileSync(join(root, path))).digest('hex'),
+      result: 'approved',
+    })),
+  }
+  const accepted = runGate(evidence)
+  assert.equal(accepted.status, 0, accepted.stderr)
+
+  evidence.documents[0].sha256 = digest('an older privacy policy')
+  const stale = runGate(evidence)
+  assert.notEqual(stale.status, 0)
+  assert.match(stale.stderr, /reviewed document has changed since approval/)
+})
+
 test('production readiness passes the exact release revision into acceptance validation', () => {
   const { evidence } = validMigration()
   const { path } = tempEvidence(evidence)

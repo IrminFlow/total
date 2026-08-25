@@ -65,6 +65,13 @@ function sha(value, label) {
   assert(typeof value === 'string' && SHA256.test(value), `${label} must be a lowercase SHA-256`)
   assert(!/^([a-f0-9])\1{63}$/.test(value), `${label} cannot be a placeholder digest`)
 }
+function repositoryDocumentSha(relativePath, expectedSha, label) {
+  sha(expectedSha, `${label}: sha256`)
+  const documentPath = resolve(root, relativePath)
+  assert(existsSync(documentPath), `${label}: reviewed document is missing`)
+  const actualSha = createHash('sha256').update(readFileSync(documentPath)).digest('hex')
+  assert(actualSha === expectedSha, `${label}: reviewed document has changed since approval`)
+}
 function assertUnique(rows, field, label) {
   const values = rows.map((row) => row[field])
   assert(new Set(values).size === values.length, `${label} must be unique for every source`)
@@ -254,6 +261,7 @@ function mobile() {
   }
 }
 function commercial() {
+  repositoryDocumentSha('docs/COMMERCIAL_POLICY.md', evidence.policySha256, 'commercial policy')
   assert(evidence.model === 'perpetual-major-version', 'Commercial model must be perpetual-major-version')
   assert(evidence.automaticBetaConversion === false, 'Beta must not convert automatically')
   assert(evidence.permanentBookAccess === true && evidence.permanentPortableExport === true, 'Book access and portable export must remain permanent')
@@ -266,7 +274,16 @@ function legal() {
   assert(typeof evidence.reviewer?.qualification === 'string' && evidence.reviewer.qualification.trim().length >= 3, 'Legal qualification required')
   assert(Array.isArray(evidence.jurisdictions) && evidence.jurisdictions.includes('India'), 'India review is required')
   exactIds(evidence.documents, ['privacy', 'terms', 'security', 'commercial-policy'], 'documents')
-  evidence.documents.forEach((document) => approved(document.result, `legal: ${document.id}`))
+  const documentPaths = {
+    privacy: 'site/app/privacy/page.tsx',
+    terms: 'site/app/terms/page.tsx',
+    security: 'site/app/security/page.tsx',
+    'commercial-policy': 'docs/COMMERCIAL_POLICY.md',
+  }
+  evidence.documents.forEach((document) => {
+    approved(document.result, `legal: ${document.id}`)
+    repositoryDocumentSha(documentPaths[document.id], document.sha256, `legal: ${document.id}`)
+  })
 }
 
 common()

@@ -9,6 +9,7 @@
     { "name": "Total product owner", "role": "Product owner", "decision": "approved" }
   ],
   "policyDate": "2026-08-24",
+  "policySha256": "0adf97154f07ad1f21205dcd8cf40f6fd5694c6911f22b5ce9c4b8be624670ba",
   "model": "perpetual-major-version",
   "betaPricePaise": 0,
   "businessPricePaise": 990000,

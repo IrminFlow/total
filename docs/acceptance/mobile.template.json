@@ -8,7 +8,7 @@
   "approvedAt": "",
   "approvers": [],
   "devices": [
-    { "id": "ios", "physicalDevice": false, "osVersion": "", "model": "", "checks": {} },
-    { "id": "android", "physicalDevice": false, "osVersion": "", "model": "", "checks": {} }
+    { "id": "ios", "physicalDevice": false, "osVersion": "", "model": "", "checks": { "cameraCapture": "pending", "nativeShare": "pending", "desktopImport": "pending", "duplicateReview": "pending" } },
+    { "id": "android", "physicalDevice": false, "osVersion": "", "model": "", "checks": { "cameraCapture": "pending", "nativeShare": "pending", "desktopImport": "pending", "duplicateReview": "pending" } }
   ]
 }
