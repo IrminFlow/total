@@ -108,6 +108,34 @@ table archetypes, or the numerals. Those are the best things in the app.
 
 ---
 
+## The declines, reviewed
+
+Twenty roadmap items are marked ✗ rather than done, each with its reasoning on the line. All
+twenty were re-read on 25 August 2026 to ask a single question: **has the reason expired?**
+
+One had. ISD (#355) was declined because multi-GSTIN did not exist; multi-GSTIN landed that
+morning, so the reason stopped being true and the item shipped that evening. That is the whole
+point of writing the reason down rather than just the verdict — a decline with a stated cause is
+a decline that can be re-opened by evidence, and one without is just a thing nobody did.
+
+None of the other nineteen has expired, and they fall into three shapes:
+
+- **Blocked on an artefact nobody here has.** A real Busy or Marg export file (#290), a Tally
+  backup in its proprietary format (#299), screenshots of Tally's own export dialog (#295).
+  Each was declined because a parser guessed at is worse than none, and that is still true.
+- **Declined on a measurement**, and the measurement was taken after the work that would have
+  changed it. All six performance items (#225, #229, #230, #231, #239, #240, #241) were re-timed
+  *after* pagination landed, which is the change most likely to have made them worth doing. It
+  did not.
+- **Declined on a principle the product still holds.** Bare letters belong to navigation (#8,
+  #22). A bill photograph cannot be redacted (#207). A statement PDF has no table in it (#132).
+  Encryption that can lose somebody's books is not a feature (#262).
+
+The next review should ask the same question rather than re-litigating the reasoning: what has
+changed since, and does anything here now have what it was waiting for?
+
+---
+
 ## Phase 4 — the launch gates that are code
 
 - **#344** a generated 100,000-voucher book timed through every screen, with the numbers
