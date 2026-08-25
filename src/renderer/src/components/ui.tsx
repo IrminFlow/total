@@ -215,6 +215,60 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>): Re
   return <select {...props} className={`appearance-none ${mergeInputCls(props.className)}`} />
 }
 
+/**
+ * The export actions, as one control rather than three loose words.
+ *
+ * Nineteen screens offer a PDF, and until now each rendered `PDF` `CSV` `XLS` as three
+ * consecutive ghost buttons — grey text, sitting beside other grey text that is a label, in a
+ * different position on every screen. Three words that happen to be adjacent do not read as one
+ * thing; a bordered group does, and it lands in the same place every time, which is what makes
+ * a toolbar scannable rather than something to be re-read.
+ *
+ * Disabled renders inside the group, never as a pair of grey words floating alone on their own
+ * row — one screen used to do that and it read as a rendering fault rather than as an unavailable
+ * action.
+ *
+ * `busy` disables the whole group while an export is running: they all read the same rows, so
+ * starting a second one while the first is still gathering is a way to wait twice.
+ */
+export function ExportGroup({
+  items,
+  busy = false,
+  className = ''
+}: {
+  items: { label: string; onClick: () => void; testId?: string; title?: string; disabled?: boolean }[]
+  busy?: boolean
+  className?: string
+}): React.JSX.Element {
+  return (
+    <span
+      role="group"
+      aria-label="Export"
+      data-testid="export-group"
+      className={`inline-flex overflow-hidden rounded-md border border-line bg-panel ${className}`}
+    >
+      {items.map((item, i) => (
+        <button
+          key={item.label}
+          type="button"
+          data-testid={item.testId}
+          title={item.title ?? `Export as ${item.label}`}
+          disabled={busy || item.disabled}
+          onClick={item.onClick}
+          className={`px-2.5 py-1.5 text-body text-muted transition-colors hover:bg-panel2 hover:text-ink disabled:pointer-events-none disabled:opacity-40 ${
+            // A hairline between segments, not around them: the group has one border and the
+            // divisions inside it are lighter, so it reads as one control divided rather than as
+            // three controls touching.
+            i > 0 ? 'border-l border-line' : ''
+          }`}
+        >
+          {item.label}
+        </button>
+      ))}
+    </span>
+  )
+}
+
 export function Button({
   variant = 'default',
   disabledTitle,
