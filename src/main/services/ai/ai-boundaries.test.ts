@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { readdirSync, readFileSync, statSync } from 'fs'
-import { join } from 'path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
+import { dirname, join, relative, resolve } from 'path'
 
 /**
  * Structural guards on the AI service. These are the two promises the feature makes to the user,
@@ -11,12 +11,17 @@ import { join } from 'path'
  *     human saves through the normal path.
  *  2. The OpenAI SDK is confined to one file, so "what talks to the network" stays a
  *     one-file answer.
+ *  3. The SDK is not in the static import graph of the process that starts up, so it is not
+ *     parsed on a launch that never uses it.
  *
  * A filesystem grep is the right shape here: it fails when someone ADDS a call, which is exactly
  * when the promise would quietly stop being true.
  */
 
 const AI_DIR = join(__dirname)
+const ROOT = resolve(__dirname, '../../../..')
+const MAIN_DIR = resolve(__dirname, '../..')
+
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -81,6 +86,61 @@ describe('AI service boundaries', () => {
       m[1]!.toLowerCase()
     )
     expect([...new Set(tables)]).toEqual(['assistant_runs'])
+  })
+
+  /**
+   * The SDK is not in the startup graph (roadmap K #235).
+   *
+   * The assistant is off by default and most launches never call it, so `openai` is a megabyte of
+   * parse work in the startup path of somebody who is not using the feature. Every entry point
+   * reaches it with `await import(...)` instead.
+   *
+   * The rule is about the module GRAPH, not about a directory, because that is the thing that is
+   * actually true or false: a static `import` anywhere on a chain from main's entry to
+   * `provider.ts` pulls the SDK in at load time, and one added link undoes it silently — nothing
+   * about the app looks different afterwards except a number nobody is watching.
+   *
+   * `import type` is exempt: it is erased at build time and costs nothing at runtime. So is
+   * `src/main/mcp/`, which is built as a separate binary that exists to serve the tools and has
+   * no startup budget to protect.
+   */
+  it('is not in the static import graph of the app that starts up', () => {
+    const resolveImport = (fromFile: string, spec: string): string | null => {
+      if (!spec.startsWith('.')) return null
+      const base = resolve(dirname(fromFile), spec)
+      for (const candidate of [`${base}.ts`, join(base, 'index.ts')]) {
+        if (existsSync(candidate)) return candidate
+      }
+      return null
+    }
+
+    // Breadth-first over STATIC imports only, from the two files Electron actually loads.
+    const seen = new Set<string>()
+    const trail = new Map<string, string>()
+    const queue = [resolve(MAIN_DIR, 'index.ts'), resolve(MAIN_DIR, 'ipc.ts')].filter(existsSync)
+    queue.forEach((f) => seen.add(f))
+
+    while (queue.length > 0) {
+      const file = queue.shift()!
+      const code = readFileSync(file, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '')
+      for (const m of code.matchAll(/^\s*import\s+(type\s+)?[\s\S]*?from\s+['"]([^'"]+)['"]/gm)) {
+        if (m[1]) continue
+        const next = resolveImport(file, m[2]!)
+        if (!next || seen.has(next)) continue
+        seen.add(next)
+        trail.set(next, file)
+        queue.push(next)
+      }
+    }
+
+    const provider = resolve(AI_DIR, 'provider.ts')
+    // On failure, print the chain rather than the fact — "provider.ts is reachable" sends the
+    // reader hunting, and the one link that was added is the whole answer.
+    const chain: string[] = []
+    for (let at: string | undefined = provider; at; at = trail.get(at)) chain.unshift(relative(ROOT, at))
+    expect(seen.has(provider) ? chain.join(' → ') : '').toBe('')
   })
 
   it('confines the OpenAI SDK to provider.ts', () => {

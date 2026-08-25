@@ -624,7 +624,12 @@ Ordering within a section is roughly by value.
      slow screens were slow for structural reasons — a GROUP BY over the whole of `voucher_lines`
      materialised before the LIMIT — and an index would have been a guess that added a bug
      surface for nothing. A review that adds no index is still a review.
-235. Lazy-load the AI SDK only when the assistant is enabled (done) (S)
+235. ✓ Lazy-load the AI SDK only when the assistant is enabled (done) (S)
+     — proven rather than asserted: `ai-boundaries.test.ts` walks the STATIC import graph from
+     `main/index.ts` and `main/ipc.ts` and fails if it reaches `provider.ts`, printing the chain
+     rather than the fact. The rule is about the graph and not about a directory, because that is
+     the thing that is actually true or false, and one added link would otherwise undo it in
+     silence — nothing looks different afterwards except a number nobody is watching.
 236. Startup time budget with a test that fails if it regresses (M)
 237. Memory ceiling test on a large book (M)
 238. ✓ Avoid re-fetching the whole features object on every screen (S) — already shipped: the
@@ -912,7 +917,13 @@ Ordering within a section is roughly by value.
      forever. The scope has to appear literally in the SQL — a WHERE clause assembled at runtime
      is one neither the guard nor a reader can check.
 332. Typed IPC channel registry generated from one source (M)
-333. Renderer test coverage reporting with a floor (S)
+333. ✓ Renderer test coverage reporting with a floor (S)
+     — a floor, not a target. Measured at 66.5% lines, 84.3% branches, 49.5% functions over
+     `lib/` and `state/`, with the floors a few points under each: the margin between "somebody
+     deleted a test" and "two machines disagree about one line". Deliberately not aspirational —
+     a floor nobody can meet gets lowered the first time it blocks somebody, and then it is a
+     number that means nothing. Screens are covered by the E2E suite, which drives the real app;
+     counting them here would count lines jsdom executes and a user never does.
 334. ✓ E2E run time budget so the suite stays usable (S)
 335. ✓ Flake detection: rerun failures and report them separately (S) — one was found by hand
      while adding #171: scenario 02 failed about half the time because `staleTime` is 5s and
@@ -920,7 +931,13 @@ Ordering within a section is roughly by value.
      served a cached empty panel. `__tests__/invalidation.test.ts` now guards the whole class.
 336. ✓ A `npm run verify` that runs everything in one command (S)
 337. ✓ Pre-commit hook running typecheck and the fast tests (S)
-338. Dependency freshness report in CI (S)
+338. ✓ Dependency freshness report in CI (S)
+     — `scripts/deps-report.mjs`, on the CI summary page, and deliberately NOT a gate: a build
+     that fails because something published a minor version this morning teaches people to skip
+     the check. Runtime dependencies are listed first and separately, because a dev dependency
+     four majors behind is a chore and a runtime one is a decision. The two that are pinned on
+     purpose — Electron, and better-sqlite3 which must match its ABI — print the reason, so the
+     report does not read as neglect. It says today: openai 2 majors, zod 1, Electron 7.
 339. ✓ Bundle-size budget that fails on regression (S)
 340. ✓ Contributor guide covering the money and date invariants (S)
 

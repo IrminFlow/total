@@ -29,11 +29,20 @@ jobs:
       - name: Unit tests (pure engine, no DB)
         run: npm test
 
-      - name: Renderer tests (jsdom + RTL)
-        run: npm run test:renderer
+      - name: Renderer tests (jsdom + RTL), with the coverage floor
+        run: npm run test:renderer:coverage
 
       - name: DB-layer tests (Electron-as-Node — headless-safe, no display needed)
         run: npm run test:db
+
+      # A report on the run's summary page, never a gate. A build that fails because something
+      # published a minor version this morning teaches people to skip the check — and the check
+      # that matters, a known vulnerability in something shipped to users, is already a gate in
+      # release.yml. `if: always()` so it still prints when a test above it failed, since "what
+      # changed under us" is exactly the question a red build raises.
+      - name: Dependency freshness
+        if: always()
+        run: node scripts/deps-report.mjs
 
   smoke-mac:
     runs-on: macos-14
