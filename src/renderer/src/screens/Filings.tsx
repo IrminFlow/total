@@ -13,6 +13,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -268,27 +269,25 @@ export function FilingsScreen(): React.JSX.Element {
                     <Money paise={r.charge.interestPaise} />
                   </td>
                   <td className="whitespace-nowrap">
-                    <Button
-                      variant="ghost"
+                    <RowAction
                       className="whitespace-nowrap"
                       data-testid={`btn-filing-edit-${r.form}-${r.period}`}
                       onClick={() => setEditing(r)}
                     >
                       {r.record?.filedAt ? 'Edit' : 'Mark filed'}
-                    </Button>
+                    </RowAction>
                     {/* A period with nothing in it still owes a return -- a nil return is a
                         return -- so offer it directly rather than walking a filer through a form
                         whose every field is zero. */}
                     {!r.record?.filedAt && !r.hasEntries && r.status !== 'upcoming' && (
-                      <Button
-                        variant="ghost"
+                      <RowAction
                         className="whitespace-nowrap"
                         data-testid={`btn-filing-nil-${r.form}-${r.period}`}
                         title="No entries in this period — file it nil"
                         onClick={() => setNilling(r)}
                       >
                         Nil
-                      </Button>
+                      </RowAction>
                     )}
                   </td>
                 </tr>

@@ -11,6 +11,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   Select,
   SkeletonRows,
   TextInput
@@ -192,14 +193,13 @@ function StandardsPanel({
                 </td>
                 <td className="text-muted">{s.note ?? '—'}</td>
                 <td className="r whitespace-nowrap">
-                  <Button
-                    variant="ghost"
+                  <RowAction
                     className="row-action"
                     data-testid={`btn-standard-cost-delete-${s.id}`}
                     onClick={() => void remove(s.id, s.itemName)}
                   >
                     Remove
-                  </Button>
+                  </RowAction>
                 </td>
               </tr>
             ))}

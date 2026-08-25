@@ -10,6 +10,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -266,23 +267,23 @@ function StageTab({ side, stage }: { side: Side; stage: Stage }): React.JSX.Elem
                   <td className="r"><Money paise={d.totalPaise} /></td>
                   <td onClick={(e) => e.stopPropagation()} className="r whitespace-nowrap">
                     {d.status === 'open' && stage !== 'challan' && (
-                      <Button variant="ghost" data-testid={`btn-salesdoc-convert-${d.id}`} onClick={() => setConverting(d)}>
+                      <RowAction data-testid={`btn-salesdoc-convert-${d.id}`} onClick={() => setConverting(d)}>
                         {inward ? 'Receive' : stage === 'quotation' ? 'To order' : 'To challan'}
-                      </Button>
+                      </RowAction>
                     )}
                     {stage === 'challan' && !d.invoiceVoucherId && (
-                      <Button variant="ghost" data-testid={`btn-salesdoc-invoice-${d.id}`} onClick={() => void toInvoice(d)}>
+                      <RowAction data-testid={`btn-salesdoc-invoice-${d.id}`} onClick={() => void toInvoice(d)}>
                         {inward ? 'Bill' : 'Invoice'}
-                      </Button>
+                      </RowAction>
                     )}
                     {inward && (
-                      <Button variant="ghost" data-testid={`btn-salesdoc-match-${d.id}`} onClick={() => setMatching(d)}>
+                      <RowAction data-testid={`btn-salesdoc-match-${d.id}`} onClick={() => setMatching(d)}>
                         Match
-                      </Button>
+                      </RowAction>
                     )}
-                    <Button variant="ghost" onClick={() => setEditing(d)}>
+                    <RowAction onClick={() => setEditing(d)}>
                       Open
-                    </Button>
+                    </RowAction>
                     {d.status === 'open' && (
                       <button className="row-action ml-2 text-small text-cr hover:underline" onClick={() => void lose(d)}>
                         {inward ? 'Close' : 'Lost'}

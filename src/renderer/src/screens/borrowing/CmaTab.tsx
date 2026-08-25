@@ -10,6 +10,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   Select,
   SkeletonRows,
   TextInput
@@ -386,8 +387,8 @@ function FormOne({
                 <td className="r"><Money paise={f.proposedLimitPaise} /></td>
                 <td className="text-muted">{f.security ?? '—'}</td>
                 <td className="r whitespace-nowrap">
-                  <Button variant="ghost" onClick={() => setEditing(f)}>Edit</Button>
-                  <Button variant="ghost" onClick={() => remove(f.id)}>Remove</Button>
+                  <RowAction onClick={() => setEditing(f)}>Edit</RowAction>
+                  <RowAction onClick={() => remove(f.id)}>Remove</RowAction>
                 </td>
               </tr>
             ))}

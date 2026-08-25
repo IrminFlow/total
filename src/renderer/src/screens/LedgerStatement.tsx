@@ -3,7 +3,16 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useVirtualRows } from '../lib/useVirtualRows'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, ExportGroup, Money, Panel, SectionTitle, SkeletonRows, useKeyNav } from '../components/ui'
+import {
+  EmptyState,
+  ExportGroup,
+  Money,
+  Panel,
+  RowAction,
+  SectionTitle,
+  SkeletonRows,
+  useKeyNav
+} from '../components/ui'
 import { csvReport, printReport, slugFilename } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -374,11 +383,11 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
               {hasNextPage && (
                 <tr>
                   <td colSpan={6} className="py-2 text-center">
-                    <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                    <RowAction disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
                       {isFetchingNextPage
                         ? 'Loading…'
                         : `Show 500 more (${remaining.toLocaleString('en-IN')} more in this period)`}
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               )}

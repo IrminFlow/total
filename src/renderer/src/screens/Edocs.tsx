@@ -3,7 +3,18 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { api } from '../lib/client'
 import { JsonPreview } from '../components/JsonPreview'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, useTableNav } from '../components/ui'
+import {
+  Button,
+  EmptyState,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  useTableNav
+} from '../components/ui'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
 import { EWB_INELIGIBILITY_REASON, EWB_INELIGIBILITY_SHORT } from '@shared/gst/edocs'
 import { TransportModal } from './voucher/TransportModal'
@@ -304,11 +315,11 @@ export function EdocsScreen(): React.JSX.Element {
               {hasNextPage && (
                 <tr>
                   <td colSpan={9} className="py-2 text-center">
-                    <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                    <RowAction disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
                       {isFetchingNextPage
                         ? 'Loading…'
                         : `Show 500 more (${Math.max(0, totalDocs - allRows.length).toLocaleString('en-IN')} more in this period)`}
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               )}

@@ -9,6 +9,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -172,18 +173,18 @@ function RemindersTab(): React.JSX.Element {
                     </span>
                   </td>
                   <td onClick={(e) => e.stopPropagation()} className="whitespace-nowrap">
-                    <Button variant="ghost" data-testid={`btn-reminder-preview-${r.ledgerId}`} onClick={() => setPreview(r)}>
+                    <RowAction data-testid={`btn-reminder-preview-${r.ledgerId}`} onClick={() => setPreview(r)}>
                       Preview
-                    </Button>
+                    </RowAction>
                     {r.phone && (
-                      <Button variant="ghost" onClick={() => open(r, 'whatsapp')}>
+                      <RowAction onClick={() => open(r, 'whatsapp')}>
                         WhatsApp
-                      </Button>
+                      </RowAction>
                     )}
                     {r.email && (
-                      <Button variant="ghost" onClick={() => open(r, 'email')}>
+                      <RowAction onClick={() => open(r, 'email')}>
                         Email
-                      </Button>
+                      </RowAction>
                     )}
                   </td>
                 </tr>

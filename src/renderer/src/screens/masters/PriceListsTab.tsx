@@ -10,6 +10,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   Select,
   TextInput
 } from '../../components/ui'
@@ -134,14 +135,13 @@ export function PriceListsTab(): React.JSX.Element {
                   <td className="r num">{v.itemCount}</td>
                   <td className="text-muted">{v.inForce ? 'In force' : 'Staged — starts later'}</td>
                   <td className="r whitespace-nowrap">
-                    <Button
-                      variant="ghost"
+                    <RowAction
                       className="row-action"
                       data-testid={`btn-price-version-drop-${v.effectiveFrom}`}
                       onClick={() => void dropVersion(v.effectiveFrom, v.itemCount)}
                     >
                       Undo
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

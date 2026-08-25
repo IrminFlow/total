@@ -2,7 +2,17 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ReportSchedule, type ReportScheduleInput } from '../../lib/client'
 import { useToasts } from '../../state/stores'
-import { Button, DateInput, EmptyState, Field, Modal, Panel, Select, SkeletonRows } from '../../components/ui'
+import {
+  Button,
+  DateInput,
+  EmptyState,
+  Field,
+  Modal,
+  Panel,
+  RowAction,
+  Select,
+  SkeletonRows
+} from '../../components/ui'
 import { confirmDialog } from '../../lib/dialogs'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import {
@@ -134,15 +144,15 @@ export function SchedulesSection(): React.JSX.Element {
                     {s.lastRun ? toDisplayDate(s.lastRun) : '–'}
                   </td>
                   <td className="r">
-                    <Button variant="ghost" disabled={busy === s.id} onClick={() => void runNow(s)}>
+                    <RowAction disabled={busy === s.id} onClick={() => void runNow(s)}>
                       Run now
-                    </Button>
-                    <Button variant="ghost" onClick={() => setEditing({ id: s.id, draft: toInput(s) })}>
+                    </RowAction>
+                    <RowAction onClick={() => setEditing({ id: s.id, draft: toInput(s) })}>
                       Edit
-                    </Button>
-                    <Button variant="ghost" onClick={() => void remove(s)}>
+                    </RowAction>
+                    <RowAction onClick={() => void remove(s)}>
                       Delete
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

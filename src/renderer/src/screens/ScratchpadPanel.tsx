@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel } from '../components/ui'
+import { Button, EmptyState, Money, Panel, RowAction } from '../components/ui'
 import { LedgerPicker } from '../components/pickers'
 import { toDisplayDate } from '@shared/dates'
 import { SCRATCHPAD_HINT, SCRATCHPAD_LEDGER_NAME } from '@shared/scratchpad'
@@ -92,14 +92,13 @@ export function ScratchpadPanel(): React.JSX.Element {
               <tr key={e.voucherLineId}>
                 <td className="num">{toDisplayDate(e.date)}</td>
                 <td>
-                  <Button
-                    variant="ghost"
+                  <RowAction
                     className="px-0"
                     data-testid={`btn-scratchpad-voucher-${e.voucherLineId}`}
                     onClick={() => nav.go({ name: 'voucher-entry', voucherId: e.voucherId })}
                   >
                     {e.voucherType} {e.voucherNumber}
-                  </Button>
+                  </RowAction>
                 </td>
                 <td className="text-muted">{e.contraNames || e.partyName || '—'}</td>
                 <td className="text-muted">{e.narration ?? '—'}</td>
@@ -137,8 +136,7 @@ export function ScratchpadPanel(): React.JSX.Element {
                       </Button>
                     </span>
                   ) : (
-                    <Button
-                      variant="ghost"
+                    <RowAction
                       className="row-action"
                       data-testid={`btn-scratchpad-classify-${e.voucherLineId}`}
                       onClick={() => {
@@ -147,7 +145,7 @@ export function ScratchpadPanel(): React.JSX.Element {
                       }}
                     >
                       Classify
-                    </Button>
+                    </RowAction>
                   )}
                 </td>
               </tr>

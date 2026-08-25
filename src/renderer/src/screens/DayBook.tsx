@@ -13,6 +13,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -918,11 +919,11 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
               {!loadedAll && (
                 <tr>
                   <td colSpan={colCount} className="py-2 text-center">
-                    <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                    <RowAction disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
                       {isFetchingNextPage
                         ? 'Loading…'
                         : `Show 500 more (${remaining.toLocaleString('en-IN')} more in this period)`}
-                    </Button>
+                    </RowAction>
                     {filtering && (
                       <p className="mt-1 text-hint text-muted">
                         Filters apply to the {loadedRows.length.toLocaleString('en-IN')} entries loaded so far.

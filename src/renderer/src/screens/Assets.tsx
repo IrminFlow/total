@@ -11,6 +11,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -183,13 +184,13 @@ function RegisterTab(): React.JSX.Element {
                   <td className="r text-muted"><Money paise={a.accumulated} /></td>
                   <td className="r font-medium"><Money paise={a.bookValue} /></td>
                   <td onClick={(e) => e.stopPropagation()} className="r whitespace-nowrap">
-                    <Button variant="ghost" onClick={() => setEditing(a)}>
+                    <RowAction onClick={() => setEditing(a)}>
                       Edit
-                    </Button>
+                    </RowAction>
                     {!a.disposedOn && (
-                      <Button variant="ghost" data-testid={`btn-asset-dispose-${a.id}`} onClick={() => setDisposing(a)}>
+                      <RowAction data-testid={`btn-asset-dispose-${a.id}`} onClick={() => setDisposing(a)}>
                         Dispose
-                      </Button>
+                      </RowAction>
                     )}
                     {a.accumulated === 0 && (
                       <button className="ml-2 text-small text-cr hover:underline" onClick={() => void remove(a)}>

@@ -202,6 +202,39 @@ export function ExportGroup({
   )
 }
 
+/**
+ * A quiet per-row action — the affordance that lives in a table cell's trailing column.
+ *
+ * This exists because two densities did. The day book, masters and the trial balance put a bare
+ * `.row-action` button in the last cell and their rows are 30px; collections, khata, the filing
+ * register and the exceptions list put a `<Button variant="ghost">` there instead, and a button's
+ * own 12px of vertical padding pushed those rows to 44px. Khata and outstandings were showing the
+ * same two debtors at different heights. The pills shrink; the rows do not grow.
+ *
+ * `.row-action` stays out of the way until the row is hovered, is the keyboard-active row, or the
+ * action itself takes focus — so a table of quiet rows stays quiet, and a keyboard operator can
+ * still reach every one of them with Tab. Never hand-roll the fade: the keyboard-only preference
+ * turns hover off, and a hand-rolled `hover:opacity-100` would go on ignoring it.
+ */
+export function RowAction({
+  tone = 'link',
+  className = '',
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** `danger` for the one that destroys something. Everything else is a link. */
+  tone?: 'link' | 'danger'
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={`row-action text-hint hover:underline disabled:opacity-40 disabled:hover:no-underline ${
+        tone === 'danger' ? 'text-cr' : 'text-blue'
+      } ${className}`}
+    />
+  )
+}
+
 export function Button({
   variant = 'default',
   disabledTitle,

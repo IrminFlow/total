@@ -11,6 +11,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   SkeletonRows,
   TextInput,
@@ -296,33 +297,30 @@ function KhataRow({
         {party.lastPaymentDate ? toDisplayDate(party.lastPaymentDate) : 'never'}
       </td>
       <td onClick={(e) => e.stopPropagation()} className="whitespace-nowrap">
-        <Button
-          variant="ghost"
+        <RowAction
           className="whitespace-nowrap"
           data-testid={`btn-khata-note-${party.ledgerId}`}
           onClick={onNote}
           title="What was said, and what was promised"
         >
           Note
-        </Button>
-        <Button
-          variant="ghost"
+        </RowAction>
+        <RowAction
           className="whitespace-nowrap"
           data-testid={`btn-khata-statement-${party.ledgerId}`}
           onClick={onStatement}
           title="Statement of account, printable and sendable"
         >
           Statement
-        </Button>
+        </RowAction>
         {party.phone && (
-          <Button
-            variant="ghost"
+          <RowAction
             className="whitespace-nowrap"
             data-testid={`btn-khata-remind-${party.ledgerId}`}
             onClick={() => void remind()}
           >
             Remind
-          </Button>
+          </RowAction>
         )}
       </td>
     </tr>

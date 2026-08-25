@@ -10,6 +10,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SkeletonRows,
   TextInput
 } from '../../components/ui'
@@ -99,14 +100,13 @@ export function ForeignCurrencyTab(): React.JSX.Element {
                     {a.lastRevaluedOn ? `${toDisplayDate(a.lastRevaluedOn)} at ${formatRate(a.lastRateMicro ?? 0)}` : 'never'}
                   </td>
                   <td className="r whitespace-nowrap">
-                    <Button
-                      variant="ghost"
+                    <RowAction
                       className="row-action"
                       data-testid={`btn-fx-revalue-${a.ledgerId}`}
                       onClick={() => setRevaluing(a)}
                     >
                       Revalue
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -152,27 +152,25 @@ export function ForeignCurrencyTab(): React.JSX.Element {
                   </td>
                   <td>
                     {r.voucherId && r.voucherNumber ? (
-                      <Button
-                        variant="ghost"
+                      <RowAction
                         className="px-0"
                         data-testid={`btn-fx-voucher-${r.id}`}
                         onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId! })}
                       >
                         {r.voucherNumber}
-                      </Button>
+                      </RowAction>
                     ) : (
                       <span className="text-muted">binned</span>
                     )}
                   </td>
                   <td className="r whitespace-nowrap">
-                    <Button
-                      variant="ghost"
+                    <RowAction
                       className="row-action"
                       data-testid={`btn-fx-remove-${r.id}`}
                       onClick={() => void remove(r.id, r.ledgerName, r.asOn)}
                     >
                       Remove
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

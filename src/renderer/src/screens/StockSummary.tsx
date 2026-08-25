@@ -13,6 +13,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -722,23 +723,21 @@ function ReorderAlerts({ asOn }: { asOn: string }): React.JSX.Element | null {
                 </td>
                 <td>
                   <span className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
+                    <RowAction
                       disabled={!m.whatsapp}
-                      disabledTitle="No number WhatsApp can use — add one on the ledger in Masters"
+                      title="No number WhatsApp can use — add one on the ledger in Masters"
                       onClick={() => void send('whatsapp', m.supplierLedgerId)}
                     >
                       WhatsApp
-                    </Button>
-                    <Button variant="ghost" onClick={() => void send('email', m.supplierLedgerId)}>
+                    </RowAction>
+                    <RowAction onClick={() => void send('email', m.supplierLedgerId)}>
                       Email
-                    </Button>
-                    <Button
-                      variant="ghost"
+                    </RowAction>
+                    <RowAction
                       onClick={() => setOpen((cur) => (cur === m.supplierLedgerId ? null : m.supplierLedgerId))}
                     >
                       {open === m.supplierLedgerId ? 'Hide' : 'Preview'}
-                    </Button>
+                    </RowAction>
                   </span>
                 </td>
               </tr>
@@ -922,13 +921,12 @@ function TransferModal({ asOn, onClose }: { asOn: string; onClose: () => void })
                   />
                 </td>
                 <td>
-                  <Button
-                    variant="ghost"
+                  <RowAction
                     disabled={rows.length === 1}
                     onClick={() => setRows((cur) => cur.filter((_, j) => j !== i))}
                   >
                     ✕
-                  </Button>
+                  </RowAction>
                 </td>
               </tr>
             )
@@ -1128,9 +1126,9 @@ function LandedCostModal({ asOn, onClose }: { asOn: string; onClose: () => void 
                     />
                   </td>
                   <td>
-                    <Button variant="ghost" onClick={() => setDrafts(rows.filter((_, j) => j !== i))}>
+                    <RowAction onClick={() => setDrafts(rows.filter((_, j) => j !== i))}>
                       ✕
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

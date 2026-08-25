@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BankChangeRequest, type PendingVoucher } from '../../lib/client'
 import { useToasts } from '../../state/stores'
-import { AmountInput, Button, Money, Panel, SectionTitle, TextInput } from '../../components/ui'
+import { AmountInput, Button, Money, Panel, RowAction, SectionTitle, TextInput } from '../../components/ui'
 import { formatPaise } from '@shared/money'
 import { maskAccount } from '@shared/bankDetails'
 import { toDisplayDate } from '@shared/dates'
@@ -178,14 +178,13 @@ function PendingVouchers({ canDecide }: { canDecide: boolean }): React.JSX.Eleme
                     >
                       Approve
                     </Button>
-                    <Button
-                      variant="ghost"
+                    <RowAction
                       data-testid={`btn-reject-${row.voucherId}`}
                       disabled={!canDecide}
                       onClick={() => void decide(row, false)}
                     >
                       Refuse
-                    </Button>
+                    </RowAction>
                   </div>
                 </td>
               </tr>
