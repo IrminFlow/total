@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, DateInput, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, useKeyNav } from '../components/ui'
+import { Button, DateInput, EmptyState, ExportGroup, Money, Panel, SectionTitle, Select, SkeletonRows, useKeyNav } from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { SavedViews } from '../components/SavedViews'
 import { TabBar } from '../components/TabBar'
@@ -273,28 +273,24 @@ function BalancesTab(): React.JSX.Element {
             setGroupingSticky(v.grouping)
           }}
         />
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void printReport(
-              { title: 'Trial balance', periodLabel: `as on ${toDisplayDate(to)}`, columns: exportColumns, rows: exportRows },
-              toast
-            )
-          }
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'trial-balance', toast)
-          }
-        >
-          CSV
-        </Button>
-        <Button variant="ghost" data-testid="btn-tb-xls" onClick={() => void xlsReport('trial-balance', [xlsSheet()], toast)}>
-          XLS
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              onClick: () =>
+                void printReport(
+                  { title: 'Trial balance', periodLabel: `as on ${toDisplayDate(to)}`, columns: exportColumns, rows: exportRows },
+                  toast
+                )
+            },
+            {
+              label: 'CSV',
+              onClick: () =>
+                void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'trial-balance', toast)
+            },
+            { label: 'XLS', testId: 'btn-tb-xls', onClick: () => void xlsReport('trial-balance', [xlsSheet()], toast) }
+          ]}
+        />
       </div>
       <Panel className="card-fit flex flex-col">
         {isLoading ? (
@@ -595,47 +591,44 @@ function ChangesTab(): React.JSX.Element {
         <DateInput value={from} context={from} onChange={setFrom} className="w-28" testId="input-changed-from" />
         <span className="text-small text-muted">and</span>
         <DateInput value={to} context={to} onChange={setTo} className="w-28" testId="input-changed-to" />
-        <Button
-          variant="ghost"
-          onClick={() => void printReport({ title: 'What changed', periodLabel, columns, rows: exportRows }, toast)}
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'what-changed', toast)}
-        >
-          CSV
-        </Button>
-        <Button
-          variant="ghost"
-          data-testid="btn-changed-xls"
-          onClick={() =>
-            void xlsReport(
-              'what-changed',
-              [
-                {
-                  name: 'What changed',
-                  columns: [
-                    { label: 'Ledger', kind: 'text' },
-                    { label: 'Group', kind: 'text' },
-                    { label: `As on ${from}`, kind: 'money' },
-                    { label: `As on ${to}`, kind: 'money' },
-                    { label: 'Change', kind: 'money' },
-                    { label: '%', kind: 'number' },
-                    { label: 'Entries', kind: 'number' }
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              onClick: () => void printReport({ title: 'What changed', periodLabel, columns, rows: exportRows }, toast)
+            },
+            {
+              label: 'CSV',
+              onClick: () => void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'what-changed', toast)
+            },
+            {
+              label: 'XLS',
+              testId: 'btn-changed-xls',
+              onClick: () =>
+                void xlsReport(
+                  'what-changed',
+                  [
+                    {
+                      name: 'What changed',
+                      columns: [
+                        { label: 'Ledger', kind: 'text' },
+                        { label: 'Group', kind: 'text' },
+                        { label: `As on ${from}`, kind: 'money' },
+                        { label: `As on ${to}`, kind: 'money' },
+                        { label: 'Change', kind: 'money' },
+                        { label: '%', kind: 'number' },
+                        { label: 'Entries', kind: 'number' }
+                      ],
+                      rows: rows.map((r) => ({
+                        cells: [r.ledgerName, r.groupName, r.opening, r.closing, r.change, r.changePct, r.vouchers]
+                      }))
+                    }
                   ],
-                  rows: rows.map((r) => ({
-                    cells: [r.ledgerName, r.groupName, r.opening, r.closing, r.change, r.changePct, r.vouchers]
-                  }))
-                }
-              ],
-              toast
-            )
-          }
-        >
-          XLS
-        </Button>
+                  toast
+                )
+            }
+          ]}
+        />
       </div>
       <Panel className="card-fit overflow-y-auto">
         {isLoading ? (

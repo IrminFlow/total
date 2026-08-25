@@ -10,6 +10,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -126,12 +127,12 @@ function LoansTab(): React.JSX.Element {
                   <td className="r"><Money paise={l.principalPaise} /></td>
                   <td className="r">{l.emiPaise ? <Money paise={l.emiPaise} /> : <span className="text-muted">computed</span>}</td>
                   <td className="r whitespace-nowrap">
-                    <Button variant="ghost" data-testid={`btn-loan-schedule-${l.id}`} onClick={() => setViewing(l)}>
+                    <RowAction data-testid={`btn-loan-schedule-${l.id}`} onClick={() => setViewing(l)}>
                       Schedule
-                    </Button>
-                    <Button variant="ghost" onClick={() => setEditing(l)}>
+                    </RowAction>
+                    <RowAction onClick={() => setEditing(l)}>
                       Edit
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -361,9 +362,9 @@ function ScheduleModal({ loan, onClose }: { loan: Loan; onClose: () => void }): 
                   {posted.has(r.n) ? (
                     <span className="text-hint text-muted">posted</span>
                   ) : (
-                    <Button variant="ghost" data-testid={`btn-loan-post-${r.n}`} onClick={() => void post(r.n)}>
+                    <RowAction data-testid={`btn-loan-post-${r.n}`} onClick={() => void post(r.n)}>
                       Journal
-                    </Button>
+                    </RowAction>
                   )}
                 </td>
               </tr>
@@ -589,9 +590,9 @@ function DepositsTab(): React.JSX.Element {
                   <td className="num text-muted">{d.refundableOn ? toDisplayDate(d.refundableOn) : 'on ending'}</td>
                   <td className="r"><Money paise={d.amountPaise} /></td>
                   <td className="r">
-                    <Button variant="ghost" data-testid={`btn-deposit-return-${d.id}`} onClick={() => void back(d.id, d.amountPaise)}>
+                    <RowAction data-testid={`btn-deposit-return-${d.id}`} onClick={() => void back(d.id, d.amountPaise)}>
                       Came back
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -765,12 +766,12 @@ function ProjectsTab(): React.JSX.Element {
                   <td className="r whitespace-nowrap">
                     {!p.capitalisedOn && (
                       <>
-                        <Button variant="ghost" data-testid={`btn-project-cost-${p.id}`} onClick={() => setCostFor(p.id)}>
+                        <RowAction data-testid={`btn-project-cost-${p.id}`} onClick={() => setCostFor(p.id)}>
                           Add cost
-                        </Button>
-                        <Button variant="ghost" data-testid={`btn-project-capitalise-${p.id}`} onClick={() => void capitalise(p.id, p.name)}>
+                        </RowAction>
+                        <RowAction data-testid={`btn-project-capitalise-${p.id}`} onClick={() => void capitalise(p.id, p.name)}>
                           Capitalise
-                        </Button>
+                        </RowAction>
                       </>
                     )}
                   </td>
@@ -898,13 +899,12 @@ function PrepaidTab(): React.JSX.Element {
                     <td className="r text-cr"><Money paise={s.duePaise} /></td>
                     <td className="r">
                       {nextDue && (
-                        <Button
-                          variant="ghost"
+                        <RowAction
                           data-testid={`btn-prepaid-post-${s.id}`}
                           onClick={() => void postMonth(s.id, nextDue.month)}
                         >
                           Post {nextDue.month}
-                        </Button>
+                        </RowAction>
                       )}
                     </td>
                   </tr>

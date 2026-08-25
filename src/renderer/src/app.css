@@ -177,11 +177,6 @@
   --color-muted: var(--t-muted);
   --color-accent: var(--t-accent);
   --color-accentbar: var(--t-accent-bar);
-  /* `amber` and `amberbar` are the accent's old names, kept mapped while branches written before
-     the recolour land. They point at the same tokens, so nothing renders gold — but a utility
-     that quietly still works is a utility nobody migrates, so these come out in the chrome pass. */
-  --color-amber: var(--t-accent);
-  --color-amberbar: var(--t-accent-bar);
   --color-dr: var(--t-dr);
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);
@@ -189,7 +184,6 @@
   --color-accel: var(--t-accel);
   --color-onaccent: var(--t-on-accent);
   --color-onaccentsoft: var(--t-on-accent-soft);
-  --color-onamber: var(--t-on-accent);
   --color-warn: var(--t-warn);
   --color-warnsoft: var(--t-warn-soft);
   --color-warnline: var(--t-warn-line);
@@ -382,16 +376,32 @@ tr.kbar-row[data-active='true'] td:first-child {
  *
  * `nowrap` on the cell rather than a width on the buttons: the number of actions differs by row
  * kind, and a fixed width would only move the problem to whichever row grows a third one. */
-td:has(> .row-action) {
+td:has(.row-action) {
   white-space: nowrap;
 }
 .group:hover .row-action,
 .group:focus-within .row-action,
 .group[data-active='true'] .row-action,
+/* A plain table row, too. Most tables in the app do not carry `.group` on the <tr>, and without
+   this the action in their trailing cell was reachable only by Tab — invisible to the mouse that
+   was hovering directly over it. */
+tr:hover .row-action,
+tr:focus-within .row-action,
 tr[data-active='true'] .row-action,
 .row-action:focus-visible,
 .row-action:focus-within {
   opacity: 1;
+}
+
+/* Two actions in a cell are spaced by the rule, not by a margin the call site remembers to add.
+   Rows of different kinds carry different numbers of actions, and the gap was drifting — and a
+   quiet action sitting next to a link (Active/Paused, then Edit) had no gap at all. `.row-link`
+   earns nothing else: it is here only so the pair rule can see both kinds. */
+.row-action + .row-action,
+.row-action + .row-link,
+.row-link + .row-action,
+.row-link + .row-link {
+  margin-left: 0.5rem;
 }
 
 /* Keyboard-only mode (Settings → Appearance): hover stops revealing anything.
@@ -405,7 +415,8 @@ tr[data-active='true'] .row-action,
    `:not()` rather than a blanket override so a row that is BOTH hovered and keyboard-active
    still shows its actions: the later rule would otherwise win on equal specificity and blank
    out the very row the user is on. */
-[data-kbd-only='true'] .group:hover:not([data-active='true']):not(:focus-within) .row-action {
+[data-kbd-only='true'] .group:hover:not([data-active='true']):not(:focus-within) .row-action,
+[data-kbd-only='true'] tr:hover:not([data-active='true']):not(:focus-within) .row-action {
   opacity: 0;
 }
 

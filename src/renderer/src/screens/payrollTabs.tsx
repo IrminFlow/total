@@ -7,14 +7,15 @@ import {
   Button,
   EmptyState,
   Field,
+  inputCls,
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
-  TextInput,
-  inputCls
+  TextInput
 } from '../components/ui'
 import { todayISO, toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
@@ -273,9 +274,9 @@ export function AdvancesTab({ month }: { month: string }): React.JSX.Element {
                   <td className="r num text-muted">{l.closedAt ? '–' : l.instalmentsLeft || '–'}</td>
                   <td className="r">
                     {!l.closedAt && l.outstanding > 0 && (
-                      <Button variant="ghost" onClick={() => void close(l)} title="Stop recovering, keeping what was already taken">
+                      <RowAction onClick={() => void close(l)} title="Stop recovering, keeping what was already taken">
                         Write off
-                      </Button>
+                      </RowAction>
                     )}
                   </td>
                 </tr>
@@ -495,8 +496,10 @@ function SettlementBody({ settlement }: { settlement: Settlement }): React.JSX.E
           </tr>
         </thead>
         <tbody>
+          {/* No row-level red: a recovery is money coming back, not money that is wrong, and the
+              brackets around the figure already say which way it goes. */}
           {r.lines.map((l) => (
-            <tr key={l.label} className={l.kind === 'recovery' ? 'text-cr' : undefined}>
+            <tr key={l.label}>
               <td>{l.label}</td>
               <td className="text-small text-muted">{l.working}</td>
               <td className="r">
@@ -699,14 +702,14 @@ export function PayslipsModal({
                 <td className="r"><Money paise={r.net} /></td>
                 <td className="r whitespace-nowrap">
                   {r.whatsapp ? (
-                    <Button variant="ghost" onClick={() => window.open(r.whatsapp as string, '_blank')}>
+                    <RowAction onClick={() => window.open(r.whatsapp as string, '_blank')}>
                       WhatsApp
-                    </Button>
+                    </RowAction>
                   ) : null}
                   {r.mailto ? (
-                    <Button variant="ghost" onClick={() => window.open(r.mailto as string, '_blank')}>
+                    <RowAction onClick={() => window.open(r.mailto as string, '_blank')}>
                       Email
-                    </Button>
+                    </RowAction>
                   ) : null}
                   {!r.whatsapp && !r.mailto && (
                     <span className="text-hint text-muted">no phone or email on record</span>

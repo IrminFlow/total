@@ -85,75 +85,6 @@ export function SectionTitle({ children, right }: { children: ReactNode; right?:
   )
 }
 
-// ---------- page layout ----------
-
-/**
- * The outer wrapper for a screen's content.
- *
- * Two things it deliberately does NOT do:
- *
- *  - It never centres. `mx-auto` was the reason the content column jumped left and right on
- *    every navigation: a narrow form centred itself in the window while the wide table beside it
- *    in the nav order started at the gutter. Left-aligned, the first column of every screen lands
- *    in the same place and the eye stops re-finding it.
- *  - It never sizes to its content. `h-full flex flex-col min-h-0` lets a table or a report fill
- *    the window and scroll inside itself, instead of ending halfway down and leaving the bottom
- *    half of the screen as empty cream. Children that should absorb the slack take `flex-1
- *    min-h-0 overflow-auto`.
- *
- * `wide` is for tables and reports, `narrow` for forms and prose — a form measured against the
- * full width of a 1600px window is unreadable and its fields end up a foot apart.
- */
-export function PageFrame({
-  width = 'wide',
-  children,
-  className = ''
-}: {
-  width?: 'wide' | 'narrow'
-  children: ReactNode
-  className?: string
-}): React.JSX.Element {
-  return (
-    <div
-      data-frame={width}
-      className={`flex h-full min-h-0 w-full flex-col ${width === 'narrow' ? 'max-w-[760px]' : 'max-w-[1440px]'} ${className}`}
-    >
-      {children}
-    </div>
-  )
-}
-
-/**
- * Title, tabs and toolbar for a screen — the one place a page speaks above a whisper.
- *
- * The title is `text-page` (24px) and `whitespace-nowrap`: hand-rolled copies of this header sized
- * the title at 19px and let it wrap, so "Voucher entry" arrived broken across two lines while the
- * toolbar beside it had room to spare.
- *
- * `children` is the toolbar slot — buttons, period pickers, export actions — and sits on the
- * title's baseline, right-aligned. `tabs` goes underneath, against the rule, so switching tabs
- * never moves the title.
- */
-export function ScreenHeader({
-  title,
-  tabs,
-  children
-}: {
-  title: ReactNode
-  tabs?: ReactNode
-  children?: ReactNode
-}): React.JSX.Element {
-  return (
-    <header className="mb-3 shrink-0">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="font-serif text-page font-semibold tracking-tight whitespace-nowrap">{title}</h1>
-        {children ? <div className="flex flex-wrap items-center justify-end gap-2">{children}</div> : null}
-      </div>
-      {tabs ? <div className="mt-2.5 border-b border-line pb-2">{tabs}</div> : null}
-    </header>
-  )
-}
-
 /** Signed paise rendered ledger-style: Dr green / Cr red, mono, dash for zero. */
 export function Money({ paise, signed = false, className = '' }: { paise: number; signed?: boolean; className?: string }): React.JSX.Element {
   const tone = signed ? (paise > 0 ? 'text-dr' : paise < 0 ? 'text-cr' : 'text-muted') : ''
@@ -268,6 +199,67 @@ export function ExportGroup({
         </button>
       ))}
     </span>
+  )
+}
+
+/**
+ * A quiet per-row action — the affordance that lives in a table cell's trailing column.
+ *
+ * This exists because two densities did. The day book, masters and the trial balance put a bare
+ * `.row-action` button in the last cell and their rows are 30px; collections, khata, the filing
+ * register and the exceptions list put a `<Button variant="ghost">` there instead, and a button's
+ * own 12px of vertical padding pushed those rows to 44px. Khata and outstandings were showing the
+ * same two debtors at different heights. The pills shrink; the rows do not grow.
+ *
+ * `.row-action` stays out of the way until the row is hovered, is the keyboard-active row, or the
+ * action itself takes focus — so a table of quiet rows stays quiet, and a keyboard operator can
+ * still reach every one of them with Tab. Never hand-roll the fade: the keyboard-only preference
+ * turns hover off, and a hand-rolled `hover:opacity-100` would go on ignoring it.
+ */
+export function RowAction({
+  tone = 'link',
+  className = '',
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** `danger` for the one that destroys something. Everything else is a link. */
+  tone?: 'link' | 'danger'
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={`row-action text-hint hover:underline disabled:opacity-40 disabled:hover:no-underline ${
+        tone === 'danger' ? 'text-cr' : 'text-blue'
+      } ${className}`}
+    />
+  )
+}
+
+/**
+ * The other kind of thing that lives in a cell: a link whose text is data.
+ *
+ * `RowAction` stays out of the way until the row is hovered or active, which is right for a verb —
+ * Edit, Remind, PDF — and wrong for a voucher number, because the number IS the cell's content and
+ * the row would read as empty until the cursor found it. Same colour and same underline, always
+ * visible. Also the "show 500 more" foot of a paged table, which is not a row action either, and
+ * the remove on a line in a grid that is being typed into rather than read.
+ */
+export function RowLink({
+  tone = 'link',
+  className = '',
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** `danger` for the one that destroys something. Everything else is a link. */
+  tone?: 'link' | 'danger'
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={`row-link hover:underline disabled:opacity-40 disabled:hover:no-underline ${
+        tone === 'danger' ? 'text-cr' : 'text-blue'
+      } ${className}`}
+    />
   )
 }
 

@@ -25,13 +25,15 @@ const BUDGETS_KB = {
   // 900 → 1500 in the K lane, which found it already at 1,370 KB from the services sections
   // H/O/T/S/V added; a budget that is already breached is a budget nobody can use. Then 1500 →
   // 1700 when multi-GSTIN, the purchase chain, custom fields, job work and FX revaluation landed
-  // together — 1,545 KB of services, which is what those features cost and not an accident.
+  // together — 1,545 KB of services, which is what those features cost and not an accident. Then
+  // 1700 → 1800 for the branch-transfer invoice, ISD, and the corrected e-TDS record layout,
+  // which is 72 + 41 + 54 field definitions read out of the published file format.
   //
   // Worth checking against, because it is the number that would move if the AI SDK ever stopped
   // being code-split: `openai` is a megabyte, and it is currently a separate 6 KB entry chunk
   // (out/main/provider-*.js) with the SDK behind it. If this budget jumps by that much, that is
   // the first thing to look at — see ai-boundaries.test.ts, which guards the import graph.
-  'out/main': 1700,
+  'out/main': 1800,
   'out/preload': 40,
   // The MCP server is a separate esbuild target, bundled and shipped unpacked.
   'out/mcp': 3000

@@ -17,6 +17,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -261,21 +262,20 @@ function Register(): React.JSX.Element {
                     </td>
                     <td onClick={(e) => e.stopPropagation()} className="r whitespace-nowrap">
                       {c.balanceMilli > 0 && (
-                        <Button
-                          variant="ghost"
+                        <RowAction
                           data-testid={`btn-jobwork-receive-${c.id}`}
                           onClick={() => setReceiving(c)}
                         >
                           Record what came back
-                        </Button>
+                        </RowAction>
                       )}
-                      <Button variant="ghost" onClick={() => setEditing(c)}>
+                      <RowAction onClick={() => setEditing(c)}>
                         Open
-                      </Button>
+                      </RowAction>
                       {c.returns.length === 0 && (
-                        <button className="ml-2 text-body text-cr hover:underline" onClick={() => void remove(c)}>
+                        <RowAction tone="danger" onClick={() => void remove(c)}>
                           Delete
-                        </button>
+                        </RowAction>
                       )}
                     </td>
                   </tr>
@@ -723,9 +723,9 @@ function ReceiptModal({
                 <td className="r num">{qty(r.qtyMilli)}</td>
                 <td>{DISPOSITIONS.find((d) => d.value === r.disposition)?.label ?? r.disposition}</td>
                 <td className="r">
-                  <button className="text-body text-cr hover:underline" onClick={() => void remove(r)}>
+                  <RowAction tone="danger" onClick={() => void remove(r)}>
                     Delete
-                  </button>
+                  </RowAction>
                 </td>
               </tr>
             ))}

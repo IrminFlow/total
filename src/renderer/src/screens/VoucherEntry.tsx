@@ -97,7 +97,7 @@ export function VoucherEntry({
   const physicalMode = !voucherId && currentType.kind === 'physical_stock'
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-4xl">
       {/* Crash-safe recovery (roadmap #250) — suppressed while altering an existing voucher, and
           while a draft has just been handed in by a nudge or a duplicate. */}
       {showFirstVoucherHint && (
@@ -159,17 +159,15 @@ export function VoucherEntry({
           and an approval is a fact about a saved entry. */}
       {voucherId && <Attachments voucherId={voucherId} />}
       {voucherId && <VoucherHistory voucherId={voucherId} />}
-      {/* The grid chords live here rather than in the footer strip: the bar is one line wide and
-          already carries the ten type keys, and pushing one of those off the edge to make room
-          would cost more than it gains. Under `?` too, which now has a search box. */}
+      {/* One line, and only what the key bars do not already say. Two paragraphs used to sit here
+          restating ⌘↵, Esc and the line chords — all of which the strip directly below carries, or
+          `?` does, and every one of them is published by the same declaration that binds it. What
+          is left is the two things that are not keys at all: what a date field will accept, and
+          that a spreadsheet can be pasted straight into the grid. */}
       <p className="mt-3 text-hint text-muted">
-        <Kbd>⌘↵</Kbd> save · <Kbd>Esc</Kbd> back · dates accept <span className="num">7</span>,{' '}
-        <span className="num">7/4</span>, <span className="num">y</span> · the type keys are in the
-        bar below and under <Kbd>?</Kbd>
-      </p>
-      <p className="mt-1 text-hint text-muted">
-        In the lines: <Kbd>⌥↑</Kbd> <Kbd>⌥↓</Kbd> move · <Kbd>⌘⌫</Kbd> delete · <Kbd>⌥R</Kbd> repeat
-        the last line · <Kbd>⌥O</Kbd> round off · paste a table from a spreadsheet straight in
+        Dates accept <span className="num">7</span>, <span className="num">7/4</span>,{' '}
+        <span className="num">y</span> · paste a table from a spreadsheet straight into the lines ·
+        every key on this screen is under <Kbd>?</Kbd>
       </p>
     </div>
   )

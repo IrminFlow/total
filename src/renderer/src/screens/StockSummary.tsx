@@ -4,8 +4,22 @@ import { api } from '../lib/client'
 import type { LandedCostInputRow, TransferInput } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import {
-  AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select,
-  SkeletonRows, TextInput, useTableNav
+  AmountInput,
+  Button,
+  DateInput,
+  EmptyState,
+  ExportGroup,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  RowLink,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
@@ -62,6 +76,7 @@ function SummaryTab(): React.JSX.Element {
   const toast = useToasts()
   const { data, isLoading } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.reports.stockSummary(to) })
   const rows = data ?? []
+  const negativeCount = rows.filter((r) => r.closingQtyMilli < 0).length
   const { visible, toggle } = useReportConfig('stock-summary', COLUMNS)
   // Expandable item rows (user ask): one item at a time unfolds into its godown- and
   // batch-wise closing position, fetched on demand.
@@ -167,22 +182,18 @@ function SummaryTab(): React.JSX.Element {
         >
           Count sheet
         </Button>
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void printReport({ title: 'Stock summary', periodLabel, columns: exportColumns, rows: exportRows }, toast)
-          }
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'stock-summary', toast)
-          }
-        >
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              onClick: () => void printReport({ title: 'Stock summary', periodLabel, columns: exportColumns, rows: exportRows }, toast)
+            },
+            {
+              label: 'CSV',
+              onClick: () => void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'stock-summary', toast)
+            }
+          ]}
+        />
       </div>
       <Panel>
         {isLoading ? (
@@ -207,14 +218,13 @@ function SummaryTab(): React.JSX.Element {
                 <tr
                   {...nav.rowProps(i, r)}
                   aria-expanded={expandedId === r.stockItemId}
-                  className={`${nav.rowProps(i, r).className} ${r.closingQtyMilli < 0 ? 'text-cr' : ''}`}
+                  className={nav.rowProps(i, r).className}
                 >
                   <td>
                     <span className="mr-1.5 inline-block w-3 text-label text-muted">
                       {expandedId === r.stockItemId ? '▾' : '▸'}
                     </span>
                     {r.name}
-                    {r.closingQtyMilli < 0 && <span className="ml-2 text-caption">— negative stock, check entries</span>}
                   </td>
                   {visible.opening && (
                     <td className="r num">
@@ -232,7 +242,15 @@ function SummaryTab(): React.JSX.Element {
                     </td>
                   )}
                   {visible.closingQty && (
-                    <td className="r num">
+                    // The flag goes on the cell that is wrong, never on the row. Painting the
+                    // whole row red made an item's perfectly correct opening, inwards and value
+                    // read as errors too — and a screen of ambient red is a screen where the one
+                    // figure that is actually wrong no longer registers. The footnote under the
+                    // table carries the explanation, once.
+                    <td
+                      className={`r num ${r.closingQtyMilli < 0 ? 'text-cr font-semibold' : ''}`}
+                      title={r.closingQtyMilli < 0 ? 'Negative stock — more went out than came in' : undefined}
+                    >
                       {fmtQty(r.closingQtyMilli, r.decimals)} {r.unitSymbol}
                     </td>
                   )}
@@ -265,6 +283,12 @@ function SummaryTab(): React.JSX.Element {
           </table>
         )}
       </Panel>
+      {negativeCount > 0 && (
+        <p className="mt-2 text-hint text-muted" data-testid="stock-negative-note">
+          {negativeCount} item{negativeCount === 1 ? '' : 's'} closed with negative stock — more went
+          out than came in. The closing quantity is marked; check the entries behind it.
+        </p>
+      )}
       <NearExpiry asOn={to} />
       <PurchaseSuggestions asOn={to} />
       <ReorderAlerts asOn={to} />
@@ -458,23 +482,23 @@ function PurchaseSuggestions({ asOn }: { asOn: string }): React.JSX.Element | nu
               about <Money paise={total} /> at last prices
             </span>
           )}
-          <Button
-            variant="ghost"
-            onClick={() =>
-              void printReport(
-                {
-                  title: 'Purchase suggestions',
-                  periodLabel: `as on ${toDisplayDate(asOn)}`,
-                  columns,
-                  rows: exportRows,
-                  filename: 'purchase-suggestions'
-                },
-                toast
-              )
-            }
-          >
-            PDF
-          </Button>
+          <ExportGroup
+            items={[
+              {
+                label: 'PDF',
+                onClick: () => void printReport(
+                  {
+                    title: 'Purchase suggestions',
+                    periodLabel: `as on ${toDisplayDate(asOn)}`,
+                    columns,
+                    rows: exportRows,
+                    filename: 'purchase-suggestions'
+                  },
+                  toast
+                )
+              }
+            ]}
+          />
         </span>
       </div>
       <table className="ledger-table" data-testid="rows-purchase-suggestions">
@@ -582,25 +606,25 @@ function NearExpiry({ asOn }: { asOn: string }): React.JSX.Element | null {
           <Button variant="ghost" data-testid="btn-expiry-show-all" onClick={() => setShowAll(!showAll)}>
             {showAll ? 'At risk only' : `All ${data.rows.length} batches`}
           </Button>
-          <Button
-            variant="ghost"
-            disabled={!shown.length}
-            onClick={() =>
-              void printReport(
-                {
-                  title: 'Shelf life',
-                  periodLabel: `as on ${toDisplayDate(asOn)}`,
-                  columns,
-                  rows: exportRows,
-                  footNote: 'Value is each batch at the item\u2019s own valuation, so it foots to closing stock.',
-                  filename: 'shelf-life'
-                },
-                toast
-              )
-            }
-          >
-            PDF
-          </Button>
+          <ExportGroup
+            items={[
+              {
+                label: 'PDF',
+                disabled: !shown.length,
+                onClick: () => void printReport(
+                  {
+                    title: 'Shelf life',
+                    periodLabel: `as on ${toDisplayDate(asOn)}`,
+                    columns,
+                    rows: exportRows,
+                    footNote: 'Value is each batch at the item\u2019s own valuation, so it foots to closing stock.',
+                    filename: 'shelf-life'
+                  },
+                  toast
+                )
+              }
+            ]}
+          />
         </span>
       </div>
 
@@ -714,23 +738,21 @@ function ReorderAlerts({ asOn }: { asOn: string }): React.JSX.Element | null {
                 </td>
                 <td>
                   <span className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
+                    <RowAction
                       disabled={!m.whatsapp}
-                      disabledTitle="No number WhatsApp can use — add one on the ledger in Masters"
+                      title="No number WhatsApp can use — add one on the ledger in Masters"
                       onClick={() => void send('whatsapp', m.supplierLedgerId)}
                     >
                       WhatsApp
-                    </Button>
-                    <Button variant="ghost" onClick={() => void send('email', m.supplierLedgerId)}>
+                    </RowAction>
+                    <RowAction onClick={() => void send('email', m.supplierLedgerId)}>
                       Email
-                    </Button>
-                    <Button
-                      variant="ghost"
+                    </RowAction>
+                    <RowAction
                       onClick={() => setOpen((cur) => (cur === m.supplierLedgerId ? null : m.supplierLedgerId))}
                     >
                       {open === m.supplierLedgerId ? 'Hide' : 'Preview'}
-                    </Button>
+                    </RowAction>
                   </span>
                 </td>
               </tr>
@@ -914,13 +936,12 @@ function TransferModal({ asOn, onClose }: { asOn: string; onClose: () => void })
                   />
                 </td>
                 <td>
-                  <Button
-                    variant="ghost"
+                  <RowLink
                     disabled={rows.length === 1}
                     onClick={() => setRows((cur) => cur.filter((_, j) => j !== i))}
                   >
                     ✕
-                  </Button>
+                  </RowLink>
                 </td>
               </tr>
             )
@@ -1120,9 +1141,9 @@ function LandedCostModal({ asOn, onClose }: { asOn: string; onClose: () => void 
                     />
                   </td>
                   <td>
-                    <Button variant="ghost" onClick={() => setDrafts(rows.filter((_, j) => j !== i))}>
+                    <RowAction onClick={() => setDrafts(rows.filter((_, j) => j !== i))}>
                       ✕
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

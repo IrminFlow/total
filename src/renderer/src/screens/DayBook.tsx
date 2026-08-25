@@ -5,7 +5,23 @@ import { nextDraftId, useNav, useSession, useToasts } from '../state/stores'
 import { useKeyLayer } from '../lib/keyboard'
 import { confirmDialog } from '../lib/dialogs'
 import type { VoucherKind } from '@shared/domain'
-import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput, useKeyNav, useTableNav } from '../components/ui'
+import {
+  Button,
+  EmptyState,
+  ExportGroup,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  RowLink,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  TextInput,
+  useKeyNav,
+  useTableNav
+} from '../components/ui'
 import { useStickyFlag } from '../lib/useStickyTab'
 import { useVirtualRows } from '../lib/useVirtualRows'
 import { ReportConfigButton } from '../components/ReportConfigButton'
@@ -283,50 +299,46 @@ const DayBookRowView = memo(function DayBookRowView({
           ragged from row to row. It stays quiet until the row is hovered, active or focused. */}
       <td className="r" onClick={(e) => e.stopPropagation()}>
         {row.kind === 'sales' && (
-          <button
-            className="row-action text-hint text-blue hover:underline"
+          <RowAction
             onClick={(e) => onPdf(row.voucherId, e)}
             title={`Invoice PDF — ${row.voucherType} ${row.number}`}
           >
             PDF
-          </button>
+          </RowAction>
         )}
         {/* Dot-matrix, next to the PDF and not instead of it: a shop that prints on impact
             stationery still emails a PDF, and the two are different jobs to different devices. */}
         {row.kind === 'sales' && (
-          <button
-            className="row-action ml-2 text-hint text-blue hover:underline"
+          <RowAction
             data-testid={`btn-daybook-dmp-${row.voucherId}`}
             onClick={(e) => onDotMatrix(row.voucherId, e)}
             title={`Print raw to a dot-matrix printer — ${row.voucherType} ${row.number}`}
           >
             DMP
-          </button>
+          </RowAction>
         )}
         {/* The counter roll, next to both: a 3-inch receipt is neither an A4 sheet nor impact
             stationery, and a shop that has a thermal printer wants it one click from the day book
             rather than behind a settings page. */}
         {row.kind === 'sales' && (
-          <button
-            className="row-action ml-2 text-hint text-blue hover:underline"
+          <RowAction
             data-testid={`btn-daybook-roll-${row.voucherId}`}
             onClick={(e) => onThermal(row.voucherId, e)}
             title={`3-inch thermal receipt — ${row.voucherType} ${row.number}`}
           >
             Roll
-          </button>
+          </RowAction>
         )}
         {/* Send: renders the PDF, puts it on the clipboard and opens WhatsApp or a mail draft.
             Nothing leaves the machine without a person pressing send in the other app. */}
         {row.kind === 'sales' && (
-          <button
-            className="row-action ml-2 text-hint text-blue hover:underline"
+          <RowAction
             data-testid={`btn-daybook-send-${row.voucherId}`}
             onClick={(e) => onShare(row.voucherId, e)}
             title={`Send on WhatsApp or by email — ${row.voucherType} ${row.number}`}
           >
             Send
-          </button>
+          </RowAction>
         )}
       </td>
     </tr>
@@ -674,7 +686,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
   const hasOutOfBooks = rows.length !== bookRows.length
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
@@ -701,96 +713,94 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
               {byType ? 'Show entries' : 'By type'}
             </Button>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
-            <Button
-              variant="ghost"
-              disabled={exporting}
-              onClick={() => {
-                setExporting(true)
-                void fullExportRows()
-                  .then((all) => printReport({ title: 'Day book', periodLabel, columns: exportColumns, rows: all }, toast))
-                  .catch((err: Error) => toast.push('error', err.message))
-                  .finally(() => setExporting(false))
-              }}
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={exporting}
-              onClick={() => {
-                setExporting(true)
-                /**
-                 * An unfiltered export is written by main straight out of the database, a page at
-                 * a time — three years of entries never becomes one string in this process.
-                 *
-                 * A FILTERED export cannot be: the scope, the drill chip and the text box are all
-                 * state that lives here, and main knows none of it. So a filtered export takes the
-                 * old road, which is honest because a filtered export is by definition smaller.
-                 */
-                const streamed = !filtering
-                  ? api.exportReport
-                      .streamCsv('day-book', {
-                        kind: 'dayBook',
-                        from,
-                        to,
-                        // `filtering` is false only when the scope is the default 'books', and that
-                        // scope means optional and post-dated vouchers are excluded — which is
-                        // exactly what includeOutOfBooks: false asks the service for. The two have
-                        // to agree or the streamed file would carry rows the screen was hiding.
-                        includeOutOfBooks: false,
-                        columns: {
-                          type: !!visible.type,
-                          number: !!visible.number,
-                          account: !!visible.account,
-                          debit: !!visible.debit,
-                          credit: !!visible.credit
-                        }
-                      })
-                      .then((r) => toast.push('success', `Saved to exports — ${r.path}`))
-                  : fullExportRows().then((all) =>
-                      csvReport(exportColumns.map((c) => c.label), all.map((r) => r.cells), 'day-book', toast)
-                    )
-                void streamed
-                  .catch((err: Error) => toast.push('error', err.message))
-                  .finally(() => setExporting(false))
-              }}
-            >
-              CSV
-            </Button>
-            <Button
-              variant="ghost"
-              data-testid="btn-daybook-xls"
-              disabled={exporting}
-              onClick={() => {
-                setExporting(true)
-                void fullExportXlsRows()
-                  .then((rowsForSheet) =>
-                    xlsReport(
-                      'day-book',
-                      [
-                        {
-                          name: 'Day book',
-                          columns: [
-                            { label: 'Date', kind: 'date' },
-                            { label: 'Type', kind: 'text' },
-                            { label: 'Number', kind: 'text' },
-                            { label: 'Account', kind: 'text' },
-                            { label: 'Narration', kind: 'text' },
-                            { label: 'Debit', kind: 'money' },
-                            { label: 'Credit', kind: 'money' }
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  disabled: exporting,
+                  onClick: () => {
+                    setExporting(true)
+                    void fullExportRows()
+                      .then((all) => printReport({ title: 'Day book', periodLabel, columns: exportColumns, rows: all }, toast))
+                      .catch((err: Error) => toast.push('error', err.message))
+                      .finally(() => setExporting(false))
+                  }
+                },
+                {
+                  label: 'CSV',
+                  disabled: exporting,
+                  onClick: () => {
+                    setExporting(true)
+                    /**
+                     * An unfiltered export is written by main straight out of the database, a page at
+                     * a time — three years of entries never becomes one string in this process.
+                     *
+                     * A FILTERED export cannot be: the scope, the drill chip and the text box are all
+                     * state that lives here, and main knows none of it. So a filtered export takes the
+                     * old road, which is honest because a filtered export is by definition smaller.
+                     */
+                    const streamed = !filtering
+                      ? api.exportReport
+                          .streamCsv('day-book', {
+                            kind: 'dayBook',
+                            from,
+                            to,
+                            // `filtering` is false only when the scope is the default 'books', and that
+                            // scope means optional and post-dated vouchers are excluded — which is
+                            // exactly what includeOutOfBooks: false asks the service for. The two have
+                            // to agree or the streamed file would carry rows the screen was hiding.
+                            includeOutOfBooks: false,
+                            columns: {
+                              type: !!visible.type,
+                              number: !!visible.number,
+                              account: !!visible.account,
+                              debit: !!visible.debit,
+                              credit: !!visible.credit
+                            }
+                          })
+                          .then((r) => toast.push('success', `Saved to exports — ${r.path}`))
+                      : fullExportRows().then((all) =>
+                          csvReport(exportColumns.map((c) => c.label), all.map((r) => r.cells), 'day-book', toast)
+                        )
+                    void streamed
+                      .catch((err: Error) => toast.push('error', err.message))
+                      .finally(() => setExporting(false))
+                  }
+                },
+                {
+                  label: 'XLS',
+                  testId: 'btn-daybook-xls',
+                  disabled: exporting,
+                  onClick: () => {
+                    setExporting(true)
+                    void fullExportXlsRows()
+                      .then((rowsForSheet) =>
+                        xlsReport(
+                          'day-book',
+                          [
+                            {
+                              name: 'Day book',
+                              columns: [
+                                { label: 'Date', kind: 'date' },
+                                { label: 'Type', kind: 'text' },
+                                { label: 'Number', kind: 'text' },
+                                { label: 'Account', kind: 'text' },
+                                { label: 'Narration', kind: 'text' },
+                                { label: 'Debit', kind: 'money' },
+                                { label: 'Credit', kind: 'money' }
+                              ],
+                              rows: rowsForSheet
+                            }
                           ],
-                          rows: rowsForSheet
-                        }
-                      ],
-                      toast
-                    )
-                  )
-                  .catch((err: Error) => toast.push('error', err.message))
-                  .finally(() => setExporting(false))
-              }}
-            >
-              XLS
-            </Button>
+                          toast
+                        )
+                      )
+                      .catch((err: Error) => toast.push('error', err.message))
+                      .finally(() => setExporting(false))
+                  }
+                }
+              ]}
+            />
           </div>
         }
       >
@@ -906,11 +916,11 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
               {!loadedAll && (
                 <tr>
                   <td colSpan={colCount} className="py-2 text-center">
-                    <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                    <RowLink disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
                       {isFetchingNextPage
                         ? 'Loading…'
                         : `Show 500 more (${remaining.toLocaleString('en-IN')} more in this period)`}
-                    </Button>
+                    </RowLink>
                     {filtering && (
                       <p className="mt-1 text-hint text-muted">
                         Filters apply to the {loadedRows.length.toLocaleString('en-IN')} entries loaded so far.

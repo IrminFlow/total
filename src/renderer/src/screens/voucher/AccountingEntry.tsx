@@ -12,7 +12,18 @@ import { roundOffLine } from '@shared/roundOff'
 import { describeAge, useVoucherDraft } from '../../lib/voucherDraft'
 import { useScreenAccels } from '../../lib/screenAccels'
 import { useVoucherCustomFields } from './CustomFields'
-import { AmountInput, Button, DateInput, Field, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
+import {
+  AmountInput,
+  Button,
+  DateInput,
+  Field,
+  LineTableScroller,
+  Money,
+  Panel,
+  RowAction,
+  Select,
+  TextInput
+} from '../../components/ui'
 import { useKeyLayer } from '../../lib/keyboard'
 import { useFieldChain } from '../../lib/useFieldChain'
 import { LedgerPicker, useGroups, useLedgers, useTaxLedgers } from '../../components/pickers'
@@ -1043,9 +1054,9 @@ export function AccountingEntry({
                   {(() => {
                     const rowLedger = r.ledgerId != null ? ledgers.find((l) => l.id === r.ledgerId) : null
                     return rowLedger && isPartyLedger(rowLedger, groupMap) ? (
-                      <Button variant="ghost" className="shrink-0 px-2 py-1 text-caption" onClick={() => setEditingParty(rowLedger)}>
+                      <RowAction className="shrink-0 px-2 py-1 text-caption" onClick={() => setEditingParty(rowLedger)}>
                         Edit
-                      </Button>
+                      </RowAction>
                     ) : null
                   })()}
                 </div>

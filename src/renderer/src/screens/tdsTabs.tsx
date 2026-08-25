@@ -4,7 +4,18 @@ import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
 import type { Recon26asBucket } from '@shared/tds/form26as'
 import {
-  AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useTableNav
+  AmountInput,
+  Button,
+  DateInput,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  Select,
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { fyOf, fyFromStartYear, toDisplayDate, todayISO } from '@shared/dates'
 
@@ -117,13 +128,13 @@ export function ChallansTab({ fyStartYear }: { fyStartYear: number }): React.JSX
                   </td>
                   <td className="r num">{c.linked}</td>
                   <td className="r">
-                    <button
+                    <RowAction
                       data-testid={`btn-tds-challan-delete-${c.id}`}
-                      className="text-small text-cr hover:underline"
+                      tone="danger"
                       onClick={() => void remove(c.id)}
                     >
                       Remove
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -267,7 +278,7 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
       </div>
 
       <Panel>
-        <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
+        <div className="border-b border-line bg-warn/10 px-3 py-2 text-body-sm text-warn">
           The e-TDS record layout is checked against the published Protean file format (26Q v7.8, 24Q v6.3, 27 May
           2025). <b>The file is still not fileable.</b> A regular statement needs things these books have never held —
           the deductor&rsquo;s State code and PIN, the responsible person&rsquo;s own PAN, address, State, PIN and
@@ -316,7 +327,7 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
                   <td className="num">{d.pan ?? <span className="text-cr">PANNOTAVBL</span>}</td>
                   <td className="num">
                     {d.sectionCode}
-                    {d.sectionUnverified && <span className="ml-1 text-hint text-amber">unverified</span>}
+                    {d.sectionUnverified && <span className="ml-1 text-hint text-warn">unverified</span>}
                   </td>
                   <td className="num">{toDisplayDate(d.paidOn)}</td>
                   <td className="r">
@@ -391,7 +402,7 @@ export function CertificatesTab({
   return (
     <div className="flex flex-col gap-3">
       <Panel>
-        <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
+        <div className="border-b border-line bg-warn/10 px-3 py-2 text-body-sm text-warn">
           Form 16A has to be downloaded from TRACES once the quarterly statement is filed — only that copy carries a
           certificate number the vendor can verify. What this produces is a <b>working copy</b> of the figures.
         </div>
@@ -421,13 +432,12 @@ export function CertificatesTab({
                     <Money paise={d.tds} />
                   </td>
                   <td className="r">
-                    <button
+                    <RowAction
                       data-testid={`btn-form16a-open-${d.ledgerId}`}
-                      className="text-small text-blue hover:underline"
                       onClick={() => setSelected(d.ledgerId)}
                     >
                       Open
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -462,7 +472,7 @@ export function CertificatesTab({
                 <tr key={s.sectionCode}>
                   <td className="num">
                     {s.sectionCode}
-                    {s.unverified && <span className="ml-1 text-hint text-amber">unverified</span>}
+                    {s.unverified && <span className="ml-1 text-hint text-warn">unverified</span>}
                   </td>
                   <td className="r">
                     <Money paise={s.amountPaid} />
@@ -713,20 +723,19 @@ export function LowerDeductionTab(): React.JSX.Element {
                       )}
                     </td>
                     <td className="r">
-                      <button
+                      <RowAction
                         data-testid={`btn-tds-cert-edit-${c.id}`}
-                        className="text-small text-blue hover:underline"
                         onClick={() => edit(c)}
                       >
                         Edit
-                      </button>
-                      <button
+                      </RowAction>
+                      <RowAction
                         data-testid={`btn-tds-cert-delete-${c.id}`}
-                        className="ml-2 text-small text-cr hover:underline"
+                        tone="danger"
                         onClick={() => void remove(c.id)}
                       >
                         Delete
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                 )

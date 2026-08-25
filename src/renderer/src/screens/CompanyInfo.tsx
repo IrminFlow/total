@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { Button, Field, Panel, RowAction, SectionTitle, Select, TextInput } from '../components/ui'
 import { GST_STATES } from '@shared/gst/states'
 import { qrmpEligible, TURNOVER_BANDS, turnoverObligations, type TurnoverBand } from '@shared/gst/turnover'
 import { gstinErrorMessage } from '../lib/gstinError'
@@ -314,12 +314,12 @@ function RegistrationsCard(): React.JSX.Element {
                   <span className="text-micro text-muted">edited above</span>
                 ) : (
                   <div className="flex justify-end gap-2">
-                    <Button variant="ghost" onClick={() => void api.gstReg.setPrimary(r.id).then(refresh)}>
+                    <RowAction onClick={() => void api.gstReg.setPrimary(r.id).then(refresh)}>
                       Make primary
-                    </Button>
-                    <Button variant="ghost" onClick={() => void remove(r.id)}>
+                    </RowAction>
+                    <RowAction onClick={() => void remove(r.id)}>
                       Remove
-                    </Button>
+                    </RowAction>
                   </div>
                 )}
               </td>

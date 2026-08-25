@@ -6,7 +6,21 @@ import { api } from '../lib/client'
 import { useGstRegistrations } from '../components/GstinPicker'
 import { registrationLabel } from '@shared/gst/registrations'
 import { useNav, useToasts, type Screen } from '../state/stores'
-import { AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useKeyNav } from '../components/ui'
+import {
+  AmountInput,
+  Button,
+  DateInput,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  SectionTitle,
+  Select,
+  TextInput,
+  useKeyNav
+} from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { useGroups, useLedgers, useStockItems } from '../components/pickers'
 import { LedgerFormModal } from '../components/LedgerFormModal'
@@ -35,20 +49,23 @@ export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
   const nav = useNav()
   const active = tab ?? 'ledgers'
   return (
-    <div className="mx-auto max-w-4xl">
-      <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-heading font-semibold tracking-tight">Masters</h2>
-        {/* Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
-            other screens can deep-link straight to a tab — same pattern as Settings. */}
-        <TabBar
-          screen="masters"
-          tabs={TABS}
-          active={active}
-          onSelect={(t) => {
-            if (t !== active) nav.go({ name: 'masters', tab: t })
-          }}
-        />
-      </div>
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
+      <SectionTitle
+        right={
+          // Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
+          // other screens can deep-link straight to a tab — same pattern as Settings.
+          <TabBar
+            screen="masters"
+            tabs={TABS}
+            active={active}
+            onSelect={(t) => {
+              if (t !== active) nav.go({ name: 'masters', tab: t })
+            }}
+          />
+        }
+      >
+        Masters
+      </SectionTitle>
       {active === 'ledgers' && <LedgersTab />}
       {active === 'groups' && <GroupsTab />}
       {active === 'items' && <ItemsTab />}
@@ -112,8 +129,8 @@ function CurrenciesTab(): React.JSX.Element {
                   <td>{c.symbol}</td>
                   <td className="text-muted">{c.name}</td>
                   <td className="r">
-                    <button
-                      className="text-small text-cr hover:underline"
+                    <RowAction
+                      tone="danger"
                       onClick={async () => {
                         try {
                           await api.currencies.remove(c.id)
@@ -124,7 +141,7 @@ function CurrenciesTab(): React.JSX.Element {
                       }}
                     >
                       Remove
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -271,16 +288,15 @@ function LedgersTab(): React.JSX.Element {
                   <td className="r" onClick={(e) => e.stopPropagation()}>
                     {/* One quiet action per row instead of fifteen identical blue links stacked
                         down the page — it surfaces on the row the pointer or keyboard is on. */}
-                    <button
+                    <RowAction
                       data-testid="btn-masters-edit-ledger"
-                      className="row-action text-small text-blue hover:underline"
                       onClick={(e) => {
                         e.stopPropagation()
                         setEditing(l)
                       }}
                     >
                       Edit
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -550,9 +566,9 @@ function ItemsTab(): React.JSX.Element {
                   <td className="r num">{i.gstRate ?? '–'}</td>
                   <td className="r num">{(i.openingQtyMilli / 1000).toString()}</td>
                   <td className="r">
-                    <button className="text-small text-blue hover:underline" onClick={() => setEditing(i)}>
+                    <RowAction onClick={() => setEditing(i)}>
                       Edit
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -1057,8 +1073,7 @@ function ItemRateHistory({ itemId }: { itemId: number }): React.JSX.Element {
                   <td className="r num">{r.cessPercent}</td>
                   <td className={r.note ? 'text-muted' : 'text-warn'}>{r.note ?? 'No citation'}</td>
                   <td className="r">
-                    <button
-                      className="text-small text-blue hover:underline"
+                    <RowAction
                       onClick={() => {
                         setEditingId(r.id)
                         setEffectiveFrom(r.effectiveFrom)
@@ -1068,14 +1083,14 @@ function ItemRateHistory({ itemId }: { itemId: number }): React.JSX.Element {
                       }}
                     >
                       Edit
-                    </button>
-                    <button
-                      className="ml-2 text-small text-cr hover:underline"
+                    </RowAction>
+                    <RowAction
+                      tone="danger"
                       data-testid="btn-item-rate-delete"
                       onClick={() => void remove(r)}
                     >
                       Delete
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -1257,9 +1272,9 @@ function TypesTab(): React.JSX.Element {
                   {!t.restartFy && <span className="ml-1 normal-case text-label">(no FY restart)</span>}
                 </td>
                 <td className="r">
-                  <button className="text-small text-blue hover:underline" onClick={() => setEditing(t)}>
+                  <RowAction onClick={() => setEditing(t)}>
                     Edit
-                  </button>
+                  </RowAction>
                 </td>
               </tr>
             ))}
@@ -1409,9 +1424,9 @@ function GodownsTab(): React.JSX.Element {
                   <td>{g.name}</td>
                   <td className="max-w-72 truncate text-muted">{g.address ?? ''}</td>
                   <td className="r">
-                    <button data-testid="btn-masters-edit-godown" className="text-small text-blue hover:underline" onClick={() => setEditing(g)}>
+                    <RowAction data-testid="btn-masters-edit-godown" onClick={() => setEditing(g)}>
                       Edit
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

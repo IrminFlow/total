@@ -1,6 +1,7 @@
 import type { Screen } from '../state/stores'
 import { useNav } from '../state/stores'
 import { TabBar } from '../components/TabBar'
+import { SectionTitle } from '../components/ui'
 import { AppearanceSection } from './settings/AppearanceSection'
 import { BackupsSection } from './settings/BackupsSection'
 import { BinSection } from './settings/BinSection'
@@ -46,9 +47,9 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
   const active = tab ?? 'backups'
 
   return (
-    <div className="mx-auto flex max-w-5xl gap-6">
+    <div className="flex h-full min-h-0 w-full max-w-5xl gap-6">
       <aside className="w-44 shrink-0">
-        <h2 className="mb-3 font-serif text-heading font-semibold tracking-tight">Settings</h2>
+        <SectionTitle>Settings</SectionTitle>
         {/* The active tab lives in the nav stack (not local state) so Esc/back retraces tabs
             and other screens can deep-link straight to a tab. */}
         <TabBar

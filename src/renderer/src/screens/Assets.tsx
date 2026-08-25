@@ -6,10 +6,12 @@ import {
   AmountInput,
   Button,
   EmptyState,
+  ExportGroup,
   Field,
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -113,29 +115,29 @@ function RegisterTab(): React.JSX.Element {
           <Button variant="ghost" data-testid="btn-assets-show-disposed" onClick={() => setShowDisposed(!showDisposed)}>
             {showDisposed ? 'Hide disposed' : 'Include disposed'}
           </Button>
-          <Button
-            variant="ghost"
-            disabled={!rows.length}
-            onClick={() =>
-              void csvReport(
-                ['Asset', 'Code', 'Block', 'Bought', 'In use from', 'Cost', 'Depreciated', 'Book value'],
-                rows.map((a) => [
-                  a.name,
-                  a.code ?? '',
-                  a.blockName ?? '',
-                  a.purchaseDate,
-                  a.putToUseDate ?? '',
-                  formatPaise(a.cost),
-                  formatPaise(a.accumulated),
-                  formatPaise(a.bookValue)
-                ]),
-                'fixed-assets',
-                toast
-              )
-            }
-          >
-            CSV
-          </Button>
+          <ExportGroup
+            items={[
+              {
+                label: 'CSV',
+                disabled: !rows.length,
+                onClick: () => void csvReport(
+                  ['Asset', 'Code', 'Block', 'Bought', 'In use from', 'Cost', 'Depreciated', 'Book value'],
+                  rows.map((a) => [
+                    a.name,
+                    a.code ?? '',
+                    a.blockName ?? '',
+                    a.purchaseDate,
+                    a.putToUseDate ?? '',
+                    formatPaise(a.cost),
+                    formatPaise(a.accumulated),
+                    formatPaise(a.bookValue)
+                  ]),
+                  'fixed-assets',
+                  toast
+                )
+              }
+            ]}
+          />
         </div>
         <Button variant="primary" data-testid="btn-asset-add" onClick={() => setEditing('new')}>
           Add asset
@@ -182,18 +184,18 @@ function RegisterTab(): React.JSX.Element {
                   <td className="r text-muted"><Money paise={a.accumulated} /></td>
                   <td className="r font-medium"><Money paise={a.bookValue} /></td>
                   <td onClick={(e) => e.stopPropagation()} className="r whitespace-nowrap">
-                    <Button variant="ghost" onClick={() => setEditing(a)}>
+                    <RowAction onClick={() => setEditing(a)}>
                       Edit
-                    </Button>
+                    </RowAction>
                     {!a.disposedOn && (
-                      <Button variant="ghost" data-testid={`btn-asset-dispose-${a.id}`} onClick={() => setDisposing(a)}>
+                      <RowAction data-testid={`btn-asset-dispose-${a.id}`} onClick={() => setDisposing(a)}>
                         Dispose
-                      </Button>
+                      </RowAction>
                     )}
                     {a.accumulated === 0 && (
-                      <button className="ml-2 text-small text-cr hover:underline" onClick={() => void remove(a)}>
+                      <RowAction tone="danger" onClick={() => void remove(a)}>
                         Delete
-                      </button>
+                      </RowAction>
                     )}
                   </td>
                 </tr>
@@ -501,14 +503,44 @@ function ScheduleTab(): React.JSX.Element {
           </Select>
           {s?.alreadyPosted && <span className="text-dr">already posted</span>}
         </div>
-        <Button
-          variant="primary"
-          data-testid="btn-post-depreciation"
-          disabled={!data?.draft || s?.alreadyPosted}
-          onClick={() => void post()}
-        >
-          Draft the journal
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportGroup
+            items={[
+              {
+                label: 'PDF',
+                disabled: !s?.companiesAct.length,
+                onClick: () => void printReport(
+                  {
+                    title: 'Depreciation schedule — Companies Act',
+                    periodLabel: `${toDisplayDate(s!.from)} to ${toDisplayDate(s!.to)}`,
+                    columns: [
+                      { label: 'Asset', align: 'l' },
+                      { label: 'Method', align: 'l' },
+                      { label: 'Opening', align: 'r' },
+                      { label: 'Depreciation', align: 'r' },
+                      { label: 'Closing', align: 'r' }
+                    ],
+                    rows: s!.companiesAct.map((r) => ({
+                      cells: [r.name, r.method.toUpperCase(), formatPaise(r.openingWdv), formatPaise(r.depreciation), formatPaise(r.closingWdv)]
+                    })),
+                    footNote:
+                      'Companies Act only. The income-tax schedule is computed per block and gives a different figure by design.',
+                    filename: 'depreciation-companies-act'
+                  },
+                  toast
+                )
+              }
+            ]}
+          />
+          <Button
+            variant="primary"
+            data-testid="btn-post-depreciation"
+            disabled={!data?.draft || s?.alreadyPosted}
+            onClick={() => void post()}
+          >
+            Draft the journal
+          </Button>
+        </div>
       </div>
 
       {s && (
@@ -610,7 +642,7 @@ function ScheduleTab(): React.JSX.Element {
                     <td className="r"><Money paise={b.closingWdv} /></td>
                   </tr>
                   {b.shortTermGain > 0 && (
-                    <tr className="text-small text-cr">
+                    <tr className="text-small text-warn">
                       <td colSpan={7} className="pl-8">
                         Sales exceeded the block by <Money paise={b.shortTermGain} /> — a short-term
                         capital gain under section 50, and no depreciation is allowed on this block.
@@ -629,36 +661,6 @@ function ScheduleTab(): React.JSX.Element {
         )}
       </Panel>
 
-      <div className="mt-3 flex justify-end gap-2">
-        <Button
-          variant="ghost"
-          disabled={!s?.companiesAct.length}
-          onClick={() =>
-            void printReport(
-              {
-                title: 'Depreciation schedule — Companies Act',
-                periodLabel: `${toDisplayDate(s!.from)} to ${toDisplayDate(s!.to)}`,
-                columns: [
-                  { label: 'Asset', align: 'l' },
-                  { label: 'Method', align: 'l' },
-                  { label: 'Opening', align: 'r' },
-                  { label: 'Depreciation', align: 'r' },
-                  { label: 'Closing', align: 'r' }
-                ],
-                rows: s!.companiesAct.map((r) => ({
-                  cells: [r.name, r.method.toUpperCase(), formatPaise(r.openingWdv), formatPaise(r.depreciation), formatPaise(r.closingWdv)]
-                })),
-                footNote:
-                  'Companies Act only. The income-tax schedule is computed per block and gives a different figure by design.',
-                filename: 'depreciation-companies-act'
-              },
-              toast
-            )
-          }
-        >
-          PDF
-        </Button>
-      </div>
 
       <p className="mt-2 text-hint text-muted">
         Only the Companies Act figure goes in the books — booking the income-tax number would make

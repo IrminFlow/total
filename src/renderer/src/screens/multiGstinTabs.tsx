@@ -10,6 +10,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   Select,
   SkeletonRows,
   TextInput
@@ -292,12 +293,12 @@ export function BranchTransferTab(): React.JSX.Element {
                     <Money paise={r.igst + r.cgst + r.sgst + r.cess} />
                   </td>
                   <td className="flex gap-1">
-                    <Button variant="ghost" onClick={() => void print(r.id)}>
+                    <RowAction onClick={() => void print(r.id)}>
                       Print
-                    </Button>
-                    <Button variant="ghost" onClick={() => void withdraw(r.id, r.number)}>
+                    </RowAction>
+                    <RowAction onClick={() => void withdraw(r.id, r.number)}>
                       Withdraw
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -553,9 +554,9 @@ export function IsdTab(): React.JSX.Element {
                     {c.distributedMonth ? (
                       <span className="text-small text-muted">Distributed {c.distributedMonth}</span>
                     ) : (
-                      <Button variant="ghost" onClick={() => void removeCredit(c.id)}>
+                      <RowAction onClick={() => void removeCredit(c.id)}>
                         Remove
-                      </Button>
+                      </RowAction>
                     )}
                   </td>
                 </tr>
@@ -674,8 +675,7 @@ export function IsdTab(): React.JSX.Element {
                     <Money paise={inv.total} />
                   </td>
                   <td>
-                    <Button
-                      variant="ghost"
+                    <RowAction
                       onClick={() => {
                         void api.isd
                           .pdf(inv.id)
@@ -684,7 +684,7 @@ export function IsdTab(): React.JSX.Element {
                       }}
                     >
                       Print
-                    </Button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

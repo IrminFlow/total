@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, DateInput, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, DateInput, ExportGroup, Money, Panel, SectionTitle } from '../components/ui'
 import { ComparedStatementTree, StatementTree } from '../components/StatementTree'
 import { compareStatements } from '@shared/statementCompare'
 import type { StatementNode } from '@shared/reports'
@@ -115,55 +115,49 @@ export function ProfitLossScreen(): React.JSX.Element {
             >
               {showPct ? 'Hide %' : '% of turnover'}
             </Button>
-            <Button
-              variant="ghost"
-              onClick={() => void printReport({ title: 'Profit & Loss', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'profit-loss', toast)
-              }
-            >
-              CSV
-            </Button>
-            <Button
-              variant="ghost"
-              data-testid="btn-pnl-xls"
-              onClick={() =>
-                void xlsReport(
-                  'profit-loss',
-                  [
-                    {
-                      name: 'Profit and Loss',
-                      columns: [
-                        { label: 'Particulars', kind: 'text' },
-                        { label: 'Amount', kind: 'money' }
-                      ],
-                      // Typed cells straight from the statement: the spreadsheet gets paise as a
-                      // number, so a column of expenses can be totalled in the sheet itself.
-                      rows: [
-                        { cells: ['Expenses', null], bold: true },
-                        ...xlsStatementRows(data.tradingExpenses, 1),
-                        ...xlsStatementRows(data.indirectExpenses, 1),
-                        { cells: ['Incomes', null], bold: true },
-                        ...xlsStatementRows(data.tradingIncomes, 1),
-                        ...xlsStatementRows(data.indirectIncomes, 1),
-                        { cells: ['Opening stock', data.openingStock] },
-                        { cells: ['Closing stock', data.closingStock] },
-                        { cells: ['Gross profit', data.grossProfit], bold: true },
-                        { cells: ['Net profit', data.netProfit], bold: true }
-                      ]
-                    }
-                  ],
-                  toast
-                )
-              }
-            >
-              XLS
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  onClick: () => void printReport({ title: 'Profit & Loss', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)
+                },
+                {
+                  label: 'CSV',
+                  onClick: () => void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'profit-loss', toast)
+                },
+                {
+                  label: 'XLS',
+                  testId: 'btn-pnl-xls',
+                  onClick: () => void xlsReport(
+                    'profit-loss',
+                    [
+                      {
+                        name: 'Profit and Loss',
+                        columns: [
+                          { label: 'Particulars', kind: 'text' },
+                          { label: 'Amount', kind: 'money' }
+                        ],
+                        // Typed cells straight from the statement: the spreadsheet gets paise as a
+                        // number, so a column of expenses can be totalled in the sheet itself.
+                        rows: [
+                          { cells: ['Expenses', null], bold: true },
+                          ...xlsStatementRows(data.tradingExpenses, 1),
+                          ...xlsStatementRows(data.indirectExpenses, 1),
+                          { cells: ['Incomes', null], bold: true },
+                          ...xlsStatementRows(data.tradingIncomes, 1),
+                          ...xlsStatementRows(data.indirectIncomes, 1),
+                          { cells: ['Opening stock', data.openingStock] },
+                          { cells: ['Closing stock', data.closingStock] },
+                          { cells: ['Gross profit', data.grossProfit], bold: true },
+                          { cells: ['Net profit', data.netProfit], bold: true }
+                        ]
+                      }
+                    ],
+                    toast
+                  )
+                }
+              ]}
+            />
           </div>
         }
       >

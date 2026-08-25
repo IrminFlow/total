@@ -8,8 +8,24 @@ import {
 } from '../lib/client'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
 import {
-  AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, SkeletonRows,
-  Spinner, TextInput, useTableNav
+  AmountInput,
+  Button,
+  DateInput,
+  EmptyState,
+  ExportGroup,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  RowLink,
+  ScrollList,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  Spinner,
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { LedgerPicker } from '../components/pickers'
 import { toDisplayDate, todayISO } from '@shared/dates'
@@ -438,13 +454,13 @@ export function BankingScreen(): React.JSX.Element {
                       <td className="r"><Money paise={r.deposit} /></td>
                       <td className="r"><Money paise={r.withdrawal} /></td>
                       <td>
-                        <button
-                          className="num text-small text-blue hover:underline"
+                        <RowLink
+                          className="num"
                           data-testid="btn-banking-edit-bank-date"
                           onClick={() => setDateEdit({ lineId: r.lineId, current: r.bankDate })}
                         >
                           {r.bankDate ? toDisplayDate(r.bankDate) : 'Set date'}
-                        </button>
+                        </RowLink>
                       </td>
                       <td className="r">
                         <button
@@ -567,13 +583,12 @@ export function BankingScreen(): React.JSX.Element {
                           )}
                         </td>
                         <td className="r">
-                          <button
-                            className="mr-3 text-small text-blue hover:underline"
+                          <RowAction
                             data-testid="btn-banking-create-voucher"
                             onClick={() => void createFromSuggestion(s)}
                           >
                             Create voucher
-                          </button>
+                          </RowAction>
                           <button
                             className="text-small text-muted hover:text-ink"
                             data-testid="btn-banking-remember-rule"
@@ -1083,9 +1098,10 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
         <Field label="As on">
           <DateInput value={asOn} context={defaultAsOn} onChange={setAsOn} testId="input-brs-date" className="w-40" />
         </Field>
-        <Button disabled={printing || !brs} data-testid="btn-banking-brs-pdf" onClick={() => void pdf()}>
-          Export PDF
-        </Button>
+        <ExportGroup
+          busy={printing}
+          items={[{ label: 'PDF', testId: 'btn-banking-brs-pdf', disabled: !brs, onClick: () => void pdf() }]}
+        />
       </div>
 
       {isLoading || !brs ? (
@@ -1267,23 +1283,22 @@ function PdcSection(): React.JSX.Element {
                   <td className="num text-muted">{r.instrumentNo ?? ''}</td>
                   <td className="r"><Money paise={r.amount} /></td>
                   <td className="r">
-                    <button
-                      className="mr-3 text-small text-blue hover:underline"
+                    <RowAction
                       data-testid="btn-banking-pdc-mature"
                       onClick={() => void mature(r.id, r.number)}
                     >
                       Mature now
-                    </button>
+                    </RowAction>
                     {/* Quiet until the row is hovered, active or focused — a cheque coming back
                         is the rare case, and an always-lit "Bounced…" beside every row reads as
                         an instruction rather than an exception (#138). */}
-                    <button
-                      className="row-action mr-3 text-small text-muted hover:text-ink"
+                    <RowAction
+                      className="text-muted hover:text-ink"
                       data-testid="btn-banking-pdc-bounce"
                       onClick={() => setBounceFor(r)}
                     >
                       Bounced…
-                    </button>
+                    </RowAction>
                     <button
                       className="text-small text-muted hover:text-ink"
                       data-testid="btn-banking-pdc-edit"
@@ -1471,25 +1486,24 @@ function BouncedRegister(): React.JSX.Element {
                   <td className="r"><Money paise={b.chargeAmount} /></td>
                   <td className="num">
                     {b.reversalVoucherId != null ? (
-                      <button
-                        className="text-small text-blue hover:underline"
+                      <RowLink
                         data-testid="btn-banking-bounce-reversal"
                         onClick={() => nav.go({ name: 'voucher-entry', voucherId: b.reversalVoucherId! })}
                       >
                         {b.reversalNumber ?? 'Open'}
-                      </button>
+                      </RowLink>
                     ) : (
                       <span className="text-muted">–</span>
                     )}
                   </td>
                   <td className="r">
-                    <button
-                      className="row-action text-small text-muted hover:text-ink"
+                    <RowAction
+                      className="text-muted hover:text-ink"
                       data-testid="btn-banking-bounce-undo"
                       onClick={() => void undo(b.id, b.voucherNumber)}
                     >
                       Undo
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -1605,17 +1619,17 @@ function BankRulesModal({
                     <td className="capitalize">{r.kind}</td>
                     <td className="num r">{r.hits}</td>
                     <td>
-                      <button className="text-small text-blue hover:underline" onClick={() => void toggleActive(r)}>
+                      <RowLink onClick={() => void toggleActive(r)}>
                         {r.active ? 'Active' : 'Paused'}
-                      </button>
+                      </RowLink>
                     </td>
                     <td className="r">
-                      <button className="mr-3 text-small text-blue hover:underline" onClick={() => edit(r)}>
+                      <RowAction onClick={() => edit(r)}>
                         Edit
-                      </button>
-                      <button className="text-small text-cr hover:underline" onClick={() => void remove(r)}>
+                      </RowAction>
+                      <RowAction tone="danger" onClick={() => void remove(r)}>
                         Delete
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                 ))}

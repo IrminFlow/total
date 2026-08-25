@@ -2,7 +2,17 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, useTableNav } from '../components/ui'
+import {
+  Button,
+  EmptyState,
+  ExportGroup,
+  Money,
+  Panel,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  useTableNav
+} from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { csvReport, printReport, xlsReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -153,22 +163,18 @@ export function RegistersScreen(): React.JSX.Element {
             )}
             {(tab === 'sales' || tab === 'purchase') && (
               <>
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    void printReport({ title, periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)
-                  }
-                >
-                  PDF
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `${kind}-register-${granularity}`, toast)
-                  }
-                >
-                  CSV
-                </Button>
+                <ExportGroup
+                  items={[
+                    {
+                      label: 'PDF',
+                      onClick: () => void printReport({ title, periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)
+                    },
+                    {
+                      label: 'CSV',
+                      onClick: () => void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `${kind}-register-${granularity}`, toast)
+                    }
+                  ]}
+                />
               </>
             )}
             <Button disabled={busy !== null} onClick={() => void runExport('tallyXml')}>
@@ -327,18 +333,18 @@ function ItemProfitTotals({
     <>
       <div className="mb-2 flex justify-end gap-2">
         {selector}
-        <Button
-          variant="ghost"
-          onClick={() => void printReport({ title: 'Item profitability', periodLabel, columns: ITEM_COLUMNS, rows: exportRows }, toast)}
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => void csvReport(ITEM_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'item-profitability', toast)}
-        >
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              onClick: () => void printReport({ title: 'Item profitability', periodLabel, columns: ITEM_COLUMNS, rows: exportRows }, toast)
+            },
+            {
+              label: 'CSV',
+              onClick: () => void csvReport(ITEM_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'item-profitability', toast)
+            }
+          ]}
+        />
       </div>
       <Panel scroll={{ maxH: '70vh' }}>
         {isLoading ? (
@@ -458,38 +464,34 @@ function PartySharePanel({
           ))}
         </div>
         <span className="flex-1" />
-        <Button
-          variant="ghost"
-          disabled={!rows.length}
-          onClick={() =>
-            void printReport(
-              {
-                title: side === 'sales' ? 'Sales by party' : 'Purchases by party',
-                periodLabel,
-                columns: PARTY_COLUMNS,
-                rows: exportRows,
-                filename: `${side}-by-party`
-              },
-              toast
-            )
-          }
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={!rows.length}
-          onClick={() =>
-            void csvReport(
-              PARTY_COLUMNS.map((c) => c.label),
-              exportRows.map((r) => r.cells),
-              `${side}-by-party`,
-              toast
-            )
-          }
-        >
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              disabled: !rows.length,
+              onClick: () => void printReport(
+                {
+                  title: side === 'sales' ? 'Sales by party' : 'Purchases by party',
+                  periodLabel,
+                  columns: PARTY_COLUMNS,
+                  rows: exportRows,
+                  filename: `${side}-by-party`
+                },
+                toast
+              )
+            },
+            {
+              label: 'CSV',
+              disabled: !rows.length,
+              onClick: () => void csvReport(
+                PARTY_COLUMNS.map((c) => c.label),
+                exportRows.map((r) => r.cells),
+                `${side}-by-party`,
+                toast
+              )
+            }
+          ]}
+        />
       </div>
 
       {data?.concentration.warning && (
@@ -615,55 +617,49 @@ function ItemMarginMatrix({
   return (
     <>
       <div className="mb-2 flex justify-end gap-2">
-        <Button
-          variant="ghost"
-          data-testid="btn-item-matrix-pdf"
-          onClick={() => void printReport({ title: 'Item margin by period', periodLabel, columns, rows: exportRows }, toast)}
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          data-testid="btn-item-matrix-csv"
-          onClick={() =>
-            void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'item-margin-by-period', toast)
-          }
-        >
-          CSV
-        </Button>
-        <Button
-          variant="ghost"
-          data-testid="btn-item-matrix-xls"
-          onClick={() =>
-            void xlsReport(
-              'item-margin-by-period',
-              [
-                {
-                  name: 'Item margin',
-                  columns: [
-                    { label: 'Item', kind: 'text' },
-                    ...buckets.flatMap((b) => [
-                      { label: `${b.label} sales`, kind: 'money' as const },
-                      { label: `${b.label} profit`, kind: 'money' as const }
-                    ])
-                  ],
-                  rows: items.map(([, entry]) => ({
-                    cells: [
-                      entry.name,
-                      ...buckets.flatMap((b) => {
-                        const cell = entry.cells.get(b.key)
-                        return [cell?.sales ?? 0, cell?.profit ?? 0]
-                      })
-                    ]
-                  }))
-                }
-              ],
-              toast
-            )
-          }
-        >
-          XLS
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              testId: 'btn-item-matrix-pdf',
+              onClick: () => void printReport({ title: 'Item margin by period', periodLabel, columns, rows: exportRows }, toast)
+            },
+            {
+              label: 'CSV',
+              testId: 'btn-item-matrix-csv',
+              onClick: () => void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'item-margin-by-period', toast)
+            },
+            {
+              label: 'XLS',
+              testId: 'btn-item-matrix-xls',
+              onClick: () => void xlsReport(
+                'item-margin-by-period',
+                [
+                  {
+                    name: 'Item margin',
+                    columns: [
+                      { label: 'Item', kind: 'text' },
+                      ...buckets.flatMap((b) => [
+                        { label: `${b.label} sales`, kind: 'money' as const },
+                        { label: `${b.label} profit`, kind: 'money' as const }
+                      ])
+                    ],
+                    rows: items.map(([, entry]) => ({
+                      cells: [
+                        entry.name,
+                        ...buckets.flatMap((b) => {
+                          const cell = entry.cells.get(b.key)
+                          return [cell?.sales ?? 0, cell?.profit ?? 0]
+                        })
+                      ]
+                    }))
+                  }
+                ],
+                toast
+              )
+            }
+          ]}
+        />
       </div>
       <Panel scroll={{ maxH: '70vh' }}>
         {isLoading ? (

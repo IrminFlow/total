@@ -5,9 +5,11 @@ import { useNav, useSession, useToasts } from '../state/stores'
 import {
   Button,
   EmptyState,
+  ExportGroup,
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -171,18 +173,18 @@ function RemindersTab(): React.JSX.Element {
                     </span>
                   </td>
                   <td onClick={(e) => e.stopPropagation()} className="whitespace-nowrap">
-                    <Button variant="ghost" data-testid={`btn-reminder-preview-${r.ledgerId}`} onClick={() => setPreview(r)}>
+                    <RowAction data-testid={`btn-reminder-preview-${r.ledgerId}`} onClick={() => setPreview(r)}>
                       Preview
-                    </Button>
+                    </RowAction>
                     {r.phone && (
-                      <Button variant="ghost" onClick={() => open(r, 'whatsapp')}>
+                      <RowAction onClick={() => open(r, 'whatsapp')}>
                         WhatsApp
-                      </Button>
+                      </RowAction>
                     )}
                     {r.email && (
-                      <Button variant="ghost" onClick={() => open(r, 'email')}>
+                      <RowAction onClick={() => open(r, 'email')}>
                         Email
-                      </Button>
+                      </RowAction>
                     )}
                   </td>
                 </tr>
@@ -255,37 +257,35 @@ function InterestTab(): React.JSX.Element {
   return (
     <>
       <div className="mb-3 flex justify-end gap-2">
-        <Button
-          variant="ghost"
-          disabled={!rows.length}
-          onClick={() =>
-            void printReport(
-              {
-                title: 'Interest on overdue bills',
-                periodLabel: `as on ${toDisplayDate(to)}`,
-                columns: [
-                  { label: 'Party', align: 'l' },
-                  { label: 'Overdue', align: 'r' },
-                  { label: 'Terms', align: 'l' },
-                  { label: 'Interest', align: 'r' }
-                ],
-                rows: exportRows,
-                footNote: 'Interest is shown for information and is not posted to the books.',
-                filename: 'interest-on-overdue'
-              },
-              toast
-            )
-          }
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={!rows.length}
-          onClick={() => void csvReport(['Party', 'Overdue', 'Terms', 'Interest'], exportRows.map((r) => r.cells), 'interest-on-overdue', toast)}
-        >
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              disabled: !rows.length,
+              onClick: () => void printReport(
+                {
+                  title: 'Interest on overdue bills',
+                  periodLabel: `as on ${toDisplayDate(to)}`,
+                  columns: [
+                    { label: 'Party', align: 'l' },
+                    { label: 'Overdue', align: 'r' },
+                    { label: 'Terms', align: 'l' },
+                    { label: 'Interest', align: 'r' }
+                  ],
+                  rows: exportRows,
+                  footNote: 'Interest is shown for information and is not posted to the books.',
+                  filename: 'interest-on-overdue'
+                },
+                toast
+              )
+            },
+            {
+              label: 'CSV',
+              disabled: !rows.length,
+              onClick: () => void csvReport(['Party', 'Overdue', 'Terms', 'Interest'], exportRows.map((r) => r.cells), 'interest-on-overdue', toast)
+            }
+          ]}
+        />
       </div>
       <Panel scroll={{ maxH: '68vh' }} data-testid="panel-interest">
         {isLoading ? (
@@ -477,20 +477,20 @@ function AgeingTab(): React.JSX.Element {
             <option value="payable">Payable</option>
           </Select>
         </div>
-        <Button
-          variant="ghost"
-          disabled={!data?.rows.length}
-          onClick={() =>
-            void csvReport(
-              ['Group', 'Parties', 'Total', ...(data?.bandLabels ?? [])],
-              exportRows.map((r) => r.cells),
-              `ageing-by-${dimension}`,
-              toast
-            )
-          }
-        >
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'CSV',
+              disabled: !data?.rows.length,
+              onClick: () => void csvReport(
+                ['Group', 'Parties', 'Total', ...(data?.bandLabels ?? [])],
+                exportRows.map((r) => r.cells),
+                `ageing-by-${dimension}`,
+                toast
+              )
+            }
+          ]}
+        />
       </div>
 
       <Panel scroll={{ maxH: '68vh' }} data-testid="panel-ageing-by">
@@ -1061,47 +1061,43 @@ function MsmeTab(): React.JSX.Element {
       )}
 
       <div className="mb-3 flex justify-end gap-2">
-        <Button
-          variant="ghost"
-          disabled={!data?.parties.length}
-          onClick={() =>
-            void csvReport(
-              ['Supplier', 'Status', 'Udyam', 'Owed', 'Disallowed', 'Interest'],
-              exportRows.map((r) => r.cells),
-              'msme-43bh',
-              toast
-            )
-          }
-        >
-          CSV
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={!data?.parties.length}
-          onClick={() =>
-            void printReport(
-              {
-                title: 'MSME exposure under section 43B(h)',
-                periodLabel: `as on ${toDisplayDate(to)}`,
-                columns: [
-                  { label: 'Supplier', align: 'l' },
-                  { label: 'Status', align: 'l' },
-                  { label: 'Udyam', align: 'l' },
-                  { label: 'Owed', align: 'r' },
-                  { label: 'Disallowed', align: 'r' },
-                  { label: 'Interest', align: 'r' }
-                ],
-                rows: exportRows,
-                footNote:
-                  'Disallowed amounts are deductible only in the year of actual payment. Section 16 interest is not deductible at all. Prepared from the books; confirm with your accountant.',
-                filename: 'msme-43bh'
-              },
-              toast
-            )
-          }
-        >
-          PDF
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              disabled: !data?.parties.length,
+              onClick: () => void printReport(
+                {
+                  title: 'MSME exposure under section 43B(h)',
+                  periodLabel: `as on ${toDisplayDate(to)}`,
+                  columns: [
+                    { label: 'Supplier', align: 'l' },
+                    { label: 'Status', align: 'l' },
+                    { label: 'Udyam', align: 'l' },
+                    { label: 'Owed', align: 'r' },
+                    { label: 'Disallowed', align: 'r' },
+                    { label: 'Interest', align: 'r' }
+                  ],
+                  rows: exportRows,
+                  footNote:
+                    'Disallowed amounts are deductible only in the year of actual payment. Section 16 interest is not deductible at all. Prepared from the books; confirm with your accountant.',
+                  filename: 'msme-43bh'
+                },
+                toast
+              )
+            },
+            {
+              label: 'CSV',
+              disabled: !data?.parties.length,
+              onClick: () => void csvReport(
+                ['Supplier', 'Status', 'Udyam', 'Owed', 'Disallowed', 'Interest'],
+                exportRows.map((r) => r.cells),
+                'msme-43bh',
+                toast
+              )
+            }
+          ]}
+        />
       </div>
 
       <Panel scroll={{ maxH: '58vh' }} data-testid="panel-msme">

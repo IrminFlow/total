@@ -2,7 +2,16 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type SerialRecordRow } from '../../lib/client'
 import { useNav } from '../../state/stores'
-import { Button, EmptyState, Money, Panel, Select, SkeletonRows, TextInput, useTableNav } from '../../components/ui'
+import {
+  EmptyState,
+  Money,
+  Panel,
+  RowLink,
+  Select,
+  SkeletonRows,
+  TextInput,
+  useTableNav
+} from '../../components/ui'
 import { useStockItems } from '../../components/pickers'
 import { toDisplayDate } from '@shared/dates'
 
@@ -155,14 +164,13 @@ function SerialHistory({
                 <td className="num">{toDisplayDate(h.movedOn)}</td>
                 <td className={h.direction === 'in' ? 'text-dr' : 'text-muted'}>{h.direction === 'in' ? 'Received' : 'Issued'}</td>
                 <td>
-                  <Button
-                    variant="ghost"
+                  <RowLink
                     className="px-0"
                     data-testid={`btn-serial-voucher-${h.voucherId}`}
                     onClick={() => onOpenVoucher(h.voucherId)}
                   >
                     {h.voucherType} {h.voucherNumber}
-                  </Button>
+                  </RowLink>
                 </td>
                 <td className="text-muted">{h.partyName ?? '—'}</td>
                 <td className="text-muted">{h.godownName ?? '—'}</td>

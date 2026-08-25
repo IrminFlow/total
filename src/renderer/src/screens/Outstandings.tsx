@@ -2,7 +2,17 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useTableNav } from '../components/ui'
+import {
+  EmptyState,
+  ExportGroup,
+  Money,
+  Panel,
+  RowAction,
+  RowLink,
+  SectionTitle,
+  SkeletonRows,
+  useTableNav
+} from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -122,7 +132,7 @@ export function OutstandingsScreen(): React.JSX.Element {
   ]
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
@@ -135,25 +145,21 @@ export function OutstandingsScreen(): React.JSX.Element {
               active={side}
               onSelect={setSide}
             />
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void printReport(
-                  { title: side === 'receivable' ? 'Receivables · ageing' : 'Payables · ageing', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows },
-                  toast
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `outstandings-${side}`, toast)
-              }
-            >
-              CSV
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  onClick: () => void printReport(
+                    { title: side === 'receivable' ? 'Receivables · ageing' : 'Payables · ageing', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows },
+                    toast
+                  )
+                },
+                {
+                  label: 'CSV',
+                  onClick: () => void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `outstandings-${side}`, toast)
+                }
+              ]}
+            />
           </div>
         }
       >
@@ -195,9 +201,8 @@ export function OutstandingsScreen(): React.JSX.Element {
                     <td className="r"><span className={p.buckets[3] > 0 ? 'text-cr' : ''}><Money paise={p.buckets[3]} /></span></td>
                     <td className="r font-medium"><Money paise={p.pending} /></td>
                     <td className="r">
-                      <button
+                      <RowAction
                         data-testid="btn-outstandings-remind"
-                        className="text-hint text-blue hover:underline"
                         onClick={(e) => {
                           e.stopPropagation()
                           void api.bills
@@ -214,26 +219,27 @@ export function OutstandingsScreen(): React.JSX.Element {
                         }}
                       >
                         {p.phone ? 'WhatsApp' : 'Remind'}
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                   {openParty === p.ledgerId &&
                     (openBills ?? []).map((b, i) => (
-                      <tr key={`${p.ledgerId}-${i}`} className={`bg-panel2/50 ${b.overdueDays > 0 ? 'text-cr' : ''}`}>
+                      <tr key={`${p.ledgerId}-${i}`} className="bg-panel2/50">
                         <td className="pl-9 text-muted">
-                          <button
-                            className="hover:text-blue hover:underline"
+                          <RowLink
                             onClick={(e) => {
                               e.stopPropagation()
                               if (b.voucherId) nav.go({ name: 'voucher-entry', voucherId: b.voucherId })
                             }}
                           >
                             {b.number}
-                          </button>
+                          </RowLink>
                           <span className="num ml-3 text-hint">{toDisplayDate(b.date)} · {b.ageDays} days</span>
                           <span className="num ml-3 text-hint">
                             {b.dueDate ? `due ${toDisplayDate(b.dueDate)}` : 'no due date'}
-                            {b.overdueDays > 0 && ` · ${b.overdueDays}d overdue`}
+                            {b.overdueDays > 0 && (
+                              <span className="text-cr font-semibold"> · {b.overdueDays}d overdue</span>
+                            )}
                           </span>
                         </td>
                         <td colSpan={4}></td>

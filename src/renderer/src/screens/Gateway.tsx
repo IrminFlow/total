@@ -52,7 +52,7 @@ export function Gateway(): React.JSX.Element {
     data?.tileSparks.find((s) => s.key === key)?.points ?? []
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((t) => (
           <Panel key={t.label} className="px-4 py-3">

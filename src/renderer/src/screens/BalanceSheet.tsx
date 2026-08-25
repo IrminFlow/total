@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, DateInput, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, DateInput, ExportGroup, Money, Panel, SectionTitle } from '../components/ui'
 import { ComparedStatementTree, StatementTree } from '../components/StatementTree'
 import { compareStatements } from '@shared/statementCompare'
 import { useStickyFlag } from '../lib/useStickyTab'
@@ -88,7 +88,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
     )
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
@@ -118,23 +118,21 @@ export function BalanceSheetScreen(): React.JSX.Element {
             <Button variant="ghost" data-testid="btn-bs-compare" onClick={() => setComparePrior(!comparePrior)}>
               {comparePrior ? 'Hide last year' : 'vs last year'}
             </Button>
-            <Button
-              variant="ghost"
-              onClick={() => void printReport({ title: 'Balance sheet', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'balance-sheet', toast)
-              }
-            >
-              CSV
-            </Button>
-            <Button variant="ghost" data-testid="btn-bs-xls" onClick={() => void exportXls()}>
-              XLS
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  onClick: () =>
+                    void printReport({ title: 'Balance sheet', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)
+                },
+                {
+                  label: 'CSV',
+                  onClick: () =>
+                    void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'balance-sheet', toast)
+                },
+                { label: 'XLS', testId: 'btn-bs-xls', onClick: () => void exportXls() }
+              ]}
+            />
           </div>
         }
       >

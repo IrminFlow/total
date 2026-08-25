@@ -7,7 +7,23 @@ import { api, type EmployeeHeadRow, type PayHead } from '../lib/client'
 import { formatPaise, parseRupees } from '@shared/money'
 import { useNav, useToasts } from '../state/stores'
 import {
-  AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, Select, SkeletonRows, Spinner, TextInput, inputCls, useTableNav
+  AmountInput,
+  Button,
+  EmptyState,
+  ExportGroup,
+  Field,
+  inputCls,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  ScrollList,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  Spinner,
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { confirmDialog } from '../lib/dialogs'
 import { TabBar } from '../components/TabBar'
@@ -38,21 +54,24 @@ export function PayrollScreen(): React.JSX.Element {
   const [month, setMonth] = useState(() => todayISO().slice(0, 7))
   return (
     <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
-      <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-heading font-semibold tracking-tight">Payroll</h2>
-        <TabBar
-          screen="payroll"
-          tabs={[
-            { id: 'employees', label: 'Employees' },
-            { id: 'attendance', label: 'Attendance' },
-            { id: 'advances', label: 'Advances' },
-            { id: 'runs', label: 'Pay runs' },
-            { id: 'trend', label: 'Cost over time' }
-          ]}
-          active={tab}
-          onSelect={setTab}
-        />
-      </div>
+      <SectionTitle
+        right={
+          <TabBar
+            screen="payroll"
+            tabs={[
+              { id: 'employees', label: 'Employees' },
+              { id: 'attendance', label: 'Attendance' },
+              { id: 'advances', label: 'Advances' },
+              { id: 'runs', label: 'Pay runs' },
+              { id: 'trend', label: 'Cost over time' }
+            ]}
+            active={tab}
+            onSelect={setTab}
+          />
+        }
+      >
+        Payroll
+      </SectionTitle>
       {tab === 'employees' && <EmployeesTab />}
       {tab === 'attendance' && <AttendanceTab month={month} onMonth={setMonth} />}
       {tab === 'advances' && <AdvancesTab month={month} />}
@@ -144,13 +163,12 @@ function EmployeesTab(): React.JSX.Element {
                     >
                       Heads
                     </button>
-                    <button
-                      className="mr-3 text-small text-blue hover:underline"
+                    <RowAction
                       data-testid="btn-payroll-edit-employee"
                       onClick={() => setEditing(e)}
                     >
                       Edit
-                    </button>
+                    </RowAction>
                     <button
                       className="mr-3 text-small text-muted hover:text-ink"
                       data-testid={`btn-payroll-form16-${e.id}`}
@@ -167,13 +185,13 @@ function EmployeesTab(): React.JSX.Element {
                     >
                       Settle
                     </button>
-                    <button
-                      className="text-small text-cr hover:underline"
+                    <RowAction
+                      tone="danger"
                       data-testid="btn-payroll-delete-employee"
                       onClick={() => void remove(e)}
                     >
                       Delete
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -585,12 +603,12 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
                     <td className="num r">{h.calc === 'flat' ? <Money paise={h.value} /> : percentLabel(h.value)}</td>
                     <td className="text-muted">{h.active ? 'Yes' : 'No'}</td>
                     <td className="r">
-                      <button className="mr-3 text-small text-blue hover:underline" onClick={() => edit(h)}>
+                      <RowAction onClick={() => edit(h)}>
                         Edit
-                      </button>
-                      <button className="text-small text-cr hover:underline" onClick={() => void remove(h)}>
+                      </RowAction>
+                      <RowAction tone="danger" onClick={() => void remove(h)}>
                         Delete
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                 ))}
@@ -1325,31 +1343,27 @@ function TrendTab(): React.JSX.Element {
           </span>
         )}
         <span className="flex-1" />
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void printReport(
-              {
-                title: 'Payroll cost over time',
-                periodLabel: `${rows[0]!.label} to ${latest.label}`,
-                columns,
-                rows: exportRows,
-                filename: 'payroll-trend'
-              },
-              toast
-            )
-          }
-        >
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'payroll-trend', toast)
-          }
-        >
-          CSV
-        </Button>
+        <ExportGroup
+          items={[
+            {
+              label: 'PDF',
+              onClick: () => void printReport(
+                {
+                  title: 'Payroll cost over time',
+                  periodLabel: `${rows[0]!.label} to ${latest.label}`,
+                  columns,
+                  rows: exportRows,
+                  filename: 'payroll-trend'
+                },
+                toast
+              )
+            },
+            {
+              label: 'CSV',
+              onClick: () => void csvReport(columns.map((c) => c.label), exportRows.map((r) => r.cells), 'payroll-trend', toast)
+            }
+          ]}
+        />
       </div>
 
       <Panel>

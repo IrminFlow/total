@@ -3,7 +3,21 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TdsSection } from '@shared/domain'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, TextInput, useTableNav } from '../components/ui'
+import {
+  AmountInput,
+  Button,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  ScrollList,
+  SectionTitle,
+  Select,
+  TextInput,
+  useTableNav
+} from '../components/ui'
 import { useLedgers } from '../components/pickers'
 import { fyOf, fyFromStartYear, toDisplayDate, todayISO } from '@shared/dates'
 import { tdsQuarterOf } from '@shared/tds'
@@ -320,13 +334,12 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
                     <td className="r">{s.thresholdSingle > 0 ? <Money paise={s.thresholdSingle} /> : <span className="text-muted">—</span>}</td>
                     <td className="r">{s.thresholdAnnual > 0 ? <Money paise={s.thresholdAnnual} /> : <span className="text-muted">—</span>}</td>
                     <td className="r">
-                      <button
+                      <RowAction
                         data-testid={`btn-tds-section-edit-${s.id}`}
-                        className="text-small text-blue hover:underline"
                         onClick={() => edit(s)}
                       >
                         Edit
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                 ))}

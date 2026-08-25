@@ -3,7 +3,16 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useVirtualRows } from '../lib/useVirtualRows'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useKeyNav } from '../components/ui'
+import {
+  EmptyState,
+  ExportGroup,
+  Money,
+  Panel,
+  RowLink,
+  SectionTitle,
+  SkeletonRows,
+  useKeyNav
+} from '../components/ui'
 import { csvReport, printReport, slugFilename } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -238,45 +247,43 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
                 </button>
               ))}
             </div>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void fullExportRows()
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  onClick: () => void fullExportRows()
                   .then((all) =>
                     printReport({ title: data.ledgerName, periodLabel, columns: exportColumns, rows: all }, toast)
                   )
                   .catch((err: Error) => toast.push('error', err.message))
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                // The detail statement is the long one, and it has no screen-side filters — so it
-                // is written by main straight out of the database, a page at a time. The columnar
-                // summaries are a few dozen rows and go the ordinary way.
-                if (mode === 'detail') {
-                  void api.exportReport
-                    .streamCsv(`ledger-${slugFilename(data.ledgerName)}`, { kind: 'ledgerStatement', ledgerId, from, to })
-                    .then((r) => toast.push('success', `Saved to exports — ${r.path}`))
-                    .catch((err: Error) => toast.push('error', err.message))
-                  return
+                },
+                {
+                  label: 'CSV',
+                  onClick: () => {
+                    // The detail statement is the long one, and it has no screen-side filters — so it
+                    // is written by main straight out of the database, a page at a time. The columnar
+                    // summaries are a few dozen rows and go the ordinary way.
+                    if (mode === 'detail') {
+                      void api.exportReport
+                        .streamCsv(`ledger-${slugFilename(data.ledgerName)}`, { kind: 'ledgerStatement', ledgerId, from, to })
+                        .then((r) => toast.push('success', `Saved to exports — ${r.path}`))
+                        .catch((err: Error) => toast.push('error', err.message))
+                      return
+                    }
+                    void fullExportRows()
+                      .then((all) =>
+                        csvReport(
+                          exportColumns.map((c) => c.label),
+                          all.map((r) => r.cells),
+                          `ledger-${slugFilename(data.ledgerName)}-${mode}`,
+                          toast
+                        )
+                      )
+                      .catch((err: Error) => toast.push('error', err.message))
+                  }
                 }
-                void fullExportRows()
-                  .then((all) =>
-                    csvReport(
-                      exportColumns.map((c) => c.label),
-                      all.map((r) => r.cells),
-                      `ledger-${slugFilename(data.ledgerName)}-${mode}`,
-                      toast
-                    )
-                  )
-                  .catch((err: Error) => toast.push('error', err.message))
-              }}
-            >
-              CSV
-            </Button>
+              ]}
+            />
             <Money paise={data.closing} signed className="text-lead" />
           </div>
         }
@@ -376,11 +383,11 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
               {hasNextPage && (
                 <tr>
                   <td colSpan={6} className="py-2 text-center">
-                    <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                    <RowLink disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
                       {isFetchingNextPage
                         ? 'Loading…'
                         : `Show 500 more (${remaining.toLocaleString('en-IN')} more in this period)`}
-                    </Button>
+                    </RowLink>
                   </td>
                 </tr>
               )}

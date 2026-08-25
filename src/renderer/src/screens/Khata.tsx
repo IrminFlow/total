@@ -6,10 +6,12 @@ import {
   AmountInput,
   Button,
   EmptyState,
+  ExportGroup,
   Field,
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   SkeletonRows,
   TextInput,
@@ -128,33 +130,29 @@ export function KhataScreen(): React.JSX.Element {
             >
               {overdueOnly ? 'Show all' : 'Overdue only'}
             </Button>
-            <Button
-              variant="ghost"
-              disabled={!rows.length}
-              onClick={() =>
-                void printReport(
-                  {
-                    title,
-                    periodLabel: `as on ${toDisplayDate(to)}`,
-                    columns: COLUMNS,
-                    rows: exportRows,
-                    filename: `khata-${side}`
-                  },
-                  toast
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={!rows.length}
-              onClick={() =>
-                void csvReport(COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `khata-${side}`, toast)
-              }
-            >
-              CSV
-            </Button>
+            <ExportGroup
+              items={[
+                {
+                  label: 'PDF',
+                  disabled: !rows.length,
+                  onClick: () => void printReport(
+                    {
+                      title,
+                      periodLabel: `as on ${toDisplayDate(to)}`,
+                      columns: COLUMNS,
+                      rows: exportRows,
+                      filename: `khata-${side}`
+                    },
+                    toast
+                  )
+                },
+                {
+                  label: 'CSV',
+                  disabled: !rows.length,
+                  onClick: () => void csvReport(COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), `khata-${side}`, toast)
+                }
+              ]}
+            />
           </div>
         }
       >
@@ -299,33 +297,30 @@ function KhataRow({
         {party.lastPaymentDate ? toDisplayDate(party.lastPaymentDate) : 'never'}
       </td>
       <td onClick={(e) => e.stopPropagation()} className="whitespace-nowrap">
-        <Button
-          variant="ghost"
+        <RowAction
           className="whitespace-nowrap"
           data-testid={`btn-khata-note-${party.ledgerId}`}
           onClick={onNote}
           title="What was said, and what was promised"
         >
           Note
-        </Button>
-        <Button
-          variant="ghost"
+        </RowAction>
+        <RowAction
           className="whitespace-nowrap"
           data-testid={`btn-khata-statement-${party.ledgerId}`}
           onClick={onStatement}
           title="Statement of account, printable and sendable"
         >
           Statement
-        </Button>
+        </RowAction>
         {party.phone && (
-          <Button
-            variant="ghost"
+          <RowAction
             className="whitespace-nowrap"
             data-testid={`btn-khata-remind-${party.ledgerId}`}
             onClick={() => void remind()}
           >
             Remind
-          </Button>
+          </RowAction>
         )}
       </td>
     </tr>

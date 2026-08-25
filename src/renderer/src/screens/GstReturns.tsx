@@ -4,7 +4,19 @@ import { api } from '../lib/client'
 import { GstinPicker, usePrimaryRegistrationId } from '../components/GstinPicker'
 import { JsonPreview } from '../components/JsonPreview'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { AmountInput, Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner, useTableNav } from '../components/ui'
+import {
+  AmountInput,
+  Button,
+  EmptyState,
+  Money,
+  Panel,
+  RowAction,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  Spinner,
+  useTableNav
+} from '../components/ui'
 import { todayISO, toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { posLabel } from '@shared/gst/states'
@@ -364,14 +376,13 @@ function AmendmentsPanel({ month }: { month: MonthChoice }): React.JSX.Element {
                     </div>
                   </td>
                   <td className="r">
-                    <button
-                      className="text-small text-blue hover:underline"
+                    <RowAction
                       data-testid="btn-amendments-drill"
                       data-row-id={r.voucherId}
                       onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
                     >
                       Open
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
