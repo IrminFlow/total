@@ -12,6 +12,12 @@ test("package-contract entrypoint resolves file URLs portably on Windows", () =>
   assert.doesNotMatch(source, /import\.meta\.url\)\.pathname/);
 });
 
+test("Windows installer uses one updater-safe artifact name", () => {
+  const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.build.win.artifactName, "${productName}-Setup-${version}.${ext}");
+  assert.doesNotMatch(pkg.build.win.artifactName, /\s/);
+});
+
 function fixture(platform) {
   const root = mkdtempSync(join(tmpdir(), "total-package-contract-"));
   const dist = join(root, "dist");
