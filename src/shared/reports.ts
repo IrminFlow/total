@@ -79,6 +79,13 @@ export interface LedgerStatement {
   totalCredit: number
   /** Columnar period matrix — present when requested with a `groupBy` granularity. */
   periods?: LedgerPeriodRow[]
+  /**
+   * Keyset cursor for the page after this one, or null when this page is the last.
+   *
+   * Null is the honest end-of-list signal: comparing `rows.length` against `totalRows` cannot be,
+   * because a voucher saved between two page fetches changes the denominator.
+   */
+  nextCursor?: string | null
 }
 
 export interface TrialBalanceRow {

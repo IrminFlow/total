@@ -20,6 +20,7 @@ import { describeGap, gapSize, numberGaps } from '@shared/numberSeries'
 import { computeTcs, tcsAppliesToSeller, TCS_THRESHOLD_PAISE } from '@shared/tcs'
 import { maskAccount, sharedBankAccounts } from '@shared/bankDetails'
 import { fyOf } from '@shared/dates'
+import { decodeCursor, encodeCursor, keysetAfter, keysetAtOrBefore, keysetOrderBy } from '@shared/keyset'
 import { listVouchers, IN_BOOKS, NOT_DELETED } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
 
@@ -607,6 +608,16 @@ export interface DayBookPage {
   total: number
 }
 
+/** The columns the Day Book orders by, and therefore the shape of its cursor. `v.id` is the
+ *  tiebreak that makes the order total: thousands of vouchers share a date, and a cursor of the
+ *  date alone would either repeat or skip the rest of that day. */
+export const DAY_BOOK_KEY = ['v.date', 'v.id'] as const
+
+/** The cursor identifying a row, for asking for the page after it. */
+export function dayBookCursor(row: Pick<DayBookRow, 'date' | 'voucherId'>): string {
+  return encodeCursor([row.date, row.voucherId])
+}
+
 export function dayBook(
   db: DB,
   from: string,
@@ -618,76 +629,158 @@ export function dayBook(
     includeOutOfBooks?: boolean
     /** Rows to return. Omit for every row — what the CA pack and Tally export need. */
     limit?: number
+    /** Keyset cursor from `dayBookCursor`: return the rows strictly after it. Preferred over
+     *  `offset`, whose cost grows with how far into the book the page falls. */
+    after?: string | null
+    /** Offset paging, kept for callers that jump to an arbitrary page. Ignored when `after` is
+     *  given, because a cursor already says where to resume. */
     offset?: number
   } = {}
 ): DayBookRow[] {
   const scope = opts.includeOutOfBooks ? NOT_DELETED : IN_BOOKS
-  // v0.3 #61: real Dr/Cr split — the shown account's net signed amount lands in the column of
-  // its actual side, instead of the voucher total being printed under BOTH Debit and Credit.
-  const rows = db
+
+  // Two phases, deliberately.
+  //
+  // This used to be one statement with three derived tables, each a GROUP BY over the WHOLE
+  // voucher_lines table: the first line of every voucher, the net per account, the bank legs.
+  // SQLite materialised all three before applying LIMIT, so a 500-row page cost almost as much as
+  // the whole book — 33 ms against 68 ms on a 7,800-voucher fixture — and that cost grew with the
+  // book rather than with the page.
+  //
+  // Phase one picks the page's voucher ids from the date index alone; phase two enriches exactly
+  // those. The work is then proportional to the page, which is what lets a 30,000-voucher book
+  // behave like a 500-row one.
+  const cursor = decodeCursor(opts.after)
+  const after = cursor ? keysetAfter(DAY_BOOK_KEY, cursor) : null
+  const idParams: (string | number)[] = [from, to, ...(after?.params ?? [])]
+  if (opts.limit != null) {
+    idParams.push(opts.limit)
+    if (!after) idParams.push(opts.offset ?? 0)
+  }
+  const ids = db
     .prepare(
-      `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, vt.kind AS kind, v.number, v.narration,
-              v.is_optional AS isOptional, v.post_dated AS postDated,
-              COALESCE(pl.name, fl.name, '') AS account,
-              COALESCE(anet.net, 0) AS accountNet,
-              -- How many of this voucher's bank legs exist, and how many are marked off. Counted
-              -- rather than boolean so a voucher between two bank accounts can say "partial".
-              COALESCE(bank.legs, 0) AS bankLegs,
-              COALESCE(bank.cleared, 0) AS bankCleared
+      `SELECT v.id AS voucherId, v.date
        FROM vouchers v
-       JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
-       LEFT JOIN (
-         SELECT voucher_id, MIN(id) AS first_line FROM voucher_lines GROUP BY voucher_id
-       ) f ON f.voucher_id = v.id
-       LEFT JOIN voucher_lines fvl ON fvl.id = f.first_line
-       LEFT JOIN ledgers fl ON fl.id = fvl.ledger_id
-       LEFT JOIN (
-         SELECT vl.voucher_id, vl.ledger_id,
-                SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS net
-         FROM voucher_lines vl GROUP BY vl.voucher_id, vl.ledger_id
-       ) anet ON anet.voucher_id = v.id AND anet.ledger_id = COALESCE(pl.id, fl.id)
-       LEFT JOIN (
-         SELECT vl.voucher_id,
-                COUNT(*) AS legs,
-                SUM(CASE WHEN vl.bank_date IS NOT NULL THEN 1 ELSE 0 END) AS cleared
-         FROM voucher_lines vl
-         JOIN ledgers bl ON bl.id = vl.ledger_id
-         JOIN groups bg ON bg.id = bl.group_id
-         WHERE bg.name = 'Bank Accounts'
-         GROUP BY vl.voucher_id
-       ) bank ON bank.voucher_id = v.id
-       WHERE v.date BETWEEN ? AND ? AND ${scope}
-       ORDER BY v.date, v.id
-       ${opts.limit != null ? 'LIMIT ? OFFSET ?' : ''}`
+       WHERE v.date BETWEEN ? AND ? AND ${scope}${after ? ` AND ${after.sql}` : ''}
+       ORDER BY ${keysetOrderBy(DAY_BOOK_KEY)}
+       ${opts.limit != null ? (after ? 'LIMIT ?' : 'LIMIT ? OFFSET ?') : ''}`
     )
-    .all(...(opts.limit != null ? [from, to, opts.limit, opts.offset ?? 0] : [from, to])) as {
-      voucherId: number; date: string; voucherType: string; kind: string; number: string
-      narration: string | null; account: string; accountNet: number
-      isOptional: number; postDated: number
-      bankLegs: number; bankCleared: number
-    }[]
-  return rows.map((r) => ({
-    voucherId: r.voucherId,
-    date: r.date,
-    voucherType: r.voucherType,
-    kind: r.kind,
-    number: r.number,
-    account: r.account,
-    narration: r.narration,
-    debit: r.accountNet > 0 ? r.accountNet : 0,
-    credit: r.accountNet < 0 ? -r.accountNet : 0,
-    isOptional: !!r.isOptional,
-    postDated: !!r.postDated,
-    bankStatus:
-      r.bankLegs === 0
-        ? null
-        : r.bankCleared === 0
-          ? 'pending'
-          : r.bankCleared < r.bankLegs
-            ? 'partial'
-            : 'reconciled'
-  }))
+    .all(...idParams) as { voucherId: number; date: string }[]
+  if (ids.length === 0) return []
+
+  const enriched = dayBookEnrich(db, ids.map((r) => r.voucherId), scope)
+  // The order comes from phase one; the enrichment is a lookup, never a re-sort.
+  return ids.map((r) => enriched.get(r.voucherId)).filter((r): r is DayBookRow => r != null)
+}
+
+/**
+ * Everything a day-book row shows beyond its date and id, for a known set of vouchers.
+ *
+ * Batched because SQLite has a bind-parameter ceiling (32,766 in current builds) and a whole-book
+ * export passes tens of thousands of ids. 400 keeps each statement small enough that SQLite reuses
+ * one prepared plan across the batches.
+ */
+function dayBookEnrich(db: DB, voucherIds: number[], scope: string): Map<number, DayBookRow> {
+  const out = new Map<number, DayBookRow>()
+  const BATCH = 400
+  for (let i = 0; i < voucherIds.length; i += BATCH) {
+    const batch = voucherIds.slice(i, i + BATCH)
+    // The id list arrives as one JSON parameter rather than N placeholders, so both statements
+    // below are the SAME prepared statement on every batch — SQLite compiles each once instead of
+    // once per 400 vouchers. On a whole-book export that is 2 compilations rather than 40, worth
+    // a measured 82 ms → 76 ms at 7,800 vouchers. It also sidesteps the bind-parameter ceiling
+    // entirely. 400 was picked by measurement: 2,000 was slower (81 ms), and it is not close
+    // enough to matter beside the page path, which is what this rewrite is actually for.
+    const holes = 'SELECT value FROM json_each(?)'
+    const arg = JSON.stringify(batch)
+
+    const metas = db
+      .prepare(
+        `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, vt.kind AS kind, v.number, v.narration,
+                v.is_optional AS isOptional, v.post_dated AS postDated,
+                v.party_ledger_id AS partyId, pl.name AS partyName
+         FROM vouchers v
+         JOIN voucher_types vt ON vt.id = v.voucher_type_id
+         LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
+         WHERE v.id IN (${holes}) AND ${scope}`
+      )
+      .all(arg) as {
+        voucherId: number; date: string; voucherType: string; kind: string; number: string
+        narration: string | null; isOptional: number; postDated: number
+        partyId: number | null; partyName: string | null
+      }[]
+
+    // Every line of those vouchers — two to a handful each — aggregated in JS instead of in three
+    // separate grouped scans of the whole table.
+    const lines = db
+      .prepare(
+        `SELECT vl.voucher_id AS voucherId, vl.id AS lineId, vl.ledger_id AS ledgerId,
+                vl.dr_cr AS drCr, vl.amount, vl.bank_date AS bankDate,
+                l.name AS ledgerName, g.name AS groupName
+         FROM voucher_lines vl
+         JOIN ledgers l ON l.id = vl.ledger_id
+         JOIN groups g ON g.id = l.group_id
+         WHERE vl.voucher_id IN (${holes})
+         ORDER BY vl.id`
+      )
+      .all(arg) as {
+        voucherId: number; lineId: number; ledgerId: number; drCr: 'dr' | 'cr'; amount: number
+        bankDate: string | null; ledgerName: string; groupName: string
+      }[]
+
+    const byVoucher = new Map<number, typeof lines>()
+    for (const l of lines) {
+      const list = byVoucher.get(l.voucherId)
+      if (list) list.push(l)
+      else byVoucher.set(l.voucherId, [l])
+    }
+
+    for (const m of metas) {
+      const vlines = byVoucher.get(m.voucherId) ?? []
+      // The account shown is the party when there is one, else the first line's ledger — first by
+      // insertion id, exactly as the old MIN(id) subquery chose it.
+      const first = vlines[0]
+      const shownId = m.partyId ?? first?.ledgerId ?? null
+      const account = m.partyName ?? first?.ledgerName ?? ''
+      // v0.3 #61: real Dr/Cr split — the shown account's net signed amount lands in the column of
+      // its actual side, instead of the voucher total being printed under BOTH Debit and Credit.
+      let net = 0
+      // Counted rather than boolean so a voucher between two bank accounts can say "partial".
+      let bankLegs = 0
+      let bankCleared = 0
+      for (const l of vlines) {
+        if (shownId != null && l.ledgerId === shownId) net += l.drCr === 'dr' ? l.amount : -l.amount
+        // Direct membership of 'Bank Accounts', not its descendants — the same test the derived
+        // table made, kept so a reconciliation badge does not change meaning under a rewrite.
+        if (l.groupName === 'Bank Accounts') {
+          bankLegs++
+          if (l.bankDate != null) bankCleared++
+        }
+      }
+      out.set(m.voucherId, {
+        voucherId: m.voucherId,
+        date: m.date,
+        voucherType: m.voucherType,
+        kind: m.kind,
+        number: m.number,
+        account,
+        narration: m.narration,
+        debit: net > 0 ? net : 0,
+        credit: net < 0 ? -net : 0,
+        isOptional: !!m.isOptional,
+        postDated: !!m.postDated,
+        bankStatus:
+          bankLegs === 0
+            ? null
+            : bankCleared === 0
+              ? 'pending'
+              : bankCleared < bankLegs
+                ? 'partial'
+                : 'reconciled'
+      })
+    }
+  }
+  return out
 }
 
 /**
@@ -724,12 +817,95 @@ export function dayBookCount(db: DB, from: string, to: string, includeOutOfBooks
   return row.n
 }
 
+/** The period's row count and both totals, in one aggregate. What the keyset path uses instead of
+ *  adding up rows it deliberately did not read. */
+function statementTotals(
+  db: DB,
+  ledgerId: number,
+  from: string,
+  to: string
+): { count: number; debit: number; credit: number } {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS count,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END), 0) AS debit,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END), 0) AS credit
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+    )
+    .get(ledgerId, from, to) as { count: number; debit: number; credit: number }
+}
+
+/**
+ * Counterpart names for the "particulars" column — one batched query over the touched vouchers
+ * plus JS grouping, replacing the correlated GROUP_CONCAT subquery per line. Scoped to the rows
+ * handed in, so the paged path asks about the page's vouchers and no others.
+ */
+function statementParticulars(
+  db: DB,
+  lines: readonly { voucherId: number }[]
+): (voucherId: number, drCr: 'dr' | 'cr') => string {
+  const voucherIds = [...new Set(lines.map((r) => r.voucherId))]
+  const namesBySide = new Map<string, string[]>() // `${voucherId}|${drCr}` -> distinct names, first-seen order
+  // The id list travels as one JSON parameter, so this is ONE prepared statement whatever the
+  // page size — a 4,000-voucher statement used to compile a 4,000-placeholder IN, and batching it
+  // into chunks of 400 measured slower still (whole statement 14.8 ms → 20.5 ms). Also removes any
+  // question of the bind-parameter ceiling.
+  if (voucherIds.length > 0) {
+    const counterRows = db
+      .prepare(
+        `SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.name
+         FROM voucher_lines vl2 JOIN ledgers l2 ON l2.id = vl2.ledger_id
+         WHERE vl2.voucher_id IN (SELECT value FROM json_each(?))
+         ORDER BY vl2.id`
+      )
+      .all(JSON.stringify(voucherIds)) as { voucherId: number; drCr: 'dr' | 'cr'; name: string }[]
+    for (const r of counterRows) {
+      const key = `${r.voucherId}|${r.drCr}`
+      const list = namesBySide.get(key) ?? []
+      if (!list.includes(r.name)) list.push(r.name)
+      namesBySide.set(key, list)
+    }
+  }
+  return (voucherId, drCr) => (namesBySide.get(`${voucherId}|${drCr === 'dr' ? 'cr' : 'dr'}`) ?? []).join(',')
+}
+
+/**
+ * The columns a ledger statement orders by, and therefore the shape of its cursor.
+ *
+ * Four of them, because the first three are all non-unique: a date is shared by thousands of
+ * vouchers, a voucher contributes several lines to the same ledger, and `line_order` repeats
+ * across vouchers. `vl.id` is what makes the order total, and a total order is the precondition
+ * for a cursor that neither repeats a row nor skips one.
+ */
+export const LEDGER_STATEMENT_KEY = ['v.date', 'v.id', 'vl.line_order', 'vl.id'] as const
+
+/** One raw statement line, before the running balance and particulars are attached. */
+interface StatementLineRow {
+  voucherId: number
+  date: string
+  voucherType: string
+  number: string
+  narration: string | null
+  drCr: 'dr' | 'cr'
+  amount: number
+  lineOrder: number
+  lineId: number
+}
+
+const statementCursorOf = (r: StatementLineRow): string =>
+  encodeCursor([r.date, r.voucherId, r.lineOrder, r.lineId])
+
 /**
  * A ledger's entries over a period.
  *
- * `limit` pages the detail rows only. Opening, closing and the period totals are always computed
- * from every row, so a paged statement still foots -- the same discipline the tool envelopes use.
- * Measured at 30,000 vouchers the whole statement serialises to ~5 MB; the screen shows 500.
+ * `page` returns a window. Opening, closing and the period totals always describe the WHOLE
+ * period, so a paged statement still foots — the same discipline the tool envelopes use. Measured
+ * at 30,000 vouchers the whole statement serialises to ~5 MB; the screen shows 500.
+ *
+ * Two paths, and the difference is the point. With `page.after` the totals come from aggregates
+ * and only the page's rows are read, so the cost is the page's. Without it — a whole statement,
+ * or the `groupBy` matrix, which genuinely needs every row — the old path runs unchanged.
  */
 export function ledgerStatement(
   db: DB,
@@ -737,7 +913,14 @@ export function ledgerStatement(
   from: string,
   to: string,
   groupBy?: Period,
-  page?: { limit: number; offset?: number }
+  page?: {
+    limit: number
+    /** Keyset cursor: the rows strictly after it. What the screen uses. */
+    after?: string | null
+    /** Offset paging, kept for callers that jump to an arbitrary page. Ignored when `after` is
+     *  given. Its cost grows with the offset; a cursor's does not. */
+    offset?: number
+  }
 ): LedgerStatement {
   const ledger = db.prepare('SELECT id, name, opening_balance FROM ledgers WHERE id = ?').get(ledgerId) as
     | { id: number; name: string; opening_balance: number }
@@ -753,44 +936,79 @@ export function ledgerStatement(
     .get(ledgerId, from) as { m: number }
   const opening = ledger.opening_balance + beforeRow.m
 
-  const lineRows = db
-    .prepare(
-      `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, v.number, v.narration,
-              vl.dr_cr AS drCr, vl.amount
+  const SELECT_LINES = `SELECT v.id AS voucherId, v.date, vt.name AS voucherType, v.number, v.narration,
+              vl.dr_cr AS drCr, vl.amount, vl.line_order AS lineOrder, vl.id AS lineId
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
-       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
-       ORDER BY v.date, v.id, vl.line_order`
-    )
-    .all(ledgerId, from, to) as {
-      voucherId: number; date: string; voucherType: string; number: string; narration: string | null
-      drCr: 'dr' | 'cr'; amount: number
-    }[]
+       WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+  const ORDER = `ORDER BY ${keysetOrderBy(LEDGER_STATEMENT_KEY)}`
 
-  // Counterpart names for the "particulars" column — one batched query over the touched
-  // vouchers plus JS grouping, replacing the correlated GROUP_CONCAT subquery per line.
-  const voucherIds = [...new Set(lineRows.map((r) => r.voucherId))]
-  const namesBySide = new Map<string, string[]>() // `${voucherId}|${drCr}` -> distinct names, first-seen order
-  if (voucherIds.length > 0) {
-    const placeholders = voucherIds.map(() => '?').join(',')
-    const counterRows = db
-      .prepare(
-        `SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.name
-         FROM voucher_lines vl2 JOIN ledgers l2 ON l2.id = vl2.ledger_id
-         WHERE vl2.voucher_id IN (${placeholders})
-         ORDER BY vl2.id`
-      )
-      .all(...voucherIds) as { voucherId: number; drCr: 'dr' | 'cr'; name: string }[]
-    for (const r of counterRows) {
-      const key = `${r.voucherId}|${r.drCr}`
-      const list = namesBySide.get(key) ?? []
-      if (!list.includes(r.name)) list.push(r.name)
-      namesBySide.set(key, list)
+  const cursor = page ? decodeCursor(page.after) : null
+  // The keyset path serves any page EXCEPT the period matrix, whose `periods` are computed from
+  // every row. It covers the first page too — a cursor of null just means "start at the top", and
+  // the first page is the one every visit to the screen asks for. Offset paging stays on the old
+  // path: a caller jumping to row 4,000 is asking for something a cursor cannot express.
+  const keysetPath = page != null && !groupBy && (cursor != null || !page.offset)
+
+  if (keysetPath && page) {
+    const after = cursor ? keysetAfter(LEDGER_STATEMENT_KEY, cursor) : null
+    // One extra row, purely to answer "is there a next page" exactly. Comparing rows.length
+    // against a COUNT taken at a different instant answers it only usually.
+    const fetched = db
+      .prepare(`${SELECT_LINES} ${after ? `AND ${after.sql}` : ''} ${ORDER} LIMIT ?`)
+      .all(ledgerId, from, to, ...(after?.params ?? []), page.limit + 1) as StatementLineRow[]
+    const pageRows = fetched.slice(0, page.limit)
+    const totals = statementTotals(db, ledgerId, from, to)
+    // Everything before this page, as one aggregate rather than as rows deliberately not read.
+    // Recomputed rather than carried in the cursor: a balance a client hands back is a balance
+    // that can be stale or wrong, and this is money on screen.
+    const priorMovement = cursor
+      ? (db
+          .prepare(
+            `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END), 0) AS m
+         FROM voucher_lines vl
+         JOIN vouchers v ON v.id = vl.voucher_id
+         WHERE vl.ledger_id = ? AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+           AND ${keysetAtOrBefore(LEDGER_STATEMENT_KEY, cursor).sql}`
+          )
+          .get(ledgerId, from, to, ...cursor) as { m: number })
+      : { m: 0 }
+    const particularsFor = statementParticulars(db, pageRows)
+    let running = opening + priorMovement.m
+    const rows: LedgerStatementRow[] = pageRows.map((r) => {
+      const debit = r.drCr === 'dr' ? r.amount : 0
+      const credit = r.drCr === 'cr' ? r.amount : 0
+      running += debit - credit
+      return {
+        voucherId: r.voucherId,
+        date: r.date,
+        voucherType: r.voucherType,
+        number: r.number,
+        particulars: particularsFor(r.voucherId, r.drCr),
+        narration: r.narration,
+        debit,
+        credit,
+        running
+      }
+    })
+    return {
+      ledgerId,
+      ledgerName: ledger.name,
+      opening,
+      rows,
+      totalRows: totals.count,
+      // Closing is the period's, not the page's: a statement that footed to wherever the reader
+      // happened to stop scrolling would be worse than useless.
+      closing: opening + totals.debit - totals.credit,
+      totalDebit: totals.debit,
+      totalCredit: totals.credit,
+      nextCursor: fetched.length > page.limit ? statementCursorOf(pageRows[pageRows.length - 1]!) : null
     }
   }
-  const particularsFor = (voucherId: number, drCr: 'dr' | 'cr'): string =>
-    (namesBySide.get(`${voucherId}|${drCr === 'dr' ? 'cr' : 'dr'}`) ?? []).join(',')
+
+  const lineRows = db.prepare(`${SELECT_LINES} ${ORDER}`).all(ledgerId, from, to) as StatementLineRow[]
+  const particularsFor = statementParticulars(db, lineRows)
 
   let running = opening
   let totalDebit = 0
@@ -814,16 +1032,28 @@ export function ledgerStatement(
     }
   })
 
+  const start = page ? (page.offset ?? 0) : 0
+  const windowed = page ? rows.slice(start, start + page.limit) : rows
   const result: LedgerStatement = {
     ledgerId,
     ledgerName: ledger.name,
     opening,
     // Totals above are computed over every row before this slice, so a page still foots.
-    rows: page ? rows.slice(page.offset ?? 0, (page.offset ?? 0) + page.limit) : rows,
+    rows: windowed,
     totalRows: rows.length,
     closing: running,
     totalDebit,
-    totalCredit
+    totalCredit,
+    // Only when a page was asked for. An unpaged statement has no next page, and saying so with a
+    // null would add a field to every existing caller's payload for nothing.
+    ...(page
+      ? {
+          nextCursor:
+            start + windowed.length < rows.length && windowed.length > 0
+              ? statementCursorOf(lineRows[start + windowed.length - 1]!)
+              : null
+        }
+      : {})
   }
 
   // Columnar period matrix (v0.3 #55, generalised to any granularity in v0.5): every bucket in

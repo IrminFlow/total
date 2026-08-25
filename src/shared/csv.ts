@@ -108,8 +108,13 @@ export function neutralizeCsvFormula(field: string): string {
 }
 
 /** Quote a field per RFC 4180 if it contains a comma, quote, or line break; double embedded
- *  quotes. Formula-triggering cells are neutralized first (see neutralizeCsvFormula). */
-function quoteCsvField(field: string): string {
+ *  quotes. Formula-triggering cells are neutralized first (see neutralizeCsvFormula).
+ *
+ *  Exported because the streaming export path (services/exportStream.ts) writes a row at a time
+ *  and cannot go through `rowsToCsv`, which takes the whole table. Two implementations of CSV
+ *  quoting is exactly the kind of difference that shows up as one broken row in a customer's
+ *  spreadsheet. */
+export function quoteCsvField(field: string): string {
   const safe = neutralizeCsvFormula(field)
   if (/["\n\r,]/.test(safe)) {
     return `"${safe.replace(/"/g, '""')}"`

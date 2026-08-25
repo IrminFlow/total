@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { nextDraftId, useNav, useSession, useToasts } from '../state/stores'
 import { useKeyLayer } from '../lib/keyboard'
@@ -7,6 +7,7 @@ import { confirmDialog } from '../lib/dialogs'
 import type { VoucherKind } from '@shared/domain'
 import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, TextInput, useKeyNav, useTableNav } from '../components/ui'
 import { useStickyFlag } from '../lib/useStickyTab'
+import { useVirtualRows } from '../lib/useVirtualRows'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport, xlsReport } from '../lib/reportExport'
@@ -23,6 +24,10 @@ import type { DayBookRow } from '@shared/reports'
  * across IPC on every visit to this screen. Fetching a window keeps that in the tens of KB.
  */
 const PAGE = 500
+
+/** Measured height of one Day Book row, for the virtualizer's spacer arithmetic. A wrong value
+ *  costs a slightly early or late row, never a missing one — the window is padded by overscan. */
+const DAYBOOK_ROW_H = 30
 
 const COLUMNS: ReportColumn[] = [
   { key: 'type', label: 'Type', defaultOn: true },
@@ -181,7 +186,6 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
   const toast = useToasts()
   const [filter, setFilter] = useState('')
   const [scope, setScope] = useState<Scope>('books')
-  const [fetched, setFetched] = useState(PAGE)
   const [exporting, setExporting] = useState(false)
   // The Registers drill-through hands over a date span + kind; keep them as dismissible local
   // state so the chip's ✕ clears the drill without a navigation. The span is a period range
@@ -190,16 +194,27 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
   useEffect(() => {
     setDrill({ span, kind })
   }, [span, kind])
-  const { data, isLoading } = useQuery({
-    queryKey: ['daybook', from, to, 'all', fetched],
-    queryFn: () => api.reports.dayBook(from, to, true, { limit: fetched, offset: 0 }),
-    // Keep the previous page on screen while the next one loads, so "Show more" grows the list
-    // instead of blanking it.
-    placeholderData: (prev) => prev
+  /**
+   * Pages accumulate; they are not refetched.
+   *
+   * This used to re-ask for `limit: fetched, offset: 0` with `fetched` growing by 500 a click, so
+   * the fifth "Show more" refetched and re-serialised 2,500 rows to add 500 — and the sixth was
+   * rejected outright, because the IPC schema caps `limit` at 2,000. An infinite query with a
+   * keyset cursor asks only for what it does not have, and every page costs the same.
+   */
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+    queryKey: ['daybook', from, to, 'all'],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => api.reports.dayBook(from, to, true, { limit: PAGE, after: pageParam }),
+    getNextPageParam: (last) => last.nextCursor
   })
+  const loadedRows = useMemo(() => (data?.pages ?? []).flatMap((p) => p.rows), [data])
   const { visible, toggle } = useReportConfig('daybook', COLUMNS)
 
-  const total = data?.total ?? 0
+  // The denominator comes from the first page: it is a COUNT over the period, the same on every
+  // page, and taking it from the newest page would make "N of M" flicker if a voucher were saved
+  // mid-scroll.
+  const total = data?.pages[0]?.total ?? 0
 
   /** The visible filters, as a function, so an export can apply the same ones to the full period. */
   const applyFilters = useCallback(
@@ -223,15 +238,20 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
     [filter, scope, drill]
   )
 
-  const rows = useMemo(() => applyFilters(data?.rows ?? []), [data, applyFilters])
-
-  useEffect(() => {
-    setFetched(PAGE)
-  }, [from, to])
+  const rows = useMemo(() => applyFilters(loadedRows), [loadedRows, applyFilters])
 
   const displayRows = rows
-  const loadedAll = (data?.rows.length ?? 0) >= total
-  const remaining = total - (data?.rows.length ?? 0)
+  /**
+   * Rows are drawn as they scroll into view once the list passes 300.
+   *
+   * "Show more" is a keyset cursor now, so a long look at a busy period accumulates thousands of
+   * rows in one list. Each Day Book row is ten cells and a memoised component; ten thousand of
+   * them is a document that costs something on every keystroke, and the Day Book is a screen
+   * people type into (the filter box) while the list is long.
+   */
+  const { scrollRef: rowsScrollRef, window: win, virtualized } = useVirtualRows(rows.length, DAYBOOK_ROW_H)
+  const loadedAll = !hasNextPage
+  const remaining = Math.max(0, total - loadedRows.length)
   // A filter can only match inside what has been fetched. Saying so is better than showing four
   // results and letting the user believe that is all there is.
   const filtering = filter.trim() !== '' || scope !== 'books' || !!drill.span || !!drill.kind
@@ -516,10 +536,38 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
               disabled={exporting}
               onClick={() => {
                 setExporting(true)
-                void fullExportRows()
-                  .then((all) =>
-                    csvReport(exportColumns.map((c) => c.label), all.map((r) => r.cells), 'day-book', toast)
-                  )
+                /**
+                 * An unfiltered export is written by main straight out of the database, a page at
+                 * a time — three years of entries never becomes one string in this process.
+                 *
+                 * A FILTERED export cannot be: the scope, the drill chip and the text box are all
+                 * state that lives here, and main knows none of it. So a filtered export takes the
+                 * old road, which is honest because a filtered export is by definition smaller.
+                 */
+                const streamed = !filtering
+                  ? api.exportReport
+                      .streamCsv('day-book', {
+                        kind: 'dayBook',
+                        from,
+                        to,
+                        // `filtering` is false only when the scope is the default 'books', and that
+                        // scope means optional and post-dated vouchers are excluded — which is
+                        // exactly what includeOutOfBooks: false asks the service for. The two have
+                        // to agree or the streamed file would carry rows the screen was hiding.
+                        includeOutOfBooks: false,
+                        columns: {
+                          type: !!visible.type,
+                          number: !!visible.number,
+                          account: !!visible.account,
+                          debit: !!visible.debit,
+                          credit: !!visible.credit
+                        }
+                      })
+                      .then((r) => toast.push('success', `Saved to exports — ${r.path}`))
+                  : fullExportRows().then((all) =>
+                      csvReport(exportColumns.map((c) => c.label), all.map((r) => r.cells), 'day-book', toast)
+                    )
+                void streamed
                   .catch((err: Error) => toast.push('error', err.message))
                   .finally(() => setExporting(false))
               }}
@@ -629,13 +677,20 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                 <th scope="col" className="w-12" aria-label="Invoice" />
               </tr>
             </thead>
-            <tbody data-testid="rows-daybook">
-              {displayRows.map((r, i) => (
+            <tbody data-testid="rows-daybook" ref={rowsScrollRef}>
+              {/* Spacer rows, not transforms: a transformed tbody breaks table layout, and the
+                  point of virtualizing is to keep this a real table. */}
+              {win.padTop > 0 && (
+                <tr aria-hidden style={{ height: win.padTop }}>
+                  <td colSpan={colCount} />
+                </tr>
+              )}
+              {displayRows.slice(win.start, win.end).map((r, i) => (
                 <DayBookRowView
                   key={`${r.voucherId}`}
                   row={r}
-                  index={i}
-                  isActive={i === active}
+                  index={win.start + i}
+                  isActive={win.start + i === active}
                   isSelected={selected.has(r.voucherId)}
                   visible={visible}
                   onHover={setActive}
@@ -645,15 +700,22 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                   onToggleSelect={toggleSelected}
                 />
               ))}
+              {win.padBottom > 0 && (
+                <tr aria-hidden style={{ height: win.padBottom }}>
+                  <td colSpan={colCount} />
+                </tr>
+              )}
               {!loadedAll && (
                 <tr>
                   <td colSpan={colCount} className="py-2 text-center">
-                    <Button variant="ghost" onClick={() => setFetched((f) => f + PAGE)}>
-                      Show 500 more ({remaining.toLocaleString('en-IN')} more in this period)
+                    <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                      {isFetchingNextPage
+                        ? 'Loading…'
+                        : `Show 500 more (${remaining.toLocaleString('en-IN')} more in this period)`}
                     </Button>
                     {filtering && (
                       <p className="mt-1 text-hint text-muted">
-                        Filters apply to the {(data?.rows.length ?? 0).toLocaleString('en-IN')} entries loaded so far.
+                        Filters apply to the {loadedRows.length.toLocaleString('en-IN')} entries loaded so far.
                         Narrow the dates, or load more.
                       </p>
                     )}
@@ -685,6 +747,12 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
           </table>
         )}
       </Panel>
+      )}
+      {virtualized && !byType && (
+        <p className="mt-1 text-hint text-muted" data-testid="daybook-virtualized-note">
+          Showing {rows.length.toLocaleString('en-IN')} entries — rows are drawn as you scroll. Exports carry all of
+          them.
+        </p>
       )}
       {dotMatrixFor !== null && <DotMatrixModal voucherId={dotMatrixFor} onClose={() => setDotMatrixFor(null)} />}
     </div>

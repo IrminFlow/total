@@ -1,6 +1,7 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { memo, useCallback, useMemo, useState } from 'react'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { useVirtualRows } from '../lib/useVirtualRows'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useKeyNav } from '../components/ui'
 import { csvReport, printReport, slugFilename } from '../lib/reportExport'
@@ -47,6 +48,9 @@ const MODES: { mode: Mode; tab: string; testid: string; heading: string }[] = [
 
 const PAGE = 500
 
+/** Measured height of one statement row, for the virtualizer's spacer arithmetic. */
+const ROW_H = 30
+
 const LedgerStatementRowView = memo(function LedgerStatementRowView({
   row,
   index,
@@ -90,35 +94,45 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
   const { from, to } = useSession()
   const nav = useNav()
   const toast = useToasts()
-  const [limit, setLimit] = useState(PAGE)
   // Columnar summary mode (v0.3 #55, any granularity since v0.5): one row per period with
   // period totals + the closing balance carried across periods with no activity.
   const [mode, setMode] = useState<Mode>('detail')
-  const { data, isLoading } = useQuery({
-    queryKey: ['ledgerStatement', ledgerId, from, to, mode, limit],
-    queryFn: () =>
+  /**
+   * Pages accumulate behind a keyset cursor rather than being refetched with a bigger limit.
+   *
+   * The old "Show more" asked for `limit: limit + 500` from the start, and the service answered by
+   * materialising EVERY row of the period in JavaScript and slicing it — so each click re-read the
+   * whole statement to show 500 more lines of it. The cursor path reads only the page, and the
+   * opening, closing and totals still describe the whole period, so what is on screen still foots.
+   */
+  const { data: paged, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+    queryKey: ['ledgerStatement', ledgerId, from, to, mode],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
       api.reports.ledger(
         ledgerId,
         from,
         to,
         mode === 'detail' ? undefined : mode,
         // Only the detail view has rows worth paging; the columnar summaries are a few dozen.
-        mode === 'detail' ? { limit } : undefined
+        mode === 'detail' ? { limit: PAGE, after: pageParam } : undefined
       ),
-    // Keep the current page visible while the next loads, so "Show more" grows the list.
-    placeholderData: (prev) => prev
+    getNextPageParam: (last) => last.nextCursor ?? null
   })
 
-  const rows = data?.rows ?? []
+  // Every page carries the same period-wide opening, closing and totals; the first is as good as
+  // the last and does not move while the user scrolls.
+  const data = paged?.pages[0]
+  const rows = useMemo(() => (paged?.pages ?? []).flatMap((p) => p.rows), [paged])
   const periods = data?.periods ?? []
   const summaryHeading = MODES.find((m) => m.mode === mode)?.heading ?? 'Period'
 
-  useEffect(() => {
-    setLimit(PAGE)
-  }, [ledgerId, from, to, mode])
-
   const displayRows = rows
-  const remaining = (data?.totalRows ?? 0) - rows.length
+  // A ledger a business actually uses — sales, or the bank — runs to thousands of lines over a
+  // year, and "Show more" now accumulates them rather than refetching. Above 300 rows they are
+  // drawn as they scroll into view.
+  const { scrollRef: rowsScrollRef, window: win, virtualized } = useVirtualRows(rows.length, ROW_H)
+  const remaining = Math.max(0, (data?.totalRows ?? 0) - rows.length)
 
   const { active, setActive } = useKeyNav(
     displayRows.length,
@@ -238,18 +252,28 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
             </Button>
             <Button
               variant="ghost"
-              onClick={() =>
+              onClick={() => {
+                // The detail statement is the long one, and it has no screen-side filters — so it
+                // is written by main straight out of the database, a page at a time. The columnar
+                // summaries are a few dozen rows and go the ordinary way.
+                if (mode === 'detail') {
+                  void api.exportReport
+                    .streamCsv(`ledger-${slugFilename(data.ledgerName)}`, { kind: 'ledgerStatement', ledgerId, from, to })
+                    .then((r) => toast.push('success', `Saved to exports — ${r.path}`))
+                    .catch((err: Error) => toast.push('error', err.message))
+                  return
+                }
                 void fullExportRows()
                   .then((all) =>
                     csvReport(
                       exportColumns.map((c) => c.label),
                       all.map((r) => r.cells),
-                      `ledger-${slugFilename(data.ledgerName)}${mode === 'detail' ? '' : `-${mode}`}`,
+                      `ledger-${slugFilename(data.ledgerName)}-${mode}`,
                       toast
                     )
                   )
                   .catch((err: Error) => toast.push('error', err.message))
-              }
+              }}
             >
               CSV
             </Button>
@@ -327,22 +351,35 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
                 <th scope="col" className="r w-36">Balance</th>
               </tr>
             </thead>
-            <tbody data-testid="rows-ledger-statement">
-              {displayRows.map((r, i) => (
+            <tbody data-testid="rows-ledger-statement" ref={rowsScrollRef}>
+              {/* Spacer rows, not transforms: a transformed tbody breaks table layout. */}
+              {win.padTop > 0 && (
+                <tr aria-hidden style={{ height: win.padTop }}>
+                  <td colSpan={6} />
+                </tr>
+              )}
+              {displayRows.slice(win.start, win.end).map((r, i) => (
                 <LedgerStatementRowView
-                  key={i}
+                  key={win.start + i}
                   row={r}
-                  index={i}
-                  isActive={i === active}
+                  index={win.start + i}
+                  isActive={win.start + i === active}
                   onHover={setActive}
                   onOpen={openRow}
                 />
               ))}
-              {remaining > 0 && (
+              {win.padBottom > 0 && (
+                <tr aria-hidden style={{ height: win.padBottom }}>
+                  <td colSpan={6} />
+                </tr>
+              )}
+              {hasNextPage && (
                 <tr>
                   <td colSpan={6} className="py-2 text-center">
-                    <Button variant="ghost" onClick={() => setLimit((l) => l + PAGE)}>
-                      Show 500 more ({remaining.toLocaleString('en-IN')} more in this period)
+                    <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                      {isFetchingNextPage
+                        ? 'Loading…'
+                        : `Show 500 more (${remaining.toLocaleString('en-IN')} more in this period)`}
                     </Button>
                   </td>
                 </tr>
@@ -363,6 +400,11 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
           </table>
         )}
       </Panel>
+      {virtualized && (
+        <p className="mt-1 text-hint text-muted" data-testid="ledger-virtualized-note">
+          Showing {rows.length.toLocaleString('en-IN')} rows — they are drawn as you scroll. Exports carry all of them.
+        </p>
+      )}
     </div>
   )
 }

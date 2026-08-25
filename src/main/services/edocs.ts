@@ -15,6 +15,7 @@ import { outwardDebitNoteIds } from './gst'
 import { writeAudit } from './audit'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS, NOT_DELETED } from './vouchers'
+import { decodeCursor, encodeCursor, keysetAfter, keysetOrderBy } from '@shared/keyset'
 
 /** Voucher kinds eligible for e-invoice/e-way bill extraction: sales invoices plus the
  *  credit/debit notes issued against them. */
@@ -41,10 +42,64 @@ function supTypFor(exportType: string | null, partyStateCode: string | null): 'B
   return 'B2B'
 }
 
-export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow[] {
+/** How many e-document rows the period holds — the denominator for a paged view. */
+export function countSalesInvoices(db: DB, from: string, to: string): number {
   const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+    )
+    .get(...EDOC_KINDS, from, to) as { n: number }
+  return row.n
+}
+
+/** The cursor identifying an e-document row, for asking for the page after it. */
+export function edocCursor(row: { date: string; voucherId: number }): string {
+  return encodeCursor([row.date, row.voucherId])
+}
+
+/** Ordering columns, and therefore the cursor's shape. `v.id` is the tiebreak: a day's invoices
+ *  all share a date, and a cursor of date alone would repeat or skip the rest of that day. */
+const EDOC_KEY = ['v.date', 'v.id'] as const
+
+/**
+ * The period's e-invoice / e-way-bill worklist.
+ *
+ * Paged, and two-phase, for the same reason the Day Book is. This used to be one statement with a
+ * derived table that summed EVERY voucher line in the database and two correlated EXISTS per row,
+ * returning every sales document in the period unbounded. On a book with 85,840 vouchers the
+ * screen never finished at all — it was the one screen in the sweep that did not come back inside
+ * sixty seconds. Phase one takes the page's ids off the date index; phase two totals and inspects
+ * exactly those.
+ */
+export function listSalesInvoices(
+  db: DB,
+  from: string,
+  to: string,
+  opts: { limit?: number; after?: string | null } = {}
+): EdocListRow[] {
+  const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
+  const cursor = decodeCursor(opts.after)
+  const after = cursor ? keysetAfter(EDOC_KEY, cursor) : null
+  const params: (string | number)[] = [...EDOC_KINDS, from, to, ...(after?.params ?? [])]
+  if (opts.limit != null) params.push(opts.limit)
+  const ids = db
+    .prepare(
+      `SELECT v.id AS voucherId, v.date
+       FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${after ? ` AND ${after.sql}` : ''}
+       ORDER BY ${keysetOrderBy(EDOC_KEY)}
+       ${opts.limit != null ? 'LIMIT ?' : ''}`
+    )
+    .all(...params) as { voucherId: number; date: string }[]
+  if (ids.length === 0) return []
+
+  // The outward-debit-note set is a property of the period, not of the page — but it is small
+  // (debit notes are rare) and computing it per page is cheaper than carrying state.
   const outwardDbn = outwardDebitNoteIds(db, from, to)
-  return db
+  const idJson = JSON.stringify(ids.map((r) => r.voucherId))
+  const rows = db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date, vt.kind AS kind, p.name AS partyName, p.gstin AS partyGstin,
               COALESCE(t.total, 0) AS total, v.vehicle_no AS vehicleNo, v.irn, v.ewb_no AS ewbNo,
@@ -54,28 +109,32 @@ export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
-       LEFT JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
-         ON t.voucher_id = v.id
-       WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
-       ORDER BY v.date, v.id`
+       LEFT JOIN (
+         SELECT voucher_id, SUM(amount) AS total FROM voucher_lines
+         WHERE dr_cr = 'dr' AND voucher_id IN (SELECT value FROM json_each(?))
+         GROUP BY voucher_id
+       ) t ON t.voucher_id = v.id
+       WHERE v.id IN (SELECT value FROM json_each(?)) AND ${IN_BOOKS}
+       ORDER BY ${keysetOrderBy(EDOC_KEY)}`
     )
-    .all(...EDOC_KINDS, from, to)
-    .map((r: any) => {
-      const { kind, hasGoods, ...rest } = r
-      const docType = docTypeFor(kind)
-      const isOutwardDbn = docType === 'DBN' && outwardDbn.has(r.voucherId)
-      const ewbReason =
-        docType === 'CRN'
-          ? 'Credit note — e-way bills accompany goods movement'
-          : docType === 'DBN' && !isOutwardDbn
-            ? 'Purchase-side debit note'
-            : !hasGoods
-              ? 'Services only — no goods movement'
-              : r.total <= EWB_THRESHOLD_PAISE
-                ? 'At or below ₹50,000 — per-bill export overrides'
-                : null
-      return { ...rest, docType, hasHsn: !!r.hasHsn, outwardDbn: isOutwardDbn, ewbReason }
-    }) as EdocListRow[]
+    .all(idJson, idJson) as Record<string, unknown>[]
+
+  return rows.map((r) => {
+    const { kind, hasGoods, ...rest } = r as { kind: string; hasGoods: number; voucherId: number; total: number }
+    const docType = docTypeFor(kind)
+    const isOutwardDbn = docType === 'DBN' && outwardDbn.has(r.voucherId as number)
+    const ewbReason =
+      docType === 'CRN'
+        ? 'Credit note — e-way bills accompany goods movement'
+        : docType === 'DBN' && !isOutwardDbn
+          ? 'Purchase-side debit note'
+          : !hasGoods
+            ? 'Services only — no goods movement'
+            : (r.total as number) <= EWB_THRESHOLD_PAISE
+              ? 'At or below ₹50,000 — per-bill export overrides'
+              : null
+    return { ...rest, docType, hasHsn: !!r.hasHsn, outwardDbn: isOutwardDbn, ewbReason }
+  }) as unknown as EdocListRow[]
 }
 
 // ---------- voucher transport (migration 013) ----------

@@ -105,6 +105,17 @@ export interface XlsExportSheet {
   rows: { cells: (string | number | null)[]; bold?: boolean }[]
 }
 
+/** What a streamed CSV export asks for. Mirrors `exportStreamCsvSchema` in @shared/schemas. */
+export type StreamCsvRequest =
+  | {
+      kind: 'dayBook'
+      from: string
+      to: string
+      includeOutOfBooks: boolean
+      columns: { type: boolean; number: boolean; account: boolean; debit: boolean; credit: boolean }
+    }
+  | { kind: 'ledgerStatement'; ledgerId: number; from: string; to: string }
+
 export type Role = 'owner' | 'accountant' | 'viewer'
 
 export interface SessionUser {
@@ -1947,15 +1958,30 @@ export const api = {
     purge: (id: number) => call<null>('voucher:purge', { id })
   },
   reports: {
-    dayBook: (from: string, to: string, includeOutOfBooks?: boolean, page?: { limit: number; offset: number }) =>
-      call<{ rows: DayBookRow[]; total: number }>('report:dayBook', {
+    /**
+     * A page of the Day Book. `after` is the opaque cursor from the previous page's
+     * `nextCursor` — keyset paging, so page twenty costs what page one costs. Pass no page at all
+     * for the whole period (exports).
+     */
+    dayBook: (
+      from: string,
+      to: string,
+      includeOutOfBooks?: boolean,
+      page?: { limit: number; offset?: number; after?: string | null }
+    ) =>
+      call<{ rows: DayBookRow[]; total: number; nextCursor: string | null }>('report:dayBook', {
         from,
         to,
         includeOutOfBooks,
         ...page
       }),
-    ledger: (ledgerId: number, from: string, to: string, groupBy?: Period, page?: { limit: number; offset?: number }) =>
-      call<LedgerStatement>('report:ledger', { ledgerId, from, to, groupBy, ...page }),
+    ledger: (
+      ledgerId: number,
+      from: string,
+      to: string,
+      groupBy?: Period,
+      page?: { limit: number; offset?: number; after?: string | null }
+    ) => call<LedgerStatement>('report:ledger', { ledgerId, from, to, groupBy, ...page }),
     purchaseSuggestions: (asOn: string) =>
       call<PurchaseSuggestionRow[]>('report:purchaseSuggestions', { asOn }),
     dayBookByType: (from: string, to: string, includeOutOfBooks = false) =>
@@ -2299,7 +2325,9 @@ export const api = {
     hit: (id: number) => call<null>('bankrule:hit', { id })
   },
   edoc: {
-    list: (from: string, to: string) => call<EdocListRow[]>('edoc:list', { from, to }),
+    /** A page of the period's e-document worklist. `after` is the previous page's `nextCursor`. */
+    list: (from: string, to: string, page?: { limit: number; after?: string | null }) =>
+      call<{ rows: EdocListRow[]; total: number; nextCursor: string | null }>('edoc:list', { from, to, ...page }),
     exportEInvoice: (from: string, to: string, period: string) =>
       call<{ path: string; count: number }>('edoc:exportEInvoice', { from, to, period }),
     exportEwb: (from: string, to: string, period: string, opts?: { voucherIds?: number[]; includeBelowThreshold?: boolean }) =>
@@ -2505,7 +2533,16 @@ export const api = {
     csv: (filename: string, csv: string) => call<{ path: string }>('export:csv', { filename, csv }),
     /** Typed cells, not formatted strings: money crosses as integer paise so it lands in the
      *  sheet as a number that adds up. */
-    xls: (filename: string, sheets: XlsExportSheet[]) => call<{ path: string }>('export:xls', { filename, sheets })
+    xls: (filename: string, sheets: XlsExportSheet[]) => call<{ path: string }>('export:xls', { filename, sheets }),
+    /**
+     * A CSV written straight out of the database, a page at a time.
+     *
+     * For an unfiltered export of a long report this replaces "fetch every row, format it, join
+     * it, send the whole string": nothing but the request crosses IPC and main never holds more
+     * than a page. Filters live on the screen, so a filtered export still goes through `csv`.
+     */
+    streamCsv: (filename: string, request: StreamCsvRequest) =>
+      call<{ path: string; rows: number; bytes: number }>('export:streamCsv', { filename, request })
   },
   nic: {
     get: () => call<NicCredentials & { secretStorage: 'keychain' | 'session' }>('nic:get'),

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { JsonPreview } from '../components/JsonPreview'
 import { useNav, useSession, useToasts } from '../state/stores'
@@ -26,18 +26,41 @@ const DOC_TYPE_CLASS: Record<'INV' | 'CRN' | 'DBN', string> = {
  *  remounts of this screen but resets on app restart (never persisted to disk). */
 let liveApiConfirmed = false
 
+/** Rows fetched per page. A fetch window, not a render cap — the same 500 the Day Book uses. */
+const EDOC_PAGE = 500
+
 export function EdocsScreen(): React.JSX.Element {
   const { from, to, info } = useSession()
   const nav = useNav()
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const { data, isLoading } = useQuery({ queryKey: ['edocList', from, to], queryFn: () => api.edoc.list(from, to) })
+  /**
+   * Paged, and accumulating.
+   *
+   * Unpaged this screen fetched every sales document in the period — on a book with 85,000
+   * vouchers it never rendered at all, which is the only screen in the performance sweep that
+   * failed rather than merely dragged. 500 at a time, with a "Show more" like the Day Book's.
+   */
+  const {
+    data: paged,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage
+  } = useInfiniteQuery({
+    queryKey: ['edocList', from, to],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => api.edoc.list(from, to, { limit: EDOC_PAGE, after: pageParam }),
+    getNextPageParam: (last) => last.nextCursor
+  })
+  const data = useMemo(() => (paged?.pages ?? []).flatMap((p) => p.rows), [paged])
+  const totalDocs = paged?.pages[0]?.total ?? 0
   const { data: nicStatus } = useQuery({ queryKey: ['nicStatus'], queryFn: api.nic.status })
   const [busy, setBusy] = useState<number | null>(null)
   const [confirming, setConfirming] = useState<{ kind: 'irn' | 'ewb'; voucherId: number } | null>(null)
   const [transportFor, setTransportFor] = useState<{ voucherId: number; number: string } | null>(null)
   const [docTypeFilter, setDocTypeFilter] = useState<DocTypeFilter>('all')
-  const allRows = data ?? []
+  const allRows = data
   const rows = useMemo(
     () => (docTypeFilter === 'all' ? allRows : allRows.filter((r) => r.docType === docTypeFilter)),
     [allRows, docTypeFilter]
@@ -272,6 +295,17 @@ export function EdocsScreen(): React.JSX.Element {
                   </td>
                 </tr>
               ))}
+              {hasNextPage && (
+                <tr>
+                  <td colSpan={9} className="py-2 text-center">
+                    <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                      {isFetchingNextPage
+                        ? 'Loading…'
+                        : `Show 500 more (${Math.max(0, totalDocs - allRows.length).toLocaleString('en-IN')} more in this period)`}
+                    </Button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}
