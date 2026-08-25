@@ -132,9 +132,10 @@ export function registrationLabel(reg: GstRegistration): string {
  * only for the movements listed there), values it under rule 28, and reports it in its GSTR-1;
  * the receiving registration takes the credit.
  *
- * This app does NOT generate that invoice. What it does is refuse to let the movement look
- * innocent: `crossRegistrationTransfers` on the main side finds them and this shapes the
- * finding. See `docs/roadmap.md` #108.
+ * `crossRegistrationTransfers` on the main side finds them and this shapes the finding. The
+ * invoice itself is now raised — see `src/shared/gst/branchTransfer.ts` and
+ * `src/main/services/branchTransfer.ts` — and what is still REPORTED here is what has no document
+ * yet, so the warning shrinks as the work is done. See `docs/roadmap.md` #108.
  */
 export interface CrossRegistrationTransfer {
   voucherId: number

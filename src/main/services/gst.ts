@@ -29,6 +29,8 @@ import { getGst3bManual } from './config'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS } from './vouchers'
 import { regScope, type GstScope } from './registrations'
+import { branchTransferInwardItc, branchTransferOutwardDocs } from './branchTransfer'
+import { isdInwardItc } from './isd'
 
 interface DocVoucherRow {
   id: number; date: string; number: string; kind: 'sales' | 'credit_note' | 'debit_note'
@@ -131,7 +133,7 @@ export function extractOutwardDocs(db: DB, company: GstScope, from: string, to: 
     "SELECT COALESCE(SUM(amount), 0) AS t FROM voucher_lines WHERE voucher_id = ? AND dr_cr = 'dr'"
   )
 
-  return vouchers
+  const docs: GstDoc[] = vouchers
     .filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
     .map((v) => {
       const invTyp = classifyDoc(v.partyExportType, v.partyState)
@@ -247,6 +249,12 @@ export function extractOutwardDocs(db: DB, company: GstScope, from: string, to: 
         }
       }
     })
+
+  // Branch transfers (roadmap #108). Stock that moved to another registration of this PAN is a
+  // supply under Schedule I para 2, and once its invoice has been raised it belongs IN this
+  // registration's outward documents — B2B in GSTR-1, 3.1(a) in GSTR-3B — not in a warning beside
+  // them. Nothing is appended on a single-registration book, or until an invoice is issued.
+  return [...docs, ...branchTransferOutwardDocs(db, company, from, to)]
 }
 
 // ---------- inward (purchase) side ----------
@@ -370,6 +378,20 @@ export function itcBreakdown(db: DB, company: GstScope, from: string, to: string
   }
   const rcm = rcmInwardSummary(db, company, from, to)
   result.isrc = { igst: rcm.igst, cgst: rcm.cgst, sgst: rcm.sgst, cess: rcm.cess }
+
+  // 4(A)(5) also carries stock received from another registration of this PAN (roadmap #108). An
+  // inward branch transfer is an ordinary inward supply from a registered person, and the tax is
+  // read off the SENDER's stored invoice rather than recomputed here — which is what makes the two
+  // registrations' returns tie to the paise instead of drifting apart on a rounding difference.
+  const bt = branchTransferInwardItc(db, company, from, to)
+  result.oth.igst += bt.igst
+  result.oth.cgst += bt.cgst
+  result.oth.sgst += bt.sgst
+  result.oth.cess += bt.cess
+
+  // 4(A)(4) — inward supplies from an Input Service Distributor (roadmap #355). Eligible credit
+  // only; see isdInwardItc.
+  result.isd = isdInwardItc(db, company, from, to)
   return result
 }
 

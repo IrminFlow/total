@@ -67,4 +67,6 @@ export const MIGRATION_HASHES: readonly string[] = [
   '19be11f3f396cb74', // 51: CREATE TABLE custom_field_defs (
   'efc0807919a2ffec', // 52: CREATE TABLE serial_numbers (
   'db8e05a1dc675ae1', // 53: ALTER TABLE job_work_challans ADD COLUMN godown_id INTEGER REFER
+  'bc44ef236a2544de', // 54: CREATE TABLE branch_transfer_invoices (
+  '9ae2a8da8f20e6d9', // 55: ALTER TABLE gst_registrations ADD COLUMN is_isd INTEGER NOT NULL
 ]

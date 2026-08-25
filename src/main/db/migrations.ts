@@ -2229,5 +2229,143 @@ export const MIGRATIONS: string[] = [
   -- godown. Waste (section 143(5)) has a voucher but no inward leg — see saveReturn.
   ALTER TABLE job_work_returns ADD COLUMN voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL;
   ALTER TABLE job_work_returns ADD COLUMN to_godown_id INTEGER REFERENCES godowns(id);
+  `,
+
+  // 54 — the branch-transfer invoice: stock that moved between two registrations (roadmap #108).
+  //
+  // Migration 47 made the movement VISIBLE — every voucher carries its registration, and
+  // `crossRegistrationTransfers` finds a stock journal whose goods left one registration's godown
+  // and arrived in another's. What it could not do was raise the document Schedule I para 2
+  // requires: a tax invoice from the sending registration to the receiving one, valued under
+  // rule 28, in the sender's own rule 46(b) series.
+  //
+  // A table rather than a voucher, and this is the whole design. One business, one set of books:
+  // a transfer between its own branches creates output tax in one return and input credit in
+  // another, but no revenue, no expense and no change in the closing stock value. Posting it
+  // would move the trial balance, and the trial balance must not move. So the document is a GST
+  // document that FEEDS the returns — the sender's GSTR-1 and the receiver's ITC — and posts
+  // nothing. See src/shared/gst/branchTransfer.ts, BOOKS_NOTE.
+  `
+  CREATE TABLE branch_transfer_invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Rule 46(b): a consecutive serial for a financial year, per SENDING registration.
+    number TEXT NOT NULL UNIQUE,
+    doc_date TEXT NOT NULL,
+    -- The stock journal that moved the goods. ON DELETE SET NULL, not CASCADE: purging a voucher
+    -- from the bin must not take an issued tax invoice — and the return it is in — with it.
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    from_registration_id INTEGER NOT NULL REFERENCES gst_registrations(id),
+    to_registration_id INTEGER NOT NULL REFERENCES gst_registrations(id),
+    place_of_supply TEXT NOT NULL,
+    supply_type TEXT NOT NULL CHECK (supply_type IN ('intra','inter')),
+    -- Which limb of rule 28 fixed the value. See Rule28Basis in the engine.
+    basis TEXT NOT NULL CHECK (basis IN ('declared-full-itc','open-market','like-kind','ninety-percent','cost-110')),
+    -- Whether the receiving registration takes full credit. Decides the second proviso, and
+    -- decides whether the tax on this transfer is a real cost the user must journal themselves.
+    recipient_full_itc INTEGER NOT NULL DEFAULT 1,
+    -- Book value of the stock moved, paise — what the journal moved at. NOT the taxable value.
+    book_value INTEGER NOT NULL DEFAULT 0,
+    taxable INTEGER NOT NULL DEFAULT 0,
+    igst INTEGER NOT NULL DEFAULT 0,
+    cgst INTEGER NOT NULL DEFAULT 0,
+    sgst INTEGER NOT NULL DEFAULT 0,
+    cess INTEGER NOT NULL DEFAULT 0,
+    -- The document as issued, so a reprint is the same paper rather than a recomputation.
+    doc_json TEXT NOT NULL,
+    issued_at TEXT NOT NULL DEFAULT (datetime('now')),
+    issued_by TEXT,
+    -- One invoice per movement per direction pair. Two invoices for one supply is a worse
+    -- finding than none, and this is the constraint that makes issuing idempotent.
+    UNIQUE (voucher_id, from_registration_id, to_registration_id)
+  );
+  CREATE INDEX idx_branch_transfer_invoices_date ON branch_transfer_invoices(doc_date);
+  CREATE INDEX idx_branch_transfer_invoices_from ON branch_transfer_invoices(from_registration_id);
+  CREATE INDEX idx_branch_transfer_invoices_to ON branch_transfer_invoices(to_registration_id);
+  `,
+
+  // 55 — Input Service Distributor (roadmap #355).
+  //
+  // An office that receives invoices for services used across several registrations — the audit
+  // fee, the software subscription, head-office rent — and distributes the credit to them.
+  // Optional until 1 April 2025 and compulsory for this pattern since, so a business with
+  // multiple registrations paying a common bill is now required to do it.
+  //
+  // `is_isd` on gst_registrations rather than a table of its own: an ISD IS a registration, with
+  // its own GSTIN, and section 24(viii) makes it a separate one. Nullable-by-default column, so
+  // every existing registration reads back exactly as it did — not an ISD, which is what it was.
+  //
+  // Nothing here posts either. Distribution moves credit between two of one business's own
+  // electronic credit ledgers on the portal; it creates no revenue and no expense.
+  `
+  ALTER TABLE gst_registrations ADD COLUMN is_isd INTEGER NOT NULL DEFAULT 0;
+
+  -- An invoice received centrally, whose credit is to be distributed.
+  CREATE TABLE isd_credits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The ISD registration that received it.
+    registration_id INTEGER NOT NULL REFERENCES gst_registrations(id) ON DELETE CASCADE,
+    doc_date TEXT NOT NULL,
+    supplier_name TEXT NOT NULL,
+    supplier_gstin TEXT,
+    invoice_number TEXT NOT NULL,
+    description TEXT,
+    taxable INTEGER NOT NULL DEFAULT 0,
+    igst INTEGER NOT NULL DEFAULT 0,
+    cgst INTEGER NOT NULL DEFAULT 0,
+    sgst INTEGER NOT NULL DEFAULT 0,
+    cess INTEGER NOT NULL DEFAULT 0,
+    -- Rule 39 distributes eligible and ineligible credit separately, as separate amounts.
+    eligibility TEXT NOT NULL CHECK (eligibility IN ('eligible','ineligible')),
+    -- 'all' | 'some' | 'one'. Credit attributable to one recipient goes to that one whole and is
+    -- never apportioned; the app must not infer which case an invoice is in.
+    attribution TEXT NOT NULL CHECK (attribution IN ('all','some','one')),
+    -- Tax paid by the ISD under section 9(3)/9(4) rather than charged by the supplier.
+    reverse_charge INTEGER NOT NULL DEFAULT 0,
+    -- The month whose distribution consumed it, 'YYYY-MM'. NULL until distributed.
+    distributed_month TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (registration_id, supplier_gstin, invoice_number, doc_date)
+  );
+  CREATE INDEX idx_isd_credits_date ON isd_credits(doc_date);
+  CREATE INDEX idx_isd_credits_month ON isd_credits(distributed_month);
+
+  -- Which registrations a 'some'/'one' credit is attributable to. Empty for 'all'.
+  CREATE TABLE isd_credit_recipients (
+    isd_credit_id INTEGER NOT NULL REFERENCES isd_credits(id) ON DELETE CASCADE,
+    registration_id INTEGER NOT NULL REFERENCES gst_registrations(id) ON DELETE CASCADE,
+    PRIMARY KEY (isd_credit_id, registration_id)
+  );
+
+  -- One ISD invoice, rule 54(1), to one recipient registration for one month.
+  CREATE TABLE isd_invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number TEXT NOT NULL UNIQUE,
+    doc_date TEXT NOT NULL,
+    -- 'YYYY-MM' the distribution belongs to. Distribution is monthly.
+    month TEXT NOT NULL,
+    isd_registration_id INTEGER NOT NULL REFERENCES gst_registrations(id),
+    recipient_registration_id INTEGER NOT NULL REFERENCES gst_registrations(id),
+    -- Distributed amounts, split by eligibility, in the heads they ARRIVE in: CGST+SGST becomes
+    -- IGST for a recipient outside the ISD's own State. See convertHeads in the engine.
+    eligible_igst INTEGER NOT NULL DEFAULT 0,
+    eligible_cgst INTEGER NOT NULL DEFAULT 0,
+    eligible_sgst INTEGER NOT NULL DEFAULT 0,
+    eligible_cess INTEGER NOT NULL DEFAULT 0,
+    ineligible_igst INTEGER NOT NULL DEFAULT 0,
+    ineligible_cgst INTEGER NOT NULL DEFAULT 0,
+    ineligible_sgst INTEGER NOT NULL DEFAULT 0,
+    ineligible_cess INTEGER NOT NULL DEFAULT 0,
+    -- The turnover ratio this share was computed on, printed on the document so it can be checked.
+    turnover_paise INTEGER NOT NULL DEFAULT 0,
+    total_turnover_paise INTEGER NOT NULL DEFAULT 0,
+    doc_json TEXT NOT NULL,
+    issued_at TEXT NOT NULL DEFAULT (datetime('now')),
+    issued_by TEXT,
+    -- A month is distributed once per recipient. Re-running the month is a withdrawal and a
+    -- re-issue, not a second document.
+    UNIQUE (month, isd_registration_id, recipient_registration_id)
+  );
+  CREATE INDEX idx_isd_invoices_month ON isd_invoices(month);
+  CREATE INDEX idx_isd_invoices_recipient ON isd_invoices(recipient_registration_id);
   `
 ]

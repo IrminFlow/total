@@ -642,6 +642,14 @@ export interface ItcBreakdown {
   isrc: ItcPart
   /** 4(A)(5) — all other ITC. */
   oth: ItcPart
+  /**
+   * 4(A)(4) — inward supplies from an Input Service Distributor (roadmap #355).
+   *
+   * Optional, and absent means zero. Every caller that predates ISD — and every test that builds
+   * an `ItcBreakdown` by hand — keeps compiling and keeps computing exactly what it did, which is
+   * the same reason `GstScope`'s registration fields are optional.
+   */
+  isd?: ItcPart
   /** 4(D)(1) — ineligible ITC (party itc_eligibility = 'blocked'). */
   blocked: ItcPart
 }
@@ -802,7 +810,7 @@ export function buildGstr3b(
   const unregDetails = interState.map((r) => ({ pos: r.pos, txval: toRupees(r.taxable), iamt: toRupees(r.igst) }))
 
   // ITC: 4(A) availed − 4(B) reversed = 4(C) net; 4(D) ineligible reported separately.
-  const itcAvailed = addItc(inputs.itc.impg, inputs.itc.isrc, inputs.itc.oth)
+  const itcAvailed = addItc(inputs.itc.impg, inputs.itc.isrc, inputs.itc.oth, inputs.itc.isd ?? ZERO_ITC)
   const itcReversed = addItc(manual.itcRevRul, manual.itcRevOth)
   const itcNet = subItc(itcAvailed, itcReversed)
 
@@ -832,7 +840,7 @@ export function buildGstr3b(
         { ty: 'IMPG', ...itcJson(inputs.itc.impg) },
         { ty: 'IMPS', ...itcJson(ZERO_ITC) },
         { ty: 'ISRC', ...itcJson(inputs.itc.isrc) },
-        { ty: 'ISD', ...itcJson(ZERO_ITC) },
+        { ty: 'ISD', ...itcJson(inputs.itc.isd ?? ZERO_ITC) },
         { ty: 'OTH', ...itcJson(inputs.itc.oth) }
       ],
       itc_rev: [

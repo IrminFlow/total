@@ -642,6 +642,50 @@ export const rcmIssueSchema = z.object({
   voucherIds: z.array(id).optional()
 })
 
+/** Raising branch-transfer invoices for a period (roadmap #108). */
+export const branchTransferIssueSchema = z.object({
+  from: isoDate,
+  to: isoDate,
+  /** Which limb of rule 28 fixes the value. See Rule28Basis in src/shared/gst/branchTransfer.ts. */
+  basis: z
+    .enum(['declared-full-itc', 'open-market', 'like-kind', 'ninety-percent', 'cost-110'])
+    .default('declared-full-itc'),
+  /** Whether the receiving registration takes full ITC — the second proviso turns on it. */
+  recipientFullItc: z.boolean().default(true),
+  /** Restrict to chosen movements; absent means everything undocumented in the period. */
+  voucherIds: z.array(id).optional(),
+  /** A value fixed by hand, paise, for the bases the books cannot answer. */
+  declaredPaise: paise.nullish(),
+  recipientPricePaise: paise.nullish()
+})
+
+/** A 'YYYY-MM' distribution month. ISD distribution is monthly (roadmap #355). */
+export const isdMonthSchema = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Month must be YYYY-MM'),
+  /** Turnover the user fixed by hand, per recipient registration id, paise. Rule 39's ratio wants
+   *  turnover in the State, which these books may not hold in full. */
+  overrides: z.record(z.string(), paise).optional()
+})
+
+/** An invoice received centrally by the ISD, whose credit is to be distributed (roadmap #355). */
+export const isdCreditSchema = z.object({
+  id: id.nullish(),
+  date: isoDate,
+  supplierName: z.string().trim().min(1).max(120),
+  supplierGstin: z.string().trim().max(15).nullable(),
+  invoiceNumber: z.string().trim().min(1).max(40),
+  description: z.string().trim().max(200).nullable(),
+  taxable: paise,
+  igst: paise,
+  cgst: paise,
+  sgst: paise,
+  cess: paise,
+  eligibility: z.enum(['eligible', 'ineligible']),
+  attribution: z.enum(['all', 'some', 'one']),
+  recipientRegistrationIds: z.array(id).default([]),
+  reverseCharge: z.boolean().default(false)
+})
+
 /** Recording what was done on the IMS dashboard (roadmap #352). */
 export const imsDecisionSchema = z.object({
   docKey: z.string().trim().min(1).max(80),

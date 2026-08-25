@@ -20,14 +20,17 @@ import { toDisplayDate, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { csvReport, printReport } from '../lib/reportExport'
 import { Form3cdTab, RateHistoryTab, RcmSelfInvoiceTab } from './statutoryTabs'
+import { BranchTransferTab, IsdTab } from './multiGstinTabs'
 
 /**
  * The things an auditor asks for that the books could not previously say about themselves.
  *
- * Each of these is read-only and none of them posts. They exist because the answer was always in
- * the data and always had to be assembled by a person the week before a filing.
+ * None of them posts. Most are read-only; the three that are not — the reverse-charge
+ * self-invoice, the branch-transfer invoice and the ISD distribution — issue GST DOCUMENTS, which
+ * land in a return without touching a ledger. They exist because the answer was always in the data
+ * and always had to be assembled by a person the week before a filing.
  */
-type Tab = 'related' | 'audit' | 'lut' | 'einvoice' | 'rcm' | '3cd' | 'rates'
+type Tab = 'related' | 'audit' | 'lut' | 'einvoice' | 'rcm' | 'branch' | 'isd' | '3cd' | 'rates'
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'related', label: 'Related parties', hint: 'Every transaction with a director, a relative, or a company under common control' },
@@ -35,6 +38,8 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'lut', label: 'LUT', hint: 'The undertaking an exporter supplies zero-rated under' },
   { id: 'einvoice', label: 'IRP window', hint: 'Invoices running out of time to reach the portal' },
   { id: 'rcm', label: 'Self-invoices', hint: 'The invoice a registered buyer raises themselves on a reverse-charge supply' },
+  { id: 'branch', label: 'Branch transfers', hint: 'The invoice Schedule I para 2 requires when stock moves between two of your registrations' },
+  { id: 'isd', label: 'ISD', hint: 'Common input credit received centrally and distributed to the other registrations' },
   { id: '3cd', label: 'Form 3CD', hint: 'Clause-wise extracts for the tax audit — the data, not the form' },
   { id: 'rates', label: 'Rate history', hint: 'Rates that were not notified on the date they were charged' }
 ]
@@ -74,6 +79,8 @@ export function DisclosureScreen(): React.JSX.Element {
       {tab === 'lut' && <LutTab />}
       {tab === 'einvoice' && <EInvoiceWindowTab />}
       {tab === 'rcm' && <RcmSelfInvoiceTab />}
+      {tab === 'branch' && <BranchTransferTab />}
+      {tab === 'isd' && <IsdTab />}
       {tab === '3cd' && <Form3cdTab />}
       {tab === 'rates' && <RateHistoryTab />}
     </div>

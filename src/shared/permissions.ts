@@ -91,6 +91,10 @@ const PREFIX_CAPABILITIES: [string, Capability][] = [
   // issuing tax invoices or recording what was accepted on the portal.
   ['rcm:', 'gst'],
   ['ims:', 'gst'],
+  // The branch-transfer invoice (#108) and the ISD (#355) are tax documents that land in a
+  // return. Same reasoning: somebody denied GST must not be raising or distributing them.
+  ['branchTransfer:', 'gst'],
+  ['isd:', 'gst'],
   ['master:', 'masters'],
   ['stock:', 'masters'],
   ['priceLevels:', 'masters'],
