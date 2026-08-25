@@ -602,15 +602,28 @@ Ordering within a section is roughly by value.
 224. ✓ Measured benchmark: 30k vouchers, every report under 100 ms (M)
 225. ✗ Not doing: startup measured at 580 ms median over three cold launches, so the 1.5 MB single chunk is not costing anything worth splitting (M)
 226. Lazy-load screens that most users never open (S)
-227. Row virtualization on long tables (M)
+227. ✓ Row virtualization on long tables (M)
+     — the day book, the ledger statement and the trial balance render through `useVirtualRows`.
+     On the e-document list it measured 1,638 → 1,310 ms warm, which is inside this machine's ±90
+     ms spread, so it is kept on the grounds of DOM node count and not reported as a speed-up.
 228. Prepared-statement reuse across calls in hot services (S)
-229. Query result caching keyed on the books' last-modified stamp (M)
+229. ✗ Query result caching keyed on the books' last-modified stamp (M)
+     — measured and declined. After the pagination work the queries this would cache cost about
+     3 ms, so the cache would be a correctness liability (every write path has to remember to
+     bump the stamp) bought with no time saved.
 230. Incremental report recomputation rather than full recompute (L)
 231. Move PDF generation off the main process (M)
-232. Streaming CSV export rather than building the whole string (M)
+232. ✓ Streaming CSV export rather than building the whole string (M)
+     — `export:streamCsv`, byte-identical to the in-memory path (asserted), and the heap no
+     longer grows with the period.
 233. ✓ Debounce the global search (S) — already shipped: 150 ms, and only once the query is 2+
      characters.
-234. Index review against the actual query plans (S)
+234. ✓ Index review against the actual query plans (S)
+     — four candidate indexes were built and timed against the real EXPLAIN QUERY PLAN output on
+     the 85,840-voucher book. Not one moved a number outside noise, so **none were added**. The
+     slow screens were slow for structural reasons — a GROUP BY over the whole of `voucher_lines`
+     materialised before the LIMIT — and an index would have been a guess that added a bug
+     surface for nothing. A review that adds no index is still a review.
 235. Lazy-load the AI SDK only when the assistant is enabled (done) (S)
 236. Startup time budget with a test that fails if it regresses (M)
 237. Memory ceiling test on a large book (M)
@@ -885,10 +898,19 @@ Ordering within a section is roughly by value.
      entry used to claim it.
 326. Visual regression snapshots of every screen, both themes (M)
 327. Mutation testing on the money and GST engines (M)
-328. Property-based tests for the posting rules (M)
-329. A seeded large-book fixture reused across performance tests (S)
-330. Lint rule banning raw SQL outside services (S)
-331. Lint rule requiring `NOT_DELETED` on voucher queries (M)
+328. ✓ Property-based tests for the posting rules (M)
+     — `src/shared/posting.prop.test.ts`.
+329. ✓ A seeded large-book fixture reused across performance tests (S)
+     — `src/main/db/bigbook.ts`, built once and copied rather than regenerated per run.
+330. ✓ Lint rule banning raw SQL outside services (S)
+     — `src/main/dbBoundaries.test.ts`.
+331. ✓ Lint rule requiring `NOT_DELETED` on voucher queries (M)
+     — `src/main/notDeleted.test.ts`, which greps every SQL literal under `src/main` and fails on
+     an unscoped read, with an `ALLOWED` list where each deliberate exception carries its reason.
+     It found five real cases in its first week, two of them bugs: the bounced-cheque register
+     and the per-party bounce count would have counted a binned receipt against a customer
+     forever. The scope has to appear literally in the SQL — a WHERE clause assembled at runtime
+     is one neither the guard nor a reader can check.
 332. Typed IPC channel registry generated from one source (M)
 333. Renderer test coverage reporting with a floor (S)
 334. ✓ E2E run time budget so the suite stays usable (S)
@@ -1005,9 +1027,10 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      calling it an amendment would send the user to a form that rejects it. **Needs verification:**
      the opening and closing conditions of the amendment window are stated as understood and
      marked unverified against rule 59(4A) in the code and on the screen.
-354. The e-invoice reporting deadline, as a countdown (S) — registrations above the ₹10 crore
+354. ✓ The e-invoice reporting deadline, as a countdown (S) — registrations above the ₹10 crore
      turnover band must report an invoice to the IRP within 30 days of its date, after which the
      portal simply refuses it. `turnover.ts` already knows the band; nothing counts the days.
+     — `src/shared/gst/eInvoiceWindow.ts`, with the countdown on the Disclosure screen.
 355. ✗ Input Service Distributor for multi-GSTIN businesses (L) — declined here, as the item
      itself says: ISD distributes common input credit from one registration to the others on the
      same PAN, and a company with one GSTIN has nothing to distribute to. Multi-GSTIN (#108) is
@@ -1020,9 +1043,10 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      voucher, because two invoices for one supply is a worse finding than none. **Needs
      verification:** the proviso permitting a consolidated month-end invoice for section 9(4)
      supplies is implemented and marked unverified — the per-supply form is the default.
-357. LUT tracking for exporters (S) — the undertaking is annual, expires on 31 March, and an
+357. ✓ LUT tracking for exporters (S) — the undertaking is annual, expires on 31 March, and an
      expired one silently converts a zero-rated export into a taxable supply. A date and a
      reminder, worth far more than the effort.
+     — `src/shared/gst/lut.ts`, with the register and expiry status on the Disclosure screen.
 358. ✓ Rate history spanning the September 2025 rationalisation (M) — a dated slab structure, a
      per-item change list, and an advisory that separates the three questions: did the structure
      change inside this period (September 2025's return legitimately shows one HSN at two rates),
@@ -1073,9 +1097,10 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      micro-and-small trade-payables split required on the face since 24 March 2021, from the same
      classification section 43B(h) uses — and says the split is missing rather than printing an
      unclassified zero. The 2021 ageing schedules are deliberately not produced.
-364. Related-party transactions report (S) — a flag on the party ledger and a disclosure listing
+364. ✓ Related-party transactions report (S) — a flag on the party ledger and a disclosure listing
      every voucher against it. Cheap, and currently impossible to produce without a spreadsheet.
-365. A Rule 3(1) audit-trail statement (S) — the one page an auditor asks for: that the log
+     — `relatedPartyReport` in `disclosure.ts`, on the Disclosure screen.
+365. ✓ A Rule 3(1) audit-trail statement (S) — the one page an auditor asks for: that the log
      exists, that it cannot be switched off, what it covers, and for which dates. The log has
      been recording faithfully all along and can say none of this about itself. Pairs with #265.
 
@@ -1084,7 +1109,7 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
 Everything a business owns and owes that is not a bill. "Fixed Assets" exists in this app as a
 ledger group and nothing else — there is no register, no schedule, and no way to answer the two
 questions every year-end asks.
-
+     — `auditTrailStatement` in `disclosure.ts`, on the Disclosure screen.
 366. ✓ A fixed asset register (M) — asset, purchase date, cost, block, location. The ledger group
      records that ₹4 lakh of machinery was bought; nothing records what the machinery is.
 367. ✓ Depreciation computed both ways (L) — Companies Act (SLM or WDV over useful life, per
