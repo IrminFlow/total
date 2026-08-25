@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { validatePackageContract } from "../lib/package-contract.mjs";
+
+test("package-contract entrypoint resolves file URLs portably on Windows", () => {
+  const source = readFileSync(new URL("../package-contract.mjs", import.meta.url), "utf8");
+  assert.match(source, /fileURLToPath\(import\.meta\.url\)/);
+  assert.doesNotMatch(source, /import\.meta\.url\)\.pathname/);
+});
 
 function fixture(platform) {
   const root = mkdtempSync(join(tmpdir(), "total-package-contract-"));

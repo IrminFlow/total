@@ -1,8 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { validatePackageContract } from "./lib/package-contract.mjs";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(process.env.RELEASE_DIR ?? "dist");
 const platform = process.argv[2] === "win32" ? "win" : process.argv[2] === "darwin" ? "mac" : process.argv[2] ?? (process.platform === "darwin" ? "mac" : "win");
 const pkg = JSON.parse((await import("node:fs")).readFileSync(resolve(root, "package.json"), "utf8"));
