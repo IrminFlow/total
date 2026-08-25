@@ -55,9 +55,25 @@ await scenario('11-keyboard', async (h) => {
   // next letter immediately after Escape can land on the screen we were trying to leave.
   const home = async () => {
     await h.page.keyboard.press('Escape')
-    await h.page.keyboard.press('g')
+    // Click rather than press 'g'.
+    //
+    // The Counter is a till: its scan box autofocuses and takes focus BACK on a timeout, because
+    // a barcode gun types into it and a letter that navigated away mid-scan would lose the sale.
+    // Escape in that box clears the cart and re-focuses it, so a letter pressed straight after
+    // races the refocus and lands in the field about one run in three. The accelerator layer is
+    // right to decline a letter typed into a text field, so this is the harness getting back to a
+    // known place, not the behaviour under test — the letters themselves are swept below, and 'g'
+    // from another screen is asserted explicitly right after.
+    await h.page.click('[data-testid="nav-gateway"]')
     await h.waitScreen('gateway', 20000)
   }
+
+  // 'g' from somewhere that is not the Gateway, once, deliberately: the sweep below presses every
+  // letter from the Gateway, where pressing 'g' would prove nothing.
+  await h.page.keyboard.press('d')
+  await h.waitScreen('daybook', 20000)
+  await h.page.keyboard.press('g')
+  await h.waitScreen('gateway', 20000)
 
   for (const { accel, screen: target } of accels) {
     await home()
