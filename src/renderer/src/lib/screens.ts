@@ -103,7 +103,7 @@ export const SCREENS: ScreenDef[] = [
     card: { sub: 'Ledgers, items, groups' },
     invalidates: [
       'ledgers', 'groups', 'groupTree', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
-      'godowns', 'stockGroups'
+      'godowns', 'stockGroups', 'itemRates'
     ]
   },
   {
@@ -276,7 +276,9 @@ export const SCREENS: ScreenDef[] = [
     accel: '1',
     card: { sub: 'Outward supplies return' },
     keywords: ['gstr-1a', 'amendment', 'amend'],
-    invalidates: ['gstr1', 'gstValidate', 'gstr1a']
+    // 'amendments' is the Amendments tab (Tables 9A/9C) — it reads the filed-return snapshots,
+    // which change whenever a period is marked filed on another screen.
+    invalidates: ['gstr1', 'gstValidate', 'gstr1a', 'amendments']
   },
   {
     name: 'gstr3b',
@@ -376,6 +378,22 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['salesDocs', 'salesPipeline', 'ledgers', 'stockItems']
   },
   {
+    name: 'job-work',
+    title: 'Job work & ITC-04',
+    screen: { name: 'job-work' },
+    navSection: 'gst',
+    navLabel: 'Job work',
+    // "Job work" — J voucher entry, O outstandings, B balance sheet, W edocs, R registers,
+    // K khata. Every letter is claimed and 1-9 are gone, so 0 rides as a badge.
+    accel: '0',
+    keywords: [
+      'job work', 'jobwork', 'itc-04', 'itc04', 'challan', 'job worker', 'section 143',
+      'deemed supply', 'principal', 'moulds', 'dies', 'jigs', 'tools', 'waste and scrap',
+      'capital goods', 'subcontract', 'processing'
+    ],
+    invalidates: ['jobWorkChallans', 'jobWorkClock', 'jobWorkItc04']
+  },
+  {
     name: 'borrowing',
     title: 'Borrowing & the bank',
     screen: { name: 'borrowing' },
@@ -445,8 +463,10 @@ export const SCREENS: ScreenDef[] = [
     // word's own initial; J is equally arbitrary as a badge and was free.
     accel: 'J',
     feature: 'tds',
-    keywords: ['tds', 'challan', '26q', '24q', 'form 16a', 'deduction certificate', 'traces', 'return'],
-    invalidates: ['tdsSummary', 'tdsSections', 'tdsChallans', 'tdsReturn', 'form16aDeductees', 'form16a']
+    keywords: ['tds', 'challan', '26q', '24q', 'form 16a', 'deduction certificate', 'traces', 'return',
+      'section 197', 'lower deduction', '26as'],
+    invalidates: ['tdsSummary', 'tdsSections', 'tdsChallans', 'tdsReturn', 'form16aDeductees', 'form16a',
+      'tdsCertificates', 'tds26as']
   },
 
   {

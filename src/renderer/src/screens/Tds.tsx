@@ -8,24 +8,33 @@ import { useLedgers } from '../components/pickers'
 import { fyOf, fyFromStartYear, toDisplayDate, todayISO } from '@shared/dates'
 import { tdsQuarterOf } from '@shared/tds'
 import { useStickyTab } from '../lib/useStickyTab'
-import { CertificatesTab, ChallansTab, ReturnTab } from './tdsTabs'
+import { CertificatesTab, ChallansTab, Form26asTab, LowerDeductionTab, ReturnTab } from './tdsTabs'
 
 const QUARTERS = [1, 2, 3, 4] as const
 
 /**
- * The four things a deductor does with TDS, in the order the year goes.
+ * The six things a deductor does with TDS, in the order the year goes.
  *
  * Deductions are recorded by voucher entry, so the summary is a read-out. Everything after it is
- * work: paying the tax and recording the challan, filing the statement, and issuing the vendor's
- * certificate. Each is a step nothing in this app could do before.
+ * work: paying the tax and recording the challan, filing the statement, issuing the vendor's
+ * certificate, keeping the section 197 certificates the department issued against us, and
+ * reconciling what we deducted against what 26AS says was credited. Each is a step nothing in
+ * this app could do before.
+ *
+ * `ldc` and `26as` arrived on another branch as a second, competing tab strip on this screen.
+ * They are views in the one strip instead — two tab bars for one screen is how a user loses a
+ * feature. The id is `ldc`, not `certificates`, because `certificates` already means Form 16A
+ * here: the one we ISSUE to a vendor, not the one the Assessing Officer issues about them.
  */
-type TdsView = 'summary' | 'challans' | 'return' | 'certificates'
+type TdsView = 'summary' | 'challans' | 'return' | 'certificates' | 'ldc' | '26as'
 
 const VIEWS: { id: TdsView; label: string; hint: string }[] = [
   { id: 'summary', label: 'Deductions', hint: 'What was deducted, section by section' },
   { id: 'challans', label: 'Challans', hint: 'How the tax was paid — the BSR code, date and serial a statement needs' },
   { id: 'return', label: '24Q / 26Q', hint: 'The quarterly statement, and everything standing between it and the FVU' },
-  { id: 'certificates', label: 'Form 16A', hint: 'The deduction certificate for a vendor' }
+  { id: 'certificates', label: 'Form 16A', hint: 'The deduction certificate for a vendor' },
+  { id: 'ldc', label: 'Section 197', hint: 'Certificates telling us to deduct less, and how much of each ceiling is left' },
+  { id: '26as', label: '26AS', hint: 'What we deducted against what the department says was credited' }
 ]
 
 export function TdsScreen(): React.JSX.Element {
@@ -83,12 +92,16 @@ export function TdsScreen(): React.JSX.Element {
                 </option>
               ))}
             </Select>
-            <Button data-testid="btn-tds-sections" onClick={() => setSectionsOpen(true)}>
-              Sections…
-            </Button>
-            <Button data-testid="btn-tds-export" variant="primary" onClick={() => void doExport()}>
-              Export 26Q CSV
-            </Button>
+            {view === 'summary' && (
+              <>
+                <Button data-testid="btn-tds-sections" onClick={() => setSectionsOpen(true)}>
+                  Sections…
+                </Button>
+                <Button data-testid="btn-tds-export" variant="primary" onClick={() => void doExport()}>
+                  Export 26Q CSV
+                </Button>
+              </>
+            )}
           </div>
         }
       >
@@ -200,6 +213,8 @@ export function TdsScreen(): React.JSX.Element {
       {view === 'challans' && <ChallansTab fyStartYear={fyStartYear} />}
       {view === 'return' && <ReturnTab fyStartYear={fyStartYear} quarter={quarter} />}
       {view === 'certificates' && <CertificatesTab fyStartYear={fyStartYear} quarter={quarter} />}
+      {view === 'ldc' && <LowerDeductionTab />}
+      {view === '26as' && <Form26asTab fyStartYear={fyStartYear} />}
 
       {sectionsOpen && <SectionsModal sections={sections ?? []} onClose={() => setSectionsOpen(false)} />}
     </div>

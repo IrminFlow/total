@@ -9,6 +9,7 @@ import {
   type ItcBreakdown, type TaxTotals
 } from '@shared/gst/returns'
 import { backOutAdvance, computeGst, supplyTypeFor } from '@shared/gst/calc'
+import { makeRateResolver } from './itemRates'
 import { toUqc } from '@shared/gst/uqc'
 import { validateGstr1, type GstIssue } from '@shared/gst/validate'
 import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
@@ -107,8 +108,13 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
   const outwardDbn = outwardDebitNoteIds(db, from, to)
   const salesGroupIds = descendantIdsByName(db, INCOME_GROUPS)
 
+  // Rate history (D-92): a rate change must not reprice a return that was already filed, so the
+  // rate is resolved against the VOUCHER's date. Null when no item in the book has any history,
+  // in which case the master column answers and this path is exactly what it always was.
+  const rateOnDate = makeRateResolver(db)
+
   const invStmt = db.prepare(
-    `SELECT il.qty_milli AS qtyMilli, il.amount,
+    `SELECT il.stock_item_id AS stockItemId, il.qty_milli AS qtyMilli, il.amount,
             si.name AS itemName, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate,
             u.uqc
      FROM inventory_lines il
@@ -140,7 +146,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
       const zeroTax = invTyp === 'SEWOP' || invTyp === 'EXPWOP'
 
       const inv = invStmt.all(v.id) as {
-        qtyMilli: number; amount: number; itemName: string
+        stockItemId: number; qtyMilli: number; amount: number; itemName: string
         hsn: string | null; gstRate: number | null; cessRate: number | null; uqc: string
       }[]
 
@@ -188,7 +194,13 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
           // kept as-is so the validation panel can flag them (never silently 'OTH').
           const mapped = toUqc(line.uqc)
           const uqc = mapped.fallback ? line.uqc : mapped.uqc
-          addLine(line.amount, line.gstRate ?? 0, line.cessRate ?? 0, line.hsn, line.itemName, uqc, line.qtyMilli)
+          const dated = rateOnDate?.(line.stockItemId, v.date) ?? null
+          addLine(
+            line.amount,
+            dated ? dated.ratePercent : (line.gstRate ?? 0),
+            dated ? dated.cessPercent : (line.cessRate ?? 0),
+            line.hsn, line.itemName, uqc, line.qtyMilli
+          )
         }
       } else {
         const lines = lineStmt.all(v.id) as {
@@ -249,21 +261,22 @@ export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to:
   const outwardDbn = outwardDebitNoteIds(db, from, to)
   const vouchers = (db
     .prepare(
-      `SELECT v.id, vt.kind, p.state_code AS partyState
+      `SELECT v.id, v.date, vt.kind, p.state_code AS partyState
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = v.party_ledger_id
        WHERE vt.kind IN ('purchase', 'debit_note') AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
     )
-    .all(from, to) as { id: number; kind: 'purchase' | 'debit_note'; partyState: string | null }[])
+    .all(from, to) as { id: number; date: string; kind: 'purchase' | 'debit_note'; partyState: string | null }[])
     .filter((v) => v.kind !== 'debit_note' || !outwardDbn.has(v.id))
 
   const purchaseGroupIds = descendantIdsByName(db, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses'])
   const invStmt = db.prepare(
-    `SELECT il.amount, si.gst_rate AS gstRate, si.cess_rate AS cessRate
+    `SELECT il.stock_item_id AS stockItemId, il.amount, si.gst_rate AS gstRate, si.cess_rate AS cessRate
      FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id
      WHERE il.voucher_id = ?`
   )
+  const rateOnDate = makeRateResolver(db)
   const lineStmt = db.prepare(
     `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.gst_rate AS gstRate
      FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id WHERE vl.voucher_id = ?`
@@ -276,10 +289,20 @@ export function rcmInwardSummary(db: DB, company: CompanyInfo, from: string, to:
     // value sits on the CREDIT lines (mirror of extractPurchaseDocs).
     const sign = v.kind === 'debit_note' ? -1 : 1
     const purchaseSide = v.kind === 'debit_note' ? 'cr' : 'dr'
-    const inv = invStmt.all(v.id) as { amount: number; gstRate: number | null; cessRate: number | null }[]
+    const inv = invStmt.all(v.id) as {
+      stockItemId: number; amount: number; gstRate: number | null; cessRate: number | null
+    }[]
     const lines =
       inv.length > 0
-        ? inv.map((l) => ({ amount: l.amount, rate: l.gstRate ?? 0, cessRate: l.cessRate ?? 0 }))
+        ? inv.map((l) => {
+            // Same rule as the outward side: the rate in force on the voucher's own date (D-92).
+            const dated = rateOnDate?.(l.stockItemId, v.date) ?? null
+            return {
+              amount: l.amount,
+              rate: dated ? dated.ratePercent : (l.gstRate ?? 0),
+              cessRate: dated ? dated.cessPercent : (l.cessRate ?? 0)
+            }
+          })
         : (lineStmt.all(v.id) as { amount: number; drCr: 'dr' | 'cr'; groupId: number; gstRate: number | null }[])
             .filter((l) => l.drCr === purchaseSide && purchaseGroupIds.has(l.groupId))
             .map((l) => ({ amount: l.amount, rate: l.gstRate ?? 0, cessRate: 0 }))

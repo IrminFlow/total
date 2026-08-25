@@ -256,7 +256,7 @@ export function saveDocument(db: DB, info: CompanyInfo, input: SalesDocInput, id
           ).lastInsertRowid
       )
     }
-    insertLines(db, docId, input.lines)
+    insertLines(db, docId, input.lines, input.date)
     return docId
   })()
 
@@ -265,7 +265,13 @@ export function saveDocument(db: DB, info: CompanyInfo, input: SalesDocInput, id
   return saved
 }
 
-function insertLines(db: DB, docId: number, lines: SalesDocLineInput[], fulfilled: number[] = []): void {
+function insertLines(
+  db: DB,
+  docId: number,
+  lines: SalesDocLineInput[],
+  docDate: string,
+  fulfilled: number[] = []
+): void {
   const insert = db.prepare(
     `INSERT INTO sales_document_lines (document_id, stock_item_id, description, qty_milli, rate_paise,
       discount_paise, gst_rate, hsn, fulfilled_milli, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -277,7 +283,9 @@ function insertLines(db: DB, docId: number, lines: SalesDocLineInput[], fulfille
     let gstRate = l.gstRate ?? null
     let hsn = l.hsn ?? null
     if (l.stockItemId && (gstRate === null || hsn === null)) {
-      const tax = effectiveItemTax(db, l.stockItemId)
+      // The document's own date, never today: a quotation raised before a rate change quotes the
+      // rate it was raised under, and converting it later must not silently reprice it (D-92).
+      const tax = effectiveItemTax(db, l.stockItemId, docDate)
       gstRate ??= tax.gstRate
       hsn ??= tax.hsn
     }
@@ -372,7 +380,8 @@ export function convert(db: DB, id: number, info: CompanyInfo, input: ConvertInp
         discountPaise: Math.round((x.line.discountPaise * x.qty) / x.line.qtyMilli),
         gstRate: x.line.gstRate,
         hsn: x.line.hsn
-      }))
+      })),
+      date
     )
 
     const bump = db.prepare('UPDATE sales_document_lines SET fulfilled_milli = fulfilled_milli + ? WHERE id = ?')

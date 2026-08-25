@@ -71,6 +71,7 @@ export type Screen =
   | { name: 'assets' }
   | { name: 'counter' }
   | { name: 'sales-chain' }
+  | { name: 'job-work' }
   | { name: 'borrowing' }
   | { name: 'disclosure' }
   | { name: 'filings' }

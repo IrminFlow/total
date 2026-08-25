@@ -1,9 +1,11 @@
 /**
  * Dated GST rates for stock items (roadmap #358).
  *
- * The engine — the slab history, and what an item's rate was on a date — is in
- * src/shared/gst/rateHistory.ts, and the caveats about the September 2025 rationalisation live
- * there. Read them before trusting anything this file reports.
+ * The engine is split in two, and both halves matter here: the slab history — which rates existed
+ * on a date — is in src/shared/gst/slabs.ts, and the caveats about the September 2025
+ * rationalisation live there. Read them before trusting anything this file reports. What an
+ * ITEM's rate was on a date comes from src/shared/gst/rateHistory.ts, which is also what
+ * ./itemRates.ts writes; both read the one table, `stock_item_gst_rates`.
  *
  * What this adds is the books: a per-item change list, a lookup that prefers it over the master
  * column, and an advisory pass over a period's invoices. The advisory is the point of the whole
@@ -16,19 +18,27 @@
  */
 
 import type { DB } from '../db/connection'
-import {
-  changesWithin,
-  itemRateOn,
-  slabAdvice,
-  slabsOn,
-  structureChangedWithin,
-  type GstSlabSet,
-  type ItemRate
-} from '@shared/gst/rateHistory'
+import { slabAdvice, slabsOn, structureChangedWithin, type GstSlabSet } from '@shared/gst/slabs'
+import { rateOn } from '@shared/gst/rateHistory'
 import type { ItemGstRateInput } from '@shared/schemas'
+import type { RateChange } from '@shared/gst/rateHistory'
 import { effectiveItemTax } from './masters'
 import { IN_BOOKS } from './vouchers'
 import { writeAudit } from './audit'
+
+/**
+ * The row shape this service and the advisory UI speak.
+ *
+ * Deliberately not the engine's `RateChange`: the engine names the fields `ratePercent` /
+ * `cessPercent`, this screen has always said `rate` / `cessRate`, and renaming a wire shape to win
+ * a naming argument is churn. `toChange` converts at the one place the engine is called.
+ */
+export interface ItemRate {
+  effectiveFrom: string
+  rate: number
+  cessRate: number
+  note: string | null
+}
 
 interface RateRow {
   id: number
@@ -38,6 +48,25 @@ interface RateRow {
   cess_rate: number
   note: string | null
 }
+
+const toChange = (r: ItemRate): RateChange => ({
+  effectiveFrom: r.effectiveFrom,
+  ratePercent: r.rate,
+  cessPercent: r.cessRate,
+  note: r.note
+})
+
+/** The item's rate in force on `date`, in this file's shape. */
+const itemRateOn = (history: ItemRate[], date: string): ItemRate | null => {
+  const inForce = rateOn(history.map(toChange), date)
+  return inForce ? (history.find((h) => h.effectiveFrom === inForce.effectiveFrom) ?? null) : null
+}
+
+/** Rate changes for an item that fall strictly inside a period — the ones that split a report. */
+const changesWithin = (history: ItemRate[], from: string, to: string): ItemRate[] =>
+  history
+    .filter((r) => r.effectiveFrom > from && r.effectiveFrom <= to)
+    .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))
 
 const mapRate = (r: RateRow): ItemRate & { id: number } => ({
   id: r.id,

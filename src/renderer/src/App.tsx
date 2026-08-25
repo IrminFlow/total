@@ -39,6 +39,7 @@ import { CollectionsScreen } from './screens/Collections'
 import { AssetsScreen } from './screens/Assets'
 import { CounterScreen } from './screens/Counter'
 import { SalesChainScreen } from './screens/SalesChain'
+import { JobWorkScreen } from './screens/JobWork'
 import { BorrowingScreen } from './screens/Borrowing'
 import { DisclosureScreen } from './screens/Disclosure'
 import { CostCentresScreen } from './screens/CostCentres'
@@ -248,6 +249,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'assets' && <AssetsScreen />}
           {screen.name === 'counter' && <CounterScreen />}
           {screen.name === 'sales-chain' && <SalesChainScreen />}
+          {screen.name === 'job-work' && <JobWorkScreen />}
           {screen.name === 'borrowing' && <BorrowingScreen />}
           {screen.name === 'disclosure' && <DisclosureScreen />}
           {screen.name === 'filings' && <FilingsScreen />}

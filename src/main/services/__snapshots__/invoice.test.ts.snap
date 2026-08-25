@@ -56,7 +56,7 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
     table.tot tr.grand td { border-top: 1px solid #16181f; border-bottom: 3px double #16181f; font-weight: 700; font-size: 13px; }
     .sig { display: flex; justify-content: space-between; padding: 26px 16px 12px; border-top: 1.5px solid #16181f; font-size: 11px; }
     .sig .for { text-align: right; }
-  </style></head><body>
+</style></head><body>
       <div class="copy">
         <div class="copy-label">Original for Recipient</div>
         
@@ -135,6 +135,7 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
         <div class="words">
           <div class="lbl">Amount in words</div>
           <div><i>Eleven Thousand Eight Hundred Rupees Only</i></div>
+          
           <div style="margin-top:10px" class="lbl">Declaration</div>
           <div style="font-size:10.5px">We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.</div>
           
@@ -150,7 +151,7 @@ exports[`buildInvoiceHtml (pure — invoice print config rendering) > renders st
         </div>
       </div>
       <div class="sig">
-        <div>Receiver's signature</div>
+        <div>Receiver&#39;s signature</div>
         <div class="for">
           For <b>Total Traders</b>
           <br/><br/><br/>

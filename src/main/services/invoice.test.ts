@@ -395,3 +395,63 @@ describe('carried-forward subtotals on long invoices (Q2 #95)', () => {
     expect(html).toContain(`Line ${count}`)
   })
 })
+
+describe('invoice templates (I-182)', () => {
+  it('prints the same document under every template — only the stylesheet changes', () => {
+    // The property that matters: a template may restyle an invoice and may never restyle what it
+    // says. Rule 46 prescribes the blocks; the picker only chooses how they are drawn.
+    const bodyOf = (html: string): string => html.slice(html.indexOf('<body>'))
+    const classic = buildInvoiceHtml(COMPANY, { ...DEFAULT_INVOICE_CONFIG, template: 'classic' }, SAMPLE_INVOICE)
+    const modern = buildInvoiceHtml(COMPANY, { ...DEFAULT_INVOICE_CONFIG, template: 'modern' }, SAMPLE_INVOICE)
+    const compact = buildInvoiceHtml(COMPANY, { ...DEFAULT_INVOICE_CONFIG, template: 'compact' }, SAMPLE_INVOICE)
+    expect(bodyOf(modern)).toBe(bodyOf(classic))
+    expect(bodyOf(compact)).toBe(bodyOf(classic))
+    expect(modern).not.toBe(classic)
+  })
+
+  it('falls back to Classic for a template id it does not know, rather than printing unstyled', () => {
+    const unknown = buildInvoiceHtml(
+      COMPANY,
+      { ...DEFAULT_INVOICE_CONFIG, template: 'from-a-later-version' as never },
+      SAMPLE_INVOICE
+    )
+    expect(unknown).toBe(buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE))
+  })
+})
+
+describe('bilingual printing (I-184, I-199)', () => {
+  const hindi = { ...DEFAULT_INVOICE_CONFIG, language: 'hi' as const }
+
+  it('adds the second language beside the English label and never instead of it', () => {
+    const html = buildInvoiceHtml(COMPANY, hindi, SAMPLE_INVOICE)
+    // English still present…
+    expect(html).toContain('Amount in words')
+    expect(html).toContain('Place of supply')
+    // …with a Devanagari label appended after the separator.
+    expect(html).toMatch(/Amount in words\s*\/\s*[ऀ-ॿ]/)
+  })
+
+  it('prints the amount in words in the second language on its own line', () => {
+    const html = buildInvoiceHtml(COMPANY, hindi, SAMPLE_INVOICE)
+    expect(html).toContain('Eleven Thousand Eight Hundred Rupees Only')
+    expect(html).toMatch(/<i>[^<]*[ऀ-ॿ][^<]*<\/i>/)
+  })
+
+  it('names a Devanagari fallback font only when a second language is configured', () => {
+    expect(buildInvoiceHtml(COMPANY, hindi, SAMPLE_INVOICE)).toContain('Kohinoor Devanagari')
+    expect(buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)).not.toContain('Kohinoor Devanagari')
+  })
+
+  it('is byte-identical to the old print when no second language is chosen', () => {
+    // The guarantee that turning the feature off costs an existing user nothing.
+    const html = buildInvoiceHtml(COMPANY, DEFAULT_INVOICE_CONFIG, SAMPLE_INVOICE)
+    expect(html).not.toMatch(/[ऀ-ॿ]/)
+    expect(html).toContain('>Description<')
+  })
+
+  it('still prints "Cash sale" bilingually when there is no party at all', () => {
+    const html = buildInvoiceHtml(COMPANY, hindi, { ...SAMPLE_INVOICE, partyName: null, partyGstin: null })
+    expect(html).toMatch(/Cash sale\s*\/\s*[ऀ-ॿ]/)
+    expect(html).toMatch(/Unregistered\s*\/\s*[ऀ-ॿ]/)
+  })
+})

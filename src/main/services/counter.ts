@@ -200,7 +200,8 @@ export function itemDetail(db: DB, stockItemId: number, asOn = todayISO()): Coun
     .prepare('SELECT si.id, si.name, si.code, si.group_id, u.symbol FROM stock_items si LEFT JOIN units u ON u.id = si.unit_id WHERE si.id = ?')
     .get(stockItemId) as { id: number; name: string; code: string | null; group_id: number | null; symbol: string | null } | undefined
   if (!row) throw new Error(`Item ${stockItemId} is not in the books`)
-  const tax = effectiveItemTax(db, stockItemId)
+  // The counter prices for `asOn`, so the rate must be the one in force that day (D-92).
+  const tax = effectiveItemTax(db, stockItemId, asOn)
   return {
     stockItemId: row.id,
     name: row.name,

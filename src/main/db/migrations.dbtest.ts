@@ -86,6 +86,10 @@ const EXPECTED_TABLES = [
   'cma_facilities',
   'cheque_bounces',
   'voucher_templates',
+  'job_work_challans',
+  'job_work_returns',
+  'tds_lower_deduction_certificates',
+  'gstr1_filed_documents',
   'migrations'
 ]
 

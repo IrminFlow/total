@@ -474,7 +474,10 @@ export function AccountingEntry({
     }
     const handle = setTimeout(() => {
       api.tds
-        .suggest(tdsCandidateRow.ledgerId, tdsCandidateRow.amount, date)
+        // The voucher being edited must not consume its own Rule 28AA headroom: its lines are
+        // already in the books, so without excluding it a re-opened voucher deducts more the
+        // second time than it did the first.
+        .suggest(tdsCandidateRow.ledgerId, tdsCandidateRow.amount, date, existing?.id)
         .then((s) => {
           setTdsSuggestion(s)
           // The suggestion's payable ledger is find-or-created server-side — refresh so it shows
@@ -1092,6 +1095,20 @@ export function AccountingEntry({
               TDS u/s {tdsSuggestion.code}: deduct <Money paise={tdsSuggestion.tdsPaise} className="text-accent" />
               {!tdsSuggestion.panAvailable && <span className="ml-2 text-cr">PAN missing — 20% rate</span>}
               {!tdsSuggestion.thresholdCrossed && <span className="ml-2 text-muted">(below threshold — applying anyway is your call)</span>}
+              {/* A section 197 certificate silently changes the number above; say so, and say when
+                  the payment straddles its Rule 28AA ceiling and is therefore deducted at two
+                  rates — that is two deductee rows in the quarterly return, not one. */}
+              {tdsSuggestion.certificate && (
+                <span className="block text-hint text-muted">
+                  s.197 certificate {tdsSuggestion.certificate.certificateNumber} at{' '}
+                  {tdsSuggestion.certificate.ratePercent}%
+                  {tdsSuggestion.ratesApplied.length > 1 &&
+                    ` — ₹ split across the ceiling: ${tdsSuggestion.ratesApplied
+                      .map((r) => `${r.ratePercent}% on ${formatPaise(r.basePaise, { symbol: true })}`)
+                      .join(' + ')}`}
+                  {tdsSuggestion.certificateExhausted && ' — ceiling now spent'}
+                </span>
+              )}
             </span>
             <div className="flex shrink-0 gap-2">
               <Button onClick={() => setTdsDismissed(true)}>Dismiss</Button>

@@ -23,6 +23,8 @@ import { writeExportPdf } from './pdf'
 // threshold base — filing figures must tie to the ledger.
 import { IN_BOOKS } from './vouchers'
 import { writeAudit } from './audit'
+import { resolveDeduction, type CertificateEffect } from './tdsCertificates'
+import type { AppliedRate } from '@shared/tds/lowerDeduction'
 
 interface SectionRow {
   id: number; code: string; description: string; rate: number
@@ -70,14 +72,43 @@ export interface TdsSuggestion {
   payableLedgerId: number
   panAvailable: boolean
   thresholdCrossed: boolean
+  /**
+   * The section 197 / 197A certificate in force for this payee, section and date, with its
+   * Rule 28AA consumption — or null, which is the ordinary case and the unchanged behaviour.
+   */
+  certificate: CertificateEffect | null
+  /**
+   * The rate(s) `tdsPaise` is actually made of. One entry normally; TWO when this payment
+   * straddles the certificate's Rule 28AA(4) ceiling, because the part above the ceiling reverts
+   * to the ordinary section rate inside the very same payment — and is filed as its own deductee
+   * row. Empty only for a zero-amount payment.
+   */
+  ratesApplied: AppliedRate[]
+  /** True when the certificate's ceiling is spent as at the end of this payment. */
+  certificateExhausted: boolean
 }
 
 /**
  * Suggests a TDS deduction for a payment/journal to `partyLedgerId`, or null when the party isn't
  * flagged for TDS at all. `payableLedgerId` is auto-created ("TDS Payable <code>" under Duties &
  * Taxes) so the caller can post the credit line without a separate master-creation round trip.
+ *
+ * The amount comes from `resolveDeduction`, which honours a section 197 lower-deduction
+ * certificate held for the payee's PAN. With no certificate on file it is `computeTds(rate, base,
+ * panAvailable)` — the same call this function used to make directly, including the section 206AA
+ * 20% floor when there is no PAN.
+ *
+ * `excludeVoucherId` is the voucher being edited, if any: its own lines are already in the books
+ * and would otherwise consume the payee's own ceiling before we ask how much is left, so a saved
+ * voucher re-opened for editing would deduct at a stricter rate the second time.
  */
-export function tdsSuggestion(db: DB, partyLedgerId: number, basePaise: number, dateISO: string): TdsSuggestion | null {
+export function tdsSuggestion(
+  db: DB,
+  partyLedgerId: number,
+  basePaise: number,
+  dateISO: string,
+  excludeVoucherId?: number
+): TdsSuggestion | null {
   const ledger = db.prepare('SELECT tds_section_id, pan FROM ledgers WHERE id = ?').get(partyLedgerId) as
     | { tds_section_id: number | null; pan: string | null }
     | undefined
@@ -85,7 +116,15 @@ export function tdsSuggestion(db: DB, partyLedgerId: number, basePaise: number, 
 
   const section = db.prepare('SELECT * FROM tds_sections WHERE id = ?').get(ledger.tds_section_id) as SectionRow
   const panAvailable = !!ledger.pan
-  const tdsPaise = computeTds(section.rate, basePaise, panAvailable)
+  const deduction = resolveDeduction(db, {
+    pan: ledger.pan,
+    sectionCode: section.code,
+    normalRatePercent: section.rate,
+    basePaise,
+    date: dateISO,
+    excludeVoucherId
+  })
+  const tdsPaise = deduction.tdsPaise
   const payableLedgerId = findOrCreateLedger(db, `TDS Payable ${section.code}`, 'Duties & Taxes')
 
   const q = tdsQuarterOf(dateISO)
@@ -112,7 +151,10 @@ export function tdsSuggestion(db: DB, partyLedgerId: number, basePaise: number, 
     tdsPaise,
     payableLedgerId,
     panAvailable,
-    thresholdCrossed: crossed
+    thresholdCrossed: crossed,
+    certificate: deduction.certificate,
+    ratesApplied: deduction.ratesApplied,
+    certificateExhausted: deduction.certificateExhausted
   }
 }
 

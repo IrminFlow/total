@@ -204,6 +204,8 @@ const DayBookRowView = memo(function DayBookRowView({
   onOpen,
   onPdf,
   onDotMatrix,
+  onThermal,
+  onShare,
   onToggleSelect
 }: {
   row: DayBookRow
@@ -215,6 +217,8 @@ const DayBookRowView = memo(function DayBookRowView({
   onOpen: (voucherId: number) => void
   onPdf: (voucherId: number, e: React.MouseEvent) => void
   onDotMatrix: (voucherId: number, e: React.MouseEvent) => void
+  onThermal: (voucherId: number, e: React.MouseEvent) => void
+  onShare: (voucherId: number, e: React.MouseEvent) => void
   onToggleSelect: (voucherId: number) => void
 }): React.JSX.Element {
   return (
@@ -299,6 +303,31 @@ const DayBookRowView = memo(function DayBookRowView({
             DMP
           </button>
         )}
+        {/* The counter roll, next to both: a 3-inch receipt is neither an A4 sheet nor impact
+            stationery, and a shop that has a thermal printer wants it one click from the day book
+            rather than behind a settings page. */}
+        {row.kind === 'sales' && (
+          <button
+            className="row-action ml-2 text-hint text-blue hover:underline"
+            data-testid={`btn-daybook-roll-${row.voucherId}`}
+            onClick={(e) => onThermal(row.voucherId, e)}
+            title={`3-inch thermal receipt — ${row.voucherType} ${row.number}`}
+          >
+            Roll
+          </button>
+        )}
+        {/* Send: renders the PDF, puts it on the clipboard and opens WhatsApp or a mail draft.
+            Nothing leaves the machine without a person pressing send in the other app. */}
+        {row.kind === 'sales' && (
+          <button
+            className="row-action ml-2 text-hint text-blue hover:underline"
+            data-testid={`btn-daybook-send-${row.voucherId}`}
+            onClick={(e) => onShare(row.voucherId, e)}
+            title={`Send on WhatsApp or by email — ${row.voucherType} ${row.number}`}
+          >
+            Send
+          </button>
+        )}
       </td>
     </tr>
   )
@@ -318,6 +347,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
    */
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [dotMatrixFor, setDotMatrixFor] = useState<number | null>(null)
+  const [shareFor, setShareFor] = useState<number | null>(null)
   const toast = useToasts()
   const [filter, setFilter] = useState('')
   const [scope, setScope] = useState<Scope>('books')
@@ -552,6 +582,22 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
     e.stopPropagation()
     setDotMatrixFor(voucherId)
   }, [])
+
+  const openThermal = useCallback(
+    (voucherId: number, e: React.MouseEvent) => {
+      e.stopPropagation()
+      api.invoice.thermalPdf(voucherId).catch((err: Error) => toast.push('error', err.message))
+    },
+    [toast]
+  )
+
+  const openShare = useCallback(
+    (voucherId: number, e: React.MouseEvent) => {
+      e.stopPropagation()
+      setShareFor(voucherId)
+    },
+    []
+  )
 
   const colCount =
     // Date, Narration, the select checkbox and the trailing invoice-action column always show;
@@ -847,6 +893,8 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
                   onOpen={openRow}
                   onPdf={openPdf}
                   onDotMatrix={openDotMatrix}
+                  onThermal={openThermal}
+                  onShare={openShare}
                   onToggleSelect={toggleSelected}
                 />
               ))}
@@ -905,6 +953,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
         </p>
       )}
       {dotMatrixFor !== null && <DotMatrixModal voucherId={dotMatrixFor} onClose={() => setDotMatrixFor(null)} />}
+      {shareFor !== null && <ShareInvoiceModal voucherId={shareFor} onClose={() => setShareFor(null)} />}
     </div>
   )
 }
@@ -1085,6 +1134,72 @@ function DotMatrixModal({ voucherId, onClose }: { voucherId: number; onClose: ()
           Print
         </Button>
       </div>
+    </Modal>
+  )
+}
+
+/**
+ * Send an invoice (roadmap I-193 WhatsApp, I-192 email).
+ *
+ * The modal exists because this flow has a step the user has to be told about. A `wa.me` link
+ * carries text and cannot carry an attachment, and `mailto:` cannot either — so the app renders
+ * the PDF, puts it on the clipboard, reveals it in Finder, and the person pastes it into the chat
+ * or the mail draft before pressing send. Doing that silently would produce a message saying
+ * "please find attached" with nothing attached, which is worse than not offering the button.
+ *
+ * Nothing is sent from here. The links open WhatsApp and the mail client, and a human sends.
+ */
+function ShareInvoiceModal({ voucherId, onClose }: { voucherId: number; onClose: () => void }): React.JSX.Element {
+  const toast = useToasts()
+  const { data, error, isPending } = useQuery({
+    queryKey: ['invoiceShare', voucherId],
+    queryFn: () => api.invoice.share(voucherId),
+    // The PDF is written as a side effect of asking, so asking twice writes it twice.
+    staleTime: Infinity,
+    retry: false
+  })
+
+  const open = (url: string | null, what: string): void => {
+    if (!url) {
+      toast.push('error', `No ${what} for this party — add one on the ledger in Masters`)
+      return
+    }
+    window.open(url)
+  }
+
+  return (
+    <Modal title="Send this invoice" onClose={onClose}>
+      {isPending && <p className="text-muted">Rendering the PDF…</p>}
+      {error && <p className="text-dr">{(error as Error).message}</p>}
+      {data && (
+        <>
+          <p className="text-hint text-muted" data-testid="share-attachment-hint">
+            {data.clipboard === 'file'
+              ? data.attachmentHint
+              : `The PDF is at ${data.pdfPath} — attach it by hand before sending.`}
+          </p>
+          <pre
+            className="mt-3 max-h-56 overflow-auto rounded-md border border-line bg-panel2 p-3 text-hint whitespace-pre-wrap"
+            data-testid="share-body"
+          >
+            {data.body}
+          </pre>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button onClick={onClose}>Close</Button>
+            <Button data-testid="btn-share-email" onClick={() => open(data.mailto, 'email address')}>
+              Email draft
+            </Button>
+            <Button
+              variant="primary"
+              data-testid="btn-share-whatsapp"
+              disabled={!data.whatsapp}
+              onClick={() => open(data.whatsapp, 'phone number')}
+            >
+              WhatsApp
+            </Button>
+          </div>
+        </>
+      )}
     </Modal>
   )
 }
