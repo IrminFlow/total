@@ -901,7 +901,24 @@ Ordering within a section is roughly by value.
      `npm run test:db`, `npm run test:renderer`, builds the NSIS installer and gates the artefact
      on `npm run smoke`. The Playwright E2E suite is **not** among them; that is #343, and this
      entry used to claim it.
-326. Visual regression snapshots of every screen, both themes (M)
+326. ✓ Visual regression snapshots of every screen, both themes (M)
+     — `npm run visual`: every screen in both themes, compared against a committed signature
+     rather than a committed image. Seventy PNGs is 25 MB of binaries and a binary in a diff is a
+     diff nobody reads, so the baseline is a 32×20 grid of average colour plus a 64-bucket palette
+     histogram, per screen. What gets reviewed is the list of screens that moved, because
+     accepting a baseline is accepting that a screen is meant to look different now.
+
+     Two things it took a wrong turn to get right. The grid was luminance-only and blind to hue;
+     and the screens were photographed with no row selected, so the accent bar — the app's
+     signature — was not in a single one of the seventy shots. It now presses ArrowDown first,
+     which is also the more honest photograph: a screen in use has a cursor on it.
+
+     And one thing it still cannot do, measured rather than assumed: a 3px rule is about 0.007% of
+     the pixels on screen, so changing the accent from indigo to red passes this sweep clean. The
+     palette is covered by an exact token snapshot instead (`__tests__/palette.test.ts`), which
+     also asserts that every theme defines every token — a token missing from dark does not fail
+     loudly, it silently falls back to the light value, which is exactly how one unreadable
+     element after dark happens.
 327. Mutation testing on the money and GST engines (M)
 328. ✓ Property-based tests for the posting rules (M)
      — `src/shared/posting.prop.test.ts`.
