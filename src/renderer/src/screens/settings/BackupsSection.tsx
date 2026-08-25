@@ -98,29 +98,29 @@ export function BackupsSection(): React.JSX.Element {
         {rows.length === 0 ? (
           <EmptyState title="No backups yet" />
         ) : (
-          <table className="ledger-table">
+          <table className="ledger-table min-w-[46rem] table-fixed">
             <thead>
               <tr>
-                <th>File</th>
+                <th className="w-[36%]">File</th>
                 <th className="w-40">Date</th>
                 <th className="w-24">Size</th>
-                <th className="w-28">Tag</th>
-                {isOwner && <th className="r w-24"></th>}
+                <th className="w-36">Tag</th>
+                {isOwner && <th className="r w-20"></th>}
               </tr>
             </thead>
             <tbody>
               {rows.map((b) => (
                 <tr key={b.file}>
-                  <td className="num text-[11.5px] text-muted">{b.file}</td>
-                  <td className="num text-muted">{formatMtime(b.mtime)}</td>
-                  <td className="num text-muted">{formatSize(b.sizeBytes)}</td>
+                  <td className="num text-[11.5px] text-muted"><span className="block truncate" title={b.file}>{b.file}</span></td>
+                  <td className="num whitespace-nowrap text-muted">{formatMtime(b.mtime)}</td>
+                  <td className="num whitespace-nowrap text-muted">{formatSize(b.sizeBytes)}</td>
                   <td>
-                    <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-[11px] text-muted capitalize">
+                    <span title={b.tag.replace(/-/g, ' ')} className="block max-w-full truncate whitespace-nowrap rounded-full border border-line bg-panel2 px-2 py-0.5 text-[11px] text-muted capitalize">
                       {b.tag.replace(/-/g, ' ')}
                     </span>
                   </td>
                   {isOwner && (
-                    <td className="r">
+                    <td className="r whitespace-nowrap">
                       <button className="text-[12px] text-blue hover:underline" onClick={() => setRestoring(b)}>
                         Restore…
                       </button>

@@ -320,12 +320,48 @@ export function Panel({
       {...rest}
     >
       {scroll ? (
-        <div className="app-panel-scroll overflow-y-auto" style={{ maxHeight: scroll.maxH }}>
+        <div
+          className="app-panel-scroll overflow-y-auto"
+          style={{ maxHeight: scroll.maxH }}
+        >
           {children}
         </div>
       ) : (
         children
       )}
+    </div>
+  );
+}
+
+/** A durable query failure state. Keep this distinct from EmptyState: a failed read must never
+ * look like a valid zero balance or an empty register. */
+export function QueryErrorState({
+  title = "Could not load this view",
+  detail = "Your local data has not changed. Try the request again.",
+  onRetry,
+  className = "",
+}: {
+  title?: string;
+  detail?: string;
+  onRetry?: () => void;
+  className?: string;
+}): React.JSX.Element {
+  return (
+    <div
+      className={`rounded-lg border border-cr/30 bg-cr/5 px-4 py-4 ${className}`}
+      role="alert"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-body font-semibold text-ink">{title}</p>
+          <p className="mt-1 text-small leading-5 text-muted">{detail}</p>
+        </div>
+        {onRetry && (
+          <Button onClick={onRetry} aria-label={`Retry: ${title}`}>
+            Try again
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -342,7 +378,9 @@ export function InteractiveReportRow({
 }): React.JSX.Element {
   const isNestedControl = (target: EventTarget | null): boolean =>
     target instanceof HTMLElement &&
-    target.closest("button, a, input, select, textarea, [contenteditable='true']") !== null;
+    target.closest(
+      "button, a, input, select, textarea, [contenteditable='true']",
+    ) !== null;
 
   return (
     <tr
@@ -591,20 +629,25 @@ export function Toasts(): React.JSX.Element {
     // mouseEnter/Leave when the pointer moves over a child, and a hovered toast that gets
     // removed (click-dismiss, dedupe) can no longer strand the stack in the paused state.
     <div
-      aria-live="polite"
-      role="status"
       onMouseEnter={pause}
       onMouseLeave={resume}
       className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-96 flex-col gap-2"
     >
       {toasts.map((t) => (
-        <button
+        <div
           key={t.id}
-          onClick={() => dismiss(t.id)}
-          className={`pointer-events-auto rounded-lg border bg-panel px-4 py-2.5 text-left text-detail shadow-xl ${tones[t.kind]}`}
+          role={t.kind === "error" ? "alert" : "status"}
+          aria-live={t.kind === "error" ? "assertive" : "polite"}
+          className={`pointer-events-auto rounded-lg border bg-panel text-detail shadow-xl ${tones[t.kind]}`}
         >
-          <span className="font-semibold">{labels[t.kind]}:</span> {t.text}
-        </button>
+          <button
+            aria-label={`${labels[t.kind]}: ${t.text}. Dismiss notification`}
+            onClick={() => dismiss(t.id)}
+            className="w-full px-4 py-2.5 text-left"
+          >
+            <span className="font-semibold">{labels[t.kind]}:</span> {t.text}
+          </button>
+        </div>
       ))}
     </div>
   );

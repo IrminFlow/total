@@ -86,13 +86,13 @@ html[data-font-scale="xlarge"] .gateway-kpis { grid-template-columns: repeat(3, 
 
   /* Type scale — use these (text-label, text-hint, …) in kit components instead of raw
      bracket sizes; screens converge opportunistically. */
-  --text-label: 0.65625rem; /* uppercase micro-labels, Kbd */
-  --text-caption: 0.6875rem; /* field labels */
-  --text-hint: 0.71875rem; /* hints + inline errors */
-  --text-small: 0.75rem; /* small links/actions */
-  --text-body-sm: 0.78125rem; /* secondary body */
-  --text-detail: 0.8125rem; /* buttons, dense rows */
-  --text-body: 0.84375rem; /* inputs + default body */
+  --text-label: 0.6875rem; /* uppercase micro-labels, Kbd */
+  --text-caption: 0.71875rem; /* field labels */
+  --text-hint: 0.75rem; /* hints + inline errors */
+  --text-small: 0.78125rem; /* small links/actions */
+  --text-body-sm: 0.8125rem; /* secondary body */
+  --text-detail: 0.84375rem; /* buttons, dense rows */
+  --text-body: 0.875rem; /* inputs + default body */
   --text-lead: 0.90625rem; /* emphasized row titles */
   --text-title: 1rem; /* modal titles */
   --text-heading: 1.1875rem; /* section titles */
@@ -107,9 +107,9 @@ html[data-font-scale="xlarge"] .gateway-kpis { grid-template-columns: repeat(3, 
 .text-\[9px\] { font-size: 0.5625rem; }
 .text-\[9\.5px\] { font-size: 0.59375rem; }
 .text-\[10px\] { font-size: 0.625rem; }
-.text-\[10\.5px\] { font-size: 0.65625rem; }
-.text-\[11px\] { font-size: 0.6875rem; }
-.text-\[11\.5px\] { font-size: 0.71875rem; }
+.text-\[10\.5px\] { font-size: 0.6875rem; }
+.text-\[11px\] { font-size: 0.71875rem; }
+.text-\[11\.5px\] { font-size: 0.75rem; }
 .text-\[12px\] { font-size: 0.75rem; }
 .text-\[12\.5px\] { font-size: 0.78125rem; }
 .text-\[13px\] { font-size: 0.8125rem; }

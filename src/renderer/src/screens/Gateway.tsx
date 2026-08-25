@@ -7,6 +7,7 @@ import {
   Modal,
   Money,
   Panel,
+  QueryErrorState,
   ScrollList,
   Skeleton,
 } from "../components/ui";
@@ -88,7 +89,7 @@ export function Gateway(): React.JSX.Element {
       );
   }, [availableCards, homePrefs]);
   const primaryCards = cards.slice(0, 6);
-  const { data } = useQuery({
+  const { data, isError, refetch } = useQuery({
     queryKey: ["dashboard", today, from],
     queryFn: ({ signal }) => api.reports.dashboard(today, from, signal),
   });
@@ -164,27 +165,76 @@ export function Gateway(): React.JSX.Element {
           </button>
         </div>
       </header>
-      <div className="gateway-kpis grid grid-cols-3 gap-px overflow-hidden rounded-md border border-line bg-line lg:grid-cols-6">
-        {tiles.map((t) => (
-          <div key={t.label} className="min-w-0 bg-panel px-3 py-2.5">
-            <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">
-              {t.label}
-            </p>
-            {data === undefined && t.text === undefined ? (
-              // Loading — a skeleton, not a misleading ₹0.00.
-              <Skeleton className="mt-2.5 h-4 w-20" />
-            ) : (
-              <p
-                className={`mt-1.5 text-[16px] font-medium ${t.text ? "" : "num"}`}
-              >
-                {t.text ?? <Money paise={t.value ?? 0} />}
-              </p>
-            )}
-          </div>
-        ))}
+      <div className="mb-2 flex items-baseline justify-between">
+        <div>
+          <p className="text-small font-semibold text-ink">Start working</p>
+          <p className="mt-0.5 text-small text-muted">
+            Press the red letter to open a task.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {cards.length > primaryCards.length && (
+            <button
+              data-testid="btn-all-gateway-tasks"
+              onClick={() => setAllTasksOpen(true)}
+              className="text-small font-medium text-blue hover:underline"
+            >
+              All {cards.length} tasks
+            </button>
+          )}
+          <button
+            data-testid="btn-customize-home"
+            onClick={() => setCustomizing(true)}
+            className="text-small font-medium text-blue hover:underline"
+          >
+            Customize
+          </button>
+        </div>
       </div>
+      <GatewayTaskGrid
+        cards={primaryCards}
+        density={homePrefs.density}
+        language={language}
+        onOpen={(screen) => nav.go(screen)}
+      />
 
-      {data && (
+      <div className="mt-5 mb-2 flex items-end justify-between">
+        <div>
+          <p className="text-small font-semibold text-ink">Business pulse</p>
+          <p className="mt-0.5 text-small text-muted">
+            Balances and operating signals for the selected period.
+          </p>
+        </div>
+      </div>
+      {isError ? (
+        <QueryErrorState
+          title="Business pulse could not be loaded"
+          detail="Your books are unchanged. Retry the local report when you are ready."
+          onRetry={() => void refetch()}
+        />
+      ) : (
+        <div className="gateway-kpis grid grid-cols-3 gap-px overflow-hidden rounded-md border border-line bg-line lg:grid-cols-6">
+          {tiles.map((t) => (
+            <div key={t.label} className="min-w-0 bg-panel px-3 py-2.5">
+              <p className="text-[10.5px] font-semibold tracking-[0.08em] text-muted uppercase">
+                {t.label}
+              </p>
+              {data === undefined && t.text === undefined ? (
+                // Loading — a skeleton, not a misleading ₹0.00.
+                <Skeleton className="mt-2.5 h-4 w-20" />
+              ) : (
+                <p
+                  className={`mt-1.5 text-[16px] font-medium ${t.text ? "" : "num"}`}
+                >
+                  {t.text ?? <Money paise={t.value ?? 0} />}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!isError && data && (
         <div
           className="mt-3 grid grid-cols-4 gap-px overflow-hidden rounded-md border border-line bg-line"
           aria-label="Business pulse"
@@ -226,56 +276,25 @@ export function Gateway(): React.JSX.Element {
         </div>
       )}
 
-      <section
-        data-testid="gateway-operations"
-        aria-label="Cash and outstanding balances"
-        className="mt-4 grid h-[260px] grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-3"
-      >
-        <div className="flex min-h-0 flex-col gap-3">
-          <TopLedgersPanel
-            title="Top receivables"
-            rows={data?.topReceivables ?? []}
-          />
-          <TopLedgersPanel
-            title="Top payables"
-            rows={data?.topPayables ?? []}
-          />
-        </div>
-        <CashSparklinePanel points={data?.cashSpark ?? []} />
-      </section>
-
-      <div className="mt-5 mb-2 flex items-baseline justify-between">
-        <p className="text-[10.5px] font-semibold tracking-[0.12em] text-muted uppercase">
-          Frequent tasks
-        </p>
-        <div className="flex items-center gap-3">
-          <p className="text-[10.5px] text-muted">
-            Press the red letter to open
-          </p>
-          {cards.length > primaryCards.length && (
-            <button
-              data-testid="btn-all-gateway-tasks"
-              onClick={() => setAllTasksOpen(true)}
-              className="text-[11px] font-medium text-blue hover:underline"
-            >
-              All {cards.length} tasks
-            </button>
-          )}
-          <button
-            data-testid="btn-customize-home"
-            onClick={() => setCustomizing(true)}
-            className="text-[11px] font-medium text-blue hover:underline"
-          >
-            Customize
-          </button>
-        </div>
-      </div>
-      <GatewayTaskGrid
-        cards={primaryCards}
-        density={homePrefs.density}
-        language={language}
-        onOpen={(screen) => nav.go(screen)}
-      />
+      {!isError && (
+        <section
+          data-testid="gateway-operations"
+          aria-label="Cash and outstanding balances"
+          className="mt-4 grid h-[260px] grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-3"
+        >
+          <div className="flex min-h-0 flex-col gap-3">
+            <TopLedgersPanel
+              title="Top receivables"
+              rows={data?.topReceivables ?? []}
+            />
+            <TopLedgersPanel
+              title="Top payables"
+              rows={data?.topPayables ?? []}
+            />
+          </div>
+          <CashSparklinePanel points={data?.cashSpark ?? []} />
+        </section>
+      )}
 
       <DueTodayPanel />
       <CompliancePanel
@@ -355,9 +374,14 @@ export function Gateway(): React.JSX.Element {
         <MorningDigestModal onClose={() => setDigestOpen(false)} />
       )}
       {allTasksOpen && (
-        <Modal title="All Gateway tasks" onClose={() => setAllTasksOpen(false)} wide>
+        <Modal
+          title="All Gateway tasks"
+          onClose={() => setAllTasksOpen(false)}
+          wide
+        >
           <p className="mb-3 text-[11.5px] text-muted">
-            Open any task here, or press its red letter while the Gateway is active.
+            Open any task here, or press its red letter while the Gateway is
+            active.
           </p>
           <GatewayTaskGrid
             cards={cards}
@@ -415,7 +439,10 @@ function GatewayTaskGrid({
               →
             </span>
           </div>
-          <p className="mt-0.5 truncate text-[11px] text-muted" title={card.sub}>
+          <p
+            className="mt-0.5 truncate text-[11px] text-muted"
+            title={card.sub}
+          >
             {card.sub}
           </p>
         </button>
@@ -1049,6 +1076,16 @@ function CashSparklinePanel({
     .join(" ");
   const readout =
     hoverIdx != null ? points[hoverIdx] : points[points.length - 1];
+  const opening = points[0];
+  const closing = points[points.length - 1];
+  const low = points.reduce<CashSparkPoint | undefined>(
+    (best, point) => (!best || point.balance < best.balance ? point : best),
+    undefined,
+  );
+  const high = points.reduce<CashSparkPoint | undefined>(
+    (best, point) => (!best || point.balance > best.balance ? point : best),
+    undefined,
+  );
 
   return (
     <Panel className="flex min-h-0 flex-col p-5">
@@ -1074,7 +1111,8 @@ function CashSparklinePanel({
           className="mt-4 min-h-0 w-full flex-1 text-blue"
           data-testid="spark-cash"
           role="img"
-          aria-label="Cash and bank balance, last 30 days"
+          tabIndex={0}
+          aria-label={`Cash and bank balance for the last 30 days. Use left and right arrow keys to inspect dates.${opening && closing ? ` Opening ${opening.balance} paise, closing ${closing.balance} paise.` : ""}`}
           onMouseMove={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const frac =
@@ -1083,6 +1121,18 @@ function CashSparklinePanel({
             setHoverIdx(Math.max(0, Math.min(points.length - 1, idx)));
           }}
           onMouseLeave={() => setHoverIdx(null)}
+          onFocus={() => setHoverIdx(points.length - 1)}
+          onBlur={() => setHoverIdx(null)}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            setHoverIdx((current) => {
+              const index = current ?? points.length - 1;
+              return event.key === "ArrowLeft"
+                ? Math.max(0, index - 1)
+                : Math.min(points.length - 1, index + 1);
+            });
+          }}
         >
           {points.length === 1 ? (
             // A one-point polyline draws nothing — show a flat line at the lone balance instead.
@@ -1116,6 +1166,23 @@ function CashSparklinePanel({
             />
           )}
         </svg>
+      )}
+      {opening && closing && low && high && (
+        <dl className="mt-3 grid shrink-0 grid-cols-4 gap-3 border-t border-line pt-2 text-[10.5px]">
+          {[
+            ["Opening", opening.balance],
+            ["Low", low.balance],
+            ["High", high.balance],
+            ["Closing", closing.balance],
+          ].map(([label, balance]) => (
+            <div key={String(label)} className="min-w-0">
+              <dt className="text-muted">{label}</dt>
+              <dd className="num mt-0.5 truncate text-ink">
+                <Money paise={Number(balance)} />
+              </dd>
+            </div>
+          ))}
+        </dl>
       )}
     </Panel>
   );

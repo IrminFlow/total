@@ -19,7 +19,7 @@ export function TabBar<T extends string>({
   active,
   onSelect,
   vertical = false,
-  className = ''
+  className = '',
 }: {
   /** Registry screen name from lib/screens.ts — becomes the testid's <area> segment. */
   screen: string
@@ -30,22 +30,55 @@ export function TabBar<T extends string>({
   vertical?: boolean
   className?: string
 }): React.JSX.Element {
+  const moveFocus = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ): void => {
+    const previousKey = vertical ? 'ArrowUp' : 'ArrowLeft'
+    const nextKey = vertical ? 'ArrowDown' : 'ArrowRight'
+    let next = index
+    if (event.key === previousKey)
+      next = (index - 1 + tabs.length) % tabs.length
+    else if (event.key === nextKey) next = (index + 1) % tabs.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = tabs.length - 1
+    else return
+    event.preventDefault()
+    const target = tabs[next]
+    if (!target) return
+    onSelect(target.id)
+    const buttons =
+      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+        '[role="tab"]',
+      )
+    requestAnimationFrame(() => buttons?.[next]?.focus())
+  }
+
   return (
-    <nav className={`flex ${vertical ? 'flex-col gap-0.5' : 'items-center gap-1'} ${className}`}>
-      {tabs.map((t) => (
+    <div
+      role="tablist"
+      aria-orientation={vertical ? 'vertical' : 'horizontal'}
+      className={`flex ${vertical ? 'flex-col gap-0.5' : 'items-center gap-1'} ${className}`}
+    >
+      {tabs.map((t, index) => (
         <button
           key={t.id}
           type="button"
+          role="tab"
           data-testid={tid('tab', screen, t.id)}
-          aria-current={active === t.id ? 'page' : undefined}
+          aria-selected={active === t.id}
+          tabIndex={active === t.id ? 0 : -1}
           onClick={() => onSelect(t.id)}
+          onKeyDown={(event) => moveFocus(event, index)}
           className={`rounded-md px-3 py-1.5 text-[13px] transition-colors ${vertical ? 'px-2.5 text-left' : ''} ${
-            active === t.id ? 'bg-amber/15 font-medium text-amber' : 'text-muted hover:bg-panel2 hover:text-ink'
+            active === t.id
+              ? 'bg-amber/15 font-medium text-amber'
+              : 'text-muted hover:bg-panel2 hover:text-ink'
           }`}
         >
           {t.label}
         </button>
       ))}
-    </nav>
+    </div>
   )
 }

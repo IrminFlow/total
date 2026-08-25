@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Group, Ledger } from '@shared/domain'
 import { createScanDetector } from '@shared/barcode'
 import { inputCls } from './inputStyles'
@@ -22,7 +22,7 @@ function TypeAhead({
   onCreate,
   className,
   onScan,
-  testId
+  testId,
 }: {
   options: PickerOption[]
   value: number | null
@@ -41,6 +41,7 @@ function TypeAhead({
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const listboxId = useId()
 
   useEffect(() => {
     setText(selected?.label ?? '')
@@ -50,7 +51,9 @@ function TypeAhead({
     const q = text.trim().toLowerCase()
     if (!q || q === selected?.label.toLowerCase()) return options.slice(0, 50)
     const matches = options.filter(
-      (o) => o.label.toLowerCase().includes(q) || (o.barcode ? o.barcode.toLowerCase().includes(q) : false)
+      (o) =>
+        o.label.toLowerCase().includes(q) ||
+        (o.barcode ? o.barcode.toLowerCase().includes(q) : false),
     )
     // Exact barcode match ranks first (scanner input lands here before onScan can even fire).
     matches.sort((a, b) => {
@@ -76,13 +79,24 @@ function TypeAhead({
     setOpen(false)
   }
 
-  const showCreate = onCreate && text.trim() && !options.some((o) => o.label.toLowerCase() === text.trim().toLowerCase())
+  const showCreate =
+    onCreate &&
+    text.trim() &&
+    !options.some((o) => o.label.toLowerCase() === text.trim().toLowerCase())
+  const popupOpen = open && (filtered.length > 0 || !!showCreate)
 
   return (
     <div ref={wrapRef} className={`relative ${className ?? ''}`}>
       <input
         className={inputCls}
         aria-label={placeholder}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={popupOpen}
+        aria-controls={listboxId}
+        aria-activedescendant={
+          popupOpen ? `${listboxId}-option-${active}` : undefined
+        }
         data-testid={testId}
         value={text}
         placeholder={placeholder}
@@ -106,7 +120,9 @@ function TypeAhead({
           }
           if (e.key === 'ArrowDown') {
             e.preventDefault()
-            setActive((a) => Math.min(filtered.length - (showCreate ? 0 : 1), a + 1))
+            setActive((a) =>
+              Math.min(filtered.length - (showCreate ? 0 : 1), a + 1),
+            )
           } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setActive((a) => Math.max(0, a - 1))
@@ -124,11 +140,18 @@ function TypeAhead({
           }
         }}
       />
-      {open && (filtered.length > 0 || showCreate) && (
-        <div className="absolute top-full right-0 left-0 z-30 mt-1 max-h-64 overflow-auto rounded-md border border-line bg-panel2 shadow-xl">
+      {popupOpen && (
+        <div
+          id={listboxId}
+          role="listbox"
+          className="absolute top-full right-0 left-0 z-30 mt-1 max-h-64 overflow-auto rounded-md border border-line bg-panel2 shadow-xl"
+        >
           {filtered.map((o, i) => (
             <div
               key={o.id}
+              id={`${listboxId}-option-${i}`}
+              role="option"
+              aria-selected={i === active}
               data-active={i === active}
               className="kbar-row cursor-pointer px-3 py-1.5"
               onMouseEnter={() => setActive(i)}
@@ -138,11 +161,16 @@ function TypeAhead({
               }}
             >
               <span className="text-[13px]">{o.label}</span>
-              {o.sub && <span className="ml-2 text-[11px] text-muted">{o.sub}</span>}
+              {o.sub && (
+                <span className="ml-2 text-[11px] text-muted">{o.sub}</span>
+              )}
             </div>
           ))}
           {showCreate && (
             <div
+              id={`${listboxId}-option-${filtered.length}`}
+              role="option"
+              aria-selected={active === filtered.length}
               data-active={active === filtered.length}
               className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-[13px] text-amber"
               onMouseEnter={() => setActive(filtered.length)}
@@ -169,7 +197,7 @@ export function LedgerPicker({
   autoFocus,
   onCreateRequest,
   className,
-  testId = 'picker-ledger'
+  testId = 'picker-ledger',
 }: {
   value: number | null
   onPick: (id: number | null) => void
@@ -182,13 +210,20 @@ export function LedgerPicker({
 }): React.JSX.Element {
   const ledgers = useLedgers()
   const groups = useGroups()
-  const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups])
+  const groupMap = useMemo(
+    () => new Map(groups.map((g) => [g.id, g])),
+    [groups],
+  )
   const options = useMemo(
     () =>
       ledgers
         .filter((l) => (filter ? filter(l, groupMap) : true))
-        .map((l) => ({ id: l.id, label: l.name, sub: groupMap.get(l.groupId)?.name })),
-    [ledgers, filter, groupMap]
+        .map((l) => ({
+          id: l.id,
+          label: l.name,
+          sub: groupMap.get(l.groupId)?.name,
+        })),
+    [ledgers, filter, groupMap],
   )
   return (
     <TypeAhead
@@ -209,7 +244,7 @@ export function ItemPicker({
   onPick,
   onCreateRequest,
   className,
-  testId = 'picker-item'
+  testId = 'picker-item',
 }: {
   value: number | null
   onPick: (id: number | null) => void
@@ -224,9 +259,9 @@ export function ItemPicker({
         id: i.id,
         label: i.name,
         sub: i.gstRate != null ? `${i.gstRate}% GST` : undefined,
-        barcode: i.barcode
+        barcode: i.barcode,
       })),
-    [items]
+    [items],
   )
 
   // A hardware scanner types the barcode's characters in a fast burst terminated by Enter,
@@ -245,7 +280,7 @@ export function ItemPicker({
       onPick(match.id)
       return true
     },
-    [items, onPick]
+    [items, onPick],
   )
 
   return (

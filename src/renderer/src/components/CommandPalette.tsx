@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNav, useSession, useToasts, type Screen } from "../state/stores";
 import { api } from "../lib/client";
@@ -45,6 +45,7 @@ export function CommandPalette({
   const features = useFeatures();
   const language = useAccessibilityPreferences((state) => state.language);
   const [query, setQuery] = useState("");
+  const listboxId = useId();
   const [recentRecords, setRecentRecords] = useState(() =>
     readRecentRecords(slug),
   );
@@ -290,11 +291,21 @@ export function CommandPalette({
       onMouseDown={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search books and commands"
         className="w-full max-w-xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <input
           autoFocus
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded="true"
+          aria-controls={listboxId}
+          aria-activedescendant={
+            navItems[active] ? `${listboxId}-option-${active}` : undefined
+          }
           data-testid="input-palette"
           value={query}
           onChange={(e) => {
@@ -314,7 +325,11 @@ export function CommandPalette({
           placeholder="Type a command — voucher, report, GST…"
           className="w-full border-b border-line bg-transparent px-5 py-3.5 text-[14px] outline-none placeholder:text-muted/60"
         />
-        <div className="max-h-80 overflow-auto py-1">
+        <div
+          id={listboxId}
+          role="listbox"
+          className="max-h-80 overflow-auto py-1"
+        >
           {visibleHits.length > 0 && (
             <p className="px-5 pb-1 pt-2 text-[10.5px] font-medium uppercase tracking-wide text-muted">
               {searchEnabled ? "In your books" : "Recent records"}
@@ -323,6 +338,9 @@ export function CommandPalette({
           {visibleHits.map((hit, i) => (
             <div
               key={`${hit.kind}-${hit.id}`}
+              id={`${listboxId}-option-${i}`}
+              role="option"
+              aria-selected={i === active}
               data-active={i === active}
               className="kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-[13.5px]"
               onMouseEnter={() => setActive(i)}
@@ -347,6 +365,9 @@ export function CommandPalette({
           {filtered.map((cmd, i) => (
             <div
               key={cmd.label}
+              id={`${listboxId}-option-${visibleHits.length + i}`}
+              role="option"
+              aria-selected={visibleHits.length + i === active}
               data-active={visibleHits.length + i === active}
               className="kbar-row flex cursor-pointer items-center justify-between px-5 py-2 text-[13.5px]"
               onMouseEnter={() => setActive(visibleHits.length + i)}

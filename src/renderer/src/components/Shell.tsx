@@ -65,11 +65,22 @@ import { localizedLabel } from "../lib/localization";
 import { FeatureDiscovery } from "./FeatureDiscovery";
 import { recordCohortEvent } from "../lib/commercialOps";
 
+const QUICK_NAV_NAMES = new Set([
+  "gateway",
+  "action-centre",
+  "voucher-entry",
+  "daybook",
+]);
+
 /** Sidebar derived from the single screen registry (lib/screens.ts). */
 const NAV = NAV_SECTIONS.map((section) => ({
   ...section,
+  title: section.id === "top" ? "Daily work" : section.title,
   items: SCREENS.filter(
-    (s) => s.navSection === section.id && s.screen != null,
+    (s) =>
+      s.navSection === section.id &&
+      s.screen != null &&
+      !QUICK_NAV_NAMES.has(s.name),
   ).map((s) => ({
     label: s.navLabel ?? s.title,
     screen: s.screen!,
@@ -164,7 +175,8 @@ export function Shell({
       target,
       // A route transition with no saved position still needs one explicit scrollTo(0),
       // because React reuses the same scrolling element across screens and tabs.
-      complete: !slug || screen.name === "voucher-entry" || (!hadRoute && target <= 0),
+      complete:
+        !slug || screen.name === "voucher-entry" || (!hadRoute && target <= 0),
     };
   }
   const fetching = useIsFetching();
@@ -179,10 +191,23 @@ export function Shell({
       ),
     }))
     .filter((section) => section.items.length > 0);
+  const quickNav = SCREENS.filter(
+    (definition) =>
+      QUICK_NAV_NAMES.has(definition.name) &&
+      definition.screen != null &&
+      (!definition.feature || features[definition.feature]) &&
+      screenInWorkspace(workspace.profile, definition.name),
+  ).map((definition) => ({
+    label: definition.navLabel ?? definition.title,
+    screen: definition.screen!,
+  }));
   const pinned = workspace.favorites.flatMap((name) => {
     const def = screenDef(name);
     return def?.screen && (!def.feature || features[def.feature]) ? [def] : [];
   });
+  const activeNavSectionId = visibleNav.find((section) =>
+    section.items.some((item) => item.screen.name === screen.name),
+  )?.id;
   const currentTitle = localizedLabel(
     screenDef(screen.name)?.title ?? "Total",
     language,
@@ -191,15 +216,18 @@ export function Shell({
   const focusActive = focusMode && canFocus;
 
   useEffect(() => {
-    const activeSection = visibleNav.find((section) =>
-      section.items.some((item) => item.screen.name === screen.name),
-    );
-    if (!activeSection?.title) return;
+    if (!activeNavSectionId) {
+      if (QUICK_NAV_NAMES.has(screen.name))
+        setExpandedSections((current) =>
+          current.size === 0 ? current : new Set(),
+        );
+      return;
+    }
     setExpandedSections((current) => {
-      if (current.has(activeSection.id)) return current;
-      return new Set([...current, activeSection.id]);
+      if (current.size === 1 && current.has(activeNavSectionId)) return current;
+      return new Set([activeNavSectionId]);
     });
-  }, [screen.name, visibleNav]);
+  }, [screen.name, activeNavSectionId]);
 
   useEffect(() => {
     setWorkspace(rememberWorkspaceScreen(slug, screen.name, identity));
@@ -250,12 +278,6 @@ export function Shell({
       if (isAnyModalOpen()) return;
       const target = e.target as HTMLElement | null;
       if (
-        target &&
-        (target.matches('input, select, textarea, [contenteditable="true"]') ||
-          target.closest('[contenteditable="true"]'))
-      )
-        return;
-      if (
         (e.metaKey || e.ctrlKey) &&
         e.shiftKey &&
         e.key.toLowerCase() === "f" &&
@@ -280,14 +302,21 @@ export function Shell({
         nav.go({ name: "settings" });
         return;
       }
+      if (
+        target &&
+        (target.matches('input, select, textarea, [contenteditable="true"]') ||
+          target.closest('[contenteditable="true"]'))
+      )
+        return;
       if (!e.altKey || e.metaKey || e.ctrlKey) return;
       const key = e.key.toLowerCase();
-      const item = visibleNav
-        .flatMap((section) => section.items)
-        .find((candidate) => {
-          const shortcut = SCREEN_SHORTCUTS[candidate.screen.name];
-          return shortcut?.key === key && !!shortcut.shift === e.shiftKey;
-        });
+      const item = [
+        ...quickNav,
+        ...visibleNav.flatMap((section) => section.items),
+      ].find((candidate) => {
+        const shortcut = SCREEN_SHORTCUTS[candidate.screen.name];
+        return shortcut?.key === key && !!shortcut.shift === e.shiftKey;
+      });
       if (item) {
         e.preventDefault();
         nav.go(item.screen);
@@ -295,7 +324,7 @@ export function Shell({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [nav, visibleNav, canFocus]);
+  }, [nav, visibleNav, quickNav, canFocus]);
 
   return (
     <div
@@ -419,26 +448,6 @@ export function Shell({
         {!focusActive && (
           <>
             <button
-              data-testid="btn-theme"
-              className="shell-action shrink-0 rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
-              onClick={toggle}
-              title="Switch theme"
-            >
-              {theme === "light" ? <Moon size={15} /> : <Sun size={15} />}
-              <span className="sr-only">
-                Switch to {theme === "light" ? "dark" : "light"} theme
-              </span>
-            </button>
-            <button
-              data-testid="btn-help-centre"
-              aria-label="Open help centre"
-              className="shell-action shrink-0 rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
-              onClick={onOpenHelp}
-              title="Help centre"
-            >
-              <Question size={15} />
-            </button>
-            <button
               aria-label="Search books (Command+K)"
               title="Search books (Command+K)"
               className="shell-action flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted hover:border-amber/60 hover:text-ink"
@@ -446,7 +455,9 @@ export function Shell({
             >
               <MagnifyingGlass size={15} />
               <span className="shell-action-label">Search books</span>
-              <span className="shell-search-kbd"><Kbd>⌘K</Kbd></span>
+              <span className="shell-search-kbd">
+                <Kbd>⌘K</Kbd>
+              </span>
             </button>
             <button
               data-testid="btn-copilot"
@@ -459,6 +470,31 @@ export function Shell({
               <span className="shell-action-label ml-1.5">Copilot</span>
             </button>
             <SupportLink className="shell-support px-1 text-[11px]" />
+            <div
+              className="no-drag flex shrink-0 overflow-hidden rounded-md border border-line bg-panel2"
+              aria-label="App utilities"
+            >
+              <button
+                data-testid="btn-theme"
+                className="shell-action px-2 py-1 text-muted hover:bg-panel hover:text-ink"
+                onClick={toggle}
+                title="Switch theme"
+              >
+                {theme === "light" ? <Moon size={15} /> : <Sun size={15} />}
+                <span className="sr-only">
+                  Switch to {theme === "light" ? "dark" : "light"} theme
+                </span>
+              </button>
+              <button
+                data-testid="btn-help-centre"
+                aria-label="Open help centre"
+                className="shell-action border-l border-line px-2 py-1 text-muted hover:bg-panel hover:text-ink"
+                onClick={onOpenHelp}
+                title="Help centre"
+              >
+                <Question size={15} />
+              </button>
+            </div>
             {user && (
               <>
                 <span className="shell-user-badge num shrink-0 whitespace-nowrap rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12px] text-muted capitalize">
@@ -490,7 +526,10 @@ export function Shell({
 
       <div className="flex min-h-0 flex-1">
         {!focusActive && (
-          <aside data-testid="primary-navigation" className="shell-sidebar flex w-[216px] shrink-0 flex-col overflow-hidden border-r border-line bg-panel px-2 py-2.5">
+          <aside
+            data-testid="primary-navigation"
+            className="shell-sidebar flex w-[224px] shrink-0 flex-col overflow-hidden border-r border-line bg-panel px-2 py-2.5"
+          >
             <div className="mb-2 flex items-start gap-1 border-b border-line px-1 pb-3">
               <button
                 className="min-w-0 flex-1 px-1.5 text-left"
@@ -541,7 +580,55 @@ export function Shell({
                 ))}
               </select>
             </label>
-            <nav aria-label="Application" className="min-h-0 flex-1 overflow-y-auto pb-2">
+            <div className="mb-2 border-y border-line py-2">
+              <p className="mb-1 px-2.5 text-[9.5px] font-semibold uppercase tracking-[0.1em] text-muted">
+                Quick start
+              </p>
+              {quickNav.map((item) => {
+                const active = screen.name === item.screen.name;
+                const shortcut = SCREEN_SHORTCUTS[item.screen.name];
+                return (
+                  <button
+                    key={item.screen.name}
+                    data-testid={`nav-${item.screen.name}`}
+                    data-active={active}
+                    onClick={() => nav.go(item.screen)}
+                    className="app-nav-item flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-muted hover:bg-panel2 hover:text-ink"
+                    title={
+                      shortcut
+                        ? `${shortcut.shift ? "Alt+Shift" : "Alt"}+${shortcut.key.toUpperCase()}`
+                        : undefined
+                    }
+                    aria-label={localizedLabel(item.label, language)}
+                    data-voice-command={item.label}
+                  >
+                    <span className="min-w-0 truncate">
+                      {shortcut ? (
+                        <MnemonicText
+                          label={localizedLabel(item.label, language)}
+                          mnemonic={shortcut.key}
+                        />
+                      ) : (
+                        localizedLabel(item.label, language)
+                      )}
+                    </span>
+                    {shortcut && (
+                      <span
+                        className="num shrink-0 text-[9.5px] text-muted/65"
+                        aria-hidden="true"
+                      >
+                        {shortcut.shift ? "⌥⇧" : "⌥"}
+                        {shortcut.key.toUpperCase()}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <nav
+              aria-label="Application"
+              className="min-h-0 flex-1 overflow-y-auto pb-2"
+            >
               {pinned.length > 0 && (
                 <div className="mb-1 border-b border-line pb-2">
                   <p className="mb-1 px-2.5 text-[10.5px] font-medium text-muted">
@@ -560,19 +647,21 @@ export function Shell({
                 </div>
               )}
               {visibleNav.map((section) => {
-                const expanded = !section.title || expandedSections.has(section.id);
+                const expanded =
+                  !section.title || expandedSections.has(section.id);
                 return (
-                  <div key={section.id} className={section.title ? "mt-1" : undefined}>
+                  <div
+                    key={section.id}
+                    className={section.title ? "mt-1" : undefined}
+                  >
                     {section.title && (
                       <button
                         type="button"
                         aria-expanded={expanded}
                         onClick={() =>
                           setExpandedSections((current) => {
-                            const next = new Set(current);
-                            if (next.has(section.id)) next.delete(section.id);
-                            else next.add(section.id);
-                            return next;
+                            if (current.has(section.id)) return new Set();
+                            return new Set([section.id]);
                           })
                         }
                         className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[10.5px] font-medium text-muted/90 hover:bg-panel2 hover:text-ink"
@@ -584,35 +673,36 @@ export function Shell({
                         />
                       </button>
                     )}
-                    {expanded && section.items.map((item) => {
-                      const active = screen.name === item.screen.name;
-                      const shortcut = SCREEN_SHORTCUTS[item.screen.name];
-                      return (
-                        <button
-                          key={item.label}
-                          data-testid={`nav-${item.screen.name}`}
-                          data-active={active}
-                          onClick={() => nav.go(item.screen)}
-                          className="app-nav-item block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] text-muted hover:bg-panel2 hover:text-ink"
-                          title={
-                            shortcut
-                              ? `${shortcut.shift ? "Alt+Shift" : "Alt"}+${shortcut.key.toUpperCase()}`
-                              : undefined
-                          }
-                          aria-label={localizedLabel(item.label, language)}
-                          data-voice-command={item.label}
-                        >
-                          {shortcut ? (
-                            <MnemonicText
-                              label={localizedLabel(item.label, language)}
-                              mnemonic={shortcut.key}
-                            />
-                          ) : (
-                            localizedLabel(item.label, language)
-                          )}
-                        </button>
-                      );
-                    })}
+                    {expanded &&
+                      section.items.map((item) => {
+                        const active = screen.name === item.screen.name;
+                        const shortcut = SCREEN_SHORTCUTS[item.screen.name];
+                        return (
+                          <button
+                            key={item.label}
+                            data-testid={`nav-${item.screen.name}`}
+                            data-active={active}
+                            onClick={() => nav.go(item.screen)}
+                            className="app-nav-item block w-full rounded-md px-2.5 py-[5px] text-left text-[13px] text-muted hover:bg-panel2 hover:text-ink"
+                            title={
+                              shortcut
+                                ? `${shortcut.shift ? "Alt+Shift" : "Alt"}+${shortcut.key.toUpperCase()}`
+                                : undefined
+                            }
+                            aria-label={localizedLabel(item.label, language)}
+                            data-voice-command={item.label}
+                          >
+                            {shortcut ? (
+                              <MnemonicText
+                                label={localizedLabel(item.label, language)}
+                                mnemonic={shortcut.key}
+                              />
+                            ) : (
+                              localizedLabel(item.label, language)
+                            )}
+                          </button>
+                        );
+                      })}
                   </div>
                 );
               })}
@@ -673,7 +763,8 @@ export function Shell({
             const restoration = scrollRestoreRef.current;
             if (restoration.key === restoreKey && !restoration.complete) {
               if (
-                Math.abs(event.currentTarget.scrollTop - restoration.target) <= 1
+                Math.abs(event.currentTarget.scrollTop - restoration.target) <=
+                1
               ) {
                 restoration.complete = true;
               } else {
