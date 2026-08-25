@@ -331,6 +331,29 @@
       ],
       "additionalProperties": false,
       "default": null
+    },
+    "customFields": {
+      "description": "Company-defined custom fields for this voucher type (fieldId + value). Every value is TEXT, including for number fields — a custom field is never money and no report sums it. Omit the key entirely to leave existing values untouched; send [] to clear them.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fieldId": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "fieldId",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 50
     }
   },
   "required": [

@@ -36,7 +36,9 @@ const FIELD_DOCS: Record<string, string> = {
     'Ledger lines. Every amount is INTEGER PAISE (₹1 = 100). The voucher must balance: sum of dr amounts must equal sum of cr amounts, or the whole voucher is rejected.',
   inventory: 'Stock item lines for inventory vouchers. qtyMilli is integer thousandths (1000 = 1 unit); ratePaise/amount are integer paise.',
   billRefs: "Bill-wise allocations: kind 'new' opens a bill, 'against' settles one, by name.",
-  tds: 'TDS deduction on this voucher (section + base + deducted amount, paise), or null.'
+  tds: 'TDS deduction on this voucher (section + base + deducted amount, paise), or null.',
+  customFields:
+    'Company-defined custom fields for this voucher type (fieldId + value). Every value is TEXT, including for number fields — a custom field is never money and no report sums it. Omit the key entirely to leave existing values untouched; send [] to clear them.'
 }
 
 

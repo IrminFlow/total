@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import type { DB } from '../db/connection'
 import type { DrCr } from '@shared/domain'
-import { freshPartialDb, seededDb, TEST_INFO } from '../db/testdb'
+import { freshPartialDb, migrationIndexOf, seededDb, TEST_INFO } from '../db/testdb'
 import { migrate } from '../db/migrate'
-import { MIGRATIONS } from '../db/migrations'
 import { createLedger, createGodown, listGodowns } from './masters'
 import { saveVoucher, getVoucher } from './vouchers'
 import { extractOutwardDocs, gstr1, gstr3b, extractDocSeries } from './gst'
@@ -100,8 +99,10 @@ describe('the single registration every company already had', () => {
   it('migration 47 backfills an EXISTING company and stamps every voucher it already had', () => {
     // The real upgrade path: a database that stops one migration short of this feature, holding a
     // company and a voucher, then finishes migrating.
-    const cut = MIGRATIONS.length - 3 // before 47, 48 and 49
-    const db = freshPartialDb(cut)
+    // Anchored on what the migration does, not on its distance from the end of the array: a
+    // merge that appends another branch's migrations after this one would otherwise move the cut
+    // into the middle and leave the test asserting nothing about the upgrade path.
+    const db = freshPartialDb(migrationIndexOf('CREATE TABLE gst_registrations'))
     db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(
       'company',
       JSON.stringify({ ...TEST_INFO, gstin: MH, stateCode: '27', name: 'Old Books' })

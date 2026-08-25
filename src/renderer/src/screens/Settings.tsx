@@ -11,6 +11,7 @@ import { AuditorSection } from './settings/AuditorSection'
 import { NicSection } from './settings/NicSection'
 import { FeaturesSection } from './settings/FeaturesSection'
 import { InvoiceConfigSection } from './settings/InvoiceConfigSection'
+import { CustomFieldsSection } from './settings/CustomFieldsSection'
 import { AgentBridgeSection } from './settings/AgentBridgeSection'
 import { CollectionsSection } from './settings/CollectionsSection'
 import { SchedulesSection } from './settings/SchedulesSection'
@@ -31,6 +32,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'nic', label: 'NIC live filing' },
   { id: 'features', label: 'Features' },
   { id: 'invoice', label: 'Invoice print' },
+  { id: 'customFields', label: 'Custom fields' },
   { id: 'collections', label: 'Collections' },
   { id: 'schedules', label: 'Scheduled reports' },
   { id: 'agents', label: 'Agent access' },
@@ -70,6 +72,7 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
         {active === 'nic' && <NicSection />}
         {active === 'features' && <FeaturesSection />}
         {active === 'invoice' && <InvoiceConfigSection />}
+        {active === 'customFields' && <CustomFieldsSection />}
         {active === 'collections' && <CollectionsSection />}
         {active === 'schedules' && <SchedulesSection />}
         {active === 'agents' && <AgentBridgeSection />}

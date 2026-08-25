@@ -27,6 +27,7 @@ import { parseQtyExpression } from '@shared/qtyExpr'
 import type { AltUnit } from '@shared/units'
 import { nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
+import { useVoucherCustomFields } from './CustomFields'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -63,6 +64,9 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const [billDiscountText, setBillDiscountText] = useState('')
   const [billDiscountPct, setBillDiscountPct] = useState(true)
   const [narration, setNarration] = useState(draft?.narration ?? '')
+  // The company's own fields for this voucher type (roadmap #195) — on the payload, not written
+  // afterwards, so a bad value refuses the save instead of half-writing it. Never money.
+  const customFields = useVoucherCustomFields(typeId)
   const [vehicleNo, setVehicleNo] = useState('')
   const [transporterId, setTransporterId] = useState('')
   const [distanceKm, setDistanceKm] = useState('')
@@ -368,9 +372,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
           : billName.trim()
             ? [{ kind: 'new', name: billName.trim(), amount: rounded, dueDate: billDueDate || null }]
             : [],
-      tds: null
+      tds: null,
+      customFields: customFields.values
     }
-  }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, gstRegistrationId, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
+  }, [customFields.values, partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, gstRegistrationId, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
 
   const formValid = !!partyId && !!accountId && computed.detail.length > 0
 
@@ -868,6 +873,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
               </Field>
             </div>
           )}
+          {customFields.node}
           {computed.rounded > 0 && (
             <p className="mt-2 text-hint text-muted italic">{amountInWords(computed.rounded)}</p>
           )}

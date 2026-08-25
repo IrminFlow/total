@@ -11,6 +11,7 @@ import { matchByName, parseAcctPaste } from '@shared/gridPaste'
 import { roundOffLine } from '@shared/roundOff'
 import { describeAge, useVoucherDraft } from '../../lib/voucherDraft'
 import { useScreenAccels } from '../../lib/screenAccels'
+import { useVoucherCustomFields } from './CustomFields'
 import { AmountInput, Button, DateInput, Field, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
 import { useKeyLayer } from '../../lib/keyboard'
 import { useFieldChain } from '../../lib/useFieldChain'
@@ -99,6 +100,10 @@ export function AccountingEntry({
     queryFn: () => api.vouchers.get(voucherId!),
     enabled: !!voucherId
   })
+
+  // The company's own fields for this voucher type (roadmap #195). They ride on the save payload,
+  // so a value that fails validation refuses the whole voucher rather than half-writing it.
+  const customFields = useVoucherCustomFields(typeId, existing)
 
   // ---------- TDS (payment / journal to a party flagged for TDS) ----------
   const [tds, setTds] = useState<{ sectionId: number; baseAmount: number; tdsAmount: number } | null>(null)
@@ -673,9 +678,10 @@ export function AccountingEntry({
         ratePaise: l.ratePaise, amount: l.amount, direction: l.direction
       })) ?? [],
       billRefs: refs,
-      tds: tds && effectivePartyId != null ? tds : null
+      tds: tds && effectivePartyId != null ? tds : null,
+      customFields: customFields.values
     }
-  }, [rows, derivedPartyId, existing, kind, typeId, date, voucherId, alterNumber, numberField.forPayload, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, partyLineTotal, tds, allocationsFor])
+  }, [customFields.values, rows, derivedPartyId, existing, kind, typeId, date, voucherId, alterNumber, numberField.forPayload, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, partyLineTotal, tds, allocationsFor])
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
@@ -1222,6 +1228,9 @@ export function AccountingEntry({
           </Field>
         )}
       </div>
+
+      {/* The company's own fields for this voucher type (roadmap #195). Nothing here is money. */}
+      {customFields.node}
 
       <div className="mt-3 flex flex-wrap items-center gap-6 text-body-sm">
         {kind === 'receipt' && (

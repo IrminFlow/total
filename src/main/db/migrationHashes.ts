@@ -63,4 +63,6 @@ export const MIGRATION_HASHES: readonly string[] = [
   'b4196a83e59609d3', // 47: CREATE TABLE gst_registrations (
   'c9c19667dbe46b37', // 48: CREATE TABLE gst_filings_new (
   '14ccb61168321206', // 49: CREATE TABLE gstr1_filed_documents_new (
+  '1de73524d3942831', // 50: ALTER TABLE sales_documents ADD COLUMN side TEXT NOT NULL DEFAUL
+  '19be11f3f396cb74', // 51: CREATE TABLE custom_field_defs (
 ]

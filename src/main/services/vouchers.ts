@@ -12,6 +12,7 @@ import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { writeAudit } from './audit'
 import { applyApprovalGate } from './approvals'
+import { setValues as setCustomFieldValues, valuesFor as customFieldValuesFor } from './customFields'
 import type { Role } from './roles'
 import { primaryRegistrationId } from './registrationId'
 
@@ -172,7 +173,8 @@ export function getVoucher(db: DB, id: number): Voucher | null {
       })
     ),
     billRefs: billRefRows.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.due_date })),
-    tds: tdsRow ? { sectionId: tdsRow.section_id, baseAmount: tdsRow.base_amount, tdsAmount: tdsRow.tds_amount } : null
+    tds: tdsRow ? { sectionId: tdsRow.section_id, baseAmount: tdsRow.base_amount, tdsAmount: tdsRow.tds_amount } : null,
+    customFields: customFieldValuesFor(db, id)
   }
 }
 
@@ -455,6 +457,20 @@ export function saveVoucher(
       insertInv.run(voucherId, l.stockItemId, l.godownId, l.batchId ?? null, l.qtyMilli, l.ratePaise,
         l.discountPaise ?? 0, l.amount, l.direction, l.isAbsolute ? 1 : 0, i)
     )
+
+    /**
+     * Company-defined custom fields (roadmap #195).
+     *
+     * Written inside this transaction so a value that fails validation rolls the whole voucher
+     * back — a saved entry with a half-written extra field is worse than a refused save.
+     *
+     * `undefined` means the caller never mentioned custom fields (an importer, a recurring
+     * template, an older draft) and the voucher keeps what it already carries; an empty ARRAY
+     * means the user cleared them.
+     */
+    if (input.customFields) {
+      setCustomFieldValues(db, voucherId, vt.id, input.customFields)
+    }
 
     // Bill refs and TDS ride on `vouchers`, not `voucher_lines`, so an UPDATE doesn't cascade
     // their deletion the way replacing the line set does — clear and reinsert explicitly.

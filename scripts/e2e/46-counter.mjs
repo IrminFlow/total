@@ -12,7 +12,7 @@
 //   and a quotation converts exactly once.
 import { scenario, assert } from '../lib/harness.mjs'
 
-await scenario('31-counter', async (h) => {
+await scenario('46-counter', async (h) => {
   await h.createDemoCompany()
 
   const info = (await h.invoke('company:current')).info

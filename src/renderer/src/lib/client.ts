@@ -1,8 +1,10 @@
 import type {
   Batch, BomDetail, BomLine, BomRequirement, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
   PayrollLine, PayrollRun, PriceLevel, PriceListRate, RecurringTemplate, SaveVoucherWarnings, StockGroup, StockItem, TdsSection, Unit,
-  Voucher, VoucherKind, VoucherTransport, VoucherType
+  Voucher, VoucherCustomField, VoucherKind, VoucherTransport, VoucherType
 } from '@shared/domain'
+import type { CustomFieldDef, CustomFieldKind } from '@shared/customFields'
+import type { Fulfilment, MatchResult } from '@shared/fulfilment'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
   BalanceSheet, BankRecon, DashboardData, DayBookRow, EdocListRow, ExceptionsReport, GroupTreeNode,
@@ -813,6 +815,8 @@ export interface ReturnableSale {
 }
 
 export type Stage = 'quotation' | 'order' | 'challan'
+/** Outward is the sale, inward the purchase — the same three stages read the other way. */
+export type Side = 'sales' | 'purchase'
 export type DocStatus = 'open' | 'converted' | 'closed' | 'lost'
 
 export interface SalesDocLine {
@@ -826,12 +830,15 @@ export interface SalesDocLine {
   hsn: string | null
   fulfilledMilli: number
   pendingMilli: number
+  overMilli: number
   amountPaise: number
 }
 
 export interface SalesDoc {
   id: number
   stage: Stage
+  side: Side
+  stageLabel: string
   number: string
   date: string
   partyLedgerId: number | null
@@ -852,10 +859,13 @@ export interface SalesDoc {
   gst: { taxable: number; cgst: number; sgst: number; igst: number; cess: number; total: number }
   totalPaise: number
   expired: boolean
+  fulfilment: Fulfilment
+  unordered: boolean
 }
 
 export interface SalesDocInput {
   stage: Stage
+  side?: Side
   number?: string
   date: string
   partyLedgerId?: number | null
@@ -888,8 +898,39 @@ export interface InvoiceDraft {
 }
 
 export interface SalesPipeline {
-  stages: { stage: Stage; open: number; openValuePaise: number; converted: number; lost: number }[]
+  side: Side
+  stages: {
+    stage: Stage
+    label: string
+    open: number
+    openValuePaise: number
+    converted: number
+    lost: number
+    partlyFulfilled: number
+    pendingMilli: number
+    overMilli: number
+  }[]
   expiringSoon: SalesDoc[]
+  unordered: SalesDoc[]
+}
+
+export interface CustomFieldInput {
+  voucherTypeId: number
+  label: string
+  kind: CustomFieldKind
+  options?: string[]
+  required?: boolean
+  printed?: boolean
+  sortOrder?: number
+}
+
+/** Ordered vs received vs billed (roadmap #189). Quantities only — never money. */
+export interface ThreeWayMatch extends MatchResult {
+  orderId: number | null
+  orderNumber: string | null
+  partyName: string | null
+  receiptNumbers: string[]
+  invoiceNumbers: string[]
 }
 
 // ---------- job work: goods out on challan, and the section 143 clock (roadmap D-89) ----------
@@ -2738,18 +2779,31 @@ export const api = {
   },
   /** Quotation → order → challan → invoice. */
   salesDocs: {
-    list: (stage?: Stage, status?: DocStatus) => call<SalesDoc[]>('salesdoc:list', { stage, status }),
+    list: (stage?: Stage, status?: DocStatus, side: Side = 'sales') =>
+      call<SalesDoc[]>('salesdoc:list', { stage, status, side }),
     get: (id: number) => call<SalesDoc | null>('salesdoc:get', { id }),
-    next: (stage: Stage) => call<{ number: string }>('salesdoc:next', { stage }),
+    next: (stage: Stage, side: Side = 'sales') => call<{ number: string }>('salesdoc:next', { stage, side }),
     save: (data: SalesDocInput, id?: number) => call<SalesDoc>('salesdoc:save', { data, id }),
     remove: (id: number) => call<null>('salesdoc:delete', { id }),
     close: (id: number, status: 'closed' | 'lost', reason: string | null) =>
       call<SalesDoc>('salesdoc:close', { id, status, reason }),
-    convert: (id: number, opts: { quantities?: { lineId: number; qtyMilli: number }[]; date?: string } = {}) =>
-      call<SalesDoc>('salesdoc:convert', { id, ...opts }),
+    convert: (
+      id: number,
+      opts: { quantities?: { lineId: number; qtyMilli: number }[]; date?: string; allowOver?: boolean } = {}
+    ) => call<SalesDoc>('salesdoc:convert', { id, ...opts }),
     invoiceDraft: (id: number) => call<InvoiceDraft>('salesdoc:invoiceDraft', { id }),
     markInvoiced: (id: number, voucherId: number) => call<SalesDoc>('salesdoc:markInvoiced', { id, voucherId }),
-    pipeline: () => call<SalesPipeline>('salesdoc:pipeline')
+    pipeline: (side: Side = 'sales') => call<SalesPipeline>('salesdoc:pipeline', { side }),
+    match: (id: number) => call<ThreeWayMatch>('salesdoc:match', { id })
+  },
+  /** Fields a company defines for itself, per voucher type (roadmap #195). */
+  customFields: {
+    list: (voucherTypeId?: number, includeRetired = false) =>
+      call<CustomFieldDef[]>('customField:list', { voucherTypeId, includeRetired }),
+    save: (data: CustomFieldInput, id?: number) => call<CustomFieldDef>('customField:save', { data, id }),
+    /** Retires the field. The count is how many vouchers keep carrying its value. */
+    remove: (id: number) => call<{ retained: number }>('customField:remove', { id }),
+    forVoucher: (voucherId: number) => call<VoucherCustomField[]>('customField:forVoucher', { id: voucherId })
   },
   /** Goods out with a job worker, what came back, and what section 143 now deems supplied. */
   jobWork: {

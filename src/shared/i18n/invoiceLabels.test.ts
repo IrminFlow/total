@@ -15,7 +15,7 @@ const KEYS: (keyof InvoiceLabelKeys)[] = [
   'amountInWords', 'declaration', 'bankDetails', 'terms', 'receiversSignature',
   'authorisedSignatory', 'for', 'broughtForward', 'carriedForward', 'subtotal', 'scanToPay',
   'vehicle', 'gstin', 'unregistered', 'verificationQr', 'hsnSummary', 'barcode', 'page', 'of',
-  'cashSale'
+  'cashSale', 'otherDetails'
 ]
 
 const PACKS = ['hi', 'mr'] as const

@@ -297,7 +297,22 @@ export const voucherInputSchema = z.object({
   lines: z.array(voucherLineSchema).max(200),
   inventory: z.array(inventoryLineSchema).max(200).default([]),
   billRefs: z.array(billRefSchema).max(50).default([]),
-  tds: tdsSchema.nullable().default(null)
+  tds: tdsSchema.nullable().default(null),
+  /**
+   * Company-defined custom fields (roadmap #195).
+   *
+   * Optional rather than defaulted to `[]`, and the difference matters: absent means the caller
+   * never mentioned them — an importer, a recurring template, a draft from before the field
+   * existed — and the voucher keeps what it carries. An empty array means the user cleared them.
+   *
+   * The value is a STRING for every kind, including number. `src/shared/customFields.ts` does the
+   * per-kind validation against the definitions, which live in the database and so cannot be
+   * checked by a static schema.
+   */
+  customFields: z
+    .array(z.object({ fieldId: id, value: z.string().max(200) }))
+    .max(50)
+    .optional()
 })
 export type VoucherInputParsed = z.infer<typeof voucherInputSchema>
 /** Unparsed shape (defaults optional) — saveVoucher parses internally. */

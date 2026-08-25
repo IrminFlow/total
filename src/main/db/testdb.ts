@@ -35,6 +35,21 @@ export function freshDb(): DB {
 
 /** An in-memory DB with only the first `count` migrations applied — for tests that need to
  *  stage legacy data and then let migrate() finish (data-migration assertions). */
+/**
+ * The index of the migration that first mentions `needle`, for a test that wants the database as
+ * it stood just before a particular feature landed.
+ *
+ * Counting from the end (`MIGRATIONS.length - 3`) is the obvious way to write that and it breaks
+ * the first time two branches both append: a merge puts somebody else's migrations after yours
+ * and the count silently points into the middle of the array. That happened. Anchoring on what
+ * the migration DOES survives anything appended after it.
+ */
+export function migrationIndexOf(needle: string): number {
+  const at = MIGRATIONS.findIndex((m) => m.includes(needle))
+  if (at < 0) throw new Error(`no migration mentions ${JSON.stringify(needle)}`)
+  return at
+}
+
 export function freshPartialDb(count: number): DB {
   const db = new Database(':memory:')
   db.pragma('foreign_keys = ON')

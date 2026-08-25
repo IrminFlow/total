@@ -2020,5 +2020,74 @@ export const MIGRATIONS: string[] = [
   DROP TABLE gstr1_filed_documents;
   ALTER TABLE gstr1_filed_documents_new RENAME TO gstr1_filed_documents;
   CREATE INDEX idx_gstr1_filed_documents_period ON gstr1_filed_documents(period);
+  `,
+  // 43 — the purchase half of the order chain (roadmap #188 / #189).
+  //
+  // The sales chain already models quotation → order → challan → invoice, with quantities carried
+  // per line so an order can go out on two challans. Inward is the SAME shape pointing the other
+  // way: a purchase order, then a receipt note as the goods arrive, then the supplier's bill.
+  //
+  // So this is one column, not a second set of tables. `side` says which way the document faces;
+  // an 'order' on the purchase side IS the purchase order, and a 'challan' on the purchase side IS
+  // the goods receipt note. Building a parallel purchase_documents table would have duplicated the
+  // conversion logic, and the conversion logic is where the fulfilment arithmetic lives — two
+  // copies of it is two answers to "what is still owed".
+  //
+  // Numbering stays unique per (stage, number) because the prefixes differ (SO-/PO-, DC-/GRN-).
+  //
+  // fulfilled_milli is deliberately NOT capped at qty_milli on the purchase side: a supplier who
+  // sends 110 against an order for 100 has over-delivered, and clamping the receipt at 100 would
+  // lose the ten units that are physically in the godown. The excess is carried and reported.
+  `
+  ALTER TABLE sales_documents ADD COLUMN side TEXT NOT NULL DEFAULT 'sales'
+    CHECK (side IN ('sales','purchase'));
+  CREATE INDEX idx_sales_documents_side ON sales_documents(side, stage, status);
+  `,
+
+  // 44 — fields a company defines for itself, per voucher type (roadmap #195).
+  //
+  // Definitions in a table and values in a table, keyed by voucher. Emphatically NOT columns:
+  // a user-defined column is user-defined SQL, and an accounting file whose shape depends on what
+  // somebody typed in Settings is one nobody can migrate, back up or reason about.
+  //
+  // `value` is TEXT for every kind, including 'number'. A number in a custom field is a number,
+  // not paise — nothing sums it into a ledger, and storing it as an integer would be the first
+  // step towards something trying to.
+  //
+  // A definition is never hard-deleted by the app; removing one stamps `retired_at`. Vouchers
+  // already carry values for it, and those values are what the document said when it was issued.
+  // The ON DELETE CASCADE below is therefore only reachable by deleting the voucher TYPE itself,
+  // which the app refuses while vouchers of that type exist.
+  `
+  CREATE TABLE custom_field_defs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_type_id INTEGER NOT NULL REFERENCES voucher_types(id) ON DELETE CASCADE,
+    -- Derived from the label once, then frozen: the print template and any export address the
+    -- field by key, so renaming the label must not move it.
+    key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('text','number','date','list')),
+    -- JSON array, only meaningful for 'list'.
+    options TEXT NOT NULL DEFAULT '[]',
+    required INTEGER NOT NULL DEFAULT 0,
+    printed INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    retired_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  -- Unique among LIVE fields only. A field removed last year and re-added under the same label is
+  -- a NEW field: the old definition stays so the vouchers issued under it still read back, and
+  -- blocking the re-add instead would make one removal permanent for the life of the company.
+  CREATE UNIQUE INDEX idx_custom_field_defs_key
+    ON custom_field_defs(voucher_type_id, key) WHERE retired_at IS NULL;
+  CREATE INDEX idx_custom_field_defs_type ON custom_field_defs(voucher_type_id, sort_order);
+
+  CREATE TABLE custom_field_values (
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    field_id INTEGER NOT NULL REFERENCES custom_field_defs(id) ON DELETE CASCADE,
+    value TEXT NOT NULL,
+    PRIMARY KEY (voucher_id, field_id)
+  );
+  CREATE INDEX idx_custom_field_values_field ON custom_field_values(field_id);
   `
 ]

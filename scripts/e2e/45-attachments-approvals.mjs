@@ -58,7 +58,7 @@ async function postReceipt(h, paise) {
 const asOn = '2027-03-31'
 const debitTotal = async (h) => (await h.invoke('report:trialBalance', { asOn })).totalDebit
 
-await scenario('31-attachments-approvals', async (h) => {
+await scenario('45-attachments-approvals', async (h) => {
   await h.createCompanyUI('Approvals Co')
 
   // A party to credit, so the receipt has two real ledgers.

@@ -655,13 +655,25 @@ Ordering within a section is roughly by value.
      the saved config, so the iframe follows every keystroke with no Save round-trip.
 187. ✓ Proforma invoice (M) — a memorandum sales voucher, which the books already model as
      out-of-books, printed as a proforma rather than as a tax invoice.
-188. Sales order and purchase order with fulfilment tracking (L) — the SALES half is shipped
-     (quotation → order → delivery challan in `salesDocs.ts`, quantities tracked per line so an
-     order can go out on two challans without either closing it). The purchase half is not: a
-     purchase order and its goods-received note are still open.
-189. Delivery note and receipt note (M) — the delivery note is shipped as the challan stage of the
-     sales chain, and #89's job-work challan is its sibling. The inward receipt note is not, for
-     the same reason as #188: there is no purchase order for it to be received against.
+188. ✓ Sales order and purchase order with fulfilment tracking (L) — the sales half was already
+     shipped; the purchase half is the SAME chain read the other way, not a second one. One
+     column (`sales_documents.side`) turns an 'order' into a purchase order and a 'challan' into
+     a receipt note, so the conversion arithmetic — what is still owed — has exactly one
+     implementation and cannot give two answers. Fulfilment is a BALANCE and lives in
+     `src/shared/fulfilment.ts`: ordered, received, pending, over-received, per LINE and never
+     netted, because ten bolts over-delivered do not settle ten nuts that never came. An order
+     received in three parts stays open with the remainder pending; over-receipt is recorded
+     rather than clipped inward (the goods are in the godown whether or not we authorised them)
+     and refused outward (our own challan cannot exceed our own order).
+189. ✓ Delivery note and receipt note (M) — the delivery note was already the challan stage of the
+     sales chain; the receipt note is its inward mirror, and it carries the three-way match that
+     is the reason the document exists at all. `salesdoc:match` puts ordered, received and billed
+     quantities side by side and names the worst disagreement first: a bill for more than arrived
+     leads, because it is the only one that takes money out of the business for nothing. Goods
+     that turn up with no order behind them still get a receipt note — they are physically in the
+     godown — and every line of it reports `not_ordered` rather than quietly reporting nothing.
+     Quantities only: what a variance is worth is the invoice's arithmetic, and a second answer
+     to that would be worse than none.
 190. ✓ Terms and conditions block, per voucher type (S)
 191. ✓ QR code on the invoice, UPI payment intent (S)
 192. ✗ Invoice email with the PDF attached (M) — declined as literally specified. Attaching a
@@ -679,7 +691,18 @@ Ordering within a section is roughly by value.
 194. ✓ Multi-page invoices with carried-forward totals (M) — already shipped: past sixteen items
      the table splits per page with a "Carried forward" subtotal closing each and a matching
      "Brought forward" opening the next, and the header repeats on every page.
-195. Custom fields on a voucher, defined per company (L)
+195. ✓ Custom fields on a voucher, defined per company (L) — definitions in a table and values in
+     a table keyed by voucher, per voucher type, shown on entry and printed under the party block.
+     Deliberately not columns: a user-defined column is user-defined SQL, and a books file whose
+     shape depends on what somebody typed in Settings is one nobody can migrate. Types (text,
+     number, date, list) are validated in `src/shared/customFields.ts` and enforced at the IPC
+     boundary, inside the voucher's own transaction, so a bad value refuses the whole voucher
+     instead of half-writing it. **A number here is not money**: the value is TEXT for every kind,
+     nothing converts it to paise and no report may read one — `src/main/customFieldsPurity.test.ts`
+     greps for it, on the same principle as the soft-delete guard. Removing a field retires it
+     rather than deleting it: vouchers already carry values, and those values are what the
+     document said when it was issued, so they stay on it and stay on the print. A company that
+     defines no fields prints an invoice byte-for-byte identical to the one it printed before.
 196. ✓ Document numbering with a configurable prefix and suffix (S) — already shipped:
      per-voucher-type prefix, suffix, zero-pad width and restart-each-FY.
 197. ✓ Print an entire period's invoices in one job (M) — already shipped as invoice:pdfBatch,

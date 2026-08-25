@@ -16,7 +16,7 @@ const shiftMonth = (key, delta) => {
   return `${String(Math.floor(zero / 12)).padStart(4, '0')}-${String((zero % 12) + 1).padStart(2, '0')}`
 }
 
-await scenario('34-bank-desk', async (h) => {
+await scenario('48-bank-desk', async (h) => {
   await h.createDemoCompany()
 
   const bankLedgers = await h.invoke('bank:ledgers')

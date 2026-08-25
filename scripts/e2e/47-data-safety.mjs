@@ -10,7 +10,7 @@ import * as path from 'node:path'
 
 const today = new Date().toISOString().slice(0, 10)
 
-await scenario('31-data-safety', async (h) => {
+await scenario('47-data-safety', async (h) => {
   await h.createCompanyUI('Safety Co')
   await h.stubDialogs()
 

@@ -13,7 +13,7 @@
 // All four are asserted on the DATA, not on the pixels.
 import { scenario, assert } from '../lib/harness.mjs'
 
-await scenario('35-entry-ergonomics', async (h) => {
+await scenario('49-entry-ergonomics', async (h) => {
   await h.createCompanyUI('Ergonomic Books')
   await h.stubDialogs()
 
