@@ -7,7 +7,7 @@ import { formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api, type TdsSuggestion } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, LineTableScroller, Modal, Money, Panel, Select, TextInput, ValidationSummary } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, LineTableScroller, Modal, Money, Panel, Select, TextInput } from '../../components/ui'
 import { isAnyModalOpen } from '../../components/modalRegistry'
 import { LedgerPicker } from '../../components/pickers'
 import { useGroups, useLedgers } from '../../components/pickerHooks'
@@ -22,6 +22,7 @@ import type { VoucherWorkDraft } from '@shared/voucherDrafts'
 import { saveEntryTemplate } from '../../lib/saveEntryTemplate'
 import { recordCohortEvent } from '../../lib/commercialOps'
 import { parseVoucherClipboard } from '../../lib/voucherClipboard'
+import { EntryValidationStatus } from './EntryValidationStatus'
 
 // ---------- accounting mode (payment / receipt / contra / journal + alteration) ----------
 
@@ -87,6 +88,7 @@ export function AccountingEntry({
   const [clipboardOpen, setClipboardOpen] = useState(false)
   const [defaultsDismissed, setDefaultsDismissed] = useState(false)
   const [editingParty, setEditingParty] = useState<Ledger | null>(null)
+  const [revealValidationIssues, setRevealValidationIssues] = useState(() => Boolean(voucherId || draft || workDraft))
   // Alteration keeps the voucher's own number editable but never auto-suggests a fresh one off
   // voucher:nextNumber (that would rename an existing document to "the next available number"
   // the moment you touch its date) — it's seeded once from the loaded voucher below. New-entry
@@ -162,6 +164,7 @@ export function AccountingEntry({
   useDraftAwareUnsavedGuard(workDraft?.id, !voucherId && (rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== ''), draftFingerprint)
 
   const setRow = (i: number, patch: Partial<AcctRow>): void => {
+    setRevealValidationIssues(true)
     setRows((rs) => {
       const next = rs.map((r, j) => (j === i ? { ...r, ...patch } : r))
       const last = next[next.length - 1]!
@@ -456,7 +459,9 @@ export function AccountingEntry({
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
+    setRevealValidationIssues(true)
     if (immutable) return void toast.push('error', 'Linked reversal entries are immutable; create a fresh adjustment instead')
+    if (validationIssues.length > 0) return void toast.push('error', validationIssues[0]!)
     const input = buildPayload()
     if (!input) return void toast.push('error', 'Enter at least one debit and one credit')
     setSaving(true)
@@ -524,6 +529,7 @@ export function AccountingEntry({
         setTds(null)
         setTdsSuggestion(null)
         setTdsDismissed(false)
+        setRevealValidationIssues(false)
         numberField.reset()
       }
     } catch (err) {
@@ -531,7 +537,7 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, immutable, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset])
+  }, [saving, immutable, validationIssues, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset])
 
   const saveDraft = async (): Promise<void> => {
     if (saving || voucherId) return
@@ -884,7 +890,11 @@ export function AccountingEntry({
       </div>
 
       <div className="mt-5 grid gap-3">
-        <ValidationSummary issues={validationIssues} />
+        <EntryValidationStatus
+          issues={validationIssues}
+          revealIssues={revealValidationIssues}
+          guidance={['Choose debit and credit ledgers', 'Enter a positive amount on each line', 'Make debit and credit totals equal']}
+        />
       <div className="flex justify-between">
         <div>{voucherId && <Button variant="danger" disabled={immutable} disabledTitle="Linked reversal entries are immutable" onClick={() => void remove()}>Delete voucher</Button>}</div>
         <div className="flex gap-2">
@@ -904,7 +914,7 @@ export function AccountingEntry({
           {!voucherId && balanced && <Button data-testid="btn-save-entry-template" onClick={() => void saveTemplate()}>Record safe macro…</Button>}
           {!voucherId && <Button data-testid="btn-save-voucher-draft" disabled={saving} onClick={() => void saveDraft()}>Save draft</Button>}
           <Button onClick={() => nav.back()}>Cancel</Button>
-          <Button variant="primary" data-testid="btn-save-voucher" disabled={immutable || validationIssues.length > 0 || saving} disabledTitle={immutable ? 'Linked reversal entries are immutable' : undefined} onClick={() => void save()}>
+          <Button variant="primary" data-testid="btn-save-voucher" disabled={immutable || saving} disabledTitle={immutable ? 'Linked reversal entries are immutable' : undefined} onClick={() => void save()}>
             {voucherId ? 'Save changes' : 'Save voucher'} ⌘↵
           </Button>
         </div>
@@ -923,7 +933,7 @@ export function AccountingEntry({
           }}
         />
       )}
-      {clipboardOpen && <ClipboardLinesModal ledgers={ledgers} onClose={() => setClipboardOpen(false)} onApply={(imported) => { setRows([...imported.map((row) => ({ ...row, key: nextLineKey(), costAllocations: [] })), blankAcctRow('cr')]); setClipboardOpen(false) }} />}
+      {clipboardOpen && <ClipboardLinesModal ledgers={ledgers} onClose={() => setClipboardOpen(false)} onApply={(imported) => { setRevealValidationIssues(true); setRows([...imported.map((row) => ({ ...row, key: nextLineKey(), costAllocations: [] })), blankAcctRow('cr')]); setClipboardOpen(false) }} />}
       {ccModalRow != null && (
         <CostAllocModal
           lineAmount={rows[ccModalRow]?.amount ?? 0}

@@ -9,7 +9,7 @@ import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, LineTableScroller, Money, Panel, Select, TextInput, ValidationSummary } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
 import { inputCls } from '../../components/inputStyles'
 import { isAnyModalOpen } from '../../components/modalRegistry'
 import { ItemPicker, LedgerPicker } from '../../components/pickers'
@@ -23,6 +23,7 @@ import { QuickItemModal, QuickLedgerModal, SaveAsRecurringModal } from './modals
 import type { VoucherWorkDraft } from '@shared/voucherDrafts'
 import { saveEntryTemplate } from '../../lib/saveEntryTemplate'
 import { recordCohortEvent } from '../../lib/commercialOps'
+import { EntryValidationStatus } from './EntryValidationStatus'
 
 // ---------- invoice mode (sales / purchase / notes) ----------
 
@@ -85,6 +86,7 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
   const [saving, setSaving] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
   const [editingParty, setEditingParty] = useState(false)
+  const [revealValidationIssues, setRevealValidationIssues] = useState(() => Boolean(draft || workDraft))
   // ---------- GST details (place-of-supply override + memorandum flag) ----------
   const [gstOpen, setGstOpen] = useState(false)
   const [posOverride, setPosOverride] = useState<string | null>(savedDraft.posOverride ?? draft?.posOverride ?? null)
@@ -323,6 +325,8 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
 
   const save = useCallback(async (andPdf = false): Promise<void> => {
     if (saving) return
+    setRevealValidationIssues(true)
+    if (validationIssues.length > 0) return void toast.push('error', validationIssues[0]!)
     if (!partyId) return void toast.push('error', 'Pick the party account first')
     if (!accountId) return void toast.push('error', `Pick the ${isSalesSide ? 'sales' : 'purchase'} ledger`)
     if (computed.detail.length === 0) return void toast.push('error', 'Add at least one item line')
@@ -394,6 +398,7 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
       setBillDueDateTouched(false)
       setNoteBillRefs([])
       setGoodsReceiptId(null)
+      setRevealValidationIssues(false)
       numberField.reset()
       await queryClient.invalidateQueries()
     } catch (err) {
@@ -401,7 +406,7 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, toast, setWorkingDate, queryClient, numberField.reset, workDraft?.id, invoiceMatchInput, procurementClaimKey])
+  }, [saving, validationIssues, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, date, toast, setWorkingDate, queryClient, numberField.reset, workDraft?.id, invoiceMatchInput, procurementClaimKey])
 
   const saveDraft = async (): Promise<void> => {
     if (saving) return
@@ -442,6 +447,7 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
   }, [save])
 
   const setRow = (i: number, patch: Partial<ItemRow>): void => {
+    setRevealValidationIssues(true)
     setRows((rs) => {
       const next = rs.map((r, j) => (j === i ? { ...r, ...patch } : r))
       const last = next[next.length - 1]!
@@ -476,7 +482,7 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
             <LedgerPicker
               autoFocus
               value={partyId}
-              onPick={setPartyId}
+              onPick={(id) => { setRevealValidationIssues(true); setPartyId(id) }}
               placeholder="Party ledger"
               onCreateRequest={(name) => setQuickLedger({ name, forParty: true })}
               className="flex-1"
@@ -492,7 +498,7 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
         <Field label={isSalesSide ? 'Sales ledger' : 'Purchase ledger'}>
           <LedgerPicker
             value={accountId}
-            onPick={setAccountId}
+            onPick={(id) => { setRevealValidationIssues(true); setAccountId(id) }}
             placeholder={isSalesSide ? 'e.g. Sales' : 'e.g. Purchases'}
             filter={(l, groups) => {
               const rootName = isSalesSide ? 'Sales Accounts' : 'Purchase Accounts'
@@ -556,6 +562,7 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
               className="w-[330px]"
               value={goodsReceiptId ?? ''}
               onChange={(event) => {
+                setRevealValidationIssues(true)
                 const id = event.target.value ? Number(event.target.value) : null
                 setGoodsReceiptId(id)
                 if (!id) return
@@ -842,7 +849,11 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
       )}
 
       <div className="mt-5 grid gap-3">
-        <ValidationSummary issues={validationIssues} />
+        <EntryValidationStatus
+          issues={validationIssues}
+          revealIssues={revealValidationIssues}
+          guidance={['Choose the party and sales or purchase ledger', 'Add an item with quantity and rate', 'Review the calculated invoice total']}
+        />
       <div className="flex justify-end gap-2">
         {formValid && !goodsReceiptId && !procurementClaimKey && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
         {formValid && !procurementClaimKey && <Button data-testid="btn-save-entry-template" onClick={() => void saveTemplate()}>Record safe macro…</Button>}
@@ -853,7 +864,7 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
             Save + invoice PDF
           </Button>
         )}
-        <Button variant="primary" data-testid="btn-save-voucher" disabled={saving || validationIssues.length > 0} onClick={() => void save()}>
+        <Button variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
           Save voucher ⌘↵
         </Button>
       </div>
@@ -866,6 +877,7 @@ export function InvoiceEntry({ typeId, kind, draft, workDraft }: { typeId: numbe
           suggestAccount={!quickLedger.forParty ? isSalesSide : null}
           onClose={() => setQuickLedger(null)}
           onCreated={(l) => {
+            setRevealValidationIssues(true)
             if (quickLedger.forParty) setPartyId(l.id)
             else setAccountId(l.id)
             setQuickLedger(null)
