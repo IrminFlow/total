@@ -722,10 +722,17 @@ lead time measured in weeks, which makes them the first items on the list and no
 343. ✓ The Playwright E2E suite on Windows in CI (M) — see the correction on #325. Path handling,
      the native menu, `_electron` launch and every file dialog are the places a macOS-only suite
      is blind, and they are exactly what breaks on Windows.
-344. A generated 100,000-voucher book, timed through every screen, with the numbers published (M)
-     — #224 measured 30k and #329 asks for the fixture; this is the stress pass at three times
-     that, and the artefact doubles as marketing. A report that is fine at 30k and unusable at
-     100k is a report that fails during an evaluation, which is the worst possible moment.
+344. ✓ A generated 100,000-voucher book, timed through every screen, with the numbers published
+     (M) — 85,840 vouchers, not 100,000: the generator posts a fixed ratio of receipts and
+     purchases per invoice, so a round number of invoices does not give a round number of
+     vouchers, and the numbers in `docs/performance.md` are the ones that were measured rather
+     than the ones the item asked for. It found what it was meant to find. e-Invoice & e-Way does
+     not settle at all inside sixty seconds on a busy machine and takes nineteen on a quiet one:
+     `listSalesInvoices` returns every sales document in the period unpaginated and runs two
+     correlated EXISTS subqueries per row, which is 88,000 correlated subqueries for one screen.
+     Trial balance is 3.2 seconds *warm*, which is the scaling wall of #224 measured rather than
+     predicted. `perf-sweep.mjs` gained `--data-dir=` so the expensive half — building the book —
+     is done once and re-timed in minutes.
 345. ✓ An error ring buffer attached to the feedback form, with a pre-send preview (S) — the
      Support dialog now takes a message and posts it to the site's `/api/feedback`, which had been
      waiting for a caller since it was written. A `mailto:` needs a configured mail client and
