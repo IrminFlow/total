@@ -25,6 +25,13 @@ import type { VoucherDraft } from '../state/stores'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult } from '@shared/gst/recon2b'
+import type { ImsAction, ImsWorklist } from '@shared/gst/ims'
+import type { AmendmentWindow, Gstr1aResult } from '@shared/gst/gstr1a'
+import type { GstSlabSet, ItemRate } from '@shared/gst/rateHistory'
+import type { TdsFormCode, TdsReturnIssue, TdsReturnWorking } from '@shared/tdsReturn'
+import type { Form16a } from '@shared/form16a'
+import type { ScheduleIIIBalanceSheet, ScheduleIIIProfitAndLoss } from '@shared/scheduleIII'
+import type { Form3cdPack } from '@shared/form3cd'
 import type {
   AgentExportInput,
   AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
@@ -32,7 +39,8 @@ import type {
   PayHeadInput, PriceLevelInput,
   PriceRateInput, RecurringInput,
   RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
-  VoucherInputParsed
+  VoucherInputParsed,
+  ItemGstRateInput, TdsChallanInput, TdsFilingConfigInput
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
 import type { CartTotals, DrawerReconciliation, PricingMode, Tender, TenderResult } from '@shared/counter'
@@ -1466,6 +1474,102 @@ export interface TdsSummaryRow {
   tds: number
 }
 
+// ---------- statutory depth (roadmap section S) ----------
+// All of these mirror shapes in src/main/services/** — those files are main-process only and the
+// renderer cannot import them. Kept next to each other so a change in main has one place to land.
+
+/** Mirrors the row `tds:challans` returns (services/tds.ts listChallans). */
+export interface TdsChallanRow {
+  id: number
+  form: TdsFormCode
+  bsrCode: string
+  paidOn: string
+  serial: string
+  tax: number
+  surcharge: number
+  cess: number
+  interest: number
+  fee: number
+  bookEntry: boolean
+  note: string | null
+  /** How many deductions point at this challan, and how much tax they claim against it. */
+  linked: number
+  claimed: number
+}
+
+/** Mirrors services/rcm.ts SelfInvoiceRecord. */
+export interface SelfInvoiceRecord {
+  id: number
+  number: string
+  date: string
+  basis: 'unregistered' | 'notified'
+  supplierName: string
+  supplierGstin: string | null
+  taxable: number
+  igst: number
+  cgst: number
+  sgst: number
+  cess: number
+  total: number
+  voucherIds: number[]
+  issuedAt: string
+  warnings: string[]
+}
+
+/** Mirrors services/rcm.ts RcmRegister. */
+export interface RcmRegister {
+  from: string
+  to: string
+  pending: {
+    voucherId: number
+    date: string
+    voucherNumber: string
+    supplierName: string
+    supplierGstin: string | null
+    basis: string
+    taxable: number
+    tax: number
+  }[]
+  issued: SelfInvoiceRecord[]
+  unflagged: { voucherId: number; date: string; voucherNumber: string; partyName: string | null; category: string; reason: string }[]
+}
+
+/** Mirrors services/gstr1a.ts Gstr1aState. */
+export interface Gstr1aState {
+  period: string
+  from: string
+  to: string
+  result: Gstr1aResult | null
+  window: AmendmentWindow
+  gstr1FiledAt: string | null
+  gstr3bFiledAt: string | null
+  snapshotDocs: number | null
+  message: string | null
+}
+
+/** One dated rate for an item, as `gst:itemRates` returns it (services/gstRates.ts). */
+export type DatedItemRate = ItemRate & { id: number }
+
+/** Mirrors services/gstRates.ts RateAdvisory. */
+export interface RateAdvisory {
+  from: string
+  to: string
+  structureChange: GstSlabSet | null
+  itemsChangingWithin: { itemId: number; itemName: string; changes: ItemRate[] }[]
+  findings: {
+    voucherId: number
+    date: string
+    voucherNumber: string
+    kind: string
+    itemId: number
+    itemName: string
+    usedRate: number
+    datedRate: number | null
+    message: string
+  }[]
+  staleMasters: { itemId: number; itemName: string; gstRate: number; message: string }[]
+}
+
 /** Mirrors src/main/services/costCentres.ts's CcReportRow shape (kept local — that file is main-process only). */
 export interface CcReportRow {
   /** -1 on the synthetic "Not allocated" reconciling row. */
@@ -1981,7 +2085,18 @@ export const api = {
       call<ItemProfitPeriod[]>('report:itemProfitByPeriod', { from, to, groupBy }),
     /** Cash forecast from open bills, PDCs and recurring templates (roadmap C61). */
     cashForecast: (from: string, to: string, bucketDays?: number) =>
-      call<CashForecast>('report:cashForecast', { from, to, bucketDays })
+      call<CashForecast>('report:cashForecast', { from, to, bucketDays }),
+    /** The Schedule III face of both statements (roadmap #363). */
+    scheduleIII: (booksFrom: string, asOn: string) =>
+      call<{ balanceSheet: ScheduleIIIBalanceSheet; profitAndLoss: ScheduleIIIProfitAndLoss }>('report:scheduleIII', {
+        from: booksFrom,
+        to: asOn
+      }),
+    scheduleIIICsv: (booksFrom: string, asOn: string) =>
+      call<{ path: string }>('report:scheduleIIICsv', { from: booksFrom, to: asOn }),
+    /** Clause-wise extracts for the tax audit (roadmap #362). */
+    form3cd: (fyStartYear: number) => call<Form3cdPack>('report:form3cd', { fyStartYear }),
+    form3cdCsv: (fyStartYear: number) => call<{ path: string }>('report:form3cdCsv', { fyStartYear })
   },
   /** Saved report views: named display state per screen (roadmap C58). */
   views: {
@@ -2017,7 +2132,38 @@ export const api = {
       }>('gst:validate', { from, to }),
     get3bManual: (period: string) => call<Gst3bManualInput>('gst:3bManualGet', { period }),
     set3bManual: (period: string, data: Gst3bManualInput) =>
-      call<Gst3bManualInput>('gst:3bManualSet', { period, data })
+      call<Gst3bManualInput>('gst:3bManualSet', { period, data }),
+
+    /** GSTR-1A: the difference between what was filed and what the books now say (roadmap #353). */
+    gstr1a: (period: string) => call<Gstr1aState>('gst:gstr1a', { period }),
+    /** Freeze the filed return, so there is something to amend against. */
+    gstr1Snapshot: (period: string) => call<{ period: string; docs: number }>('gst:gstr1Snapshot', { period }),
+
+    /** Dated GST rates for an item (roadmap #358). */
+    itemRates: (id: number) => call<DatedItemRate[]>('gst:itemRates', { id }),
+    itemRateSave: (data: ItemGstRateInput) => call<DatedItemRate[]>('gst:itemRateSave', data),
+    itemRateDelete: (id: number) => call<DatedItemRate[]>('gst:itemRateDelete', { id }),
+    rateAdvisory: (from: string, to: string) => call<RateAdvisory>('gst:rateAdvisory', { from, to })
+  },
+
+  /** Reverse-charge self-invoices (roadmap #356). */
+  rcm: {
+    register: (from: string, to: string) => call<RcmRegister>('rcm:register', { from, to }),
+    issue: (from: string, to: string, consolidate: boolean, voucherIds?: number[]) =>
+      call<{ issued: SelfInvoiceRecord[]; skipped: number[] }>('rcm:issue', { from, to, consolidate, voucherIds }),
+    remove: (id: number) => call<null>('rcm:delete', { id }),
+    pdf: (id: number) => call<{ path: string }>('rcm:pdf', { id })
+  },
+
+  /** IMS decisions taken from the 2B reconciliation (roadmap #352). */
+  ims: {
+    worklist: (jsonText: string, from: string, to: string) =>
+      call<{ worklist: ImsWorklist; errors: string[]; recon: Recon2bResult }>('ims:worklist', { jsonText, from, to }),
+    decide: (docKey: string, period: string, action: ImsAction, note: string | null) =>
+      call<ImsAction>('ims:decide', { docKey, period, action, note }),
+    clear: (docKey: string) => call<null>('ims:clear', { docKey }),
+    acceptMatched: (jsonText: string, from: string, to: string) =>
+      call<{ accepted: number }>('ims:acceptMatched', { jsonText, from, to })
   },
   analysis: {
     register: (kind: 'sales' | 'purchase', from: string, to: string, groupBy?: Period) =>
@@ -2231,7 +2377,34 @@ export const api = {
     suggest: (partyLedgerId: number, base: number, date: string) =>
       call<TdsSuggestion | null>('tds:suggest', { partyLedgerId, base, date }),
     summary: (fyStartYear: number) => call<TdsSummaryRow[]>('tds:summary', { fyStartYear }),
-    export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter })
+    export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter }),
+
+    /** Challans — the facts a quarterly statement needs and the books never held (roadmap #360). */
+    challans: (fyStartYear: number) => call<TdsChallanRow[]>('tds:challans', { fyStartYear }),
+    challanSave: (data: TdsChallanInput) => call<number>('tds:challanSave', data),
+    challanDelete: (id: number) => call<null>('tds:challanDelete', { id }),
+    link: (entryIds: number[], challanId: number | null) => call<number>('tds:link', { entryIds, challanId }),
+    filingConfig: () => call<TdsFilingConfigInput>('tds:filingConfig'),
+    filingConfigSave: (data: TdsFilingConfigInput) => call<TdsFilingConfigInput>('tds:filingConfigSave', data),
+
+    /** The quarterly return, and the two ways of getting it out. */
+    return: (form: TdsFormCode, fyStartYear: number, quarter: number) =>
+      call<TdsReturnWorking>('tds:return', { form, fyStartYear, quarter }),
+    returnCsv: (form: TdsFormCode, fyStartYear: number, quarter: number) =>
+      call<{ challansPath: string; deducteesPath: string; issues: TdsReturnIssue[] }>('tds:returnCsv', { form, fyStartYear, quarter }),
+    /** The e-TDS text file. The acknowledgement is required — the record layout is unverified. */
+    returnFile: (form: TdsFormCode, fyStartYear: number, quarter: number) =>
+      call<{ path: string; lineCount: number; unverifiedFormat: boolean }>('tds:returnFile', {
+        form, fyStartYear, quarter, acknowledgedUnverifiedFormat: true
+      }),
+
+    /** Form 16A for a vendor (roadmap #361). */
+    form16aDeductees: (fyStartYear: number, quarter: number) =>
+      call<{ ledgerId: number; name: string; pan: string | null; tds: number }[]>('tds:form16aDeductees', { fyStartYear, quarter }),
+    form16a: (ledgerId: number, fyStartYear: number, quarter: number) =>
+      call<Form16a>('tds:form16a', { ledgerId, fyStartYear, quarter }),
+    form16aPdf: (ledgerId: number, fyStartYear: number, quarter: number) =>
+      call<{ path: string }>('tds:form16aPdf', { ledgerId, fyStartYear, quarter })
   },
   cc: {
     list: () => call<CostCentre[]>('cc:list'),

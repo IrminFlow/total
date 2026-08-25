@@ -75,6 +75,11 @@ const EXPECTED_TABLES = [
   'voucher_drafts',
   'voucher_attachments',
   'bank_detail_requests',
+  'rcm_self_invoices',
+  'rcm_self_invoice_vouchers',
+  'ims_actions',
+  'stock_item_gst_rates',
+  'tds_challans',
   'migrations'
 ]
 

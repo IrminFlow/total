@@ -9,6 +9,7 @@ import { formatPaise } from '@shared/money'
 import { posLabel } from '@shared/gst/states'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Gst3bManualInput } from '@shared/schemas'
+import { Gstr1aPanel } from './statutoryTabs'
 
 export interface MonthChoice {
   key: string // YYYY-MM
@@ -172,6 +173,9 @@ export function Gstr1Screen(): React.JSX.Element {
   // a user who has learned the arrows work everywhere should not meet a screen where they do
   // not, and the bar is how you keep your place in a dense table.
   const summaryTable = useTableNav(data?.summary ?? [], { rowId: (s) => s.section })
+  // Amendments are a different return, filed after this one, so they sit behind a toggle rather
+  // than under the summary — a filer opening GSTR-1 for the month is not amending last month.
+  const [showAmendments, setShowAmendments] = useState(false)
 
   const issues = validation?.issues ?? []
   const blocking = issues.filter((i) => i.severity === 'blocking')
@@ -217,6 +221,13 @@ export function Gstr1Screen(): React.JSX.Element {
               testId="json-gstr1"
             />
             <Button
+              variant="ghost"
+              data-testid="btn-gstr1-amendments"
+              onClick={() => setShowAmendments(!showAmendments)}
+            >
+              {showAmendments ? 'Hide GSTR-1A' : 'GSTR-1A'}
+            </Button>
+            <Button
               variant="primary"
               data-testid="btn-gstr1-export"
               onClick={() => void doExport()}
@@ -233,6 +244,12 @@ export function Gstr1Screen(): React.JSX.Element {
 
       {exportBlockedReason && (
         <p className={`mb-3 text-body-sm ${blocking.length ? 'text-cr' : 'text-amber'}`}>{exportBlockedReason}</p>
+      )}
+
+      {showAmendments && (
+        <div className="mb-4">
+          <Gstr1aPanel period={month.key} />
+        </div>
       )}
 
       {validating ? (

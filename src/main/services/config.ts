@@ -385,3 +385,45 @@ export function setApprovalThreshold(db: DB, threshold: number | null): number |
   writeAudit(db, 'company', 0, 'update', { approvalThreshold: before }, { approvalThreshold: value })
   return value
 }
+
+// ---------- who signs the TDS return (roadmap #360) ----------
+
+/**
+ * The deductor details a quarterly TDS statement needs and the company master does not hold.
+ *
+ * The TAN and PAN live on CompanyInfo already. What a 24Q or 26Q also asks for is the PERSON
+ * RESPONSIBLE for deduction — a named human with a designation, who signs — and whether the
+ * deductor is a company or something else. Those are filing facts rather than identity facts, so
+ * they sit here rather than being bolted onto every company that will never file a TDS return.
+ */
+export interface TdsFilingConfig {
+  responsiblePerson: string | null
+  responsibleDesignation: string | null
+  /** 'A' company, 'S' other than company. The two codes that cover this app's users. */
+  deductorType: 'A' | 'S'
+}
+
+export const DEFAULT_TDS_FILING: TdsFilingConfig = {
+  responsiblePerson: null,
+  responsibleDesignation: null,
+  deductorType: 'S'
+}
+
+export function getTdsFiling(db: DB): TdsFilingConfig {
+  const raw = readMeta(db, 'tds.filing') as Partial<TdsFilingConfig> | null
+  if (!raw || typeof raw !== 'object') return DEFAULT_TDS_FILING
+  const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 120) : null)
+  return {
+    responsiblePerson: text(raw.responsiblePerson),
+    responsibleDesignation: text(raw.responsibleDesignation),
+    deductorType: raw.deductorType === 'A' ? 'A' : 'S'
+  }
+}
+
+export function setTdsFiling(db: DB, input: TdsFilingConfig): TdsFilingConfig {
+  const before = getTdsFiling(db)
+  writeMeta(db, 'tds.filing', input)
+  const after = getTdsFiling(db)
+  writeAudit(db, 'company', 0, 'update', { tdsFiling: before }, { tdsFiling: after })
+  return after
+}

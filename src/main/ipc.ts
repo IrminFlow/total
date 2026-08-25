@@ -24,7 +24,10 @@ import {
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, reportScheduleInputSchema, reportViewSaveSchema, exportXlsSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
-  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
+  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema,
+  // Statutory depth (roadmap section S).
+  form16aSchema, imsDecisionSchema, imsWorklistSchema, itemGstRateSchema, rcmIssueSchema,
+  tdsChallanSchema, tdsFilingConfigSchema, tdsLinkSchema, tdsQuarterSchema, tdsReturnFileSchema, tdsReturnSchema
 } from '@shared/schemas'
 import { addDays, todayISO } from '@shared/dates'
 import { aiSettingsSchema } from '@shared/ai/config'
@@ -63,6 +66,11 @@ import * as extras from './services/extras'
 import * as payroll from './services/payroll'
 import * as nic from './services/nic'
 import * as tds from './services/tds'
+import * as rcm from './services/rcm'
+import * as ims from './services/ims'
+import * as gstr1a from './services/gstr1a'
+import * as gstRates from './services/gstRates'
+import * as presentation from './services/presentation'
 import * as costCentres from './services/costCentres'
 import * as cashForecast from './services/cashForecast'
 import * as reportViews from './services/reportViews'
@@ -2382,6 +2390,143 @@ export function registerIpc(): void {
     const c = requireCompany()
     const path = tds.export26qCsv(c.db, c.info, c.slug, fyStartYear, quarter as 1 | 2 | 3 | 4)
     auditExport(c.db, 'tds_26q', { fyStartYear, quarter, path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- TDS challans and the quarterly return (roadmap #360, #361) ----------
+  handle('tds:challans', (p) => {
+    const { fyStartYear } = tdsSummarySchema.parse(p)
+    return tds.listChallans(requireCompany().db, fyStartYear)
+  }, 'viewer')
+  handle('tds:challanSave', (p) => tds.saveChallan(requireCompany().db, tdsChallanSchema.parse(p)))
+  handle('tds:challanDelete', (p) => tds.deleteChallan(requireCompany().db, idSchema.parse(p).id))
+  handle('tds:link', (p) => {
+    const { entryIds, challanId } = tdsLinkSchema.parse(p)
+    return tds.linkDeductions(requireCompany().db, entryIds, challanId)
+  })
+  handle('tds:filingConfig', () => configSvc.getTdsFiling(requireCompany().db), 'viewer')
+  handle('tds:filingConfigSave', (p) => configSvc.setTdsFiling(requireCompany().db, tdsFilingConfigSchema.parse(p)), 'owner')
+  handle('tds:return', (p) => {
+    const { form, fyStartYear, quarter } = tdsReturnSchema.parse(p)
+    const c = requireCompany()
+    return tds.tdsReturnWorking(c.db, c.info, form, fyStartYear, quarter)
+  }, 'viewer')
+  handle('tds:returnCsv', (p) => {
+    const { form, fyStartYear, quarter } = tdsReturnSchema.parse(p)
+    const c = requireCompany()
+    const out = tds.exportTdsReturnCsv(c.db, c.info, c.slug, form, fyStartYear, quarter)
+    auditExport(c.db, 'tds_return_csv', { form, fyStartYear, quarter, path: out.deducteesPath })
+    shell.showItemInFolder(out.deducteesPath)
+    return out
+  })
+  handle('tds:returnFile', (p) => {
+    // The acknowledgement is a literal `true` in the schema, so a caller cannot reach this
+    // without having said out loud that the record layout is unverified.
+    const { form, fyStartYear, quarter, acknowledgedUnverifiedFormat } = tdsReturnFileSchema.parse(p)
+    const c = requireCompany()
+    const out = tds.exportTdsReturnFile(c.db, c.info, c.slug, form, fyStartYear, quarter, acknowledgedUnverifiedFormat)
+    auditExport(c.db, 'tds_return_file', { form, fyStartYear, quarter, path: out.path })
+    shell.showItemInFolder(out.path)
+    return out
+  })
+  handle('tds:form16aDeductees', (p) => {
+    const { fyStartYear, quarter } = tdsQuarterSchema.parse(p)
+    return tds.form16aDeductees(requireCompany().db, fyStartYear, quarter)
+  }, 'viewer')
+  handle('tds:form16a', (p) => {
+    const { ledgerId, fyStartYear, quarter } = form16aSchema.parse(p)
+    const c = requireCompany()
+    return tds.form16aFor(c.db, c.info, ledgerId, fyStartYear, quarter)
+  }, 'viewer')
+  handle('tds:form16aPdf', async (p) => {
+    const { ledgerId, fyStartYear, quarter } = form16aSchema.parse(p)
+    const c = requireCompany()
+    const path = await tds.form16aPdf(c.db, c.info, c.slug, ledgerId, fyStartYear, quarter)
+    auditExport(c.db, 'form16a', { ledgerId, fyStartYear, quarter, path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- reverse-charge self-invoices (roadmap #356) ----------
+  handle('rcm:register', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    return rcm.rcmRegister(c.db, c.info, from, to)
+  }, 'viewer')
+  handle('rcm:issue', (p) => {
+    const { from, to, consolidate, voucherIds } = rcmIssueSchema.parse(p)
+    const c = requireCompany()
+    return rcm.issueSelfInvoices(c.db, c.info, from, to, { consolidate, voucherIds, by: sessionUser?.name ?? null })
+  })
+  handle('rcm:delete', (p) => rcm.deleteSelfInvoice(requireCompany().db, idSchema.parse(p).id))
+  handle('rcm:pdf', async (p) => {
+    const c = requireCompany()
+    const path = await rcm.selfInvoicePdf(c.db, c.info, c.slug, idSchema.parse(p).id)
+    auditExport(c.db, 'rcm_self_invoice', { path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+
+  // ---------- IMS decisions from the 2B reconciliation (roadmap #352) ----------
+  handle('ims:worklist', (p) => {
+    const { jsonText, from, to } = imsWorklistSchema.parse(p)
+    return ims.imsWorklist(requireCompany().db, jsonText, from, to)
+  }, 'viewer')
+  handle('ims:decide', (p) =>
+    ims.recordImsDecision(requireCompany().db, imsDecisionSchema.parse(p), sessionUser?.name ?? null)
+  )
+  handle('ims:clear', (p) => ims.clearImsDecision(requireCompany().db, z.object({ docKey: z.string() }).parse(p).docKey))
+  handle('ims:acceptMatched', (p) => {
+    const { jsonText, from, to } = imsWorklistSchema.parse(p)
+    const c = requireCompany()
+    const { worklist } = ims.imsWorklist(c.db, jsonText, from, to)
+    return { accepted: ims.acceptMatched(c.db, worklist, sessionUser?.name ?? null) }
+  })
+
+  // ---------- GSTR-1A, the amendment return (roadmap #353) ----------
+  handle('gst:gstr1a', (p) => {
+    const { period } = z.object({ period: z.string().trim().min(1).max(20) }).parse(p)
+    const c = requireCompany()
+    return gstr1a.gstr1aFor(c.db, c.info, period)
+  }, 'viewer')
+  handle('gst:gstr1Snapshot', (p) => {
+    const { period } = z.object({ period: z.string().trim().min(1).max(20) }).parse(p)
+    const c = requireCompany()
+    return gstr1a.snapshotGstr1(c.db, c.info, period)
+  })
+
+  // ---------- dated item rates (roadmap #358) ----------
+  handle('gst:itemRates', (p) => gstRates.itemRateHistory(requireCompany().db, idSchema.parse(p).id), 'viewer')
+  handle('gst:itemRateSave', (p) => gstRates.saveItemRate(requireCompany().db, itemGstRateSchema.parse(p)))
+  handle('gst:itemRateDelete', (p) => gstRates.deleteItemRate(requireCompany().db, idSchema.parse(p).id))
+  handle('gst:rateAdvisory', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return gstRates.rateAdvisory(requireCompany().db, from, to)
+  }, 'viewer')
+
+  // ---------- Schedule III and the Form 3CD pack (roadmap #362, #363) ----------
+  handle('report:scheduleIII', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return presentation.scheduleIII(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('report:scheduleIIICsv', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    const c = requireCompany()
+    const path = presentation.exportScheduleIIICsv(c.db, c.info, c.slug, from, to)
+    auditExport(c.db, 'schedule_iii', { from, to, path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
+  handle('report:form3cd', (p) => {
+    const { fyStartYear } = tdsSummarySchema.parse(p)
+    return presentation.form3cdPack(requireCompany().db, fyStartYear)
+  }, 'viewer')
+  handle('report:form3cdCsv', (p) => {
+    const { fyStartYear } = tdsSummarySchema.parse(p)
+    const c = requireCompany()
+    const path = presentation.exportForm3cdCsv(c.db, c.info, c.slug, fyStartYear)
+    auditExport(c.db, 'form_3cd', { fyStartYear, path })
     shell.showItemInFolder(path)
     return { path }
   })

@@ -741,40 +741,90 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      or small enterprise beyond 45 days loses the deduction for that year, and the number is
      computed from exactly the FIFO allocation the collections desk already runs. The single
      highest-value statutory feature this app could add.
-352. Invoice Management System actions from the 2B reconciliation (L) — IMS now sits between the
-     supplier's filing and the buyer's ITC, and every invoice has to be accepted, rejected or
-     pended. `recon2b` already computes the comparison; what it does not produce is the action
-     list, which is the part that has to happen every month.
-353. GSTR-1A, the amendment return (M) — see #101. Correcting a filed GSTR-1 stopped meaning
-     "wait for next month's amendment table" and started meaning a return of its own.
+352. ✓ Invoice Management System actions from the 2B reconciliation (L) — the worklist off the
+     2B recon, with a suggestion per bucket, a decision recorded per document, and a bulk accept
+     for the rows where the portal and the books agree. Keyed on supplier GSTIN + document number
+     so a decision survives re-downloading 2B, and so the rows with no voucher at all — the ones
+     deemed accepted if nobody looks — can hold one. **The app cannot take the action**: IMS is a
+     portal screen with no offline route, so this is the worked sheet and the record of what was
+     decided, and the screen says so. **Needs verification:** whether 'pending' is available on
+     every document type has changed more than once and has not been checked against the current
+     portal.
+353. ✓ GSTR-1A, the amendment return (M) — a snapshot of the outward documents taken when the
+     GSTR-1 filing is recorded, and a diff of the books against it. Three states rather than one,
+     because a period with no snapshot has to say so instead of reporting itself clean. A changed
+     recipient GSTIN is reported as its own kind — GSTR-1A cannot amend the counter-party, and
+     calling it an amendment would send the user to a form that rejects it. **Needs verification:**
+     the opening and closing conditions of the amendment window are stated as understood and
+     marked unverified against rule 59(4A) in the code and on the screen.
 354. The e-invoice reporting deadline, as a countdown (S) — registrations above the ₹10 crore
      turnover band must report an invoice to the IRP within 30 days of its date, after which the
      portal simply refuses it. `turnover.ts` already knows the band; nothing counts the days.
-355. Input Service Distributor for multi-GSTIN businesses (L) — mandatory rather than optional
-     now, and it only bites the companies #108 is for. Build it with #108 or not at all.
-356. The reverse-charge self-invoice (M) — a registered buyer who purchases from an unregistered
-     supplier has to raise the invoice themselves. `rcmAdvice` already identifies the case and
-     says so; nothing produces the document, which is the thing the auditor asks to see.
+355. ✗ Input Service Distributor for multi-GSTIN businesses (L) — declined here, as the item
+     itself says: ISD distributes common input credit from one registration to the others on the
+     same PAN, and a company with one GSTIN has nothing to distribute to. Multi-GSTIN (#108) is
+     not built, so an ISD screen would be a form with no second registration to name, an ISD
+     invoice with no recipient, and a GSTR-6 nobody could file. Build it with #108.
+356. ✓ The reverse-charge self-invoice (M) — the document section 31(3)(f) makes the recipient
+     raise, issued from its own Rule 46(b) serial series, with the Rule 46 particulars the books
+     cannot supply named on the face rather than invented. Built over exactly the supplies
+     GSTR-3B charges reverse-charge tax on, so the paper adds up to the return; idempotent per
+     voucher, because two invoices for one supply is a worse finding than none. **Needs
+     verification:** the proviso permitting a consolidated month-end invoice for section 9(4)
+     supplies is implemented and marked unverified — the per-supply form is the default.
 357. LUT tracking for exporters (S) — the undertaking is annual, expires on 31 March, and an
      expired one silently converts a zero-rated export into a taxable supply. A date and a
      reminder, worth far more than the effort.
-358. Rate history spanning the September 2025 rationalisation (M) — the move to two principal
-     slabs plus a demerit rate means an item's correct rate now depends on the invoice date.
-     This is the concrete case #92 exists for, and the one that will be asked about first.
-359. Income-tax Act 2025 section mapping (M) — in force from 1 April 2026, which renumbers what
-     `tds_sections` stores. Keep both numbers, key the correct one off the voucher date, and
-     print the one the certificate needs.
-360. TDS return files: 24Q and 26Q (L) — the app already holds every deduction. What it does not
-     do is emit the quarterly file the RPU takes, which is the step a business pays someone else
-     to do four times a year.
-361. Form 16A for vendors (M) — the deduction certificate for the party you deducted from.
-     Sibling of the payroll Form 16 (#171), same data, and nothing produces it.
-362. A Form 3CD data pack for the tax audit (M) — clause-wise extracts rather than a filled
-     form, because the form is the auditor's to sign and the data is the client's to supply.
-     Same shape as the CA pack, aimed at the one week of the year that matters most.
-363. Schedule III presentation of the Balance Sheet and P&L (M) — the format a company is
-     required to present in, as a view over the existing statement tree rather than a second
-     set of numbers.
+358. ✓ Rate history spanning the September 2025 rationalisation (M) — a dated slab structure, a
+     per-item change list, and an advisory that separates the three questions: did the structure
+     change inside this period (September 2025's return legitimately shows one HSN at two rates),
+     does a voucher carry a rate that was not notified on its own date, and does an item master
+     still hold a withdrawn slab. Nothing recomputes a posted voucher. **Needs verification:** the
+     22 September 2025 entry is taken from the 56th GST Council's recommendation; the rate
+     notifications behind it, and the treatment of compensation cess after that date, have not
+     been checked. The entry is flagged `unverified` in the data and on the screen. Per-HSN rates
+     are deliberately NOT modelled — that mapping is the user's, dated, per item.
+359. ✓ Income-tax Act 2025 section mapping (M) — the mechanism, complete: both numbers on the
+     section master, the payment's own date deciding which is printed, a user override that wins
+     over anything the app proposes, and the warning carried onto the 26Q and the Form 16A. A
+     certificate for an old quarter does not become a 2025 Act certificate because it was printed
+     late. **Needs verification, and says so everywhere it appears:** the proposed mapping assumes
+     deduction at source is consolidated in section 393 with a table, and NO table serial — nor
+     the section number itself — has been checked against the Act. Nothing is written into a
+     user's master until they confirm it.
+360. ✓ TDS return files: 24Q and 26Q (L) — with the piece that was actually missing: challans.
+     A quarterly statement is built challan by challan (BSR code, date, bank serial) and none of
+     that was recorded anywhere, so the deductions had nothing to hang from. Adds the challan
+     register, the deduction-to-challan link, a validation pass that names everything standing
+     between the quarter and the utility, and two exports. **The challan and deductee CSVs are
+     facts out of the books and are safe.** **Needs verification:** the `^`-separated e-TDS record
+     layout has NOT been checked against a published file format — it is written from one array in
+     `src/shared/tdsReturn.ts`, the export is behind an explicit acknowledgement, refuses while
+     the return has a blocking issue, and writes `.unverified.txt`. Run it through the FVU.
+361. ✓ Form 16A for vendors (M) — quarterly, per deductee, with the challan each deduction was
+     paid under and the rule 31(3) due date. Refuses to produce a certificate for a quarter with
+     no deduction, because that is not a nil certificate — it tells a vendor to look for credit
+     that is not there. **Stated on the face, first, in the code and on the screen:** a deductor
+     may not hand-make a Form 16A. Since the CBDT circulars of 2011–12 it is downloaded from
+     TRACES against the filed statement, and what this produces is a WORKING COPY of the figures.
+362. ✓ A Form 3CD data pack for the tax audit (M) — clause-wise extracts for 18, 21(d), 22, 23,
+     26, 31(a), 31(c), 34(a), 40 and 44, each citing its section and each naming what it does NOT
+     establish — clause 21(d) can list every cash payment over the limit but cannot know which
+     went through an account-payee instrument, and says so on the extract. Clauses that produced
+     nothing are listed with the reason, and clauses this build does not extract are listed too,
+     so the pack cannot be mistaken for a complete Form 3CD. The
+     40A(3) and 269SS/269T limits are dated data, so a pack for an old year uses that year's
+     limits. **Needs verification:** Form 3CD is amended almost every year and the clause NUMBERS
+     have not been checked against the form notified for the year being audited — every extract
+     states its content in words as well as by number.
+363. ✓ Schedule III presentation of the Balance Sheet and P&L (M) — Division I (non-Ind AS), as a
+     toggle on the balance sheet rather than a screen of its own, because two screens showing the
+     same balance sheet is how the two come to disagree. Maps leaves rather than subtrees so the
+     face provably ties to the statement it is a view over, shows any balance no line claims
+     instead of dropping it, and prints each judgement under the line that made it. Carries the
+     micro-and-small trade-payables split required on the face since 24 March 2021, from the same
+     classification section 43B(h) uses — and says the split is missing rather than printing an
+     unclassified zero. The 2021 ageing schedules are deliberately not produced.
 364. Related-party transactions report (S) — a flag on the party ledger and a disclosure listing
      every voucher against it. Cheap, and currently impossible to produce without a spreadsheet.
 365. A Rule 3(1) audit-trail statement (S) — the one page an auditor asks for: that the log

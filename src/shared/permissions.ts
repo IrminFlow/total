@@ -87,6 +87,10 @@ const PREFIX_CAPABILITIES: [string, Capability][] = [
   ['nic:', 'gst'],
   ['filing', 'gst'],
   ['tds:', 'gst'],
+  // Reverse-charge self-invoices and IMS decisions are GST work: somebody denied GST must not be
+  // issuing tax invoices or recording what was accepted on the portal.
+  ['rcm:', 'gst'],
+  ['ims:', 'gst'],
   ['master:', 'masters'],
   ['stock:', 'masters'],
   ['priceLevels:', 'masters'],

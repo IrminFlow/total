@@ -152,7 +152,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'books',
     accel: 'B',
     card: { sub: 'Assets and liabilities' },
-    invalidates: ['balanceSheet', 'ratios', 'reportViews']
+    invalidates: ['balanceSheet', 'ratios', 'reportViews', 'scheduleIII']
   },
   {
     name: 'cash-flow',
@@ -275,7 +275,8 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'gst',
     accel: '1',
     card: { sub: 'Outward supplies return' },
-    invalidates: ['gstr1', 'gstValidate']
+    keywords: ['gstr-1a', 'amendment', 'amend'],
+    invalidates: ['gstr1', 'gstValidate', 'gstr1a']
   },
   {
     name: 'gstr3b',
@@ -288,12 +289,12 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'gstr2b',
-    keywords: ['reconciliation', 'itc'],
+    keywords: ['reconciliation', 'itc', 'ims', 'invoice management system', 'accept', 'reject'],
     title: 'GSTR-2B recon',
     screen: { name: 'gstr2b' },
     navSection: 'gst',
     accel: '2',
-    invalidates: ['gstr2b', 'ledgers']
+    invalidates: ['gstr2b', 'ledgers', 'imsWorklist']
   },
   {
     name: 'edocs',
@@ -407,7 +408,10 @@ export const SCREENS: ScreenDef[] = [
       'disclosure', 'related party', 'audit trail', 'rule 3(1)', 'lut', 'letter of undertaking',
       'e-invoice', 'irp', 'reporting window', 'auditor'
     ],
-    invalidates: ['relatedParties', 'auditStatement', 'luts', 'lutStatus', 'eInvoiceWindow']
+    invalidates: [
+      'relatedParties', 'auditStatement', 'luts', 'lutStatus', 'eInvoiceWindow',
+      'rcmRegister', 'form3cd', 'rateAdvisory', 'itemRates'
+    ]
   },
   {
     name: 'filings',
@@ -440,7 +444,8 @@ export const SCREENS: ScreenDef[] = [
     // word's own initial; J is equally arbitrary as a badge and was free.
     accel: 'J',
     feature: 'tds',
-    invalidates: ['tdsSummary', 'tdsSections']
+    keywords: ['tds', 'challan', '26q', '24q', 'form 16a', 'deduction certificate', 'traces', 'return'],
+    invalidates: ['tdsSummary', 'tdsSections', 'tdsChallans', 'tdsReturn', 'form16aDeductees', 'form16a']
   },
 
   {

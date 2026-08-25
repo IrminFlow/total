@@ -96,6 +96,16 @@ export interface TdsSection {
   thresholdSingle: number
   /** Paise; 0 = no FY-cumulative threshold. */
   thresholdAnnual: number
+  /**
+   * The Income-tax Act 2025 reference for the same deduction, or null.
+   *
+   * `code` is the 1961 Act section. From 1 April 2026 the same deduction is made under the 2025
+   * Act, which renumbers it, and a certificate for a payment on or after that date has to carry
+   * the new reference. Both are kept and the payment's own date decides which is printed — see
+   * src/shared/itAct2025.ts. NULL until a user records one, because the app's proposed mapping is
+   * unverified and writing a guess into the master would make it look confirmed.
+   */
+  code2025: string | null
 }
 
 export interface CostCentre {

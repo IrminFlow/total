@@ -53,4 +53,6 @@ export const MIGRATION_HASHES: readonly string[] = [
   '87e07b731801de8b', // 37: ALTER TABLE audit_log ADD COLUMN prev_hash TEXT;
   '5e7b70af6c9734ce', // 38: ALTER TABLE ledgers ADD COLUMN default_cost_centre_id INTEGER RE
   '90ec58e175cd3ffb', // 39: CREATE TABLE voucher_attachments (
+  '526dfd40f1eb03c6', // 40: CREATE TABLE rcm_self_invoices (
+  '8c8fc35b9615d094', // 41: CREATE TABLE stock_item_gst_rates (
 ]
