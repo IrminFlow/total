@@ -67,7 +67,7 @@ function AuditorMode(): React.JSX.Element {
   if (data?.active) {
     return (
       <Panel className="p-4" data-testid="auditor-active">
-        <p className="text-detail font-medium text-amber">Auditor session is open — {data.timeLeft}.</p>
+        <p className="text-detail font-medium text-accent">Auditor session is open — {data.timeLeft}.</p>
         <p className="mt-1 max-w-prose text-body-sm text-muted">
           Read, print and export only. Everything this session touches is recorded as
           &ldquo;Auditor&rdquo;{data.grantedBy ? `, let in by ${data.grantedBy}` : ''}. It ends by itself, and

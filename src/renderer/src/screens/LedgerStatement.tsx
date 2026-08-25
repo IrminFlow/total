@@ -232,7 +232,7 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
                   key={m.mode}
                   data-testid={`tab-ledger-statement-${m.testid}`}
                   onClick={() => setMode(m.mode)}
-                  className={`rounded-md px-3 py-1 text-body-sm ${mode === m.mode ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                  className={`rounded-md px-3 py-1 text-body-sm ${mode === m.mode ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
                 >
                   {m.tab}
                 </button>

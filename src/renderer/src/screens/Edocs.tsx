@@ -179,7 +179,7 @@ export function EdocsScreen(): React.JSX.Element {
         e-Invoice &amp; e-Way bill
       </SectionTitle>
 
-      {!info?.gstin && <p className="mb-3 text-body-sm text-amber">Add the company GSTIN under Company details to enable exports.</p>}
+      {!info?.gstin && <p className="mb-3 text-body-sm text-accent">Add the company GSTIN under Company details to enable exports.</p>}
 
       <Panel scroll={{ maxH: 'calc(100vh - 15rem)' }}>
         {isLoading ? (
@@ -208,7 +208,7 @@ export function EdocsScreen(): React.JSX.Element {
                   <td className="num">
                     {r.number}
                     {!r.hasHsn && (
-                      <span className="ml-1 text-amber" title="No stock item on this document carries an HSN code — e-invoice/EWB JSON will be rejected. Set HSN on the items (Masters → Items).">
+                      <span className="ml-1 text-accent" title="No stock item on this document carries an HSN code — e-invoice/EWB JSON will be rejected. Set HSN on the items (Masters → Items).">
                         ⚠
                       </span>
                     )}
@@ -222,7 +222,7 @@ export function EdocsScreen(): React.JSX.Element {
                     </span>
                     {r.outwardDbn && (
                       <span
-                        className="ml-1 inline-block rounded-md border border-amber/50 bg-amber/10 px-1.5 py-0.5 text-label font-medium text-amber"
+                        className="ml-1 inline-block rounded-md border border-accent/50 bg-accent/10 px-1.5 py-0.5 text-label font-medium text-accent"
                         title="Outward debit note — the NIC bulk docType enum has no DBN, so it exports as 'OTH'."
                       >
                         OTH

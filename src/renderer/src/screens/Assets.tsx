@@ -53,7 +53,7 @@ export function AssetsScreen(): React.JSX.Element {
                 aria-pressed={tab === id}
                 onClick={() => setTab(id)}
                 className={`rounded-md px-2.5 py-1 text-small ${
-                  tab === id ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+                  tab === id ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
                 }`}
               >
                 {label}
@@ -524,7 +524,7 @@ function ScheduleTab(): React.JSX.Element {
       )}
 
       {s && s.unblocked > 0 && (
-        <div className="mb-3 rounded-md border border-amberbar/50 bg-amberbar/10 px-3.5 py-2.5 text-body-sm">
+        <div className="mb-3 rounded-md border border-accentbar/50 bg-accentbar/10 px-3.5 py-2.5 text-body-sm">
           <b>{s.unblocked}</b> asset{s.unblocked === 1 ? ' has' : 's have'} no income-tax block, so
           {s.unblocked === 1 ? ' it appears' : ' they appear'} in the books&rsquo; schedule and not
           in the return&rsquo;s.

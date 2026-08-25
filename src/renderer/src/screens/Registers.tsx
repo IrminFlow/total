@@ -144,7 +144,7 @@ export function RegistersScreen(): React.JSX.Element {
                     data-testid={`tab-registers-period-${g.period}`}
                     aria-pressed={granularity === g.period}
                     onClick={() => setGranularity(g.period)}
-                    className={`rounded-md px-2.5 py-1 text-small ${granularity === g.period ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                    className={`rounded-md px-2.5 py-1 text-small ${granularity === g.period ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
                   >
                     {g.label}
                   </button>
@@ -451,7 +451,7 @@ function PartySharePanel({
               data-testid={`tab-parties-${k}`}
               aria-pressed={side === k}
               onClick={() => setSide(k)}
-              className={`rounded-md px-2.5 py-1 text-small ${side === k ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+              className={`rounded-md px-2.5 py-1 text-small ${side === k ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
             >
               {k === 'sales' ? 'Customers' : 'Suppliers'}
             </button>
@@ -497,7 +497,7 @@ function PartySharePanel({
           className={`mb-3 rounded-md border px-3.5 py-2.5 text-body-sm ${
             data.concentration.level === 'concentrated'
               ? 'border-cr/40 bg-cr/5 text-cr'
-              : 'border-amber/50 bg-amber/10 text-amber'
+              : 'border-accent/50 bg-accent/10 text-accent'
           }`}
           data-testid="party-concentration"
         >

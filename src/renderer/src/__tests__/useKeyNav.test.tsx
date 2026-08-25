@@ -1,4 +1,4 @@
-// useKeyNav — the ↑↓↵ amber-bar registry (components/ui.tsx): movement, clamping, Enter,
+// useKeyNav — the ↑↓↵ accent-bar registry (components/ui.tsx): movement, clamping, Enter,
 // input-target suppression, and the topmost-list-wins stack.
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, renderHook } from '@testing-library/react'
@@ -105,7 +105,7 @@ describe('useKeyNav', () => {
     under.unmount()
   })
 
-  // #275 — moving the amber bar changes nothing in the accessibility tree, so the row has to be
+  // #275 — moving the accent bar changes nothing in the accessibility tree, so the row has to be
   // spoken into a live region or the whole list is silent to a screen reader.
   it('announces the row it lands on, with its position', () => {
     useAnnouncer.setState({ message: '' })

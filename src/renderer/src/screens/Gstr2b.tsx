@@ -243,7 +243,7 @@ export function Gstr2bScreen(): React.JSX.Element {
                   data-testid={`btn-2b-bucket-${b.key}`}
                   onClick={() => setBucket(b.key)}
                   className={`rounded-md border px-3 py-1.5 text-body-sm ${
-                    bucket === b.key ? 'border-amber/60 bg-amber/15 text-amber' : 'border-line text-muted hover:bg-panel2 hover:text-ink'
+                    bucket === b.key ? 'border-accent/60 bg-accent/15 text-accent' : 'border-line text-muted hover:bg-panel2 hover:text-ink'
                   }`}
                 >
                   {b.label} <span className="num">{t.count}</span> · <Money paise={taxTotal(t)} />

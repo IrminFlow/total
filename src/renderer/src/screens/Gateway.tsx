@@ -31,13 +31,19 @@ export function Gateway(): React.JSX.Element {
    * lines and standing a head taller than its neighbours. A due date is not a balance — it now
    * reads as a countdown on the compliance calendar, which is the panel that owns dates.
    */
+  const gstPayable = data?.gstPayable ?? 0
   const tiles: { label: string; value: number; spark: TileSparkKey }[] = [
     { label: 'Cash in hand', value: data?.cashBalance ?? 0, spark: 'cash' },
     { label: 'Bank balance', value: data?.bankBalance ?? 0, spark: 'bank' },
     { label: 'Receivables', value: data?.receivables ?? 0, spark: 'receivables' },
     { label: 'Payables', value: data?.payables ?? 0, spark: 'payables' },
     { label: 'Sales this month', value: data?.monthSales ?? 0, spark: 'sales' },
-    { label: 'GST payable', value: data?.gstPayable ?? 0, spark: 'gst' }
+    // Negative GST payable is a credit balance — money the department owes back. Printed as a
+    // signed number it reads as an error on a card that is actually good news, so the card
+    // changes its own label rather than asking the reader to interpret a minus sign.
+    gstPayable < 0
+      ? { label: 'GST credit', value: Math.abs(gstPayable), spark: 'gst' }
+      : { label: 'GST payable', value: gstPayable, spark: 'gst' }
   ]
   // A figure with no history behind it is a figure nobody can judge: 4.2 lakh of receivables is
   // either a good month or a collections problem, and only the shape of the last twelve tells
@@ -113,7 +119,7 @@ export function Gateway(): React.JSX.Element {
                   <span className="flex-1 truncate text-detail">
                     {v.account}
                     {v.isOptional && (
-                      <span data-testid="recent-badge-optional" className="ml-2 rounded-md bg-amber/15 px-1.5 py-0.5 text-label font-medium text-amber">Optional</span>
+                      <span data-testid="recent-badge-optional" className="ml-2 rounded-md bg-accent/15 px-1.5 py-0.5 text-label font-medium text-accent">Optional</span>
                     )}
                     {v.postDated && (
                       <span data-testid="recent-badge-pdc" className="ml-2 rounded-md bg-blue/10 px-1.5 py-0.5 text-label font-medium text-blue">PDC</span>
@@ -270,7 +276,7 @@ function CompliancePanel({
             <span
               data-testid="gateway-next-gst"
               className={`rounded-md px-1.5 py-0.5 text-hint font-medium whitespace-nowrap ${
-                daysUntil(nearestGst.date, today) <= 3 ? 'bg-cr/10 text-cr' : 'bg-amber/15 text-amber'
+                daysUntil(nearestGst.date, today) <= 3 ? 'bg-cr/10 text-cr' : 'bg-accent/15 text-accent'
               }`}
             >
               {deadlineCountdown(nearestGst, today)}
@@ -341,9 +347,12 @@ function OnboardingChecklist({ partyCount, itemCount }: { partyCount: number; it
             onClick={s.onClick}
             className="flex w-full items-center gap-3 border-b border-line/40 px-5 py-3 text-left last:border-b-0 hover:bg-panel2"
           >
-            <span className={`text-lead ${s.done ? 'text-amber' : 'text-muted/60'}`}>{s.done ? '✓' : '○'}</span>
+            <span className={`text-lead ${s.done ? 'text-accent' : 'text-muted/60'}`}>{s.done ? '✓' : '○'}</span>
             <span className="flex-1">
-              <span className={`block text-body ${s.done ? 'text-muted line-through' : 'text-ink'}`}>{s.label}</span>
+              {/* Dimmed, not struck through. The tick already says the step is done; a line through the
+                  words says it a second time and in a register that means "cancelled" — four
+                  crossed-out lines make a card of completed work look like a card of mistakes. */}
+              <span className={`block text-body ${s.done ? 'text-muted' : 'text-ink'}`}>{s.label}</span>
               <span className="block text-hint text-muted/70">{s.hint}</span>
             </span>
           </button>
@@ -437,7 +446,7 @@ function CashSparklinePanel({ points }: { points: CashSparkPoint[] }): React.JSX
               y1={0}
               x2={xAt(hoverIdx)}
               y2={h}
-              stroke="var(--t-amber)"
+              stroke="var(--t-accent)"
               strokeWidth="1"
               vectorEffect="non-scaling-stroke"
             />
@@ -560,7 +569,7 @@ function LastBackupLine(): React.JSX.Element | null {
   const stale = hours > STALE_BACKUP_HOURS
 
   return (
-    <p className={`mt-3 text-hint ${stale ? 'text-amber' : 'text-muted'}`} data-testid="gateway-last-backup">
+    <p className={`mt-3 text-hint ${stale ? 'text-accent' : 'text-muted'}`} data-testid="gateway-last-backup">
       {latest ? (
         <>
           Last backup {toDisplayDateTime(new Date(latest.mtime))}
@@ -610,7 +619,7 @@ function GettingStarted(): React.JSX.Element | null {
         {data.steps.map((step) => (
           <li key={step.id} className="flex items-baseline gap-2.5 text-body-sm">
             <span className={step.done ? 'text-dr' : 'text-muted'}>{step.done ? '✓' : '○'}</span>
-            <span className={step.done ? 'text-muted line-through' : ''}>
+            <span className={step.done ? 'text-muted' : ''}>
               {step.screen && !step.done ? (
                 <button
                   className="text-blue hover:underline"

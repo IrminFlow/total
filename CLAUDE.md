@@ -49,7 +49,7 @@ cd site && npm run dev / npm run build   # marketing site
 - Every IPC payload is Zod-parsed in `src/main/ipc.ts`; handlers return `{ ok, data | error }`.
 - Schema changes = append a numbered migration in `src/main/db/migrations.ts` (never edit old ones).
 - Debit/credit: signed balances are dr-positive; Tally XML import converts Tally's negative-=-debit convention.
-- UI: theme tokens are `--t-*` CSS vars on `[data-theme]`, mapped through Tailwind `@theme inline` — components use token utilities only. The amber `.kbar-row` selection bar on `<tr>` uses an inset box-shadow, **never `::before`** (a `tr::before` renders as a phantom first cell).
+- UI: theme tokens are `--t-*` CSS vars on `[data-theme]`, mapped through Tailwind `@theme inline` — components use token utilities only. The accent `.kbar-row` selection bar on `<tr>` uses an inset box-shadow, **never `::before`** (a `tr::before` renders as a phantom first cell).
 - Vouchers are soft-deleted (`vouchers.deleted_at`, moved to the bin) — every new SQL query touching `vouchers`/`voucher_lines` must filter `deleted_at IS NULL` (see `NOT_DELETED` in `src/main/services/vouchers.ts`) unless it's explicitly reading the bin, `getVoucher`, or `nextVoucherNumber`.
 
 ## Gotchas
@@ -64,7 +64,16 @@ cd site && npm run dev / npm run build   # marketing site
 ## Release steps (auto-update pipeline)
 
 ```bash
-npm version patch      # bumps version, commits, tags vX.Y.Z
+npm run release -- patch   # pre-flight, full verify, version, tag, push, then CHECK it published
+```
+
+`scripts/release.mjs` does what the two commands below used to do from memory, and then goes and
+looks: it polls the release until the assets exist and fails loudly if it published as a draft or
+a pre-release, because `releases/latest` returns neither and both reach nobody while looking
+perfect on the releases page. `--dry-run` stops before the version commit and the push.
+
+```bash
+npm version patch      # what it runs underneath: bumps version, commits, tags vX.Y.Z
 git push --follow-tags # → GitHub Actions: tests, DMG+ZIP build, publishes the release
 ```
 

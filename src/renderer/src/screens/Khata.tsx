@@ -108,7 +108,7 @@ export function KhataScreen(): React.JSX.Element {
                   data-testid={`tab-khata-${s}`}
                   aria-pressed={side === s}
                   onClick={() => setSide(s)}
-                  className={`rounded-md px-2.5 py-1 text-small ${side === s ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+                  className={`rounded-md px-2.5 py-1 text-small ${side === s ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
                 >
                   {s === 'receivable' ? 'Receivable' : 'Payable'}
                 </button>
@@ -479,7 +479,7 @@ function NotesModal({ party, onClose }: { party: KhataParty; onClose: () => void
                   <span className="num text-hint text-muted">{n.at}</span>
                   <span className="text-hint text-muted"> · {n.userName ?? 'someone'}</span>
                   {n.promisedDate && (
-                    <span className={`ml-2 text-hint ${n.closedAt ? 'text-muted' : 'text-amber'}`}>
+                    <span className={`ml-2 text-hint ${n.closedAt ? 'text-muted' : 'text-accent'}`}>
                       promised {toDisplayDate(n.promisedDate)}
                       {n.promisedAmount != null && <> · <Money paise={n.promisedAmount} /></>}
                       {n.closedAt && ' (closed)'}

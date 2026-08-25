@@ -106,7 +106,7 @@ const DayBookRowView = memo(function DayBookRowView({
         <td>
           {row.account}
           {row.isOptional && (
-            <span className="ml-2 rounded-md bg-amber/15 px-1.5 py-0.5 text-label font-medium text-amber">Optional</span>
+            <span className="ml-2 rounded-md bg-accent/15 px-1.5 py-0.5 text-label font-medium text-accent">Optional</span>
           )}
           {row.postDated && (
             <span className="ml-2 rounded-md bg-blue/10 px-1.5 py-0.5 text-label font-medium text-blue">PDC</span>
@@ -133,9 +133,9 @@ const DayBookRowView = memo(function DayBookRowView({
           ) : row.bankStatus === 'reconciled' ? (
             <span className="text-dr">Cleared</span>
           ) : row.bankStatus === 'partial' ? (
-            <span className="text-amber">Part-cleared</span>
+            <span className="text-accent">Part-cleared</span>
           ) : (
-            <span className="text-amber">Not cleared</span>
+            <span className="text-accent">Not cleared</span>
           )}
         </td>
       )}
@@ -615,7 +615,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
       </SectionTitle>
       {(drill.span || drill.kind) && (
         <div className="mb-3 flex items-center gap-2">
-          <span className="flex items-center gap-1.5 rounded-full border border-amberbar/50 bg-amberbar/10 px-3 py-1 text-small">
+          <span className="flex items-center gap-1.5 rounded-full border border-accentbar/50 bg-accentbar/10 px-3 py-1 text-small">
             {drill.span ? drill.span.label : null}
             {drill.span && drill.kind ? ' · ' : ''}
             {drill.kind ? <span className="capitalize">{drill.kind.replace('_', ' ')}</span> : null}
@@ -634,7 +634,7 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
       )}
       {selected.size > 0 && (
         <div
-          className="mb-3 flex items-center gap-3 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm"
+          className="mb-3 flex items-center gap-3 rounded-md border border-accent/50 bg-accent/10 px-3.5 py-2.5 text-body-sm"
           data-testid="daybook-selection-bar"
         >
           <span>
