@@ -75,6 +75,11 @@ const EXPECTED_TABLES = [
   'voucher_drafts',
   'voucher_attachments',
   'bank_detail_requests',
+  'item_gst_rates',
+  'job_work_challans',
+  'job_work_returns',
+  'tds_lower_deduction_certificates',
+  'gstr1_filed_documents',
   'migrations'
 ]
 

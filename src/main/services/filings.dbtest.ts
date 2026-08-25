@@ -65,7 +65,7 @@ describe('filing register — schedule joined to what was filed', () => {
       (r) => r.form === 'GSTR-1' && r.period === '2026-04'
     )!
 
-    recordFiling(db, {
+    recordFiling(db, MONTHLY, {
       form: 'GSTR-1',
       period: '2026-04',
       dueDate: before.date,
@@ -90,7 +90,7 @@ describe('filing register — schedule joined to what was filed', () => {
   it('recomputes the fee from the dates instead of trusting what it is handed', () => {
     // A register that stores a hand-supplied figure next to inputs that contradict it lies.
     const db = seededDb()
-    const rec = recordFiling(db, {
+    const rec = recordFiling(db, MONTHLY, {
       form: 'GSTR-3B',
       period: '2026-04',
       dueDate: '2026-05-20',
@@ -106,11 +106,11 @@ describe('filing register — schedule joined to what was filed', () => {
 
   it('clears a filing back to outstanding, and zeroes what it cost', () => {
     const db = seededDb()
-    recordFiling(db, {
+    recordFiling(db, MONTHLY, {
       form: 'GSTR-3B', period: '2026-04', dueDate: '2026-05-20',
       filedAt: '2026-06-19', arn: 'AA1', taxPaid: 10_00_000, notes: null
     })
-    const cleared = recordFiling(db, {
+    const cleared = recordFiling(db, MONTHLY, {
       form: 'GSTR-3B', period: '2026-04', dueDate: '2026-05-20',
       filedAt: null, arn: null, taxPaid: 0, notes: 'filed in error'
     })
@@ -128,7 +128,7 @@ describe('filing register — schedule joined to what was filed', () => {
   it('keeps one row per (form, period) however many times it is written', () => {
     const db = seededDb()
     for (const arn of ['AA1', 'AA2', 'AA3']) {
-      recordFiling(db, {
+      recordFiling(db, MONTHLY, {
         form: 'GSTR-1', period: '2026-04', dueDate: '2026-05-11',
         filedAt: '2026-05-11', arn, taxPaid: 0, notes: null
       })
@@ -143,11 +143,11 @@ describe('filing register — schedule joined to what was filed', () => {
 
   it('audits a filing, so the register itself has a trail', () => {
     const db = seededDb()
-    recordFiling(db, {
+    recordFiling(db, MONTHLY, {
       form: 'GSTR-1', period: '2026-04', dueDate: '2026-05-11',
       filedAt: '2026-05-11', arn: 'AA1', taxPaid: 0, notes: null
     })
-    recordFiling(db, {
+    recordFiling(db, MONTHLY, {
       form: 'GSTR-1', period: '2026-04', dueDate: '2026-05-11',
       filedAt: '2026-05-12', arn: 'AA2', taxPaid: 0, notes: null
     })

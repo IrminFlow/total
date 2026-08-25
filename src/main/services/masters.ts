@@ -4,7 +4,9 @@ import { ledgerInputSchema } from '@shared/schemas'
 import type { BatchInput, GroupInput, GodownInput, LedgerInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput } from '@shared/schemas'
 import type { GroupTreeNode, LedgerBalanceRow } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
+import { todayISO } from '@shared/dates'
 import { writeAudit } from './audit'
+import { rateForItemOn } from './itemRates'
 
 // ---------- row mappers ----------
 
@@ -488,6 +490,8 @@ export interface EffectiveItemTax {
   inherited: { gstRate: boolean; cessRate: boolean; hsn: boolean }
   /** The group the values were inherited from, when any were. */
   fromGroup: string | null
+  /** Effective date of the `item_gst_rates` row the rate came from, or null when none applied. */
+  datedFrom: string | null
 }
 
 /**
@@ -500,15 +504,27 @@ export interface EffectiveItemTax {
  *
  * Inheritance walks up the group tree, so a sub-group can override its parent and a leaf item can
  * override both. The nearest ancestor that states a value wins.
+ *
+ * `onDate` is the date of the DOCUMENT being priced, not today (roadmap D-92). A dated change in
+ * `item_gst_rates` beats everything else, because it is both the most specific statement about
+ * this item and the only one that knows when it started being true — without it, a Council rate
+ * change on the 22nd silently reprices every invoice from the 1st. It defaults to today so that
+ * callers with no document in hand (a master screen showing "what does this charge now?") keep
+ * working unchanged.
  */
-export function effectiveItemTax(db: DB, stockItemId: number): EffectiveItemTax {
+export function effectiveItemTax(db: DB, stockItemId: number, onDate: string = todayISO()): EffectiveItemTax {
   const item = db
     .prepare('SELECT group_id, gst_rate, cess_rate, hsn FROM stock_items WHERE id = ?')
     .get(stockItemId) as { group_id: number | null; gst_rate: number | null; cess_rate: number | null; hsn: string | null } | undefined
   if (!item) throw new Error('Stock item not found')
 
-  let gstRate = item.gst_rate
-  let cessRate = item.cess_rate
+  // The history answers first when it has something to say about this date. When it does not —
+  // no rows at all, or rows that all start later — the item's own column answers exactly as it
+  // did before this table existed, so a book that never records a change is untouched.
+  const dated = rateForItemOn(db, stockItemId, onDate)
+
+  let gstRate = dated ? dated.ratePercent : item.gst_rate
+  let cessRate = dated ? dated.cessPercent : item.cess_rate
   let hsn = item.hsn
   const inherited = { gstRate: false, cessRate: false, hsn: false }
   let fromGroup: string | null = null
@@ -539,7 +555,7 @@ export function effectiveItemTax(db: DB, stockItemId: number): EffectiveItemTax 
     groupId = g.parent_id
   }
 
-  return { gstRate, cessRate, hsn, inherited, fromGroup }
+  return { gstRate, cessRate, hsn, inherited, fromGroup, datedFrom: dated?.effectiveFrom ?? null }
 }
 
 // ---------- finding an item the way a person at a counter would (roadmap #130) ----------

@@ -142,6 +142,13 @@
   --color-muted: var(--t-muted);
   --color-amber: var(--t-amber);
   --color-amberbar: var(--t-amber-bar);
+  /* The selection colour's name-neutral aliases. The signature colour has changed hue once
+     already (amber → indigo) and the utility names outlived it, so NEW markup says `accent` /
+     `accentbar` / `onaccent` and never names a hue. Same variables, one indirection: renaming
+     the `--t-*` tokens later touches these three lines, not every screen. */
+  --color-accent: var(--t-amber);
+  --color-accentbar: var(--t-amber-bar);
+  --color-onaccent: var(--t-on-amber);
   --color-dr: var(--t-dr);
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);

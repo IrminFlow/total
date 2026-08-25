@@ -10,6 +10,7 @@ import { useStickyFlag } from '../../lib/useStickyTab'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
 import { GST_STATES } from '@shared/gst/states'
 import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
+import { applyInvoiceDiscount, discountFromPercent } from '@shared/invoiceDiscount'
 import { addDays, toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
@@ -53,6 +54,10 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const [partyId, setPartyId] = useState<number | null>(draft?.partyLedgerId ?? null)
   const [accountId, setAccountId] = useState<number | null>(null)
   const [rows, setRows] = useState<ItemRow[]>(() => [blankItemRow()])
+  // Bill-level discount: a one-shot input, not part of the draft — once spread it lives in the
+  // line discounts, which is the only place it can legally live (see applyBillDiscount).
+  const [billDiscountText, setBillDiscountText] = useState('')
+  const [billDiscountPct, setBillDiscountPct] = useState(true)
   const [narration, setNarration] = useState(draft?.narration ?? '')
   const [vehicleNo, setVehicleNo] = useState('')
   const [transporterId, setTransporterId] = useState('')
@@ -438,6 +443,47 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   }
 
   /**
+   * Spread a bill-level discount across the lines (roadmap I-203).
+   *
+   * The base each line bears its share on is its POST-line-discount value, because that is the
+   * amount the customer is being billed and therefore the base the "less 2% on the bill"
+   * conversation is about. The apportionment itself is `applyInvoiceDiscount`, which allocates by
+   * largest remainder so the parts add back to exactly the discount promised — rounding each
+   * share independently would leave the discount column disagreeing with the discount, and an
+   * invoice that does not foot is an invoice that gets argued about.
+   *
+   * The typed figure is in the ENTRY currency, like every other rate and discount on this screen.
+   */
+  const applyBillDiscount = (): void => {
+    const typed = parseFloat(billDiscountText)
+    if (!Number.isFinite(typed) || typed <= 0) {
+      toast.push('error', 'Type a bill discount first')
+      return
+    }
+    const bases = rows.map((r) => {
+      const item = r.itemId ? itemMap.get(r.itemId) : null
+      const qty = parseFloat(r.qtyText || '0')
+      if (!item || !(qty > 0) || r.rate == null) return 0
+      return Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0))
+    })
+    const total = bases.reduce((s, b) => s + b, 0)
+    try {
+      const discount = billDiscountPct
+        ? discountFromPercent(total, typed)
+        : Math.round(typed * 100)
+      const applied = applyInvoiceDiscount(
+        rows.map((r, i) => ({ amountPaise: bases[i]!, lineDiscountPaise: r.discount ?? 0 })),
+        discount
+      )
+      setRows((rs) => rs.map((r, i) => ({ ...r, discount: applied.lines[i]!.totalDiscountPaise || null })))
+      setBillDiscountText('')
+      toast.push('success', `Spread ${formatPaise(applied.discountPaise)} across ${rows.filter((_, i) => bases[i]! > 0).length} line(s)`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  /**
    * Paste a block of item lines from a spreadsheet — `Item, Qty, Rate[, Discount]`.
    *
    * The commonest source is a picking list or an order confirmation with no prices in it at all,
@@ -746,6 +792,45 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
           )}
         </div>
         <div className="num w-72 text-detail">
+          {/*
+            Bill-level discount (roadmap I-203).
+
+            Deliberately an ACTION, not a running field: pressing it spreads the discount across
+            the lines in proportion to their value and leaves it visible in each line's Disc.
+            cell. Section 15(3)(a) only lets a discount out of the transaction value when it is
+            "duly recorded in the invoice", so a trailing "less 2%" below the tax total would be
+            a discount tax is still payable on. Apportioning is what makes it legal — and it keeps
+            the app's own invariant intact, that a line's amount IS its post-discount taxable
+            value, so GST can never be computed on the wrong base.
+          */}
+          <div className="mb-2 flex items-center justify-between gap-2 text-body-sm">
+            <span className="text-muted">Bill discount</span>
+            <div className="flex items-center gap-1">
+              <input
+                className={`${inputCls} num w-16 text-right`}
+                data-testid="input-bill-discount"
+                value={billDiscountText}
+                inputMode="decimal"
+                placeholder="0"
+                onChange={(e) => setBillDiscountText(e.target.value)}
+              />
+              <button
+                className="rounded-full border border-line px-2 py-0.5 text-caption text-muted"
+                data-testid="btn-bill-discount-mode"
+                title="Switch between a percentage of the bill and a rupee amount"
+                onClick={() => setBillDiscountPct((v) => !v)}
+              >
+                {billDiscountPct ? '%' : '₹'}
+              </button>
+              <button
+                className="rounded-full border border-line px-2 py-0.5 text-caption"
+                data-testid="btn-bill-discount-apply"
+                onClick={applyBillDiscount}
+              >
+                Spread
+              </button>
+            </div>
+          </div>
           <SummaryRow label="Taxable value" paise={computed.gst.taxable} />
           {computed.gst.cgst > 0 && <SummaryRow label="CGST" paise={computed.gst.cgst} />}
           {computed.gst.sgst > 0 && <SummaryRow label="SGST" paise={computed.gst.sgst} />}

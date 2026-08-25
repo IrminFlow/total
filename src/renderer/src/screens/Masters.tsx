@@ -4,13 +4,13 @@ import type { Godown, Ledger, StockGroup, StockItem, VoucherType } from '@shared
 import type { GroupTreeNode } from '@shared/reports'
 import { api } from '../lib/client'
 import { useNav, useToasts, type Screen } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useKeyNav } from '../components/ui'
+import { AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useKeyNav } from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { useGroups, useLedgers, useStockItems } from '../components/pickers'
 import { LedgerFormModal } from '../components/LedgerFormModal'
 import { validateHsn } from '@shared/gst/validate'
 import { expandSeriesPattern, seriesHasFyToken, SERIES_TOKENS } from '@shared/numberSeries'
-import { fyOf, todayISO } from '@shared/dates'
+import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
@@ -770,6 +770,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
             </Select>
           </Field>
         </div>
+        {item && <ItemRateHistory itemId={item.id} />}
         {item && (
           <div>
             <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
@@ -825,6 +826,229 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
         </div>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * The GST rate history of a stock item (roadmap D-92).
+ *
+ * A rate is dated data, not a field. A document is priced with the rate in force on ITS OWN date,
+ * so recording this year's change here — rather than by editing the GST % above — is what stops it
+ * reaching back and repricing an invoice that was already raised or a return that was already
+ * filed. An item with no rows here bills at its own GST %, exactly as it always did.
+ *
+ * Every change carries the notification that made it, because a rate with no citation is a rate
+ * nobody can audit.
+ */
+function ItemRateHistory({ itemId }: { itemId: number }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const today = todayISO()
+  const { data } = useQuery({
+    queryKey: ['itemRates', itemId, today],
+    queryFn: () => api.stock.rates(itemId, today)
+  })
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [effectiveFrom, setEffectiveFrom] = useState(today)
+  const [ratePercent, setRatePercent] = useState('')
+  const [cessPercent, setCessPercent] = useState('')
+  const [note, setNote] = useState('')
+
+  const reset = (): void => {
+    setEditingId(null)
+    setEffectiveFrom(today)
+    setRatePercent('')
+    setCessPercent('')
+    setNote('')
+  }
+
+  const refresh = async (): Promise<void> => {
+    // The rate feeds pricing everywhere, not just this modal — a stale copy anywhere else would
+    // quote a rate that is no longer what the item charges.
+    await queryClient.invalidateQueries()
+  }
+
+  const save = async (): Promise<void> => {
+    const rate = Number(ratePercent)
+    if (!ratePercent.trim() || !Number.isFinite(rate)) return void toast.push('error', 'Enter the rate, in percent')
+    const cess = cessPercent.trim() ? Number(cessPercent) : 0
+    if (!Number.isFinite(cess)) return void toast.push('error', 'Cess must be a percentage')
+    try {
+      const saved = await api.stock.saveRate(
+        {
+          stockItemId: itemId,
+          effectiveFrom,
+          ratePercent: rate,
+          cessPercent: cess,
+          note: note.trim() || null
+        },
+        editingId ?? undefined
+      )
+      // Warnings are advisory and never block: the Council has notified odd rates before, and an
+      // app that refuses to record reality is worse than one that queries it.
+      for (const w of saved.warnings) toast.push('warning', w)
+      toast.push('success', editingId ? 'Rate change updated' : 'Rate change recorded')
+      reset()
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const remove = async (row: { id: number; effectiveFrom: string }): Promise<void> => {
+    const proceed = await confirmDialog({
+      title: 'Forget this rate change',
+      message: `Forget the change dated ${toDisplayDate(row.effectiveFrom)}? Documents on or after that date will be priced at whatever rate then applies.`,
+      confirmLabel: 'Forget',
+      danger: true
+    })
+    if (!proceed) return
+    try {
+      await api.stock.deleteRate(row.id)
+      if (editingId === row.id) reset()
+      toast.push('success', 'Rate change forgotten')
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const rows = data?.rows ?? []
+  const inForce = data?.inForce ?? null
+  const own = data?.itemRate.gstRate ?? null
+
+  return (
+    <div data-testid="section-item-rate-history">
+      <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
+        GST rate history — the rate each date bills at
+      </span>
+
+      {/* What is in force today, and since when. The one line somebody reads before invoicing. */}
+      <p className="mb-2 text-small text-muted" data-testid="text-item-rate-in-force">
+        {inForce ? (
+          <>
+            <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 num text-ink">
+              {inForce.ratePercent}%{inForce.cessPercent > 0 ? ` + ${inForce.cessPercent}% cess` : ''}
+            </span>{' '}
+            in force today, from {toDisplayDate(inForce.effectiveFrom)}
+            {inForce.note ? ` (${inForce.note})` : ''}.
+          </>
+        ) : rows.length > 0 ? (
+          <>
+            No change has taken effect yet — until {toDisplayDate(rows[0]!.effectiveFrom)} this item bills at its own{' '}
+            {own === null ? 'rate' : `${own}%`}.
+          </>
+        ) : (
+          <>
+            No dated change recorded — this item bills at its own {own === null ? 'rate' : `${own}%`} on every date, as
+            it always has.
+          </>
+        )}
+      </p>
+
+      {data?.latestSentence && (
+        <p className="mb-2 text-caption text-muted">{data.latestSentence}</p>
+      )}
+      {(data?.warnings ?? []).map((w) => (
+        <p key={w} className="mb-1 text-caption text-warn">
+          {w}
+        </p>
+      ))}
+
+      {rows.length > 0 && (
+        <div className="mb-2 overflow-hidden rounded-md border border-line">
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th scope="col" className="w-24">From</th>
+                <th scope="col" className="r w-14">GST %</th>
+                <th scope="col" className="r w-14">Cess %</th>
+                <th scope="col">Notification</th>
+                <th scope="col" className="r w-20"></th>
+              </tr>
+            </thead>
+            <tbody data-testid="rows-item-rate-history">
+              {rows.map((r) => (
+                <tr key={r.id} className="hover:bg-panel2">
+                  <td className="num">{toDisplayDate(r.effectiveFrom)}</td>
+                  <td className="r num">{r.ratePercent}</td>
+                  <td className="r num">{r.cessPercent}</td>
+                  <td className={r.note ? 'text-muted' : 'text-warn'}>{r.note ?? 'No citation'}</td>
+                  <td className="r">
+                    <button
+                      className="text-small text-blue hover:underline"
+                      onClick={() => {
+                        setEditingId(r.id)
+                        setEffectiveFrom(r.effectiveFrom)
+                        setRatePercent(String(r.ratePercent))
+                        setCessPercent(r.cessPercent ? String(r.cessPercent) : '')
+                        setNote(r.note ?? '')
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="ml-2 text-small text-cr hover:underline"
+                      data-testid="btn-item-rate-delete"
+                      onClick={() => void remove(r)}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="rounded-md border border-line bg-panel2 p-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="With effect from" hint="Inclusive — a notification “from the 22nd” applies on the 22nd">
+            <DateInput
+              value={effectiveFrom}
+              context={effectiveFrom}
+              onChange={setEffectiveFrom}
+              testId="input-item-rate-from"
+            />
+          </Field>
+          <Field label="GST %">
+            <TextInput
+              data-testid="input-item-rate-percent"
+              value={ratePercent}
+              onChange={(e) => setRatePercent(e.target.value)}
+              className="num text-right"
+              inputMode="decimal"
+              placeholder="18"
+            />
+          </Field>
+          <Field label="Cess %">
+            <TextInput
+              data-testid="input-item-rate-cess"
+              value={cessPercent}
+              onChange={(e) => setCessPercent(e.target.value)}
+              className="num text-right"
+              inputMode="decimal"
+              placeholder="0"
+            />
+          </Field>
+          <Field label="Notification" hint="A rate with no citation is a rate nobody can audit">
+            <TextInput
+              data-testid="input-item-rate-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="9/2025-CTR"
+            />
+          </Field>
+        </div>
+        <div className="mt-2 flex justify-end gap-2">
+          {editingId !== null && <Button onClick={reset}>Cancel</Button>}
+          <Button variant="primary" data-testid="btn-item-rate-save" onClick={() => void save()}>
+            {editingId !== null ? 'Update change' : 'Record change'}
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 

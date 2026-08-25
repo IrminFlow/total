@@ -231,7 +231,11 @@ Ordering within a section is roughly by value.
 104. ✓ Advance receipt and adjustment tables (11A, 11B) (M) — already shipped
 105. ✓ A validation gate that blocks export until every error clears (S) — already shipped
 106. ✓ Show the exact JSON that will be uploaded, before uploading (S)
-107. NIC sandbox validation of the live-filing client (M)
+107. NIC sandbox validation of the live-filing client (M) — **still unverified, and it cannot be
+     verified from here.** `src/main/services/nic.ts` implements the published API spec (RSA + AES
+     session crypto) and has never been run against the portal, because there are no sandbox
+     credentials to run it with. Nothing in this pass changed that. It stays experimental, and the
+     first person with a sandbox login should treat every response shape in it as a guess.
 108. Multi-GSTIN companies: one book, several registrations (L)
 109. TDS lower-deduction certificate handling (M)
 110. ✓ Professional tax slabs per state, not just one (M) — already shipped: PT_SLABS carries
@@ -336,20 +340,53 @@ Ordering within a section is roughly by value.
 
 ## I. Invoicing and documents
 
-182. Two or three genuinely beautiful invoice templates (M)
-183. Thermal 3-inch receipt template for retail (M)
-184. Bilingual invoice printing: Devanagari alongside English (M)
+182. ✓ Two or three genuinely beautiful invoice templates (M) — Classic (the ruled boxes the app
+     always printed, byte for byte, so no upgrade restyles anyone's stationery), Modern (hairline
+     rules, for a document that is mostly emailed) and Compact (one type step down, so twenty
+     lines still land on one sheet). One HTML skeleton, three stylesheets: rule 46 prescribes
+     what an invoice carries, so a template may change how the page is drawn and may never change
+     what is on it. A test asserts the three bodies are byte-identical.
+183. ✓ Thermal 3-inch receipt template for retail (M) — 58mm and 80mm rolls, one column, dashed
+     rules (a thermal head prints a hairline as nothing and a heavy rule as a smear). Built from
+     the same extracted e-doc invoice as the A4 sheet and the GSTR-1 export, so the roll and the
+     return cannot disagree. A receipt with the tax split turned off says on its face that it is
+     not a tax invoice — a customer who files one as such loses the credit.
+184. ✓ Bilingual invoice printing: Devanagari alongside English (M) — Hindi and Marathi, printed
+     BESIDE each English label and never instead of it: the English text is what an officer reads.
+     No font is bundled (that would mean shipping a licence); the print names the Devanagari faces
+     macOS and Windows already carry. **Needs verification: the label pack is a translation, and
+     several commercial terms are marked `// VERIFY:` in src/shared/i18n/invoiceLabels.ts pending
+     a native reader's check.**
 185. ✓ Signature and stamp images on the invoice (S)
-186. Live invoice preview while editing the layout (M)
+186. ✓ Live invoice preview while editing the layout (M) — already shipped: Settings → Invoice
+     print debounces the unsaved draft into `invoice:previewHtml`, which merges the partial over
+     the saved config, so the iframe follows every keystroke with no Save round-trip.
 187. ✓ Proforma invoice (M) — a memorandum sales voucher, which the books already model as
      out-of-books, printed as a proforma rather than as a tax invoice.
-188. Sales order and purchase order with fulfilment tracking (L)
-189. Delivery note and receipt note (M)
+188. Sales order and purchase order with fulfilment tracking (L) — the SALES half is shipped
+     (quotation → order → delivery challan in `salesDocs.ts`, quantities tracked per line so an
+     order can go out on two challans without either closing it). The purchase half is not: a
+     purchase order and its goods-received note are still open.
+189. Delivery note and receipt note (M) — the delivery note is shipped as the challan stage of the
+     sales chain, and #89's job-work challan is its sibling. The inward receipt note is not, for
+     the same reason as #188: there is no purchase order for it to be received against.
 190. ✓ Terms and conditions block, per voucher type (S)
 191. ✓ QR code on the invoice, UPI payment intent (S)
-192. Invoice email with the PDF attached (M)
-193. WhatsApp invoice send (S)
-194. Multi-page invoices with carried-forward totals (M)
+192. ✗ Invoice email with the PDF attached (M) — declined as literally specified. Attaching a
+     file to an email means either an SMTP client with the user's mail password in it or a
+     platform mail API, and this app holds no credentials and makes no outbound connection by
+     design. What shipped instead is the honest version, alongside #193: the PDF is rendered, put
+     on the clipboard as a file and revealed in Finder, and a `mailto:` draft opens with the
+     subject and body filled in. The person attaches and sends. Revisit only if the product ever
+     grows a server, which is the opposite of what it is for.
+193. ✓ WhatsApp invoice send (S) — PDF → clipboard → `wa.me/<phone>?text=…`, no API and no
+     account. The awkward part is stated rather than papered over: a wa.me link carries text and
+     cannot carry an attachment, so the dialog says in as many words that the PDF is on the
+     clipboard and has to be pasted before sending. A party with no usable number gets a disabled
+     button and a reason, never a broken link.
+194. ✓ Multi-page invoices with carried-forward totals (M) — already shipped: past sixteen items
+     the table splits per page with a "Carried forward" subtotal closing each and a matching
+     "Brought forward" opening the next, and the header repeats on every page.
 195. Custom fields on a voucher, defined per company (L)
 196. ✓ Document numbering with a configurable prefix and suffix (S) — already shipped:
      per-voucher-type prefix, suffix, zero-pad width and restart-each-FY.
@@ -357,7 +394,10 @@ Ordering within a section is roughly by value.
      which renders them sequentially into one exports folder.
 198. ✓ Duplicate/triplicate copy markings (S) — already shipped as configurable copyLabels,
      one printed page per label.
-199. Round-off and amount-in-words in the chosen language (S)
+199. ✓ Round-off and amount-in-words in the chosen language (S) — the Indian numbering system in
+     Devanagari (करोड़/लाख/हज़ार), on its own line rather than after the bilingual slash: the
+     labels are words, this is a sentence, and running the two together is the one place the
+     separator stops being readable. Integer paise throughout.
 200. ✓ Company logo, letterhead and footer configuration (S) — already shipped: logo, title,
      declaration, bank block, terms, signatory and an entered-by footer.
 201. ✗ Export invoices as a zip of PDFs (S) — pdfBatch already writes one folder of PDFs, which
@@ -365,7 +405,13 @@ Ordering within a section is roughly by value.
      accounting app to save one drag is a bad trade; revisit if a real user asks.
 202. ✓ Watermark for proforma documents (S) — cancelled documents live in the bin and are not
      printable, so there is nothing there to watermark.
-203. Invoice-level discount in addition to line discounts (S)
+203. ✓ Invoice-level discount in addition to line discounts (S) — typed as a percentage or an
+     amount and **spread onto the lines**, which is not a shortcut but the law: section 15(3)(a)
+     lets a discount out of the transaction value only where it is "duly recorded in the invoice",
+     so a trailing "less 2%" below the tax total is a discount tax is still payable on. Largest-
+     remainder allocation, so the parts add back to exactly the figure promised, and the app's own
+     invariant survives untouched — a line's amount IS its post-discount taxable value, so GST can
+     never be computed on the wrong base.
 
 ## J. AI and agents
 

@@ -473,7 +473,10 @@ export type TdsSectionInput = z.infer<typeof tdsSectionInputSchema>
 export const tdsSuggestSchema = z.object({
   partyLedgerId: id,
   base: positivePaise,
-  date: isoDate
+  date: isoDate,
+  /** The voucher being edited, so its own lines don't consume the payee's Rule 28AA ceiling
+   *  before we ask how much of that ceiling is left. Absent on a new voucher. */
+  excludeVoucherId: id.optional()
 })
 export type TdsSuggestInput = z.infer<typeof tdsSuggestSchema>
 
@@ -485,6 +488,47 @@ export const tdsExport26qSchema = z.object({
   quarter: z.number().int().min(1).max(4)
 })
 export type TdsExport26qInput = z.infer<typeof tdsExport26qSchema>
+
+/**
+ * A section 197 / 197A lower-deduction certificate as issued by the Assessing Officer.
+ *
+ * `ceilingPaise` is nullable and that null is load-bearing: null = the AO named no amount
+ * (uncapped), 0 = a certificate with nothing left on it. Collapsing the two would either let an
+ * uncapped nil certificate start deducting or let a spent one keep going. PAN is required, not
+ * optional as it is on a ledger — Rule 28AA(2) does not let a certificate exist without one.
+ */
+export const tdsCertificateInputSchema = z
+  .object({
+    certificateNumber: z.string().trim().min(1).max(40).transform((s) => s.toUpperCase()),
+    pan: z
+      .string()
+      .trim()
+      .transform((s) => s.toUpperCase())
+      .refine((s) => /^[A-Z]{5}\d{4}[A-Z]$/.test(s), 'Invalid PAN'),
+    sectionCode: z.string().trim().min(1).max(20).transform((s) => s.toUpperCase()),
+    ratePercent: z.number().min(0).max(100),
+    validFrom: isoDate,
+    validTo: isoDate,
+    ceilingPaise: paise.min(0).nullable().default(null),
+    notes: z.string().trim().max(500).nullable().default(null)
+  })
+  .refine((v) => v.validFrom <= v.validTo, {
+    message: 'Certificate valid-from must not be after valid-to',
+    path: ['validTo']
+  })
+export type TdsCertificateInput = z.infer<typeof tdsCertificateInputSchema>
+
+/** Form 26AS reconciliation. `text` is inline so a driver can test it without a file dialog. */
+export const tds26asSchema = z.object({
+  text: z.string().min(1).max(20_000_000),
+  from: isoDate,
+  to: isoDate,
+  /** Paise two TDS figures may differ by and still be the same deduction. Default ₹1. */
+  amountTolerancePaise: paise.min(0).default(100),
+  /** Days the two dates may differ by before the pair is called a date drift. */
+  dateWindowDays: z.number().int().min(0).max(370).default(7)
+})
+export type Tds26asInput = z.infer<typeof tds26asSchema>
 
 // ---------- cost centres ----------
 
@@ -836,6 +880,22 @@ export const priceRateInputSchema = z.object({
   effectiveFrom: isoDate
 })
 export type PriceRateInput = z.infer<typeof priceRateInputSchema>
+
+/**
+ * One dated GST rate change on a stock item (roadmap D-92). Rates are percentages, not paise —
+ * that is what the statute states and what the portal expects. The upper bounds are deliberately
+ * loose (the Council notified a 40% demerit rate in 2025); the engine warns about anything that
+ * is not a notified slab rather than refusing it.
+ */
+export const itemRateInputSchema = z.object({
+  stockItemId: id,
+  effectiveFrom: isoDate,
+  ratePercent: z.number().min(0).max(100),
+  cessPercent: z.number().min(0).max(1000).default(0),
+  /** The notification that made the change — a rate with no citation cannot be audited. */
+  note: z.string().trim().max(120).nullable().default(null)
+})
+export type ItemRateInput = z.infer<typeof itemRateInputSchema>
 
 /** stock:* report queries — asOn plus optional godown scope. */
 export const stockQuerySchema = z.object({

@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { app, BrowserWindow, clipboard as electronClipboard, dialog, ipcMain, Notification, shell } from 'electron'
+import { pathToFileURL } from 'url'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
@@ -22,9 +23,10 @@ import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
-  isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, reportScheduleInputSchema, reportViewSaveSchema, exportXlsSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
+  isoDate, itemRateInputSchema, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, reportScheduleInputSchema, reportViewSaveSchema, exportXlsSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
-  tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
+  tdsSummarySchema, tdsCertificateInputSchema, tds26asSchema,
+  unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema
 } from '@shared/schemas'
 import { addDays, todayISO } from '@shared/dates'
 import { aiSettingsSchema } from '@shared/ai/config'
@@ -39,6 +41,7 @@ import * as vouchers from './services/vouchers'
 import * as reports from './services/reports'
 import * as gst from './services/gst'
 import * as filings from './services/filings'
+import * as amendments from './services/amendments'
 import * as partyNotes from './services/partyNotes'
 import * as intel from './services/intel'
 import * as analysis from './services/analysis'
@@ -48,6 +51,7 @@ import * as assets from './services/assets'
 import * as disclosure from './services/disclosure'
 import * as counter from './services/counter'
 import * as salesDocs from './services/salesDocs'
+import * as jobWork from './services/jobWork'
 import * as borrowing from './services/borrowing'
 import * as commission from './services/commission'
 import * as rawPrint from './services/rawPrint'
@@ -63,6 +67,8 @@ import * as extras from './services/extras'
 import * as payroll from './services/payroll'
 import * as nic from './services/nic'
 import * as tds from './services/tds'
+import * as tdsCertificates from './services/tdsCertificates'
+import * as form26as from './services/form26as'
 import * as costCentres from './services/costCentres'
 import * as cashForecast from './services/cashForecast'
 import * as reportViews from './services/reportViews'
@@ -71,6 +77,7 @@ import * as stockAnalysis from './services/stockAnalysis'
 import * as inventoryTransfer from './services/inventoryTransfer'
 import * as inventoryLandedCost from './services/inventoryLandedCost'
 import * as inventoryReorder from './services/inventoryReorder'
+import * as itemRates from './services/itemRates'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
@@ -994,9 +1001,26 @@ export function registerIpc(): void {
   }, 'viewer')
 
   handle('stock:effectiveTax', (p) => {
-    const { stockItemId } = z.object({ stockItemId: z.number().int().positive() }).parse(p)
-    return masters.effectiveItemTax(requireCompany().db, stockItemId)
+    // `onDate` is the date of the document being priced. Omitted means "what does it charge now?",
+    // which is what a master screen asks — the service defaults to today.
+    const { stockItemId, onDate } = z
+      .object({ stockItemId: z.number().int().positive(), onDate: isoDate.optional() })
+      .parse(p)
+    return masters.effectiveItemTax(requireCompany().db, stockItemId, onDate)
   }, 'viewer')
+
+  // ---------- GST rate history per item (roadmap D-92) ----------
+  handle('item:rates:list', (p) => {
+    const { stockItemId, asOn } = z
+      .object({ stockItemId: z.number().int().positive(), asOn: isoDate.optional() })
+      .parse(p)
+    return itemRates.itemRateHistory(requireCompany().db, stockItemId, asOn)
+  }, 'viewer')
+  handle('item:rates:save', (p) => {
+    const { id, data } = z.object({ id: z.number().int().positive().optional(), data: itemRateInputSchema }).parse(p)
+    return itemRates.saveItemRate(requireCompany().db, data, id)
+  })
+  handle('item:rates:delete', (p) => itemRates.deleteItemRate(requireCompany().db, idSchema.parse(p).id))
 
   handle('stock:find', (p) => {
     const { query } = z.object({ query: z.string().trim().max(120) }).parse(p)
@@ -1444,7 +1468,10 @@ export function registerIpc(): void {
         notes: z.string().trim().max(500).nullable()
       })
       .parse(p)
-    return filings.recordFiling(requireCompany().db, input)
+    const c = requireCompany()
+    // Marking a GSTR-1 filed is also when its documents are frozen for later amendment
+    // (services/amendments.ts) — hence the company, which the snapshot extraction needs.
+    return filings.recordFiling(c.db, c.info, input)
   }, 'owner')
 
   handle('filings:liability', (p) => {
@@ -1457,6 +1484,29 @@ export function registerIpc(): void {
     const c = requireCompany()
     return filings.filingLiability(c.db, c.info, form, period)
   }, 'viewer')
+
+  // ---------- GSTR-1 amendments (Tables 9A / 9C) ----------
+  // A correction to an already-filed invoice is a new row in a LATER period's amendment table,
+  // keyed on the ORIGINAL document. Both handlers work off the snapshots taken when each GSTR-1
+  // was marked filed (filings:record) — never off today's books alone.
+  const portalPeriod = z.string().trim().regex(/^(0[1-9]|1[0-2])\d{4}$/, 'Not a portal tax period (MMYYYY)')
+
+  handle('amendments:report', (p) => {
+    const { period } = z.object({ period: portalPeriod }).parse(p)
+    const c = requireCompany()
+    return amendments.gstr1Amendments(c.db, c.info, period)
+  }, 'viewer')
+
+  handle('amendments:export', (p) => {
+    const { period } = z.object({ period: portalPeriod }).parse(p)
+    const c = requireCompany()
+    const report = amendments.gstr1Amendments(c.db, c.info, period)
+    if (!report.json) throw new Error('Nothing to amend in this period — no amendment table has a row.')
+    const path = amendments.exportAmendmentJson(c.slug, period, report.json)
+    auditExport(c.db, 'gstr1-amendments', { period, path })
+    shell.showItemInFolder(path)
+    return { path, counts: report.counts }
+  })
 
   // ---------- analysis ----------
   handle('bank:reconciliationStatus', (p) => {
@@ -1916,6 +1966,104 @@ export function registerIpc(): void {
     return salesDocs.pipeline(c.db, c.info)
   }, 'viewer')
 
+  // ---------- job work: the challan out, what came back, the s.143 clock, ITC-04 (D-89) ----------
+  //
+  // Nothing here posts, so nothing here is 'accountant'-gated for accounting reasons — but a
+  // challan starts a statutory clock, so writing one is a write. Reads are 'viewer'.
+
+  const dispositionSchema = z.enum([
+    'returned', 'sent_to_other_job_worker', 'supplied_from_job_worker_premises', 'waste_and_scrap'
+  ])
+  const jobWorkChallanSchema = z.object({
+    number: z.string().trim().max(40).optional(),
+    date: isoDate,
+    jobWorkerLedgerId: z.number().int().positive().nullable().optional(),
+    jobWorkerGstin: z.string().trim().max(15).nullable().optional(),
+    jobWorkerStateCode: z.string().trim().max(2).nullable().optional(),
+    goodsType: z.enum(['input', 'capital_goods']),
+    stockItemId: z.number().int().positive().nullable().optional(),
+    description: z.string().trim().min(1).max(200),
+    hsn: z.string().trim().max(12).nullable().optional(),
+    qtyMilli: z.number().int().positive(),
+    uqc: z.string().trim().max(10).optional(),
+    taxablePaise: z.number().int().min(0).optional(),
+    gstRate: z.number().min(0).max(100).optional(),
+    mouldsDiesJigsTools: z.boolean().optional(),
+    receivedByJobWorkerOn: isoDate.nullable().optional(),
+    extendedDueBackBy: isoDate.nullable().optional(),
+    notes: z.string().trim().max(1000).nullable().optional()
+  })
+  const jobWorkReturnSchema = z.object({
+    challanId: z.number().int().positive(),
+    date: isoDate,
+    number: z.string().trim().max(40).nullable().optional(),
+    qtyMilli: z.number().int().positive(),
+    disposition: dispositionSchema,
+    invoiceVoucherId: z.number().int().positive().nullable().optional(),
+    notes: z.string().trim().max(1000).nullable().optional()
+  })
+
+  handle('jobWork:list', (p) => {
+    const { from, to, openOnly } = z
+      .object({ from: isoDate.optional(), to: isoDate.optional(), openOnly: z.boolean().optional() })
+      .parse(p ?? {})
+    const c = requireCompany()
+    return jobWork.listChallans(c.db, c.info, { from, to, openOnly })
+  }, 'viewer')
+
+  handle('jobWork:get', (p) => {
+    const c = requireCompany()
+    return jobWork.getChallan(c.db, idSchema.parse(p).id, c.info)
+  }, 'viewer')
+
+  handle('jobWork:next', () => ({ number: jobWork.nextChallanNumber(requireCompany().db) }), 'viewer')
+
+  handle('jobWork:save', (p) => {
+    const { data, id } = z
+      .object({ data: jobWorkChallanSchema, id: z.number().int().positive().optional() })
+      .parse(p)
+    const c = requireCompany()
+    return jobWork.saveChallan(c.db, c.info, data, id)
+  })
+
+  handle('jobWork:delete', (p) => {
+    const c = requireCompany()
+    jobWork.deleteChallan(c.db, idSchema.parse(p).id, c.info)
+    return null
+  })
+
+  handle('jobWork:saveReturn', (p) => {
+    const { data, id } = z
+      .object({ data: jobWorkReturnSchema, id: z.number().int().positive().optional() })
+      .parse(p)
+    const c = requireCompany()
+    return jobWork.saveReturn(c.db, c.info, data, id)
+  })
+
+  handle('jobWork:deleteReturn', (p) => {
+    const c = requireCompany()
+    return jobWork.deleteReturn(c.db, idSchema.parse(p).id, c.info)
+  })
+
+  handle('jobWork:clock', (p) => {
+    const { asOn } = z.object({ asOn: isoDate.optional() }).parse(p ?? {})
+    const c = requireCompany()
+    return jobWork.jobWorkClock(c.db, c.info, asOn)
+  }, 'viewer')
+
+  handle('jobWork:itc04', (p) => {
+    const opts = z
+      .object({
+        fyStartYear: z.number().int().min(2000).max(2200).optional(),
+        periodIndex: z.number().int().min(0).max(11).optional(),
+        asOn: isoDate.optional(),
+        aggregateTurnoverPaise: z.number().int().min(0).optional()
+      })
+      .parse(p ?? {})
+    const c = requireCompany()
+    return jobWork.itc04(c.db, c.info, opts)
+  }, 'viewer')
+
   // ---------- borrowing: loans, deposits, projects, prepayments, the bank's return ----------
 
   handle('loans:list', () => borrowing.listLoans(requireCompany().db), 'viewer')
@@ -2370,8 +2518,8 @@ export function registerIpc(): void {
   handle('tds:sections', () => tds.listSections(requireCompany().db), 'viewer')
   handle('tds:sectionSave', (p) => tds.saveSection(requireCompany().db, tdsSectionInputSchema.parse(p)), 'owner')
   handle('tds:suggest', (p) => {
-    const { partyLedgerId, base, date } = tdsSuggestSchema.parse(p)
-    return tds.tdsSuggestion(requireCompany().db, partyLedgerId, base, date)
+    const { partyLedgerId, base, date, excludeVoucherId } = tdsSuggestSchema.parse(p)
+    return tds.tdsSuggestion(requireCompany().db, partyLedgerId, base, date, excludeVoucherId)
   })
   handle('tds:summary', (p) => {
     const { fyStartYear } = tdsSummarySchema.parse(p)
@@ -2385,6 +2533,41 @@ export function registerIpc(): void {
     shell.showItemInFolder(path)
     return { path }
   })
+
+  // ---------- TDS lower-deduction certificates (s.197 / Rule 28AA) ----------
+  // Owner-only to write: a certificate silently lowers every future deduction for that payee, and
+  // an under-deduction is the DEDUCTOR's own liability under s.201(1) plus interest under
+  // s.201(1A). Reading one is a viewer matter like any other master.
+  handle('tds:certificates', () => tdsCertificates.listCertificatesWithUsage(requireCompany().db), 'viewer')
+  handle('tds:certificateSave', (p) => {
+    const { id, data } = z
+      .object({ id: z.number().int().positive().optional(), data: tdsCertificateInputSchema })
+      .parse(p)
+    return tdsCertificates.saveCertificate(requireCompany().db, data, id)
+  }, 'owner')
+  handle('tds:certificateDelete', (p) => {
+    const { id } = z.object({ id: z.number().int().positive() }).parse(p)
+    tdsCertificates.deleteCertificate(requireCompany().db, id)
+    return null
+  }, 'owner')
+
+  // ---------- Form 26AS reconciliation (s.199 / Rule 37BA) ----------
+  // The statement rides in the payload as `text` and is never stored — see the note at the top of
+  // services/form26as.ts. Inline for the same reason tally:import takes xmlText and
+  // bank:importCsv takes csvText: a driver can exercise it with no native dialog in the way.
+  handle('tds:recon26as', (p) => form26as.recon26as(requireCompany().db, tds26asSchema.parse(p)), 'viewer')
+  handle('tds:pick26as', async () => {
+    const picked = await dialog.showOpenDialog({
+      title: 'Choose a Form 26AS export (downloaded from TRACES)',
+      filters: [{ name: 'Form 26AS (CSV / text)', extensions: ['csv', 'txt'] }],
+      properties: ['openFile']
+    })
+    if (picked.canceled || !picked.filePaths[0]) return null
+    return {
+      text: readFileSync(picked.filePaths[0], 'utf8'),
+      fileName: picked.filePaths[0].split('/').pop() ?? '26as.csv'
+    }
+  }, 'viewer')
 
   // ---------- cost centres ----------
   handle('cc:list', () => costCentres.listCostCentres(requireCompany().db), 'viewer')
@@ -2697,6 +2880,19 @@ export function registerIpc(): void {
       .parse(p)
     return edocs.setTransport(requireCompany().db, voucherId, data)
   })
+  // Offers an approximate PIN-to-PIN distance for the e-way bill. Read-only on purpose: the
+  // figure is returned with its disclaimer and is stored only if the user then saves it through
+  // edoc:transportSet. An understated distance expires a consignment in transit.
+  handle('edoc:estimateDistance', (p) => {
+    const { voucherId, fromPin, toPin } = z
+      .object({
+        voucherId: z.number().int().positive(),
+        fromPin: z.string().trim().max(10).nullable().optional(),
+        toPin: z.string().trim().max(10).nullable().optional()
+      })
+      .parse(p)
+    return edocs.estimateTransportDistance(requireCompany().db, voucherId, { fromPin, toPin })
+  }, 'viewer')
   handle('invoice:pdf', async (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
@@ -2713,6 +2909,50 @@ export function registerIpc(): void {
     auditExport(c.db, 'invoice_pdf_batch', { count: r.paths.length, dir: r.dir })
     shell.showItemInFolder(r.paths[0] ?? r.dir)
     return r
+  })
+
+  // ---------- 3-inch thermal receipt (roadmap I-183) ----------
+  handle('invoice:thermalPdf', async (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const path = await invoice.thermalReceiptPdf(c.db, c.info, c.slug, voucherId)
+    auditExport(c.db, 'invoice_thermal_pdf', { voucherId, path })
+    shell.openPath(path)
+    return { path }
+  })
+  handle('invoice:thermalHtml', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const { html, widthMm } = invoice.thermalReceiptHtml(c.db, c.info, voucherId)
+    return { html, widthMm }
+  }, 'viewer')
+
+  /**
+   * Share an invoice on WhatsApp or by email (roadmap I-193, I-192).
+   *
+   * The PDF goes on the clipboard as a FILE, not as an image: pasting a file into WhatsApp
+   * Desktop or a mail compose window attaches it, pasting an image inlines a picture of page one
+   * and loses the rest. macOS names that clipboard flavour `public.file-url` and wants a plain
+   * file:// URL in it; on other platforms there is no equivalent single-file flavour, so the path
+   * goes on as text and the returned hint tells the user to attach it by hand. The app never
+   * sends: it hands back links for the renderer to open.
+   */
+  handle('invoice:share', async (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const share = await invoice.invoiceShareLinks(c.db, c.info, c.slug, voucherId)
+    auditExport(c.db, 'invoice_share', { voucherId, path: share.pdfPath })
+    let clipboard: 'file' | 'path' = 'path'
+    if (process.platform === 'darwin') {
+      electronClipboard.writeBuffer('public.file-url', Buffer.from(pathToFileURL(share.pdfPath).toString(), 'utf8'))
+      clipboard = 'file'
+    } else {
+      electronClipboard.writeText(share.pdfPath)
+    }
+    // Revealed as well as copied: a clipboard is invisible, and a person who cannot find the file
+    // has no way to attach it if the paste does not take.
+    shell.showItemInFolder(share.pdfPath)
+    return { ...share, clipboard }
   })
 
   handle('invoice:previewHtml', (p) => {

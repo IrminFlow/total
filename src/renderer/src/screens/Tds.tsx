@@ -7,8 +7,18 @@ import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList
 import { useLedgers } from '../components/pickers'
 import { fyOf, fyFromStartYear, todayISO } from '@shared/dates'
 import { tdsQuarterOf } from '@shared/tds'
+import { CertificatesTab, Form26asTab } from './TdsTabs'
 
 const QUARTERS = [1, 2, 3, 4] as const
+
+/** Top-level tabs. Deductions is what this screen has always been; the other two are the section
+ *  197 certificate register and the section 199 credit reconciliation. */
+type TdsTab = 'deductions' | 'certificates' | '26as'
+const TABS: { key: TdsTab; label: string }[] = [
+  { key: 'deductions', label: 'Deductions' },
+  { key: 'certificates', label: 'Certificates' },
+  { key: '26as', label: '26AS' }
+]
 
 export function TdsScreen(): React.JSX.Element {
   const { info } = useSession()
@@ -18,6 +28,7 @@ export function TdsScreen(): React.JSX.Element {
   const [fyStartYear, setFyStartYear] = useState(currentFy.startYear)
   const [quarter, setQuarter] = useState<1 | 2 | 3 | 4>(tdsQuarterOf(todayISO()).q)
   const [sectionsOpen, setSectionsOpen] = useState(false)
+  const [tab, setTab] = useState<TdsTab>('deductions')
 
   const years: number[] = []
   for (let y = currentFy.startYear; y >= (info?.booksFrom ?? currentFy.startYear); y--) years.push(y)
@@ -63,18 +74,43 @@ export function TdsScreen(): React.JSX.Element {
                 </option>
               ))}
             </Select>
-            <Button data-testid="btn-tds-sections" onClick={() => setSectionsOpen(true)}>
-              Sections…
-            </Button>
-            <Button data-testid="btn-tds-export" variant="primary" onClick={() => void doExport()}>
-              Export 26Q CSV
-            </Button>
+            {tab === 'deductions' && (
+              <>
+                <Button data-testid="btn-tds-sections" onClick={() => setSectionsOpen(true)}>
+                  Sections…
+                </Button>
+                <Button data-testid="btn-tds-export" variant="primary" onClick={() => void doExport()}>
+                  Export 26Q CSV
+                </Button>
+              </>
+            )}
           </div>
         }
       >
         TDS
       </SectionTitle>
 
+      <div className="mb-3 flex gap-1 border-b border-line">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            data-testid={`tab-tds-${t.key}`}
+            aria-current={tab === t.key ? 'page' : undefined}
+            onClick={() => setTab(t.key)}
+            className={`-mb-px rounded-md border-b-2 px-3 py-1.5 text-body-sm ${
+              tab === t.key ? 'border-accentbar font-medium text-ink' : 'border-transparent text-muted hover:bg-panel2 hover:text-ink'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'certificates' && <CertificatesTab />}
+      {tab === '26as' && <Form26asTab fyStartYear={fyStartYear} />}
+
+      {tab === 'deductions' && (
+        <>
       <div className="mb-3 flex gap-1">
         {QUARTERS.map((q) => (
           <button
@@ -153,6 +189,8 @@ export function TdsScreen(): React.JSX.Element {
         {qLabel} · The 26Q CSV lists deductee, PAN, section, voucher and amounts for manual import into NSDL's Return
         Preparation Utility — it is not a ready-to-file FVU.
       </p>
+        </>
+      )}
 
       {sectionsOpen && <SectionsModal sections={sections ?? []} onClose={() => setSectionsOpen(false)} />}
     </div>

@@ -324,9 +324,14 @@ export function DateInput({
   /** data-testid for the input (lib/testids.ts — `input-<what>`). */
   testId?: string
 }): React.JSX.Element {
-  const [text, setText] = useState(toDisplayDate(value))
+  // An OPTIONAL date field holds '' when it is unset, and toDisplayDate('') indexes into a
+  // split that isn't there and throws — which took the whole screen down through the error
+  // boundary the moment a modal with an empty date opened (the transport modal's document
+  // date). Empty in, empty out.
+  const show = (v: string): string => (v ? toDisplayDate(v) : '')
+  const [text, setText] = useState(show(value))
   const [bad, setBad] = useState(false)
-  useEffect(() => setText(toDisplayDate(value)), [value])
+  useEffect(() => setText(show(value)), [value])
   return (
     <span className={`block min-w-0 ${className ?? ''}`}>
       <input
@@ -340,13 +345,14 @@ export function DateInput({
         }}
         onFocus={(e) => e.target.select()}
         onBlur={() => {
-          const parsed = parseSmartDate(text, context) ?? (text.trim() === toDisplayDate(value) ? value : null)
+          const parsed = parseSmartDate(text, context) ?? (text.trim() === show(value) ? value : null)
           if (parsed) {
             setBad(false)
             onChange(parsed)
-            setText(toDisplayDate(parsed))
+            setText(show(parsed))
           } else {
-            setBad(true)
+            // An empty box over an unset date is the field's resting state, not a typo.
+            setBad(!(text.trim() === '' && value === ''))
           }
         }}
         onKeyDown={(e) => {

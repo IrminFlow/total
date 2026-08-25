@@ -21,17 +21,25 @@ import type { TransferItem, TransferPlan } from '@shared/stockTransfer'
 import type { LandedCostBasis } from '@shared/landedCost'
 import type { ReorderAlerts } from '@shared/reorder'
 import type { Concentration } from '@shared/concentration'
+import type { Recon26asResult, Statement26asRow } from '@shared/tds/form26as'
 import type { VoucherDraft } from '../state/stores'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult } from '@shared/gst/recon2b'
+import type { AmendmentChange, AmendmentTables } from '@shared/gst/amendments'
+import type { RateChange } from '@shared/gst/rateHistory'
+import type {
+  DeemedSupplyRow, Itc04, Itc04Issue, Itc04Obligation, Itc04Period,
+  JobWorkDisposition, JobWorkGoodsType
+} from '@shared/gst/itc04'
 import type {
   AgentExportInput,
   AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
   CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
+  ItemRateInput,
   PayHeadInput, PriceLevelInput,
   PriceRateInput, RecurringInput,
-  RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
+  RendererLogInput, StockGroupInput, StockItemInput, TdsSectionInput, TdsCertificateInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput,
   VoucherInputParsed
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
@@ -536,6 +544,23 @@ export interface EffectiveItemTax {
   fromGroup: string | null
 }
 
+/** One dated GST rate change recorded against a stock item (roadmap D-92). */
+export interface ItemRateRow extends RateChange {
+  id: number
+  stockItemId: number
+}
+
+export interface ItemRateHistoryView {
+  stockItemId: number
+  rows: ItemRateRow[]
+  /** The change in force on the day asked about, or null when the history does not answer. */
+  inForce: RateChange | null
+  latestSentence: string | null
+  /** The item's own undated rate — what still answers when there are no rows at all. */
+  itemRate: { gstRate: number | null; cessRate: number | null }
+  warnings: string[]
+}
+
 export type DepreciationMethod = 'slm' | 'wdv'
 
 export interface AssetBlock {
@@ -816,6 +841,107 @@ export interface InvoiceDraft {
 export interface SalesPipeline {
   stages: { stage: Stage; open: number; openValuePaise: number; converted: number; lost: number }[]
   expiringSoon: SalesDoc[]
+}
+
+// ---------- job work: goods out on challan, and the section 143 clock (roadmap D-89) ----------
+//
+// The row shapes mirror `src/main/services/jobWork.ts`; the statutory shapes come from the engine
+// so the renderer reads the same `// VERIFY:` markers the calculation carries.
+
+export interface JobWorkReturnRow {
+  id: number
+  challanId: number
+  date: string
+  number: string | null
+  qtyMilli: number
+  disposition: JobWorkDisposition
+  invoiceVoucherId: number | null
+  invoiceNumber: string | null
+  notes: string | null
+}
+
+export interface JobWorkChallan {
+  id: number
+  number: string
+  date: string
+  jobWorkerLedgerId: number | null
+  jobWorkerName: string | null
+  jobWorkerGstin: string | null
+  jobWorkerStateCode: string
+  goodsType: JobWorkGoodsType
+  stockItemId: number | null
+  description: string
+  hsn: string | null
+  qtyMilli: number
+  uqc: string
+  taxablePaise: number
+  gstRate: number
+  mouldsDiesJigsTools: boolean
+  receivedByJobWorkerOn: string | null
+  extendedDueBackBy: string | null
+  notes: string | null
+  createdAt: string
+  returns: JobWorkReturnRow[]
+  accountedMilli: number
+  /** Still out with the job worker. Never negative. */
+  balanceMilli: number
+}
+
+export interface JobWorkChallanInput {
+  number?: string
+  date: string
+  jobWorkerLedgerId?: number | null
+  jobWorkerGstin?: string | null
+  jobWorkerStateCode?: string | null
+  goodsType: JobWorkGoodsType
+  stockItemId?: number | null
+  description: string
+  hsn?: string | null
+  qtyMilli: number
+  uqc?: string
+  taxablePaise?: number
+  gstRate?: number
+  mouldsDiesJigsTools?: boolean
+  receivedByJobWorkerOn?: string | null
+  extendedDueBackBy?: string | null
+  notes?: string | null
+}
+
+export interface JobWorkReturnInput {
+  challanId: number
+  date: string
+  number?: string | null
+  qtyMilli: number
+  disposition: JobWorkDisposition
+  invoiceVoucherId?: number | null
+  notes?: string | null
+}
+
+export interface JobWorkClockRow extends DeemedSupplyRow {
+  challanId: number
+  jobWorkerName: string | null
+}
+
+export interface JobWorkClock {
+  asOn: string
+  rows: JobWorkClockRow[]
+  /** The ones the clock has run out on — a deemed supply backdated to the despatch date. */
+  overdue: JobWorkClockRow[]
+  totalDeemedValuePaise: number
+  totalDeemedTaxPaise: number
+  issues: Itc04Issue[]
+}
+
+export interface Itc04Working {
+  obligation: Itc04Obligation
+  turnoverPaise: number
+  turnoverSource: 'declared-band' | 'given'
+  periods: Itc04Period[]
+  periodIndex: number
+  fyStartYear: number
+  form: Itc04
+  challanIds: Record<string, number>
+  jobWorkerNames: Record<string, string>
 }
 
 export interface JournalDraft {
@@ -1455,6 +1581,20 @@ export interface TdsSuggestion {
   payableLedgerId: number
   panAvailable: boolean
   thresholdCrossed: boolean
+  /** The s.197 / 197A certificate in force for this payee, section and date — usually null. */
+  certificate: {
+    certificateId: number
+    certificateNumber: string
+    ratePercent: number
+    validFrom: string
+    validTo: string
+    ceilingPaise: number | null
+    alreadyPaidPaise: number
+    headroomPaise: number | null
+  } | null
+  /** The rate(s) `tdsPaise` is made of. Two when the payment straddles the Rule 28AA ceiling. */
+  ratesApplied: { ratePercent: number; basePaise: number; tdsPaise: number; underCertificate: boolean }[]
+  certificateExhausted: boolean
 }
 
 /** Mirrors src/main/services/tds.ts's TdsSummaryRow shape (kept local — that file is main-process only). */
@@ -1464,6 +1604,49 @@ export interface TdsSummaryRow {
   deductees: number
   base: number
   tds: number
+}
+
+/** Mirrors src/main/services/tdsCertificates.ts's CertificateWithUsage (s.197 / Rule 28AA). */
+export interface TdsCertificateRow {
+  id: number
+  certificateNumber: string
+  pan: string
+  sectionCode: string
+  ratePercent: number
+  validFrom: string
+  validTo: string
+  /** Rule 28AA(4) ceiling in paise. NULL = the AO named no amount; 0 = nothing left on it. */
+  ceilingPaise: number | null
+  notes: string | null
+  createdAt: string
+  usedPaise: number
+  headroomPaise: number | null
+  exhausted: boolean
+}
+
+/** Mirrors src/main/services/form26as.ts's Book26asEntryRef. */
+export interface Book26asEntryRow {
+  id: number | string
+  voucherId: number
+  voucherNumber: string
+  ledgerName: string
+  deductorName: string | null
+  deductorTan: string | null
+  tanSource: 'statement' | null
+  section: string
+  date: string
+  amountPaise: number
+  tdsPaise: number
+}
+
+/** Mirrors src/main/services/form26as.ts's Recon26asReport. */
+export interface Recon26asReport {
+  problems: string[]
+  statementRows: Statement26asRow[]
+  bookEntries: Book26asEntryRow[]
+  result: Recon26asResult
+  from: string
+  to: string
 }
 
 /** Mirrors src/main/services/costCentres.ts's CcReportRow shape (kept local — that file is main-process only). */
@@ -1745,6 +1928,78 @@ export interface PdcRow {
   amount: number
 }
 
+/**
+ * Mirrors src/main/services/amendments.ts (main-process only, so the shapes are restated here).
+ * The engine types it composes — AmendmentChange, AmendmentTables — are pure and imported from
+ * @shared/gst/amendments.
+ */
+export interface AmendmentFiledPeriod {
+  /** Portal tax period 'MMYYYY'. */
+  period: string
+  filedAt: string
+  docs: number
+  /** Only an EARLIER period can be amended in this one. */
+  earlier: boolean
+}
+export interface AmendmentRowInfo {
+  table: 'b2ba' | 'b2cla' | 'cdnra' | 'cdnura'
+  originalPeriod: string
+  originalNumber: string
+  originalDate: string
+  originalGstin: string | null
+  number: string
+  date: string
+  partyName: string | null
+  partyGstin: string | null
+  pos: string
+  invoiceValue: number
+  voucherId: number
+  changes: AmendmentChange[]
+}
+export interface AmendmentDeletedDoc {
+  originalPeriod: string
+  number: string
+  date: string
+  partyGstin: string | null
+  invoiceValue: number
+  voucherId: number | null
+  message: string
+}
+export interface AmendmentAddedDoc {
+  originalPeriod: string
+  number: string
+  date: string
+  voucherId: number
+  invoiceValue: number
+  message: string
+}
+export interface AmendmentReport {
+  period: string
+  filedPeriods: AmendmentFiledPeriod[]
+  /** True when no earlier period has ever been marked filed — there is nothing to amend AGAINST,
+   *  which is a different statement from "nothing changed". */
+  noSnapshots: boolean
+  tables: AmendmentTables
+  rows: AmendmentRowInfo[]
+  deleted: AmendmentDeletedDoc[]
+  addedAfterFiling: AmendmentAddedDoc[]
+  json: Record<string, unknown> | null
+  counts: { amended: number; unchanged: number; rejected: number }
+}
+
+/** Mirrors src/main/services/edocs.ts's EwayDistanceOffer (main-process only). */
+export interface EwayDistanceOffer {
+  fromPin: string | null
+  toPin: string | null
+  toPinSource: 'ship_to' | 'typed' | null
+  /** Null when a PIN cannot be placed — an unknown PIN offers nothing at all, never a guess. */
+  estimate: { km: number; basis: string; approximate: true } | null
+  /** PIN_DISTANCE_DISCLAIMER, shown verbatim beside the figure. */
+  disclaimer: string
+  storedKm: number | null
+  reason: string | null
+}
+
 async function call<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await window.total.invoke(channel, payload)
   if (!result.ok) throw new Error(result.error ?? 'Unknown error')
@@ -1884,6 +2139,16 @@ export const api = {
     nearExpiry: (asOn: string) => call<NearExpiryReport>('stock:nearExpiry', { asOn }),
     /** The rate and HSN an item actually charges, and which parts came from its group. */
     effectiveTax: (stockItemId: number) => call<EffectiveItemTax>('stock:effectiveTax', { stockItemId }),
+    /**
+     * The dated GST rate changes for an item (roadmap D-92). A document is always priced with the
+     * rate in force on its OWN date, so this is a list, not a field.
+     */
+    rates: (stockItemId: number, asOn?: string) =>
+      call<ItemRateHistoryView>('item:rates:list', { stockItemId, asOn }),
+    /** Warnings never block the save — an unusual rate is usually a real one. */
+    saveRate: (data: ItemRateInput, id?: number) =>
+      call<{ row: ItemRateRow; warnings: string[] }>('item:rates:save', { id, data }),
+    deleteRate: (id: number) => call<null>('item:rates:delete', { id }),
     /** Code, then barcode, then exact name — how a person at a counter finds a thing. */
     find: (query: string) => call<StockItem | null>('stock:find', { query }),
     /** What one godown holds — the menu a transfer picks from. */
@@ -2144,6 +2409,21 @@ export const api = {
     markInvoiced: (id: number, voucherId: number) => call<SalesDoc>('salesdoc:markInvoiced', { id, voucherId }),
     pipeline: () => call<SalesPipeline>('salesdoc:pipeline')
   },
+  /** Goods out with a job worker, what came back, and what section 143 now deems supplied. */
+  jobWork: {
+    list: (opts: { from?: string; to?: string; openOnly?: boolean } = {}) =>
+      call<JobWorkChallan[]>('jobWork:list', opts),
+    get: (id: number) => call<JobWorkChallan | null>('jobWork:get', { id }),
+    next: () => call<{ number: string }>('jobWork:next'),
+    save: (data: JobWorkChallanInput, id?: number) => call<JobWorkChallan>('jobWork:save', { data, id }),
+    remove: (id: number) => call<null>('jobWork:delete', { id }),
+    saveReturn: (data: JobWorkReturnInput, id?: number) =>
+      call<JobWorkChallan>('jobWork:saveReturn', { data, id }),
+    removeReturn: (id: number) => call<JobWorkChallan>('jobWork:deleteReturn', { id }),
+    clock: (asOn?: string) => call<JobWorkClock>('jobWork:clock', { asOn }),
+    itc04: (opts: { fyStartYear?: number; periodIndex?: number; asOn?: string; aggregateTurnoverPaise?: number } = {}) =>
+      call<Itc04Working>('jobWork:itc04', opts)
+  },
   /** Loans, deposits, projects, prepayments — and the return the bank asks for every month. */
   borrowing: {
     loans: () => call<Loan[]>('loans:list'),
@@ -2228,10 +2508,19 @@ export const api = {
   tds: {
     sections: () => call<TdsSection[]>('tds:sections'),
     sectionSave: (data: TdsSectionInput) => call<TdsSection>('tds:sectionSave', data),
-    suggest: (partyLedgerId: number, base: number, date: string) =>
-      call<TdsSuggestion | null>('tds:suggest', { partyLedgerId, base, date }),
+    suggest: (partyLedgerId: number, base: number, date: string, excludeVoucherId?: number) =>
+      call<TdsSuggestion | null>('tds:suggest', { partyLedgerId, base, date, excludeVoucherId }),
     summary: (fyStartYear: number) => call<TdsSummaryRow[]>('tds:summary', { fyStartYear }),
-    export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter })
+    export26q: (fyStartYear: number, quarter: number) => call<{ path: string }>('tds:export26q', { fyStartYear, quarter }),
+    /** Section 197 / 197A lower-deduction certificates, with their Rule 28AA consumption. */
+    certificates: () => call<TdsCertificateRow[]>('tds:certificates'),
+    certificateSave: (data: TdsCertificateInput, id?: number) =>
+      call<TdsCertificateRow>('tds:certificateSave', { id, data }),
+    certificateDelete: (id: number) => call<null>('tds:certificateDelete', { id }),
+    /** Reconcile a pasted/loaded Form 26AS against the books. The statement is never stored. */
+    recon26as: (text: string, from: string, to: string) =>
+      call<Recon26asReport>('tds:recon26as', { text, from, to }),
+    pick26as: () => call<{ text: string; fileName: string } | null>('tds:pick26as')
   },
   cc: {
     list: () => call<CostCentre[]>('cc:list'),
@@ -2287,6 +2576,18 @@ export const api = {
     brs: (ledgerId: number, asOn: string) => call<BrsReport>('banking:brs', { ledgerId, asOn }),
     brsPdf: (ledgerId: number, asOn: string) => call<{ path: string }>('banking:brsPdf', { ledgerId, asOn })
   },
+  /**
+   * GSTR-1 amendments — Tables 9A/9C, diffed against the snapshot taken when each earlier
+   * GSTR-1 was marked filed (roadmap D-101).
+   */
+  amendments: {
+    report: (period: string) => call<AmendmentReport>('amendments:report', { period }),
+    exportJson: (period: string) =>
+      call<{ path: string; counts: { amended: number; unchanged: number; rejected: number } }>(
+        'amendments:export',
+        { period }
+      )
+  },
   bankProfiles: {
     list: () => call<BankImportProfile[]>('bankprofile:list'),
     save: (data: BankProfileInput, id?: number) => call<BankImportProfile>('bankprofile:save', { id, data }),
@@ -2317,13 +2618,32 @@ export const api = {
     ) => call<{ json: unknown; count: number; issues: string[] }>('edoc:previewJson', { kind, from, to, ...opts }),
     transportGet: (voucherId: number) => call<VoucherTransport | null>('edoc:transportGet', { voucherId }),
     transportSet: (voucherId: number, data: VoucherTransportInput) =>
-      call<VoucherTransport>('edoc:transportSet', { voucherId, data })
+      call<VoucherTransport>('edoc:transportSet', { voucherId, data }),
+    /** An approximate PIN-to-PIN distance to OFFER for the e-way bill. This call never stores
+     *  anything — the user accepts it and saves it through transportSet (roadmap D-96). */
+    estimateDistance: (voucherId: number, fromPin: string | null, toPin: string | null) =>
+      call<EwayDistanceOffer>('edoc:estimateDistance', { voucherId, fromPin, toPin })
   },
   invoice: {
     pdf: (voucherId: number) => call<{ path: string }>('invoice:pdf', { voucherId }),
     pdfBatch: (voucherIds: number[]) => call<{ dir: string; paths: string[] }>('invoice:pdfBatch', { voucherIds }),
     previewHtml: (voucherId?: number, config?: Partial<InvoiceConfig>) =>
-      call<{ html: string }>('invoice:previewHtml', { voucherId, config })
+      call<{ html: string }>('invoice:previewHtml', { voucherId, config }),
+    thermalPdf: (voucherId: number) => call<{ path: string }>('invoice:thermalPdf', { voucherId }),
+    thermalHtml: (voucherId: number) =>
+      call<{ html: string; widthMm: number }>('invoice:thermalHtml', { voucherId }),
+    /** Renders the PDF, puts it on the clipboard, and hands back the links to open (I-193/I-192). */
+    share: (voucherId: number) =>
+      call<{
+        subject: string
+        body: string
+        mailto: string
+        whatsapp: string | null
+        attachmentHint: string
+        pdfPath: string
+        partyName: string
+        clipboard: 'file' | 'path'
+      }>('invoice:share', { voucherId })
   },
   cheque: {
     config: {

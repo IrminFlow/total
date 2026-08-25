@@ -33,6 +33,9 @@ const NOT_NAVIGATION_SCOPED = new Set([
   'auth-users',
   // Audit trails shown inside a record's own modal.
   'employeeAudit', 'voucherAudit',
+  // The send-invoice dialog. Keyed on the voucher and fetched once when the modal opens, with
+  // staleTime: Infinity on purpose — asking again would render and write the PDF a second time.
+  'invoiceShare',
   // Keyed on what the user is entering right now, so a stale key is a different key.
   'creditCheck', 'settlement', 'search', 'latestOfType', 'ledgerBalances'
 ])

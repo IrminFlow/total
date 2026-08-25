@@ -1450,5 +1450,132 @@ export const MIGRATIONS: string[] = [
     decision_note TEXT
   );
   CREATE INDEX idx_bank_detail_requests_state ON bank_detail_requests(state);
+  `,
+
+  // 40 — the rate that changed, the goods at the job worker's, the certificate that says deduct
+  // less, and what the return said on the day it was filed.
+  //
+  // One migration for four features because they share a premise: statutory facts are DATED. A
+  // rate is true from a date, a certificate is valid between two dates, a challan starts a clock,
+  // and a filed return is what it said when the ARN came back — not what the books say today.
+  // Everywhere the app previously stored one of these as a single current value, editing it
+  // rewrote history.
+  `
+  -- The GST rate on an item, effective from a date (roadmap D-92).
+  --
+  -- stock_items.gst_rate is the CURRENT rate and stays: every existing query reads it, and it is
+  -- still the right answer for a new voucher dated today. This table is the history behind it, so
+  -- a Council rate change on the 22nd does not silently reprice every invoice from the 1st. Rows
+  -- are per item; an item with no rows falls back to stock_items.gst_rate exactly as before.
+  CREATE TABLE item_gst_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    effective_from TEXT NOT NULL,
+    rate_percent REAL NOT NULL,
+    cess_percent REAL NOT NULL DEFAULT 0,
+    -- The notification that made the change ("9/2025-CTR"). A rate with no citation is a rate
+    -- nobody can audit.
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (stock_item_id, effective_from)
+  );
+  CREATE INDEX idx_item_gst_rates_item ON item_gst_rates(stock_item_id, effective_from);
+
+  -- Goods sent to a job worker on a delivery challan (roadmap D-89, ITC-04).
+  --
+  -- Not a voucher: sending goods for job work is not a supply, so it posts nothing. It is a
+  -- movement that starts a statutory clock — section 143 deems a supply on the day of despatch if
+  -- the goods do not come back within a year (inputs) or three years (capital goods).
+  CREATE TABLE job_work_challans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number TEXT NOT NULL,
+    date TEXT NOT NULL,
+    job_worker_ledger_id INTEGER REFERENCES ledgers(id),
+    -- Denormalised from the ledger AT DESPATCH: the job worker's registration can change later,
+    -- and the challan has to keep saying what it said.
+    job_worker_gstin TEXT,
+    job_worker_state_code TEXT,
+    goods_type TEXT NOT NULL CHECK (goods_type IN ('input','capital_goods')),
+    stock_item_id INTEGER REFERENCES stock_items(id),
+    description TEXT NOT NULL,
+    hsn TEXT,
+    qty_milli INTEGER NOT NULL,
+    uqc TEXT NOT NULL DEFAULT 'NOS',
+    taxable_paise INTEGER NOT NULL DEFAULT 0,
+    gst_rate REAL NOT NULL DEFAULT 0,
+    -- Section 143(4) excludes moulds, dies, jigs, fixtures and tools from the capital-goods clock.
+    moulds_dies_jigs_tools INTEGER NOT NULL DEFAULT 0,
+    -- Explanation to section 143: goods sent straight from the supplier to the job worker start
+    -- the clock on the job worker's receipt, not on our despatch.
+    received_by_job_worker_on TEXT,
+    -- The Commissioner's extension under the proviso to 143(1).
+    extended_due_back_by TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (number)
+  );
+  CREATE INDEX idx_job_work_challans_date ON job_work_challans(date);
+
+  -- What came back, or where else it went (ITC-04 tables 5A/5B/5C).
+  CREATE TABLE job_work_returns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    challan_id INTEGER NOT NULL REFERENCES job_work_challans(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    number TEXT,
+    qty_milli INTEGER NOT NULL,
+    disposition TEXT NOT NULL CHECK (disposition IN (
+      'returned','sent_to_other_job_worker','supplied_from_job_worker_premises','waste_and_scrap'
+    )),
+    -- Set when the goods were sold from the job worker's premises, which IS a supply.
+    invoice_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_job_work_returns_challan ON job_work_returns(challan_id, date);
+
+  -- A section 197 lower-deduction certificate (roadmap D-109).
+  --
+  -- Keyed on the payee's PAN rather than on a ledger id: a certificate is issued to a PERSON, and
+  -- the same person can be two ledgers in the books. A NULL ceiling means uncapped, which is
+  -- not the same as a zero ceiling — once cumulative payments pass a ceiling the normal rate
+  -- resumes on the excess, in the same payment.
+  CREATE TABLE tds_lower_deduction_certificates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    certificate_number TEXT NOT NULL,
+    pan TEXT NOT NULL,
+    section_code TEXT NOT NULL,
+    rate_percent REAL NOT NULL,
+    valid_from TEXT NOT NULL,
+    valid_to TEXT NOT NULL,
+    ceiling_paise INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (certificate_number, section_code)
+  );
+  CREATE INDEX idx_tds_ldc_pan ON tds_lower_deduction_certificates(pan, section_code);
+
+  -- What a GSTR-1 said on the day it was filed (roadmap D-101).
+  --
+  -- An amendment table (B2BA, CDNRA) is only computable against the ORIGINAL particulars, and the
+  -- books no longer hold them once the voucher has been corrected. So the document set is
+  -- snapshotted at the moment the return is marked filed. Without this, "what changed since we
+  -- filed" is unanswerable and the amendment row would have to be typed by hand.
+  CREATE TABLE gstr1_filed_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    doc_number TEXT NOT NULL,
+    doc_date TEXT NOT NULL,
+    doc_type TEXT NOT NULL DEFAULT 'INV',
+    party_gstin TEXT,
+    pos TEXT,
+    -- The whole normalized document as filed, as JSON. Deliberately opaque: the amendment engine
+    -- compares an old shape against a new one, and freezing a column layout here would mean a
+    -- later schema change silently reinterpreting an old snapshot.
+    payload TEXT NOT NULL,
+    filed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (period, doc_number, doc_type)
+  );
+  CREATE INDEX idx_gstr1_filed_documents_period ON gstr1_filed_documents(period);
   `
 ]

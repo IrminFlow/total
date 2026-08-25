@@ -9,6 +9,10 @@ import {
   type EdocCompany, type EdocInvoice, type EdocItem, type EdocShipTo, type EdocTransport
 } from '@shared/gst/edocs'
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
+import {
+  estimateEwayDistanceKm, pinCoordinates, PIN_DISTANCE_DISCLAIMER, type EwayDistanceEstimate
+} from '@shared/gst/pinDistance'
+import { makeRateResolver } from './itemRates'
 import { toUqc } from '@shared/gst/uqc'
 import { descendantIdsByName } from './masters'
 import { outwardDebitNoteIds } from './gst'
@@ -151,6 +155,101 @@ export function setTransport(db: DB, voucherId: number, input: VoucherTransportI
   return after
 }
 
+// ---------- e-way bill distance estimate (roadmap D-96) ----------
+
+/**
+ * What the PIN-code estimator offers for one voucher. Deliberately an OFFER and never a write.
+ *
+ * The e-way bill's distance field decides how long the bill stays valid (one day per 200 km of
+ * the declared distance, broadly). An understated distance expires the consignment while it is
+ * still on the road, which is a detained vehicle and a penalty — so an approximate figure must
+ * never arrive in that field on its own. This returns a number to look at; storing it is a
+ * separate, explicit `setTransport` call the user makes after reading the disclaimer.
+ *
+ * WHERE THE PIN CODES COME FROM — the destination PIN is stored (voucher_transport.ship_to_pincode,
+ * the ship-to address on the transport modal). The DESPATCH PIN IS NOT STORED ANYWHERE: the
+ * company's own address is a single free-text field with no PIN column, and the party ledger
+ * has a state code but no PIN. Rather than parse six digits out of an address line and present a
+ * guess as the despatch point, the despatch PIN is always supplied by the caller — the user
+ * types it. See the report for D-96.
+ */
+export interface EwayDistanceOffer {
+  fromPin: string | null
+  toPin: string | null
+  /** Where the destination PIN came from. 'ship_to' = the stored ship-to address. */
+  toPinSource: 'ship_to' | 'typed' | null
+  /** Null when either PIN cannot be resolved honestly — an unknown PIN offers nothing at all. */
+  estimate: EwayDistanceEstimate | null
+  /** Printed verbatim beside any figure this produces. */
+  disclaimer: string
+  /** What the voucher's distance field holds right now. This call never changes it. */
+  storedKm: number | null
+  /** Why there is no estimate, when there is none. */
+  reason: string | null
+}
+
+/**
+ * Offer an estimated distance for a voucher's e-way bill. Reads; never writes.
+ *
+ * `opts.toPin` overrides the stored ship-to PIN (the consignment can go somewhere the ship-to
+ * address does not describe). Either PIN being unresolvable yields `estimate: null` and a reason
+ * — never a fallback figure, because a wrong distance offered confidently is the failure this
+ * whole path exists to avoid.
+ */
+export function estimateTransportDistance(
+  db: DB,
+  voucherId: number,
+  opts: { fromPin?: string | null; toPin?: string | null } = {}
+): EwayDistanceOffer {
+  const stored = getTransport(db, voucherId)
+  const clean = (v: string | null | undefined): string | null => {
+    const t = (v ?? '').trim()
+    return t === '' ? null : t
+  }
+  const fromPin = clean(opts.fromPin)
+  const typedTo = clean(opts.toPin)
+  const shipToPin = clean(stored?.shipToPincode)
+  const toPin = typedTo ?? shipToPin
+  const toPinSource: EwayDistanceOffer['toPinSource'] =
+    toPin === null ? null : typedTo !== null ? 'typed' : 'ship_to'
+
+  const base = {
+    fromPin,
+    toPin,
+    toPinSource,
+    disclaimer: PIN_DISTANCE_DISCLAIMER,
+    storedKm: stored?.transDistanceKm ?? null
+  }
+
+  if (!fromPin || !toPin) {
+    return {
+      ...base,
+      estimate: null,
+      reason: !fromPin && !toPin
+        ? 'Enter the despatch and delivery PIN codes. Neither is stored: the company address has no PIN field, and this document has no ship-to PIN.'
+        : !fromPin
+          ? 'Enter the despatch PIN code — the company address is free text and holds no PIN.'
+          : 'Enter the delivery PIN code, or set a ship-to PIN on this document.'
+    }
+  }
+
+  const estimate = estimateEwayDistanceKm(fromPin, toPin)
+  if (!estimate) {
+    // pinCoordinates() answers null for a malformed PIN, an unallotted postal circle, and the
+    // 9x Army Postal Service range. All three mean the same thing to a user: type the distance.
+    const bad = [
+      ...(pinCoordinates(fromPin) ? [] : [`despatch PIN ${fromPin}`]),
+      ...(pinCoordinates(toPin) ? [] : [`delivery PIN ${toPin}`])
+    ].join(' and ')
+    return {
+      ...base,
+      estimate: null,
+      reason: `No estimate: ${bad} is not a PIN this app can place. Enter the distance the e-way bill portal gives you.`
+    }
+  }
+  return { ...base, estimate, reason: null }
+}
+
 // ---------- extraction ----------
 
 /** Assemble full e-doc invoices (items, party, transport, ship-to) for the sales vouchers in a period. */
@@ -193,8 +292,12 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
 
   const salesGroupIds = descendantIdsByName(db, ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes'])
 
+  // An IRN is signed against the tax the invoice actually carried, so the rate is the one in
+  // force on the invoice's own date, not today's master rate (D-92).
+  const rateOnDate = makeRateResolver(db)
+
   const invStmt = db.prepare(
-    `SELECT il.qty_milli AS qtyMilli, il.rate_paise AS ratePaise, il.amount,
+    `SELECT il.stock_item_id AS stockItemId, il.qty_milli AS qtyMilli, il.rate_paise AS ratePaise, il.amount,
             si.name, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate, si.barcode, u.uqc
      FROM inventory_lines il
      JOIN stock_items si ON si.id = il.stock_item_id
@@ -223,12 +326,13 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
     // unit must be billed IGST — the IRP rejects SEZWP/SEZWOP payloads carrying CGST/SGST.
     const supply = supTyp !== 'B2B' ? 'inter' : supplyTypeFor(company.stateCode, pos)
     const rawItems = invStmt.all(v.id) as {
-      qtyMilli: number; ratePaise: number; amount: number
+      stockItemId: number; qtyMilli: number; ratePaise: number; amount: number
       name: string; hsn: string | null; gstRate: number | null; cessRate: number | null; barcode: string | null; uqc: string
     }[]
     let items: EdocItem[] = rawItems.map((item) => {
-      const rate = item.gstRate ?? 0
-      const cessRate = item.cessRate ?? 0
+      const dated = rateOnDate?.(item.stockItemId, v.date) ?? null
+      const rate = dated ? dated.ratePercent : (item.gstRate ?? 0)
+      const cessRate = dated ? dated.cessPercent : (item.cessRate ?? 0)
       const g = computeGst(item.amount, rate, supply, cessRate)
       const mapped = toUqc(item.uqc)
       return {
