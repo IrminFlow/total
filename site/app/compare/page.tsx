@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import SiteNav from "@/components/SiteNav";
+import FunnelBeacon from "@/components/FunnelBeacon";
 
 export const metadata: Metadata = {
   title: "Total vs TallyPrime",
@@ -72,6 +73,7 @@ const ROWS: { particular: string; total: string; tally: string }[] = [
 export default function ComparePage(): React.JSX.Element {
   return (
     <>
+      <FunnelBeacon event="compare_view" />
       <SiteNav />
       <main className="wrap">
         <section>

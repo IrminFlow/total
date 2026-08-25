@@ -1005,6 +1005,90 @@ describe("feedback board", () => {
   });
 });
 
+describe("privacy-safe attribution", () => {
+  it("stores only fixed funnel dimensions and rounds the event time", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    const { POST } = await import("./attribution/route");
+    const response = await POST(
+      new Request("https://total.example/api/attribution", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://total.example" },
+        body: JSON.stringify({
+          event: "pricing_view",
+          source: "google",
+          medium: "organic",
+          campaign: "v5-beta",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(blobMocks.put).toHaveBeenCalledOnce();
+    const [pathname, raw] = blobMocks.put.mock.calls[0]!;
+    expect(pathname).toMatch(/^attribution\/\d{4}-\d{2}-\d{2}\/[0-9a-f-]+\.json$/);
+    const stored = JSON.parse(String(raw));
+    expect(stored).toMatchObject({
+      schema: 1,
+      event: "pricing_view",
+      source: "google",
+      medium: "organic",
+      campaign: "v5-beta",
+    });
+    expect(stored.receivedHour).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:00:00\.000Z$/);
+    expect(Object.keys(stored).sort()).toEqual([
+      "campaign",
+      "event",
+      "medium",
+      "receivedHour",
+      "schema",
+      "source",
+    ]);
+  });
+
+  it("rejects unknown fields and arbitrary campaign values", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    const { POST } = await import("./attribution/route");
+    for (const body of [
+      { event: "landing_view", ledgerName: "Sales" },
+      { event: "landing_view", source: "customer-name" },
+      { event: "download", source: "direct" },
+    ]) {
+      const response = await POST(
+        new Request("https://total.example/api/attribution", {
+          method: "POST",
+          headers: { "content-type": "application/json", origin: "https://total.example" },
+          body: JSON.stringify(body),
+        }),
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(blobMocks.put).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-origin and oversized attribution requests", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    const { POST } = await import("./attribution/route");
+    const crossOrigin = await POST(
+      new Request("https://total.example/api/attribution", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://elsewhere.example" },
+        body: JSON.stringify({ event: "landing_view", source: "direct" }),
+      }),
+    );
+    expect(crossOrigin.status).toBe(403);
+    const oversized = await POST(
+      new Request("https://total.example/api/attribution", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://total.example" },
+        body: JSON.stringify({ event: "landing_view", source: "direct", padding: "x".repeat(600) }),
+      }),
+    );
+    expect(oversized.status).toBe(413);
+    expect(blobMocks.put).not.toHaveBeenCalled();
+  });
+});
+
 describe("download redirect", () => {
   it("selects the Windows installer from an explicit platform request", async () => {
     const releaseModule = await import("@/lib/release");
@@ -1028,6 +1112,36 @@ describe("download redirect", () => {
       expect.objectContaining({ version: "0.5.0" }),
       "win",
     );
+  });
+
+  it("records only allowlisted download attribution without affecting the redirect", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    const releaseModule = await import("@/lib/release");
+    vi.mocked(releaseModule.latestRelease).mockResolvedValue({
+      version: "0.5.0",
+      htmlUrl: "https://github.com/IrminFlow/total/releases/tag/v0.5.0",
+      assets: {},
+    });
+    vi.mocked(releaseModule.resolveDownloadUrl).mockResolvedValue(
+      "https://downloads.example/Total-0.5.0.dmg",
+    );
+    const { GET } = await import("./download/route");
+    const request = new NextRequest(
+      "https://total.example/api/download?platform=mac&source=linkedin&medium=social&campaign=v5-beta&company=PrivateCo",
+    );
+
+    await expect(GET(request)).rejects.toThrow(
+      "redirect:https://downloads.example/Total-0.5.0.dmg",
+    );
+    const stored = JSON.parse(String(blobMocks.put.mock.calls[0]![1]));
+    expect(stored).toMatchObject({
+      event: "download",
+      platform: "mac",
+      source: "linkedin",
+      medium: "social",
+      campaign: "v5-beta",
+    });
+    expect(JSON.stringify(stored)).not.toContain("PrivateCo");
   });
 });
 

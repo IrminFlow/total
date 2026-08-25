@@ -5,6 +5,7 @@ import { latestRelease } from '@/lib/release'
 import gatewayLight from '@/public/gateway-light.jpg'
 import voucherDark from '@/public/voucher-dark.jpg'
 import gstr1Light from '@/public/gstr1-light.jpg'
+import FunnelBeacon from '@/components/FunnelBeacon'
 
 const CAPABILITIES = [
   {
@@ -55,6 +56,7 @@ export default async function Home(): Promise<React.JSX.Element> {
 
   return (
     <>
+      <FunnelBeacon event="landing_view" />
       <SiteNav />
       <main>
         <div className="wrap">

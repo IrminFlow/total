@@ -12,6 +12,7 @@ const ROUTES = [
   ["/docs/coming-from-tally", "monthly", 0.8],
   ["/docs/gst-returns", "monthly", 0.8],
   ["/docs/backups", "monthly", 0.7],
+  ["/docs/ai-data", "monthly", 0.7],
   ["/docs/faq", "monthly", 0.7],
   ["/support", "monthly", 0.7],
   ["/feedback", "weekly", 0.6],

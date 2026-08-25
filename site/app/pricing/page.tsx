@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import SiteNav from '@/components/SiteNav'
+import FunnelBeacon from '@/components/FunnelBeacon'
 
 export const metadata: Metadata = { title: 'Pricing', description: 'Free public beta and planned perpetual licence pricing for Total accounting software.', alternates: { canonical: '/pricing' } }
 
@@ -18,7 +19,7 @@ const PLANS = [
 ] as const
 
 export default function PricingPage(): React.JSX.Element {
-  return <><SiteNav /><main className="wrap pricing-page">
+  return <><FunnelBeacon event="pricing_view" /><SiteNav /><main className="wrap pricing-page">
     <p className="eyebrow">Founding commercial policy · 24 August 2026</p>
     <h1 className="serif">Own the software. Always own the books.</h1>
     <p className="lede">Total v0.5 is ₹0 during the public beta. When paid licences open, they will be one-time major-version licences, not a subscription required to read or export your accounting data.</p>
