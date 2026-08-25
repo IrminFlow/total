@@ -67,18 +67,47 @@ Either way you end up with a certificate file and a password. Add two secrets:
 ## 3. Decide the price, and how people pay
 
 The licence machinery is built: Ed25519-signed keys, verified offline, no server, no phone-home.
-An expired licence never locks the books — it degrades to read-only-plus-export, forever. What
-does not exist is a number and a payment link.
+An expired licence never locks the books — it degrades to read-only-plus-export, forever, and the
+pricing page now says that in the largest type on the page. What does not exist is a number.
 
 **Decisions only you can make**
 
-- The price. One perpetual price with a year of updates, or an annual subscription.
+- The price. One perpetual price with a year of updates, an annual subscription, or both — the
+  site is built for both and shows whichever you fill in.
 - Whether there is a free tier, and what it withholds.
 - The trial length (30 days is currently assumed everywhere in the copy).
 
-**Then** create a Razorpay or Stripe account, add a payment link or checkout, and tell me the
-URL — I will wire `/buy` and the in-app licence screen to it. Razorpay is the sensible default
-here: UPI is how this market pays.
+**Then set two environment variables and the site starts quoting it.** The price is no longer
+written in the code: every page reads it from the environment, so there is nothing to edit and
+nothing that can go stale in a second file. In Vercel → your project → Settings → Environment
+Variables, for Production and Preview:
+
+| Variable | Value |
+|---|---|
+| `TOTAL_PRICE_ANNUAL_INR` | Whole rupees for the yearly plan, e.g. `4999`. `₹4,999` also works. |
+| `TOTAL_PRICE_PERPETUAL_INR` | Whole rupees for the perpetual plan, e.g. `14999`. |
+| `TOTAL_PAYMENT_LINK` | Optional, see below. A Razorpay Payment Page or UPI link. |
+
+Redeploy after setting them — Vercel bakes environment variables at build.
+
+**Until you do, nothing is broken and nothing lies.** `/pricing` prints "Not yet announced" where
+the figure goes and explains that the number is being set; `/buy` says the same instead of showing
+a checkout; and `/api/checkout/order` refuses an unpriced plan, so no order for zero rupees can be
+created even by posting to it directly. There is no placeholder price anywhere to forget about.
+
+**How people pay.** Razorpay, not Stripe: UPI is how this market pays for something priced at a
+few thousand rupees, and Stripe does not settle it. There are two ways in, and the cheap one is
+enough to start:
+
+1. **A payment link, today.** Create a Razorpay Payment Page (or any UPI link), put it in
+   `TOTAL_PAYMENT_LINK`, and `/buy` shows the plans and a button to it. You mint each key by hand
+   with `scripts/make-license.mjs` and email it. This works with no other credentials at all.
+2. **The full checkout, when volume justifies it.** Add `RAZORPAY_KEY_ID`,
+   `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET` and `/buy` becomes a real in-page checkout
+   that verifies the signature and records the order. `site/OPERATOR.md` has the full list and the
+   three things to test with one live rupee before switching it on.
+
+Razorpay KYC has to be complete before either: UPI is not available on a test-mode account.
 
 ---
 
@@ -87,29 +116,44 @@ here: UPI is how this market pays.
 These are marked ✗ on the roadmap rather than done, because inventing them would be a false
 statement about a named business and I will not write one.
 
-- **Testimonials (#307).** The component and the data file exist and render nothing while empty.
-  I need one or two real customers' words with their written permission, and their firm's name.
+- **Testimonials (#307).** I need one or two real customers' words with their written
+  permission, and their firm's name. While `site/lib/testimonials.ts` is empty the homepage now
+  says so in as many words and offers four things a stranger can check instead — the screenshots
+  are of the real app, the roadmap is public, the page listing what Tally does better is public,
+  and the trial needs no card. Add one real entry and that section becomes the quotes.
 - **A 90-second GSTR-1 recording (#308).** `/demo` has the slot and shows an honest placeholder
   until `NEXT_PUBLIC_DEMO_VIDEO_URL` is set. The nine-shot script is written out in
   `site/content/screencast-shot-list.md` — it is a screen recording, not a production.
 - **A support phone number.** A visible WhatsApp number is a conversion feature in this market,
-  not a support cost. Say the number and I will put it on the site and in the app.
+  not a support cost. Set `NEXT_PUBLIC_WHATSAPP_NUMBER` in Vercel to the number in international
+  digits with no plus and no spaces (`919876543210`) and it appears on the contact, CA, partner
+  and buy pages. Until it is set, those pages fall back to email and the contact page says plainly
+  that there is no number yet, rather than showing an invented one.
 
 ---
 
 ## 5. Set up the feedback endpoint's sinks
 
-The in-app Support form now posts to the site's `/api/feedback`. That route deliberately answers
-with an error rather than swallowing a message when it has nowhere to put it — a support form
-that silently discards a bug report is worse than no support form.
+The in-app Support form and the site's own contact form both post to `/api/feedback`, so there is
+one inbox rather than two. That route deliberately answers with an error rather than swallowing a
+message when it has nowhere to put it — a support form that silently discards a bug report is
+worse than no support form. **Until you set one of the variables below, every message sent from
+the contact page fails**; the form tells the sender so and hands back what they typed as a
+pre-filled email, but nobody should have to do that twice.
 
 Add to the Vercel project (Settings → Environment Variables):
 
-- `GITHUB_TOKEN` — a fine-grained PAT with **Issues: write** on `IrminFlow/total`, so each
-  message is filed as an issue. (You already need this token read-only for the download button;
-  widen its permission or add a second one.)
-- `RESEND_API_KEY` and `FEEDBACK_EMAIL` — optional, so a message also reaches your inbox the
+- `FEEDBACK_GITHUB_TOKEN` — a fine-grained PAT with **Issues: write** on `IrminFlow/total`, so
+  each message is filed as an issue. It falls back to `GITHUB_TOKEN`, which is read-only for
+  releases, so set this one separately rather than widening that one.
+- `FEEDBACK_REPO` — optional. A separate private repo, if you would rather not mix support
+  messages with source.
+- `RESEND_API_KEY`, `MAIL_FROM` and `MAIL_TO` — optional, so a message also reaches your inbox the
   same minute.
+- `FORWARD_WEBHOOK_URL` — optional. Anything accepting `{"text": "..."}`, including Slack.
+
+`site/OPERATOR.md` is the complete list of every variable this site reads, with what breaks
+visibly when each one is missing.
 
 ---
 
