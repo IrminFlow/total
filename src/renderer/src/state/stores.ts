@@ -330,7 +330,7 @@ export const useA11y = create<A11yState>((set) => ({
  * `keyboardOnly` stops hover from being the only way to discover a row's actions. Hover is a
  * pointer idiom; an operator who never touches the trackpad sees a table of rows with invisible
  * buttons on them and reasonably concludes there are none. Turning this on takes the reveal off
- * `:hover` entirely, so the only thing that lights up a row's actions is the amber keyboard bar
+ * `:hover` entirely, so the only thing that lights up a row's actions is the accent keyboard bar
  * or Tab — which means what is on screen is exactly what the keyboard can reach.
  *
  * `vimKeys` adds `gg` / `G` to lists. It is off by default and has to stay off by default,
@@ -423,7 +423,7 @@ interface AnnouncerState {
 /**
  * One app-wide polite live region (#275).
  *
- * Row selection moves with the arrow keys and repaints an amber bar — which says nothing at all
+ * Row selection moves with the arrow keys and repaints an accent bar — which says nothing at all
  * to a screen reader, because nothing in the accessibility tree changed. The row has to be read
  * out, and it has to be read out politely: an assertive region would interrupt the user mid-word
  * on every single arrow press.

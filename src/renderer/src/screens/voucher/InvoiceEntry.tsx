@@ -583,7 +583,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
 
       {rcm.kind !== 'none' && (
         <p
-          className={`mt-2 text-hint ${rcm.kind === 'suggest' ? 'text-amber' : 'text-muted'}`}
+          className={`mt-2 text-hint ${rcm.kind === 'suggest' ? 'text-accent' : 'text-muted'}`}
           data-testid="hint-rcm"
         >
           {rcm.kind === 'suggest' ? (
@@ -602,7 +602,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       )}
 
       {b2cLarge && (
-        <p className="mt-2 text-hint text-amber" data-testid="hint-b2cl">
+        <p className="mt-2 text-hint text-accent" data-testid="hint-b2cl">
           Over ₹1,00,000 inter-state to an unregistered buyer — this goes into GSTR-1 table 5
           (B2C large) invoice by invoice, not into the table 7 summary. Worth checking the value
           and the place of supply now.

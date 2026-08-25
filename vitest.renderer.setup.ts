@@ -67,7 +67,7 @@ afterEach(() => {
 
 /**
  * jsdom implements no layout, so it ships no `Element.prototype.scrollIntoView` at all — and
- * `useKeyNav` calls it every time the amber bar moves. Real rows in a test therefore blow up on
+ * `useKeyNav` calls it every time the accent bar moves. Real rows in a test therefore blow up on
  * a browser API that is simply absent rather than on anything the hook got wrong. A no-op is the
  * honest stand-in: there is no viewport to scroll.
  */

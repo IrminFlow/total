@@ -69,7 +69,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
               <button
                 data-testid="tab-consolidated-tb"
                 className={`px-3 py-1 text-small transition-colors ${
-                  kind === 'tb' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
+                  kind === 'tb' ? 'bg-accentbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
                 }`}
                 onClick={() => setKind('tb')}
               >
@@ -78,7 +78,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
               <button
                 data-testid="tab-consolidated-pnl"
                 className={`border-l border-line px-3 py-1 text-small transition-colors ${
-                  kind === 'pnl' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
+                  kind === 'pnl' ? 'bg-accentbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
                 }`}
                 onClick={() => setKind('pnl')}
               >
@@ -132,7 +132,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
       )}
 
       {data && data.warnings.length > 0 && (
-        <div className="mb-4 rounded-md border border-amberbar/50 bg-amberbar/10 px-3 py-2 text-body-sm text-ink">
+        <div className="mb-4 rounded-md border border-accentbar/50 bg-accentbar/10 px-3 py-2 text-body-sm text-ink">
           {data.warnings.map((w, i) => (
             <p key={i}>{w}</p>
           ))}

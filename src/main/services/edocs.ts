@@ -6,6 +6,7 @@ import type { EdocListRow } from '@shared/reports'
 import type { VoucherTransportInput } from '@shared/schemas'
 import {
   buildEInvoiceJson, buildEwbJson, ewbEligibility, ewbIssues, EWB_THRESHOLD_PAISE,
+  EWB_INELIGIBILITY_REASON, type EwbIneligibility,
   type EdocCompany, type EdocInvoice, type EdocItem, type EdocShipTo, type EdocTransport
 } from '@shared/gst/edocs'
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
@@ -45,40 +46,89 @@ function supTypFor(exportType: string | null, partyStateCode: string | null): 'B
   return 'B2B'
 }
 
+
+/**
+ * The e-invoice / e-way bill worklist for a period.
+ *
+ * PERFORMANCE, and why the shape of this query matters more than it looks. Two facts about the
+ * row have to come off `inventory_lines`: whether any line carries an HSN (without one the
+ * e-invoice JSON is rejected) and whether anything actually moves (a services-only bill needs no
+ * e-way bill). Both used to be correlated EXISTS subqueries evaluated once per row, so a book
+ * with 44,000 sales documents in the period ran 88,000 of them to draw one screen — measured at
+ * 13.8 seconds against an 85,840-voucher book while every other screen in the app sat between
+ * 47 ms and 2.6 seconds.
+ *
+ * They are now a single LEFT JOIN onto one grouped pass over `inventory_lines`, and the same is
+ * done for the debit total. Each derived table is restricted to the period through `vouchers`, so
+ * none of the three scans the whole book to answer a question about one month.
+ *
+ * Deliberately still unpaginated — pagination is the performance lane's to design, and doing it
+ * here as well would mean two schemes for one screen.
+ */
 export function listSalesInvoices(db: DB, from: string, to: string): EdocListRow[] {
-  const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
+  // Named parameters throughout: the derived tables in the FROM clause bind BEFORE the kind list
+  // in the WHERE clause, and positional placeholders across three subqueries are an off-by-one
+  // waiting to happen.
+  const kindKeys = EDOC_KINDS.map((_, i) => `@kind${i}`).join(', ')
+  const params: Record<string, string> = { from, to }
+  EDOC_KINDS.forEach((k, i) => {
+    params[`kind${i}`] = k
+  })
   const outwardDbn = outwardDebitNoteIds(db, from, to)
   return db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date, vt.kind AS kind, p.name AS partyName, p.gstin AS partyGstin,
               COALESCE(t.total, 0) AS total, v.vehicle_no AS vehicleNo, v.irn, v.ewb_no AS ewbNo,
-              EXISTS(SELECT 1 FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id
-                     WHERE il.voucher_id = v.id AND si.hsn IS NOT NULL) AS hasHsn,
-              EXISTS(SELECT 1 FROM inventory_lines il2 WHERE il2.voucher_id = v.id AND il2.qty_milli != 0) AS hasGoods
+              COALESCE(inv.hasHsn, 0) AS hasHsn,
+              COALESCE(inv.hasGoods, 0) AS hasGoods
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
-       LEFT JOIN (SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id) t
-         ON t.voucher_id = v.id
-       WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       LEFT JOIN (
+         SELECT vl.voucher_id AS voucher_id, SUM(vl.amount) AS total
+         FROM voucher_lines vl
+         JOIN vouchers tv ON tv.id = vl.voucher_id
+         WHERE vl.dr_cr = 'dr' AND tv.date BETWEEN @from AND @to
+         GROUP BY vl.voucher_id
+       ) t ON t.voucher_id = v.id
+       LEFT JOIN (
+         -- One pass, two answers. MAX over a CASE is SQLite's boolean OR across a group.
+         -- inventory_lines.stock_item_id is NOT NULL, so the join to stock_items drops nothing
+         -- and the goods test keeps exactly the meaning its old standalone subquery had.
+         SELECT il.voucher_id AS voucher_id,
+                MAX(CASE WHEN si.hsn IS NOT NULL THEN 1 ELSE 0 END) AS hasHsn,
+                MAX(CASE WHEN il.qty_milli != 0 THEN 1 ELSE 0 END) AS hasGoods
+         FROM inventory_lines il
+         JOIN stock_items si ON si.id = il.stock_item_id
+         JOIN vouchers iv ON iv.id = il.voucher_id
+         WHERE iv.date BETWEEN @from AND @to
+         GROUP BY il.voucher_id
+       ) inv ON inv.voucher_id = v.id
+       WHERE vt.kind IN (${kindKeys}) AND v.date BETWEEN @from AND @to AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
-    .all(...EDOC_KINDS, from, to)
+    .all(params)
     .map((r: any) => {
       const { kind, hasGoods, ...rest } = r
       const docType = docTypeFor(kind)
       const isOutwardDbn = docType === 'DBN' && outwardDbn.has(r.voucherId)
-      const ewbReason =
+      const ewbReasonCode: EwbIneligibility | null =
         docType === 'CRN'
-          ? 'Credit note — e-way bills accompany goods movement'
+          ? 'credit_note'
           : docType === 'DBN' && !isOutwardDbn
-            ? 'Purchase-side debit note'
+            ? 'purchase_dbn'
             : !hasGoods
-              ? 'Services only — no goods movement'
+              ? 'services_only'
               : r.total <= EWB_THRESHOLD_PAISE
-                ? 'At or below ₹50,000 — per-bill export overrides'
+                ? 'below_threshold'
                 : null
-      return { ...rest, docType, hasHsn: !!r.hasHsn, outwardDbn: isOutwardDbn, ewbReason }
+      return {
+        ...rest,
+        docType,
+        hasHsn: !!r.hasHsn,
+        outwardDbn: isOutwardDbn,
+        ewbReasonCode
+      }
     }) as EdocListRow[]
 }
 
@@ -521,11 +571,11 @@ function ewbInvoicesFor(
   for (const inv of all) {
     if (opts.voucherIds && (inv.voucherId == null || !opts.voucherIds.includes(inv.voucherId))) continue
     if (inv.docType === 'CRN') {
-      skipped.push({ number: inv.number, reason: 'Credit note — e-way bills accompany goods movement' })
+      skipped.push({ number: inv.number, reason: EWB_INELIGIBILITY_REASON.credit_note })
       continue
     }
     if (inv.docType === 'DBN' && (inv.voucherId == null || !outwardDbn.has(inv.voucherId))) {
-      skipped.push({ number: inv.number, reason: 'Purchase-side debit note' })
+      skipped.push({ number: inv.number, reason: EWB_INELIGIBILITY_REASON.purchase_dbn })
       continue
     }
     const elig = ewbEligibility(inv, opts.includeBelowThreshold ?? false)

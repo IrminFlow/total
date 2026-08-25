@@ -211,21 +211,70 @@ Ordering within a section is roughly by value.
 86. ✓ E-invoice threshold awareness by declared turnover band (S)
 87. ✓ Reverse-charge ledger auto-selection on notified supplies (M)
 88. ✓ Bill of supply for exempt and composition sales (M)
-89. Delivery challan and job-work challan (ITC-04) (L)
+89. ✓ Delivery challan and job-work challan (ITC-04) (L) — the delivery challan was already the
+    third stage of the sales chain; this adds the job-work side. Challans out, what came back,
+    the ITC-04 working paper (tables 4, 5A, 5B, 5C), and the part that actually matters: the
+    **section 143 deemed-supply clock**. Goods not returned within a year (inputs) or three
+    (capital goods) are deemed supplied on the day they went out, with interest running from that
+    date — so a partly-returned challan is a partial deemed supply on the unreturned quantity, and
+    the overdue callout says in words that the goods are treated as sold, rather than just
+    colouring the row. Moulds, dies, jigs, fixtures and tools carry no clock (s.143(4)); a bug
+    where that exclusion never reached the calculation, hidden by an `as` cast on a misspelled
+    field, was found and fixed by the tests. **Needs verification, all three surfaced in the UI:
+    whether Table 5B is a receipt limb rather than the despatch limb modelled here; the
+    periodicity notification number (35/2021-CT was recalled, not read); and whether the
+    anniversary day itself is still in time.**
 90. ✓ TCS on sale of goods, section 206C(1H) (M) — detection, not automatic collection: the
     section does not apply where the buyer deducts TDS under 194Q on the same transaction, which
     the seller cannot know from their own books.
-91. 26AS reconciliation against TDS entries (L)
-92. GST rate-change handling: rate history per item with effective dates (L)
+91. ✓ 26AS reconciliation against TDS entries (L) — paste or load a TRACES export and reconcile
+    it against the credit the books expect, in the same buckets `recon2b` uses, with the total
+    credit at risk called out. Both directions are reported: credit in the books but not in 26AS
+    is credit that will not arrive, credit in 26AS but not in the books is income possibly never
+    recorded. Nothing is persisted — a downloaded 26AS is a snapshot of the department's record,
+    and a stored stale copy invites reconciling against last month's. **Needs verification: the
+    parser was written to the published Part-A wording and has never seen a file from the live
+    portal; malformed lines surface as complaints rather than being dropped, so a layout surprise
+    is visible. Also flagged: `ledgers` has no TAN column, so matching borrows the TAN from the
+    statement by name.**
+92. ✓ GST rate-change handling: rate history per item with effective dates (L) — the bug this
+    fixes is quiet and bad: an item carried ONE rate, so editing it when the Council moved a rate
+    silently repriced every past invoice and every return already filed. A rate is now dated data
+    like every other statutory fact, carrying the notification that made it. The rate is resolved
+    against the DOCUMENT's date everywhere it is used — GSTR-1 extraction, e-invoice extraction,
+    the reverse-charge summary, the counter, and the sales chain, so a quotation converts at the
+    rate it was raised under. An item with no history behaves exactly as before, so a book that
+    never records a change is untouched. The regression test recomputes a filed July GSTR-1 after
+    recording a September change and asserts it has not moved.
 93. ✓ HSN summary validation against the GSTR-1 schema before export (S)
 94. ✓ B2C large invoice threshold flagged automatically (S)
 95. ✓ Place-of-supply auto-derivation from the party's state code (S) — already shipped
-96. E-way bill distance auto-lookup from pin codes (M)
+96. ✓ E-way bill distance auto-lookup from pin codes (M) — an **offer**, never a silent write:
+    the figure appears beside the disclaimer with a separate button to accept it, because an
+    understated distance expires a consignment in transit. An unplaceable PIN offers nothing at
+    all rather than a guess. **Needs verification, and says so on screen: the whole PIN table is
+    approximate** — three-digit district coordinates are city-centre figures, two-digit circle
+    fallbacks are eyeballed middles with 50–100 km of expected error, and the 1.25 road-circuity
+    factor is a planning convention, not a measurement. Also worth knowing: the delivery PIN is
+    stored, the **despatch PIN is not** (the company address is one free-text column), so the user
+    types it. Parsing six digits out of an address line would have been a guess dressed as data.
 97. ✓ A filing calendar that marks a return as filed with its ARN (M)
 98. ✓ Late-fee and interest calculator for delayed filing (M)
 99. ✓ GST payment challan (PMT-06) tracking against liability (M)
 100. ✓ Nil-return shortcut when a period has no transactions (S)
-101. Amendment tables (B2BA, CDNRA) in GSTR-1 (L)
+101. ✓ Amendment tables (B2BA, CDNRA) in GSTR-1 (L) — with B2CLA and CDNURA. The thing that
+     made this possible is a **snapshot of what the return said on the day it was filed**: an
+     amendment row can only be computed against the original particulars, and the books no longer
+     hold them once the voucher has been corrected. First writer wins, so retyping an ARN cannot
+     erase the original. The panel separates three things a naive diff would conflate — genuine
+     amendments, filed documents no longer in the books, and documents dated in a filed period
+     that were never filed (a missed invoice is not an amendment; it belongs in the later period's
+     ordinary tables). Refused pairs show their reason rather than vanishing. **Needs verification,
+     carried onto the screen: the amendment-only field names (`octin`/`oinum`/`oidt`,
+     `ont_num`/`ont_dt`/`ntty`) have no precedent in the existing GSTR-1 builder and are unchecked
+     against a current schema; whether the portal accepts an amendment-only upload; and how a
+     registered → unregistered correction should be filed. The section 37(3) rectification window
+     is reported, not enforced.**
 102. ✓ Export invoices with and without payment of tax, split correctly (M) — already shipped
 103. ✓ SEZ supplies with and without payment, split correctly (M) — already shipped
 104. ✓ Advance receipt and adjustment tables (11A, 11B) (M) — already shipped
@@ -236,8 +285,19 @@ Ordering within a section is roughly by value.
      session crypto) and has never been run against the portal, because there are no sandbox
      credentials to run it with. Nothing in this pass changed that. It stays experimental, and the
      first person with a sandbox login should treat every response shape in it as a guess.
-108. Multi-GSTIN companies: one book, several registrations (L)
-109. TDS lower-deduction certificate handling (M)
+108. Multi-GSTIN companies: one book, several registrations (L) — still open, and deliberately
+     not attempted in this pass. It is not a feature so much as a change to what a "company"
+     is: every query, every return, every export and the whole numbering scheme assume one
+     registration. Today the honest answer is one company per GSTIN with the Consolidated screen
+     over the top, which is what the law asks for anyway — each registration files its own
+     returns.
+109. ✓ TDS lower-deduction certificate handling (M) — a section 197 certificate names a section,
+     a rate, a validity window and, the part everyone gets wrong, a **ceiling**. Once cumulative
+     payments pass it the normal rate resumes on the excess *within the same payment*, so a
+     straddling payment splits across two rates; the tests assert both halves and that they re-add.
+     Keyed on PAN rather than ledger, because a certificate is issued to a person and the same
+     person can be two ledgers. A soft-deleted voucher does not consume anybody's ceiling, and
+     re-editing a saved voucher no longer eats its own headroom twice.
 110. ✓ Professional tax slabs per state, not just one (M) — already shipped: PT_SLABS carries
      Maharashtra, Karnataka, West Bengal, Tamil Nadu, Gujarat, Andhra Pradesh, Telangana and
      Madhya Pradesh, keyed off the employee's pt_state. #177 added effective dates on top.
@@ -552,7 +612,12 @@ Ordering within a section is roughly by value.
      that the audit trail then attributes to a viewer.
 267. ✓ Session timeout, as the idle auto-lock (#263) — a separate timeout on the lock screen
      itself would guard a screen that already holds nothing (S)
-268. Redact sensitive fields in exported diagnostics (done) (S)
+268. ✓ Redact sensitive fields in exported diagnostics (S) — redaction by construction rather
+     than by filter: `log()` records channel names, event names and error messages and never IPC
+     payloads, so there is nothing to strip. Asserting that is one thing and proving it is
+     another, so `scripts/e2e/33-support-send.mjs` posts a party with a GSTIN, sends a support
+     message, and reads the bytes off a recording server to check that neither the party, the
+     GSTIN nor the company name is anywhere in them.
 269. ✓ Content-Security-Policy audit and tightening (S) — base-uri, form-action and
      frame-ancestors do not fall back to default-src and were unset; connect-src is now stated
      rather than inherited, because every network call in the product belongs to main and one
@@ -562,7 +627,12 @@ Ordering within a section is roughly by value.
      release workflow. Runtime dependencies only: this app ships a Chromium to every user, so a
      known RCE in something it bundles is a shipped RCE, while a build-tool advisory blocking a
      release only teaches people to pass --force.
-271. Signed releases and update verification (config done) (M)
+271. ⏳ Signed releases and update verification (M) — blocked on procurement, not on code. The
+     workflow, the hardened runtime and `build/entitlements.mac.plist` already read `CSC_LINK`,
+     `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`,
+     `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`, and log a `::warning::` on every build that runs
+     without them. The next tag after the certificates land is signed with no code change. See
+     #341 and #342.
 272. ✓ Privacy page documenting exactly what leaves the machine (S) — written as a list of
      network calls, not as a policy: that is the only form a reader can check against the app.
 273. ✓ A "panic" key that locks immediately — ⌘⇧L from any screen (S)
@@ -679,10 +749,11 @@ Ordering within a section is roughly by value.
 309. ✓ Contact page with a WhatsApp number (S)
 310. ✓ SEO pages for the real queries people type (M)
 311. ✓ Downloads page with checksums and signing language (S)
-312. In-app feedback form posting to a real endpoint (M) — the endpoint exists:
+312. ✓ In-app feedback form posting to a real endpoint (M) — done with #345. The endpoint exists:
      `site/app/api/feedback/route.ts` stores each message as an issue in the private repo and
      forwards it by mail, and returns 503 rather than swallowing anything when no sink is
-     configured. The in-app half is the other half of this item.
+     configured. The in-app half is now the Support dialog: a message, an optional address, and
+     the diagnostics tail attached by default and shown in full before anything moves.
 313. ✓ Changelog surfaced in-app, not only on the site (S)
 314. ✓ Update notes shown before an update is applied (S)
 315. ✓ Referral or word-of-mouth tracking without telemetry (M)
@@ -757,25 +828,46 @@ lead time measured in weeks, which makes them the first items on the list and no
 343. ✓ The Playwright E2E suite on Windows in CI (M) — see the correction on #325. Path handling,
      the native menu, `_electron` launch and every file dialog are the places a macOS-only suite
      is blind, and they are exactly what breaks on Windows.
-344. A generated 100,000-voucher book, timed through every screen, with the numbers published (M)
-     — #224 measured 30k and #329 asks for the fixture; this is the stress pass at three times
-     that, and the artefact doubles as marketing. A report that is fine at 30k and unusable at
-     100k is a report that fails during an evaluation, which is the worst possible moment.
-345. An error ring buffer attached to the feedback form, with a pre-send preview (S) — launch
-     week reaches machines nobody has seen, and a `mailto:` is not a channel. The preview is the
-     point: diagnostics the user has read are diagnostics the user will send.
-346. First-run on a machine that has never held the app (S) — no company, no data directory, no
-     keychain entry, no `~/Documents/total`. Every existing test starts from a seeded state.
+344. ✓ A generated 100,000-voucher book, timed through every screen, with the numbers published
+     (M) — 85,840 vouchers, not 100,000: the generator posts a fixed ratio of receipts and
+     purchases per invoice, so a round number of invoices does not give a round number of
+     vouchers, and the numbers in `docs/performance.md` are the ones that were measured rather
+     than the ones the item asked for. It found what it was meant to find. e-Invoice & e-Way does
+     not settle at all inside sixty seconds on a busy machine and takes nineteen on a quiet one:
+     `listSalesInvoices` returns every sales document in the period unpaginated and runs two
+     correlated EXISTS subqueries per row, which is 88,000 correlated subqueries for one screen.
+     Trial balance is 3.2 seconds *warm*, which is the scaling wall of #224 measured rather than
+     predicted. `perf-sweep.mjs` gained `--data-dir=` so the expensive half — building the book —
+     is done once and re-timed in minutes.
+345. ✓ An error ring buffer attached to the feedback form, with a pre-send preview (S) — the
+     Support dialog now takes a message and posts it to the site's `/api/feedback`, which had been
+     waiting for a caller since it was written. A `mailto:` needs a configured mail client and
+     silently does nothing on a machine without one. The log tail is attached by default and shown
+     in full first, and it is safe to show by construction rather than by filtering: `log()`
+     records channel and event names, never IPC payloads. `scripts/e2e/33-support-send.mjs` stands
+     a recording server on localhost and asserts the bytes on the wire are character-for-character
+     the characters on screen — and that no party name, GSTIN or company name is among them.
+346. ✓ First-run on a machine that has never held the app (S) — `scripts/e2e/32-fresh-machine.mjs`
+     points the app at a path three directories deep that does not exist, so the very first
+     millisecond is under test rather than assumed. Every other scenario starts from a directory
+     the harness made.
 347. 1366×768 at 125% scaling, on a real ₹40,000 Windows laptop (S) — the modals, the sidebar
      and the ledger table at the size most of the market actually runs them.
-348. The release steps as a script rather than a memory (S) — verify, tag, push, and then assert
-     the release published rather than drafted. A draft release is invisible to `releases/latest`,
-     which is what the in-app updater and the site both read.
-349. Relabel NIC live filing as experimental until it has run against the sandbox (S) — the site
-     currently sells "live IRN and e-way bill generation" for a client that has never met the
-     real portal. Lead with the offline JSON export, which works. See #107.
-350. Uninstall and reinstall leaving the books untouched, proven by a test (S) — the promise is
-     that the data is the user's and lives in their Documents folder. Nothing checks it.
+348. ✓ The release steps as a script rather than a memory (S) — `npm run release -- patch` checks
+     the tree is clean, on main and level with origin, runs the whole suite, versions, tags,
+     pushes, and then polls GitHub until the release exists and fails loudly if it published as a
+     draft or a pre-release. Both are invisible to `releases/latest`, which is what the in-app
+     updater and the site's download button read, so both look perfect on the releases page and
+     reach nobody. `--dry-run` stops before the two irreversible acts.
+349. ✓ Relabel NIC live filing as experimental until it has run against the sandbox (S) — the
+     home page, the GST docs, the comparison page and the FAQ all now lead with the offline JSON
+     export, which works, and say in as many words that the live client has never met the real
+     portal. See #107.
+350. ✓ Uninstall and reinstall leaving the books untouched, proven by a test (S) — the second
+     half of `32-fresh-machine.mjs`: post a voucher, throw away everything the installation owns
+     (the whole Chromium profile — preferences, localStorage, userData), launch again over the
+     same data directory, and find the company, the voucher and the amount to the paise. The
+     promise is that the books are the user's; now something checks it.
 
 ## S. Statutory depth
 

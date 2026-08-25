@@ -74,7 +74,7 @@ export function AppearanceSection(): React.JSX.Element {
           label="Keyboard only"
           // Said as a consequence rather than a feature: the user is choosing what the screen
           // will look like, and "row actions stop appearing under the pointer" is the change.
-          hint="Row actions stop appearing on hover. They show for the amber selection bar and for Tab instead, so everything visible is something the keyboard can reach."
+          hint="Row actions stop appearing on hover. They show for the accent selection bar and for Tab instead, so everything visible is something the keyboard can reach."
           name="keyboard-only"
           value={keyboardOnly ? 'on' : 'off'}
           options={[

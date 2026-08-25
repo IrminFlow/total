@@ -1,4 +1,4 @@
-// Scenario 33 — section 197 lower-deduction certificates, and the Form 26AS credit check.
+// Scenario 38 — section 197 lower-deduction certificates, and the Form 26AS credit check.
 //
 // The two properties this asserts, neither of which is about pixels:
 //
@@ -16,7 +16,7 @@ import { scenario, assert, assertEq } from '../lib/harness.mjs'
 
 const PAN = 'ABCDE1234F'
 
-await scenario('33-tds-certificates', async (h) => {
+await scenario('38-tds-certificates', async (h) => {
   await h.createCompanyUI('Certificate Books')
   await h.stubDialogs()
 

@@ -118,7 +118,7 @@ export function TdsScreen(): React.JSX.Element {
             data-testid={`tab-tds-q${q}`}
             onClick={() => setQuarter(q)}
             className={`rounded-md px-3 py-1 text-body-sm ${
-              quarter === q ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+              quarter === q ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
             }`}
           >
             Q{q}
@@ -128,7 +128,7 @@ export function TdsScreen(): React.JSX.Element {
 
       {flaggedNoPan.length > 0 && (
         <Panel className="mb-3">
-          <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
+          <div className="border-b border-line bg-accent/10 px-3 py-2 text-body-sm text-accent">
             {flaggedNoPan.length} part{flaggedNoPan.length > 1 ? 'ies' : 'y'} flagged for TDS with no PAN on file — the
             higher 20% rate applies
           </div>
@@ -282,7 +282,7 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
                   <tr
                     key={s.id}
                     {...sectionTable.rowProps(i, s)}
-                    className={`${sectionTable.rowProps(i, s).className} ${form.id === s.id ? 'bg-amberbar/10' : ''}`}
+                    className={`${sectionTable.rowProps(i, s).className} ${form.id === s.id ? 'bg-accentbar/10' : ''}`}
                   >
                     <td className="num">{s.code}</td>
                     <td>{s.description}</td>

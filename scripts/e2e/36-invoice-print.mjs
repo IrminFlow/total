@@ -79,12 +79,23 @@ await scenario('36-invoice-print', async (h) => {
   await h.shot('01-share')
   await h.page.keyboard.press('Escape')
 
-  // ---- Settings offers the pickers, and the live preview follows them ----
+  // ---- Settings offers the pickers, and they are actually usable ----
+  //
+  // The enabled-ness is the assertion, not decoration. This screen gates every field on the
+  // signed-in user being an owner, and a company with no users at all — the default, and the
+  // common case — has no signed-in user. That read every field as read-only, so nobody could
+  // choose a template, a language or even an invoice title until they had created a user.
   await h.goto('settings')
   await h.page.click('[data-testid="tab-settings-invoice"]')
   await h.page.waitForSelector('[data-testid="select-invoice-template"]', { timeout: 10000 })
+  assert(
+    await h.page.isEnabled('[data-testid="select-invoice-template"]'),
+    'the template picker is usable on a company with no users configured'
+  )
   await h.page.selectOption('[data-testid="select-invoice-template"]', 'modern')
   await h.page.selectOption('[data-testid="select-invoice-language"]', 'hi')
+  const chosen = await h.page.inputValue('[data-testid="select-invoice-template"]')
+  assert(chosen === 'modern', `the picker holds the choice (got ${chosen})`)
   await h.shot('02-invoice-config')
 
   await h.assertNoConsoleErrors()

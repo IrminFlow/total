@@ -1,4 +1,4 @@
-// Scenario 32 — GST rate history per item (roadmap D-92).
+// Scenario 37 — GST rate history per item (roadmap D-92).
 //
 // One property, asserted end to end through the same handlers the UI calls: an invoice dated
 // BEFORE a rate change is taxed at the old rate, and one dated AFTER it at the new rate. The rate
@@ -16,7 +16,7 @@ const daysAgo = (n) => {
   return iso(d)
 }
 
-await scenario('32-rate-history', async (h) => {
+await scenario('37-rate-history', async (h) => {
   await h.createCompanyUI('Rate History Books')
 
   // A registered seller and a registered buyer in the same state, so the invoices land in b2b

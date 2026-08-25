@@ -171,7 +171,7 @@ function PurgePolicy({ canEdit }: { canEdit: boolean }): React.JSX.Element {
       </Select>
       <span className="flex-1" />
       {data && data.count > 0 ? (
-        <span className="text-amber" data-testid="bin-purge-warning">
+        <span className="text-accent" data-testid="bin-purge-warning">
           {data.count} will be purged the next time these books open
           {data.oldestDate && `, the oldest dated ${toDisplayDate(data.oldestDate)}`}.
         </span>

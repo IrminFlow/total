@@ -5,6 +5,7 @@ import { JsonPreview } from '../components/JsonPreview'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, useTableNav } from '../components/ui'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
+import { EWB_INELIGIBILITY_REASON, EWB_INELIGIBILITY_SHORT } from '@shared/gst/edocs'
 import { TransportModal } from './voucher/TransportModal'
 
 type DocTypeFilter = 'all' | 'INV' | 'CRN' | 'DBN'
@@ -156,7 +157,7 @@ export function EdocsScreen(): React.JSX.Element {
         e-Invoice &amp; e-Way bill
       </SectionTitle>
 
-      {!info?.gstin && <p className="mb-3 text-body-sm text-amber">Add the company GSTIN under Company details to enable exports.</p>}
+      {!info?.gstin && <p className="mb-3 text-body-sm text-accent">Add the company GSTIN under Company details to enable exports.</p>}
 
       <Panel scroll={{ maxH: 'calc(100vh - 15rem)' }}>
         {isLoading ? (
@@ -185,7 +186,7 @@ export function EdocsScreen(): React.JSX.Element {
                   <td className="num">
                     {r.number}
                     {!r.hasHsn && (
-                      <span className="ml-1 text-amber" title="No stock item on this document carries an HSN code — e-invoice/EWB JSON will be rejected. Set HSN on the items (Masters → Items).">
+                      <span className="ml-1 text-accent" title="No stock item on this document carries an HSN code — e-invoice/EWB JSON will be rejected. Set HSN on the items (Masters → Items).">
                         ⚠
                       </span>
                     )}
@@ -199,7 +200,7 @@ export function EdocsScreen(): React.JSX.Element {
                     </span>
                     {r.outwardDbn && (
                       <span
-                        className="ml-1 inline-block rounded-md border border-amber/50 bg-amber/10 px-1.5 py-0.5 text-label font-medium text-amber"
+                        className="ml-1 inline-block rounded-md border border-accent/50 bg-accent/10 px-1.5 py-0.5 text-label font-medium text-accent"
                         title="Outward debit note — the NIC bulk docType enum has no DBN, so it exports as 'OTH'."
                       >
                         OTH
@@ -215,10 +216,15 @@ export function EdocsScreen(): React.JSX.Element {
                     {r.ewbNo ? <span className="num text-dr">{r.ewbNo}</span> : <span className="text-muted">no EWB</span>}
                   </td>
                   <td className="text-hint">
-                    {r.ewbReason == null ? (
+                    {r.ewbReasonCode == null ? (
                       <span className="text-dr">Eligible</span>
                     ) : (
-                      <span className="text-muted" title={r.ewbReason}>{r.ewbReason}</span>
+                      // Three words, with the sentence on the tooltip and once in the footnote
+                      // below the table. A reason that is true of most rows is a property of the
+                      // screen, not row data (docs/chrome-spec.md section 6).
+                      <span className="text-muted" title={EWB_INELIGIBILITY_REASON[r.ewbReasonCode]}>
+                        {EWB_INELIGIBILITY_SHORT[r.ewbReasonCode]}
+                      </span>
                     )}
                   </td>
                   <td className="r whitespace-nowrap">
@@ -276,6 +282,21 @@ export function EdocsScreen(): React.JSX.Element {
           </table>
         )}
       </Panel>
+      {/*
+        The eligibility footnote. Said once here rather than sixty characters at a time on every
+        row: the threshold applies to the whole screen, not to any particular bill, and a sentence
+        repeated thirteen times over stops being read (docs/chrome-spec.md section 6). Only shown
+        when at least one row is actually ineligible, so a clean period does not carry a caveat
+        about nothing.
+      */}
+      {rows.some((r) => r.ewbReasonCode != null) && (
+        <p className="mt-2 text-hint text-muted" data-testid="edocs-ewb-footnote">
+          <b>Under ₹50,000</b> — left out of the combined e-way bill file; EWB JSON on the row
+          exports one anyway. <b>Credit note</b> and <b>Purchase-side</b> — an e-way bill
+          accompanies a movement of goods, and neither document is one. <b>Services only</b> —
+          nothing moves, so no bill is due.
+        </p>
+      )}
       <p className="mt-2 text-hint text-muted">
         Offline route: export JSON for the government offline tools — the period export writes one combined bulk file plus a per-bill file per consignment. Live route: add your NIC API credentials once, then generate IRNs and e-way bills directly — needs internet and a registered API user (einvoice1.gst.gov.in → API registration) or GSP credentials.
       </p>

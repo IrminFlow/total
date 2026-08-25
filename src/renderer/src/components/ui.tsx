@@ -50,8 +50,12 @@ export function Accel({
         {label}
         {accel ? (
           <span
-            className={`ml-1.5 rounded-md border px-1 font-mono text-micro leading-none ${
-              muted ? 'border-line text-muted' : 'border-accel/40 text-accel'
+            // The ring is neutral and only the glyph carries the accelerator red. Ringed in red
+            // as well, six of these down the sidebar read as six alerts — red is already doing
+            // the work of "money or compliance is wrong" elsewhere, and an ambient red is a red
+            // that stops registering when it matters.
+            className={`ml-1.5 rounded-md border border-line px-1 font-mono text-micro leading-none ${
+              muted ? 'text-muted' : 'text-accel'
             }`}
             aria-hidden="true"
           >
@@ -157,7 +161,7 @@ export function Money({ paise, signed = false, className = '' }: { paise: number
 // ---------- controls ----------
 
 export const inputCls =
-  'w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body text-ink placeholder:text-muted/60 focus:border-amber/60'
+  'w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-body text-ink placeholder:text-muted/60 focus:border-accent/60'
 
 /**
  * A caller-supplied width beats `inputCls`'s own `w-full`.
@@ -211,6 +215,60 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>): Re
   return <select {...props} className={`appearance-none ${mergeInputCls(props.className)}`} />
 }
 
+/**
+ * The export actions, as one control rather than three loose words.
+ *
+ * Nineteen screens offer a PDF, and until now each rendered `PDF` `CSV` `XLS` as three
+ * consecutive ghost buttons — grey text, sitting beside other grey text that is a label, in a
+ * different position on every screen. Three words that happen to be adjacent do not read as one
+ * thing; a bordered group does, and it lands in the same place every time, which is what makes
+ * a toolbar scannable rather than something to be re-read.
+ *
+ * Disabled renders inside the group, never as a pair of grey words floating alone on their own
+ * row — one screen used to do that and it read as a rendering fault rather than as an unavailable
+ * action.
+ *
+ * `busy` disables the whole group while an export is running: they all read the same rows, so
+ * starting a second one while the first is still gathering is a way to wait twice.
+ */
+export function ExportGroup({
+  items,
+  busy = false,
+  className = ''
+}: {
+  items: { label: string; onClick: () => void; testId?: string; title?: string; disabled?: boolean }[]
+  busy?: boolean
+  className?: string
+}): React.JSX.Element {
+  return (
+    <span
+      role="group"
+      aria-label="Export"
+      data-testid="export-group"
+      className={`inline-flex overflow-hidden rounded-md border border-line bg-panel ${className}`}
+    >
+      {items.map((item, i) => (
+        <button
+          key={item.label}
+          type="button"
+          data-testid={item.testId}
+          title={item.title ?? `Export as ${item.label}`}
+          disabled={busy || item.disabled}
+          onClick={item.onClick}
+          className={`px-2.5 py-1.5 text-body text-muted transition-colors hover:bg-panel2 hover:text-ink disabled:pointer-events-none disabled:opacity-40 ${
+            // A hairline between segments, not around them: the group has one border and the
+            // divisions inside it are lighter, so it reads as one control divided rather than as
+            // three controls touching.
+            i > 0 ? 'border-l border-line' : ''
+          }`}
+        >
+          {item.label}
+        </button>
+      ))}
+    </span>
+  )
+}
+
 export function Button({
   variant = 'default',
   disabledTitle,
@@ -222,8 +280,8 @@ export function Button({
   disabledTitle?: string
 }): React.JSX.Element {
   const styles = {
-    default: 'border border-line bg-panel hover:border-amber/60 text-ink panel-shadow',
-    primary: 'border border-amberbar bg-amberbar/90 text-onamber hover:bg-amberbar font-semibold',
+    default: 'border border-line bg-panel hover:border-accent/60 text-ink panel-shadow',
+    primary: 'border border-accentbar bg-accentbar/90 text-onaccent hover:bg-accentbar font-semibold',
     danger: 'border border-cr/50 bg-cr/10 text-cr hover:bg-cr/20',
     ghost: 'border border-transparent text-muted hover:text-ink hover:border-line'
   }[variant]
@@ -661,7 +719,7 @@ export function Toasts(): React.JSX.Element {
     info: 'border-blue/50 text-blue',
     success: 'border-dr/50 text-dr',
     error: 'border-cr/60 text-cr',
-    // Warnings use the ochre, not the amber: the amber is the selection bar and the primary
+    // Warnings use the ochre, not the accent: the accent is the selection bar and the primary
     // button, and a toast wearing it reads as something to click rather than something to read.
     warning: 'border-warnline text-warn'
   }
@@ -715,7 +773,7 @@ export function Spinner({ className = '' }: { className?: string }): React.JSX.E
     <span
       role="status"
       aria-label="Loading"
-      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 border-line border-t-amber ${className}`}
+      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 border-line border-t-accent ${className}`}
     />
   )
 }
@@ -751,14 +809,14 @@ export function LiveAnnouncer(): React.JSX.Element {
   )
 }
 
-// ---------- keyboard list navigation (the amber bar) ----------
+// ---------- keyboard list navigation (the accent bar) ----------
 
 /** How much of a row gets read out. A ledger row can carry ten columns; the first few identify
  *  it, and the rest is the reader talking for fifteen seconds before the next arrow press. */
 const ANNOUNCE_MAX = 140
 
 /**
- * What a screen reader should hear when the amber bar lands on a row.
+ * What a screen reader should hear when the accent bar lands on a row.
  *
  * Cells are joined with commas rather than taken from `textContent`, because `textContent` runs
  * "12-Apr-26Sales/0007Acme Traders" together into one unreadable word. Position is read first:
@@ -894,7 +952,7 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
     const rows = document.querySelectorAll<HTMLElement>('.kbar-row[data-active="true"]')
     const row = rows[rows.length - 1]
     row?.scrollIntoView({ block: 'nearest' })
-    // Moving the amber bar changes nothing in the accessibility tree — no focus moves, no state
+    // Moving the accent bar changes nothing in the accessibility tree — no focus moves, no state
     // attribute a reader watches. Without this, arrowing down a 900-row day book is silence.
     if (!row || !fromKeyboard.current || countRef.current === 0) return
     useAnnouncer.getState().announce(rowAnnouncement(row, active, countRef.current))
@@ -916,7 +974,7 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
  * Rows are plain hand-written `<tr>`s all over this app (screens do their own colSpan maths,
  * expandable sub-rows, per-report column visibility), so a `<DataTable>` would mean rewriting
  * thousands of lines of screen code against a 13-scenario E2E suite. Instead `rowProps` emits
- * the three things the amber bar and the E2E harness rely on — `.kbar-row`, `data-active` and
+ * the three things the accent bar and the E2E harness rely on — `.kbar-row`, `data-active` and
  * `data-row-id` — so they cannot be typed correctly on one screen and wrongly on the next.
  *
  * Screens with several tables pass `enabled` for the visible one; the topmost enabled list is

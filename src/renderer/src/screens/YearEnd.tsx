@@ -271,7 +271,7 @@ export function YearEndScreen(): React.JSX.Element {
                   </tr>
                 ))}
                 {retainedLine && (
-                  <tr className="bg-amberbar/10 font-medium">
+                  <tr className="bg-accentbar/10 font-medium">
                     <td>Retained Earnings</td>
                     <td className="r">{retainedLine.drCr === 'dr' ? <Money paise={retainedLine.amount} /> : null}</td>
                     <td className="r">{retainedLine.drCr === 'cr' ? <Money paise={retainedLine.amount} /> : null}</td>
@@ -281,7 +281,7 @@ export function YearEndScreen(): React.JSX.Element {
             </table>
             </ScrollList>
           </Panel>
-          <Panel className="mb-4 border-amber/40 bg-amber/5 p-4">
+          <Panel className="mb-4 border-accent/40 bg-accent/5 p-4">
             <p className="text-detail font-medium">
               Posting will lock all entries up to {toDisplayDate(fy.to)}.
             </p>
@@ -339,7 +339,7 @@ function StepDot({ n, step, label }: { n: Step; step: Step; label: string }): Re
     <span className={`flex items-center gap-1.5 ${active ? 'text-ink' : done ? 'text-dr' : ''}`}>
       <span
         className={`flex h-4 w-4 items-center justify-center rounded-full text-label ${
-          active ? 'bg-amberbar text-onamber' : done ? 'bg-dr/20 text-dr' : 'bg-panel2 text-muted'
+          active ? 'bg-accentbar text-onaccent' : done ? 'bg-dr/20 text-dr' : 'bg-panel2 text-muted'
         }`}
       >
         {n}

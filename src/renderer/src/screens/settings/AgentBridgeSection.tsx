@@ -153,7 +153,7 @@ function McpPanel({ isOwner }: { isOwner: boolean }): React.JSX.Element {
             <button
               key={c}
               onClick={() => setClient(c)}
-              className={`rounded-md px-2.5 py-1 text-small ${client === c ? 'bg-amberbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
+              className={`rounded-md px-2.5 py-1 text-small ${client === c ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'}`}
             >
               {c === 'claude-desktop' ? 'Claude Desktop' : c === 'claude-code' ? 'Claude Code' : 'Codex'}
             </button>

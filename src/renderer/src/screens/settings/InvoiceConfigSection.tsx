@@ -21,7 +21,18 @@ export function InvoiceConfigSection(): React.JSX.Element {
   const fileRef = useRef<HTMLInputElement>(null)
   const signatureRef = useRef<HTMLInputElement>(null)
   const value = draft ?? existing ?? DEFAULT_INVOICE_CONFIG
-  const canEdit = user?.role === 'owner'
+  /**
+   * Who may change the printed invoice.
+   *
+   * `user == null` means this company has no users at all, and a company with no users is not a
+   * company with no owner — it is a single-person install that never turned sign-in on, which is
+   * the default and the common case. The IPC layer already reads it that way (role gating is a
+   * no-op until a company HAS users, see `handle` in ipc.ts), so `user?.role === 'owner'` alone
+   * made every field on this screen read-only for exactly the people who own the books: nobody
+   * could set a logo, a template or even the invoice title until they had created a user. Same
+   * idiom as BinSection and DataSafetyPanels, and it must stay in step with the IPC gate.
+   */
+  const canEdit = user == null || user.role === 'owner'
 
   // A composition dealer prints BILL OF SUPPLY and an unregistered business prints INVOICE, and
   // neither heading is theirs to choose -- so the field is shown as overridden rather than left

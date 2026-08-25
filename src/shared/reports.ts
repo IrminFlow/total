@@ -566,7 +566,15 @@ export interface EdocListRow {
   ewbNo: string | null
   /** Outward (sales-side) debit note — exports in EWB files as docType 'OTH'. */
   outwardDbn: boolean
-  /** Why this row is NOT e-way-bill eligible; null when eligible. The ₹50,000-threshold
-   *  reason is advisory — the per-bill export overrides it. */
-  ewbReason: string | null
+  /**
+   * Why this row is NOT e-way-bill eligible, as a code; null when it is eligible. The
+   * ₹50,000-threshold reason is advisory — the per-bill export overrides it.
+   *
+   * A CODE and not the sentence, and that is a payload decision as much as a layout one. This
+   * list is unpaginated, so on a book with 44,000 sales documents in the period the old
+   * `ewbReason: string` shipped the same sixty-character sentence forty-four thousand times
+   * through the structured clone — a couple of megabytes of the same words. The sentence lives
+   * once, in EWB_INELIGIBILITY_REASON, and the renderer looks it up.
+   */
+  ewbReasonCode: 'credit_note' | 'purchase_dbn' | 'services_only' | 'below_threshold' | null
 }
