@@ -13,7 +13,7 @@
 //      of ISD that is invisible until a return is filed.
 //   5. The recipient's GSTR-3B carries it in 4(A)(4), the ISD row that was always zero.
 //   6. Nothing posts: the trial balance and the P&L are unchanged.
-//   7. GSTR-6 is data with a due date of the 13th, and says out loud that its layout is unverified.
+//   7. GSTR-6 is data with a due date of the 13th, in the table numbering of FORM GSTR-6 itself.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
 
 const MH = '27AAAPA1234A1ZT'
@@ -165,10 +165,18 @@ await scenario('53-isd', async (h) => {
   const g6 = await h.invoke('isd:gstr6', { month: MONTH })
   assertEq(g6.dueDate, `${fyStart}-09-13`, 'GSTR-6 is due thirteen days after the month — section 39(4)')
   assertEq(g6.undistributedPaise, 0, 'everything received was distributed')
-  assertEq(g6.layoutUnverified, true, 'and it never claims to be a portal file')
+  // The table numbering was checked against FORM GSTR-6 [See rule 65] — Table 3 inward, Table 4
+  // available, Table 5 distribution with 5A eligible and 5B ineligible — so it no longer calls
+  // itself a guess. It is still not a portal file, and the citation says which form it follows.
+  assertEq(g6.layoutUnverified, false, 'the table numbering is read in FORM GSTR-6, not guessed')
+  assert(g6.formCitation.includes('rule 65'), 'and the working names the form it follows')
   assert(
-    g6.warnings.some((w) => w.includes('marked unverified')),
-    'the working says out loud which of its rules have not been checked against the gazette'
+    !g6.warnings.some((w) => w.includes('not been checked against the notification')),
+    'the rules applied are no longer flagged as unchecked'
+  )
+  assert(
+    !g6.warnings.some((w) => w.includes('compensation cess')),
+    'and cess-to-cess is no longer flagged either — FORM GSTR-6 has a CESS column in Table 5'
   )
 
   // ---- the screen ----

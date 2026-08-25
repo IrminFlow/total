@@ -199,18 +199,44 @@ await scenario('34-statutory-depth', async (h) => {
   working = await h.invoke('tds:return', { form: '26Q', fyStartYear, quarter: 1 })
   assert(working.unlinkedTds === 0, 'the deduction now sits under the challan')
   assert(
-    working.issues.every((i) => i.severity !== 'blocking'),
-    `nothing blocking remains (${working.issues.map((i) => i.message).join(' | ')})`
+    !working.issues.some((i) => i.severity === 'blocking' && i.message.includes('challan')),
+    `the challan issue is gone (${working.issues.map((i) => i.message).join(' | ')})`
   )
 
-  const file = await h.invoke('tds:returnFile', {
-    form: '26Q',
-    fyStartYear,
-    quarter: 1,
-    acknowledgedUnverifiedFormat: true
-  })
-  assert(file.lineCount === 4, `header, batch, challan and deductee (got ${file.lineCount})`)
-  assert(file.unverifiedFormat === true, 'the export never stops saying the layout is unverified')
+  // The demo books start in the CURRENT financial year, and from tax year 2026-27 the quarterly
+  // statements are Form Number 138 and Form Number 140 — 24Q and 26Q, and the file format this
+  // build writes, stop at FY 2025-26. So the export refuses, and says which form it should be.
+  // That refusal is the feature: writing a 26Q for a year 26Q does not cover is the kind of
+  // confident wrongness a user only finds out about from a rejection notice.
+  const supersededFy = fyStartYear >= 2026
+  if (supersededFy) {
+    const superseded = working.issues.find((i) => i.message.includes('Form Number 140'))
+    assert(superseded && superseded.severity === 'blocking', 'a 26Q for FY 2026-27 onwards is blocked')
+    let refusedForm = false
+    try {
+      await h.invoke('tds:returnFile', { form: '26Q', fyStartYear, quarter: 1, acknowledgedUnverifiedFormat: true })
+    } catch {
+      refusedForm = true
+    }
+    assert(refusedForm, 'and the file export refuses rather than writing a superseded form')
+  } else {
+    assert(
+      working.issues.every((i) => i.severity !== 'blocking'),
+      `nothing blocking remains (${working.issues.map((i) => i.message).join(' | ')})`
+    )
+    const file = await h.invoke('tds:returnFile', {
+      form: '26Q',
+      fyStartYear,
+      quarter: 1,
+      acknowledgedUnverifiedFormat: true
+    })
+    assert(file.lineCount === 4, `header, batch, challan and deductee (got ${file.lineCount})`)
+    assert(file.formatVersion.includes('Protean'), 'the layout names the file format it was read from')
+    assert(
+      file.unverifiedFormat === true && file.blankMandatoryFields.length > 0,
+      'and it still names the mandatory fields these books cannot fill'
+    )
+  }
 
   // Form 16A — a working copy, and it says so first.
   const deductees = await h.invoke('tds:form16aDeductees', { fyStartYear, quarter: 1 })
@@ -276,8 +302,13 @@ await scenario('34-statutory-depth', async (h) => {
     'September 2025 is flagged as straddling the rate rationalisation'
   )
   assert(
-    advisory.structureChange.unverified === true,
-    'and the entry never claims to have been verified against the notification'
+    advisory.structureChange.unverified === false &&
+      advisory.structureChange.notification.includes('9/2025-Integrated Tax (Rate)'),
+    'and the entry names the notification it was read in rather than calling itself unverified'
+  )
+  assert(
+    advisory.structureChange.slabs.includes(28) && advisory.structureChange.slabs.includes(1.5),
+    'Schedule VII kept 28% for tobacco and Schedule VI kept 1.5% for diamonds — neither was withdrawn'
   )
 
   // ---- the screens render ----

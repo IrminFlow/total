@@ -16,32 +16,80 @@
  * ---------------------------------------------------------------------------------------------
  * WHAT IS KNOWN, AND WHAT IS NOT. Read this before trusting a number out of this file.
  *
- *   - The Income-tax Act 2025 received assent on 21 August 2025 and comes into force on
- *     1 April 2026. That date is what `IT_ACT_2025_FROM` encodes and it is the part this author
- *     is confident about.
- *   - The deduction-at-source provisions of the 1961 Act (sections 192 to 196D) are consolidated
- *     in the 2025 Act rather than carried across one-for-one: the operative provision is a single
- *     section with a table, and each kind of payment is a serial in that table rather than a
- *     section of its own. The consolidated section is understood to be SECTION 393.
- *   - ** THE SERIAL NUMBERS IN THAT TABLE HAVE NOT BEEN VERIFIED BY THIS AUTHOR, AND NEITHER HAS
- *        THE SECTION NUMBER ITSELF. ** Every entry below is therefore marked `unverified`, the UI
- *        shows that mark, and nothing prints a 2025 Act reference without the user having either
- *        confirmed it or typed their own.
+ * THE TABLE SERIALS BELOW ARE NOW READ IN THE BARE ACT. They were guesses before — every entry
+ * pointed at a bare "393" — and every one of them was wrong in the sense that mattered: a
+ * certificate carrying "393" and no serial names the whole deduction-at-source provision rather
+ * than the payment it was deducted on.
  *
- * Which is the whole design: the MECHANISM is complete and correct — dual numbers, keyed off the
- * voucher date, overridable per section, printed on the certificate. The DATA is a starting point
- * that says so. Guessing serial numbers into a statutory certificate is exactly the kind of
- * confident wrongness a user only finds out about from a notice.
+ * Source: the Income-tax Act, 2025 (Act No. 30 of 2025), as published in the Gazette of India
+ * Extraordinary, Part II — Section 1, No. 35, New Delhi, Thursday, August 21, 2025
+ * (egazette.gov.in/WriteReadData/2025/265620.pdf). Sections 392, 393 and 397 were read there
+ * directly. The Act comes into force on 1 April 2026, which is what `IT_ACT_2025_FROM` encodes.
+ *
+ * The structure the 1961 Act's sections 192-196D collapse into:
+ *   - Section 392 — salary, and the provident-fund cases. 392(1) is the deduction on "any income
+ *     chargeable under the head 'Salaries'"; 392(7) is the trustees of the EPF Scheme deducting at
+ *     10% on an accumulated balance of ₹50,000 or more.
+ *   - Section 393(1) — one Table headed FOR PAYMENTS TO RESIDENT, with columns A (Sl. No.),
+ *     B (nature of income or sum), C (payer) and D (rate and threshold limit). Eight serials, most
+ *     with roman-numeral sub-items — 1 commission or brokerage, 2 rent, 3 transfer of certain
+ *     immovable property, 4 income from capital market, 5 interest income, 6 payments to contractors
+ *     and fees for professional and technical services, 7 dividend, 8 other cases. The citation form
+ *     the Act itself uses in cross-references is
+ *     "section 393(1) [Table: Sl. No. 8(iii)]" and "section 393(1) (Table: Sl. No. 7)", which is the
+ *     form reproduced below.
+ *   - Section 393(2) — a second Table, FOR PAYMENTS TO NON-RESIDENT. Not modelled here: these books
+ *     do not carry non-resident deductions.
+ *   - Section 393(3) — a THIRD Table, FOR PAYMENTS TO ANY PERSON: winnings, online games, horse
+ *     racing, lottery commission, cash withdrawals, and remuneration to a partner of a firm. Also
+ *     not modelled: none of the twelve sections below falls in it. It is named here so the next
+ *     person does not go looking for 194G or 194T in the 393(1) Table, where they are not.
+ *   - Section 397(2) — the 206AA case. "every person, entitled to receive any amount on which tax is
+ *     deductible ... shall furnish his valid Permanent Account Number", and on failure "tax shall be
+ *     deducted at the higher of the following rates: (A) at the rate specified in the relevant
+ *     provision of this Act; or (B) at the rate or rates in force; or (C) at the rate of 5% where
+ *     tax is required to be deducted under section 393(1) [Table: Sl. No. 8(ii) or 8(v)]; or 20% in
+ *     any other case".
+ *
+ * WHAT IS STILL NOT ESTABLISHED, and it is the part that decides what gets printed:
+ *   - WHICH CITATION FORM A CERTIFICATE OR A STATEMENT MUST CARRY. The Act cites itself as
+ *     "section 393(1) [Table: Sl. No. 6(i)]", and that is what this file proposes. Whether the
+ *     prescribed certificate (the 2025 Act renumbers Forms 16/16A and their siblings as Forms 130 to
+ *     133) and the quarterly statement want that string, or a short code of their own the way the
+ *     e-TDS file wants "94C" rather than "194C",
+ *     is a question about the FORMS and the file format, not about the Act, and the forms for tax
+ *     year 2026-27 were not read. So every mapping below is `confirmed` as a reading of the Act and
+ *     the app still says, on the certificate and on the screen, that the reference should be
+ *     checked against the form before it is issued.
+ *   - The Income Tax Department publishes an official 1961-to-2025 "Navigator" mapping at
+ *     incometaxindia.gov.in/documents/20117/43138/new-income-tax-bill-2025-navigator.pdf. It could
+ *     not be fetched (the site returns 403 to anything that is not a browser) as at 25 August 2026.
+ *     It is the right thing to reconcile this table against when somebody can open it.
+ *
+ * The MECHANISM is unchanged and was always the point — dual numbers, keyed off the voucher date,
+ * overridable per section, printed on the certificate. What changed is that the DATA is now read
+ * rather than guessed, and the user's own override still wins over anything this file proposes.
  */
 
 /** The 2025 Act applies to payments made on or after this date. */
 export const IT_ACT_2025_FROM = '2026-04-01'
 
-/** The consolidated deduction-at-source provision of the 2025 Act. See the header — unverified. */
+/**
+ * The consolidated deduction-at-source provision for payments to a resident.
+ *
+ * Kept as a constant because every serial below is a reference INTO its Table, and because a
+ * caller that wants to know "is this a 2025 Act reference at all" asks about this, not about a
+ * serial. Salary and provident fund are NOT here — they are section 392.
+ */
 export const TDS_SECTION_2025 = '393'
 
+/** How the Act cites its own Table entries: `section 393(1) [Table: Sl. No. 6(i)]`. */
+export function tableRef(serial: string): string {
+  return `393(1) [Table: Sl. No. ${serial}]`
+}
+
 export type MappingConfidence =
-  /** Checked against the bare Act text and believed right. */
+  /** Read in the bare Act. */
   | 'confirmed'
   /** A reasonable reading that nobody has verified. Shown with a warning wherever it appears. */
   | 'unverified'
@@ -59,31 +107,47 @@ export interface SectionMapping {
   note: string
 }
 
-const UNVERIFIED_NOTE =
-  'Deduction at source is consolidated in section 393 of the Income-tax Act 2025, with each kind of payment a ' +
-  'serial in its table. The serial for this payment has not been verified — confirm it, or type the reference ' +
-  'your certificates should carry, before issuing anything for a period on or after 1 April 2026.'
+/**
+ * The note every `confirmed` mapping carries.
+ *
+ * It says the one thing that is still open — see the header. The serial is read in the Act; whether
+ * the prescribed form wants it written this way is a question about the form.
+ */
+const FORM_NOTE =
+  'This reference is read in the Income-tax Act 2025 as published (Act 30 of 2025, gazetted 21 August 2025) and is ' +
+  'written in the citation form the Act uses for itself. Whether the prescribed certificate and quarterly statement ' +
+  'want it in exactly this form, or in a short code of their own, has not been checked against the forms for tax ' +
+  'year 2026-27. Confirm it, or type your own reference, before issuing certificates.'
 
 /**
  * The sections a small business actually deducts under.
  *
  * Deliberately short. A list that reached for every section from 192 to 196D would look
  * authoritative and be no better checked than this one; the sections here are the ones that will
- * appear on a Form 16A this year, and every one of them is marked for what it is.
+ * appear on a Form 16A this year, and every one of them names where it was read.
+ *
+ * The two cases worth pausing on:
+ *   - 194I splits in the 2025 Act by WHO PAYS, not by what is rented. Serial 2(i) is rent paid by a
+ *     person other than a specified person (the 1961 Act's 194IB); serial 2(ii) is rent paid by a
+ *     specified person, which is 194I, and the plant-and-machinery/land-and-building split that was
+ *     194I(a) and 194I(b) is now sub-clauses (a) and (b) of the RATE column within 2(ii). So there
+ *     is one serial where the 1961 Act had two sections, and the rate still decides which limb.
+ *   - 194J is serial 6(iii), whose rate column carries the same 2%/10% split that was 194J(a) and
+ *     194J(b).
  */
 export const SECTION_MAPPINGS: SectionMapping[] = [
-  { legacy: '192', label: 'Salary', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '192A', label: 'Accumulated provident fund balance', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '193', label: 'Interest on securities', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '194', label: 'Dividend', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '194A', label: 'Interest other than on securities', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '194C', label: 'Payments to contractors', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '194H', label: 'Commission or brokerage', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '194I', label: 'Rent', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '194IA', label: 'Transfer of immovable property', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '194J', label: 'Professional or technical services', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '194Q', label: 'Purchase of goods', act2025: TDS_SECTION_2025, confidence: 'unverified', note: UNVERIFIED_NOTE },
-  { legacy: '206AA', label: 'Higher rate where no PAN is furnished', act2025: null, confidence: 'unknown', note: 'No mapping proposed. 206AA is a machinery provision rather than a deducting section and its 2025 Act equivalent has not been established.' }
+  { legacy: '192', label: 'Salary', act2025: '392(1)', confidence: 'confirmed', note: FORM_NOTE },
+  { legacy: '192A', label: 'Accumulated provident fund balance', act2025: '392(7)', confidence: 'confirmed', note: FORM_NOTE },
+  { legacy: '193', label: 'Interest on securities', act2025: tableRef('5(i)'), confidence: 'confirmed', note: FORM_NOTE },
+  { legacy: '194', label: 'Dividend', act2025: tableRef('7'), confidence: 'confirmed', note: FORM_NOTE },
+  { legacy: '194A', label: 'Interest other than on securities', act2025: tableRef('5(iii)'), confidence: 'confirmed', note: `${FORM_NOTE} Serial 5(ii) covers the same income where the payer is a bank, a co-operative society carrying on banking, or a post office; 5(iii) covers every other specified person.` },
+  { legacy: '194C', label: 'Payments to contractors', act2025: tableRef('6(i)'), confidence: 'confirmed', note: FORM_NOTE },
+  { legacy: '194H', label: 'Commission or brokerage', act2025: tableRef('1(ii)'), confidence: 'confirmed', note: `${FORM_NOTE} Serial 1(i) is insurance commission (the 1961 Act's 194D); 1(ii) is commission or brokerage that is not insurance commission.` },
+  { legacy: '194I', label: 'Rent', act2025: tableRef('2(ii)'), confidence: 'confirmed', note: `${FORM_NOTE} The 2% on plant, machinery or equipment and the 10% on land, building, furniture or fittings are limbs (a) and (b) of the rate in serial 2(ii), not serials of their own.` },
+  { legacy: '194IA', label: 'Transfer of immovable property', act2025: tableRef('3(i)'), confidence: 'confirmed', note: FORM_NOTE },
+  { legacy: '194J', label: 'Professional or technical services', act2025: tableRef('6(iii)'), confidence: 'confirmed', note: `${FORM_NOTE} The 2% on technical services, cinematograph royalty and call centres and the 10% on everything else are limbs (a) and (b) of the rate in serial 6(iii).` },
+  { legacy: '194Q', label: 'Purchase of goods', act2025: tableRef('8(ii)'), confidence: 'confirmed', note: FORM_NOTE },
+  { legacy: '206AA', label: 'Higher rate where no PAN is furnished', act2025: '397(2)', confidence: 'confirmed', note: `${FORM_NOTE} 397(2) is a machinery provision, not a deducting section: it forces the higher of the section rate, the rates in force, and 5% for serials 8(ii) and 8(v) or 20% otherwise. It is not a reference a certificate carries as its section.` }
 ]
 
 /** Normalises '194 C', '194c', 'Sec 194C' to '194C' so a hand-typed master still matches. */
@@ -102,8 +166,17 @@ export interface DatedSection {
   code: string
   /** Which Act it belongs to. */
   act: 1961 | 2025
-  /** True when the number printed has not been verified against the Act. */
+  /**
+   * True when the reference should not go onto a certificate without a person looking at it.
+   *
+   * This is NOT "the number is a guess" any more — the serials are read in the Act. It is set for
+   * any 2025 Act reference the APP proposed, because what remains unchecked is whether the
+   * prescribed form wants the Act's own citation form (see the header). A reference the user typed
+   * themselves is never flagged: they have already looked at it.
+   */
   unverified: boolean
+  /** How the proposed reference was arrived at. Null where the app proposed nothing. */
+  confidence: MappingConfidence | null
   /** The sentence to show alongside it, or null when there is nothing to warn about. */
   warning: string | null
 }
@@ -126,19 +199,20 @@ export interface SectionMasterLike {
  */
 export function sectionForDate(master: SectionMasterLike, date: string): DatedSection {
   if (date < IT_ACT_2025_FROM) {
-    return { code: master.code, act: 1961, unverified: false, warning: null }
+    return { code: master.code, act: 1961, unverified: false, confidence: null, warning: null }
   }
   if (master.code2025 && master.code2025.trim()) {
-    return { code: master.code2025.trim(), act: 2025, unverified: false, warning: null }
+    return { code: master.code2025.trim(), act: 2025, unverified: false, confidence: null, warning: null }
   }
   const mapping = mappingFor(master.code)
   if (mapping?.act2025) {
-    return { code: mapping.act2025, act: 2025, unverified: true, warning: mapping.note }
+    return { code: mapping.act2025, act: 2025, unverified: true, confidence: mapping.confidence, warning: mapping.note }
   }
   return {
     code: master.code,
     act: 1961,
     unverified: true,
+    confidence: 'unknown',
     warning:
       `This payment falls under the Income-tax Act 2025 (in force from ${IT_ACT_2025_FROM}) but no 2025 Act ` +
       `reference is recorded for section ${master.code}. The 1961 Act number is shown. Set the 2025 reference on ` +

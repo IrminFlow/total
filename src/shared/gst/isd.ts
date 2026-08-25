@@ -10,32 +10,69 @@
  * It used to be optional; a business could cross-charge instead. Since 1 April 2025 it is not.
  *
  * ---------------------------------------------------------------------------------------------
- * CHECKED AGAINST (August 2026):
- *   - Section 2(61), CGST Act 2017 — definition of Input Service Distributor. Substituted by the
- *     Finance (No. 2) Act 2024; the substituted definition covers invoices for input services
- *     including those on which tax is payable under section 9(3)/9(4), and says the office "shall
- *     be required to" distribute — the word that made it mandatory.
- *   - Section 20, CGST Act 2017 — manner of distribution. Substituted by the same Act.
- *   - Section 24(viii), CGST Act 2017 — an ISD must register as one, separately, whatever its
- *     turnover.
- *   - Rule 39, CGST Rules 2017 — procedure. Substituted by Notification 12/2024-Central Tax.
+ * CHECKED AGAINST (August 2026), against CBIC's own consolidated Act and Rules repository at
+ * taxinformation.cbic.gov.in, which carries the amendment footnotes:
+ *   - Section 2(61), CGST Act 2017 — definition of Input Service Distributor, substituted by s.11
+ *     of the Finance (No. 2) Act 2024. The substituted definition covers invoices for input
+ *     services "including invoices in respect of services liable to tax under sub-section (3) or
+ *     sub-section (4) of section 9", and the office is "liable to distribute the input tax credit
+ *     in respect of such invoices in the manner provided in section 20" — the words that made it
+ *     mandatory.
+ *   - Section 20, CGST Act 2017, substituted by s.12 of the same Act. CBIC's repository footnotes
+ *     it "Substituted (w.e.f. 01.04.2025)". Section 20(1) requires registration as an ISD under
+ *     section 24(viii); 20(3): "The credit of central tax shall be distributed as central tax or
+ *     integrated tax and integrated tax as integrated tax or central tax".
+ *   - COMMENCEMENT, 1 April 2025, appointed by Notification No. 16/2024-Central Tax dated 6 August
+ *     2024. Confirmed independently by rule 39's own footnote (below), which gives the same date.
+ *     ONE INCONSISTENCY, unresolved and recorded rather than smoothed over: CBIC's repository
+ *     footnotes s.2(61) as "w.e.f. 01.04.2024" and s.20 as "w.e.f. 01.04.2025", which cannot both
+ *     be right — one notification brought ss.11 and 12 of the same Act into force, and the
+ *     substituted 2(61) points at the substituted s.20, which did not exist in April 2024. The
+ *     2025 date is taken, on the strength of s.20's footnote and rule 39's. The gazette text of
+ *     Notn. 16/2024-CT would settle it; the copy on gstcouncil.gov.in is a scan with no text layer.
+ *   - Rule 39, CGST Rules 2017, sub-rule (1) substituted by Notification No. 12/2024-Central Tax
+ *     dated 10 July 2024, "(w.e.f. 1st day of April, 2025, appointed vide Notification No.
+ *     09/2025-CT, dated 11.02.2025)". THE CLAUSE LETTERING IS NOW READ, NOT GUESSED, and it moved:
+ *       (a)  distribute in the same month, details in FORM GSTR-6
+ *       (b)  distributed credit shall not exceed credit available
+ *       (c)  credit attributable to ONE recipient goes to that recipient only
+ *       (d)  credit attributable to MORE THAN ONE recipient — pro rata on turnover in the State
+ *       (e)  credit attributable to ALL recipients — pro rata on turnover in the State
+ *       (f)  the C1 = (t1/T) x C formula for clauses (d) and (e)
+ *       (g)  ineligible credit (s.17(5) "or otherwise") distributed separately from eligible
+ *       (h)  central / State / UT / integrated tax distributed separately
+ *       (i)  integrated tax distributed as integrated tax to every recipient
+ *       (j)  central + State/UT tax: (i) same State — as central and State/UT tax; (ii) other
+ *            State — as integrated tax, equal to the aggregate of the two
+ *       (k)  ISD invoice under rule 54(1); (l) ISD credit note under rule 54(1)
+ *       (m)  debit notes; (n) credit notes
+ *     The pre-substitution numbering this file used to cite — 39(1)(d)/(f)/(g) — is now (d)/(e) for
+ *     the ratio, (g) for the eligibility split and (h)-(j) for the heads. Every citation below has
+ *     been moved to the substituted lettering.
+ *   - Rule 39(1) Explanation (i): the "relevant period" is the preceding financial year, or the
+ *     last quarter for which turnover of all recipients is available where some or all had no
+ *     turnover in that year. Explanation (ii): "recipient of credit" means a supplier with the same
+ *     PAN as the ISD.
+ *   - Rule 39(1A), substituted by the same notification: a registered person with the same PAN and
+ *     State code as the ISD may pass a section 9(3)/9(4) credit to the ISD on a rule 54(1A)
+ *     document, and the ISD then distributes it under sub-rule (1).
  *   - Rule 54(1), CGST Rules 2017 — particulars of an ISD invoice.
+ *   - Section 24(viii), CGST Act 2017 — an ISD registers as one, separately, whatever its turnover.
  *   - Section 39(4), CGST Act 2017 — the ISD return, within thirteen days after the end of the
  *     month. That is GSTR-6.
+ *   - COMPENSATION CESS on distribution, modelled cess-to-cess, is now CHECKED and holds: FORM
+ *     GSTR-6 (rule 65, CGST Rules Part B) carries a CESS column in Table 3, Table 5 (5A eligible /
+ *     5B ineligible), Table 8 and Table 9 — the form contemplates cess arriving and being
+ *     distributed as cess — and section 11(1)-(2) of the GST (Compensation to States) Act 2017
+ *     applies the CGST and IGST provisions "relating to ... input tax credit" mutatis mutandis to
+ *     the cess. Cess is also the one head that needs no conversion: it is cess whether the
+ *     recipient is in the ISD's State or not.
+ *   - THE GSTR-6 TABLE NUMBERS are now checked against FORM GSTR-6 as prescribed under rule 65 in
+ *     Part B of the CGST Rules. See `Gstr6Working`.
  *
- * **NEEDS VERIFICATION, and stated on the screen as well as here:**
- *   1. The commencement date of the section 2(61)/20 substitution is taken as 1 April 2025
- *      (Notification 16/2024-Central Tax). Not independently checked against the gazette.
- *   2. The CLAUSE LETTERING of substituted rule 39 is not reproduced here. The substance below —
- *      pro-rata on the recipient's turnover, eligible and ineligible distributed separately, IGST
- *      as IGST, CGST+SGST as CGST+SGST within the ISD's own State and as IGST outside it — is
- *      stated on the pre-substitution rule 39(1)(d)/(f)/(g), which as far as this author could
- *      establish was carried forward unchanged in substance. Citations say "rule 39" without a
- *      clause where the clause was not verified.
- *   3. The treatment of COMPENSATION CESS credit on distribution is modelled as cess-to-cess and
- *      is NOT verified. `IsdRules.cessVerified` is false and the caller warns.
- *   4. The GSTR-6 TABLE NUMBERS in `Gstr6Working` are the shape of the data, not a claim about the
- *      current form layout, which has not been checked. Nothing here writes a portal JSON.
+ * **WHAT IS STILL NOT ESTABLISHED:**
+ *   1. The gazette text of Notification 16/2024-Central Tax (see the inconsistency noted above).
+ *   2. Nothing here writes a portal file. See `Gstr6Working` for exactly why.
  *
  * Nothing in this file posts to the books. Distribution moves a credit between two of one
  * business's own electronic credit ledgers on the portal; it creates no revenue and no expense,
@@ -57,9 +94,15 @@ export interface IsdRules {
   splitsEligibility: boolean
   /** Day of the following month GSTR-6 is due on. Section 39(4) — thirteen days after month end. */
   dueDayOfMonth: number
-  /** False while the cess treatment on distribution remains unverified. */
+  /**
+   * True once the cess treatment on distribution has been checked. See the header: FORM GSTR-6
+   * carries a CESS column in its distribution tables and s.11 of the Compensation Act applies the
+   * ITC provisions mutatis mutandis, so cess-to-cess holds.
+   */
   cessVerified: boolean
   note: string
+  /** The notification or Act section this entry was read in. Shown wherever the rules are cited. */
+  authority: string
   /** True when the entry has not been checked against the notification that made it. */
   unverified?: boolean
 }
@@ -71,12 +114,13 @@ export const ISD_RULES_HISTORY: IsdRules[] = [
     distributesRcmCredit: false,
     splitsEligibility: true,
     dueDayOfMonth: 13,
-    cessVerified: false,
+    cessVerified: true,
     note:
       'ISD as originally enacted: available, not compulsory. A business could instead cross-charge the ' +
       'common service to its other registrations on a tax invoice. Credit of tax paid under reverse ' +
       'charge could not be distributed through the ISD — the ISD is not a supplier and cannot discharge ' +
-      'that liability.'
+      'that liability.',
+    authority: 'Sections 2(61), 20 and 24(viii), CGST Act 2017 and rule 39, CGST Rules 2017, as originally enacted.'
   },
   {
     effectiveFrom: '2025-04-01',
@@ -84,13 +128,15 @@ export const ISD_RULES_HISTORY: IsdRules[] = [
     distributesRcmCredit: true,
     splitsEligibility: true,
     dueDayOfMonth: 13,
-    cessVerified: false,
+    cessVerified: true,
     note:
-      'Section 2(61) and section 20 as substituted by the Finance (No. 2) Act 2024, with rule 39 ' +
-      'substituted by Notification 12/2024-Central Tax. ISD becomes compulsory where a business receives ' +
-      'invoices for input services used by more than one of its registrations, and credit of tax paid ' +
-      'under section 9(3)/9(4) is distributable through it.',
-    unverified: true
+      'ISD becomes compulsory where a business receives invoices for input services used by more than one ' +
+      'of its registrations, and credit of tax paid under section 9(3)/9(4) is distributable through it.',
+    authority:
+      'Sections 2(61) and 20, CGST Act 2017, substituted by ss.11 and 12 of the Finance (No. 2) Act 2024, ' +
+      'in force 1 Apr 2025 (Notn. 16/2024-Central Tax, 6 Aug 2024); rule 39(1) and (1A) substituted by ' +
+      'Notn. 12/2024-Central Tax, 10 Jul 2024, in force 1 Apr 2025 (Notn. 9/2025-Central Tax, 11 Feb 2025).',
+    unverified: false
   }
 ]
 
@@ -153,14 +199,19 @@ export function headsTotal(h: CreditHeads): number {
 /**
  * Who a common invoice's credit belongs to.
  *
- * Rule 39 distinguishes three cases and they are not interchangeable: credit attributable to ONE
- * recipient goes to that recipient whole and is not apportioned; credit attributable to SOME goes
- * pro rata among those only; credit attributable to ALL goes pro rata among all. Recording which
- * case an invoice is in is the user's judgement about the service, and the app must not infer it.
+ * Rule 39(1) distinguishes three cases in three clauses and they are not interchangeable: under
+ * (c) credit attributable to ONE recipient "shall be distributed only to that recipient" and is not
+ * apportioned; under (d) credit attributable to more than one goes pro rata among "such recipients
+ * to whom the input service is attributable"; under (e) credit attributable to all goes pro rata
+ * among all. Recording which case an invoice is in is the user's judgement about the service, and
+ * the app must not infer it.
  */
 export type IsdAttribution = 'all' | 'some' | 'one'
 
-/** Whether the credit on an invoice is available at all. Rule 39 distributes both, separately. */
+/** Whether the credit on an invoice is available at all. Rule 39(1)(g) requires the ISD to
+ *  "separately distribute the amount of ineligible input tax credit (ineligible under the
+ *  provisions of sub-section (5) of section 17 or otherwise) and the amount of eligible input tax
+ *  credit" — both go out, as two amounts. */
 export type IsdEligibility = 'eligible' | 'ineligible'
 
 /** An invoice received by the ISD registration. */
@@ -191,7 +242,8 @@ export interface IsdRecipient {
   /**
    * Turnover in the State during the relevant period, paise.
    *
-   * Rule 39's ratio, and the only number in the whole feature that decides who gets what.
+   * The "t1" of rule 39(1)(f)'s C1 = (t1/T) x C, and the only number in the whole feature that
+   * decides who gets what.
    */
   turnoverPaise: number
   /** True when `turnoverPaise` was typed by the user rather than computed from these books. */
@@ -201,7 +253,7 @@ export interface IsdRecipient {
 /**
  * The relevant period whose turnover fixes the ratio.
  *
- * Rule 39, Explanation: the financial year preceding the year during which credit is distributed,
+ * Rule 39(1) Explanation (i): the financial year preceding the year during which credit is distributed,
  * where the recipients have turnover in that year; where any of them does not, the last quarter
  * for which the turnover of all of them is available, preceding the month of distribution.
  *
@@ -258,7 +310,7 @@ export function relevantPeriodFor(month: string, everyRecipientHadPrecedingFyTur
       kind: 'preceding-fy',
       ...fy,
       label: `FY ${fy.label}`,
-      reason: 'Every recipient had turnover in the preceding financial year, so rule 39 uses that year.'
+      reason: 'Every recipient had turnover in the preceding financial year, so rule 39(1) Explanation (i)(a) uses that year.'
     }
   }
   const q = lastQuarterBefore(month)
@@ -266,7 +318,7 @@ export function relevantPeriodFor(month: string, everyRecipientHadPrecedingFyTur
     kind: 'last-quarter',
     ...q,
     reason:
-      'At least one recipient had no turnover in the preceding financial year, so rule 39 falls back to the ' +
+      'At least one recipient had no turnover in the preceding financial year, so rule 39(1) Explanation (i)(b) falls back to the ' +
       'last quarter preceding the month of distribution for which turnover is available.'
   }
 }
@@ -326,14 +378,19 @@ export function apportion(amount: number, weights: number[]): number[] {
 /**
  * Convert a head of credit to the head it arrives in, for one recipient.
  *
- * Rule 39: integrated tax is distributed as integrated tax. Central tax and State/UT tax are
- * distributed as central tax and State tax to a recipient in the ISD's own State, and as
- * INTEGRATED tax — the aggregate of the two — to a recipient anywhere else. This is the part of
- * ISD that is invisible until a return is filed: a Maharashtra ISD distributing a Mumbai audit
- * fee to its Gujarat registration hands over IGST equal to CGST + SGST, and a ledger that expected
- * CGST and SGST to arrive will not match.
+ * Rule 39(1)(i): integrated tax "shall be distributed as input tax credit of integrated tax to
+ * every recipient". Rule 39(1)(j): central tax and State/UT tax go (i) to a recipient in the ISD's
+ * own State "as input tax credit of central tax and State tax or Union territory tax respectively",
+ * and (ii) to a recipient elsewhere "as integrated tax and the amount to be so distributed shall be
+ * equal to the aggregate of the amount of input tax credit of central tax and State tax or Union
+ * territory tax that qualifies for distribution to such recipient". This is the part of ISD that is
+ * invisible until a return is filed: a Maharashtra ISD distributing a Mumbai audit fee to its
+ * Gujarat registration hands over IGST equal to CGST + SGST, and a ledger that expected CGST and
+ * SGST to arrive will not match.
  *
- * Cess is carried as cess. See the header — that treatment is UNVERIFIED.
+ * Cess is carried as cess, and needs no conversion — cess is cess in either direction. See the
+ * header: FORM GSTR-6's distribution tables carry a CESS column, and section 11 of the Compensation
+ * Act applies the ITC provisions to it mutatis mutandis.
  */
 export function convertHeads(heads: CreditHeads, sameStateAsIsd: boolean): CreditHeads {
   if (sameStateAsIsd) return { ...heads }
@@ -451,16 +508,15 @@ export function distributionWarnings(input: {
   }
   if (rules.unverified) {
     out.push(
-      'The rules applied to this month are marked unverified: the commencement date of the 2024 substitution of ' +
-        'sections 2(61) and 20, and the clause lettering of substituted rule 39, have not been checked against the ' +
-        'gazette. Check the apportionment against the current rule before filing.'
+      `The rules applied to ${input.month} have not been checked against the notification that made them. ` +
+        'Check the apportionment against the current rule before filing.'
     )
   }
   const totalTurnover = input.recipients.reduce((t, r) => t + r.turnoverPaise, 0)
   if (totalTurnover === 0) {
     out.push(
       'No recipient has any turnover in the relevant period, so the credit has been split equally. Rule 39 fixes ' +
-        'the ratio on turnover and says nothing about this case — set a turnover on each recipient, or check the ' +
+        'the ratio on turnover in clauses (d) and (e) and says nothing about this case — set a turnover on each recipient, or check the ' +
         'relevant period.'
     )
   }
@@ -468,7 +524,7 @@ export function distributionWarnings(input: {
   if (totalTurnover > 0 && nil.length > 0) {
     out.push(
       `${nil.length} recipient${nil.length === 1 ? '' : 's'} had nil turnover in ${input.period.label} and therefore ` +
-        'receive nothing. Rule 39 apportions on turnover, so that is the arithmetic — but confirm it is not simply a ' +
+        'receive nothing. Rule 39(1)(f) apportions on turnover, so that is the arithmetic — but confirm it is not simply a ' +
         'period with no data.'
     )
   }
@@ -476,14 +532,14 @@ export function distributionWarnings(input: {
   if (declared.length > 0) {
     out.push(
       `${declared.length} recipient turnover figure${declared.length === 1 ? ' was' : 's were'} entered by hand rather ` +
-        'than computed from these books. Rule 39 wants turnover in the State, which includes exempt supplies and any ' +
+        'than computed from these books. Rule 39(1)(d)/(e) want turnover in the State, which includes exempt supplies and any ' +
         'part of the period before these books begin.'
     )
   }
   if (!rules.cessVerified && input.credits.some((c) => c.heads.cess !== 0)) {
     out.push(
-      'A credit carries compensation cess. Cess has been distributed as cess; that treatment is NOT verified against ' +
-        'the cess rules and should be checked before filing.'
+      'A credit carries compensation cess. Cess has been distributed as cess; that treatment is not verified for this ' +
+        'period and should be checked before filing.'
     )
   }
   const rcm = input.credits.filter((c) => c.reverseCharge)
@@ -619,19 +675,42 @@ export function buildDistribution(input: BuildDistributionInput): DistributionRe
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The data GSTR-6 asks for, as data.
+ * The data GSTR-6 asks for, in the tables it asks for it in.
  *
- * NOT a portal JSON, and deliberately not: the table numbering below is the shape of the working,
- * and the current form layout has not been checked. Exporting a JSON keyed on unverified table
- * numbers would be a file the portal rejects at best and misfiles at worst. A user takes these
- * figures to the portal and types them, which is what they do for GSTR-6 anyway — there is no
- * offline route for it.
+ * THE TABLE NUMBERING IS NOW CHECKED against FORM GSTR-6 "[See rule 65] Return for input service
+ * distributor", as prescribed in Part B of the CGST Rules 2017. It was not a claim before; it is
+ * one now, and it maps cleanly:
+ *
+ *   Table 3  Input tax credit received for distribution — GSTIN of supplier | Invoice details
+ *            (No, Date, Value) | Rate | Taxable value | Amount of tax (Integrated / Central /
+ *            State-UT / CESS).                                              -> `inward`
+ *   Table 4  Total ITC / Eligible ITC / Ineligible ITC to be distributed for tax period (From
+ *            Table No. 3), as three rows: (a) Total ITC available for distribution, (b) Amount of
+ *            eligible ITC, (c) Amount of ineligible ITC, each across the four heads. -> `available`
+ *   Table 5  Distribution of input tax credit reported in Table 4 — GSTIN of recipient/State, if
+ *            recipient is unregistered | ISD invoice (No, Date) | Distribution of ITC by ISD
+ *            (Integrated / Central / State-UT / CESS), split 5A eligible and 5B ineligible.
+ *                                                                           -> `distribution`
+ *
+ * Tables 6 to 9 (amendments to Table 3, mismatch and reclaim, distribution of 6 and 7, and
+ * redistribution to a wrong recipient) have no equivalent here because this build never amends a
+ * filed GSTR-6 — a distribution is withdrawn and re-run before filing, not amended after it. Tables
+ * 10 and 11 are late fee and refund from the cash ledger, which are portal events, not book events.
+ * Notification 12/2024-Central Tax, which substituted rule 39, left FORM GSTR-6 itself untouched
+ * (it amended only FORM GSTR-6A's heading), so the 2024 ISD changes did not move these numbers.
+ *
+ * STILL NOT A PORTAL JSON, and now for a precise reason rather than a vague one: the form layout in
+ * the Rules is not the offline utility's JSON SCHEMA. That schema is published by GSTN with its
+ * offline tool, not in the Rules, it has its own key names and section codes, and it has not been
+ * read. GSTR-6 is in any case an online-only return — GSTN's own position is that it is filed on
+ * the portal — so a user takes these figures to the portal and types them, which is what they do
+ * for GSTR-6 anyway.
  */
 export interface Gstr6Working {
   month: string
   dueDate: string
   isdGstin: string | null
-  /** Inward supplies received from registered persons — the invoices the credit came on. */
+  /** FORM GSTR-6 Table 3 — input tax credit received for distribution, invoice by invoice. */
   inward: {
     supplierGstin: string | null
     supplierName: string
@@ -641,9 +720,9 @@ export interface Gstr6Working {
     heads: CreditHeads
     eligibility: IsdEligibility
   }[]
-  /** Total ITC available, split eligible/ineligible. */
+  /** FORM GSTR-6 Table 4 rows (b) and (c); row (a) is their sum. */
   available: { eligible: CreditHeads; ineligible: CreditHeads }
-  /** Distribution of credit, one row per ISD invoice. */
+  /** FORM GSTR-6 Table 5, one row per ISD invoice; `eligible` is 5A and `ineligible` is 5B. */
   distribution: {
     recipientGstin: string | null
     recipientStateCode: string
@@ -663,8 +742,17 @@ export interface Gstr6Working {
    */
   undistributedPaise: number
   warnings: string[]
-  /** Said on the screen too: the table numbering is unverified and nothing here is a portal file. */
-  layoutUnverified: true
+  /**
+   * The form these table numbers were read in. Shown on the screen next to the working, because a
+   * user typing figures into a portal needs to know which form's numbering they are reading.
+   */
+  formCitation: string
+  /**
+   * Nothing here is a portal file. False now means only what it says — the TABLE NUMBERING is
+   * checked (see the doc comment) — and the export stays data rather than JSON for the separate
+   * reason given there: the offline utility's JSON schema is GSTN's, not the Rules', and is unread.
+   */
+  layoutUnverified: false
 }
 
 export function buildGstr6(
@@ -699,6 +787,7 @@ export function buildGstr6(
     })),
     undistributedPaise: headsTotal(availableTotal) - headsTotal(distributedTotal),
     warnings: result.warnings,
-    layoutUnverified: true
+    formCitation: 'FORM GSTR-6 [See rule 65], CGST Rules 2017 Part B — Tables 3, 4 and 5.',
+    layoutUnverified: false
   }
 }

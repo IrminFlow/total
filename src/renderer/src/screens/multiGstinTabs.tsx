@@ -445,19 +445,26 @@ export function IsdTab(): React.JSX.Element {
     <div className="flex flex-col gap-3">
       <Panel>
         <div className="border-b border-line px-3 py-2 text-body-sm font-medium text-ink">
-          What an ISD is for, and what is not verified
+          What an ISD is for, and what it is built on
         </div>
         <p className="px-3 py-2 text-body-sm text-muted">
           A common bill — the audit fee, a software subscription, head-office rent — names one GSTIN, and the credit
-          belongs to all of them. The ISD receives those invoices and distributes the credit in the ratio rule 39
-          fixes: the recipient’s turnover in the State over the total, for the relevant period. Distribution is
+          belongs to all of them. The ISD receives those invoices and distributes the credit in the ratio rule
+          39(1)(d) and (e) fix: the recipient’s turnover in the State over the total, for the relevant period, by the
+          C1 = (t1/T) × C formula in clause (f). Eligible and ineligible credit go out separately under clause (g);
+          integrated tax arrives as integrated tax under clause (i); central and State tax arrive as central and State
+          tax inside this State and as their aggregate in integrated tax outside it, under clause (j). Distribution is
           monthly and GSTR-6 is due by the 13th.
           <br />
-          <b className="text-ink">Needs verification.</b> The commencement date of the 2024 substitution of sections
-          2(61) and 20 is taken as 1 April 2025 and has not been checked against the gazette; the clause lettering
-          of substituted rule 39 is not reproduced; the treatment of compensation cess on distribution is not
-          verified; and the GSTR-6 table numbering below is the shape of the working, not a claim about the current
-          form. Nothing here writes a portal file. Check the apportionment against the rule before you file.
+          <b className="text-ink">What this is built on.</b> Sections 2(61) and 20 as substituted by the Finance
+          (No. 2) Act 2024, in force 1 April 2025 (Notn. 16/2024-Central Tax); rule 39(1) and (1A) as substituted by
+          Notn. 12/2024-Central Tax, in force 1 April 2025 (Notn. 9/2025-Central Tax); the table numbering below is
+          FORM GSTR-6 [See rule 65]. Cess is distributed as cess — the form’s distribution table has a CESS column and
+          section 11 of the Compensation Act applies the credit provisions to it.
+          <br />
+          <b className="text-ink">What is still not verified.</b> Nothing here writes a portal file: the offline
+          utility’s JSON schema is GSTN’s, not the Rules’, and has not been read. Check the apportionment against the
+          rule before you file.
           <br />
           <b className="text-ink">Nothing here posts.</b> Distribution moves credit between two of your own
           electronic credit ledgers. The trial balance does not move.

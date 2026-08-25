@@ -70,14 +70,20 @@ export function gstr1aFor(db: DB, company: GstScope, period: string): Gstr1aStat
   const registrationId = company.registrationId ?? primaryRegistrationId(db)
   const filings = db
     .prepare(
-      `SELECT form, filed_at AS filedAt, docs_json AS docsJson FROM gst_filings
+      `SELECT form, filed_at AS filedAt, due_date AS dueDate, docs_json AS docsJson FROM gst_filings
        WHERE period = ? AND form IN ('GSTR-1','GSTR-3B') AND registration_id IS ?`
     )
-    .all(period, registrationId) as { form: string; filedAt: string | null; docsJson: string | null }[]
+    .all(period, registrationId) as { form: string; filedAt: string | null; dueDate: string | null; docsJson: string | null }[]
 
   const g1 = filings.find((f) => f.form === 'GSTR-1') ?? null
   const g3b = filings.find((f) => f.form === 'GSTR-3B') ?? null
-  const window = amendmentWindow({ gstr1FiledAt: g1?.filedAt ?? null, gstr3bFiledAt: g3b?.filedAt ?? null })
+  // The recorded GSTR-1 due date matters: the portal opens the GSTR-1A window on the LATER of that
+  // date and the date GSTR-1 was actually filed, so a return filed early does not open it early.
+  const window = amendmentWindow({
+    gstr1FiledAt: g1?.filedAt ?? null,
+    gstr3bFiledAt: g3b?.filedAt ?? null,
+    gstr1DueDate: g1?.dueDate ?? null
+  })
 
   const base: Gstr1aState = {
     period,

@@ -5,7 +5,7 @@ import type { CompanyInfo, TdsSection } from '@shared/domain'
 import type { TdsSectionInput } from '@shared/schemas'
 import { computeTds, thresholdCrossed, tdsQuarterOf } from '@shared/tds'
 import {
-  challanTotal, form16aDueDate, statementDueDate, toFlatFile, validateReturn,
+  challanTotal, FILE_FORMAT, form16aDueDate, statementDueDate, toFlatFile, validateReturn,
   type ReturnHeader, type TdsChallan, type TdsDeduction, type TdsFormCode, type TdsReturnWorking
 } from '@shared/tdsReturn'
 import { buildForm16a, type Form16a } from '@shared/form16a'
@@ -499,10 +499,16 @@ export function exportTdsReturnCsv(
 /**
  * The '^'-separated e-TDS file.
  *
- * ** THE RECORD LAYOUT IS UNVERIFIED — see the header of src/shared/tdsReturn.ts. ** The file this
- * writes must be run through the FVU before it goes anywhere, which is why the caller has to
- * acknowledge that explicitly and why the written file is named `.unverified.txt`: a filename
- * nobody can mistake for a validated return.
+ * THE RECORD LAYOUT IS NOW VERIFIED against the published Protean File Format workbooks — see
+ * `FILE_FORMAT` in src/shared/tdsReturn.ts, which names them. THE FILE IS STILL NOT FILEABLE, and
+ * that is a different statement: it carries empty slots in Batch Header fields the format marks
+ * mandatory and these books have never held (the deductor's State code and PIN, the responsible
+ * person's PAN, address, State, PIN and mobile). `blankMandatoryFields` names every one of them.
+ *
+ * So the acknowledgement stays, the `.unverified.txt` name stays, and the message the caller has to
+ * agree to says what is actually true rather than what used to be true. The file must go through
+ * the FVU, and the FVU will reject it until somebody fills those fields in — which is the correct
+ * outcome, because the alternative is a file that passes because the app invented a PIN code.
  *
  * Refuses outright when the return has a blocking issue. A file built from a return that cannot
  * be filed is not a draft, it is a way to waste an afternoon at a facilitation centre.
@@ -515,9 +521,12 @@ export function exportTdsReturnFile(
   fyStartYear: number,
   quarter: 1 | 2 | 3 | 4,
   acknowledgedUnverifiedFormat: boolean
-): { path: string; lineCount: number; unverifiedFormat: boolean } {
+): { path: string; lineCount: number; unverifiedFormat: boolean; blankMandatoryFields: string[]; formatVersion: string } {
   if (!acknowledgedUnverifiedFormat) {
-    throw new Error('The e-TDS record layout in this build has not been verified. Acknowledge that before exporting.')
+    throw new Error(
+      'This file cannot be filed as it stands: it leaves mandatory deductor and responsible-person fields empty ' +
+        'because these books do not hold them, and it has never been through the FVU. Acknowledge that before exporting.'
+    )
   }
   const w = tdsReturnWorking(db, company, form, fyStartYear, quarter)
   const blocking = w.issues.filter((i) => i.severity === 'blocking')
@@ -528,7 +537,13 @@ export function exportTdsReturnFile(
   const fy = fyFromStartYear(fyStartYear)
   const path = join(companyExportsDir(slug), `tds-${form.toLowerCase()}-${fy.label}-Q${quarter}.unverified.txt`)
   writeFileSync(path, out.text)
-  return { path, lineCount: out.lineCount, unverifiedFormat: out.unverifiedFormat }
+  return {
+    path,
+    lineCount: out.lineCount,
+    unverifiedFormat: out.unverifiedFormat,
+    blankMandatoryFields: out.blankMandatoryFields,
+    formatVersion: FILE_FORMAT.version
+  }
 }
 
 // ---------- Form 16A (roadmap #361) ----------

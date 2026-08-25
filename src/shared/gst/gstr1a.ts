@@ -7,18 +7,41 @@
  * the DIFFERENCE between what was filed and what the books now say.
  *
  * ---------------------------------------------------------------------------------------------
- * CHECKED AGAINST (August 2026):
- *   - Rule 59(4A), CGST Rules 2017, inserted by Notification No. 12/2024-Central Tax
- *     (10 July 2024), notified into effect for the tax period August 2024 onwards.
- *   - The window: GSTR-1A opens after GSTR-1 is filed (or after the due date, whichever is later)
- *     and closes when GSTR-3B for the same period is filed.
- *     ** THE PRECISE OPENING AND CLOSING CONDITIONS HAVE NOT BEEN VERIFIED against the current
- *        rule text by this author. `amendmentWindow` below states them as it understands them
- *        and marks itself unverified; treat it as a prompt, not as authority. **
- *   - A recipient's GSTIN cannot be amended through GSTR-1A. That is a real restriction with a
- *     real consequence — an invoice billed to the wrong registration has to be credit-noted and
- *     re-issued, not amended — so `diffGstr1` reports it as its own finding rather than as an
- *     ordinary amendment.
+ * CHECKED AGAINST (August 2026). One citation in this header was WRONG and is corrected here:
+ *   - The window is NOT in rule 59(4A). It is the PROVISO TO RULE 59(1), CGST Rules 2017, inserted
+ *     by Notification No. 12/2024-Central Tax dated 10 July 2024: "Provided that the said person
+ *     may, after furnishing the details of outward supplies of goods or service or both in FORM
+ *     GSTR-1 for a tax period but before filing of return in FORM GSTR-3B for the said tax period,
+ *     at his own option, amend or furnish additional details of outward supplies of goods or
+ *     services or both in FORM GSTR-1A for the said tax period electronically through the common
+ *     portal". Rule 59(4A), inserted by the same notification, is a different thing entirely — it
+ *     says what GSTR-1A MAY CONTAIN (invoice-wise details, consolidated details, debit and credit
+ *     notes), mirroring rule 59(4) for GSTR-1. Neither the opening nor the closing condition is in
+ *     it. The rule text was read at
+ *     taxinformation.cbic.gov.in/.../cgst_rules/active/chapter8/rule59_v1.00.html.
+ *   - The OPENING condition the app applies — the later of the GSTR-1 due date and the date GSTR-1
+ *     was actually filed — is NOT in the rule, which says only "after furnishing". It is the
+ *     portal's, from GSTN's own FAQ on GSTR-1A (tutorial.gst.gov.in, "FAQ on GSTR-1A - Amendment to
+ *     GSTR 1"): "GSTR-1A will be open for monthly filer from the later of the following two dates,
+ *     till the actual filing of GSTR-3B of the same tax period: 1. Due date of filing of GSTR1
+ *     i.e., 11th of the following month or 2. Date of actual filing of GSTR-1", and for a quarterly
+ *     filer from the later of the 13th of the month following the quarter and the actual filing.
+ *     Rule and portal agree on the CLOSE: filing GSTR-3B for the period ends it.
+ *   - Three further restrictions, all from the same GSTN FAQ, and all things this app can observe:
+ *     GSTR-1A "can be filed only once for a particular tax period even if GSTR 3B is not filed";
+ *     "filing of Nil GSTR 1A is not available"; and it "allows to amend the records filed in the
+ *     GSTR 1 of current tax period only".
+ *   - A recipient's GSTIN cannot be amended through GSTR-1A — GSTN FAQ: "No, GSTIN of the recipient
+ *     cannot be amended through GSTR1A. Same can be done only through GSTR 1 of the following tax
+ *     periods." That is a real restriction with a real consequence — an invoice billed to the wrong
+ *     registration has to be credit-noted and re-issued, not amended — so `diffGstr1` reports it as
+ *     its own finding rather than as an ordinary amendment.
+ *
+ * WHAT IS STILL NOT ESTABLISHED: the DUE DATE the window opens on is the portal's 11th/13th, and
+ * this module is not told whether the registration is a monthly or a quarterly filer, so
+ * `amendmentWindow` works off the recorded filing dates alone and never computes that date itself.
+ * Where the app knows GSTR-1 was filed and GSTR-3B was not, rule and portal give the same answer,
+ * which is why that is the only question it answers.
  *
  * This module is a pure diff. It does not decide what to file; it says what changed since the
  * snapshot, in the shape the amendment tables want.
@@ -236,23 +259,55 @@ export function diffGstr1(filed: GstDoc[], books: GstDoc[], period: string): Gst
 export interface AmendmentWindow {
   open: boolean
   reason: string
-  /** True until the window rules in the header have been checked against the current rule text. */
-  unverified: true
+  /**
+   * The citation for the answer given. Kept on the result rather than in a comment because the
+   * screen shows it: a compliance answer with no authority behind it is one the user cannot check.
+   */
+  authority: string
+  /**
+   * True when the window was decided on something nobody has checked.
+   *
+   * It is false everywhere now, and that is the change this flag records: the conditions were read
+   * in the proviso to rule 59(1) and in GSTN's own FAQ, and the two agree. It stays on the type so
+   * that a future condition added on someone's recollection has somewhere to declare itself.
+   */
+  unverified: boolean
 }
+
+/** What GSTR-1A restricts beyond the window. All four are from GSTN's FAQ; see the header. */
+export const GSTR1A_RESTRICTIONS = [
+  'GSTR-1A can be filed only once for a tax period, even if GSTR-3B has not been filed. There is no second attempt: everything that needs correcting has to go in together.',
+  'A nil GSTR-1A cannot be filed. A period with nothing to amend needs no return.',
+  'Only records filed in the GSTR-1 of this same tax period can be amended. An error in an earlier period goes in a later GSTR-1, not here.',
+  'The recipient GSTIN cannot be amended. An invoice billed to the wrong registration has to be credit-noted and re-issued.'
+] as const
 
 /**
  * Whether GSTR-1A is available for a period.
  *
- * Stated as advice with `unverified` permanently set — see the header. The mechanism (a filed
- * GSTR-1, an unfiled GSTR-3B) is what the app can actually observe, and observing it is useful
- * even while the exact rule is being confirmed.
+ * The mechanism — a filed GSTR-1, an unfiled GSTR-3B — is what the app can observe, and it is also
+ * what the proviso to rule 59(1) turns on. The portal adds one condition the rule does not: the
+ * window opens on the LATER of the GSTR-1 due date and the date it was actually filed. Where
+ * GSTR-1 was filed late, those are the same moment; where it was filed early, the portal opens the
+ * window on the due date and this function says so rather than pretending the difference away.
  */
-export function amendmentWindow(input: { gstr1FiledAt: string | null; gstr3bFiledAt: string | null }): AmendmentWindow {
+export function amendmentWindow(input: {
+  gstr1FiledAt: string | null
+  gstr3bFiledAt: string | null
+  /** Statutory due date of the GSTR-1, when the caller knows it. The portal opens on the later of
+   *  this and the filing date; without it the answer is stated as a filing-date answer. */
+  gstr1DueDate?: string | null
+}): AmendmentWindow {
+  const authority =
+    'Proviso to rule 59(1), CGST Rules 2017 (inserted by Notn. 12/2024-Central Tax, 10 Jul 2024); ' +
+    'opening date per GSTN FAQ on GSTR-1A.'
+
   if (!input.gstr1FiledAt) {
     return {
       open: false,
       reason: 'GSTR-1 for this period has not been recorded as filed. There is nothing to amend yet.',
-      unverified: true
+      authority,
+      unverified: false
     }
   }
   if (input.gstr3bFiledAt) {
@@ -261,12 +316,22 @@ export function amendmentWindow(input: { gstr1FiledAt: string | null; gstr3bFile
       reason:
         `GSTR-3B for this period was filed on ${input.gstr3bFiledAt}, which closes the GSTR-1A window. ` +
         'Corrections now go in a later period’s amendment tables.',
-      unverified: true
+      authority,
+      unverified: false
     }
   }
+
+  const due = input.gstr1DueDate ?? null
+  const opensOn = due && due > input.gstr1FiledAt ? due : input.gstr1FiledAt
+  const openedEarly = due !== null && due > input.gstr1FiledAt
   return {
     open: true,
-    reason: `GSTR-1 was filed on ${input.gstr1FiledAt} and GSTR-3B is still open — GSTR-1A can be filed.`,
-    unverified: true
+    reason:
+      `GSTR-1 was filed on ${input.gstr1FiledAt} and GSTR-3B is still open \u2014 GSTR-1A can be filed` +
+      (openedEarly
+        ? `, from ${opensOn}: the portal opens the window on the later of the GSTR-1 due date and the date it was filed.`
+        : '.'),
+    authority,
+    unverified: false
   }
 }
