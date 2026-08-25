@@ -129,8 +129,8 @@ function CurrenciesTab(): React.JSX.Element {
                   <td>{c.symbol}</td>
                   <td className="text-muted">{c.name}</td>
                   <td className="r">
-                    <button
-                      className="text-small text-cr hover:underline"
+                    <RowAction
+                      tone="danger"
                       onClick={async () => {
                         try {
                           await api.currencies.remove(c.id)
@@ -141,7 +141,7 @@ function CurrenciesTab(): React.JSX.Element {
                       }}
                     >
                       Remove
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -1084,13 +1084,13 @@ function ItemRateHistory({ itemId }: { itemId: number }): React.JSX.Element {
                     >
                       Edit
                     </RowAction>
-                    <button
-                      className="ml-2 text-small text-cr hover:underline"
+                    <RowAction
+                      tone="danger"
                       data-testid="btn-item-rate-delete"
                       onClick={() => void remove(r)}
                     >
                       Delete
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

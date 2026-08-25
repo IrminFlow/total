@@ -185,13 +185,13 @@ function EmployeesTab(): React.JSX.Element {
                     >
                       Settle
                     </button>
-                    <button
-                      className="text-small text-cr hover:underline"
+                    <RowAction
+                      tone="danger"
                       data-testid="btn-payroll-delete-employee"
                       onClick={() => void remove(e)}
                     >
                       Delete
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -606,9 +606,9 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
                       <RowAction onClick={() => edit(h)}>
                         Edit
                       </RowAction>
-                      <button className="text-small text-cr hover:underline" onClick={() => void remove(h)}>
+                      <RowAction tone="danger" onClick={() => void remove(h)}>
                         Delete
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                 ))}

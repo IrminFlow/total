@@ -10,6 +10,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   SkeletonRows,
   TextInput,
@@ -455,9 +456,9 @@ function LutTab(): React.JSX.Element {
                   <td className="num text-muted">{toDisplayDate(l.filedOn)}</td>
                   <td className="num text-muted">{toDisplayDate(`${l.fyStartYear + 1}-03-31`)}</td>
                   <td className="r">
-                    <button className="text-small text-cr hover:underline" onClick={() => void remove(l)}>
+                    <RowAction tone="danger" onClick={() => void remove(l)}>
                       Remove
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

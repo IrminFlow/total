@@ -244,14 +244,20 @@ export function RowAction({
  * visible. Also the "show 500 more" foot of a paged table, which is not a row action either.
  */
 export function RowLink({
+  tone = 'link',
   className = '',
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement>): React.JSX.Element {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** `danger` for the one that destroys something. Everything else is a link. */
+  tone?: 'link' | 'danger'
+}): React.JSX.Element {
   return (
     <button
       type="button"
       {...props}
-      className={`text-blue hover:underline disabled:opacity-40 disabled:hover:no-underline ${className}`}
+      className={`hover:underline disabled:opacity-40 disabled:hover:no-underline ${
+        tone === 'danger' ? 'text-cr' : 'text-blue'
+      } ${className}`}
     />
   )
 }

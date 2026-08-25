@@ -1627,9 +1627,9 @@ function BankRulesModal({
                       <RowAction onClick={() => edit(r)}>
                         Edit
                       </RowAction>
-                      <button className="text-small text-cr hover:underline" onClick={() => void remove(r)}>
+                      <RowAction tone="danger" onClick={() => void remove(r)}>
                         Delete
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                 ))}

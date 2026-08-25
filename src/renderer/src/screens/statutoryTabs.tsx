@@ -172,13 +172,13 @@ export function RcmSelfInvoiceTab(): React.JSX.Element {
                     >
                       PDF
                     </RowAction>
-                    <button
+                    <RowAction
                       data-testid={`btn-rcm-withdraw-${d.id}`}
-                      className="ml-3 text-small text-cr hover:underline"
+                      tone="danger"
                       onClick={() => void withdraw(d.id)}
                     >
                       Withdraw
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -589,13 +589,13 @@ function ItemRateEditor(): React.JSX.Element {
                   <td className="r num">{h.rate}%</td>
                   <td className="text-muted">{h.note ?? '—'}</td>
                   <td className="r">
-                    <button
+                    <RowAction
                       data-testid={`btn-rate-delete-${h.id}`}
-                      className="text-small text-cr hover:underline"
+                      tone="danger"
                       onClick={() => void remove(h.id)}
                     >
                       Remove
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))

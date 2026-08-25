@@ -14,6 +14,7 @@ import {
   Money,
   Panel,
   RowAction,
+  RowLink,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -935,12 +936,12 @@ function TransferModal({ asOn, onClose }: { asOn: string; onClose: () => void })
                   />
                 </td>
                 <td>
-                  <RowAction
+                  <RowLink
                     disabled={rows.length === 1}
                     onClick={() => setRows((cur) => cur.filter((_, j) => j !== i))}
                   >
                     ✕
-                  </RowAction>
+                  </RowLink>
                 </td>
               </tr>
             )

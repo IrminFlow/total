@@ -128,13 +128,13 @@ export function ChallansTab({ fyStartYear }: { fyStartYear: number }): React.JSX
                   </td>
                   <td className="r num">{c.linked}</td>
                   <td className="r">
-                    <button
+                    <RowAction
                       data-testid={`btn-tds-challan-delete-${c.id}`}
-                      className="text-small text-cr hover:underline"
+                      tone="danger"
                       onClick={() => void remove(c.id)}
                     >
                       Remove
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -726,13 +726,13 @@ export function LowerDeductionTab(): React.JSX.Element {
                       >
                         Edit
                       </RowAction>
-                      <button
+                      <RowAction
                         data-testid={`btn-tds-cert-delete-${c.id}`}
-                        className="ml-2 text-small text-cr hover:underline"
+                        tone="danger"
                         onClick={() => void remove(c.id)}
                       >
                         Delete
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                 )

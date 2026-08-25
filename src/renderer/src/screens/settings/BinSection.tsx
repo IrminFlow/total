@@ -80,9 +80,9 @@ export function BinSection(): React.JSX.Element {
                         </RowAction>
                       )}
                       {canPurge && (
-                        <button className="text-small text-cr hover:underline" onClick={() => setPurging(r)}>
+                        <RowAction tone="danger" onClick={() => setPurging(r)}>
                           Delete forever
-                        </button>
+                        </RowAction>
                       )}
                     </td>
                   )}

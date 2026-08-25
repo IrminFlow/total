@@ -102,9 +102,9 @@ export function CostCentresScreen(): React.JSX.Element {
                     <RowAction onClick={() => setEditing(c)}>
                       Edit
                     </RowAction>
-                    <button className="text-small text-cr hover:underline" onClick={() => void remove(c)}>
+                    <RowAction tone="danger" onClick={() => void remove(c)}>
                       Delete
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

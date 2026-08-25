@@ -89,9 +89,9 @@ export function UsersSection(): React.JSX.Element {
                       Edit
                     </RowAction>
                     {u.active && (
-                      <button className="text-small text-cr hover:underline" onClick={() => setDeactivating(u)}>
+                      <RowAction tone="danger" onClick={() => setDeactivating(u)}>
                         Deactivate
-                      </button>
+                      </RowAction>
                     )}
                   </td>
                 </tr>

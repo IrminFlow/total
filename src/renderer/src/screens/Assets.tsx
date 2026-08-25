@@ -193,9 +193,9 @@ function RegisterTab(): React.JSX.Element {
                       </RowAction>
                     )}
                     {a.accumulated === 0 && (
-                      <button className="ml-2 text-small text-cr hover:underline" onClick={() => void remove(a)}>
+                      <RowAction tone="danger" onClick={() => void remove(a)}>
                         Delete
-                      </button>
+                      </RowAction>
                     )}
                   </td>
                 </tr>

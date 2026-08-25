@@ -9,6 +9,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowLink,
   Select,
   TextInput
 } from '../components/ui'
@@ -289,9 +290,12 @@ export function CounterScreen(): React.JSX.Element {
                     <td className="r num text-muted">{priced ? `${priced.gstRate}%` : ''}</td>
                     <td className="r font-medium">{priced ? <Money paise={priced.totalPaise} /> : '…'}</td>
                     <td className="r">
-                      <button className="text-small text-cr hover:underline" onClick={() => removeRow(row.key)}>
+                      {/* The till's cart is a grid being edited, not a table being read: the
+                          remove stays visible, because a quiet action is right for a row you are
+                          looking at and wrong for a row you are typing into. */}
+                      <RowLink tone="danger" onClick={() => removeRow(row.key)}>
                         ×
-                      </button>
+                      </RowLink>
                     </td>
                   </tr>
                 )
