@@ -133,7 +133,7 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
       </div>
 
       {producedId && !bom?.length && (
-        <p className="mt-3 text-body-sm text-amber">
+        <p className="mt-3 text-body-sm text-accent">
           No bill of materials on this item yet — add components in Masters → Stock items → Edit.
         </p>
       )}

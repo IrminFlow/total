@@ -106,5 +106,5 @@ await scenario('24-repeat-entry', async (h) => {
   await h.page.keyboard.press('v')
   await h.waitScreen('voucher-entry')
   const activeTab = await h.page.$eval('[data-testid="tab-voucher-entry-payment"]', (el) => el.className)
-  assert(/amber/.test(activeTab), 'voucher entry reopens on the type last used, not on Journal')
+  assert(/accent/.test(activeTab), 'voucher entry reopens on the type last used, not on Journal')
 })

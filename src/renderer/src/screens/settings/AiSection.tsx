@@ -265,7 +265,7 @@ export function AiSection(): React.JSX.Element {
         )}
 
         {keyStorage === 'session' && (
-          <div className="mt-4 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm text-amber">
+          <div className="mt-4 rounded-md border border-accent/50 bg-accent/10 px-3.5 py-2.5 text-body-sm text-accent">
             Your OS keychain isn&rsquo;t available on this machine, so the key is held for this session only and will be
             gone when you quit. Total will not write it to disk in plain text.
           </div>

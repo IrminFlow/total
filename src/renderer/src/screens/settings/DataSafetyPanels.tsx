@@ -330,7 +330,7 @@ export function RecoveryPanel(): React.JSX.Element | null {
     guidance.severity === 'file'
       ? 'border-cr/40 bg-cr/5 text-cr'
       : guidance.severity === 'books'
-        ? 'border-amber/40 bg-amber/5 text-ink'
+        ? 'border-accent/40 bg-accent/5 text-ink'
         : 'border-line bg-panel2 text-muted'
 
   return (

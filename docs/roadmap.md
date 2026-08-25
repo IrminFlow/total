@@ -506,7 +506,12 @@ Ordering within a section is roughly by value.
      that the audit trail then attributes to a viewer.
 267. ✓ Session timeout, as the idle auto-lock (#263) — a separate timeout on the lock screen
      itself would guard a screen that already holds nothing (S)
-268. Redact sensitive fields in exported diagnostics (done) (S)
+268. ✓ Redact sensitive fields in exported diagnostics (S) — redaction by construction rather
+     than by filter: `log()` records channel names, event names and error messages and never IPC
+     payloads, so there is nothing to strip. Asserting that is one thing and proving it is
+     another, so `scripts/e2e/33-support-send.mjs` posts a party with a GSTIN, sends a support
+     message, and reads the bytes off a recording server to check that neither the party, the
+     GSTIN nor the company name is anywhere in them.
 269. ✓ Content-Security-Policy audit and tightening (S) — base-uri, form-action and
      frame-ancestors do not fall back to default-src and were unset; connect-src is now stated
      rather than inherited, because every network call in the product belongs to main and one
@@ -516,7 +521,12 @@ Ordering within a section is roughly by value.
      release workflow. Runtime dependencies only: this app ships a Chromium to every user, so a
      known RCE in something it bundles is a shipped RCE, while a build-tool advisory blocking a
      release only teaches people to pass --force.
-271. Signed releases and update verification (config done) (M)
+271. ⏳ Signed releases and update verification (M) — blocked on procurement, not on code. The
+     workflow, the hardened runtime and `build/entitlements.mac.plist` already read `CSC_LINK`,
+     `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`,
+     `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`, and log a `::warning::` on every build that runs
+     without them. The next tag after the certificates land is signed with no code change. See
+     #341 and #342.
 272. ✓ Privacy page documenting exactly what leaves the machine (S) — written as a list of
      network calls, not as a policy: that is the only form a reader can check against the app.
 273. ✓ A "panic" key that locks immediately — ⌘⇧L from any screen (S)
@@ -633,10 +643,11 @@ Ordering within a section is roughly by value.
 309. ✓ Contact page with a WhatsApp number (S)
 310. ✓ SEO pages for the real queries people type (M)
 311. ✓ Downloads page with checksums and signing language (S)
-312. In-app feedback form posting to a real endpoint (M) — the endpoint exists:
+312. ✓ In-app feedback form posting to a real endpoint (M) — done with #345. The endpoint exists:
      `site/app/api/feedback/route.ts` stores each message as an issue in the private repo and
      forwards it by mail, and returns 503 rather than swallowing anything when no sink is
-     configured. The in-app half is the other half of this item.
+     configured. The in-app half is now the Support dialog: a message, an optional address, and
+     the diagnostics tail attached by default and shown in full before anything moves.
 313. ✓ Changelog surfaced in-app, not only on the site (S)
 314. ✓ Update notes shown before an update is applied (S)
 315. ✓ Referral or word-of-mouth tracking without telemetry (M)
@@ -715,21 +726,35 @@ lead time measured in weeks, which makes them the first items on the list and no
      — #224 measured 30k and #329 asks for the fixture; this is the stress pass at three times
      that, and the artefact doubles as marketing. A report that is fine at 30k and unusable at
      100k is a report that fails during an evaluation, which is the worst possible moment.
-345. An error ring buffer attached to the feedback form, with a pre-send preview (S) — launch
-     week reaches machines nobody has seen, and a `mailto:` is not a channel. The preview is the
-     point: diagnostics the user has read are diagnostics the user will send.
-346. First-run on a machine that has never held the app (S) — no company, no data directory, no
-     keychain entry, no `~/Documents/total`. Every existing test starts from a seeded state.
+345. ✓ An error ring buffer attached to the feedback form, with a pre-send preview (S) — the
+     Support dialog now takes a message and posts it to the site's `/api/feedback`, which had been
+     waiting for a caller since it was written. A `mailto:` needs a configured mail client and
+     silently does nothing on a machine without one. The log tail is attached by default and shown
+     in full first, and it is safe to show by construction rather than by filtering: `log()`
+     records channel and event names, never IPC payloads. `scripts/e2e/33-support-send.mjs` stands
+     a recording server on localhost and asserts the bytes on the wire are character-for-character
+     the characters on screen — and that no party name, GSTIN or company name is among them.
+346. ✓ First-run on a machine that has never held the app (S) — `scripts/e2e/32-fresh-machine.mjs`
+     points the app at a path three directories deep that does not exist, so the very first
+     millisecond is under test rather than assumed. Every other scenario starts from a directory
+     the harness made.
 347. 1366×768 at 125% scaling, on a real ₹40,000 Windows laptop (S) — the modals, the sidebar
      and the ledger table at the size most of the market actually runs them.
-348. The release steps as a script rather than a memory (S) — verify, tag, push, and then assert
-     the release published rather than drafted. A draft release is invisible to `releases/latest`,
-     which is what the in-app updater and the site both read.
-349. Relabel NIC live filing as experimental until it has run against the sandbox (S) — the site
-     currently sells "live IRN and e-way bill generation" for a client that has never met the
-     real portal. Lead with the offline JSON export, which works. See #107.
-350. Uninstall and reinstall leaving the books untouched, proven by a test (S) — the promise is
-     that the data is the user's and lives in their Documents folder. Nothing checks it.
+348. ✓ The release steps as a script rather than a memory (S) — `npm run release -- patch` checks
+     the tree is clean, on main and level with origin, runs the whole suite, versions, tags,
+     pushes, and then polls GitHub until the release exists and fails loudly if it published as a
+     draft or a pre-release. Both are invisible to `releases/latest`, which is what the in-app
+     updater and the site's download button read, so both look perfect on the releases page and
+     reach nobody. `--dry-run` stops before the two irreversible acts.
+349. ✓ Relabel NIC live filing as experimental until it has run against the sandbox (S) — the
+     home page, the GST docs, the comparison page and the FAQ all now lead with the offline JSON
+     export, which works, and say in as many words that the live client has never met the real
+     portal. See #107.
+350. ✓ Uninstall and reinstall leaving the books untouched, proven by a test (S) — the second
+     half of `32-fresh-machine.mjs`: post a voucher, throw away everything the installation owns
+     (the whole Chromium profile — preferences, localStorage, userData), launch again over the
+     same data directory, and find the company, the voucher and the amount to the paise. The
+     promise is that the books are the user's; now something checks it.
 
 ## S. Statutory depth
 

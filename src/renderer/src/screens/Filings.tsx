@@ -44,7 +44,7 @@ const STATUS_LABEL: Record<FilingRow['status'], string> = {
 
 const STATUS_CLASS: Record<FilingRow['status'], string> = {
   filed: 'text-dr',
-  due: 'text-amber',
+  due: 'text-accent',
   overdue: 'text-cr font-semibold',
   upcoming: 'text-muted'
 }
@@ -204,7 +204,7 @@ export function FilingsScreen(): React.JSX.Element {
         <>
       {outstanding.length > 0 && (
         <div
-          className="mb-4 flex items-baseline gap-3 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm"
+          className="mb-4 flex items-baseline gap-3 rounded-md border border-accent/50 bg-accent/10 px-3.5 py-2.5 text-body-sm"
           data-testid="filings-exposure"
         >
           <span>
@@ -455,7 +455,7 @@ function FilingModal({
         </Field>
 
         {liability?.taxPayable != null && (taxPaid ?? 0) !== liability.taxPayable && (
-          <div className="rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm" data-testid="filing-liability-gap">
+          <div className="rounded-md border border-accent/50 bg-accent/10 px-3.5 py-2.5 text-body-sm" data-testid="filing-liability-gap">
             This differs from the books by <b><Money paise={Math.abs((taxPaid ?? 0) - liability.taxPayable)} /></b>
             {(taxPaid ?? 0) < liability.taxPayable ? ' short' : ' over'}. Worth a look before you
             record it — though a genuine difference (a set-off, a carried-forward credit) is normal.
@@ -654,7 +654,7 @@ function Gstr9Papers({ fyStartYear }: { fyStartYear: number }): React.JSX.Elemen
     <>
       <div
         className={`mb-3 rounded-md border px-3.5 py-2.5 text-body-sm ${
-          data.reconciled ? 'border-dr/40 bg-dr/5 text-dr' : 'border-amber/50 bg-amber/10 text-amber'
+          data.reconciled ? 'border-dr/40 bg-dr/5 text-dr' : 'border-accent/50 bg-accent/10 text-accent'
         }`}
         data-testid="gstr9-status"
       >

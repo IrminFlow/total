@@ -69,7 +69,7 @@ export function LockScreen(): React.JSX.Element {
               type="button"
               data-active={i === active}
               className={`kbar-row flex w-full cursor-pointer items-center justify-between border-b border-line/50 px-5 py-3.5 text-left last:border-b-0 ${
-                u.id === selectedId ? 'bg-amberbar/15' : ''
+                u.id === selectedId ? 'bg-accentbar/15' : ''
               }`}
               onMouseEnter={() => setActive(i)}
               onClick={() => pick(u)}

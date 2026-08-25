@@ -300,7 +300,7 @@ export function CompositionScreen(): React.JSX.Element {
             </Button>
           </div>
           {annual && annual.missingQuarters.length > 0 && (
-            <div className="mb-3 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm text-amber">
+            <div className="mb-3 rounded-md border border-accent/50 bg-accent/10 px-3.5 py-2.5 text-body-sm text-accent">
               {annual.missingQuarters.join(' and ')}{' '}
               {annual.missingQuarters.length > 1 ? 'have' : 'has'} not started yet — this return covers{' '}
               {annual.quarters.length} of 4 quarters. A quarter with no sales still files a nil CMP-08.

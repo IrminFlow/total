@@ -254,7 +254,7 @@ function BalancesTab(): React.JSX.Element {
           XLS
         </Button>
       </div>
-      <Panel className="flex min-h-0 flex-1 flex-col">
+      <Panel className="card-fit flex flex-col">
         {isLoading ? (
           <SkeletonRows />
         ) : rows.length === 0 ? (
@@ -595,7 +595,7 @@ function ChangesTab(): React.JSX.Element {
           XLS
         </Button>
       </div>
-      <Panel className="min-h-0 flex-1 overflow-y-auto">
+      <Panel className="card-fit overflow-y-auto">
         {isLoading ? (
           <SkeletonRows />
         ) : rows.length === 0 ? (

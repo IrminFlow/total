@@ -65,7 +65,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
       <a
         href="#main-content"
         data-testid="skip-to-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:border focus:border-amber focus:bg-panel focus:px-3 focus:py-1.5 focus:text-detail"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:border focus:border-accent focus:bg-panel focus:px-3 focus:py-1.5 focus:text-detail"
         onClick={(e) => {
           // Anchor navigation in a hash-less renderer does nothing on its own, so move focus
           // explicitly — the point of the link is where the caret lands, not the URL.
@@ -86,7 +86,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         </button>
         <div className="flex-1" />
         <button
-          className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
+          className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-accent/60 hover:text-ink"
           onClick={() => setPeriodOpen(true)}
           title="Change period"
         >
@@ -94,7 +94,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         </button>
         <button
           data-testid="btn-theme"
-          className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
+          className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-accent/60 hover:text-ink"
           onClick={toggle}
           // The button names where it goes, not where it is — three themes make "Light/Dark" as
           // a state label ambiguous, and a control that reads as its own destination is the one
@@ -105,7 +105,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         </button>
         <SupportLink variant="pill" />
         <button
-          className="flex items-center gap-2 rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
+          className="flex items-center gap-2 rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-accent/60 hover:text-ink"
           onClick={onOpenPalette}
         >
           Anywhere <Kbd>⌘K</Kbd>
@@ -118,7 +118,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
             </span>
             <button
               data-testid="btn-lock"
-              className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
+              className="rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-accent/60 hover:text-ink"
               onClick={async () => {
                 try {
                   await api.auth.logout()
@@ -153,7 +153,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                     data-nav-accel={item.accel}
                     onClick={() => nav.go(item.screen)}
                     className={`block w-full rounded-md px-2.5 py-[5px] text-left text-detail transition-colors ${
-                      active ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'
+                      active ? 'bg-accentbar/20 font-medium text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'
                     }`}
                   >
                     <Accel label={item.label} accel={item.accel} muted={shadowed.has(item.accel ?? '')} />
@@ -292,7 +292,7 @@ function AuditorPill(): React.JSX.Element | null {
   return (
     <span
       data-testid="pill-auditor-session"
-      className="rounded-md border border-amber/60 bg-amber/15 px-2.5 py-1 text-small text-amber"
+      className="rounded-md border border-accent/60 bg-accent/15 px-2.5 py-1 text-small text-accent"
       title={data.grantedBy ? `Let in by ${data.grantedBy}` : undefined}
     >
       Auditor · read only · {data.timeLeft}

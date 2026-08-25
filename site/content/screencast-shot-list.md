@@ -59,7 +59,7 @@ typing is too slow, not the shot too long.
 ### 4. Day book confirms it landed (0:38 to 0:45)
 
 `daybook.png`. Press `D`. The invoice just entered is the top row. Move the selection down one
-row and back with the arrow keys so the amber cursor bar is visibly a cursor.
+row and back with the arrow keys so the accent cursor bar is visibly a cursor.
 
 Caption: *Posted. Nothing to save.*
 

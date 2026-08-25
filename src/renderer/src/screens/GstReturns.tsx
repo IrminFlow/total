@@ -106,7 +106,7 @@ export function NoMonths(): React.JSX.Element {
 
 const SEVERITY_CLASS: Record<GstIssue['severity'], string> = {
   blocking: 'border-cr/50 bg-cr/10 text-cr',
-  warning: 'border-amber/50 bg-amber/10 text-amber'
+  warning: 'border-accent/50 bg-accent/10 text-accent'
 }
 
 /**
@@ -264,7 +264,7 @@ export function Gstr1Screen(): React.JSX.Element {
       </SectionTitle>
 
       {exportBlockedReason && (
-        <p className={`mb-3 text-body-sm ${blocking.length ? 'text-cr' : 'text-amber'}`}>{exportBlockedReason}</p>
+        <p className={`mb-3 text-body-sm ${blocking.length ? 'text-cr' : 'text-accent'}`}>{exportBlockedReason}</p>
       )}
 
       {validating ? (
@@ -456,7 +456,7 @@ function ManualAdjustments({ period }: { period: string }): React.JSX.Element {
         </tbody>
       </table>
       <div className="mt-2 flex items-center justify-end gap-2">
-        {dirty && <span className="text-hint text-amber">Unsaved changes</span>}
+        {dirty && <span className="text-hint text-accent">Unsaved changes</span>}
         <Button variant="primary" data-testid="btn-gstr3b-save-manual" disabled={!dirty || saving} onClick={() => void doSave()}>
           {saving ? 'Saving…' : 'Save adjustments'}
         </Button>
@@ -536,7 +536,7 @@ export function Gstr3bScreen(): React.JSX.Element {
       </SectionTitle>
 
       {!info?.gstin && (
-        <p className="mb-3 text-body-sm text-amber">Add the company GSTIN under Company details to enable export.</p>
+        <p className="mb-3 text-body-sm text-accent">Add the company GSTIN under Company details to enable export.</p>
       )}
 
       <Panel>

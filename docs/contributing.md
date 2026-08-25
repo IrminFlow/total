@@ -87,7 +87,7 @@ both. Deriving one from the other is wrong from the second year and compounds.
 Explain **why**, not what. The code already says what it does.
 
 The comments worth writing are the ones that stop the next person undoing a deliberate decision:
-why the amber selection bar is an inset `box-shadow` and not a `::before` (a `tr::before` renders
+why the accent selection bar is an inset `box-shadow` and not a `::before` (a `tr::before` renders
 as a phantom first cell), why the accelerator red is not the credit red, why an unclassified MSME
 supplier is not the same as an exempt one.
 

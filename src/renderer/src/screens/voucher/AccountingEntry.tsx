@@ -909,7 +909,7 @@ export function AccountingEntry({
       {recovery.offered && (
         <div
           data-testid="draft-restore-bar"
-          className="mt-3 flex items-center justify-between gap-4 rounded-md border border-amber/40 bg-amber/10 px-4 py-2.5"
+          className="mt-3 flex items-center justify-between gap-4 rounded-md border border-accent/40 bg-accent/10 px-4 py-2.5"
         >
           <p className="text-body-sm text-ink">
             An unsaved {kind} voucher from {describeAge(recovery.offered.savedAt)} is still here —{' '}
@@ -995,7 +995,7 @@ export function AccountingEntry({
                   {r.pastedName && r.ledgerId == null && (
                     <button
                       data-testid="btn-create-pasted-ledger"
-                      className="shrink-0 rounded-md border border-amber/50 px-2 py-1 text-caption text-amber"
+                      className="shrink-0 rounded-md border border-accent/50 px-2 py-1 text-caption text-accent"
                       onClick={() => setQuickLedger({ name: r.pastedName!, row: i })}
                       title="Pasted from a spreadsheet — no ledger of this name exists yet"
                     >
@@ -1058,10 +1058,10 @@ export function AccountingEntry({
       )}
 
       {features.tds && tdsSuggestion && !tdsDismissed && (
-        <div className="mt-3 rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-body-sm text-amber">
+        <div className="mt-3 rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-body-sm text-accent">
           <div className="flex items-center justify-between gap-3">
             <span>
-              TDS u/s {tdsSuggestion.code}: deduct <Money paise={tdsSuggestion.tdsPaise} className="text-amber" />
+              TDS u/s {tdsSuggestion.code}: deduct <Money paise={tdsSuggestion.tdsPaise} className="text-accent" />
               {!tdsSuggestion.panAvailable && <span className="ml-2 text-cr">PAN missing — 20% rate</span>}
               {!tdsSuggestion.thresholdCrossed && <span className="ml-2 text-muted">(below threshold — applying anyway is your call)</span>}
             </span>
@@ -1230,7 +1230,7 @@ export function AccountingEntry({
       {accepting && (
         <div
           data-testid="voucher-accept-bar"
-          className="mt-3 flex items-center justify-between gap-4 rounded-md border border-amberbar/60 bg-amberbar/15 px-4 py-2.5"
+          className="mt-3 flex items-center justify-between gap-4 rounded-md border border-accentbar/60 bg-accentbar/15 px-4 py-2.5"
         >
           <span className="text-detail">
             {totalDr + totalCr === 0

@@ -171,20 +171,60 @@ await scenario('31-data-safety', async (h) => {
   assert(afterUnarchive.id > 0, 'and un-archiving restores posting')
 
   // ---- the entry that was half typed (#250) ----
-  await h.invoke('draft:save', {
-    payload: { date: today, narration: 'Half-typed entry', lines: [{ ledgerId: cash.id, drCr: 'dr', amount: 5000 }] }
-  })
-  const storedDraft = await h.invoke('draft:get')
-  assert(storedDraft && storedDraft.payload.narration === 'Half-typed entry', 'the draft survives on disk')
+  // Written the way the form writes it — localStorage, keyed by company slug and voucher kind.
+  // Deliberately not a database row: a half-entered voucher has no number, does not balance, and
+  // must never turn up in a report, a backup or an audit trail.
+  const draftKey = await h.page.evaluate(
+    ([ledgerId, date]) => {
+      const slug = new URLSearchParams(location.search).get('slug')
+      // The key the app itself uses. Read from the module's own convention rather than guessed,
+      // so a rename breaks this test instead of silently making it test nothing.
+      const key = [...Array(localStorage.length).keys()]
+        .map((i) => localStorage.key(i))
+        .find((k) => k?.startsWith('total-voucher-draft:'))
+      const slugFromKey = key?.split(':')[1] ?? slug
+      const target = `total-voucher-draft:${slugFromKey ?? 'safety-co'}:acct-payment`
+      localStorage.setItem(
+        target,
+        JSON.stringify({
+          savedAt: Date.now(),
+          state: {
+            date,
+            number: '',
+            narration: 'Half-typed entry',
+            instrumentNo: '',
+            rows: [{ drCr: 'dr', ledgerId, amount: 500000 }]
+          }
+        })
+      )
+      return target
+    },
+    [cash.id, today]
+  )
 
-  // It survives the app dying, which is the whole point.
+  // It survives the app dying, which is the whole point. A relaunch is a fresh renderer against
+  // the same profile — exactly what a crash leaves behind.
   await h.relaunch()
   await h.openCompany('Safety Co')
   await h.goto('voucher-entry')
-  await h.page.waitForSelector('[data-testid="recovered-draft"]', { timeout: 15000 })
+  await h.clickText('Payment')
+  await h.page.waitForSelector('[data-testid="draft-restore-bar"]', { timeout: 15000 })
+  const offer = await h.page.textContent('[data-testid="draft-restore-bar"]')
+  assert(/unsaved/.test(offer), `the draft is OFFERED back, not applied (got "${offer}")`)
   await h.shot('03-recovered-draft')
-  await h.click('btn-discard-draft')
-  assert((await h.invoke('draft:get')) === null, 'discarding forgets it')
+
+  // Offered, never restored silently: a form that fills itself in from yesterday's draft is
+  // indistinguishable, to the person looking at it, from one that invented its own contents.
+  const narrationBefore = await h.page.evaluate(
+    () => document.querySelector('[data-testid="input-narration"]')?.value ?? ''
+  )
+  assert(narrationBefore === '', 'and the form itself is still blank until the offer is accepted')
+
+  await h.clickText('Discard')
+  assert(
+    (await h.page.evaluate((k) => localStorage.getItem(k), draftKey)) === null,
+    'discarding forgets it'
+  )
 
   // ---- where the books live (#244) ----
   const folder = await h.invoke('app:dataRoot:get')

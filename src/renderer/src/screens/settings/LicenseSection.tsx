@@ -51,7 +51,7 @@ export function LicenseSection(): React.JSX.Element {
       ? 'border-dr/50 bg-dr/10 text-dr'
       : state.readOnly
         ? 'border-cr/50 bg-cr/10 text-cr'
-        : 'border-amber/50 bg-amber/10 text-amber'
+        : 'border-accent/50 bg-accent/10 text-accent'
 
   return (
     <div>
