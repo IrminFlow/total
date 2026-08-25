@@ -17,6 +17,7 @@ import {
   Money,
   Panel,
   ScrollList,
+  SectionTitle,
   Select,
   SkeletonRows,
   Spinner,
@@ -52,21 +53,24 @@ export function PayrollScreen(): React.JSX.Element {
   const [month, setMonth] = useState(() => todayISO().slice(0, 7))
   return (
     <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
-      <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-heading font-semibold tracking-tight">Payroll</h2>
-        <TabBar
-          screen="payroll"
-          tabs={[
-            { id: 'employees', label: 'Employees' },
-            { id: 'attendance', label: 'Attendance' },
-            { id: 'advances', label: 'Advances' },
-            { id: 'runs', label: 'Pay runs' },
-            { id: 'trend', label: 'Cost over time' }
-          ]}
-          active={tab}
-          onSelect={setTab}
-        />
-      </div>
+      <SectionTitle
+        right={
+          <TabBar
+            screen="payroll"
+            tabs={[
+              { id: 'employees', label: 'Employees' },
+              { id: 'attendance', label: 'Attendance' },
+              { id: 'advances', label: 'Advances' },
+              { id: 'runs', label: 'Pay runs' },
+              { id: 'trend', label: 'Cost over time' }
+            ]}
+            active={tab}
+            onSelect={setTab}
+          />
+        }
+      >
+        Payroll
+      </SectionTitle>
       {tab === 'employees' && <EmployeesTab />}
       {tab === 'attendance' && <AttendanceTab month={month} onMonth={setMonth} />}
       {tab === 'advances' && <AdvancesTab month={month} />}

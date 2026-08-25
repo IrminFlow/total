@@ -6,7 +6,20 @@ import { api } from '../lib/client'
 import { useGstRegistrations } from '../components/GstinPicker'
 import { registrationLabel } from '@shared/gst/registrations'
 import { useNav, useToasts, type Screen } from '../state/stores'
-import { AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useKeyNav } from '../components/ui'
+import {
+  AmountInput,
+  Button,
+  DateInput,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  SectionTitle,
+  Select,
+  TextInput,
+  useKeyNav
+} from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { useGroups, useLedgers, useStockItems } from '../components/pickers'
 import { LedgerFormModal } from '../components/LedgerFormModal'
@@ -36,19 +49,22 @@ export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
   const active = tab ?? 'ledgers'
   return (
     <div className="mx-auto max-w-4xl">
-      <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-heading font-semibold tracking-tight">Masters</h2>
-        {/* Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
-            other screens can deep-link straight to a tab — same pattern as Settings. */}
-        <TabBar
-          screen="masters"
-          tabs={TABS}
-          active={active}
-          onSelect={(t) => {
-            if (t !== active) nav.go({ name: 'masters', tab: t })
-          }}
-        />
-      </div>
+      <SectionTitle
+        right={
+          // Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
+          // other screens can deep-link straight to a tab — same pattern as Settings.
+          <TabBar
+            screen="masters"
+            tabs={TABS}
+            active={active}
+            onSelect={(t) => {
+              if (t !== active) nav.go({ name: 'masters', tab: t })
+            }}
+          />
+        }
+      >
+        Masters
+      </SectionTitle>
       {active === 'ledgers' && <LedgersTab />}
       {active === 'groups' && <GroupsTab />}
       {active === 'items' && <ItemsTab />}
