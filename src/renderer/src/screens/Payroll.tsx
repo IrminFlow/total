@@ -16,6 +16,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   ScrollList,
   SectionTitle,
   Select,
@@ -162,13 +163,12 @@ function EmployeesTab(): React.JSX.Element {
                     >
                       Heads
                     </button>
-                    <button
-                      className="mr-3 text-small text-blue hover:underline"
+                    <RowAction
                       data-testid="btn-payroll-edit-employee"
                       onClick={() => setEditing(e)}
                     >
                       Edit
-                    </button>
+                    </RowAction>
                     <button
                       className="mr-3 text-small text-muted hover:text-ink"
                       data-testid={`btn-payroll-form16-${e.id}`}
@@ -603,9 +603,9 @@ function PayHeadsModal({ onClose }: { onClose: () => void }): React.JSX.Element 
                     <td className="num r">{h.calc === 'flat' ? <Money paise={h.value} /> : percentLabel(h.value)}</td>
                     <td className="text-muted">{h.active ? 'Yes' : 'No'}</td>
                     <td className="r">
-                      <button className="mr-3 text-small text-blue hover:underline" onClick={() => edit(h)}>
+                      <RowAction onClick={() => edit(h)}>
                         Edit
-                      </button>
+                      </RowAction>
                       <button className="text-small text-cr hover:underline" onClick={() => void remove(h)}>
                         Delete
                       </button>

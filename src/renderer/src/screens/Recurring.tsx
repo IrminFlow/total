@@ -4,7 +4,20 @@ import type { RecurringTemplate, VoucherKind } from '@shared/domain'
 import type { Screen, VoucherDraft } from '../state/stores'
 import { api } from '../lib/client'
 import { useNav, useToasts, nextDraftId } from '../state/stores'
-import { Button, DateInput, EmptyState, Field, Modal, Panel, SectionTitle, Select, SkeletonRows, TextInput, useTableNav } from '../components/ui'
+import {
+  Button,
+  DateInput,
+  EmptyState,
+  Field,
+  Modal,
+  Panel,
+  RowAction,
+  SectionTitle,
+  Select,
+  SkeletonRows,
+  TextInput,
+  useTableNav
+} from '../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { nextDueAfter } from '@shared/recurring'
 import type { VoucherInputParsed } from '@shared/schemas'
@@ -166,14 +179,13 @@ export function RecurringScreen(): React.JSX.Element {
                     </span>
                   </td>
                   <td className="r">
-                    <button
+                    <RowAction
                       data-testid={`btn-recurring-post-${t.id}`}
                       disabled={busyId === t.id}
-                      className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
                       onClick={() => void postNow(t)}
                     >
                       Post now
-                    </button>
+                    </RowAction>
                     <RowMenu
                       testId={`btn-recurring-menu-${t.id}`}
                       disabled={busyId === t.id}

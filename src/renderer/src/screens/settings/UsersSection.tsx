@@ -2,7 +2,17 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type Role, type UserRow } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, EmptyState, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
+import {
+  Button,
+  EmptyState,
+  Field,
+  Modal,
+  Panel,
+  RowAction,
+  SectionTitle,
+  Select,
+  TextInput
+} from '../../components/ui'
 import { useStickyNumber } from '../../lib/useStickyTab'
 import { AUTO_LOCK_OPTIONS } from '../../lib/useAutoLock'
 import { CAPABILITIES, CAPABILITY_LABELS, type Capability } from '@shared/permissions'
@@ -75,9 +85,9 @@ export function UsersSection(): React.JSX.Element {
                     </span>
                   </td>
                   <td className="r whitespace-nowrap">
-                    <button className="mr-2 text-small text-blue hover:underline" onClick={() => setEditing(u)}>
+                    <RowAction onClick={() => setEditing(u)}>
                       Edit
-                    </button>
+                    </RowAction>
                     {u.active && (
                       <button className="text-small text-cr hover:underline" onClick={() => setDeactivating(u)}>
                         Deactivate

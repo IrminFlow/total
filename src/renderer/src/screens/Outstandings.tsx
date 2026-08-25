@@ -7,6 +7,8 @@ import {
   ExportGroup,
   Money,
   Panel,
+  RowAction,
+  RowLink,
   SectionTitle,
   SkeletonRows,
   useTableNav
@@ -199,9 +201,8 @@ export function OutstandingsScreen(): React.JSX.Element {
                     <td className="r"><span className={p.buckets[3] > 0 ? 'text-cr' : ''}><Money paise={p.buckets[3]} /></span></td>
                     <td className="r font-medium"><Money paise={p.pending} /></td>
                     <td className="r">
-                      <button
+                      <RowAction
                         data-testid="btn-outstandings-remind"
-                        className="text-hint text-blue hover:underline"
                         onClick={(e) => {
                           e.stopPropagation()
                           void api.bills
@@ -218,26 +219,27 @@ export function OutstandingsScreen(): React.JSX.Element {
                         }}
                       >
                         {p.phone ? 'WhatsApp' : 'Remind'}
-                      </button>
+                      </RowAction>
                     </td>
                   </tr>
                   {openParty === p.ledgerId &&
                     (openBills ?? []).map((b, i) => (
-                      <tr key={`${p.ledgerId}-${i}`} className={`bg-panel2/50 ${b.overdueDays > 0 ? 'text-cr' : ''}`}>
+                      <tr key={`${p.ledgerId}-${i}`} className="bg-panel2/50">
                         <td className="pl-9 text-muted">
-                          <button
-                            className="hover:text-blue hover:underline"
+                          <RowLink
                             onClick={(e) => {
                               e.stopPropagation()
                               if (b.voucherId) nav.go({ name: 'voucher-entry', voucherId: b.voucherId })
                             }}
                           >
                             {b.number}
-                          </button>
+                          </RowLink>
                           <span className="num ml-3 text-hint">{toDisplayDate(b.date)} · {b.ageDays} days</span>
                           <span className="num ml-3 text-hint">
                             {b.dueDate ? `due ${toDisplayDate(b.dueDate)}` : 'no due date'}
-                            {b.overdueDays > 0 && ` · ${b.overdueDays}d overdue`}
+                            {b.overdueDays > 0 && (
+                              <span className="text-cr font-semibold"> · {b.overdueDays}d overdue</span>
+                            )}
                           </span>
                         </td>
                         <td colSpan={4}></td>

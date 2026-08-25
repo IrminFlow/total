@@ -642,7 +642,7 @@ function ScheduleTab(): React.JSX.Element {
                     <td className="r"><Money paise={b.closingWdv} /></td>
                   </tr>
                   {b.shortTermGain > 0 && (
-                    <tr className="text-small text-cr">
+                    <tr className="text-small text-warn">
                       <td colSpan={7} className="pl-8">
                         Sales exceeded the block by <Money paise={b.shortTermGain} /> — a short-term
                         capital gain under section 50, and no depreciation is allowed on this block.

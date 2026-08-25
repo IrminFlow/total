@@ -11,6 +11,7 @@ import {
   Money,
   Panel,
   RowAction,
+  RowLink,
   SkeletonRows,
   TextInput
 } from '../../components/ui'
@@ -152,13 +153,13 @@ export function ForeignCurrencyTab(): React.JSX.Element {
                   </td>
                   <td>
                     {r.voucherId && r.voucherNumber ? (
-                      <RowAction
+                      <RowLink
                         className="px-0"
                         data-testid={`btn-fx-voucher-${r.id}`}
                         onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId! })}
                       >
                         {r.voucherNumber}
-                      </RowAction>
+                      </RowLink>
                     ) : (
                       <span className="text-muted">binned</span>
                     )}

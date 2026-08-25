@@ -4,7 +4,18 @@ import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
 import type { Recon26asBucket } from '@shared/tds/form26as'
 import {
-  AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useTableNav
+  AmountInput,
+  Button,
+  DateInput,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  Select,
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { fyOf, fyFromStartYear, toDisplayDate, todayISO } from '@shared/dates'
 
@@ -418,13 +429,12 @@ export function CertificatesTab({
                     <Money paise={d.tds} />
                   </td>
                   <td className="r">
-                    <button
+                    <RowAction
                       data-testid={`btn-form16a-open-${d.ledgerId}`}
-                      className="text-small text-blue hover:underline"
                       onClick={() => setSelected(d.ledgerId)}
                     >
                       Open
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -710,13 +720,12 @@ export function LowerDeductionTab(): React.JSX.Element {
                       )}
                     </td>
                     <td className="r">
-                      <button
+                      <RowAction
                         data-testid={`btn-tds-cert-edit-${c.id}`}
-                        className="text-small text-blue hover:underline"
                         onClick={() => edit(c)}
                       >
                         Edit
-                      </button>
+                      </RowAction>
                       <button
                         data-testid={`btn-tds-cert-delete-${c.id}`}
                         className="ml-2 text-small text-cr hover:underline"

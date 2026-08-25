@@ -4,7 +4,20 @@ import type { CostCentre } from '@shared/domain'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import {
-  Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, SkeletonRows, TextInput, useTableNav
+  Button,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  RowLink,
+  SectionTitle,
+  Select,
+  Skeleton,
+  SkeletonRows,
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import { confirmDialog } from '../lib/dialogs'
@@ -86,9 +99,9 @@ export function CostCentresScreen(): React.JSX.Element {
                   <td className="text-muted">{c.parentId ? (centreMap.get(c.parentId)?.name ?? '') : ''}</td>
                   <td className="text-muted">{c.active ? 'Yes' : 'No'}</td>
                   <td className="r">
-                    <button className="mr-3 text-small text-blue hover:underline" onClick={() => setEditing(c)}>
+                    <RowAction onClick={() => setEditing(c)}>
                       Edit
-                    </button>
+                    </RowAction>
                     <button className="text-small text-cr hover:underline" onClick={() => void remove(c)}>
                       Delete
                     </button>
@@ -206,9 +219,9 @@ function DrillRows({
       {rows.map((r, i) => (
         <tr key={i} className="bg-panel2/50">
           <td className="pl-9 text-muted">
-            <button className="hover:text-blue hover:underline" onClick={() => onOpenVoucher(r.voucherId)}>
+            <RowLink onClick={() => onOpenVoucher(r.voucherId)}>
               {r.number}
-            </button>
+            </RowLink>
             <span className="ml-3 text-hint">
               <span className="num">{toDisplayDate(r.date)}</span> · {r.ledgerName}
             </span>

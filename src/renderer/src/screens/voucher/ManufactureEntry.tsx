@@ -204,13 +204,15 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
           </thead>
           <tbody>
             {consumption.map((c) => (
-              <tr key={c.componentId} className={c.rate === 0 ? 'text-cr' : ''}>
+              <tr key={c.componentId}>
                 <td>
                   {c.componentName}
-                  {c.rate === 0 && <span className="ml-2 text-caption">no stock cost — purchase it first</span>}
+                  {c.rate === 0 && <span className="ml-2 text-caption text-muted">no stock cost — purchase it first</span>}
                 </td>
                 <td className="r num">{c.useMilli / 1000} {c.unitSymbol}</td>
-                <td className="r"><Money paise={c.rate} /></td>
+                {/* The cost is the cell that is wrong, so the cost is the cell that is marked —
+                    the component's name and quantity are both perfectly correct. */}
+                <td className={`r ${c.rate === 0 ? 'text-cr font-semibold' : ''}`}><Money paise={c.rate} /></td>
                 <td className="r"><Money paise={c.amount} /></td>
               </tr>
             ))}

@@ -496,8 +496,10 @@ function SettlementBody({ settlement }: { settlement: Settlement }): React.JSX.E
           </tr>
         </thead>
         <tbody>
+          {/* No row-level red: a recovery is money coming back, not money that is wrong, and the
+              brackets around the figure already say which way it goes. */}
           {r.lines.map((l) => (
-            <tr key={l.label} className={l.kind === 'recovery' ? 'text-cr' : undefined}>
+            <tr key={l.label}>
               <td>{l.label}</td>
               <td className="text-small text-muted">{l.working}</td>
               <td className="r">

@@ -2,7 +2,17 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BackupInfo, type BackupVerification, type IntegrityResult } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, EmptyState, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
+import {
+  Button,
+  EmptyState,
+  Field,
+  Modal,
+  Panel,
+  RowAction,
+  SectionTitle,
+  Select,
+  TextInput
+} from '../../components/ui'
 import { toDisplayDateTime } from '@shared/dates'
 import {
   ArchivePanel,
@@ -131,13 +141,12 @@ export function BackupsSection(): React.JSX.Element {
                   </td>
                   {isOwner && (
                     <td className="r">
-                      <button
+                      <RowAction
                         data-testid={`btn-restore-${b.file}`}
-                        className="text-small text-blue hover:underline"
                         onClick={() => setRestoring(b)}
                       >
                         Restore…
-                      </button>
+                      </RowAction>
                     </td>
                   )}
                 </tr>

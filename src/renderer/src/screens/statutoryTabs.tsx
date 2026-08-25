@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, ExportGroup, Field, Money, Panel, Select, TextInput } from '../components/ui'
+import { Button, EmptyState, ExportGroup, Field, Money, Panel, RowAction, Select, TextInput } from '../components/ui'
 import { useStockItems } from '../components/pickers'
 import { fyOf, toDisplayDate } from '@shared/dates'
 
@@ -166,13 +166,12 @@ export function RcmSelfInvoiceTab(): React.JSX.Element {
                     <Money paise={d.igst + d.cgst + d.sgst + d.cess} />
                   </td>
                   <td className="r">
-                    <button
+                    <RowAction
                       data-testid={`btn-rcm-pdf-${d.id}`}
-                      className="text-small text-blue hover:underline"
                       onClick={() => void print(d.id)}
                     >
                       PDF
-                    </button>
+                    </RowAction>
                     <button
                       data-testid={`btn-rcm-withdraw-${d.id}`}
                       className="ml-3 text-small text-cr hover:underline"

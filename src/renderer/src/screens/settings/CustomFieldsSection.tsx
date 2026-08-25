@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CustomFieldInput } from '../../lib/client'
 import { useToasts } from '../../state/stores'
-import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
+import { Button, Field, Panel, RowAction, SectionTitle, Select, TextInput } from '../../components/ui'
 import {
   CUSTOM_FIELD_KINDS,
   CUSTOM_FIELD_KIND_LABEL,
@@ -168,13 +168,13 @@ export function CustomFieldsSection(): React.JSX.Element {
                   <td className="text-muted">{f.printed ? 'yes' : '—'}</td>
                   <td className="r">
                     {!f.retiredAt && (
-                      <button
-                        className="row-action text-small text-cr hover:underline"
+                      <RowAction
+                        className="text-cr"
                         data-testid={`btn-cf-remove-${f.key}`}
                         onClick={() => void remove(f.id, f.label)}
                       >
                         Remove
-                      </button>
+                      </RowAction>
                     )}
                   </td>
                 </tr>

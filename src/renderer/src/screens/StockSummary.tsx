@@ -75,6 +75,7 @@ function SummaryTab(): React.JSX.Element {
   const toast = useToasts()
   const { data, isLoading } = useQuery({ queryKey: ['stockSummary', to], queryFn: () => api.reports.stockSummary(to) })
   const rows = data ?? []
+  const negativeCount = rows.filter((r) => r.closingQtyMilli < 0).length
   const { visible, toggle } = useReportConfig('stock-summary', COLUMNS)
   // Expandable item rows (user ask): one item at a time unfolds into its godown- and
   // batch-wise closing position, fetched on demand.
@@ -216,14 +217,13 @@ function SummaryTab(): React.JSX.Element {
                 <tr
                   {...nav.rowProps(i, r)}
                   aria-expanded={expandedId === r.stockItemId}
-                  className={`${nav.rowProps(i, r).className} ${r.closingQtyMilli < 0 ? 'text-cr' : ''}`}
+                  className={nav.rowProps(i, r).className}
                 >
                   <td>
                     <span className="mr-1.5 inline-block w-3 text-label text-muted">
                       {expandedId === r.stockItemId ? '▾' : '▸'}
                     </span>
                     {r.name}
-                    {r.closingQtyMilli < 0 && <span className="ml-2 text-caption">— negative stock, check entries</span>}
                   </td>
                   {visible.opening && (
                     <td className="r num">
@@ -241,7 +241,15 @@ function SummaryTab(): React.JSX.Element {
                     </td>
                   )}
                   {visible.closingQty && (
-                    <td className="r num">
+                    // The flag goes on the cell that is wrong, never on the row. Painting the
+                    // whole row red made an item's perfectly correct opening, inwards and value
+                    // read as errors too — and a screen of ambient red is a screen where the one
+                    // figure that is actually wrong no longer registers. The footnote under the
+                    // table carries the explanation, once.
+                    <td
+                      className={`r num ${r.closingQtyMilli < 0 ? 'text-cr font-semibold' : ''}`}
+                      title={r.closingQtyMilli < 0 ? 'Negative stock — more went out than came in' : undefined}
+                    >
                       {fmtQty(r.closingQtyMilli, r.decimals)} {r.unitSymbol}
                     </td>
                   )}
@@ -274,6 +282,12 @@ function SummaryTab(): React.JSX.Element {
           </table>
         )}
       </Panel>
+      {negativeCount > 0 && (
+        <p className="mt-2 text-hint text-muted" data-testid="stock-negative-note">
+          {negativeCount} item{negativeCount === 1 ? '' : 's'} closed with negative stock — more went
+          out than came in. The closing quantity is marked; check the entries behind it.
+        </p>
+      )}
       <NearExpiry asOn={to} />
       <PurchaseSuggestions asOn={to} />
       <ReorderAlerts asOn={to} />

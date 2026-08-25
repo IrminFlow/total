@@ -235,6 +235,27 @@ export function RowAction({
   )
 }
 
+/**
+ * The other kind of thing that lives in a cell: a link whose text is data.
+ *
+ * `RowAction` stays out of the way until the row is hovered or active, which is right for a verb —
+ * Edit, Remind, PDF — and wrong for a voucher number, because the number IS the cell's content and
+ * the row would read as empty until the cursor found it. Same colour and same underline, always
+ * visible. Also the "show 500 more" foot of a paged table, which is not a row action either.
+ */
+export function RowLink({
+  className = '',
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={`text-blue hover:underline disabled:opacity-40 disabled:hover:no-underline ${className}`}
+    />
+  )
+}
+
 export function Button({
   variant = 'default',
   disabledTitle,

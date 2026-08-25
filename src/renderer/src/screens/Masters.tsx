@@ -15,6 +15,7 @@ import {
   Modal,
   Money,
   Panel,
+  RowAction,
   SectionTitle,
   Select,
   TextInput,
@@ -287,16 +288,15 @@ function LedgersTab(): React.JSX.Element {
                   <td className="r" onClick={(e) => e.stopPropagation()}>
                     {/* One quiet action per row instead of fifteen identical blue links stacked
                         down the page — it surfaces on the row the pointer or keyboard is on. */}
-                    <button
+                    <RowAction
                       data-testid="btn-masters-edit-ledger"
-                      className="row-action text-small text-blue hover:underline"
                       onClick={(e) => {
                         e.stopPropagation()
                         setEditing(l)
                       }}
                     >
                       Edit
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -566,9 +566,9 @@ function ItemsTab(): React.JSX.Element {
                   <td className="r num">{i.gstRate ?? '–'}</td>
                   <td className="r num">{(i.openingQtyMilli / 1000).toString()}</td>
                   <td className="r">
-                    <button className="text-small text-blue hover:underline" onClick={() => setEditing(i)}>
+                    <RowAction onClick={() => setEditing(i)}>
                       Edit
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
@@ -1073,8 +1073,7 @@ function ItemRateHistory({ itemId }: { itemId: number }): React.JSX.Element {
                   <td className="r num">{r.cessPercent}</td>
                   <td className={r.note ? 'text-muted' : 'text-warn'}>{r.note ?? 'No citation'}</td>
                   <td className="r">
-                    <button
-                      className="text-small text-blue hover:underline"
+                    <RowAction
                       onClick={() => {
                         setEditingId(r.id)
                         setEffectiveFrom(r.effectiveFrom)
@@ -1084,7 +1083,7 @@ function ItemRateHistory({ itemId }: { itemId: number }): React.JSX.Element {
                       }}
                     >
                       Edit
-                    </button>
+                    </RowAction>
                     <button
                       className="ml-2 text-small text-cr hover:underline"
                       data-testid="btn-item-rate-delete"
@@ -1273,9 +1272,9 @@ function TypesTab(): React.JSX.Element {
                   {!t.restartFy && <span className="ml-1 normal-case text-label">(no FY restart)</span>}
                 </td>
                 <td className="r">
-                  <button className="text-small text-blue hover:underline" onClick={() => setEditing(t)}>
+                  <RowAction onClick={() => setEditing(t)}>
                     Edit
-                  </button>
+                  </RowAction>
                 </td>
               </tr>
             ))}
@@ -1425,9 +1424,9 @@ function GodownsTab(): React.JSX.Element {
                   <td>{g.name}</td>
                   <td className="max-w-72 truncate text-muted">{g.address ?? ''}</td>
                   <td className="r">
-                    <button data-testid="btn-masters-edit-godown" className="text-small text-blue hover:underline" onClick={() => setEditing(g)}>
+                    <RowAction data-testid="btn-masters-edit-godown" onClick={() => setEditing(g)}>
                       Edit
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}

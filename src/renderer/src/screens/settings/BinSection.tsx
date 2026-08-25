@@ -2,7 +2,17 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BinRow } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
+import {
+  Button,
+  EmptyState,
+  Modal,
+  Money,
+  Panel,
+  RowAction,
+  SectionTitle,
+  Select,
+  TextInput
+} from '../../components/ui'
 import { toDisplayDate } from '@shared/dates'
 
 export function BinSection(): React.JSX.Element {
@@ -65,9 +75,9 @@ export function BinSection(): React.JSX.Element {
                   {showActions && (
                     <td className="r whitespace-nowrap">
                       {canRestore && (
-                        <button className="mr-2 text-small text-blue hover:underline" onClick={() => void restore(r)}>
+                        <RowAction onClick={() => void restore(r)}>
                           Restore
-                        </button>
+                        </RowAction>
                       )}
                       {canPurge && (
                         <button className="text-small text-cr hover:underline" onClick={() => setPurging(r)}>

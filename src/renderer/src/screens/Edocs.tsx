@@ -10,6 +10,7 @@ import {
   Money,
   Panel,
   RowAction,
+  RowLink,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -263,63 +264,58 @@ export function EdocsScreen(): React.JSX.Element {
                   </td>
                   <td className="r whitespace-nowrap">
                     {live && r.partyGstin && !r.irn && (
-                      <button
-                        className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
+                      <RowAction
                         disabled={busy === r.voucherId}
                         onClick={() => requestGenerate('irn', r.voucherId)}
                       >
                         Generate IRN
-                      </button>
+                      </RowAction>
                     )}
                     {live && r.irn && !r.ewbNo && (
-                      <button
-                        className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
+                      <RowAction
                         disabled={busy === r.voucherId}
                         onClick={() => requestGenerate('ewb', r.voucherId)}
                       >
                         Generate EWB
-                      </button>
+                      </RowAction>
                     )}
                     {r.docType !== 'CRN' && (
-                      <button
-                        className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
+                      <RowAction
                         data-testid="btn-edocs-ewb-json"
                         disabled={busy === r.voucherId}
                         title="Write this bill's single-bill EWB JSON (overrides the ₹50,000 threshold)"
                         onClick={() => void perRowEwbJson(r.voucherId)}
                       >
                         EWB JSON
-                      </button>
+                      </RowAction>
                     )}
-                    <button
-                      className="mr-2 text-small text-blue hover:underline"
+                    <RowAction
                       data-testid="btn-edocs-transport"
                       onClick={() => setTransportFor({ voucherId: r.voucherId, number: r.number })}
                     >
                       Transport
-                    </button>
-                    <button
-                      className="mr-2 text-small text-blue hover:underline"
+                    </RowAction>
+                    <RowAction
                       onClick={() => {
                         api.invoice.pdf(r.voucherId).catch((err: Error) => toast.push('error', err.message))
                       }}
                     >
                       PDF
-                    </button>
-                    <button className="text-small text-muted hover:text-ink" onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}>
+                    </RowAction>
+                    <RowAction onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}>
                       Open
-                    </button>
+                    </RowAction>
                   </td>
                 </tr>
               ))}
               {hasNextPage && (
                 <tr>
                   <td colSpan={9} className="py-2 text-center">
-                    <RowAction disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                    <RowLink disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
                       {isFetchingNextPage
                         ? 'Loading…'
                         : `Show 500 more (${Math.max(0, totalDocs - allRows.length).toLocaleString('en-IN')} more in this period)`}
-                    </RowAction>
+                    </RowLink>
                   </td>
                 </tr>
               )}

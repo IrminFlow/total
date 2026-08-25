@@ -8,7 +8,7 @@ import {
   ExportGroup,
   Money,
   Panel,
-  RowAction,
+  RowLink,
   SectionTitle,
   SkeletonRows,
   useKeyNav
@@ -383,11 +383,11 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
               {hasNextPage && (
                 <tr>
                   <td colSpan={6} className="py-2 text-center">
-                    <RowAction disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                    <RowLink disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
                       {isFetchingNextPage
                         ? 'Loading…'
                         : `Show 500 more (${remaining.toLocaleString('en-IN')} more in this period)`}
-                    </RowAction>
+                    </RowLink>
                   </td>
                 </tr>
               )}

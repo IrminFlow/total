@@ -6,7 +6,7 @@ import {
   EmptyState,
   Money,
   Panel,
-  RowAction,
+  RowLink,
   Select,
   SkeletonRows,
   TextInput,
@@ -164,13 +164,13 @@ function SerialHistory({
                 <td className="num">{toDisplayDate(h.movedOn)}</td>
                 <td className={h.direction === 'in' ? 'text-dr' : 'text-muted'}>{h.direction === 'in' ? 'Received' : 'Issued'}</td>
                 <td>
-                  <RowAction
+                  <RowLink
                     className="px-0"
                     data-testid={`btn-serial-voucher-${h.voucherId}`}
                     onClick={() => onOpenVoucher(h.voucherId)}
                   >
                     {h.voucherType} {h.voucherNumber}
-                  </RowAction>
+                  </RowLink>
                 </td>
                 <td className="text-muted">{h.partyName ?? '—'}</td>
                 <td className="text-muted">{h.godownName ?? '—'}</td>

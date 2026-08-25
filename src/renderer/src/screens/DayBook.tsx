@@ -14,6 +14,7 @@ import {
   Money,
   Panel,
   RowAction,
+  RowLink,
   SectionTitle,
   Select,
   SkeletonRows,
@@ -298,50 +299,46 @@ const DayBookRowView = memo(function DayBookRowView({
           ragged from row to row. It stays quiet until the row is hovered, active or focused. */}
       <td className="r" onClick={(e) => e.stopPropagation()}>
         {row.kind === 'sales' && (
-          <button
-            className="row-action text-hint text-blue hover:underline"
+          <RowAction
             onClick={(e) => onPdf(row.voucherId, e)}
             title={`Invoice PDF — ${row.voucherType} ${row.number}`}
           >
             PDF
-          </button>
+          </RowAction>
         )}
         {/* Dot-matrix, next to the PDF and not instead of it: a shop that prints on impact
             stationery still emails a PDF, and the two are different jobs to different devices. */}
         {row.kind === 'sales' && (
-          <button
-            className="row-action ml-2 text-hint text-blue hover:underline"
+          <RowAction
             data-testid={`btn-daybook-dmp-${row.voucherId}`}
             onClick={(e) => onDotMatrix(row.voucherId, e)}
             title={`Print raw to a dot-matrix printer — ${row.voucherType} ${row.number}`}
           >
             DMP
-          </button>
+          </RowAction>
         )}
         {/* The counter roll, next to both: a 3-inch receipt is neither an A4 sheet nor impact
             stationery, and a shop that has a thermal printer wants it one click from the day book
             rather than behind a settings page. */}
         {row.kind === 'sales' && (
-          <button
-            className="row-action ml-2 text-hint text-blue hover:underline"
+          <RowAction
             data-testid={`btn-daybook-roll-${row.voucherId}`}
             onClick={(e) => onThermal(row.voucherId, e)}
             title={`3-inch thermal receipt — ${row.voucherType} ${row.number}`}
           >
             Roll
-          </button>
+          </RowAction>
         )}
         {/* Send: renders the PDF, puts it on the clipboard and opens WhatsApp or a mail draft.
             Nothing leaves the machine without a person pressing send in the other app. */}
         {row.kind === 'sales' && (
-          <button
-            className="row-action ml-2 text-hint text-blue hover:underline"
+          <RowAction
             data-testid={`btn-daybook-send-${row.voucherId}`}
             onClick={(e) => onShare(row.voucherId, e)}
             title={`Send on WhatsApp or by email — ${row.voucherType} ${row.number}`}
           >
             Send
-          </button>
+          </RowAction>
         )}
       </td>
     </tr>
@@ -919,11 +916,11 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
               {!loadedAll && (
                 <tr>
                   <td colSpan={colCount} className="py-2 text-center">
-                    <RowAction disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+                    <RowLink disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
                       {isFetchingNextPage
                         ? 'Loading…'
                         : `Show 500 more (${remaining.toLocaleString('en-IN')} more in this period)`}
-                    </RowAction>
+                    </RowLink>
                     {filtering && (
                       <p className="mt-1 text-hint text-muted">
                         Filters apply to the {loadedRows.length.toLocaleString('en-IN')} entries loaded so far.

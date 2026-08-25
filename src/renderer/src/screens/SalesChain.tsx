@@ -285,9 +285,9 @@ function StageTab({ side, stage }: { side: Side; stage: Stage }): React.JSX.Elem
                       Open
                     </RowAction>
                     {d.status === 'open' && (
-                      <button className="row-action ml-2 text-small text-cr hover:underline" onClick={() => void lose(d)}>
+                      <RowAction className="text-cr" onClick={() => void lose(d)}>
                         {inward ? 'Close' : 'Lost'}
-                      </button>
+                      </RowAction>
                     )}
                   </td>
                 </tr>
@@ -495,13 +495,13 @@ function DocModal({
               <td className="r num">{formatPaise(Math.round((l.qtyMilli * l.ratePaise) / 1000))}</td>
               <td className="r">
                 {!readOnly && (
-                  <button
-                    className="row-action text-small text-cr hover:underline"
+                  <RowAction
+                    className="text-cr"
                     aria-label="Remove line"
                     onClick={() => setLines((x) => x.filter((y) => y.key !== l.key))}
                   >
                     ×
-                  </button>
+                  </RowAction>
                 )}
               </td>
             </tr>

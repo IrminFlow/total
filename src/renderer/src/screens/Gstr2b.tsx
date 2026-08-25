@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { GstinPicker, usePrimaryRegistrationId } from '../components/GstinPicker'
 import { useNav, useToasts, nextDraftId } from '../state/stores'
-import { Button, EmptyState, Modal, Money, Panel, SectionTitle, useTableNav } from '../components/ui'
+import { Button, EmptyState, Modal, Money, Panel, RowAction, SectionTitle, useTableNav } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
 import { MonthBar, NoMonths, useMonth } from './GstReturns'
@@ -101,8 +101,7 @@ function PairRow({
             )}
           </>
         ) : pair.bucket === 'missingInBooks' && portal ? (
-          <button
-            className="text-small text-blue hover:underline"
+          <RowAction
             data-testid="btn-2b-create-purchase"
             onClick={(e) => {
               e.stopPropagation()
@@ -110,7 +109,7 @@ function PairRow({
             }}
           >
             Create purchase
-          </button>
+          </RowAction>
         ) : (
           <span className="text-muted">—</span>
         )}
