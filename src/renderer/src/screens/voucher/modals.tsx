@@ -191,7 +191,7 @@ export function CostAllocModal({
             )}
           </div>
         ))}
-        <p className={`text-small ${remaining === 0 ? 'text-muted' : remaining < 0 ? 'text-cr' : 'text-amber'}`}>
+        <p className={`text-small ${remaining === 0 ? 'text-muted' : remaining < 0 ? 'text-cr' : 'text-accent'}`}>
           Allocated {formatPaise(allocated)} of {formatPaise(lineAmount)}
           {remaining !== 0 ? ` — ${formatPaise(Math.abs(remaining))} ${remaining > 0 ? 'remaining' : 'over'}` : ''}
         </p>

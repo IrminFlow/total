@@ -31,7 +31,7 @@ interface PickerOption {
   code?: string | null
 }
 
-/** Generic type-ahead picker with the amber keyboard bar and an optional inline-create hook. */
+/** Generic type-ahead picker with the accent keyboard bar and an optional inline-create hook. */
 function TypeAhead({
   options,
   value,
@@ -188,7 +188,7 @@ function TypeAhead({
           {showCreate && (
             <div
               data-active={active === filtered.length}
-              className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-detail text-amber"
+              className="kbar-row cursor-pointer border-t border-line px-3 py-1.5 text-detail text-accent"
               onMouseEnter={() => setActive(filtered.length)}
               onMouseDown={(e) => {
                 e.preventDefault()

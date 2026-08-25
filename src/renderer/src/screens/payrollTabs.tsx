@@ -232,7 +232,7 @@ export function AdvancesTab({ month }: { month: string }): React.JSX.Element {
 
       {dueTotal > 0 && (
         <div
-          className="mb-3 rounded-md border border-amberbar/50 bg-amberbar/10 px-3.5 py-2.5 text-body-sm"
+          className="mb-3 rounded-md border border-accentbar/50 bg-accentbar/10 px-3.5 py-2.5 text-body-sm"
           data-testid="advances-due"
         >
           The next pay run will recover <b><Money paise={dueTotal} /></b> across {due?.length} advance
@@ -614,7 +614,7 @@ export function Form16Modal({
           </table>
 
           {data.computation.rates.assumedFromEarlierYear && (
-            <div className="mt-3 rounded-md border border-amberbar/50 bg-amberbar/10 px-3.5 py-2.5 text-small">
+            <div className="mt-3 rounded-md border border-accentbar/50 bg-accentbar/10 px-3.5 py-2.5 text-small">
               No slab table is on file for {data.fyLabel} — this uses FY{' '}
               {data.computation.rates.fyStartYear}-{String(data.computation.rates.fyStartYear + 1).slice(2)}.
               Check it against the Finance Act before issuing the certificate.

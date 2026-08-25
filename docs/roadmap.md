@@ -330,7 +330,23 @@ Ordering within a section is roughly by value.
 176. ✓ Employee self-service payslip export (S)
 177. ✓ Statutory rate table with effective dates, not hardcoded (M)
 178. ✓ Full-and-final settlement workflow (M)
-179. Multiple pay cycles: weekly, fortnightly (M)
+179. ✓ Multiple pay cycles: weekly, fortnightly (M) — an employee carries a cycle and a run
+     covers a period rather than a month. The arithmetic was never the hard part. PF's ₹15,000
+     ceiling, ESI's ₹21,000 limit, every professional-tax slab and TDS under section 192 are all
+     defined per MONTH, and computing any of them on a week's wages does not give a quarter of the
+     monthly figure — it gives a wrong one, in the direction the employee finds out about years
+     later when EPFO's passbook does not match their payslips. So earnings prorate to the cycle
+     while the statutory deductions are computed on the whole statutory month and apportioned
+     across its cycles, each cycle deducting its cumulative share less what the month's earlier
+     cycles already took. That true-up matters: a month's attendance is not known when its first
+     week is paid, so a later correction is absorbed by the remaining cycles and the month still
+     lands exactly right — including as a refund, which is returned rather than clamped. Four
+     weekly runs deduct, to the paisa, what one monthly run would have. ECR, the ESI file, the PT
+     summary, Form 16 and the headcount trend all aggregate a month's runs rather than assuming
+     one. A cycle straddling a month end belongs to the month its last day falls in. **Deferred:**
+     leavers can only be clipped on the joining side — `employees` has no leaving-date column, so
+     a mid-cycle leaver is not prorated yet (the engine supports it and is tested; the column is
+     not there to read). Form 24Q was not touched because the app does not produce one.
 180. ✓ Cost-centre allocation of salary expense (S)
 181. ✓ Headcount and cost trend report (S)
 
@@ -731,10 +747,17 @@ lead time measured in weeks, which makes them the first items on the list and no
 343. ✓ The Playwright E2E suite on Windows in CI (M) — see the correction on #325. Path handling,
      the native menu, `_electron` launch and every file dialog are the places a macOS-only suite
      is blind, and they are exactly what breaks on Windows.
-344. A generated 100,000-voucher book, timed through every screen, with the numbers published (M)
-     — #224 measured 30k and #329 asks for the fixture; this is the stress pass at three times
-     that, and the artefact doubles as marketing. A report that is fine at 30k and unusable at
-     100k is a report that fails during an evaluation, which is the worst possible moment.
+344. ✓ A generated 100,000-voucher book, timed through every screen, with the numbers published
+     (M) — 85,840 vouchers, not 100,000: the generator posts a fixed ratio of receipts and
+     purchases per invoice, so a round number of invoices does not give a round number of
+     vouchers, and the numbers in `docs/performance.md` are the ones that were measured rather
+     than the ones the item asked for. It found what it was meant to find. e-Invoice & e-Way does
+     not settle at all inside sixty seconds on a busy machine and takes nineteen on a quiet one:
+     `listSalesInvoices` returns every sales document in the period unpaginated and runs two
+     correlated EXISTS subqueries per row, which is 88,000 correlated subqueries for one screen.
+     Trial balance is 3.2 seconds *warm*, which is the scaling wall of #224 measured rather than
+     predicted. `perf-sweep.mjs` gained `--data-dir=` so the expensive half — building the book —
+     is done once and re-timed in minutes.
 345. ✓ An error ring buffer attached to the feedback form, with a pre-send preview (S) — the
      Support dialog now takes a message and posts it to the site's `/api/feedback`, which had been
      waiting for a caller since it was written. A `mailto:` needs a configured mail client and

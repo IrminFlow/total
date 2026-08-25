@@ -40,7 +40,7 @@ export function NicSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>NIC live filing</SectionTitle>
-      <div className="mb-4 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm text-amber">
+      <div className="mb-4 rounded-md border border-accent/50 bg-accent/10 px-3.5 py-2.5 text-body-sm text-accent">
         Experimental — never tested against the live NIC portal. Verify every document on the portal.
       </div>
 
@@ -63,7 +63,7 @@ export function NicSection(): React.JSX.Element {
             never carried along by a backup, an export or the CA pack.
           </p>
           {secretStorage === 'session' && (
-            <div className="mb-4 rounded-md border border-amber/50 bg-amber/10 px-3.5 py-2.5 text-body-sm text-amber">
+            <div className="mb-4 rounded-md border border-accent/50 bg-accent/10 px-3.5 py-2.5 text-body-sm text-accent">
               Your OS keychain isn't available on this machine, so the password and client secret are held for this
               session only and will be gone when you quit. Total will not write them to disk in plain text.
             </div>

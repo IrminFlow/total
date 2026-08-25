@@ -90,7 +90,7 @@ export function CompanySelect(): React.JSX.Element {
       >
         <div>
           <h1 className="font-serif text-display font-semibold tracking-tight">Total</h1>
-          <div className="mt-3 h-0.5 w-14 bg-amberbar" />
+          <div className="mt-3 h-0.5 w-14 bg-accentbar" />
           <p className="mt-4 text-detail text-muted">Your books, on this Mac, nowhere else.</p>
           <p className="num mt-1 text-caption text-muted">~/Documents/total</p>
           <div className="mt-8">
@@ -154,7 +154,7 @@ export function CompanySelect(): React.JSX.Element {
 
           {/* One idiom, three instances — the three ways in used to be a filled button, a link
               and a second link sitting in a row, which read as three unrelated things. They are
-              the same kind of choice, so they get the same shape; only the amber says which one
+              the same kind of choice, so they get the same shape; only the accent says which one
               most people want. */}
           <StartRow
             testId="btn-company-create"
@@ -285,8 +285,8 @@ function StartRow({
   disabled?: boolean
   testId?: string
 }): React.JSX.Element {
-  // Deliberately not amber-filled: on this screen the amber bar means "the row you are on", and
-  // a second amber block beside it would blunt the one signal the keyboard depends on. Weight
+  // Deliberately not accent-filled: on this screen the accent bar means "the row you are on", and
+  // a second accent block beside it would blunt the one signal the keyboard depends on. Weight
   // and the arrow carry the emphasis instead.
   return (
     <button
@@ -300,7 +300,7 @@ function StartRow({
         <span className={`block text-lead ${accent ? 'font-semibold' : 'font-medium'}`}>{title}</span>
         <span className="mt-0.5 block text-caption text-muted">{sub}</span>
       </span>
-      <span className={accent ? 'text-amber' : 'text-muted'}>→</span>
+      <span className={accent ? 'text-accent' : 'text-muted'}>→</span>
     </button>
   )
 }

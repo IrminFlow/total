@@ -261,7 +261,7 @@ export function CounterScreen(): React.JSX.Element {
                       {priced?.name ?? '…'}
                       {priced?.code && <span className="ml-2 num text-hint text-muted">{priced.code}</span>}
                       {priced?.scheme && (
-                        <span className="ml-2 rounded-md bg-amberbar/25 px-1.5 text-hint" data-testid={`scheme-${i}`}>
+                        <span className="ml-2 rounded-md bg-accentbar/25 px-1.5 text-hint" data-testid={`scheme-${i}`}>
                           {priced.scheme.label}
                         </span>
                       )}
@@ -388,7 +388,7 @@ export function CounterScreen(): React.JSX.Element {
               <div className="num text-h2 font-semibold">{formatPaise(cart.payablePaise, { symbol: true })}</div>
             </div>
             {cart.lines.some((l) => l.scheme) && (
-              <div className="mt-2 text-hint text-amberbar" data-testid="customer-saved">
+              <div className="mt-2 text-hint text-accentbar" data-testid="customer-saved">
                 You saved {formatPaise(cart.lines.reduce((s, l) => s + (l.scheme?.savedPaise ?? 0), 0))}
               </div>
             )}

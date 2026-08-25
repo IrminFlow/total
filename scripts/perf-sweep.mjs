@@ -26,22 +26,45 @@ const arg = (name, fallback) => {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`))
   return hit ? Number(hit.split('=')[1]) : fallback
 }
+const strArg = (name) => {
+  const hit = process.argv.find((a) => a.startsWith(`--${name}=`))
+  return hit ? hit.split('=').slice(1).join('=') : null
+}
 const INVOICES = arg('vouchers', 4000)
+
+/**
+ * `--data-dir=<path>` runs against a book that is already there instead of building one.
+ *
+ * Building the book is the expensive half — it posts every voucher through the ordinary
+ * `voucher:save` channel, which is the honest way to build it and is also a hundred thousand IPC
+ * round trips at the sizes that matter. Timing a screen afterwards takes seconds. Separating the
+ * two means the big book is built once and read many times, which is the difference between a
+ * measurement you take and a measurement you avoid taking.
+ *
+ * The path is printed at the end of every build so it can be fed back in.
+ */
+const reuseDir = strArg('data-dir')
 
 const outDir = path.join(process.cwd(), 'smoke-out', 'perf')
 mkdirSync(outDir, { recursive: true })
 
-const h = new Harness()
+const h = new Harness(reuseDir ? { dataDir: reuseDir } : {})
 const rows = []
 let built = null
 
 try {
   await h.launch()
-  await h.createDemoCompany()
+  if (reuseDir) {
+    await h.openCompany('Demo Traders', 120_000)
+  } else {
+    await h.createDemoCompany()
+  }
 
   // ---- build the book ----
   const t0 = Date.now()
-  built = await h.page.evaluate(async (count) => {
+  built = reuseDir
+    ? { vouchers: (await h.invoke('voucher:list', { from: '2020-01-01', to: '2030-12-31' })).length }
+    : await h.page.evaluate(async (count) => {
     const call = async (ch, p) => {
       const r = await window.total.invoke(ch, p)
       if (!r.ok) throw new Error(`${ch}: ${r.error}`)
@@ -107,7 +130,11 @@ try {
   }, INVOICES)
 
   const buildMs = Date.now() - t0
-  console.log(`built ${built.vouchers.toLocaleString('en-IN')} vouchers in ${(buildMs / 1000).toFixed(0)}s`)
+  console.log(
+    reuseDir
+      ? `reusing ${built.vouchers.toLocaleString('en-IN')} vouchers in ${reuseDir}`
+      : `built ${built.vouchers.toLocaleString('en-IN')} vouchers in ${(buildMs / 1000).toFixed(0)}s`
+  )
 
   // ---- time every screen ----
   const screens = await h.page.$$eval('[data-testid^="nav-"]', (els) =>
@@ -161,3 +188,6 @@ const md = [
 writeFileSync(path.join(outDir, 'report.md'), md + '\n')
 console.log('\n' + md)
 console.log(`\nwritten to ${path.join(outDir, 'report.md')}`)
+// Last line, so it is the thing left on screen after an hour-long build: the book is still on
+// disk, and re-timing it is `--data-dir=<that>`.
+console.log(`book kept at ${h.dataDir}\n  re-time it:  node scripts/perf-sweep.mjs --data-dir=${h.dataDir}`)

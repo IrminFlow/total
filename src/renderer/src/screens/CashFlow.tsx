@@ -130,7 +130,7 @@ function StatementTab(): React.JSX.Element {
               CSV
             </Button>
       </div>
-      <Panel className="min-h-0 flex-1 overflow-y-auto">
+      <Panel className="card-fit overflow-y-auto">
         {!data || !hasAnything ? (
           <EmptyState title="No cash movement in this period" hint="Post vouchers, then come back" />
         ) : (
@@ -256,7 +256,7 @@ function ForecastTab(): React.JSX.Element {
         </p>
       )}
 
-      <Panel className="min-h-0 flex-1 overflow-y-auto">
+      <Panel className="card-fit overflow-y-auto">
         {data.buckets.every((b) => b.items.length === 0) ? (
           <EmptyState
             title="Nothing is due in the next thirteen weeks"
@@ -319,7 +319,7 @@ function ForecastTab(): React.JSX.Element {
                           </span>
                           {item.label}
                           {item.certainty === 'expected' && (
-                            <span className="ml-2 rounded-md bg-amber/15 px-1.5 py-0.5 text-label text-amber">expected</span>
+                            <span className="ml-2 rounded-md bg-accent/15 px-1.5 py-0.5 text-label text-accent">expected</span>
                           )}
                         </td>
                         <td colSpan={2} className={`r ${item.amount < 0 ? 'text-cr' : 'text-dr'}`}>

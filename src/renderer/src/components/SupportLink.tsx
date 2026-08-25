@@ -26,7 +26,7 @@ export function SupportLink({
 
   const base =
     variant === 'pill'
-      ? 'rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink'
+      ? 'rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-accent/60 hover:text-ink'
       : 'text-left text-small text-muted hover:text-ink'
 
   return (
