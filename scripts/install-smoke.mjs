@@ -206,5 +206,14 @@ try {
       try { execFileSync('hdiutil', ['detach', '-force', mountPoint], { stdio: 'inherit' }) } catch (error) { console.warn('DMG cleanup failed:', String(error)) }
     }
   }
-  rmSync(scratch, { recursive: true, force: true })
+  try {
+    // NSIS can briefly retain a directory handle after its silent uninstaller exits.
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
+  } catch (error) {
+    if ((platform === 'win' || platform === 'win32') && ['EBUSY', 'EPERM'].includes(error?.code)) {
+      console.warn('Deferred Windows smoke-directory cleanup:', String(error))
+    } else {
+      throw error
+    }
+  }
 }

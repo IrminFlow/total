@@ -18,6 +18,12 @@ test("Windows installer uses one updater-safe artifact name", () => {
   assert.doesNotMatch(pkg.build.win.artifactName, /\s/);
 });
 
+test("packaged install smoke tolerates transient NSIS directory locks", () => {
+  const source = readFileSync(new URL("../install-smoke.mjs", import.meta.url), "utf8");
+  assert.match(source, /maxRetries:\s*20/);
+  assert.match(source, /\['EBUSY', 'EPERM'\]/);
+});
+
 function fixture(platform) {
   const root = mkdtempSync(join(tmpdir(), "total-package-contract-"));
   const dist = join(root, "dist");
