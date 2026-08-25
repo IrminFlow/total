@@ -55,11 +55,14 @@ export function StockSummaryScreen(): React.JSX.Element {
   // Two things that act on stock rather than report it. They live behind buttons here because
   // this is the screen somebody is already on when they notice the reason to do either.
   const [modal, setModal] = useState<'transfer' | 'landed' | null>(null)
-  // Enter (and click) expands the item's godown/batch breakdown, so the keyboard reaches the
-  // same detail the mouse does.
+  // Enter, Space (A17) and the click all expand the item's godown/batch breakdown, so the
+  // keyboard reaches the same detail the mouse does.
+  const toggleRow = (r: { stockItemId: number }): void =>
+    setExpandedId((cur) => (cur === r.stockItemId ? null : r.stockItemId))
   const nav = useTableNav(rows, {
     rowId: (r) => r.stockItemId,
-    onEnter: (r) => setExpandedId((cur) => (cur === r.stockItemId ? null : r.stockItemId))
+    onEnter: toggleRow,
+    onToggle: toggleRow
   })
   const colCount =
     1 + (visible.opening ? 1 : 0) + (visible.inwards ? 1 : 0) + (visible.outwards ? 1 : 0) +
@@ -195,6 +198,7 @@ export function StockSummaryScreen(): React.JSX.Element {
                 <Fragment key={r.stockItemId}>
                 <tr
                   {...nav.rowProps(i, r)}
+                  aria-expanded={expandedId === r.stockItemId}
                   className={`${nav.rowProps(i, r).className} ${r.closingQtyMilli < 0 ? 'text-cr' : ''}`}
                 >
                   <td>

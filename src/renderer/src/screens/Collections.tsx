@@ -242,6 +242,10 @@ function InterestTab(): React.JSX.Element {
     queryFn: () => api.receivables.interest('receivable', to)
   })
   const rows = data ?? []
+  // ↑↓ picks a party, Enter and Space (A17) unfold the bills the interest was worked out from.
+  const toggleRow = (r: { ledgerId: number }): void =>
+    setExpanded((cur) => (cur === r.ledgerId ? null : r.ledgerId))
+  const table = useTableNav(rows, { rowId: (r) => r.ledgerId, onEnter: toggleRow, onToggle: toggleRow })
   const total = rows.reduce((s, r) => s + r.interest.total, 0)
 
   const exportRows = rows.map((r) => ({
@@ -302,12 +306,9 @@ function InterestTab(): React.JSX.Element {
               </tr>
             </thead>
             <tbody data-testid="rows-interest">
-              {rows.map((r) => (
+              {rows.map((r, i) => (
                 <Fragment key={r.ledgerId}>
-                  <tr
-                    className="cursor-pointer"
-                    onClick={() => setExpanded(expanded === r.ledgerId ? null : r.ledgerId)}
-                  >
+                  <tr {...table.rowProps(i, r)} aria-expanded={expanded === r.ledgerId}>
                     <td>
                       <span className="mr-1.5 inline-block w-3 text-muted">{expanded === r.ledgerId ? '−' : '+'}</span>
                       {r.name}
@@ -749,6 +750,15 @@ function ProvisionTab(): React.JSX.Element {
   const toast = useToasts()
   const [expanded, setExpanded] = useState<number | null>(null)
   const { data, isLoading } = useQuery({ queryKey: ['recvProvision', to], queryFn: () => api.receivables.provision(to) })
+  // ↑↓ picks a party, Enter and Space (A17) unfold the bills behind its provision.
+  const provisionRows = data?.result.parties ?? []
+  const toggleParty = (p: { ledgerId: number }): void =>
+    setExpanded((cur) => (cur === p.ledgerId ? null : p.ledgerId))
+  const parties = useTableNav(provisionRows, {
+    rowId: (p) => p.ledgerId,
+    onEnter: toggleParty,
+    onToggle: toggleParty
+  })
 
   const postDraft = (): void => {
     const draft = data?.draft
@@ -803,9 +813,9 @@ function ProvisionTab(): React.JSX.Element {
               </tr>
             </thead>
             <tbody data-testid="rows-provision">
-              {data.result.parties.map((p) => (
+              {provisionRows.map((p, i) => (
                 <Fragment key={p.ledgerId}>
-                  <tr className="cursor-pointer" onClick={() => setExpanded(expanded === p.ledgerId ? null : p.ledgerId)}>
+                  <tr {...parties.rowProps(i, p)} aria-expanded={expanded === p.ledgerId}>
                     <td>
                       <span className="mr-1.5 inline-block w-3 text-muted">{expanded === p.ledgerId ? '−' : '+'}</span>
                       {p.name}
@@ -1002,6 +1012,15 @@ function MsmeTab(): React.JSX.Element {
   const toast = useToasts()
   const [expanded, setExpanded] = useState<number | null>(null)
   const { data, isLoading } = useQuery({ queryKey: ['msme', to], queryFn: () => api.receivables.msme(to) })
+  // ↑↓ picks a supplier, Enter and Space (A17) unfold the bills behind the 43B(h) figure.
+  const msmeRows = data?.parties ?? []
+  const toggleSupplier = (p: { ledgerId: number }): void =>
+    setExpanded((cur) => (cur === p.ledgerId ? null : p.ledgerId))
+  const suppliers = useTableNav(msmeRows, {
+    rowId: (p) => p.ledgerId,
+    onEnter: toggleSupplier,
+    onToggle: toggleSupplier
+  })
 
   const exportRows = (data?.parties ?? []).map((p) => ({
     cells: [
@@ -1105,9 +1124,9 @@ function MsmeTab(): React.JSX.Element {
               </tr>
             </thead>
             <tbody data-testid="rows-msme">
-              {data.parties.map((p) => (
+              {msmeRows.map((p, i) => (
                 <Fragment key={p.ledgerId}>
-                  <tr className="cursor-pointer" onClick={() => setExpanded(expanded === p.ledgerId ? null : p.ledgerId)}>
+                  <tr {...suppliers.rowProps(i, p)} aria-expanded={expanded === p.ledgerId}>
                     <td>
                       <span className="mr-1.5 inline-block w-3 text-muted">{expanded === p.ledgerId ? '−' : '+'}</span>
                       {p.name}

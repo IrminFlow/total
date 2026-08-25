@@ -29,6 +29,11 @@ const COLUMNS: ReportColumn[] = [
 const ROW_H = 29
 
 type Grouping = 'none' | TbGroupBy
+
+/** One line of the table as the keyboard sees it — a section header or a ledger under it. */
+type NavRow =
+  | { kind: 'group'; section: ReturnType<typeof groupTrialBalance>[number] }
+  | { kind: 'ledger'; row: TrialBalanceRow }
 const TABS = ['balances', 'changes'] as const
 
 export function TrialBalanceScreen(): React.JSX.Element {
@@ -88,14 +93,51 @@ function BalancesTab(): React.JSX.Element {
     queryFn: () => api.reports.trialBalance(to, !hideZeros)
   })
   const rows = data?.rows ?? []
-  const { active, setActive } = useKeyNav(rows.length, (i) => {
-    const r = rows[i]
-    if (r && r.ledgerId > 0) nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })
-  })
   const { visible, toggle } = useReportConfig('trial-balance', COLUMNS)
 
   const matched = data && data.totalDebit === data.totalCredit
   const sections = grouping === 'none' ? [] : groupTrialBalance(rows, grouping)
+
+  const toggleSection = (key: string): void =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+  /**
+   * What the keyboard walks — the rows actually on screen, in the order they are drawn.
+   *
+   * Grouped, that is a section header followed by its ledgers (and nothing, when the section is
+   * folded). Selecting over the flat ledger list instead, as this did, meant the bar counted
+   * rows the reader could not see and stopped on ones that were not there: fine while grouping
+   * was off, silently wrong the moment it was on.
+   */
+  const navRows: NavRow[] =
+    grouping === 'none'
+      ? rows.map((row) => ({ kind: 'ledger' as const, row }))
+      : sections.flatMap((s) => [
+          { kind: 'group' as const, section: s },
+          ...(collapsed.has(s.key) ? [] : s.rows.map((row) => ({ kind: 'ledger' as const, row })))
+        ])
+
+  const { active, setActive } = useKeyNav(
+    navRows.length,
+    (i) => {
+      const nr = navRows[i]
+      if (!nr) return
+      if (nr.kind === 'group') toggleSection(nr.section.key)
+      else if (nr.row.ledgerId > 0) nav.go({ name: 'ledger-statement', ledgerId: nr.row.ledgerId })
+    },
+    true,
+    // Space folds the selected section (A17). On a ledger row there is nothing to fold, so the
+    // handler declines and the key does nothing rather than folding the section above it.
+    (i) => {
+      const nr = navRows[i]
+      if (nr?.kind === 'group') toggleSection(nr.section.key)
+    }
+  )
 
   const exportColumns: PdfColumn[] = [
     { label: 'Ledger', align: 'l' },
@@ -300,21 +342,31 @@ function BalancesTab(): React.JSX.Element {
                     )}
                   </>
                 ) : (
-                  sections.map((s) => {
+                  navRows.map((nr, i) => {
+                    if (nr.kind === 'ledger') {
+                      return (
+                        <LedgerRow
+                          key={`l-${nr.row.ledgerId}`}
+                          row={nr.row}
+                          visible={visible}
+                          indent
+                          activeRow={i === active}
+                          onHover={() => setActive(i)}
+                          onOpen={() => nr.row.ledgerId > 0 && nav.go({ name: 'ledger-statement', ledgerId: nr.row.ledgerId })}
+                        />
+                      )
+                    }
+                    const s = nr.section
                     const isCollapsed = collapsed.has(s.key)
                     return (
-                      <Fragment key={s.key}>
+                      <Fragment key={`g-${s.key}`}>
                         <tr
-                          className="cursor-pointer bg-panel2/60 font-medium"
+                          className="kbar-row cursor-pointer bg-panel2/60 font-medium"
+                          data-active={i === active || undefined}
+                          aria-expanded={!isCollapsed}
                           data-testid={`tb-group-${s.key}`}
-                          onClick={() =>
-                            setCollapsed((prev) => {
-                              const next = new Set(prev)
-                              if (next.has(s.key)) next.delete(s.key)
-                              else next.add(s.key)
-                              return next
-                            })
-                          }
+                          onMouseEnter={() => setActive(i)}
+                          onClick={() => toggleSection(s.key)}
                         >
                           <td colSpan={2}>
                             <span className="mr-1.5 inline-block w-3 text-muted">{isCollapsed ? '▸' : '▾'}</span>
@@ -349,16 +401,6 @@ function BalancesTab(): React.JSX.Element {
                             </td>
                           )}
                         </tr>
-                        {!isCollapsed &&
-                          s.rows.map((r) => (
-                            <LedgerRow
-                              key={r.ledgerId}
-                              row={r}
-                              visible={visible}
-                              indent
-                              onOpen={() => r.ledgerId > 0 && nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })}
-                            />
-                          ))}
                       </Fragment>
                     )
                   })

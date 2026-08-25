@@ -3,7 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre } from '@shared/domain'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, SkeletonRows, TextInput } from '../components/ui'
+import {
+  Button, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, Skeleton, SkeletonRows, TextInput, useTableNav
+} from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import { confirmDialog } from '../lib/dialogs'
 
@@ -18,6 +20,20 @@ export function CostCentresScreen(): React.JSX.Element {
   const [drillId, setDrillId] = useState<number | null>(null)
 
   const centreMap = new Map((centres ?? []).map((c) => [c.id, c]))
+
+  // The P&L-by-centre rows drill down on click; ↑↓ selects one, Enter and Space (A17) open and
+  // close it. The "Not allocated" line (id -1) is a reconciling total with nothing underneath,
+  // so it selects like any other row but folds into nothing.
+  const reportRows = report ?? []
+  const toggleDrill = (r: { costCentreId: number }): void => {
+    if (r.costCentreId === -1) return
+    setDrillId((cur) => (cur === r.costCentreId ? null : r.costCentreId))
+  }
+  const reportTable = useTableNav(reportRows, {
+    rowId: (r) => r.costCentreId,
+    onEnter: toggleDrill,
+    onToggle: toggleDrill
+  })
 
   const remove = async (cc: CostCentre): Promise<void> => {
     const proceed = await confirmDialog({
@@ -104,15 +120,16 @@ export function CostCentresScreen(): React.JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {report.map((r) => (
+              {reportRows.map((r, i) => (
                 <Fragment key={r.costCentreId}>
                   {/* The "Not allocated" line (id -1) is a reconciling row, not a cost centre:
                       it has nothing to drill into, and without it the sections would quietly sum
                       to less than the company's own P&L. */}
                   <tr
-                    className={r.costCentreId === -1 ? 'total-row' : 'cursor-pointer'}
+                    {...reportTable.rowProps(i, r)}
+                    className={`${reportTable.rowProps(i, r).className} ${r.costCentreId === -1 ? 'total-row' : ''}`}
+                    aria-expanded={r.costCentreId === -1 ? undefined : drillId === r.costCentreId}
                     data-testid={r.costCentreId === -1 ? 'cc-unallocated' : undefined}
-                    onClick={() => r.costCentreId !== -1 && setDrillId(drillId === r.costCentreId ? null : r.costCentreId)}
                   >
                     <td>
                       {r.costCentreId !== -1 && (

@@ -1,6 +1,5 @@
 import type { DB } from '../db/connection'
 import type { BankLineRow, BankRecon, ReconciliationStatus } from '@shared/reports'
-import { descendantIdsByName } from './masters'
 import { isValidISODate } from '@shared/dates'
 import {
   BUILTIN_PROFILES, guessProfile, detectProfile, parseStatement, statementHeader,
@@ -16,6 +15,11 @@ import {
 import { IN_BOOKS, saveVoucher } from './vouchers'
 import { writeAudit } from './audit'
 import { findSumCombos, matchRules, type RuleRow } from '@shared/bankRules'
+import {
+  CATEGORY_LABEL, classifyBankLine, voucherKindFor, type ChargeCategory
+} from '@shared/bankCharges'
+import { extractUtr, learnableNarration } from '@shared/upiStatement'
+import { createLedger, descendantIdsByName } from './masters'
 import type { BankRuleInput } from '@shared/schemas'
 
 export function bankLedgers(db: DB): { id: number; name: string }[] {
@@ -85,12 +89,73 @@ export function bankRecon(db: DB, ledgerId: number, from: string, to: string): B
   }
 }
 
+// ---------- reconciliation freeze (#142) ----------
+
+/**
+ * Per-bank-account reconciliation lock.
+ *
+ * The company-wide books lock (`meta.lock_before`, see vouchers.ts) stops vouchers moving. It
+ * says nothing about bank dates, so until now a signed-off reconciliation could be silently
+ * undone: clearing one `bank_date` in a closed quarter changes last year's BRS, and nothing
+ * anywhere records that it happened.
+ *
+ * Kept per ledger rather than company-wide on purpose. Accounts are reconciled on their own
+ * schedules — the current account monthly with the statement, the OD account when the bank sends
+ * its certificate — and one shared date would either lock an account nobody has reconciled yet
+ * or leave the reconciled one open.
+ *
+ * Stored in `meta` under `recon_lock.<ledgerId>`, the same key/value pattern as the books lock,
+ * so no migration and no new table for what is one date per account.
+ */
+export function getReconLock(db: DB, ledgerId: number): string | null {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(`recon_lock.${ledgerId}`) as
+    | { value: string }
+    | undefined
+  return row?.value ?? null
+}
+
+export function setReconLock(db: DB, ledgerId: number, date: string | null): void {
+  if (date !== null && !isValidISODate(date)) throw new Error('Invalid reconciliation lock date')
+  const bank = bankLedgers(db).find((b) => b.id === ledgerId)
+  if (!bank) throw new Error('That ledger is not a bank account')
+  const before = getReconLock(db, ledgerId)
+  if (date === null) db.prepare('DELETE FROM meta WHERE key = ?').run(`recon_lock.${ledgerId}`)
+  else {
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run(`recon_lock.${ledgerId}`, date)
+  }
+  writeAudit(db, 'bank_recon_lock', ledgerId, 'update', { reconLockedTo: before }, { reconLockedTo: date })
+}
+
+/** Every bank account with its lock date, for the UI's one-glance answer to "what is frozen". */
+export function listReconLocks(db: DB): { ledgerId: number; ledgerName: string; lockedTo: string | null }[] {
+  return bankLedgers(db).map((b) => ({ ledgerId: b.id, ledgerName: b.name, lockedTo: getReconLock(db, b.id) }))
+}
+
+/**
+ * Refuse a bank-date change that would alter a frozen reconciliation.
+ *
+ * Both ends are checked, and that is the point: moving a date OUT of the locked window changes
+ * the frozen BRS exactly as much as moving one in. Inclusive of the lock date itself, to match
+ * the books lock, which reads "locked up to and including".
+ */
+function assertReconOpen(db: DB, ledgerId: number, dates: (string | null)[]): void {
+  const lock = getReconLock(db, ledgerId)
+  if (!lock) return
+  for (const d of dates) {
+    if (d !== null && d <= lock) {
+      throw new Error(`Reconciliation is frozen up to ${lock} on this account`)
+    }
+  }
+}
+
 export function setBankDate(db: DB, lineId: number, bankDate: string | null): void {
   if (bankDate !== null && !isValidISODate(bankDate)) throw new Error('Invalid bank date')
-  const before = db.prepare('SELECT bank_date AS bankDate FROM voucher_lines WHERE id = ?').get(lineId) as
-    | { bankDate: string | null }
-    | undefined
+  const before = db
+    .prepare('SELECT bank_date AS bankDate, ledger_id AS ledgerId FROM voucher_lines WHERE id = ?')
+    .get(lineId) as { bankDate: string | null; ledgerId: number } | undefined
   if (!before) throw new Error('Entry not found')
+  assertReconOpen(db, before.ledgerId, [before.bankDate, bankDate])
   const res = db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(bankDate, lineId)
   if (res.changes === 0) throw new Error('Entry not found')
   writeAudit(db, 'voucher_line', lineId, 'update', { bankDate: before.bankDate }, { bankDate })
@@ -100,6 +165,16 @@ export function setBankDate(db: DB, lineId: number, bankDate: string | null): vo
 
 /** What one statement line says, once a profile has been applied to it. */
 type StatementRow = ParsedStatementRow
+
+/** A bank line in the books, with the two fields a reference match can be made on. */
+interface OpenLine {
+  lineId: number
+  date: string
+  drCr: 'dr' | 'cr'
+  amount: number
+  reference: string | null
+  instrumentNo: string | null
+}
 
 /**
  * Read a statement CSV, choosing the profile the same way the UI does.
@@ -160,18 +235,20 @@ function matchStatement(
   const statement = parseStatementCsv(csv, profile)
   const open = db
     .prepare(
-      `SELECT vl.id AS lineId, v.date, vl.dr_cr AS drCr, vl.amount
+      `SELECT vl.id AS lineId, v.date, vl.dr_cr AS drCr, vl.amount,
+              v.reference, v.instrument_no AS instrumentNo
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
        WHERE vl.ledger_id = ? AND vl.bank_date IS NULL AND ${IN_BOOKS}`
     )
-    .all(ledgerId) as { lineId: number; date: string; drCr: 'dr' | 'cr'; amount: number }[]
+    .all(ledgerId) as OpenLine[]
   const reconciled = db
     .prepare(
-      `SELECT vl.id AS lineId, v.date, vl.dr_cr AS drCr, vl.amount
+      `SELECT vl.id AS lineId, v.date, vl.dr_cr AS drCr, vl.amount,
+              v.reference, v.instrument_no AS instrumentNo
        FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
        WHERE vl.ledger_id = ? AND vl.bank_date IS NOT NULL AND ${IN_BOOKS}`
     )
-    .all(ledgerId) as { lineId: number; date: string; drCr: 'dr' | 'cr'; amount: number }[]
+    .all(ledgerId) as OpenLine[]
 
   const used = new Set<number>()
   const usedReconciled = new Set<number>()
@@ -179,8 +256,49 @@ function matchStatement(
   const alreadyReconciled: StatementRow[] = []
   const unmatched: UnmatchedRow[] = []
 
+  /**
+   * A reference the two sides can be compared on: the statement row's own reference cell, or the
+   * UPI UTR buried in its narration (#141). Digits only and case-folded, because one side writes
+   * `N123456789` and the other `n-123456789` for the same transfer.
+   */
+  const refKeys = (text: string): string[] => {
+    const keys: string[] = []
+    const cleaned = text.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+    // Under five characters is a serial number, not a reference — '1', '12' and 'chq' collide
+    // with everything, and a reference match is only worth trusting when it is specific.
+    if (cleaned.length >= 5) keys.push(cleaned)
+    const utr = extractUtr(text)
+    if (utr) keys.push(utr)
+    return keys
+  }
+
+  /**
+   * Exact-reference match, tried before the date-proximity one.
+   *
+   * A shared reference number is much stronger evidence than "same amount, within five days":
+   * a UPI payer quotes the UTR when they say they have paid, and it lands in the receipt's
+   * reference or cheque-number field. The amount still has to agree exactly — a reference that
+   * matches on a different amount is a part-payment or a mis-keying, and neither should be
+   * reconciled silently.
+   */
+  const byReference = (
+    pool: OpenLine[],
+    taken: Set<number>,
+    row: StatementRow,
+    amount: number,
+    wantSide: 'dr' | 'cr'
+  ): { lineId: number } | undefined => {
+    const wanted = new Set([...refKeys(row.reference), ...refKeys(row.description)])
+    if (wanted.size === 0) return undefined
+    return pool.find((o) => {
+      if (taken.has(o.lineId) || o.drCr !== wantSide || o.amount !== amount) return false
+      const theirs = [...refKeys(o.reference ?? ''), ...refKeys(o.instrumentNo ?? '')]
+      return theirs.some((k) => wanted.has(k))
+    })
+  }
+
   const closest = (
-    pool: { lineId: number; date: string; drCr: 'dr' | 'cr'; amount: number }[],
+    pool: OpenLine[],
     taken: Set<number>,
     row: StatementRow,
     amount: number,
@@ -195,13 +313,15 @@ function matchStatement(
   for (const row of statement) {
     const amount = row.deposit || row.withdrawal
     const wantSide = row.deposit > 0 ? 'dr' : 'cr'
-    const candidate = closest(open, used, row, amount, wantSide)
+    const candidate = byReference(open, used, row, amount, wantSide) ?? closest(open, used, row, amount, wantSide)
     if (candidate) {
       used.add(candidate.lineId)
       matches.push({ row, lineId: candidate.lineId })
       continue
     }
-    const done = closest(reconciled, usedReconciled, row, amount, wantSide)
+    const done =
+      byReference(reconciled, usedReconciled, row, amount, wantSide) ??
+      closest(reconciled, usedReconciled, row, amount, wantSide)
     if (done) {
       usedReconciled.add(done.lineId)
       alreadyReconciled.push(row)
@@ -247,6 +367,10 @@ export function importStatement(
   let remaining = unmatched
 
   if (apply) {
+    // #142: an import writes bank dates in bulk, so it is the easiest way to walk over a frozen
+    // period without noticing. Checked before anything is written rather than row by row — a
+    // half-applied import is worse than a refused one.
+    assertReconOpen(db, ledgerId, matches.map((m) => m.row.date))
     const setStmt = db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?')
     const run = db.transaction(() => {
       for (const m of matches) setStmt.run(m.row.date, m.lineId)
@@ -428,8 +552,9 @@ export interface BankSuggestion {
   ledgerName: string
   kind: 'payment' | 'receipt'
   voucherDraft: BankVoucherDraft
-  /** 'rule': a rule the user wrote. 'learned': words remembered from past matches (#133). */
-  source: 'rule' | 'learned'
+  /** 'rule': a rule the user wrote. 'learned': words remembered from past matches (#133).
+   *  'charge': the bank's own charge or interest, recognised from the narration (#135). */
+  source: 'rule' | 'learned' | 'charge'
   /** 0–100. A rule is 100 — the user already said so in as many words. */
   confidence: number
   /** The narration words that carried a learned match; empty for a rule. */
@@ -441,6 +566,107 @@ export interface BankSuggestion {
 export interface BankSuggestionRow {
   statementRow: UnmatchedRow
   suggestion: BankSuggestion | null
+  /** Set whenever the narration reads as the bank's own charge or interest (#135), even when the
+   *  ledger to post it to does not exist yet — that is exactly when the UI needs to offer to
+   *  create it, and a null `suggestion` alone could not tell the two situations apart. */
+  chargeCategory?: ChargeCategory
+}
+
+// ---------- the bank's own charges and interest (#135) ----------
+
+/** The four ledgers a recognised charge/interest row posts to, and where each belongs. */
+const CHARGE_LEDGER_GROUPS: Record<ChargeCategory, string> = {
+  charge: 'Indirect Expenses',
+  // Input tax, not an expense: it is recoverable, and burying it in the P&L overstates costs and
+  // loses the credit. Duties & Taxes is where the rest of the GST ledgers live.
+  gst_on_charge: 'Duties & Taxes',
+  interest_paid: 'Indirect Expenses',
+  interest_earned: 'Indirect Incomes'
+}
+
+export interface ChargeLedgerRow {
+  category: ChargeCategory
+  name: string
+  /** null when the ledger does not exist yet — setupChargeLedgers creates it. */
+  ledgerId: number | null
+  groupName: string
+}
+
+/**
+ * Which of the four charge ledgers exist, by the exact name this app gives them.
+ *
+ * Matched on name rather than on a stored id because these are ordinary ledgers: a user may have
+ * created "Bank Charges" years ago in Tally and imported it, and adopting theirs is right. A
+ * rename means the app stops recognising it and offers to create one again, which is visible and
+ * recoverable — a hidden id pointing at a ledger they since repurposed would not be.
+ */
+export function chargeLedgers(db: DB): ChargeLedgerRow[] {
+  const stmt = db.prepare('SELECT id FROM ledgers WHERE name = ? COLLATE NOCASE')
+  return (Object.keys(CHARGE_LEDGER_GROUPS) as ChargeCategory[]).map((category) => {
+    const name = CATEGORY_LABEL[category]
+    const row = stmt.get(name) as { id: number } | undefined
+    return { category, name, ledgerId: row?.id ?? null, groupName: CHARGE_LEDGER_GROUPS[category] }
+  })
+}
+
+/**
+ * Create whichever of the four charge ledgers are missing. Idempotent.
+ *
+ * Deliberately an explicit action rather than something a statement import does on its own: four
+ * ledgers appearing in the chart of accounts because a file was opened is the kind of surprise
+ * that makes people distrust an importer.
+ */
+export function setupChargeLedgers(db: DB): { created: string[]; existing: string[] } {
+  const created: string[] = []
+  const existing: string[] = []
+  const run = db.transaction(() => {
+    for (const row of chargeLedgers(db)) {
+      if (row.ledgerId != null) {
+        existing.push(row.name)
+        continue
+      }
+      const group = db.prepare('SELECT id FROM groups WHERE name = ? COLLATE NOCASE').get(row.groupName) as
+        | { id: number }
+        | undefined
+      if (!group) throw new Error(`No "${row.groupName}" group to create ${row.name} under`)
+      createLedger(db, { name: row.name, groupId: group.id })
+      created.push(row.name)
+    }
+  })
+  run()
+  return { created, existing }
+}
+
+/** Confidence a recognised charge is offered at. Below 100 (which means "the user wrote a rule
+ *  saying so") and above the memory's own ceiling, so bulk-accept files these by default. */
+const CHARGE_CONFIDENCE = 95
+
+/** The recognised-charge suggestion for one row, or null when nothing about it is a bank charge
+ *  or the ledger it would post to has not been created yet. */
+function chargeSuggestionFor(
+  bankLedgerId: number,
+  row: UnmatchedRow,
+  ledgers: Map<ChargeCategory, { id: number; name: string }>
+): { suggestion: BankSuggestion | null; category: ChargeCategory | null } {
+  const hit = classifyBankLine(row.description, row.kind)
+  if (!hit) return { suggestion: null, category: null }
+  const ledger = ledgers.get(hit.category)
+  if (!ledger) return { suggestion: null, category: hit.category }
+  const kind = voucherKindFor(hit.category)
+  return {
+    category: hit.category,
+    suggestion: {
+      ruleId: null,
+      ledgerId: ledger.id,
+      ledgerName: ledger.name,
+      kind,
+      voucherDraft: draftFor(bankLedgerId, row, ledger.id, kind),
+      source: 'charge',
+      confidence: CHARGE_CONFIDENCE,
+      matched: [hit.phrase],
+      ambiguous: false
+    }
+  }
 }
 
 /** Active bank rules in the shared matcher's RuleRow shape (matchField/amount bounds included). */
@@ -490,7 +716,8 @@ function suggestFor(
   rules: RuleRow[],
   ruleNames: Map<number, string>,
   memory: MemoryEntry[],
-  ledgerNames: Map<number, string>
+  ledgerNames: Map<number, string>,
+  chargeLedgerIds: Map<ChargeCategory, { id: number; name: string }>
 ): BankSuggestion | null {
   const statementLike = {
     description: row.description,
@@ -514,8 +741,15 @@ function suggestFor(
     }
   }
 
+  // Between a user's rule and a fuzzy word memory sits the bank's own charge line (#135): the
+  // narration is the bank talking about itself, and there is nothing to learn about it. Ahead of
+  // memory because memory would otherwise attach last quarter's charge to whichever supplier
+  // happened to share a word with it.
+  const charge = chargeSuggestionFor(bankLedgerId, row, chargeLedgerIds)
+  if (charge.suggestion) return charge.suggestion
+
   const kind: 'payment' | 'receipt' = row.kind === 'deposit' ? 'receipt' : 'payment'
-  const learned = suggestFromMemory(row.description, kind, memory)
+  const learned = suggestFromMemory(learnableNarration(row.description), kind, memory)
   if (!learned) return null
   const name = ledgerNames.get(learned.ledgerId)
   // A ledger deleted since it was learned leaves memory rows behind (FK cascade covers the row
@@ -546,11 +780,21 @@ export function suggestVouchers(db: DB, ledgerId: number, csv: string, profile?:
   const { rules, ruleNames } = activeRuleRows(db)
   const memory = loadMemory(db)
   const ledgerNames = allLedgerNames(db)
+  const charges = new Map(
+    chargeLedgers(db)
+      .filter((c) => c.ledgerId != null)
+      .map((c) => [c.category, { id: c.ledgerId!, name: c.name }] as const)
+  )
 
-  return unmatched.map((u) => ({
-    statementRow: u,
-    suggestion: suggestFor(ledgerId, u, rules, ruleNames, memory, ledgerNames)
-  }))
+  return unmatched.map((u) => {
+    const category = classifyBankLine(u.description, u.kind)?.category
+    const row: BankSuggestionRow = {
+      statementRow: u,
+      suggestion: suggestFor(ledgerId, u, rules, ruleNames, memory, ledgerNames, charges)
+    }
+    if (category) row.chargeCategory = category
+    return row
+  })
 }
 
 // ---------- statement matching v2: tolerance + many-to-one suggestions (task Y2) ----------
@@ -1015,7 +1259,10 @@ export function learnFromMatch(
   ledgerId: number,
   kind: 'payment' | 'receipt'
 ): string[] {
-  const words = significantWords(description)
+  // #141: a UPI narration carries a twelve-digit UTR that occurs exactly once and never
+  // again, so learning on the raw cell teaches the memory a word it can never recognise.
+  // learnableNarration reduces it to the counterparty; everything else passes through.
+  const words = significantWords(learnableNarration(description))
   if (words.length === 0) return []
   const exists = db.prepare('SELECT 1 FROM ledgers WHERE id = ?').get(ledgerId)
   if (!exists) throw new Error('Ledger not found')
@@ -1072,7 +1319,7 @@ export interface BulkAcceptRow {
   ledgerId: number
   ledgerName: string
   confidence: number
-  source: 'rule' | 'learned'
+  source: 'rule' | 'learned' | 'charge'
   /** Only set once applied. */
   voucherId?: number
 }
@@ -1130,6 +1377,8 @@ export function bulkAcceptSuggestions(
   }))
 
   if (apply && accepted.length > 0) {
+    // #142: same reason as importStatement — bulk accept reconciles what it files.
+    assertReconOpen(db, ledgerId, accepted.map((a) => a.date))
     const setBank = db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?')
     const run = db.transaction(() => {
       for (let i = 0; i < eligible.length; i++) {

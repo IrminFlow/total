@@ -475,8 +475,22 @@ export function parseStatement(csv: string, profile?: StatementProfile | null): 
     let deposit = 0
     let withdrawal = 0
     if (chosen.convention === 'debit_credit') {
-      withdrawal = Math.abs(parseBankAmount(cell(columns.debit)) ?? 0)
-      deposit = Math.abs(parseBankAmount(cell(columns.credit)) ?? 0)
+      // NETTED, and signed — not `abs` of each side.
+      //
+      // Banks write a reversal as a negative in the column it originally landed in: a refunded
+      // SMS charge comes back as `-59.00` under Withdrawal, not as `59.00` under Deposit. Taking
+      // the magnitude turns that into another ₹59 leaving the account, which is money moving the
+      // wrong way — the row then fails to match the credit note that reversed it, and the
+      // account's computed balance drifts by twice the charge.
+      //
+      // Netting also settles the row that carries both columns: `cr - dr` is the only reading
+      // consistent with double entry, and a row where the two are equal nets to zero and is
+      // skipped below as the bookkeeping artefact it is.
+      const dr = parseBankAmount(cell(columns.debit)) ?? 0
+      const cr = parseBankAmount(cell(columns.credit)) ?? 0
+      const net = cr - dr
+      if (net > 0) deposit = net
+      else withdrawal = -net
     } else {
       const raw = parseBankAmount(cell(columns.amount))
       if (raw === null) {

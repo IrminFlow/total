@@ -1450,5 +1450,59 @@ export const MIGRATIONS: string[] = [
     decision_note TEXT
   );
   CREATE INDEX idx_bank_detail_requests_state ON bank_detail_requests(state);
+  `,
+
+  // 40 — the cheque that came back, the entry worth keeping a shape of, and the part of a batch
+  // that was never going to survive the process.
+  `
+  -- BOUNCED CHEQUES (#138). A returned cheque is two facts, and only one of them is accounting:
+  -- the reversal voucher restores the money, but "this customer's cheque bounced in June" is a
+  -- fact about the customer that the reversal alone cannot be read back out of — a journal
+  -- reversing a receipt looks identical to a journal correcting a keying error.
+  --
+  -- So the event is recorded: which receipt/payment came back, which voucher reversed it, on
+  -- what date, and the bank's own charge if one was levied. UNIQUE on voucher_id because a
+  -- cheque bounces once; a re-presented cheque that bounces again is a new receipt.
+  CREATE TABLE cheque_bounces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_id INTEGER NOT NULL UNIQUE REFERENCES vouchers(id) ON DELETE CASCADE,
+    reversal_voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    bounce_date TEXT NOT NULL,
+    reason TEXT,
+    -- Paise. 0 when the bank charged nothing, which does happen on an own-cheque return.
+    charge_amount INTEGER NOT NULL DEFAULT 0 CHECK (charge_amount >= 0),
+    recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_cheque_bounces_date ON cheque_bounces(bounce_date);
+  CREATE INDEX idx_cheque_bounces_reversal ON cheque_bounces(reversal_voucher_id);
+
+  -- VOUCHER TEMPLATES (#27). recurring_templates already stores a voucher shape, but its
+  -- cadence and next_due are NOT NULL: it is a schedule that happens to carry a shape. A
+  -- template is the shape without the schedule — the monthly rent journal you post when the
+  -- landlord asks rather than on the 1st — and forcing it into a cadence would put entries on
+  -- the books nobody asked for.
+  CREATE TABLE voucher_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    voucher_type_id INTEGER NOT NULL REFERENCES voucher_types(id),
+    voucher_json TEXT NOT NULL,
+    -- Ordering hint for the picker: most-used first beats alphabetical for something typed daily.
+    used_count INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_voucher_templates_type ON voucher_templates(voucher_type_id);
+
+  -- BOM SCRAP AND YIELD (#125). Both are needed and they are not the same number.
+  --
+  -- Scrap is per component: cutting 100 shirts from cloth wastes cloth, and the wastage belongs
+  -- to that component's issue quantity, not to the others. Yield is per finished item: of 100
+  -- units started, 97 pass inspection, and that inflates EVERY component equally.
+  --
+  -- Stored in hundredths of a percent so 2.5% is 250 and no float touches a quantity. Scrap
+  -- defaults to 0 and yield to 10000 (=100.00%), which is exactly today's behaviour, so every
+  -- existing BOM keeps producing the numbers it produced yesterday.
+  ALTER TABLE bom_lines ADD COLUMN scrap_bp INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE stock_items ADD COLUMN bom_yield_bp INTEGER NOT NULL DEFAULT 10000;
   `
 ]

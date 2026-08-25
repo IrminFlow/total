@@ -15,6 +15,141 @@ import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import type { DayBookRow } from '@shared/reports'
 
+
+/**
+ * Bulk edit of narration and cost centre (#39).
+ *
+ * Both fields are opt-in with a tick rather than "blank means leave alone": an empty narration
+ * box is genuinely ambiguous — it could mean "do not touch it" or "clear it" — and on a hundred
+ * vouchers those two are very different outcomes. The tick says which, and the button says what
+ * it will do before it does it.
+ *
+ * No preview list. The vouchers are already ticked and visible on the Day Book behind the modal,
+ * which is a better preview than a copy of the same rows in a smaller box.
+ */
+function BulkEditModal({
+  ids,
+  onClose,
+  onDone
+}: {
+  ids: number[]
+  onClose: () => void
+  onDone: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data: centres } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
+
+  const [doNarration, setDoNarration] = useState(false)
+  const [narration, setNarration] = useState('')
+  const [doCentre, setDoCentre] = useState(false)
+  const [centreId, setCentreId] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const nothingChosen = !doNarration && !doCentre
+
+  const apply = async (): Promise<void> => {
+    if (nothingChosen) return
+    setSaving(true)
+    try {
+      const edit: { narration?: string | null; costCentreId?: number | null } = {}
+      if (doNarration) edit.narration = narration.trim() || null
+      if (doCentre) edit.costCentreId = centreId
+      const result = await api.vouchers.bulkEdit(ids, edit)
+      await queryClient.invalidateQueries()
+      toast.push(
+        'success',
+        `${result.vouchers} voucher${result.vouchers === 1 ? '' : 's'} updated` +
+          (result.linesAllocated > 0 ? ` — ${result.linesAllocated} lines allocated` : '')
+      )
+      onDone()
+    } catch (err) {
+      // Surfaced whole: the message names the voucher that stopped the run (a locked period, a
+      // binned entry), and the run is all-or-nothing, so nothing has changed.
+      toast.push('error', (err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title={`Edit ${ids.length} voucher${ids.length === 1 ? '' : 's'}`} onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <p className="text-small text-muted">
+          Only the narration and the cost centre. Amounts, ledgers, dates and bill references are never
+          changed in bulk.
+        </p>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="flex items-center gap-2 text-body-sm">
+            <input
+              type="checkbox"
+              checked={doNarration}
+              data-testid="chk-bulk-narration"
+              onChange={(e) => setDoNarration(e.target.checked)}
+            />
+            Set the narration
+          </label>
+          {doNarration && (
+            <TextInput
+              autoFocus
+              value={narration}
+              placeholder="Leave empty to clear it"
+              data-testid="input-bulk-narration"
+              onChange={(e) => setNarration(e.target.value)}
+            />
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="flex items-center gap-2 text-body-sm">
+            <input
+              type="checkbox"
+              checked={doCentre}
+              data-testid="chk-bulk-centre"
+              onChange={(e) => setDoCentre(e.target.checked)}
+            />
+            Set the cost centre
+          </label>
+          {doCentre && (
+            <>
+              <Select
+                value={centreId ?? ''}
+                data-testid="select-bulk-centre"
+                onChange={(e) => setCentreId(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">— remove every allocation —</option>
+                {(centres ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-caption text-muted">
+                Replaces whatever is allocated now, at each line&rsquo;s full amount. The party line and the
+                cash or bank line are left out — a cost centre answers which part of the business a cost
+                belonged to, and money leaving the bank belongs to all of them.
+              </p>
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            disabled={saving || nothingChosen}
+            data-testid="btn-bulk-edit-apply"
+            onClick={() => void apply()}
+          >
+            {nothingChosen ? 'Nothing to change' : `Update ${ids.length}`}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 /**
  * Rows fetched per page.
  *
@@ -352,6 +487,8 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
    * moved, one is in a locked period" than rolled back wholesale. The bin makes every one of them
    * undoable anyway.
    */
+  const [bulkEditOpen, setBulkEditOpen] = useState(false)
+
   const deleteSelected = useCallback(async (): Promise<void> => {
     const ids = [...selected]
     if (ids.length === 0) return
@@ -596,10 +733,23 @@ export function DayBook({ span, kind }: { span?: DrillSpan; kind?: string } = {}
             Clear
           </button>
           <span className="flex-1" />
+          <Button data-testid="btn-daybook-bulk-edit" onClick={() => setBulkEditOpen(true)}>
+            Edit…
+          </Button>
           <Button variant="danger" data-testid="btn-daybook-bulk-delete" onClick={() => void deleteSelected()}>
             Move to bin
           </Button>
         </div>
+      )}
+      {bulkEditOpen && (
+        <BulkEditModal
+          ids={[...selected]}
+          onClose={() => setBulkEditOpen(false)}
+          onDone={() => {
+            setSelected(new Set())
+            setBulkEditOpen(false)
+          }}
+        />
       )}
 
       {byType ? (

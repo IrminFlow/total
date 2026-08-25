@@ -554,6 +554,39 @@ export interface BomLine {
   unitSymbol: string
   /** Component quantity (thousandths) needed per ONE unit of the parent item. */
   qtyMilliPerUnit: number
+  /** Wastage on this component alone, hundredths of a percent (2.5% = 250). */
+  scrapBp: number
+  /** Set when this component carries a BOM of its own — a sub-assembly, not a raw material. */
+  hasBom?: boolean
+}
+
+/** A BOM with the finished item's yield, which belongs to the item rather than to a line. */
+export interface BomDetail {
+  itemId: number
+  /** Good units per 100 started, hundredths of a percent. 10000 = nothing is lost. */
+  bomYieldBp: number
+  lines: BomLine[]
+}
+
+/** One row of an exploded requirement, flattened for display with its nesting depth. */
+export interface BomRequirementRow {
+  componentId: number
+  componentName: string
+  unitSymbol: string
+  qtyMilli: number
+  scrapBp: number
+  parentYieldBp: number
+  depth: number
+  isSubAssembly: boolean
+}
+
+export interface BomRequirement {
+  itemId: number
+  qtyMilli: number
+  /** Depth-first, so a sub-assembly is immediately followed by what it is made of. */
+  rows: BomRequirementRow[]
+  /** Leaves only — what the manufacture voucher actually issues from stock. */
+  raw: BomRequirementRow[]
 }
 
 export interface AuditEntry {

@@ -184,3 +184,94 @@ describe('parseStatement', () => {
     expect(statementHeader('')).toEqual([])
   })
 })
+
+/**
+ * The edges a real statement hits and a happy-path test never does. Each of these was seen in an
+ * actual export before it was written down here.
+ */
+describe('statement edges', () => {
+  const HDFC_HEADER = 'Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.,Closing Balance'
+
+  it('reads a completely empty file as empty rather than throwing', () => {
+    for (const empty of ['', '\n', '   ']) {
+      const result = parseStatement(empty)
+      expect(result.rows).toEqual([])
+      expect(result.skipped).toEqual([])
+    }
+  })
+
+  it('keeps a duplicated row instead of de-duplicating it', () => {
+    // A shop really does pay the same supplier twice in one day for the same amount, and a
+    // parser that collapsed the pair would leave the second payment unreconciled forever with
+    // nothing on screen to explain why. Uniqueness is decided at match time instead, where each
+    // row consumes one open book entry and the second finds nothing left.
+    const csv = [
+      HDFC_HEADER,
+      '10/08/2026,NEFT DR-ACME,N001,"500.00",,"9,500.00"',
+      '10/08/2026,NEFT DR-ACME,N001,"500.00",,"9,000.00"'
+    ].join('\n')
+    const rows = parseStatement(csv).rows
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ withdrawal: 500_00 })
+    expect(rows[1]).toMatchObject({ withdrawal: 500_00 })
+    // Distinguishable afterwards by the physical line, which is the only thing that differs.
+    expect(rows[0]!.line).not.toBe(rows[1]!.line)
+  })
+
+  it('reads a negative in the withdrawal column as money coming back IN', () => {
+    // A reversed charge is written as a negative under the column it originally landed in.
+    const csv = [
+      HDFC_HEADER,
+      '05/08/2026,SMS ALERT CHRG,,"59.00",,"9,941.00"',
+      '09/08/2026,REVERSAL SMS ALERT CHRG,,"-59.00",,"10,000.00"'
+    ].join('\n')
+    const rows = parseStatement(csv).rows
+    expect(rows[0]).toMatchObject({ withdrawal: 59_00, deposit: 0 })
+    expect(rows[1]).toMatchObject({ deposit: 59_00, withdrawal: 0 })
+  })
+
+  it('reads a negative in the deposit column as money going out', () => {
+    const csv = [HDFC_HEADER, '09/08/2026,RETURNED CREDIT,,,"(1,200.00)","8,800.00"'].join('\n')
+    expect(parseStatement(csv).rows[0]).toMatchObject({ withdrawal: 1_200_00, deposit: 0 })
+  })
+
+  it('nets a row that carries both columns, and skips it when the two cancel', () => {
+    const csv = [
+      HDFC_HEADER,
+      '09/08/2026,ADJUSTMENT,,"1,000.00","1,500.00","10,500.00"',
+      '09/08/2026,WASH ENTRY,,"1,000.00","1,000.00","10,500.00"'
+    ].join('\n')
+    const result = parseStatement(csv)
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]).toMatchObject({ deposit: 500_00, withdrawal: 0 })
+    expect(result.skipped).toEqual([{ line: 3, reason: 'zero_amount' }])
+  })
+
+  it('reads the same transaction identically whichever bank wrote the file', () => {
+    // The point of profiles: one set of facts, five wordings, one answer.
+    const hdfc = parseStatement(
+      [HDFC_HEADER, '10/08/2026,ACME SUPPLIES,N001,"1,500.00",,"98,500.00"'].join('\n')
+    )
+    const kotak = parseStatement(
+      [
+        'Sl. No.,Transaction Date,Value Date,Description,Chq / Ref No.,Amount,Dr / Cr,Balance',
+        '1,10/08/2026,10/08/2026,ACME SUPPLIES,N001,"1,500.00",DR,"98,500.00"'
+      ].join('\n')
+    )
+    expect(hdfc.profile.id).toBe('builtin:hdfc')
+    expect(kotak.profile.id).toBe('builtin:kotak')
+    for (const key of ['date', 'description', 'reference', 'deposit', 'withdrawal'] as const) {
+      expect(kotak.rows[0]![key]).toEqual(hdfc.rows[0]![key])
+    }
+  })
+
+  it('refuses an ambiguous date read under the wrong profile rather than swapping it', () => {
+    // 13/04/2026 is 13 April everywhere in India. Under an mdy profile there is no thirteenth
+    // month, so the row is reported as unreadable instead of quietly becoming 4 January.
+    const csv = [HDFC_HEADER, '13/04/2026,ACME,,"100.00",,"0.00"'].join('\n')
+    const mdy = { ...BUILTIN_PROFILES[0]!, dateFormat: 'mdy' as const }
+    const result = parseStatement(csv, mdy)
+    expect(result.rows).toEqual([])
+    expect(result.skipped).toEqual([{ line: 2, reason: 'no_date' }])
+  })
+})

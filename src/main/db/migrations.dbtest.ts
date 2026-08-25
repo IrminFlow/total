@@ -75,6 +75,8 @@ const EXPECTED_TABLES = [
   'voucher_drafts',
   'voucher_attachments',
   'bank_detail_requests',
+  'cheque_bounces',
+  'voucher_templates',
   'migrations'
 ]
 

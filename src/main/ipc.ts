@@ -56,6 +56,7 @@ import { escpDebug } from '@shared/escp'
 import { ratesForMonth, STATUTORY_HISTORY } from '@shared/statutory'
 import { statementHtml } from './services/statementHtml'
 import * as banking from './services/banking'
+import * as chequeBounce from './services/chequeBounce'
 import * as edocs from './services/edocs'
 import * as invoice from './services/invoice'
 import * as cheque from './services/cheque'
@@ -74,6 +75,7 @@ import * as inventoryReorder from './services/inventoryReorder'
 import * as priceLevels from './services/priceLevels'
 import * as budgets from './services/budgets'
 import * as recurring from './services/recurring'
+import * as voucherTemplates from './services/voucherTemplates'
 import * as yearEnd from './services/yearEnd'
 import { importTallyXml, dryRunTallyXml, diffTallyXml, importTallyXmlStreaming } from './services/tallyImport'
 import { migrationReportBody } from './services/migrationReport'
@@ -1088,6 +1090,21 @@ export function registerIpc(): void {
     return saved
   })
   handle('voucher:delete', (p) => vouchers.deleteVoucher(requireCompany().db, idSchema.parse(p).id))
+  // Bulk edit: narration and cost centre only (#39). Both are annotations on an entry rather
+  // than part of what it says, which is why they are the two that can be swept safely.
+  handle('voucher:bulkEdit', (p) => {
+    const { ids, narration, costCentreId } = z
+      .object({
+        ids: z.array(z.number().int().positive()).min(1).max(500),
+        narration: z.string().max(500).nullable().optional(),
+        costCentreId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    const edit: vouchers.BulkVoucherEdit = {}
+    if (narration !== undefined) edit.narration = narration
+    if (costCentreId !== undefined) edit.costCentreId = costCentreId
+    return vouchers.bulkEditVouchers(requireCompany().db, ids, edit)
+  })
   handle('voucher:bin', () => vouchers.listBin(requireCompany().db), 'viewer')
   handle('voucher:restore', (p) => vouchers.restoreVoucher(requireCompany().db, idSchema.parse(p).id))
   handle('voucher:purge', (p) => {
@@ -2415,6 +2432,31 @@ export function registerIpc(): void {
   }, 'viewer')
 
   // ---------- recurring vouchers ----------
+  // Named voucher templates (#27) — a shape with no schedule; nothing here ever posts.
+  handle('vtemplate:list', (p) => {
+    const { voucherTypeId } = z.object({ voucherTypeId: z.number().int().positive().optional() }).parse(p ?? {})
+    return voucherTemplates.listTemplates(requireCompany().db, voucherTypeId)
+  }, 'viewer')
+  handle('vtemplate:save', (p) => {
+    const { id, data } = z
+      .object({
+        id: z.number().int().positive().optional(),
+        data: z.object({
+          name: z.string().trim().min(1).max(80),
+          voucherTypeId: z.number().int().positive(),
+          voucherJson: z.string().min(2).max(200_000)
+        })
+      })
+      .parse(p)
+    return voucherTemplates.saveTemplate(requireCompany().db, data, id)
+  })
+  handle('vtemplate:delete', (p) => voucherTemplates.deleteTemplate(requireCompany().db, idSchema.parse(p).id))
+  handle('vtemplate:use', (p) => {
+    const { id, date } = z
+      .object({ id: z.number().int().positive(), date: isoDate.optional() })
+      .parse(p)
+    return voucherTemplates.useTemplate(requireCompany().db, id, date)
+  })
   handle('recurring:list', () => recurring.listTemplates(requireCompany().db), 'viewer')
   handle('recurring:save', (p) => {
     const { id, data } = z.object({ id: z.number().int().positive().optional(), data: recurringInputSchema }).parse(p)
@@ -2588,6 +2630,46 @@ export function registerIpc(): void {
       .parse(p)
     return banking.matchSuggestions(requireCompany().db, ledgerId, csvText, tolerancePaise ?? 100)
   }, 'viewer')
+  // the bank's own charges and interest (#135) — 'bank:' prefix, so it inherits the `banking`
+  // capability in permissions.ts (the 'banking:' prefix does not, see PREFIX_CAPABILITIES).
+  handle('bank:charges:list', () => banking.chargeLedgers(requireCompany().db), 'viewer')
+  handle('bank:charges:setup', () => banking.setupChargeLedgers(requireCompany().db))
+
+  // reconciliation freeze (#142)
+  handle('bank:reconLock:list', () => banking.listReconLocks(requireCompany().db), 'viewer')
+  handle('bank:reconLock:set', (p) => {
+    const { ledgerId, date } = z
+      .object({ ledgerId: z.number().int().positive(), date: isoDate.nullable() })
+      .parse(p)
+    banking.setReconLock(requireCompany().db, ledgerId, date)
+    return null
+  })
+
+  // bounced cheques (#138)
+  handle('bank:bounce:list', (p) => {
+    const { from, to } = z.object({ from: isoDate.optional(), to: isoDate.optional() }).parse(p ?? {})
+    return chequeBounce.listBounces(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('bank:bounce:byParty', () => chequeBounce.bounceCountByParty(requireCompany().db), 'viewer')
+  handle('bank:bounce:create', (p) => {
+    const input = z
+      .object({
+        voucherId: z.number().int().positive(),
+        bounceDate: isoDate,
+        reason: z.string().trim().max(120).nullable().optional(),
+        chargeAmount: z.number().int().min(0).optional(),
+        chargeLedgerId: z.number().int().positive().nullable().optional(),
+        bankLedgerId: z.number().int().positive().nullable().optional()
+      })
+      .parse(p)
+    return chequeBounce.bounceCheque(requireCompany().db, input)
+  })
+  handle('bank:bounce:remove', (p) => {
+    const { id } = z.object({ id: z.number().int().positive() }).parse(p)
+    chequeBounce.unbounce(requireCompany().db, id)
+    return null
+  })
+
   // bank reconciliation statement (task Y2)
   const brsSchema = z.object({ ledgerId: z.number().int().positive(), asOn: isoDate })
   handle('banking:brs', (p) => {
@@ -2767,8 +2849,19 @@ export function registerIpc(): void {
   handle('currency:create', (p) => extras.createCurrency(requireCompany().db, currencyInputSchema.parse(p)))
   handle('currency:delete', (p) => extras.deleteCurrency(requireCompany().db, idSchema.parse(p).id))
   handle('bom:get', (p) => extras.getBom(requireCompany().db, z.object({ itemId: z.number().int().positive() }).parse(p).itemId), 'viewer')
+  handle('bom:detail', (p) => extras.getBomDetail(requireCompany().db, z.object({ itemId: z.number().int().positive() }).parse(p).itemId), 'viewer')
   handle('bom:set', (p) => extras.setBom(requireCompany().db, bomInputSchema.parse(p)))
   handle('bom:items', () => extras.itemsWithBom(requireCompany().db), 'viewer')
+  handle(
+    'bom:explode',
+    (p) => {
+      const { itemId, qtyMilli } = z
+        .object({ itemId: z.number().int().positive(), qtyMilli: z.number().int().min(0) })
+        .parse(p)
+      return extras.explodeBomRequirement(requireCompany().db, itemId, qtyMilli)
+    },
+    'viewer'
+  )
 
   // ---------- payroll ----------
   const daysSchema = z.array(z.object({ employeeId: z.number().int().positive(), payableDays: z.number().min(0).max(31) }))

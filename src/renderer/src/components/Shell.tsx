@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useIsFetching } from '@tanstack/react-query'
 import { THEME_LABEL, THEME_ORDER, useNav, useScreen, useSession, useTheme, useToasts } from '../state/stores'
@@ -9,8 +9,9 @@ import { Accel, Button, DateInput, Kbd, Modal } from './ui'
 import { SupportLink } from './SupportLink'
 import { HintBar } from './HintBar'
 import { AskDrawer } from './AskDrawer'
-import { useKeyLayer } from '../lib/keyboard'
-import { toDisplayDate, fyOf, fyFromStartYear, todayISO } from '@shared/dates'
+import { isPlainKey, isTypingTarget, useKeyLayer } from '../lib/keyboard'
+import { toDisplayDate, todayISO } from '@shared/dates'
+import { matchingPreset, periodPresets, type PeriodPreset } from '@shared/periodPresets'
 import { useFeatures } from '../lib/useFeatures'
 import { NAV_SECTIONS, SCREENS } from '../lib/screens'
 import { useShadowedAccels } from '../lib/screenAccels'
@@ -50,6 +51,19 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   })
   const { theme, toggle } = useTheme()
   const [periodOpen, setPeriodOpen] = useState(false)
+  /**
+   * ⌘⇧P opens the working-period picker from anywhere (roadmap A13).
+   *
+   * A chord rather than a bare letter because every letter navigates somewhere, and P is the
+   * Profit & Loss screen. ⌘P is Print in the application menu and ⌘⇧P was the only free shift
+   * chord next to it — the two things one asks of a report on the way out.
+   */
+  useKeyLayer('nav', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.key.toLowerCase() !== 'p') return false
+    e.preventDefault()
+    setPeriodOpen(true)
+    return true
+  })
   const fetching = useIsFetching()
   const features = useFeatures()
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
@@ -86,9 +100,10 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
         </button>
         <div className="flex-1" />
         <button
+          data-testid="btn-period"
           className="num rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
           onClick={() => setPeriodOpen(true)}
-          title="Change period"
+          title="Change the working period — ⌘⇧P"
         >
           {toDisplayDate(from)} → {toDisplayDate(to)}
         </button>
@@ -214,59 +229,182 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   )
 }
 
+/**
+ * The working-period picker — fully keyboard-operable (roadmap A13).
+ *
+ * Opened by ⌘⇧P or by the pill in the header. Inside: one key per quick-pick preset, ↑↓ to walk
+ * them, Enter to commit, Esc to cancel (the Modal's own opaque layer), and the two date fields
+ * on Tab with the usual Tally shorthand.
+ *
+ * Moving the highlight writes the preset into the two fields immediately rather than waiting for
+ * Enter, so the dates are visible before they are committed — otherwise the dialog is six
+ * phrases whose meaning ("this quarter", read in February) the reader has to work out unaided.
+ */
 function PeriodModal({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const { from, to, setPeriod, info } = useSession()
+  const { from, to, setPeriod } = useSession()
   const [f, setF] = useState(from)
   const [t, setT] = useState(to)
-  const currentFy = fyOf(todayISO())
-  const years: number[] = []
-  for (let y = info?.booksFrom ?? currentFy.startYear; y <= currentFy.startYear; y++) years.push(y)
+  // Fixed at open: a dialog whose "this month" moves under the reader at midnight is a stranger
+  // bug than one that is a day stale, and it is on screen for seconds.
+  const presets = useMemo(() => periodPresets(todayISO()), [])
+  const [cursor, setCursor] = useState(() => {
+    const match = matchingPreset(presets, from, to)
+    return match ? presets.indexOf(match) : -1
+  })
+  const listRef = useRef<HTMLDivElement>(null)
+
+  const pick = (i: number): void => {
+    const p = presets[i]
+    if (!p) return
+    setCursor(i)
+    setF(p.from)
+    setT(p.to)
+    // Roving tabindex: the highlighted option is the one Tab lands on, so the six presets are a
+    // single stop in the tab order rather than six.
+    listRef.current?.querySelector<HTMLElement>(`[data-preset-index="${i}"]`)?.focus()
+  }
+
+  const commit = (): void => {
+    setPeriod(f, t)
+    onClose()
+  }
+
+  /**
+   * Pushed by PeriodModal, which is the PARENT of <Modal>: React runs a child's effects before
+   * its parent's, so this layer lands ABOVE the Modal's opaque Esc layer and actually sees these
+   * keys. Pushed from inside the Modal it would sit underneath and never fire.
+   */
+  useKeyLayer('list', (e) => {
+    if (isTypingTarget(e) || !isPlainKey(e)) return false
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const step = e.key === 'ArrowDown' ? 1 : -1
+      const next =
+        cursor < 0 ? (step === 1 ? 0 : presets.length - 1) : (cursor + step + presets.length) % presets.length
+      pick(next)
+      return true
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commit()
+      return true
+    }
+    const i = presets.findIndex((p) => p.key.toLowerCase() === e.key.toLowerCase())
+    if (i >= 0) {
+      e.preventDefault()
+      pick(i)
+      return true
+    }
+    return false
+  })
+
+  // Focus the presets rather than the ✕ the focus trap would otherwise land on: the arrows and
+  // Enter are the point of this dialog, and a caret parked on Close makes Enter mean "cancel".
+  useEffect(() => {
+    const list = listRef.current
+    const index = cursor < 0 ? 0 : cursor
+    ;(list?.querySelector<HTMLElement>(`[data-preset-index="${index}"]`) ?? list)?.focus()
+    // Once, on open — every later focus move belongs to whatever the user pressed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <Modal title="Working period" onClose={onClose}>
-      <div className="flex gap-3">
+      <div ref={listRef} role="listbox" aria-label="Quick periods" className="grid grid-cols-2 gap-1.5">
+        {presets.map((p, i) => (
+          <PresetOption
+            key={p.id}
+            preset={p}
+            index={i}
+            selected={i === cursor}
+            // With a hand-typed range nothing is selected, and a listbox where every option is
+            // tabIndex -1 is a listbox Tab cannot reach at all — so the first option holds the
+            // stop until a preset is chosen.
+            tabStop={i === (cursor < 0 ? 0 : cursor)}
+            onPick={() => pick(i)}
+          />
+        ))}
+      </div>
+
+      <div className="mt-4 flex gap-3">
         <div className="flex-1">
           <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">From</span>
-          <DateInput value={f} context={f} onChange={setF} testId="input-period-from" />
+          <DateInput
+            value={f}
+            context={f}
+            onChange={(v) => {
+              setF(v)
+              // A hand-typed date is no longer any of the presets, and leaving one highlighted
+              // would say it was.
+              setCursor(-1)
+            }}
+            testId="input-period-from"
+          />
         </div>
         <div className="flex-1">
           <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">To</span>
-          <DateInput value={t} context={t} onChange={setT} testId="input-period-to" />
+          <DateInput
+            value={t}
+            context={t}
+            onChange={(v) => {
+              setT(v)
+              setCursor(-1)
+            }}
+            testId="input-period-to"
+          />
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {years.reverse().map((y) => {
-          const fy = fyFromStartYear(y)
-          return (
-            <Button key={y} onClick={() => { setF(fy.from); setT(fy.to) }}>
-              FY {fy.label}
-            </Button>
-          )
-        })}
-        <Button
-          onClick={() => {
-            const today = todayISO()
-            setF(today.slice(0, 8) + '01')
-            setT(today)
-          }}
-        >
-          This month
-        </Button>
-      </div>
-      <div className="mt-5 flex justify-end gap-2">
-        <Button onClick={onClose}>Cancel</Button>
-        <Button
-          variant="primary"
-          data-testid="btn-apply-period"
-          onClick={() => {
-            setPeriod(f, t)
-            onClose()
-          }}
-        >
-          Apply period
-        </Button>
+
+      <div className="mt-5 flex items-center justify-between gap-2">
+        <p className="text-hint text-muted">
+          <Kbd>↑</Kbd> <Kbd>↓</Kbd> choose · <Kbd>↵</Kbd> apply · <Kbd>Esc</Kbd> cancel
+        </p>
+        <div className="flex gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" data-testid="btn-apply-period" onClick={commit}>
+            Apply period
+          </Button>
+        </div>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * One quick-pick period.
+ *
+ * `role="option"` on a div rather than a <button>, deliberately: Enter commits the whole dialog,
+ * and a button would also fire its own activation on that same keypress — so one Enter would
+ * pick a preset AND apply the range that was showing before it.
+ */
+function PresetOption({
+  preset,
+  index,
+  selected,
+  tabStop,
+  onPick
+}: {
+  preset: PeriodPreset
+  index: number
+  selected: boolean
+  tabStop: boolean
+  onPick: () => void
+}): React.JSX.Element {
+  return (
+    <div
+      role="option"
+      aria-selected={selected}
+      tabIndex={tabStop ? 0 : -1}
+      data-preset-index={index}
+      data-testid={`preset-${preset.id}`}
+      onClick={onPick}
+      className={`flex cursor-pointer items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-detail outline-none ${
+        selected ? 'border-amberbar bg-amber/10 text-ink' : 'border-line text-muted hover:border-amber/60 hover:text-ink'
+      }`}
+    >
+      <span>{preset.label}</span>
+      <Kbd>{preset.key}</Kbd>
+    </div>
   )
 }
 

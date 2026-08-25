@@ -579,12 +579,38 @@ export function saveVoucher(
   return duplicate ? { ...after, warnings, duplicateNumber: true } : { ...after, warnings }
 }
 
+/**
+ * Refuse a change that would alter a frozen reconciliation (#142).
+ *
+ * The lock itself belongs to services/banking.ts (`getReconLock` / `setReconLock`); the meta key
+ * is read directly here because banking.ts already imports this module and going the other way
+ * would make the cycle. One `SELECT` against a key/value row is a smaller price than moving the
+ * whole reconciliation service to break it.
+ *
+ * Deleting or restoring a voucher is as much a change to a signed-off BRS as clearing the bank
+ * date by hand — the entry simply stops being on the statement side. Only the lines that carry a
+ * bank date matter: an unreconciled line in a frozen period was never part of the frozen figure.
+ */
+function assertNoFrozenBankDates(db: DB, voucher: Voucher, verb: string): void {
+  const lockOf = db.prepare('SELECT value FROM meta WHERE key = ?')
+  for (const line of voucher.lines) {
+    if (!line.bankDate) continue
+    const row = lockOf.get(`recon_lock.${line.ledgerId}`) as { value: string } | undefined
+    if (row && line.bankDate <= row.value) {
+      throw new Error(
+        `Reconciliation on that bank account is frozen up to ${row.value} — this voucher is reconciled inside it and cannot be ${verb}`
+      )
+    }
+  }
+}
+
 /** Move a voucher to the bin (soft delete). Report queries exclude it; restoreVoucher undoes this. */
 export function deleteVoucher(db: DB, id: number): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
+  assertNoFrozenBankDates(db, before, 'deleted')
   db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(id)
   writeAudit(db, 'voucher', id, 'delete', before, null)
 }
@@ -596,6 +622,7 @@ export function restoreVoucher(db: DB, id: number): void {
   if (!before.deletedAt) throw new Error('Voucher is not in the bin')
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock}`)
+  assertNoFrozenBankDates(db, before, 'restored')
   db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
   // The full record on both sides, not a `{ restored: true }` marker. A reader comparing two
   // snapshots sees "deletedAt: a date -> none"; against a marker they would see every field on
@@ -652,6 +679,132 @@ export function maturePdcNow(db: DB, id: number): void {
   }
   db.prepare("UPDATE vouchers SET post_dated = 0, updated_at = datetime('now') WHERE id = ?").run(id)
   writeAudit(db, 'voucher', id, 'update', before, { ...before, postDated: false, matured: true })
+}
+
+/**
+ * Change the narration or the cost centre on many vouchers at once (#39).
+ *
+ * The two fields this touches are the two that are routinely wrong in bulk and never wrong
+ * individually: a month of entries keyed with no narration at all, or a quarter of branch
+ * expenses that were never allocated because the cost centre was added to the chart in April.
+ * Fixing those one voucher at a time means reopening and re-saving each one, which renumbers
+ * nothing but rewrites everything — a hundred audit rows saying the whole voucher changed, when
+ * one field did.
+ *
+ * So this writes the narrow change and audits it as a narrow change. What it deliberately will
+ * NOT do:
+ *
+ *   - touch amounts, ledgers, dates or bill references. Every one of those alters what the books
+ *     say, and "change it on all of them" is never the right way to say that;
+ *   - skip a voucher quietly. A voucher inside the locked period, or in the bin, aborts the whole
+ *     run before anything is written. A bulk edit that did 91 of 100 and mentioned it in a toast
+ *     is a bulk edit nobody can reconcile afterwards.
+ *
+ * The cost-centre change replaces every allocation on every line that can carry one, at the
+ * line's full amount. Replacing rather than merging is the honest reading of "put these on the
+ * Pune cost centre": a line already split 60/40 across two others is not meant to come out of
+ * this holding three.
+ */
+export interface BulkVoucherEdit {
+  /** Absent = leave alone. Null or '' = clear the narration. */
+  narration?: string | null
+  /** Absent = leave alone. Null = remove every allocation. */
+  costCentreId?: number | null
+}
+
+export interface BulkEditResult {
+  vouchers: number
+  /** Lines whose allocations were rewritten; 0 when only the narration changed. */
+  linesAllocated: number
+}
+
+/**
+ * Lines a cost centre can meaningfully sit on.
+ *
+ * Not the party line and not the cash/bank line: a cost centre answers "which part of the
+ * business did this cost belong to", and the money leaving the bank belongs to all of them. Tally
+ * makes the same distinction, and allocating the bank side as well would double every centre's
+ * total.
+ */
+function allocatableLines(db: DB, voucherId: number): { id: number; amount: number }[] {
+  const cashBank = cashBankGroupIds(db)
+  const rows = db
+    .prepare(
+      `SELECT vl.id, vl.amount, vl.ledger_id AS ledgerId, l.group_id AS groupId
+       FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+       WHERE vl.voucher_id = ?`
+    )
+    .all(voucherId) as { id: number; amount: number; ledgerId: number; groupId: number }[]
+  const party = (db.prepare('SELECT party_ledger_id AS p FROM vouchers WHERE id = ?').get(voucherId) as
+    | { p: number | null }
+    | undefined)?.p ?? null
+  return rows
+    .filter((r) => r.ledgerId !== party && !cashBank.has(r.groupId))
+    .map((r) => ({ id: r.id, amount: r.amount }))
+}
+
+export function bulkEditVouchers(db: DB, ids: number[], edit: BulkVoucherEdit): BulkEditResult {
+  if (ids.length === 0) throw new Error('Nothing selected')
+  if (edit.narration === undefined && edit.costCentreId === undefined) {
+    throw new Error('Nothing to change')
+  }
+  if (edit.costCentreId != null) {
+    const centre = db.prepare('SELECT id FROM cost_centres WHERE id = ?').get(edit.costCentreId)
+    if (!centre) throw new Error('Cost centre not found')
+  }
+
+  const lock = getLockDate(db)
+  // Everything is checked before anything is written: a partly-applied bulk edit is worse than
+  // one that refused, because the user has no way to tell which half went through.
+  const before = ids.map((id) => {
+    const v = getVoucher(db, id)
+    if (!v) throw new Error(`Voucher ${id} not found`)
+    if (v.deletedAt) throw new Error(`Voucher ${v.number} is in the bin`)
+    if (lock && v.date <= lock) throw new Error(`Books are locked up to ${lock} — ${v.number} is inside it`)
+    return v
+  })
+
+  const narration = edit.narration === undefined ? undefined : (edit.narration?.trim() || null)
+  let linesAllocated = 0
+
+  const run = db.transaction(() => {
+    const setNarration = db.prepare("UPDATE vouchers SET narration = ?, updated_at = datetime('now') WHERE id = ?")
+    const clearAlloc = db.prepare(
+      `DELETE FROM voucher_line_cost_allocations
+       WHERE voucher_line_id IN (SELECT id FROM voucher_lines WHERE voucher_id = ?)`
+    )
+    const addAlloc = db.prepare(
+      'INSERT INTO voucher_line_cost_allocations (voucher_line_id, cost_centre_id, amount) VALUES (?, ?, ?)'
+    )
+
+    for (const v of before) {
+      if (narration !== undefined) setNarration.run(narration, v.id)
+      if (edit.costCentreId !== undefined) {
+        clearAlloc.run(v.id)
+        if (edit.costCentreId != null) {
+          for (const line of allocatableLines(db, v.id)) {
+            if (line.amount <= 0) continue
+            addAlloc.run(line.id, edit.costCentreId, line.amount)
+            linesAllocated++
+          }
+        }
+      }
+      // One audit row per voucher, carrying only the fields that moved — a reader six months
+      // later can see this was a narration sweep and not a re-keying of the entry.
+      writeAudit(
+        db,
+        'voucher',
+        v.id,
+        'update',
+        { narration: v.narration, costAllocations: v.lines.map((l) => l.costAllocations) },
+        { bulkEdit: true, ...(narration !== undefined ? { narration } : {}),
+          ...(edit.costCentreId !== undefined ? { costCentreId: edit.costCentreId } : {}) }
+      )
+    }
+  })
+  run()
+
+  return { vouchers: before.length, linesAllocated }
 }
 
 export interface PdcRow {

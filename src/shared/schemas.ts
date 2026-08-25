@@ -351,15 +351,23 @@ export type EmployeeInput = z.infer<typeof employeeInputSchema>
 /** What the renderer actually sends (defaulted fields optional) — keeps older forms compiling. */
 export type EmployeeInputPayload = z.input<typeof employeeInputSchema>
 
+// Scrap and yield are hundredths of a percent (#125), and both are optional with the neutral
+// default so a payload written before they existed still parses into today's behaviour.
 export const bomLineInputSchema = z.object({
   componentId: z.number().int().positive(),
-  qtyMilliPerUnit: z.number().int().positive()
+  qtyMilliPerUnit: z.number().int().positive(),
+  /** Wastage on this component alone. Below 10000 — 100% scrap can never produce anything. */
+  scrapBp: z.number().int().min(0).max(9999).default(0)
 })
 export const bomInputSchema = z.object({
   itemId: z.number().int().positive(),
-  lines: z.array(bomLineInputSchema).max(100)
+  lines: z.array(bomLineInputSchema).max(100),
+  /** Good units per 100 started, for the finished item. Positive — 0% yield never finishes. */
+  bomYieldBp: z.number().int().positive().max(10000).default(10000)
 })
 export type BomInput = z.infer<typeof bomInputSchema>
+/** What the renderer sends: the defaulted fields may be absent. */
+export type BomInputPayload = z.input<typeof bomInputSchema>
 
 /** NIC live-filing credentials, stored per company in the meta table. */
 export const nicCredentialsSchema = z.object({

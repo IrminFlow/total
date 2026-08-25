@@ -104,6 +104,10 @@ const PREFIX_CAPABILITIES: [string, Capability][] = [
   ['agent:', 'settings'],
   ['audit:', 'settings'],
   ['voucher', 'books'],
+  // A template is a voucher shape. It posts nothing, but saving and deleting one is still a
+  // write, and 'vtemplate:' does not start with 'voucher' — without this line it would map to
+  // no capability at all, and a capability of null can never be denied.
+  ['vtemplate:', 'books'],
   ['daybook', 'books'],
   ['bin:', 'books'],
   ['recurring:', 'books'],

@@ -11,7 +11,8 @@ import {
   Panel,
   SectionTitle,
   SkeletonRows,
-  TextInput
+  TextInput,
+  useTableNav
 } from '../components/ui'
 import { confirmDialog } from '../lib/dialogs'
 import { useStickyTab } from '../lib/useStickyTab'
@@ -85,6 +86,11 @@ function RelatedPartiesTab(): React.JSX.Element {
   })
 
   const rows = data?.rows ?? []
+  // ↑↓ picks a party, Enter and Space (A17) unfold its transactions — a party with none folds
+  // into nothing, which is why the caret beside it is blank.
+  const toggleRow = (r: { ledgerId: number }): void =>
+    setExpanded((cur) => (cur === r.ledgerId ? null : r.ledgerId))
+  const table = useTableNav(rows, { rowId: (r) => r.ledgerId, onEnter: toggleRow, onToggle: toggleRow })
 
   return (
     <>
@@ -164,9 +170,9 @@ function RelatedPartiesTab(): React.JSX.Element {
               </tr>
             </thead>
             <tbody data-testid="rows-related-parties">
-              {rows.map((r) => (
+              {rows.map((r, i) => (
                 <Fragment key={r.ledgerId}>
-                  <tr className="cursor-pointer" onClick={() => setExpanded(expanded === r.ledgerId ? null : r.ledgerId)}>
+                  <tr {...table.rowProps(i, r)} aria-expanded={expanded === r.ledgerId}>
                     <td>
                       <span className="mr-1.5 inline-block w-3 text-muted">
                         {r.transactions.length === 0 ? '' : expanded === r.ledgerId ? '−' : '+'}

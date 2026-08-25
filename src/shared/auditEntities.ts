@@ -7,11 +7,13 @@
  * Derived from the writeAudit call sites across src/main/services/*.ts and src/main/ipc.ts.
  */
 export const AUDIT_ENTITIES = [
+  'bank_recon_lock',
   'bank_rule',
   'bank_statement',
   'batch',
   'bom',
   'budget',
+  'cheque_bounce',
   'cheque_config',
   'company',
   'costCentre',
@@ -37,6 +39,7 @@ export const AUDIT_ENTITIES = [
   'user',
   'voucher',
   'voucher_line',
+  'voucher_template',
   'voucherType',
   'year_end'
 ] as const

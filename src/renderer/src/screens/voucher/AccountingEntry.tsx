@@ -21,7 +21,7 @@ import { confirmDialog } from '../../lib/dialogs'
 import { suggestNarration } from '@shared/autoNarration'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
-import { CostAllocModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
+import { CostAllocModal, QuickLedgerModal, SaveAsRecurringModal, SaveAsTemplateModal, TemplatePickerModal } from './modals'
 import { TransportModal } from './TransportModal'
 
 // ---------- accounting mode (payment / receipt / contra / journal + alteration) ----------
@@ -82,6 +82,8 @@ export function AccountingEntry({
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
   const [showTransport, setShowTransport] = useState(false)
   const [editingParty, setEditingParty] = useState<Ledger | null>(null)
   // Alteration keeps the voucher's own number editable but never auto-suggests a fresh one off
@@ -189,6 +191,32 @@ export function AccountingEntry({
       blankAcctRow('cr')
     ])
     recovery.dismiss()
+  }
+
+  /**
+   * Load a saved template's shape into the form (#27).
+   *
+   * The DATE is deliberately not touched. The template carries the form's current date already
+   * (TemplatePickerModal passes it in), and overwriting what the user typed a moment ago with
+   * anything else would be the one surprise a template must not spring — a voucher posted into
+   * the wrong month is invisible until the month is closed.
+   *
+   * The number is not touched either: it is allocated against the series for whatever date the
+   * voucher ends up carrying, at save time.
+   */
+  const applyTemplate = (shape: VoucherInputParsed): void => {
+    setNarration(shape.narration ?? '')
+    setInstrumentNo(shape.instrumentNo ?? '')
+    setRows([
+      ...shape.lines.map((l) => ({
+        key: nextLineKey(),
+        drCr: l.drCr,
+        ledgerId: l.ledgerId,
+        amount: l.amount,
+        costAllocations: l.costAllocations ?? []
+      })),
+      blankAcctRow('cr')
+    ])
   }
 
 
@@ -1207,7 +1235,15 @@ export function AccountingEntry({
               Transport / e-way details…
             </Button>
           )}
+          <Button data-testid="btn-templates-open" onClick={() => setShowTemplates(true)}>
+            Templates…
+          </Button>
           {balanced && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
+          {balanced && (
+            <Button data-testid="btn-save-template-open" onClick={() => setShowSaveTemplate(true)}>
+              Save as template…
+            </Button>
+          )}
           <Button onClick={() => nav.back()}>Cancel</Button>
           <Button variant="primary" data-testid="btn-save-voucher" disabled={!balanced || saving} onClick={() => void save()}>
             {voucherId ? 'Save changes' : 'Save voucher'} ⌘↵
@@ -1269,6 +1305,21 @@ export function AccountingEntry({
         />
       )}
       {showRecurring && <SaveAsRecurringModal buildPayload={buildPayload} onClose={() => setShowRecurring(false)} />}
+      {showSaveTemplate && (
+        <SaveAsTemplateModal
+          voucherTypeId={typeId}
+          buildPayload={buildPayload}
+          onClose={() => setShowSaveTemplate(false)}
+        />
+      )}
+      {showTemplates && (
+        <TemplatePickerModal
+          voucherTypeId={typeId}
+          date={date}
+          onClose={() => setShowTemplates(false)}
+          onPick={applyTemplate}
+        />
+      )}
       {showTransport && voucherId && (
         <TransportModal voucherId={voucherId} voucherNumber={existing?.number} onClose={() => setShowTransport(false)} />
       )}
