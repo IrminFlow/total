@@ -1039,7 +1039,23 @@ Ordering within a section is roughly by value.
      and the per-party bounce count would have counted a binned receipt against a customer
      forever. The scope has to appear literally in the SQL — a WHERE clause assembled at runtime
      is one neither the guard nor a reader can check.
-332. Typed IPC channel registry generated from one source (M)
+332. ✓ Typed IPC channel registry generated from one source (M)
+     — the guarantee, arrived at the other way round. Rather than generating both sides from a
+     third file, the two sides that already exist are checked against each other by
+     `src/main/channels.test.ts`: every channel the client calls has a handler, every channel the
+     E2E scripts invoke has a handler, no channel is registered twice (a second `handle()` silently
+     replaces the first, leaving the loser as dead code that still reads as live), and every name
+     follows `scope:action`.
+
+     A generated registry was the wrong shape for this repo, not too much work: it is one file
+     that every branch touching IPC would rewrite, and with 488 channels and several branches in
+     flight it would conflict on every merge. The check has the same failure mode and no merge
+     cost.
+
+     What it prevents has happened twice already. A channel name is a string on both sides, so
+     `call('draft:get')` against a main that registers nothing of that name compiles, typechecks,
+     passes every unit test, and fails at runtime in front of the user. Both times it was an E2E
+     scenario that caught it, which is luck rather than coverage.
 333. ✓ Renderer test coverage reporting with a floor (S)
      — a floor, not a target. Measured at 66.5% lines, 84.3% branches, 49.5% functions over
      `lib/` and `state/`, with the floors a few points under each: the margin between "somebody
