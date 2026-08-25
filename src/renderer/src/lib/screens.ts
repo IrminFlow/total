@@ -105,7 +105,9 @@ export const SCREENS: ScreenDef[] = [
     card: { sub: 'Ledgers, items, groups' },
     invalidates: [
       'ledgers', 'groups', 'groupTree', 'stockItems', 'units', 'voucherTypes', 'currencies', 'bom',
-      'godowns', 'stockGroups', 'itemRates'
+      'godowns', 'stockGroups', 'itemRates',
+      // Price lists and their versions (#128), and the item's picture (#119).
+      'priceLevels', 'priceVersions', 'priceListAsOn', 'priceRevision', 'itemImage', 'itemImages'
     ]
   },
   {
@@ -177,7 +179,13 @@ export const SCREENS: ScreenDef[] = [
       'stockSummary', 'stockAgeing', 'stockByGodown', 'stockBatches', 'purchaseSuggestions', 'nearExpiry',
       // Reorder alerts, and the transfer / landed-cost modals this screen opens.
       'reorderAlerts', 'godownStock', 'stockTransferPreview', 'stockTransfers', 'costablePurchases',
-      'landedCosts'
+      'landedCosts',
+      // The four tabs that hang off this screen: serials (#115), standard costing (#118),
+      // job work (#127) and labels (#111).
+      'serials', 'serialHistory', 'standardCosts', 'variance', 'labelPreview',
+      'priceLevels', 'rawPrinters',
+      // The item picker inside the transfer/label pickers draws thumbnails (#119).
+      'itemImages'
     ]
   },
   {
@@ -239,7 +247,8 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'exceptions' },
     navSection: 'analysis',
     accel: 'X',
-    invalidates: ['exceptions']
+    // The scratchpad panel (#46) sits above the exception sections on this screen.
+    invalidates: ['exceptions', 'scratchpad']
   },
 
   {
@@ -252,7 +261,9 @@ export const SCREENS: ScreenDef[] = [
     navLabel: 'Reconciliation',
     invalidates: [
       'bankLedgers', 'bankRecon', 'bankRules', 'bankImportProfiles', 'bankStatementInspect',
-      'chequeConfig', 'brs', 'pdc', 'reconStatus', 'bankReconLocks', 'bounces'
+      'chequeConfig', 'brs', 'pdc', 'reconStatus', 'bankReconLocks', 'bounces',
+      // Foreign-currency accounts and the revaluations posted against them (#140).
+      'fxAccounts', 'fxRevaluations'
     ]
   },
 
@@ -397,7 +408,13 @@ export const SCREENS: ScreenDef[] = [
       'deemed supply', 'principal', 'moulds', 'dies', 'jigs', 'tools', 'waste and scrap',
       'capital goods', 'subcontract', 'processing'
     ],
-    invalidates: ['jobWorkChallans', 'jobWorkClock', 'jobWorkItc04']
+    // Saving a challan now also MOVES stock (#127): a godown named for the job worker may be
+    // created, and a stock journal is posted. So the stock views and the day book have to be
+    // refetched too, or the goods appear to be in two places until the screen is left.
+    invalidates: [
+      'jobWorkChallans', 'jobWorkClock', 'jobWorkItc04',
+      'godowns', 'stockSummary', 'stockByGodown', 'daybook'
+    ]
   },
   {
     name: 'borrowing',

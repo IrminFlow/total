@@ -66,6 +66,9 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [pan, setPan] = useState(ledger?.pan ?? '')
   const [creditDays, setCreditDays] = useState(ledger?.creditDays?.toString() ?? '')
   const [creditLimit, setCreditLimit] = useState<number | null>(ledger?.creditLimit ?? null)
+  // The currency this account is KEPT in (#140). Null is not "INR": it means the account has no
+  // foreign side at all and is never revalued.
+  const [currencyCode, setCurrencyCode] = useState<string>(ledger?.currencyCode ?? '')
   // Shown as a percentage because that is how a rate is agreed and argued about; stored as basis
   // points so 18% never becomes 17.999999 on a customer's statement.
   const [interestPct, setInterestPct] = useState(
@@ -83,6 +86,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [exportType, setExportType] = useState<NonNullable<Ledger['exportType']> | ''>(ledger?.exportType ?? '')
   const [defaultCostCentreId, setDefaultCostCentreId] = useState<number | ''>(ledger?.defaultCostCentreId ?? '')
   const { data: costCentres } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
+  const { data: currencies } = useQuery({ queryKey: ['currencies'], queryFn: api.currencies.list })
   const [bankAccount, setBankAccount] = useState(ledger?.bankAccount ?? '')
   const [bankIfsc, setBankIfsc] = useState(ledger?.bankIfsc ?? '')
   const [bankHolder, setBankHolder] = useState(ledger?.bankHolder ?? '')
@@ -121,6 +125,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         pan: pan.trim() ? pan.trim().toUpperCase() : null,
         creditDays: creditDays.trim() ? Number(creditDays) : null,
         creditLimit,
+        currencyCode: currencyCode || null,
         interestRateBp: interestPct.trim() ? Math.round(Number(interestPct) * 100) : null,
         interestGraceDays: interestGrace.trim() ? Number(interestGrace) : null,
         // '' is stored as NULL, which means "nobody has asked" — deliberately not the same as
@@ -302,6 +307,23 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
               </Field>
               <Field label="Credit limit" hint="Warns at entry; blocks under F11 enforcement. Blank = no limit">
                 <AmountInput testId="input-ledger-credit-limit" paise={creditLimit} onPaise={setCreditLimit} />
+              </Field>
+              <Field
+                label="Currency kept"
+                hint="A dollar bank account or a euro supplier. Blank means rupees only and never revalued — Banking → Foreign currency does the restating."
+              >
+                <Select
+                  data-testid="select-ledger-currency"
+                  value={currencyCode}
+                  onChange={(e) => setCurrencyCode(e.target.value)}
+                >
+                  <option value="">Rupees only</option>
+                  {(currencies ?? []).map((c) => (
+                    <option key={c.id} value={c.code}>
+                      {c.code} — {c.name}
+                    </option>
+                  ))}
+                </Select>
               </Field>
               <Field label="Interest % p.a." hint="On overdue bills. Blank = the company default">
                 <TextInput

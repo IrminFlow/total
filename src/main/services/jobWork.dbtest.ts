@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import type { CompanyInfo } from '@shared/domain'
 import { seededDb, TEST_INFO } from '../db/testdb'
-import { createLedger } from './masters'
+import { createGodown, createLedger, createStockItem } from './masters'
+import { saveVoucher } from './vouchers'
+import { stockByGodown } from './stockAnalysis'
+import type { DrCr } from '@shared/domain'
 import type { DB } from '../db/connection'
 import {
   deleteChallan,
@@ -447,5 +450,266 @@ describe('how often it has to be filed', () => {
     const now = itc04(db, withBand('upto-50L'), { fyStartYear: 2025 })
     expect(now.obligation.frequency).toBe('annual')
     expect(now.obligation.rule.effectiveFrom).toBe('2021-10-01')
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
+// The stock half (roadmap E #127, merged onto this service)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Books with something actually on the shelf.
+ *
+ * 200 castings bought for ₹20,000 — so the cost is a round ₹100 each and every valuation figure
+ * below can be read without a calculator.
+ */
+function stockedBooks(): {
+  db: DB
+  local: number
+  outstation: number
+  castings: number
+  otherGodown: number
+  buy: (qtyMilli: number, amount: number, date: string, godownId?: number | null) => void
+} {
+  const b = books()
+  const { db } = b
+  const groupId = (name: string): number =>
+    (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+  const vtId = (kind: string): number =>
+    (db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(kind) as { id: number }).id
+  const unitId = (db.prepare('SELECT id FROM units LIMIT 1').get() as { id: number }).id
+  const purchases = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId('Purchase Accounts') }).id
+  const supplier = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Metal Supplies', groupId: groupId('Sundry Creditors') }).id
+  const castings = createStockItem(db, {
+    name: 'Brass castings', unitId, groupId: null, hsn: '7419', gstRate: 18, cessRate: null,
+    openingQtyMilli: 0, openingValue: 0, barcode: null, reorderLevelMilli: null
+  }).id
+  const otherGodown = createGodown(db, { name: 'Main Godown' }).id
+
+  const buy = (qtyMilli: number, amount: number, date: string, godownId: number | null = null): void => {
+    saveVoucher(db, {
+      voucherTypeId: vtId('purchase'), date, partyLedgerId: supplier, posOverride: null,
+      lines: [
+        { ledgerId: purchases, drCr: 'dr' as DrCr, amount, costAllocations: [] },
+        { ledgerId: supplier, drCr: 'cr' as DrCr, amount, costAllocations: [] }
+      ],
+      inventory: [{
+        stockItemId: castings, godownId, batchId: null, qtyMilli,
+        ratePaise: Math.round((amount * 1000) / qtyMilli), discountPaise: 0, amount,
+        direction: 'in', isAbsolute: false
+      }],
+      billRefs: [], tds: null
+    })
+  }
+  buy(200_000, 20_00_000, '2026-01-01')
+
+  return { ...b, castings, otherGodown, buy }
+}
+
+/** Closing quantity of the castings in one godown (null = unallocated), as at a date. */
+const heldIn = (db: DB, itemId: number, asOn: string, godownName: string | null): number =>
+  stockByGodown(db, asOn)
+    .filter((r) => r.stockItemId === itemId && (godownName === null ? r.godownName === '' : r.godownName === godownName))
+    .reduce((t, r) => t + r.closingQtyMilli, 0)
+
+/** Company-wide closing quantity and value, the figures that reach the balance sheet. */
+function closingStock(db: DB, itemId: number, asOn: string): { qtyMilli: number; value: number } {
+  const rows = stockByGodown(db, asOn).filter((r) => r.stockItemId === itemId)
+  return {
+    qtyMilli: rows.reduce((t, r) => t + r.closingQtyMilli, 0),
+    value: rows.reduce((t, r) => t + r.closingValue, 0)
+  }
+}
+
+const JOB_GODOWN = 'Job work — Sharma Polishing Works'
+
+describe('the goods actually move', () => {
+  it('puts them in a godown named for the job worker, and leaves them in closing stock', () => {
+    // This is the whole reason the merge grafted #127 onto this service. Goods at a job worker are
+    // still the principal's stock: they belong in his CLOSING STOCK, which is a figure that goes
+    // on the balance sheet, and they belong at the job worker's rather than on our own shelf.
+    const b = stockedBooks()
+    const before = closingStock(b.db, b.castings, '2026-02-28')
+    expect(before).toEqual({ qtyMilli: 200_000, value: 20_00_000 })
+
+    const challan = send(b.db, {
+      date: '2026-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 60_000
+    })
+
+    expect(challan.godownName).toBe(JOB_GODOWN)
+    expect(challan.voucherId).not.toBeNull()
+    expect(heldIn(b.db, b.castings, '2026-02-28', JOB_GODOWN)).toBe(60_000)
+    expect(heldIn(b.db, b.castings, '2026-02-28', null)).toBe(140_000)
+
+    // And the company-wide figure has not moved at all — neither quantity nor value. A transfer
+    // that changed the valuation would be a transfer that quietly rewrote the balance sheet.
+    expect(closingStock(b.db, b.castings, '2026-02-28')).toEqual(before)
+  })
+
+  it('does it with a stock journal that has no ledger lines at all', () => {
+    // Sending goods for job work is not a supply (section 143). One ledger line here would put a
+    // despatch into the trial balance as though something had been bought or sold.
+    const b = stockedBooks()
+    const linesBefore = (b.db.prepare('SELECT COUNT(*) AS n FROM voucher_lines').get() as { n: number }).n
+    const challan = send(b.db, {
+      date: '2026-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 60_000
+    })
+    const linesAfter = (b.db.prepare('SELECT COUNT(*) AS n FROM voucher_lines').get() as { n: number }).n
+    expect(linesAfter).toBe(linesBefore)
+
+    const kind = b.db
+      .prepare('SELECT vt.kind FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = ?')
+      .get(challan.voucherId) as { kind: string }
+    expect(kind.kind).toBe('stock_journal')
+
+    const inv = b.db
+      .prepare('SELECT direction, godown_id AS godownId, amount FROM inventory_lines WHERE voucher_id = ?')
+      .all(challan.voucherId) as { direction: string; godownId: number | null; amount: number }[]
+    expect(inv).toHaveLength(2)
+    expect(inv.find((l) => l.direction === 'out')!.godownId).toBeNull()
+    expect(inv.find((l) => l.direction === 'in')!.godownId).toBe(challan.godownId)
+    // Both legs at the same value, which is what makes the pair cancel.
+    expect(inv[0]!.amount).toBe(inv[1]!.amount)
+  })
+
+  it('takes them from the godown they were standing in, when one is named', () => {
+    const b = stockedBooks()
+    b.buy(50_000, 5_00_000, '2026-01-10', b.otherGodown)
+    const challan = send(b.db, {
+      date: '2026-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 30_000,
+      fromGodownId: b.otherGodown
+    })
+    expect(challan.fromGodownId).toBe(b.otherGodown)
+    const out = b.db
+      .prepare("SELECT godown_id AS godownId FROM inventory_lines WHERE voucher_id = ? AND direction = 'out'")
+      .get(challan.voucherId) as { godownId: number | null }
+    expect(out.godownId).toBe(b.otherGodown)
+    expect(heldIn(b.db, b.castings, '2026-02-28', 'Main Godown')).toBe(20_000)
+    expect(heldIn(b.db, b.castings, '2026-02-28', JOB_GODOWN)).toBe(30_000)
+  })
+
+  it('brings them home again when they come back', () => {
+    const b = stockedBooks()
+    const challan = send(b.db, {
+      date: '2026-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 60_000
+    })
+    const after = saveReturn(b.db, TEST_INFO, {
+      challanId: challan.id, date: '2026-03-01', qtyMilli: 60_000, disposition: 'returned'
+    })
+    expect(after.balanceMilli).toBe(0)
+    expect(after.returns[0]!.voucherId).not.toBeNull()
+    expect(heldIn(b.db, b.castings, '2026-03-31', JOB_GODOWN)).toBe(0)
+    expect(heldIn(b.db, b.castings, '2026-03-31', null)).toBe(200_000)
+    expect(closingStock(b.db, b.castings, '2026-03-31')).toEqual({ qtyMilli: 200_000, value: 20_00_000 })
+  })
+
+  it('waste leaves the job worker and does NOT come back into stock', () => {
+    // Section 143(5): waste and scrap generated at the job worker's premises may be supplied by
+    // him directly. Bringing it back would inflate closing stock by the scrap of every job the
+    // business has ever sent out — and the scrap is not there to count.
+    const b = stockedBooks()
+    const challan = send(b.db, {
+      date: '2026-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 60_000
+    })
+    saveReturn(b.db, TEST_INFO, {
+      challanId: challan.id, date: '2026-03-01', qtyMilli: 57_000, disposition: 'returned'
+    })
+    const after = saveReturn(b.db, TEST_INFO, {
+      challanId: challan.id, date: '2026-03-01', qtyMilli: 3_000, disposition: 'waste_and_scrap'
+    })
+    expect(after.balanceMilli).toBe(0)
+
+    const waste = after.returns.find((r) => r.disposition === 'waste_and_scrap')!
+    const legs = b.db
+      .prepare('SELECT direction FROM inventory_lines WHERE voucher_id = ?')
+      .all(waste.voucherId) as { direction: string }[]
+    expect(legs).toHaveLength(1)
+    expect(legs[0]!.direction).toBe('out')
+
+    // The job worker is holding nothing, and the company is 3 pieces lighter than it started.
+    expect(heldIn(b.db, b.castings, '2026-03-31', JOB_GODOWN)).toBe(0)
+    expect(closingStock(b.db, b.castings, '2026-03-31').qtyMilli).toBe(197_000)
+  })
+
+  it('leaves a paperwork-only challan exactly as it was — no godown, no voucher, no movement', () => {
+    // The form has always allowed describing something that is not in the item master. Inventing
+    // an item to move would be worse than moving nothing.
+    const b = stockedBooks()
+    const challan = send(b.db, { date: '2026-02-01', jobWorkerLedgerId: b.local })
+    expect(challan.stockItemId).toBeNull()
+    expect(challan.godownId).toBeNull()
+    expect(challan.voucherId).toBeNull()
+    expect(closingStock(b.db, b.castings, '2026-02-28')).toEqual({ qtyMilli: 200_000, value: 20_00_000 })
+  })
+
+  it('reuses a job worker godown that already exists rather than making a second one', () => {
+    const b = stockedBooks()
+    createGodown(b.db, { name: JOB_GODOWN })
+    send(b.db, { date: '2026-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 10_000 })
+    send(b.db, { date: '2026-02-05', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 10_000 })
+    const n = b.db.prepare("SELECT COUNT(*) AS n FROM godowns WHERE name LIKE 'Job work%'").get() as { n: number }
+    expect(n.n).toBe(1)
+    expect(heldIn(b.db, b.castings, '2026-02-28', JOB_GODOWN)).toBe(20_000)
+  })
+
+  it('gives each job worker his own godown, so "what is lying with whom" has an answer', () => {
+    const b = stockedBooks()
+    send(b.db, { date: '2026-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 10_000 })
+    send(b.db, { date: '2026-02-01', jobWorkerLedgerId: b.outstation, stockItemId: b.castings, qtyMilli: 25_000 })
+    expect(heldIn(b.db, b.castings, '2026-02-28', JOB_GODOWN)).toBe(10_000)
+    expect(heldIn(b.db, b.castings, '2026-02-28', 'Job work — Gujarat Heat Treaters')).toBe(25_000)
+  })
+
+  it('re-posts the movement when the challan is edited, instead of moving the goods twice', () => {
+    const b = stockedBooks()
+    const challan = send(b.db, {
+      date: '2026-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 60_000
+    })
+    const edited = saveChallan(
+      b.db, TEST_INFO,
+      { ...SENT, date: '2026-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 40_000 },
+      challan.id
+    )
+    expect(edited.voucherId).toBe(challan.voucherId)
+    expect(heldIn(b.db, b.castings, '2026-02-28', JOB_GODOWN)).toBe(40_000)
+    expect(closingStock(b.db, b.castings, '2026-02-28').qtyMilli).toBe(200_000)
+  })
+
+  it('withdraws the movement when the challan or the receipt is deleted', () => {
+    const b = stockedBooks()
+    const challan = send(b.db, {
+      date: '2026-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 60_000
+    })
+    const withReturn = saveReturn(b.db, TEST_INFO, {
+      challanId: challan.id, date: '2026-03-01', qtyMilli: 20_000, disposition: 'returned'
+    })
+    deleteReturn(b.db, withReturn.returns[0]!.id, TEST_INFO)
+    // The goods are back out with the job worker.
+    expect(heldIn(b.db, b.castings, '2026-03-31', JOB_GODOWN)).toBe(60_000)
+
+    deleteChallan(b.db, challan.id, TEST_INFO)
+    expect(heldIn(b.db, b.castings, '2026-03-31', JOB_GODOWN)).toBe(0)
+    expect(heldIn(b.db, b.castings, '2026-03-31', null)).toBe(200_000)
+    // Binned, not purged: a movement is recoverable like any other voucher.
+    const binned = b.db.prepare('SELECT deleted_at AS d FROM vouchers WHERE id = ?').get(challan.voucherId) as
+      | { d: string | null }
+      | undefined
+    expect(binned!.d).not.toBeNull()
+  })
+
+  it('the clock and ITC-04 still read the same rows the stock moved on', () => {
+    // The point of keeping ONE implementation: the return, the clock and the movement are three
+    // views of one challan and cannot disagree about what went out.
+    const b = stockedBooks()
+    send(b.db, {
+      date: '2025-02-01', jobWorkerLedgerId: b.local, stockItemId: b.castings, qtyMilli: 60_000
+    })
+    const clock = jobWorkClock(b.db, TEST_INFO, '2026-06-01')
+    expect(clock.overdue).toHaveLength(1)
+    expect(clock.overdue[0]!.deemedSupplyDate).toBe('2025-02-01')
+    expect(heldIn(b.db, b.castings, '2026-06-01', JOB_GODOWN)).toBe(60_000)
+
+    const working = itc04(b.db, TEST_INFO, { fyStartYear: 2024 })
+    expect(working.form.table4).toHaveLength(1)
   })
 })

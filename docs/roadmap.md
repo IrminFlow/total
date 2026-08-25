@@ -66,7 +66,25 @@ Ordering within a section is roughly by value.
     Appearance, off by default and it has to stay that way: the list layer sits above the nav
     layer, so binding `G` shadows the Gateway on every screen with a list. The preference says
     so in as many words, and ⌘1 still goes home.
-20. A visible focus-ring audit: every interactive control reachable by Tab (M)
+20. ✓ A visible focus-ring audit: every interactive control reachable by Tab (M) — the
+    deliverable is a test, not a component, and it lives in `scripts/e2e/12-theme-a11y.mjs` with
+    the rest of the computed-style checks. It walks all 35 sidebar screens, focuses every real
+    control on each, and asserts three things: that the tab order reaches it, that focusing it
+    changes something, and that what changed is VISIBLE — 1,949 rings measured against a 3:1
+    floor (WCAG 2.2 SC 1.4.11, which names a focus indicator as its own example).
+    Three details are what make it mean anything. It measures the ring as a DIFFERENCE between
+    the resting and focused state, because reading only the focused state counts every button's
+    ordinary `panel-shadow` as a focus indicator and passes an app that has none. It composites
+    translucent backgrounds down to the opaque layer, because comparing an indigo ring against
+    the selected row's `rgba(67, 56, 202, 0.1)` reports 1:1 for a ring that is perfectly visible,
+    and an audit that cries wolf gets switched off. And it freezes transitions first: every
+    button transitions `outline-color`, so a style read the instant after focus catches the ring
+    part-way from `currentColor` and reports a white ring on a white button.
+    It found a real one. The ring was drawn in `--t-accent-bar`, the SOLID FILL colour, which is
+    2.90:1 against the dark theme's sidebar — a ring that exists in the stylesheet and cannot be
+    seen. Hence `--t-focus-ring`, a third accent value rather than a reuse of one of the two:
+    filling a button, being readable as text, and separating from the surface a ring is drawn on
+    are three different requirements, and one value cannot satisfy all three.
 21. ✓ Shortcut conflicts surfaced in Settings when a screen shadows a nav letter (S) — the layer
     stack already did the right thing: a screen's letters sit above the navigation ones, so `C`
     starts a contra on voucher entry rather than jumping to Cost centres. That was never the
@@ -202,7 +220,23 @@ Ordering within a section is roughly by value.
     #250. Debounced to disk, scoped by company and voucher kind, and offered back on a bar above
     the form rather than restored over whatever is on screen. New vouchers only: an alteration's
     fields come from a voucher already on the books, and that is the truth.
-46. A scratchpad ledger for entries the user has not decided how to classify (S)
+46. ✓ A scratchpad ledger for entries the user has not decided how to classify (S) — a real
+    ledger under **Suspense A/c**, plus a panel on Exceptions listing what is sitting in it, with
+    the other side of each entry on the row so the list answers the question rather than posing
+    it.
+    A ledger and not a flag on a voucher, because the entry has to be IN the books: the trial
+    balance must balance with it in, the bank must reconcile with it in, and the amount has to
+    land somewhere a person trips over. A flag would leave the money invisible; a suspense
+    balance is a number an accountant is trained to want at zero.
+    Classifying EDITS the line rather than posting a transfer journal. A journal out of suspense
+    leaves the original entry pointing at Suspense forever, so a year later the ledger shows a
+    payment to Suspense and a separate journal beside it, and nothing on screen connects the two
+    to "this was for printing". Moving the line makes the voucher say what it always should have
+    said, and the audit log carries both ledger names — which is what an audit trail is for.
+    Refused inside the locked period, and the message says to use a journal in the open one
+    instead: a suspense balance that was reported at 31 March has to stay reported. Created on
+    demand rather than seeded, because a Suspense ledger sitting at zero in every new company is
+    how people learn to ignore a Suspense balance.
 47. ✓ Barcode scan jumps straight to quantity on the matched item line (S) — the scan detector
     already distinguished a scanner's fast burst from a person typing (`@shared/barcode`) and
     already jumped to the matched item. The cursor then sat in the item cell, on the one field
@@ -431,15 +465,73 @@ Ordering within a section is roughly by value.
 
 ## E. Inventory
 
-111. Barcode label printing to a thermal printer (M)
+111. ✓ Barcode label printing to a thermal printer (M) — TSPL bytes, on the Labels tab of Stock,
+     sent to a raw CUPS queue by the same path the ESC/P invoice uses.
+     TSPL rather than ZPL for one reason: its `BARCODE` command encodes Code 128 in the printer's
+     firmware, so this app never has to rasterise a symbology. A hand-rolled encoder with a wrong
+     check digit produces a label that looks perfect, does not scan, and is found out at the till.
+     The price comes from the price list on the date, and falls back to the last PURCHASE rate —
+     never to the item's valuation, which is a weighted-average COST. A shelf label printed at
+     cost is the most expensive bug this feature could have. An item with neither a barcode nor a
+     code is named and refused rather than being given a guessed identifier, and one bad label
+     refuses the whole job: a printer that stops at the eleventh leaves the operator with ten
+     labels and no message.
+     NOT VERIFIED ON HARDWARE, exactly like `escp.ts`. Every command is transcribed from the TSPL
+     manual and unit-tested byte for byte, which is a weaker claim than "the label came out
+     right". Hence the plain-text preview of every label on screen, and the save-to-file path, so
+     whoever first has a printer can read the job before committing a roll to it.
 112. ✓ Multi-godown stock transfer voucher (M)
 113. ✓ Reorder level with a purchase suggestion report (M)
 114. ✓ Batch expiry tracking with a near-expiry report (M)
-115. Serial-number tracking for high-value items (L)
+115. ✓ Serial-number tracking for high-value items (L) — a batch answers "which lot"; a serial
+     answers "where is THAT one": the engine number, the IMEI, the compressor on the warranty
+     card. Per item, off by default, and every movement of a tracked item names its serials or is
+     refused.
+     Dated data, not a field. What is stored is the MOVEMENTS, and status is DERIVED from the
+     latest one — which is the whole design, not an implementation detail. A `status` column would
+     be a second copy of a fact the movements already carry, and the two part company the first
+     time a voucher is altered, which is precisely when the answer matters: correcting the invoice
+     that sold a unit is how the unit comes back onto the shelf. Binning the sale does the same.
+     Selling one twice is refused — the two-warranty-cards bug — and so is receiving one that is
+     already in stock, which is either a duplicate entry or two units wearing the same number, and
+     both need a person rather than a resolution rule. A serial with no live movement behind it
+     reads as "never received" rather than "already issued": the second would be a confident
+     statement about a unit that, as far as the books go, was never bought.
+     Ranges (`SN0001-SN0010`) expand only on an identical prefix and digit width. Anything
+     cleverer would GUESS ten serial numbers, and a guessed serial does not match the unit that
+     comes back under warranty.
 116. ✓ Stock ageing by batch rather than by item (M)
 117. ✓ Landed cost allocation across a purchase (M)
-118. Standard costing with variance against actual (L)
-119. Item images on the invoice and in the picker (M)
+118. ✓ Standard costing with variance against actual (L) — and the variance is SPLIT, because as
+     one figure it is worth almost nothing. "We are ₹1,40,000 over" is not something anybody can
+     act on; "₹1,20,000 of it is what we paid and ₹20,000 is what we used" is two conversations
+     with two different people.
+     price variance = (Ra − Rs) × Qa, the buyer's number. usage variance = (Qa − Qs) × Rs, the
+     floor's. Costed against different bases on purpose: that is what makes the two add to the
+     total exactly rather than leaving a joint variance nobody owns, and the test asserts the
+     identity holds even where the rate does not divide evenly. The price variance is computed as
+     `actual cost − Qa × Rs` rather than from a derived actual rate, so it rounds once instead of
+     rounding a rate and then multiplying the error back up by the quantity.
+     A standard is dated, like every rate in this app: revising it in October leaves September's
+     report saying what it said in September, and each movement is scored against the standard on
+     ITS OWN date rather than one standard applied to a whole period. An item with no standard is
+     LISTED, never scored as on standard — a blank in a variance report is a question, and a zero
+     would be a wrong answer to it.
+119. ✓ Item images on the invoice and in the picker (M) — reusing the attachments pattern rather
+     than inventing a second one: the file is COPIED into `<company>/item-images/` and the
+     database holds the NAME, never a path and never the bytes. A path is a promise about somebody
+     else's disk and it breaks silently; bytes in the database mean a company.db copied, backed up
+     and integrity-checked at forty times its real size.
+     Its own column and its own module rather than a fourth kind of attachment row, because an
+     attachment is EVIDENCE and belongs to a voucher while an item image is master data and
+     belongs to an item — a shared table would need a nullable voucher_id, which is how the "one
+     attachment with no voucher" bug gets written. One image per item: a picker showing four
+     pictures of the same bolt is a picker with a scroll bar.
+     The format list is deliberately narrower than the attachment one. HEIC is on that list
+     because a phone produces it and the OS can open it, but Chromium will not paint it in an
+     `<img>` — so an item image in HEIC would be a picture that exists, backs up nightly, and
+     draws a broken square. Replacing writes the new name first and unlinks the old copy last, so
+     nothing ever reads a half-written file at a name that used to be a good one.
 120. ✓ Alternate units of measure with conversion (M)
 121. ✓ Item-wise reorder email or WhatsApp alert (S)
 122. ✓ Negative-stock prevention per item, overriding the company setting in both directions (S)
@@ -467,8 +559,56 @@ Ordering within a section is roughly by value.
      rather than a stack overflow. Depth is bounded at twenty with an honest message. The
      manufacture voucher consumes the raw-material LEAVES — a sub-assembly is made on the way
      past, and consuming it as well as its own materials would double-count every one of them.
-127. Job-work stock sent out and received back (L)
-128. Price list versioning with effective dates (M)
+127. ✓ Job-work stock sent out and received back (L) — **merged into D #89's implementation, not
+     kept beside it.** This lane checked first and correctly found no job-work service; #89 landed
+     in the meantime with the challan, the section 143 clock, ITC-04, a screen and a scenario, and
+     both lanes wrote `src/main/services/jobWork.ts` and both created `job_work_challans`. The
+     arbitration: keep #89's implementation — it has the screen and the return, and it is what the
+     rest of the app talks to — and graft THIS lane's stock movement onto it, hanging off
+     `saveChallan` / `saveReturn` rather than a second entry point. What was dropped as duplicate:
+     this lane's clock and return planner (`@shared/jobWork` now holds only the godown naming),
+     its `jobwork:*` IPC channels, its Stock → Job work tab, and its `itc04Rows`. Migration 53 adds
+     the godown and voucher columns to #89's tables; the second set of tables was never created.
+     **Sending goods for job work is not a sale.** Title never leaves the principal, so nothing is
+     posted to the books at all: the goods move to a godown named for the job worker on a stock
+     journal with no ledger lines, exactly like a godown transfer, and stay in the principal's
+     closing stock where they belong. A godown per job worker rather than one pooled "Job work"
+     godown, because the question a GST audit asks is what is lying with WHOM.
+     What makes it more than a transfer is **section 143**: inputs must come back within one year
+     and capital goods within three, and goods that do not are DEEMED to have been supplied on the
+     day they were SENT — a backdated liability with interest running from then, not from the
+     anniversary. So the clock is on every row and an overdue challan states the deemed-supply
+     date rather than merely turning red. The period is inclusive (section 9 of the General
+     Clauses Act, 1897: "from" excludes the first day) and month arithmetic clamps, so goods sent
+     on 31 March are due back on 31 March and not on 1 April.
+     Waste comes back OUT of the job worker's godown and not into stock: under 143(5) the job
+     worker may supply it directly, and bringing it back would inflate closing stock by the scrap
+     of every job the business has ever sent out. Checked against the bare Act as at August 2026.
+     The Commissioner's extension under the proviso to 143(1) is not modelled — it is granted case
+     by case, and a deadline that silently moved because the app assumed one would be worse than
+     one that is early.
+     Two dispositions #89 has and this lane did not — "sent to another job worker" and "supplied
+     from his premises" — DO come back into stock, and that is deliberate. The first is so the
+     follow-on challan has something to despatch; the second is so the linked sales invoice is the
+     one thing that takes the goods out, rather than the stock going out twice and negative.
+128. ✓ Price list versioning with effective dates (M) — `price_list_rates` has carried an
+     `effective_from` since price levels were built and `rateFor` has always resolved it, so the
+     storage and the invoice side were never the gap. What was missing is the idea a user actually
+     has — not "a rate with a date on it" but a VERSION: on 1 October the wholesale list changed,
+     all forty items at once — and any way at all to ask what the list said on a day that has
+     passed.
+     A version is DERIVED (the rates sharing an effective date), never stored: a version header
+     and the rates under it are two things that can disagree, and the rates are the ones that
+     price the invoice. The Masters → Price lists tab reads the list "as on" any date through the
+     same pure resolver `rateFor` uses, so the screen and the invoice cannot come to differ about
+     what is in force — there is a test that walks four dates and compares the two.
+     Revising moves the list by a percentage in integer basis points, off the base in force the
+     day BEFORE the new version starts (reading it as on the effective date itself picks the new
+     version up as its own base and compounds), and rounds ONCE: rounding to paise and then to
+     rupees turns ₹103.33 + 5% into ₹109 when the answer is ₹108. Only the rates that actually
+     move are recorded, so a version reads as a revision rather than a copy of the list, and a
+     whole version can be undone as one — forty rows fixed by hand is thirty-nine right and one
+     wrong.
 129. ✓ Item groups with inherited GST rate and HSN (S)
 130. ✓ Fast item entry by code rather than name (S)
 
@@ -530,7 +670,32 @@ Ordering within a section is roughly by value.
 139. ✓ Bank balance as-per-books versus as-per-statement, per account (S) — on Banking's All
      accounts tab rather than the Gateway, where it sits beside the reconciliation state that
      explains the difference.
-140. Multi-currency bank accounts with revaluation (L)
+140. ✓ Multi-currency bank accounts with revaluation (L) — the schema change the previous lane
+     deferred, landed: a currency ON the ledger, and the foreign amount plus the rate that
+     produced it persisted PER LINE.
+     Three decisions, each about a number staying answerable years later. **A rate is not money,
+     so it is not paise** — ₹83.4525 has four decimals and a quote can have six, and rounding the
+     rate to paise before use puts the error into every amount computed from it. It is stored as
+     millionths of a rupee per unit, and a seventh decimal is refused rather than silently dropped.
+     **The foreign amount is stored, not derived** — a voucher for USD 1,200.00 is that forever,
+     and deriving it back out of the rupee figure and today's rate makes the invoice say a
+     different dollar amount every time it is reprinted. **The rate used is recorded on the entry
+     that used it**, on the `fx_revaluations` row and on the voucher's own line, so a March
+     revaluation keeps saying March's rate in June.
+     An unrealised difference is a real posting with real tax consequences (AS 11 / Ind AS 21
+     para 23(a) and 28), so it goes through `saveVoucher` like any other journal — numbered,
+     audited, in the day book, undone only by binning it — and not into a report that quietly
+     restates a balance sheet line. Everything is signed dr-positive, which is what makes ONE
+     function right for both sides of the balance sheet: an asset worth more rupees and a
+     liability that shrank are both a debit and both a gain, and a version of this taking a
+     `nature` argument would have two branches that agreed.
+     It is NOT reversed next period. Under AS 11 the restated figure is the new carrying amount;
+     reversing would put the balance back at a rate that stopped being true at the period end and
+     report the whole movement again. Revaluing the same period end twice is refused rather than
+     added to — a correction replaces the first posting, and replacing means binning it, which the
+     user does deliberately because it is a posted entry in a period they may have reported.
+     Rupee-only movements on a foreign account (a rupee bank charge on a dollar account) are
+     reported separately rather than folded into the foreign balance or treated as an error.
 141. ✓ UPI transaction import from a CSV (M) — a UPI statement is structurally an ordinary
      statement, so #131's profiles and the column mapper already read the file. What UPI needed
      was the narration, which is not prose but a fixed set of slash-separated fields every bank

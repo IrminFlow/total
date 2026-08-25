@@ -14,7 +14,12 @@ const BUDGETS_KB = {
   // chunk. Splitting the screens out (K#226) moved bytes around inside this total rather than
   // removing them — what it changed is how many of them are read before anything is on screen,
   // which is the ENTRY_CHUNK_KB budget below and not this one.
-  'out/renderer/assets': 3000,
+  //
+  // 3000 → 3200 when the last inventory lane landed: barcode labels, serial numbers, standard
+  // costing, item images, price-list versioning and FX revaluation are six screens' worth of UI.
+  // The number that actually guards startup is ENTRY_CHUNK_KB below, which is at 1,421 of 1,600 —
+  // these bytes are in code-split chunks that are read when their screen is opened and not before.
+  'out/renderer/assets': 3200,
   // Main process: better-sqlite3 is native and not counted here, so this is our own code.
   //
   // 900 → 1500 in the K lane, which found it already at 1,370 KB from the services sections

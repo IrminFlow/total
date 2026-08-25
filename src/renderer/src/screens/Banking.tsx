@@ -21,8 +21,9 @@ import { PROFILE_FIELDS, type ProfileField } from '@shared/bankImport'
 import { DEFAULT_CONFIDENCE_THRESHOLD } from '@shared/narrationMemory'
 import { confirmDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
+import { ForeignCurrencyTab } from './banking/ForeignCurrencyTab'
 
-type BankTab = 'status' | 'recon' | 'brs' | 'pdc'
+type BankTab = 'status' | 'recon' | 'brs' | 'pdc' | 'fx'
 
 /** How a statement is being read: a named profile, or columns mapped by hand (#131). */
 type ProfileChoice = { profileId?: string | null; adHoc?: BankAdHocProfile | null }
@@ -31,7 +32,8 @@ const TAB_LABELS: Record<BankTab, string> = {
   status: 'All accounts',
   recon: 'Reconcile',
   brs: 'BRS',
-  pdc: 'Post-dated'
+  pdc: 'Post-dated',
+  fx: 'Foreign currency'
 }
 
 export function BankingScreen(): React.JSX.Element {
@@ -40,7 +42,7 @@ export function BankingScreen(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: ledgers } = useQuery({ queryKey: ['bankLedgers'], queryFn: api.bank.ledgers })
-  const [tab, setTab] = useStickyTab<BankTab>('banking', ['status', 'recon', 'brs', 'pdc'], 'status')
+  const [tab, setTab] = useStickyTab<BankTab>('banking', ['status', 'recon', 'brs', 'pdc', 'fx'], 'status')
   const [ledgerId, setLedgerId] = useState<number | null>(null)
   const [suggestions, setSuggestions] = useState<BankSuggestionRow[] | null>(null)
   const [matches, setMatches] = useState<BankMatchSuggestion[] | null>(null)
@@ -372,7 +374,7 @@ export function BankingScreen(): React.JSX.Element {
       </SectionTitle>
 
       <div className="mb-3 flex items-center gap-1">
-        {(['status', 'recon', 'brs', 'pdc'] as const).map((t) => (
+        {(['status', 'recon', 'brs', 'pdc', 'fx'] as const).map((t) => (
           <button
             key={t}
             data-testid={`tab-banking-${t}`}
@@ -597,6 +599,7 @@ export function BankingScreen(): React.JSX.Element {
       {tab === 'brs' && ledgerId != null && <BrsSection ledgerId={ledgerId} defaultAsOn={to} />}
 
       {tab === 'pdc' && <PdcSection />}
+      {tab === 'fx' && <ForeignCurrencyTab />}
 
       {rulesOpen && (
         <BankRulesModal key={rulesModalKey} prefill={rulesPrefill} onClose={() => setRulesOpen(false)} />

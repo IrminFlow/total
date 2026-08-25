@@ -93,6 +93,10 @@ const EXPECTED_TABLES = [
   'job_work_returns',
   'tds_lower_deduction_certificates',
   'gstr1_filed_documents',
+  'serial_numbers',
+  'serial_movements',
+  'standard_costs',
+  'fx_revaluations',
   'migrations'
 ]
 

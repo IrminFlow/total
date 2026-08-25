@@ -94,6 +94,11 @@ const PREFIX_CAPABILITIES: [string, Capability][] = [
   ['master:', 'masters'],
   ['stock:', 'masters'],
   ['priceLevels:', 'masters'],
+  // Job work moves stock and posts a stock journal, so it is books work, not master data. 'fx:'
+  // revalues a bank account and belongs with banking for the same reason.
+  ['fx:', 'banking'],
+  // The scratchpad is a ledger line being moved onto the right account: books, plainly.
+  ['scratchpad:', 'books'],
   ['report:', 'reports'],
   ['analysis:', 'reports'],
   ['dashboard', 'reports'],

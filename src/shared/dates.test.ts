@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, daysBetween, toDisplayDate } from './dates'
+import { addDays, addMonths, daysBetween, toDisplayDate } from './dates'
 describe('addDays / daysBetween', () => {
   it('crosses a month and a year end', () => {
     expect(addDays('2026-01-31', 1)).toBe('2026-02-01')
@@ -47,5 +47,24 @@ describe('toDisplayDate is total', () => {
     for (const bad of [undefined, null]) {
       expect(() => toDisplayDate(bad as unknown as string)).not.toThrow()
     }
+  })
+})
+
+describe('addMonths', () => {
+  it('adds whole calendar months', () => {
+    expect(addMonths('2024-01-15', 1)).toBe('2024-02-15')
+    expect(addMonths('2024-01-15', 12)).toBe('2025-01-15')
+    expect(addMonths('2024-01-15', -1)).toBe('2023-12-15')
+  })
+
+  it('clamps to the end of a shorter month instead of overflowing into the next one', () => {
+    // The bug this exists to prevent: setUTCMonth alone turns 31 January into 2 March.
+    expect(addMonths('2024-01-31', 1)).toBe('2024-02-29')
+    expect(addMonths('2023-01-31', 1)).toBe('2023-02-28')
+    expect(addMonths('2024-03-31', 1)).toBe('2024-04-30')
+  })
+
+  it('a year from 29 February lands on 28 February', () => {
+    expect(addMonths('2024-02-29', 12)).toBe('2025-02-28')
   })
 })

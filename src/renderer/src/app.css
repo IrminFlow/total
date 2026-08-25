@@ -43,6 +43,14 @@
   --t-accent: #3730a3;
   --t-accent-bar: #4338ca;
   --t-accent-soft: rgba(67, 56, 202, 0.1);
+  /* The focus ring, and a THIRD accent value rather than a reuse of one of the two above.
+     The ring is drawn just outside a control, on whatever surface the control sits on, and it has
+     to separate from THAT — which is a different requirement from filling a button and a
+     different one again from being readable as text. On paper the bar colour does the job; in the
+     dark theme it does not, at 2.9:1 against the sidebar, and a ring that exists in the stylesheet
+     and cannot be seen is the same as no ring at all. WCAG 2.2 SC 1.4.11 puts the floor at 3:1 and
+     names a focus indicator as the example; scripts/e2e/12-theme-a11y.mjs measures it. */
+  --t-focus-ring: #4338ca;
   /* Ink ON the solid bar (the primary button), and ink on the soft selection band. They are
      opposite ends of the same scale and were one token, which is how a white label ended up on
      a ten-percent tint the first time this was tried. */
@@ -88,6 +96,9 @@
      from a dark ground rather than from paper. */
   --t-accent: #a5a0f5;
   --t-accent-bar: #5b52d9;
+  /* The bar colour is 2.9:1 against this theme's sidebar — under the 3:1 floor. The ring takes the
+     lighter value, which is the one chosen to separate from a dark ground. */
+  --t-focus-ring: #a5a0f5;
   /* An opaque mix, not the accent at low alpha. A translucent colour takes its hue from whatever
      is behind it, which is how a selected row ends up muddy in one theme and clean in the other. */
   --t-accent-soft: #292748;
@@ -136,6 +147,7 @@
   --t-muted: #3a3a3a;
   --t-accent: #241c6e;
   --t-accent-bar: #2f2590;
+  --t-focus-ring: #2f2590;
   --t-accent-soft: rgba(47, 37, 144, 0.18);
   --t-on-accent: #ffffff;
   --t-on-accent-soft: #000000;
@@ -586,7 +598,7 @@ input[type='radio']:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid var(--t-accent-bar);
+  outline: 2px solid var(--t-focus-ring);
   outline-offset: 1px;
   border-radius: 3px;
 }

@@ -83,6 +83,9 @@ export interface Ledger {
   /** This account is knowingly shared with another party — a proprietor and their firm. Silences
    *  the shared-account exception for this party (roadmap V #389). */
   bankSharedOk: boolean
+  /** ISO code of the currency this account is KEPT in (roadmap #140), or null — which means no
+   *  foreign side at all, not "INR". Only a ledger with one is ever revalued. */
+  currencyCode: string | null
   isSystem: boolean
 }
 
@@ -203,6 +206,10 @@ export interface VoucherLine {
   bankDate: string | null
   /** Optional split of this line's amount across cost centres. */
   costAllocations: VoucherLineCostAllocation[]
+  /** Foreign-currency amount in the currency's minor unit, and the rate that produced `amount`
+   *  (millionths of a rupee per major unit). Both or neither — see @shared/fx. */
+  fcAmount: number | null
+  fcRateMicro: number | null
 }
 
 export interface VoucherBillRef {
@@ -236,6 +243,9 @@ export interface InventoryLine {
   direction: 'in' | 'out'
   /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
   isAbsolute: boolean
+  /** Serial numbers that moved on this line, for an item that tracks them (roadmap #115).
+   *  Empty for every other line, which is almost all of them. */
+  serials: string[]
 }
 
 export interface Voucher {
@@ -388,6 +398,15 @@ export interface StockItem {
    * book that otherwise blocks it.
    */
   blockNegative: boolean | null
+  /** Every movement of this item names the serial numbers that moved (roadmap #115). */
+  trackSerials: boolean
+  /**
+   * File name of the item's picture inside `<company>/item-images/`, or null.
+   *
+   * The NAME, never the bytes and never a path: the picture lives in the company folder like an
+   * attachment does, for the same reasons (src/shared/itemImages.ts).
+   */
+  imageName: string | null
 }
 
 export interface Godown {
