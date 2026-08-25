@@ -50,12 +50,21 @@ await scenario('11-keyboard', async (h) => {
   )
 
   // Return to the Gateway between letters so each one is exercised from the same place and a
-  // failure names the letter rather than wherever we happened to be. Going via G and *waiting*
-  // matters: nav.back()/home() run the unsaved-changes guard asynchronously, so pressing the
-  // next letter immediately after Escape can land on the screen we were trying to leave.
+  // failure names the letter rather than wherever we happened to be. Waiting matters:
+  // nav.back()/home() run the unsaved-changes guard asynchronously, so pressing the next letter
+  // immediately after can land on the screen we were trying to leave.
+  //
+  // ⌘1 rather than a bare G, and the reason is a real property of the app rather than a test
+  // convenience. Counter mode keeps focus in the scan box on purpose — an operator's next scan
+  // has to land somewhere, so the box takes it back on a timeout after anything steals it,
+  // Escape included. A bare letter pressed there is therefore SCANNED, not navigated, and this
+  // loop was racing that timeout: it passed whenever the letter beat the refocus and failed
+  // whenever it did not. ⌘1 is positional (Gateway is the first sidebar entry) and is handled
+  // above the typing-target check, so it works from inside a focused field. Bare-G navigation is
+  // still asserted on its own further down, where no screen is swallowing letters.
   const home = async () => {
     await h.page.keyboard.press('Escape')
-    await h.page.keyboard.press('g')
+    await h.page.keyboard.press('ControlOrMeta+1')
     await h.waitScreen('gateway', 20000)
   }
 
