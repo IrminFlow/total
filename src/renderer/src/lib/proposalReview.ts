@@ -1,4 +1,4 @@
-import type { VoucherInputParsed } from "@shared/schemas";
+import type { VoucherInput } from "@shared/schemas";
 import { formatPaise } from "@shared/money";
 
 export interface ProposalReviewSummary {
@@ -10,7 +10,7 @@ export interface ProposalReviewSummary {
 }
 
 export function proposalReviewSummary(
-  voucher: VoucherInputParsed,
+  voucher: VoucherInput,
   ledgerNames: ReadonlyMap<number, string>,
   voucherTypeName: string,
 ): ProposalReviewSummary {
