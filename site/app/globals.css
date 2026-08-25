@@ -4,9 +4,12 @@
   --ink: #21263a;
   --muted: #6a7186;
   --line: #dcdfe6;
-  --amber: #f5b82e;
-  --amber-deep: #b97f0a;
-  --amber-wash: rgba(245, 184, 46, 0.16);
+  /* The accent, matching the app's --t-accent-bar / --t-accent / selection band. The site and
+     the app keep two hand-written copies of this palette; they have to move together, and the
+     screenshots on the home page are the thing that shows it if they do not. */
+  --accent: #4338ca;
+  --accent-deep: #3730a3;
+  --accent-wash: rgba(67, 56, 202, 0.1);
   --dr: #157a53;
   --cr: #bb4433;
   --band-bg: #0e1220;
@@ -26,8 +29,9 @@
     --ink: #e9e9e2;
     --muted: #8c94ab;
     --line: #273049;
-    --amber-deep: #f0b429;
-    --amber-wash: rgba(240, 180, 41, 0.14);
+    --accent: #5b52d9;
+    --accent-deep: #a5a0f5;
+    --accent-wash: rgba(139, 131, 247, 0.14);
     --dr: #6ec6a0;
     --cr: #e4796b;
     --band-bg: #090c16;
@@ -102,9 +106,9 @@ article.release p { color: var(--ink); font-size: 15px; margin: 8px 0; }
 article.release ul { margin: 8px 0 8px 20px; color: var(--ink); font-size: 15px; display: grid; gap: 4px; }
 article.release code {
   font-family: var(--font-mono), ui-monospace, monospace; font-size: 13px;
-  background: var(--amber-wash); border-radius: 4px; padding: 1px 5px;
+  background: var(--accent-wash); border-radius: 4px; padding: 1px 5px;
 }
-article.release a { color: var(--amber-deep); }
+article.release a { color: var(--accent-deep); }
 
 /* ---------- docs ---------- */
 .docs-grid { display: grid; grid-template-columns: 220px 1fr; gap: 56px; margin-top: 40px; padding-bottom: 96px; align-items: start; }
@@ -115,8 +119,8 @@ article.release a { color: var(--amber-deep); }
 .docs-sidebar { position: sticky; top: 24px; display: grid; gap: 3px; align-content: start; min-width: 0; }
 .docs-content { min-width: 0; }
 .docs-sidebar a { display: block; padding: 8px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; }
-.docs-sidebar a:hover { color: var(--ink); background: var(--amber-wash); }
-.docs-sidebar a.active { color: var(--ink); background: var(--amber-wash); box-shadow: inset 3px 0 0 0 var(--amber); font-weight: 600; }
+.docs-sidebar a:hover { color: var(--ink); background: var(--accent-wash); }
+.docs-sidebar a.active { color: var(--ink); background: var(--accent-wash); box-shadow: inset 3px 0 0 0 var(--accent); font-weight: 600; }
 
 .docs-content { max-width: 720px; padding-top: 4px; }
 .docs-content h1 { font-size: clamp(30px, 4vw, 40px); letter-spacing: -0.015em; margin-bottom: 12px; }
@@ -129,8 +133,8 @@ article.release a { color: var(--amber-deep); }
 .docs-content ul, .docs-content ol { margin: 10px 0 14px 22px; display: grid; gap: 6px; font-size: 15.5px; max-width: 62ch; }
 .docs-content li { color: var(--ink); }
 .docs-content li b, .docs-content p b { font-weight: 600; }
-.docs-content a { color: var(--amber-deep); }
-.docs-content code { font-family: var(--font-mono), ui-monospace, monospace; font-size: 13px; background: var(--amber-wash); border-radius: 4px; padding: 1px 5px; }
+.docs-content a { color: var(--accent-deep); }
+.docs-content code { font-family: var(--font-mono), ui-monospace, monospace; font-size: 13px; background: var(--accent-wash); border-radius: 4px; padding: 1px 5px; }
 .docs-content pre {
   background: var(--band-bg); color: var(--band-ink); border-radius: 10px; padding: 16px 18px;
   overflow-x: auto; margin: 14px 0; box-shadow: var(--shadow);
@@ -151,7 +155,7 @@ article.release a { color: var(--amber-deep); }
   margin: 18px 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--card); box-shadow: var(--shadow); max-width: 62ch;
 }
-.docs-content .callout.warn { border-color: var(--amber); background: var(--amber-wash); }
+.docs-content .callout.warn { border-color: var(--accent); background: var(--accent-wash); }
 .docs-content .callout p { margin: 4px 0; }
 .docs-content .callout p:first-child { margin-top: 0; }
 .docs-content .callout p:last-child { margin-bottom: 0; }
@@ -160,10 +164,10 @@ article.release a { color: var(--amber-deep); }
 .btn {
   display: inline-block; text-decoration: none; border-radius: 8px;
   padding: 11px 20px; font-size: 15px; font-weight: 600;
-  background: var(--amber); color: #2b2000; border: 1px solid var(--amber);
+  background: var(--accent); color: #ffffff; border: 1px solid var(--accent);
 }
 .btn:hover { filter: brightness(1.05); }
-.btn:focus-visible, a:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); font-weight: 500; }
 .btn.small { padding: 7px 14px; font-size: 13.5px; }
 
@@ -203,7 +207,7 @@ article.release a { color: var(--amber-deep); }
 .hero { padding: 58px 0 8px; }
 .eyebrow {
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber-deep);
+  font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent-deep);
 }
 h1 {
   font-size: clamp(38px, 5.6vw, 60px); line-height: 1.05; letter-spacing: -0.015em;
@@ -252,7 +256,7 @@ h1 .quiet { color: var(--muted); }
 .vrow .side.cr { color: var(--cr); }
 .vrow .amt { text-align: right; font-family: var(--font-mono), ui-monospace, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .vrow .note { color: var(--muted); font-size: 13px; }
-.vrow.active { background: var(--amber-wash); box-shadow: inset 3px 0 0 0 var(--amber); }
+.vrow.active { background: var(--accent-wash); box-shadow: inset 3px 0 0 0 var(--accent); }
 
 /* It foots. That is the point, so the totals get the double rule a real total gets. */
 .vtotal {
@@ -328,10 +332,10 @@ h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.01em; line-height: 1.
 .ledger .amt { font-family: var(--font-mono), ui-monospace, monospace; font-size: 13px; color: var(--dr); }
 .ledger tr.total td {
   border-top: 1px solid var(--rule); border-bottom: 3px double var(--rule);
-  font-weight: 700; font-size: 16px; background: var(--amber-wash);
+  font-weight: 700; font-size: 16px; background: var(--accent-wash);
 }
 .ledger tr.total .amt { font-size: 15px; }
-.ledger tbody tr:hover:not(.total) td { background: var(--amber-wash); }
+.ledger tbody tr:hover:not(.total) td { background: var(--accent-wash); }
 
 /* ---------- dark manifesto band ---------- */
 .band { margin-top: 96px; background: var(--band-bg); color: var(--band-ink); padding: 88px 0; }
@@ -341,18 +345,18 @@ h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.01em; line-height: 1.
 @media (max-width: 800px) { .band-grid { grid-template-columns: 1fr; } }
 .band .path {
   display: inline-block; margin: 22px 0 6px; padding: 8px 14px; border: 1px solid var(--band-line);
-  border-radius: 8px; font-family: var(--font-mono), ui-monospace, monospace; font-size: 14px; color: #f0b429;
+  border-radius: 8px; font-family: var(--font-mono), ui-monospace, monospace; font-size: 14px; color: #a5a0f5;
 }
 .band ul { list-style: none; margin-top: 18px; display: grid; gap: 10px; }
 .band li { padding-left: 20px; position: relative; color: var(--band-muted); font-size: 15px; }
-.band li::before { content: ''; position: absolute; left: 0; top: 8px; width: 8px; height: 8px; border-radius: 2px; background: #f0b429; }
+.band li::before { content: ''; position: absolute; left: 0; top: 8px; width: 8px; height: 8px; border-radius: 2px; background: #a5a0f5; }
 .band li b { color: var(--band-ink); font-weight: 600; }
 .band img { display: block; width: 100%; height: auto; border: 1px solid var(--band-line); border-radius: 12px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); }
 /* The band's right column is a claim, set large. It replaced a second copy of the same
    screenshot already used further up the page. */
 .band-quote {
   font-size: clamp(21px, 2.4vw, 28px); line-height: 1.32; letter-spacing: -0.01em;
-  color: var(--band-ink); border-left: 2px solid #f0b429; padding-left: 22px;
+  color: var(--band-ink); border-left: 2px solid #a5a0f5; padding-left: 22px;
 }
 .band-quote-note { margin-top: 16px; padding-left: 24px; color: var(--band-muted); font-size: 15px; max-width: 34em; }
 
@@ -361,11 +365,11 @@ h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.01em; line-height: 1.
 @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
 .keys { display: flex; gap: 8px; flex-wrap: wrap; margin: 20px 0 16px; }
 .keys kbd { font-size: 14px; padding: 8px 13px; border-radius: 8px; color: var(--ink); }
-.keys kbd.hot { background: var(--amber-wash); border-color: var(--amber); color: var(--amber-deep); }
+.keys kbd.hot { background: var(--accent-wash); border-color: var(--accent); color: var(--accent-deep); }
 h3 { font-size: 20px; margin-bottom: 8px; letter-spacing: -0.01em; }
 .two p { color: var(--muted); font-size: 15.5px; max-width: 32em; }
 .two p + p { margin-top: 10px; }
-.two .mono-inline { font-family: var(--font-mono), ui-monospace, monospace; font-size: 13.5px; color: var(--amber-deep); }
+.two .mono-inline { font-family: var(--font-mono), ui-monospace, monospace; font-size: 13.5px; color: var(--accent-deep); }
 
 /* ---------- download ---------- */
 .get { margin: 96px 0 0; text-align: center; padding: 70px 24px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
@@ -396,14 +400,14 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
   background: var(--card); border: 1px solid var(--line); border-radius: 12px;
   padding: 24px 22px; box-shadow: var(--shadow);
 }
-/* One plan carries the amber, the way the cursor bar does in the app. */
-.plan.featured { border-color: var(--amber); box-shadow: var(--shadow), inset 0 3px 0 0 var(--amber); }
+/* One plan carries the accent, the way the cursor bar does in the app. */
+.plan.featured { border-color: var(--accent); box-shadow: var(--shadow), inset 0 3px 0 0 var(--accent); }
 .plan-name { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .plan-price { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin-top: 10px; }
 .plan-unit { color: var(--muted); font-size: 13.5px; margin-top: 2px; }
 .plan ul { list-style: none; margin: 16px 0 0; display: grid; gap: 8px; }
 .plan li { position: relative; padding-left: 18px; font-size: 14px; color: var(--ink); }
-.plan li::before { content: ''; position: absolute; left: 0; top: 8px; width: 6px; height: 6px; border-radius: 2px; background: var(--amber); }
+.plan li::before { content: ''; position: absolute; left: 0; top: 8px; width: 6px; height: 6px; border-radius: 2px; background: var(--accent); }
 
 /* A plain prose list — used on the privacy page, where each item is a sentence rather than a
    feature. Deliberately not the ledger table: a list of things that never happen has no columns. */
@@ -444,9 +448,9 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
   margin: 18px 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--card); box-shadow: var(--shadow); max-width: 62ch;
 }
-.folio .callout.warn { border-color: var(--amber); background: var(--amber-wash); }
+.folio .callout.warn { border-color: var(--accent); background: var(--accent-wash); }
 .folio .callout p { margin: 4px 0; font-size: 15.5px; }
-.folio .callout a, .folio .prose a, .plain-list a, .steps a { color: var(--amber-deep); }
+.folio .callout a, .folio .prose a, .plain-list a, .steps a { color: var(--accent-deep); }
 
 /* A numbered list where each step is a sentence, not a label. Used on the CA, partner and demo
    pages. The number is the ledger's, set in mono so it lines up. */
@@ -455,8 +459,8 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
 .steps li::before {
   content: counter(step); position: absolute; left: 0; top: 1px;
   width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center;
-  background: var(--amber-wash); border: 1px solid var(--amber);
-  color: var(--amber-deep); font-family: var(--font-mono), ui-monospace, monospace;
+  background: var(--accent-wash); border: 1px solid var(--accent);
+  color: var(--accent-deep); font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 12.5px; font-weight: 600;
 }
 .steps li b { color: var(--ink); font-weight: 600; }
@@ -483,7 +487,7 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
   background: var(--card); border: 1px solid var(--line); border-radius: 12px;
   padding: 22px 24px; box-shadow: var(--shadow);
 }
-.quotes blockquote { font-size: 16px; line-height: 1.5; color: var(--ink); border-left: 2px solid var(--amber); padding-left: 16px; }
+.quotes blockquote { font-size: 16px; line-height: 1.5; color: var(--ink); border-left: 2px solid var(--accent); padding-left: 16px; }
 .quotes figcaption { margin-top: 16px; display: grid; gap: 2px; font-size: 13.5px; color: var(--muted); }
 .quotes figcaption b { color: var(--ink); font-weight: 600; }
 
@@ -496,7 +500,7 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
 }
 .buy-card h3 { margin: 0; }
 .buy-help { color: var(--muted); font-size: 14.5px; margin: 0; max-width: 44em; }
-.buy-card .btn { justify-self: start; border: 1px solid var(--amber); cursor: pointer; }
+.buy-card .btn { justify-self: start; border: 1px solid var(--accent); cursor: pointer; }
 .buy-card .btn:disabled { opacity: 0.55; cursor: progress; }
 .buy-card .btn.ghost { border-color: var(--line); }
 
@@ -508,12 +512,12 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
 }
 .field input::placeholder { color: var(--muted); opacity: 1; }
 .field input:focus-visible, .field select:focus-visible {
-  outline: 2px solid var(--amber); outline-offset: 1px; border-color: var(--amber);
+  outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
 }
 .field-help { color: var(--muted); font-size: 12.5px; margin: 0; }
 .field-error { color: var(--cr); font-size: 13px; margin: 0; font-weight: 500; }
 .check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink); }
-.check input { margin-top: 3px; accent-color: var(--amber); }
+.check input { margin-top: 3px; accent-color: var(--accent); }
 .licence-key {
   background: var(--band-bg); color: var(--band-ink); border-radius: 10px; padding: 14px 16px;
   font-family: var(--font-mono), ui-monospace, monospace; font-size: 12.5px; line-height: 1.6;
@@ -540,9 +544,9 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
 .footer-head { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
 .footer-grid ul { list-style: none; display: grid; gap: 7px; }
 .footer-grid a { color: var(--ink); text-decoration: none; font-size: 14px; }
-.footer-grid a:hover { color: var(--amber-deep); }
+.footer-grid a:hover { color: var(--accent-deep); }
 .footer-note { color: var(--muted); font-size: 13.5px; margin-bottom: 7px; max-width: 24em; }
-.footer-note a { color: var(--amber-deep); text-decoration: none; }
+.footer-note a { color: var(--accent-deep); text-decoration: none; }
 
 /* The second, indicative figure for visitors outside India. Deliberately quieter than the rupee
    price, because the rupee price is the one that gets charged. */

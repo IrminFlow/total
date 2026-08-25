@@ -28,7 +28,7 @@ export function ApprovalBanner({ voucher }: { voucher: Voucher }): React.JSX.Ele
     return (
       <div
         data-testid="voucher-approval-pending"
-        className="mt-4 rounded-md border border-amber/50 bg-amber/10 px-4 py-3"
+        className="mt-4 rounded-md border border-accent/50 bg-accent/10 px-4 py-3"
       >
         <p className="text-detail font-medium text-ink">Waiting for the owner to approve it.</p>
         <p className="mt-1 text-body-sm text-muted">

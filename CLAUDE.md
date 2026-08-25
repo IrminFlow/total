@@ -49,7 +49,7 @@ cd site && npm run dev / npm run build   # marketing site
 - Every IPC payload is Zod-parsed in `src/main/ipc.ts`; handlers return `{ ok, data | error }`.
 - Schema changes = append a numbered migration in `src/main/db/migrations.ts` (never edit old ones).
 - Debit/credit: signed balances are dr-positive; Tally XML import converts Tally's negative-=-debit convention.
-- UI: theme tokens are `--t-*` CSS vars on `[data-theme]`, mapped through Tailwind `@theme inline` — components use token utilities only. The amber `.kbar-row` selection bar on `<tr>` uses an inset box-shadow, **never `::before`** (a `tr::before` renders as a phantom first cell).
+- UI: theme tokens are `--t-*` CSS vars on `[data-theme]`, mapped through Tailwind `@theme inline` — components use token utilities only. The accent `.kbar-row` selection bar on `<tr>` uses an inset box-shadow, **never `::before`** (a `tr::before` renders as a phantom first cell).
 - Vouchers are soft-deleted (`vouchers.deleted_at`, moved to the bin) — every new SQL query touching `vouchers`/`voucher_lines` must filter `deleted_at IS NULL` (see `NOT_DELETED` in `src/main/services/vouchers.ts`) unless it's explicitly reading the bin, `getVoucher`, or `nextVoucherNumber`.
 
 ## Gotchas

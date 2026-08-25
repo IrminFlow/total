@@ -14,7 +14,7 @@ const ROWS = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
 describe('useTableNav', () => {
   beforeEach(() => __resetLayersForTest())
 
-  it('emits the markup the amber bar and the E2E harness depend on', () => {
+  it('emits the markup the accent bar and the E2E harness depend on', () => {
     const { result } = renderHook(() => useTableNav(ROWS, { rowId: (r) => r.id }))
     const first = result.current.rowProps(0, ROWS[0]!)
     expect(first.className).toContain('kbar-row')

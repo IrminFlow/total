@@ -31,27 +31,40 @@
   --t-line: #dcdfe6;
   --t-ink: #21263a;
   --t-muted: #6a7186;
-  --t-amber: #b97f0a;
-  --t-amber-bar: #f5b82e;
-  --t-amber-soft: rgba(245, 184, 46, 0.18);
+  /* ---- The accent: indigo ----
+     Every selection bar, active tab, active nav item and primary button in the app is this one
+     colour. It was a gold amber, which on a cream ground reads as highlighter pen: warm, loud,
+     and close enough to the ochre used for warnings that the two competed.
+
+     Two values rather than one, because the accent does two different jobs. `--t-accent` is for
+     text and hairlines and has to clear 4.5:1 against paper; `--t-accent-bar` is for solid fills
+     and can be brighter, since what sits on it is white. Using one value for both is how an
+     accent ends up either too pale to fill with or too dark to read. */
+  --t-accent: #3730a3;
+  --t-accent-bar: #4338ca;
+  --t-accent-soft: rgba(67, 56, 202, 0.1);
+  /* Ink ON the solid bar (the primary button), and ink on the soft selection band. They are
+     opposite ends of the same scale and were one token, which is how a white label ended up on
+     a ten-percent tint the first time this was tried. */
+  --t-on-accent: #ffffff;
+  --t-on-accent-soft: #1e1b4b;
   --t-dr: #157a53;
   --t-cr: #bb4433;
-  --t-blue: #1f5fc2;
+  /* Links and row actions. Demoted from a true blue to a slate: with an indigo signature, a blue
+     link is a second accent competing with the first, and the day book had sixty of them on
+     screen at once. Quiet enough to read as ink, distinct enough to read as clickable. */
+  --t-blue: #3f4a63;
   /* Accelerator letters. Deliberately NOT --t-cr: that red means "credit" throughout the
      app, and a menu label sharing it would read as an amount. */
   --t-accel: #c02f1d;
-  /* Ink for text sitting ON the amber bar — the one place the ink colour must not follow the
-     theme, because the bar itself is the same amber in both. */
-  --t-on-amber: #2b2000;
   /* The margin rule down the left of a ledger page. Muted well below --t-cr so it reads as
      ruling, not as a credit figure. */
   --t-margin: color-mix(in oklab, #bb4433 34%, transparent);
   --t-shadow: 0 1px 2px rgba(30, 35, 60, 0.06), 0 4px 16px rgba(30, 35, 60, 0.05);
   --t-rule: #3a4053;
-  /* Warnings. Amber already carries four jobs — row selection, active tab, active nav item and
-     the primary button — so a caution box that borrows it competes with the signature instead of
-     reading as a caution. This is a deliberately desaturated ochre: same family, clearly duller,
-     never mistaken for the selection bar sitting eight pixels away. */
+  /* Warnings. A caution needs its own colour, and now that the signature is indigo this ochre
+     finally has the field to itself — it used to sit eight pixels from an amber selection bar
+     and lose. */
   --t-warn: #8a6512;
   --t-warn-soft: rgba(138, 101, 18, 0.1);
   --t-warn-line: color-mix(in oklab, #8a6512 38%, transparent);
@@ -60,34 +73,44 @@
 [data-theme='dark'] {
   /* Dark is an elevation model, not a colour swap. The ground is pushed down and the panel up,
      so a panel reads as a sheet lying on the desk rather than dissolving into it; the top-edge
-     highlight in --t-shadow is the light catching the near edge of that sheet. */
-  --t-bg: #0a0e1a;
-  --t-panel: #1a2136;
-  --t-panel2: #232c45;
-  --t-line: #2f3a58;
-  --t-ink: #e9e9e2;
-  --t-muted: #939bb2;
-  --t-amber: #f0b429;
-  --t-amber-bar: #f0b429;
-  --t-amber-soft: rgba(240, 180, 41, 0.14);
+     highlight in --t-shadow is the light catching the near edge of that sheet.
+     
+     The neutrals are a true grey, neither the old navy nor a brown. Navy made the app a different
+     product after dark, and a warm charcoal would now fight the indigo accent rather than carry
+     it. Grey is the ground that lets one accent be the only colour in the room. */
+  --t-bg: #121316;
+  --t-panel: #1c1e23;
+  --t-panel2: #262930;
+  --t-line: #363a44;
+  --t-ink: #e8e9ec;
+  --t-muted: #9aa0ab;
+  /* Lighter than the light theme's indigo, because the job is reversed: here it has to separate
+     from a dark ground rather than from paper. */
+  --t-accent: #a5a0f5;
+  --t-accent-bar: #5b52d9;
+  /* An opaque mix, not the accent at low alpha. A translucent colour takes its hue from whatever
+     is behind it, which is how a selected row ends up muddy in one theme and clean in the other. */
+  --t-accent-soft: #292748;
+  --t-on-accent: #ffffff;
+  --t-on-accent-soft: #e8e9ec;
   --t-dr: #6ec6a0;
   --t-cr: #e4796b;
-  --t-blue: #6e8ef5;
+  /* The link slate, lifted for a dark ground. */
+  --t-blue: #a7b0c4;
   /* Hotter and more saturated than the light theme's vermilion: on a near-black ground the old
      #ff8a75 washed out to pink and stopped separating from --t-cr. */
   --t-accel: #ff5f45;
-  --t-on-amber: #2b2000;
   /* The margin rule down the left of a ledger page. Muted well below --t-cr so it reads as
      ruling, not as a credit figure. */
   --t-margin: color-mix(in oklab, #e4796b 26%, transparent);
   /* Inset first: a 1px top-edge highlight inside the panel's own border. Then a cast shadow that
      is real (dark had none, which is why every panel floated flush with the background). */
   --t-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.5),
     0 8px 24px rgba(0, 0, 0, 0.38);
   --t-rule: #e9e9e2;
-  /* Tan rather than gold — at this brightness a saturated ochre is indistinguishable from the
-     selection amber. */
+  /* Tan rather than gold: on a grey ground a saturated ochre is the loudest thing on screen, and
+     a caution should not outrank the figures it is cautioning about. */
   --t-warn: #d1a86a;
   --t-warn-soft: rgba(209, 168, 106, 0.16);
   --t-warn-line: color-mix(in oklab, #d1a86a 46%, transparent);
@@ -102,9 +125,8 @@
    every edge in the app is a real edge rather than a two-percent step, and every accent colour is
    darkened until it clears WCAG AAA (7:1) against the ground instead of AA.
 
-   The amber survives as the selection bar because it is the signature, but as a *graphic* only:
-   #b06f00 is 4.1:1 against white, which passes the 3:1 non-text rule, and the ink that sits on it
-   is black rather than the usual near-black brown. */
+   The indigo survives as the selection bar because it is the signature, darkened to 11:1 against
+   white so it clears AAA as text as well as filling as a graphic. */
 [data-theme='contrast'] {
   --t-bg: #ffffff;
   --t-panel: #ffffff;
@@ -112,14 +134,15 @@
   --t-line: #000000;
   --t-ink: #000000;
   --t-muted: #3a3a3a;
-  --t-amber: #6b4500;
-  --t-amber-bar: #b06f00;
-  --t-amber-soft: rgba(176, 111, 0, 0.22);
+  --t-accent: #241c6e;
+  --t-accent-bar: #2f2590;
+  --t-accent-soft: rgba(47, 37, 144, 0.18);
+  --t-on-accent: #ffffff;
+  --t-on-accent-soft: #000000;
   --t-dr: #005a36;
   --t-cr: #a4000f;
-  --t-blue: #00358f;
+  --t-blue: #1b2233;
   --t-accel: #8a2600;
-  --t-on-amber: #000000;
   --t-margin: color-mix(in oklab, #a4000f 70%, transparent);
   /* A blurred drop shadow is invisible at this contrast and does no separating work. A hard 1px
      ring is the same job done in a way the eye it is meant for can actually see. */
@@ -140,14 +163,21 @@
   --color-line: var(--t-line);
   --color-ink: var(--t-ink);
   --color-muted: var(--t-muted);
-  --color-amber: var(--t-amber);
-  --color-amberbar: var(--t-amber-bar);
+  --color-accent: var(--t-accent);
+  --color-accentbar: var(--t-accent-bar);
+  /* `amber` and `amberbar` are the accent's old names, kept mapped while branches written before
+     the recolour land. They point at the same tokens, so nothing renders gold — but a utility
+     that quietly still works is a utility nobody migrates, so these come out in the chrome pass. */
+  --color-amber: var(--t-accent);
+  --color-amberbar: var(--t-accent-bar);
   --color-dr: var(--t-dr);
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);
   --color-rule: var(--t-rule);
   --color-accel: var(--t-accel);
-  --color-onamber: var(--t-on-amber);
+  --color-onaccent: var(--t-on-accent);
+  --color-onaccentsoft: var(--t-on-accent-soft);
+  --color-onamber: var(--t-on-accent);
   --color-warn: var(--t-warn);
   --color-warnsoft: var(--t-warn-soft);
   --color-warnline: var(--t-warn-line);
@@ -257,13 +287,13 @@ body {
   -webkit-app-region: no-drag;
 }
 
-/* ---------- amber keyboard bar — the signature ---------- */
+/* ---------- the accent keyboard bar — the signature ---------- */
 
 .kbar-row {
   position: relative;
 }
 .kbar-row[data-active='true'] {
-  background: var(--t-amber-soft);
+  background: var(--t-accent-soft);
 }
 .kbar-row[data-active='true']::before {
   content: '';
@@ -273,7 +303,7 @@ body {
   bottom: 2px;
   width: 3px;
   border-radius: 2px;
-  background: var(--t-amber-bar);
+  background: var(--t-accent-bar);
 }
 /* On table rows a ::before would become a phantom first cell — use an inset bar instead. */
 tr.kbar-row::before,
@@ -281,7 +311,31 @@ tr.kbar-row[data-active='true']::before {
   content: none;
 }
 tr.kbar-row[data-active='true'] td:first-child {
-  box-shadow: inset 3px 0 0 0 var(--t-amber-bar);
+  box-shadow: inset 3px 0 0 0 var(--t-accent-bar);
+}
+
+/* Coloured figures step back to full-contrast ink while their row is selected.
+ *
+ * An overdue amount is drawn in the credit red, and the selected row carries the accent. Colour on
+ * colour:
+ * the one moment a keyboard-driven app puts a number under the cursor is the moment that number
+ * loses its contrast. The signal is not lost — the row itself is now the loudest thing on the
+ * screen, and weight and position still separate the figure — but it becomes legible again.
+ *
+ * Scoped to the cell text, so a status chip with its own background keeps its colour. */
+.kbar-row[data-active='true'] .text-cr,
+.kbar-row[data-active='true'] .text-dr,
+.kbar-row[data-active='true'] .text-accent,
+.kbar-row[data-active='true'] .text-warn,
+.kbar-row[data-active='true'] .text-blue {
+  color: var(--t-on-accent-soft);
+}
+[data-theme='dark'] .kbar-row[data-active='true'] .text-cr,
+[data-theme='dark'] .kbar-row[data-active='true'] .text-dr,
+[data-theme='dark'] .kbar-row[data-active='true'] .text-accent,
+[data-theme='dark'] .kbar-row[data-active='true'] .text-warn,
+[data-theme='dark'] .kbar-row[data-active='true'] .text-blue {
+  color: var(--t-ink);
 }
 
 /* ---------- row actions: quiet, but never hover-only (#283) ----------
@@ -292,7 +346,7 @@ tr.kbar-row[data-active='true'] td:first-child {
 
      .group:hover              the pointer is on the row
      .group:focus-within       Tab has landed inside the row
-     .group[data-active=true]  the amber keyboard bar is on the row (useTableNav's row props)
+     .group[data-active=true]  the accent keyboard bar is on the row (useTableNav's row props)
      :focus-visible            the action itself has focus, including inside a row that is not
                                a `.group` at all
 
@@ -332,7 +386,7 @@ tr[data-active='true'] .row-action,
 
    The point is not to punish the mouse, it is to make the screen honest. With hover in the mix
    an operator working from the keyboard sees rows whose actions appear for someone else and
-   never for them, and cannot tell whether a row has one action or four. With it out, the amber
+   never for them, and cannot tell whether a row has one action or four. With it out, the accent
    bar and Tab are the only things that light an action up — so what is visible is exactly what
    the keyboard can reach.
 
@@ -464,7 +518,7 @@ select:not([multiple]):not([size]):hover {
    dark table that is the loudest thing on the screen, and it is the state most boxes are in.
 
    So: `appearance: none` and paint both states from tokens. The tick is a CSS mask rather than a
-   background image so it inherits `--t-on-amber` and stays legible in either theme; a hardcoded
+   background image so it inherits `--t-on-accent` and stays legible in either theme; a hardcoded
    SVG fill would be wrong in one of them. */
 input[type='checkbox'],
 input[type='radio'] {
@@ -491,20 +545,20 @@ input[type='radio'] {
 
 input[type='checkbox']:hover:not(:disabled),
 input[type='radio']:hover:not(:disabled) {
-  border-color: var(--t-amber);
+  border-color: var(--t-accent);
 }
 
 input[type='checkbox']:checked,
 input[type='radio']:checked {
-  background: var(--t-amber-bar);
-  border-color: var(--t-amber-bar);
+  background: var(--t-accent-bar);
+  border-color: var(--t-accent-bar);
 }
 
 input[type='checkbox']:checked::after {
   content: '';
   width: 9px;
   height: 9px;
-  background: var(--t-on-amber);
+  background: var(--t-on-accent);
   clip-path: polygon(14% 46%, 0 60%, 39% 100%, 100% 22%, 86% 8%, 39% 71%);
 }
 
@@ -513,7 +567,7 @@ input[type='radio']:checked::after {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--t-on-amber);
+  background: var(--t-on-accent);
 }
 
 input[type='checkbox']:disabled,
@@ -524,7 +578,7 @@ input[type='radio']:disabled {
 
 /* ---------- warnings ---------- */
 
-/* A caution box. Uses --t-warn, never the amber: see the token comment. */
+/* A caution box. Uses --t-warn, never the accent: see the token comment. */
 .callout-warn {
   border: 1px solid var(--t-warn-line);
   background: var(--t-warn-soft);
@@ -532,22 +586,48 @@ input[type='radio']:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid var(--t-amber-bar);
+  outline: 2px solid var(--t-accent-bar);
   outline-offset: 1px;
   border-radius: 3px;
 }
 
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+/* A card that scrolls when it must and ends when it can.
+ *
+ * The pattern everywhere was `flex-1` on the report card, which fills the viewport whatever the
+ * content. A trial balance for a young company then ended with its double-rule Total and carried
+ * on for another two hundred blank pixels INSIDE the same card — which reads as data that has
+ * been cut off, not as whitespace. A ledger ends at its ruled total; that is the whole paper
+ * metaphor this app is built on.
+ *
+ * `max-height: 100%` keeps the bound the inner scroller needs, so a long report still scrolls
+ * inside a fixed card with its header in place. A short one just stops. */
+.card-fit {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 100%;
 }
-::-webkit-scrollbar-thumb {
-  background: var(--t-line);
-  border-radius: 6px;
-  border: 2px solid var(--t-bg);
+
+/* Scrollbars that stay out of the way.
+ *
+ * A styled webkit scrollbar is painted at full strength forever, so every screen carried a grey
+ * pill parked between the sidebar and the content — a phantom third column that reads as a
+ * rendering fault rather than as a control, because nothing else in the chrome is grey-on-white
+ * at that weight.
+ *
+ * The standard properties rather than the webkit pseudo-elements, because `:hover` cannot be used
+ * to reveal a thumb: `:hover` matches every ancestor under the pointer, so `html` is hovered
+ * whenever the pointer is anywhere in the window and the "hidden" thumb was always visible.
+ * `scrollbar-width: thin` gets a bar half the width, and the thumb is mixed down until it reads
+ * as a hint about position rather than as a piece of furniture. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--t-muted) 30%, transparent) transparent;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+
+/* High contrast is the one theme where the scrollbar should be as loud as everything else: the
+   reader it is built for should not have to find a control by looking closely. */
+[data-theme='contrast'] * {
+  scrollbar-color: var(--t-ink) transparent;
 }
 
 /* Tailwind v4 ships sr-only/not-sr-only; declared here too because the skip link is the one
