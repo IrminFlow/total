@@ -97,7 +97,7 @@ export function VoucherEntry({
   const physicalMode = !voucherId && currentType.kind === 'physical_stock'
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-4xl">
       {/* Crash-safe recovery (roadmap #250) — suppressed while altering an existing voucher, and
           while a draft has just been handed in by a nudge or a duplicate. */}
       {showFirstVoucherHint && (

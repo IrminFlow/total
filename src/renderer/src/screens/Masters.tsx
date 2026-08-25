@@ -48,7 +48,7 @@ export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
   const nav = useNav()
   const active = tab ?? 'ledgers'
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="flex h-full min-h-0 w-full flex-col max-w-[1440px]">
       <SectionTitle
         right={
           // Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
