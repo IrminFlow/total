@@ -5369,6 +5369,7 @@ export function registerIpc(): void {
     handle,
     requireCompany,
     actor: () => sessionUser?.name ?? "Local user",
+    getSessionUser: () => sessionUser,
     chooseEmlDestination: async (suggestedFileName) => {
       const picked = await dialog.showSaveDialog({
         defaultPath: suggestedFileName,

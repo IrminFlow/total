@@ -219,6 +219,18 @@ describe("IPC permission denial gate", () => {
       "communications:messages:resolveAcceptance",
       { id: "00000000-0000-4000-8000-000000000001" },
     ],
+    [
+      "communications:batches:approve",
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ],
+    [
+      "communications:batches:reject",
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ],
+    [
+      "communications:batches:enqueue",
+      { id: "00000000-0000-4000-8000-000000000001", smtpProfileId: 1 },
+    ],
   ])("denies a default accountant invocation of %s", (channel, payload) => {
     const db = freshDb();
     expect(DEFAULT_PERMISSION_MATRIX.accountant.create).toBe(true);
@@ -253,6 +265,18 @@ describe("IPC permission denial gate", () => {
     [
       "communications:messages:resolveAcceptance",
       { id: "00000000-0000-4000-8000-000000000001" },
+    ],
+    [
+      "communications:batches:approve",
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ],
+    [
+      "communications:batches:reject",
+      { id: "00000000-0000-4000-8000-000000000001" },
+    ],
+    [
+      "communications:batches:enqueue",
+      { id: "00000000-0000-4000-8000-000000000001", smtpProfileId: 1 },
     ],
   ])(
     "allows an owner and a configured approver to invoke %s",

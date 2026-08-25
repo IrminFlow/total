@@ -152,6 +152,9 @@ const EXPECTED_TABLES = [
   "smtp_profiles",
   "outbound_messages",
   "outbound_message_events",
+  "communication_batches",
+  "communication_batch_items",
+  "communication_batch_events",
   "ai_document_inbox",
   "ai_task_routes",
   "ai_ledger_feedback",
@@ -1560,6 +1563,32 @@ describe("migrate", () => {
           version: number;
         }
       ).version,
-    ).toBe(60);
+    ).toBe(MIGRATIONS.length);
+  });
+
+  it("061: stores bounded batch snapshots and append-only enqueue evidence", () => {
+    const db = freshDb();
+    const tables = (
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'communication_batch%'",
+        )
+        .all() as { name: string }[]
+    ).map((row) => row.name);
+    expect(tables).toEqual(
+      expect.arrayContaining([
+        "communication_batches",
+        "communication_batch_items",
+        "communication_batch_events",
+      ]),
+    );
+    const triggerSql = (
+      db
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='communication_batch_events_no_update'",
+        )
+        .get() as { sql: string }
+    ).sql;
+    expect(triggerSql).toContain("append-only");
   });
 });

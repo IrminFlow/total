@@ -31,6 +31,7 @@ export const IPC_OUTBOUND_DATA_CONTRACTS = {
   "communications:messages:queue": "full_data",
   "communications:messages:deliver": "full_data",
   "communications:messages:resolveAcceptance": "full_data",
+  "communications:batches:enqueue": "full_data",
 } as const satisfies Record<string, ExportFormat>;
 
 /**
@@ -337,6 +338,11 @@ export const EXPLICIT_PERMISSION_ACTIONS = {
   "communications:messages:deliver": "approve",
   "communications:messages:resolveAcceptance": "approve",
   "communications:messages:cancel": "edit",
+  "communications:batches:create": "create",
+  "communications:batches:approve": "approve",
+  "communications:batches:reject": "approve",
+  "communications:batches:enqueue": "approve",
+  "communications:batches:cancel": "edit",
 } as const satisfies Record<string, PermissionAction>;
 
 type PayloadPermissionContract = (payload: unknown) => PermissionAction;

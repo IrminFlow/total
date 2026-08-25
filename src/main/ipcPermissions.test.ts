@@ -84,10 +84,7 @@ describe("IPC permission contracts", () => {
       "bank:chequeStatus",
       { voucherId: 7, status: "cleared", statusDate: "2026-08-24" },
     ],
-    [
-      "payroll:loans:setInstallment",
-      { installmentId: 12, status: "paused" },
-    ],
+    ["payroll:loans:setInstallment", { installmentId: 12, status: "paused" }],
     [
       "tds:returnStatusSet",
       { fyStartYear: 2026, quarter: 1, status: "prepared" },
@@ -144,6 +141,9 @@ describe("IPC permission contracts", () => {
     "communications:messages:queue",
     "communications:messages:deliver",
     "communications:messages:resolveAcceptance",
+    "communications:batches:approve",
+    "communications:batches:reject",
+    "communications:batches:enqueue",
   ])("classifies %s as an approval decision", (channel) => {
     expect(
       permissionActionForChannel(
@@ -172,6 +172,7 @@ describe("IPC permission contracts", () => {
       "communications:messages:queue": "full_data",
       "communications:messages:deliver": "full_data",
       "communications:messages:resolveAcceptance": "full_data",
+      "communications:batches:enqueue": "full_data",
     });
     for (const channel of Object.keys(IPC_OUTBOUND_DATA_CONTRACTS))
       expect(permissionActionForChannel(channel, {}, "accountant")).toBe(
@@ -214,6 +215,11 @@ describe("IPC permission contracts", () => {
       "communications:messages:deliver": "approve",
       "communications:messages:resolveAcceptance": "approve",
       "communications:messages:cancel": "edit",
+      "communications:batches:create": "create",
+      "communications:batches:approve": "approve",
+      "communications:batches:reject": "approve",
+      "communications:batches:enqueue": "approve",
+      "communications:batches:cancel": "edit",
     });
   });
 

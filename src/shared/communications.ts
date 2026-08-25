@@ -230,6 +230,110 @@ export interface OutboundMessageEvent {
   createdAt: string;
 }
 
+export const communicationBatchDocumentKindSchema = z.enum([
+  "invoice",
+  "statement",
+  "reminder",
+  "other",
+]);
+export type CommunicationBatchDocumentKind = z.infer<
+  typeof communicationBatchDocumentKindSchema
+>;
+
+const communicationBatchItemInputSchema = z
+  .object({
+    messageId: z.string().uuid(),
+    documentKind: communicationBatchDocumentKindSchema,
+    documentLabel: singleLine(240),
+    amountPaise: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    exclusionReason: z.string().trim().min(3).max(500).nullable().default(null),
+  })
+  .strict();
+
+export const communicationBatchCreateSchema = z
+  .object({
+    name: singleLine(160),
+    items: z.array(communicationBatchItemInputSchema).min(1).max(100),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      new Set(value.items.map((item) => item.messageId)).size ===
+      value.items.length,
+    "A draft can appear only once in a batch",
+  );
+export type CommunicationBatchCreateInput = z.infer<
+  typeof communicationBatchCreateSchema
+>;
+
+export const communicationBatchStatusSchema = z.enum([
+  "pending_approval",
+  "approved",
+  "partially_queued",
+  "queued",
+  "rejected",
+  "cancelled",
+]);
+export type CommunicationBatchStatus = z.infer<
+  typeof communicationBatchStatusSchema
+>;
+
+export const communicationBatchQueueSchema = z
+  .object({
+    id: z.string().uuid(),
+    smtpProfileId: z.number().int().positive(),
+    itemIds: z.array(z.number().int().positive()).min(1).max(25).optional(),
+  })
+  .strict();
+export type CommunicationBatchQueueInput = z.infer<
+  typeof communicationBatchQueueSchema
+>;
+
+export interface CommunicationBatchItem {
+  id: number;
+  batchId: string;
+  messageId: string;
+  position: number;
+  status: "ready" | "excluded" | "queued" | "failed";
+  documentKind: CommunicationBatchDocumentKind;
+  documentLabel: string;
+  amountPaise: number;
+  messageRevision: number;
+  contentSha256: string;
+  ledgerId: number | null;
+  contactId: number | null;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  bodyText: string;
+  exclusionReason: string | null;
+  attempts: number;
+  lastError: string | null;
+  queuedAt: string | null;
+  messageStatus: OutboundMessageStatus;
+}
+
+export interface CommunicationBatch {
+  id: string;
+  name: string;
+  status: CommunicationBatchStatus;
+  makerUserId: number | null;
+  makerName: string;
+  checkerUserId: number | null;
+  checkerName: string | null;
+  decisionNote: string | null;
+  selectedCount: number;
+  includedCount: number;
+  excludedCount: number;
+  recipientCount: number;
+  totalAmountPaise: number;
+  createdAt: string;
+  reviewedAt: string | null;
+  updatedAt: string;
+  items: CommunicationBatchItem[];
+}
+
 export interface SmtpAcceptance {
   accepted: true;
   /** Final SMTP response after DATA. This proves only that the configured server accepted it. */

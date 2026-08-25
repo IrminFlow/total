@@ -13,6 +13,7 @@ function registrations() {
     rows.push({ channel, handler, role });
   let companyReads = 0;
   let actorReads = 0;
+  let sessionReads = 0;
   const destinationRequests: string[] = [];
   registerCommunicationsHandlers({
     handle,
@@ -24,6 +25,10 @@ function registrations() {
       actorReads += 1;
       return "Asha";
     },
+    getSessionUser: () => {
+      sessionReads += 1;
+      return null;
+    },
     chooseEmlDestination: async (suggestedFileName) => {
       destinationRequests.push(suggestedFileName);
       return null;
@@ -32,7 +37,7 @@ function registrations() {
   return {
     rows,
     destinationRequests,
-    reads: () => ({ companyReads, actorReads }),
+    reads: () => ({ companyReads, actorReads, sessionReads }),
   };
 }
 
@@ -59,6 +64,14 @@ describe("communications IPC handlers", () => {
       ["communications:messages:resolveAcceptance", undefined],
       ["communications:messages:cancel", undefined],
       ["communications:messages:exportEml", undefined],
+      ["communications:batches:list", "viewer"],
+      ["communications:batches:get", "viewer"],
+      ["communications:batches:events", "viewer"],
+      ["communications:batches:create", undefined],
+      ["communications:batches:approve", undefined],
+      ["communications:batches:reject", undefined],
+      ["communications:batches:enqueue", undefined],
+      ["communications:batches:cancel", undefined],
     ]);
   });
 
@@ -86,7 +99,29 @@ describe("communications IPC handlers", () => {
     expect(() =>
       byChannel.get("communications:messages:deliver")!({ id: "not-a-uuid" }),
     ).toThrow();
-    expect(state.reads()).toEqual({ companyReads: 0, actorReads: 0 });
+    expect(() =>
+      byChannel.get("communications:batches:create")!({
+        name: "Batch",
+        items: Array.from({ length: 101 }, (_, index) => ({
+          messageId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+          documentKind: "invoice",
+          documentLabel: `Invoice ${index}`,
+          amountPaise: 100,
+          exclusionReason: null,
+        })),
+      }),
+    ).toThrow();
+    expect(() =>
+      byChannel.get("communications:batches:enqueue")!({
+        id: "not-a-uuid",
+        smtpProfileId: 1,
+      }),
+    ).toThrow();
+    expect(state.reads()).toEqual({
+      companyReads: 0,
+      actorReads: 0,
+      sessionReads: 0,
+    });
   });
 
   it("chooses the export destination in the main process and returns null on cancel", async () => {
@@ -97,7 +132,11 @@ describe("communications IPC handlers", () => {
     const id = "00000000-0000-4000-8000-000000000001";
     await expect(handler({ id })).resolves.toBeNull();
     expect(state.destinationRequests).toEqual([`Total-message-${id}.eml`]);
-    expect(state.reads()).toEqual({ companyReads: 0, actorReads: 0 });
+    expect(state.reads()).toEqual({
+      companyReads: 0,
+      actorReads: 0,
+      sessionReads: 0,
+    });
     await expect(
       handler({ id, destinationPath: "/tmp/renderer-controlled.eml" }),
     ).rejects.toThrow();

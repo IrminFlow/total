@@ -1,6 +1,9 @@
 import { z } from "zod";
 import {
   acceptanceResolutionSchema,
+  communicationBatchCreateSchema,
+  communicationBatchQueueSchema,
+  communicationBatchStatusSchema,
   outboundDraftInputSchema,
   outboundDraftUpdateSchema,
   outboundMessageStatusSchema,
@@ -9,12 +12,15 @@ import {
   smtpProfileUpdateSchema,
 } from "@shared/communications";
 import * as communications from "../services/communications";
+import * as communicationBatches from "../services/communicationBatches";
 import type { CompanyContext, IpcHandle } from "./types";
+import type { SessionUser } from "./authHandlers";
 
 interface CommunicationsHandlerContext {
   handle: IpcHandle;
   requireCompany: () => CompanyContext;
   actor: () => string;
+  getSessionUser: () => SessionUser | null;
   chooseEmlDestination: (suggestedFileName: string) => Promise<string | null>;
 }
 
@@ -25,6 +31,7 @@ export function registerCommunicationsHandlers({
   handle,
   requireCompany,
   actor,
+  getSessionUser,
   chooseEmlDestination,
 }: CommunicationsHandlerContext): void {
   handle(
@@ -233,6 +240,107 @@ export function registerCommunicationsHandlers({
       destinationPath,
       actor(),
       input.smtpProfileId,
+    );
+  });
+
+  const batchActor = () => {
+    const user = getSessionUser();
+    return user
+      ? { id: user.id, name: user.name }
+      : { id: null, name: actor() };
+  };
+  handle(
+    "communications:batches:list",
+    (payload) => {
+      const input = z
+        .object({
+          status: communicationBatchStatusSchema.optional(),
+          limit: z.number().int().min(1).max(200).optional(),
+        })
+        .strict()
+        .default({})
+        .parse(payload);
+      return communicationBatches.listCommunicationBatches(
+        requireCompany().db,
+        input.status,
+        input.limit,
+      );
+    },
+    "viewer",
+  );
+  handle(
+    "communications:batches:get",
+    (payload) => {
+      const input = z.object({ id: messageId }).strict().parse(payload);
+      return communicationBatches.getCommunicationBatch(
+        requireCompany().db,
+        input.id,
+      );
+    },
+    "viewer",
+  );
+  handle(
+    "communications:batches:events",
+    (payload) => {
+      const input = z.object({ id: messageId }).strict().parse(payload);
+      return communicationBatches.listCommunicationBatchEvents(
+        requireCompany().db,
+        input.id,
+      );
+    },
+    "viewer",
+  );
+  handle("communications:batches:create", (payload) => {
+    const input = communicationBatchCreateSchema.parse(payload);
+    return communicationBatches.createCommunicationBatch(
+      requireCompany().db,
+      input,
+      batchActor(),
+    );
+  });
+  handle("communications:batches:approve", (payload) => {
+    const input = z
+      .object({
+        id: messageId,
+        note: z.string().trim().min(3).max(500).nullable().default(null),
+      })
+      .strict()
+      .parse(payload);
+    return communicationBatches.approveCommunicationBatch(
+      requireCompany().db,
+      input.id,
+      batchActor(),
+      input.note,
+    );
+  });
+  handle("communications:batches:reject", (payload) => {
+    const input = z
+      .object({ id: messageId, note: z.string().trim().min(3).max(500) })
+      .strict()
+      .parse(payload);
+    return communicationBatches.rejectCommunicationBatch(
+      requireCompany().db,
+      input.id,
+      batchActor(),
+      input.note,
+    );
+  });
+  handle("communications:batches:enqueue", (payload) => {
+    const input = communicationBatchQueueSchema.parse(payload);
+    return communicationBatches.enqueueCommunicationBatch(
+      requireCompany().db,
+      input.id,
+      input.smtpProfileId,
+      batchActor(),
+      input.itemIds,
+    );
+  });
+  handle("communications:batches:cancel", (payload) => {
+    const input = z.object({ id: messageId }).strict().parse(payload);
+    return communicationBatches.cancelCommunicationBatch(
+      requireCompany().db,
+      input.id,
+      batchActor(),
     );
   });
 }

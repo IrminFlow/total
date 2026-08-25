@@ -2545,4 +2545,83 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_outbound_messages_delivery_lease
     ON outbound_messages(status,delivery_lease_expires_at);
   `,
+  // 061 - bounded, maker-checker approval batches for local outbound drafts. Batch rows
+  // snapshot the exact reviewed revision, recipients and paise totals; events are immutable
+  // evidence of approval, enqueue failures and retries. SMTP submission remains a separate step.
+  `
+  CREATE TABLE communication_batches (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN (
+      'pending_approval','approved','partially_queued','queued','rejected','cancelled'
+    )),
+    maker_user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+    maker_name TEXT NOT NULL,
+    checker_user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+    checker_name TEXT,
+    decision_note TEXT,
+    selected_count INTEGER NOT NULL CHECK (selected_count BETWEEN 1 AND 100),
+    included_count INTEGER NOT NULL CHECK (included_count BETWEEN 0 AND 100),
+    excluded_count INTEGER NOT NULL CHECK (excluded_count BETWEEN 0 AND 100),
+    recipient_count INTEGER NOT NULL CHECK (recipient_count BETWEEN 0 AND 5000),
+    total_amount_paise INTEGER NOT NULL CHECK (total_amount_paise >= 0),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    reviewed_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (included_count + excluded_count = selected_count)
+  );
+  CREATE INDEX idx_communication_batches_status
+    ON communication_batches(status,updated_at DESC,id);
+
+  CREATE TABLE communication_batch_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id TEXT NOT NULL REFERENCES communication_batches(id) ON DELETE RESTRICT,
+    message_id TEXT NOT NULL REFERENCES outbound_messages(id) ON DELETE RESTRICT,
+    position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 99),
+    status TEXT NOT NULL CHECK (status IN ('ready','excluded','queued','failed')),
+    document_kind TEXT NOT NULL CHECK (document_kind IN ('invoice','statement','reminder','other')),
+    document_label TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL CHECK (amount_paise >= 0),
+    message_revision INTEGER NOT NULL CHECK (message_revision > 0),
+    content_sha256 TEXT NOT NULL CHECK (length(content_sha256)=64),
+    ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    contact_id INTEGER REFERENCES party_contacts(id) ON DELETE SET NULL,
+    to_json TEXT NOT NULL CHECK (json_valid(to_json) AND json_type(to_json)='array'),
+    cc_json TEXT NOT NULL CHECK (json_valid(cc_json) AND json_type(cc_json)='array'),
+    bcc_json TEXT NOT NULL CHECK (json_valid(bcc_json) AND json_type(bcc_json)='array'),
+    subject TEXT NOT NULL,
+    body_text TEXT NOT NULL,
+    exclusion_reason TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    last_error TEXT,
+    queued_at TEXT,
+    UNIQUE(batch_id,message_id),
+    UNIQUE(batch_id,position),
+    CHECK ((status='excluded') = (exclusion_reason IS NOT NULL))
+  );
+  CREATE INDEX idx_communication_batch_items_batch
+    ON communication_batch_items(batch_id,position,id);
+
+  CREATE TABLE communication_batch_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id TEXT NOT NULL REFERENCES communication_batches(id) ON DELETE RESTRICT,
+    event_type TEXT NOT NULL CHECK (event_type IN (
+      'created','approved','rejected','enqueue_started','item_queued','item_failed',
+      'retry_started','enqueue_completed','cancelled'
+    )),
+    detail_json TEXT NOT NULL DEFAULT '{}' CHECK (
+      json_valid(detail_json) AND json_type(detail_json)='object'
+    ),
+    actor TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_communication_batch_events_batch
+    ON communication_batch_events(batch_id,id);
+  CREATE TRIGGER communication_batch_events_no_update
+    BEFORE UPDATE ON communication_batch_events
+    BEGIN SELECT RAISE(ABORT,'communication batch events are append-only'); END;
+  CREATE TRIGGER communication_batch_events_no_delete
+    BEFORE DELETE ON communication_batch_events
+    BEGIN SELECT RAISE(ABORT,'communication batch events are append-only'); END;
+  `,
 ];

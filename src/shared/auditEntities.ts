@@ -30,6 +30,7 @@ export const AUDIT_ENTITIES = [
   "party_contact",
   "smtp_profile",
   "outbound_message",
+  "communication_batch",
   "automation_schedule",
   "backup_destination",
   "recovery_drill",
