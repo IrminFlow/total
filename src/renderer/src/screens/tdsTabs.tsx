@@ -267,7 +267,7 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
       </div>
 
       <Panel>
-        <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
+        <div className="border-b border-line bg-warn/10 px-3 py-2 text-body-sm text-warn">
           The e-TDS record layout in this build has <b>not been verified</b> against a published file format. The
           working CSVs are facts out of your books and are safe to use; the text file is a mechanism, and has to be
           validated by the FVU before it goes anywhere.
@@ -313,7 +313,7 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
                   <td className="num">{d.pan ?? <span className="text-cr">PANNOTAVBL</span>}</td>
                   <td className="num">
                     {d.sectionCode}
-                    {d.sectionUnverified && <span className="ml-1 text-hint text-amber">unverified</span>}
+                    {d.sectionUnverified && <span className="ml-1 text-hint text-warn">unverified</span>}
                   </td>
                   <td className="num">{toDisplayDate(d.paidOn)}</td>
                   <td className="r">
@@ -388,7 +388,7 @@ export function CertificatesTab({
   return (
     <div className="flex flex-col gap-3">
       <Panel>
-        <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
+        <div className="border-b border-line bg-warn/10 px-3 py-2 text-body-sm text-warn">
           Form 16A has to be downloaded from TRACES once the quarterly statement is filed — only that copy carries a
           certificate number the vendor can verify. What this produces is a <b>working copy</b> of the figures.
         </div>
@@ -459,7 +459,7 @@ export function CertificatesTab({
                 <tr key={s.sectionCode}>
                   <td className="num">
                     {s.sectionCode}
-                    {s.unverified && <span className="ml-1 text-hint text-amber">unverified</span>}
+                    {s.unverified && <span className="ml-1 text-hint text-warn">unverified</span>}
                   </td>
                   <td className="r">
                     <Money paise={s.amountPaid} />

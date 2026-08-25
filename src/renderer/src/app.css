@@ -177,11 +177,6 @@
   --color-muted: var(--t-muted);
   --color-accent: var(--t-accent);
   --color-accentbar: var(--t-accent-bar);
-  /* `amber` and `amberbar` are the accent's old names, kept mapped while branches written before
-     the recolour land. They point at the same tokens, so nothing renders gold — but a utility
-     that quietly still works is a utility nobody migrates, so these come out in the chrome pass. */
-  --color-amber: var(--t-accent);
-  --color-amberbar: var(--t-accent-bar);
   --color-dr: var(--t-dr);
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);
@@ -189,7 +184,6 @@
   --color-accel: var(--t-accel);
   --color-onaccent: var(--t-on-accent);
   --color-onaccentsoft: var(--t-on-accent-soft);
-  --color-onamber: var(--t-on-accent);
   --color-warn: var(--t-warn);
   --color-warnsoft: var(--t-warn-soft);
   --color-warnline: var(--t-warn-line);

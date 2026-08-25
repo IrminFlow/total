@@ -154,7 +154,7 @@ export function RcmSelfInvoiceTab(): React.JSX.Element {
                   <td>
                     {d.supplierName}
                     {d.warnings.length > 0 && (
-                      <span className="ml-2 text-hint text-amber" title={d.warnings.join(' ')}>
+                      <span className="ml-2 text-hint text-warn" title={d.warnings.join(' ')}>
                         {d.warnings.length} particular{d.warnings.length === 1 ? '' : 's'} missing
                       </span>
                     )}
@@ -190,7 +190,7 @@ export function RcmSelfInvoiceTab(): React.JSX.Element {
 
       {unflagged.length > 0 && (
         <Panel>
-          <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
+          <div className="border-b border-line bg-warn/10 px-3 py-2 text-body-sm text-warn">
             These look like notified supplies on parties nobody has flagged for reverse charge. Nothing has been
             documented for them — the books do not treat them as reverse charge, and a self-invoice would evidence a
             liability the return does not carry. Flag the party to bring them in.
@@ -370,7 +370,7 @@ export function RateHistoryTab(): React.JSX.Element {
     <div className="flex flex-col gap-3">
       {data?.structureChange && (
         <Panel>
-          <div className="bg-amber/10 px-3 py-2 text-body-sm text-amber" data-testid="rate-structure-change">
+          <div className="bg-warn/10 px-3 py-2 text-body-sm text-warn" data-testid="rate-structure-change">
             The GST rate structure changed on {toDisplayDate(data.structureChange.effectiveFrom)}, inside this period.
             One HSN can legitimately appear at two rates in this month&rsquo;s return. {data.structureChange.note}
           </div>
@@ -691,7 +691,7 @@ export function ScheduleIIIFace({ booksFrom, asOn }: { booksFrom: string; asOn: 
 
       {data.balanceSheet.unmapped.length > 0 && (
         <Panel>
-          <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
+          <div className="border-b border-line bg-warn/10 px-3 py-2 text-body-sm text-warn">
             Balances that no Schedule III line claims. They are included in the totals above so the face still ties, and
             they have to be classified before the accounts can be presented.
           </div>
@@ -798,7 +798,7 @@ export function ImsWorklistPanel({
   return (
     <div className="flex flex-col gap-3">
       <Panel>
-        <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
+        <div className="border-b border-line bg-warn/10 px-3 py-2 text-body-sm text-warn">
           IMS actions are taken on the GST portal. This is the worksheet and the record of what was decided — nothing
           here reaches the portal. A document nobody touches is <b>deemed accepted</b> when GSTR-2B generates, which is
           why the undecided count is the number to drive to zero.
@@ -847,7 +847,7 @@ export function ImsWorklistPanel({
                   <td className="r">
                     <Money paise={r.igst + r.cgst + r.sgst + r.cess} />
                   </td>
-                  <td className={r.suggestion.confidence === 'check' ? 'text-amber' : 'text-muted'}>
+                  <td className={r.suggestion.confidence === 'check' ? 'text-warn' : 'text-muted'}>
                     {r.suggestion.reason}
                   </td>
                   <td>
