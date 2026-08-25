@@ -1490,5 +1490,138 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_assistant_runs_at ON assistant_runs(asked_at);
   CREATE INDEX idx_assistant_runs_voucher ON assistant_runs(voucher_id) WHERE voucher_id IS NOT NULL;
+  `,
+
+  // 41 — statutory depth: the reverse-charge self-invoice, IMS decisions, and what was filed.
+  //
+  // (The label is 41, not 40: migrations apply by ARRAY POSITION and 40 is reserved for a branch
+  // being written alongside this one. The label is only a label — what matters is that nothing is
+  // ever inserted BEFORE an existing entry, because a database that has already applied N resumes
+  // at N and would skip the newcomer in silence.)
+  //
+  // RCM SELF-INVOICES (roadmap #356). Section 31(3)(f) makes the recipient issue the invoice for a
+  // reverse-charge inward supply, and the auditor asks to see it. `number` is UNIQUE because it is
+  // a serial in a Rule 46(b) series and a duplicate serial is a defective invoice, not a warning.
+  // The link table exists rather than a JSON array of voucher ids because the question asked every
+  // month is "which reverse-charge purchases still have no self-invoice", and that is a LEFT JOIN
+  // against a table, not a scan of a JSON column. ON DELETE CASCADE on the link and not on the
+  // document: binning a purchase voucher removes it from the document, but a self-invoice that was
+  // issued to satisfy Rule 46 does not stop having existed because the voucher behind it was
+  // deleted — that is precisely the case an auditor is looking for.
+  //
+  // IMS ACTIONS (roadmap #352). Keyed on supplier GSTIN + normalised document number rather than
+  // on a voucher, because the rows most in need of a decision are the ones with no voucher at all
+  // (filed by the supplier, never recorded here). That key is also what survives re-downloading
+  // GSTR-2B: the twelve invoices somebody worked through last week must not come back as
+  // undecided. The action is a RECORD of what was done on the portal, not an instruction to it —
+  // nothing here can take an IMS action, and the screen says so.
+  //
+  // FILED SNAPSHOTS (roadmap #353). GSTR-1A carries the difference between what was filed and what
+  // the books now say, and without a copy of what was filed there is nothing to difference
+  // against. Stored on the filing row as JSON: it is a frozen document, never queried by parts,
+  // and the only thing that ever reads it is the amendment diff.
+  `
+  CREATE TABLE rcm_self_invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number TEXT NOT NULL UNIQUE,
+    doc_date TEXT NOT NULL,
+    -- 'unregistered' = section 9(4), 'notified' = section 9(3). Decides which proviso the
+    -- document sits under and whether monthly consolidation is available at all.
+    basis TEXT NOT NULL CHECK (basis IN ('unregistered','notified')),
+    party_ledger_id INTEGER REFERENCES ledgers(id),
+    supplier_name TEXT NOT NULL,
+    supplier_gstin TEXT,
+    place_of_supply TEXT NOT NULL,
+    supply_type TEXT NOT NULL CHECK (supply_type IN ('intra','inter')),
+    taxable INTEGER NOT NULL DEFAULT 0,
+    igst INTEGER NOT NULL DEFAULT 0,
+    cgst INTEGER NOT NULL DEFAULT 0,
+    sgst INTEGER NOT NULL DEFAULT 0,
+    cess INTEGER NOT NULL DEFAULT 0,
+    -- The document as issued, so a reprint is the same paper rather than a recomputation.
+    doc_json TEXT NOT NULL,
+    issued_at TEXT NOT NULL DEFAULT (datetime('now')),
+    issued_by TEXT
+  );
+  CREATE INDEX idx_rcm_self_invoices_date ON rcm_self_invoices(doc_date);
+
+  CREATE TABLE rcm_self_invoice_vouchers (
+    self_invoice_id INTEGER NOT NULL REFERENCES rcm_self_invoices(id) ON DELETE CASCADE,
+    voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    PRIMARY KEY (self_invoice_id, voucher_id)
+  );
+  CREATE INDEX idx_rcm_self_invoice_vouchers_voucher ON rcm_self_invoice_vouchers(voucher_id);
+
+  CREATE TABLE ims_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- '<SUPPLIER GSTIN or NOGSTIN>|<normalised document number>' — see imsKey in shared/gst/ims.ts.
+    doc_key TEXT NOT NULL UNIQUE,
+    period TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('accept','reject','pending')),
+    note TEXT,
+    decided_at TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_by TEXT
+  );
+  CREATE INDEX idx_ims_actions_period ON ims_actions(period);
+
+  ALTER TABLE gst_filings ADD COLUMN docs_json TEXT;
+  `,
+
+  // 42 — dated rates, and the facts a TDS return needs that the books never held.
+  //
+  // ITEM RATE HISTORY (roadmap #358). `stock_items.gst_rate` is a single number, which was fine
+  // until 22 September 2025 made the same item carry two different rates either side of a date.
+  // The master column stays — it is what voucher entry prefills and what an unchanged item still
+  // answers with — and this table records the changes. A credit note issued in 2026 against a 2025
+  // invoice carries the ORIGINAL rate (section 34 read with section 15: a note adjusts the supply
+  // it refers to), which is only answerable from a dated history.
+  //
+  // TDS CHALLANS (roadmap #360). A quarterly statement is built challan by challan: the BSR code
+  // of the branch, the date, the serial the bank gave it, and under each one the deductees it
+  // paid for. None of that was recorded anywhere, which is the actual reason a business pays
+  // somebody else to file. `challan_id` on tds_entries is the link, nullable because a deduction
+  // exists from the moment it is posted and the challan is paid later — an unlinked deduction is
+  // a normal state for a few weeks and a blocking issue at filing time, which is exactly what
+  // validateReturn says.
+  //
+  // 2025 ACT SECTIONS (roadmap #359). `code` holds the Income-tax Act 1961 section. From 1 April
+  // 2026 the same deduction is made under the Income-tax Act 2025 and a certificate has to carry
+  // that number instead. Both are kept, the voucher date decides which is printed, and the column
+  // is NULL until a user fills it in — because the app's own proposed mapping is unverified and
+  // must not be silently written into anyone's books. See src/shared/itAct2025.ts.
+  `
+  CREATE TABLE stock_item_gst_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_item_id INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    effective_from TEXT NOT NULL,
+    gst_rate REAL NOT NULL,
+    cess_rate REAL NOT NULL DEFAULT 0,
+    -- The user's own citation: the notification, the Council meeting, "as advised by our CA".
+    note TEXT,
+    UNIQUE (stock_item_id, effective_from)
+  );
+
+  CREATE TABLE tds_challans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- '24Q' or '26Q'. A challan is paid for one form's liability.
+    form TEXT NOT NULL CHECK (form IN ('24Q','26Q')),
+    -- Seven-digit Bank Branch Serial code. Empty for a book-adjustment entry.
+    bsr_code TEXT NOT NULL DEFAULT '',
+    paid_on TEXT NOT NULL,
+    serial TEXT NOT NULL DEFAULT '',
+    tax INTEGER NOT NULL DEFAULT 0,
+    surcharge INTEGER NOT NULL DEFAULT 0,
+    cess INTEGER NOT NULL DEFAULT 0,
+    interest INTEGER NOT NULL DEFAULT 0,
+    fee INTEGER NOT NULL DEFAULT 0,
+    book_entry INTEGER NOT NULL DEFAULT 0,
+    note TEXT
+  );
+  CREATE INDEX idx_tds_challans_paid_on ON tds_challans(paid_on);
+
+  ALTER TABLE tds_entries ADD COLUMN challan_id INTEGER REFERENCES tds_challans(id) ON DELETE SET NULL;
+  CREATE INDEX idx_tds_entries_challan ON tds_entries(challan_id);
+
+  ALTER TABLE tds_sections ADD COLUMN code_2025 TEXT;
   `
 ]

@@ -5,10 +5,28 @@ import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, TextInput, useTableNav } from '../components/ui'
 import { useLedgers } from '../components/pickers'
-import { fyOf, fyFromStartYear, todayISO } from '@shared/dates'
+import { fyOf, fyFromStartYear, toDisplayDate, todayISO } from '@shared/dates'
 import { tdsQuarterOf } from '@shared/tds'
+import { useStickyTab } from '../lib/useStickyTab'
+import { CertificatesTab, ChallansTab, ReturnTab } from './tdsTabs'
 
 const QUARTERS = [1, 2, 3, 4] as const
+
+/**
+ * The four things a deductor does with TDS, in the order the year goes.
+ *
+ * Deductions are recorded by voucher entry, so the summary is a read-out. Everything after it is
+ * work: paying the tax and recording the challan, filing the statement, and issuing the vendor's
+ * certificate. Each is a step nothing in this app could do before.
+ */
+type TdsView = 'summary' | 'challans' | 'return' | 'certificates'
+
+const VIEWS: { id: TdsView; label: string; hint: string }[] = [
+  { id: 'summary', label: 'Deductions', hint: 'What was deducted, section by section' },
+  { id: 'challans', label: 'Challans', hint: 'How the tax was paid — the BSR code, date and serial a statement needs' },
+  { id: 'return', label: '24Q / 26Q', hint: 'The quarterly statement, and everything standing between it and the FVU' },
+  { id: 'certificates', label: 'Form 16A', hint: 'The deduction certificate for a vendor' }
+]
 
 export function TdsScreen(): React.JSX.Element {
   const { info } = useSession()
@@ -18,6 +36,8 @@ export function TdsScreen(): React.JSX.Element {
   const [fyStartYear, setFyStartYear] = useState(currentFy.startYear)
   const [quarter, setQuarter] = useState<1 | 2 | 3 | 4>(tdsQuarterOf(todayISO()).q)
   const [sectionsOpen, setSectionsOpen] = useState(false)
+  const [view, setView] = useStickyTab<TdsView>('tds-view', VIEWS.map((v) => v.id), 'summary')
+  const activeView = VIEWS.find((v) => v.id === view) ?? VIEWS[0]!
 
   const years: number[] = []
   for (let y = currentFy.startYear; y >= (info?.booksFrom ?? currentFy.startYear); y--) years.push(y)
@@ -75,22 +95,41 @@ export function TdsScreen(): React.JSX.Element {
         TDS
       </SectionTitle>
 
-      <div className="mb-3 flex gap-1">
-        {QUARTERS.map((q) => (
-          <button
-            key={q}
-            data-testid={`tab-tds-q${q}`}
-            onClick={() => setQuarter(q)}
-            className={`rounded-md px-3 py-1 text-body-sm ${
-              quarter === q ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
-            }`}
-          >
-            Q{q}
-          </button>
-        ))}
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <div className="flex gap-1">
+          {QUARTERS.map((q) => (
+            <button
+              key={q}
+              data-testid={`tab-tds-q${q}`}
+              onClick={() => setQuarter(q)}
+              className={`rounded-md px-3 py-1 text-body-sm ${
+                quarter === q ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+              }`}
+            >
+              Q{q}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1" role="group" aria-label="TDS view">
+          {VIEWS.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              data-testid={`tab-tds-${v.id}`}
+              aria-pressed={view === v.id}
+              onClick={() => setView(v.id)}
+              className={`rounded-md px-2.5 py-1 text-small ${
+                view === v.id ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
+              }`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
       </div>
+      <p className="mb-3 text-hint text-muted">{activeView.hint}</p>
 
-      {flaggedNoPan.length > 0 && (
+      {view === 'summary' && flaggedNoPan.length > 0 && (
         <Panel className="mb-3">
           <div className="border-b border-line bg-accent/10 px-3 py-2 text-body-sm text-accent">
             {flaggedNoPan.length} part{flaggedNoPan.length > 1 ? 'ies' : 'y'} flagged for TDS with no PAN on file — the
@@ -117,6 +156,7 @@ export function TdsScreen(): React.JSX.Element {
         </Panel>
       )}
 
+      {view === 'summary' && (
       <Panel>
         {rows.length === 0 ? (
           <EmptyState title={`No TDS deductions in ${qLabel}`} />
@@ -149,10 +189,17 @@ export function TdsScreen(): React.JSX.Element {
           </table>
         )}
       </Panel>
-      <p className="mt-2 text-hint text-muted">
-        {qLabel} · The 26Q CSV lists deductee, PAN, section, voucher and amounts for manual import into NSDL's Return
-        Preparation Utility — it is not a ready-to-file FVU.
-      </p>
+      )}
+      {view === 'summary' && (
+        <p className="mt-2 text-hint text-muted">
+          {qLabel} · The 26Q CSV lists deductee, PAN, section, voucher and amounts for manual import into NSDL's Return
+          Preparation Utility — it is not a ready-to-file FVU.
+        </p>
+      )}
+
+      {view === 'challans' && <ChallansTab fyStartYear={fyStartYear} />}
+      {view === 'return' && <ReturnTab fyStartYear={fyStartYear} quarter={quarter} />}
+      {view === 'certificates' && <CertificatesTab fyStartYear={fyStartYear} quarter={quarter} />}
 
       {sectionsOpen && <SectionsModal sections={sections ?? []} onClose={() => setSectionsOpen(false)} />}
     </div>
@@ -169,9 +216,13 @@ interface SectionForm {
   rate: string
   thresholdSingle: number | null
   thresholdAnnual: number | null
+  /** Income-tax Act 2025 reference, typed by the user. See src/shared/itAct2025.ts. */
+  code2025: string
 }
 
-const blankSection = (): SectionForm => ({ code: '', description: '', rate: '', thresholdSingle: null, thresholdAnnual: null })
+const blankSection = (): SectionForm => ({
+  code: '', description: '', rate: '', thresholdSingle: null, thresholdAnnual: null, code2025: ''
+})
 
 /** Lists the TDS sections and lets the owner add or edit one — wires tds:sectionSave. */
 function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose: () => void }): React.JSX.Element {
@@ -191,7 +242,8 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
       description: s.description,
       rate: String(s.rate),
       thresholdSingle: s.thresholdSingle || null,
-      thresholdAnnual: s.thresholdAnnual || null
+      thresholdAnnual: s.thresholdAnnual || null,
+      code2025: s.code2025 ?? ''
     })
   }
 
@@ -209,7 +261,8 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
         description: form.description.trim(),
         rate,
         thresholdSingle: form.thresholdSingle ?? 0,
-        thresholdAnnual: form.thresholdAnnual ?? 0
+        thresholdAnnual: form.thresholdAnnual ?? 0,
+        code2025: form.code2025.trim() || null
       })
       await queryClient.invalidateQueries({ queryKey: ['tdsSections'] })
       toast.push('success', form.id != null ? 'Section updated' : 'Section added')
@@ -298,7 +351,19 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
             <Field label="Annual threshold" hint="Blank = none">
               <AmountInput paise={form.thresholdAnnual} onPaise={(p) => setForm({ ...form, thresholdAnnual: p })} />
             </Field>
+            <Field label="Income-tax Act 2025 reference" hint="Printed instead of the 1961 section from 1 April 2026">
+              <TextInput
+                data-testid="input-tds-section-code2025"
+                value={form.code2025}
+                onChange={(e) => setForm({ ...form, code2025: e.target.value })}
+              />
+            </Field>
           </div>
+          <p className="mt-2 text-hint text-muted">
+            The Income-tax Act 2025 renumbers deduction at source. Leave the 2025 reference blank and certificates for
+            payments on or after 1 April 2026 carry a proposed number marked <em>unverified</em>; type the reference your
+            certificates should carry and it is used instead.
+          </p>
           {error && <p className="mt-2 text-body-sm text-cr">{error}</p>}
           <div className="mt-3 flex justify-end gap-2">
             {form.id != null && (

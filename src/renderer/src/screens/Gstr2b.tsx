@@ -6,6 +6,7 @@ import { Button, EmptyState, Modal, Money, Panel, SectionTitle, useTableNav } fr
 import { toDisplayDate } from '@shared/dates'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
 import { MonthBar, NoMonths, useMonth } from './GstReturns'
+import { ImsWorklistPanel } from './statutoryTabs'
 
 const BUCKETS: { key: Recon2bBucket; label: string }[] = [
   { key: 'matched', label: 'Matched' },
@@ -128,6 +129,10 @@ export function Gstr2bScreen(): React.JSX.Element {
   const [imported, setImported] = useState<Imported | null>(null)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [bucket, setBucket] = useState<Recon2bBucket>('matched')
+  // The reconciliation answers "do these agree"; IMS answers "what are you going to do about it".
+  // One import, two readings of it — which is why this is a mode on the same screen rather than a
+  // screen of its own that would need the JSON imported twice.
+  const [showIms, setShowIms] = useState(false)
 
   const { data, isFetching } = useQuery({
     queryKey: ['gstr2b', month?.key, imported?.jsonText],
@@ -208,6 +213,14 @@ export function Gstr2bScreen(): React.JSX.Element {
             <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
               Paste JSON…
             </Button>
+            <Button
+              variant="ghost"
+              data-testid="btn-2b-ims"
+              disabled={!imported}
+              onClick={() => setShowIms(!showIms)}
+            >
+              {showIms ? 'Reconciliation' : 'IMS actions'}
+            </Button>
           </div>
         }
       >
@@ -232,6 +245,8 @@ export function Gstr2bScreen(): React.JSX.Element {
         <Panel>
           <EmptyState title="Reconciling…" />
         </Panel>
+      ) : result && showIms ? (
+        <ImsWorklistPanel jsonText={imported.jsonText} from={month.from} to={month.to} />
       ) : result ? (
         <>
           <div className="mb-3 flex flex-wrap gap-2">

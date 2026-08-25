@@ -480,9 +480,98 @@ export const tdsSectionInputSchema = z.object({
   description: z.string().trim().min(1).max(200),
   rate: z.number().min(0).max(100),
   thresholdSingle: paise.min(0).default(0),
-  thresholdAnnual: paise.min(0).default(0)
+  thresholdAnnual: paise.min(0).default(0),
+  // Optional, and null rather than '' when cleared: the certificate asks "is there a 2025 Act
+  // reference on record", and an empty string would answer yes.
+  code2025: z.string().trim().max(60).nullable().default(null).transform((s) => (s === '' ? null : s))
 })
 export type TdsSectionInput = z.infer<typeof tdsSectionInputSchema>
+
+/**
+ * A TDS challan (roadmap #360).
+ *
+ * BSR code and serial are validated by shape but not by presence: a book-adjustment entry has
+ * neither, and a user recording a challan from a receipt they have not found yet should be able
+ * to save the amount and come back. `validateReturn` is where a challan without a BSR code
+ * becomes a blocking problem, which is the right moment for it to become one.
+ */
+export const tdsChallanSchema = z.object({
+  id: id.optional(),
+  form: z.enum(['24Q', '26Q']),
+  bsrCode: z.string().trim().regex(/^(\d{7})?$/, 'A BSR code is seven digits').default(''),
+  paidOn: isoDate,
+  serial: z.string().trim().max(10).default(''),
+  tax: paise.min(0).default(0),
+  surcharge: paise.min(0).default(0),
+  cess: paise.min(0).default(0),
+  interest: paise.min(0).default(0),
+  fee: paise.min(0).default(0),
+  bookEntry: z.boolean().default(false),
+  note: z.string().trim().max(200).nullable().default(null)
+})
+export type TdsChallanInput = z.infer<typeof tdsChallanSchema>
+
+export const tdsQuarterSchema = z.object({
+  fyStartYear: z.number().int().min(1990).max(2100),
+  quarter: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+})
+
+export const tdsReturnSchema = tdsQuarterSchema.extend({ form: z.enum(['24Q', '26Q']) })
+
+/** The e-TDS file export. The acknowledgement is required and deliberately not defaulted — see
+ *  the header of src/shared/tdsReturn.ts for what is being acknowledged. */
+export const tdsReturnFileSchema = tdsReturnSchema.extend({ acknowledgedUnverifiedFormat: z.literal(true) })
+
+export const form16aSchema = tdsQuarterSchema.extend({ ledgerId: id })
+
+export const tdsLinkSchema = z.object({
+  entryIds: z.array(id).min(1),
+  challanId: id.nullable()
+})
+
+export const tdsFilingConfigSchema = z.object({
+  responsiblePerson: z.string().trim().max(120).nullable().default(null),
+  responsibleDesignation: z.string().trim().max(120).nullable().default(null),
+  deductorType: z.enum(['A', 'S']).default('S')
+})
+export type TdsFilingConfigInput = z.infer<typeof tdsFilingConfigSchema>
+
+// ---------- statutory depth (roadmap section S) ----------
+
+/** Issuing reverse-charge self-invoices for a period (roadmap #356). */
+export const rcmIssueSchema = z.object({
+  from: isoDate,
+  to: isoDate,
+  /** Month-end consolidation of section 9(4) supplies. Off by default — the proviso permitting it
+   *  is unverified (see src/shared/gst/selfInvoice.ts) and the per-supply form is always safe. */
+  consolidate: z.boolean().default(false),
+  /** Restrict to chosen purchases; absent means everything undocumented in the period. */
+  voucherIds: z.array(id).optional()
+})
+
+/** Recording what was done on the IMS dashboard (roadmap #352). */
+export const imsDecisionSchema = z.object({
+  docKey: z.string().trim().min(1).max(80),
+  period: z.string().trim().min(1).max(20),
+  action: z.enum(['accept', 'reject', 'pending']),
+  note: z.string().trim().max(200).nullable().default(null)
+})
+
+export const imsWorklistSchema = z.object({
+  jsonText: z.string(),
+  from: isoDate,
+  to: isoDate
+})
+
+/** One date-effective GST rate for a stock item (roadmap #358). */
+export const itemGstRateSchema = z.object({
+  stockItemId: id,
+  effectiveFrom: isoDate,
+  gstRate: z.number().min(0).max(100),
+  cessRate: z.number().min(0).max(100).default(0),
+  note: z.string().trim().max(200).nullable().default(null)
+})
+export type ItemGstRateInput = z.infer<typeof itemGstRateSchema>
 
 export const tdsSuggestSchema = z.object({
   partyLedgerId: id,

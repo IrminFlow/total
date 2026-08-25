@@ -14,6 +14,7 @@ import { formatPaise } from '@shared/money'
 import { RatioPanel } from '../components/RatioPanel'
 import { SavedViews } from '../components/SavedViews'
 import { xlsReport } from '../lib/reportExport'
+import { ScheduleIIIFace } from './statutoryTabs'
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Particulars', align: 'l' },
@@ -34,6 +35,10 @@ export function BalanceSheetScreen(): React.JSX.Element {
   // `data` arrives.
   const [comparePrior, setComparePrior] = useStickyFlag('bs-compare-prior', false)
   const [showRatios, setShowRatios] = useStickyFlag('bs-show-ratios', false)
+  // Schedule III is a PRESENTATION of the same statement, so it lives here as a toggle rather
+  // than on a screen of its own — two screens showing the same balance sheet is how the two come
+  // to disagree in a reader's head.
+  const [scheduleIII, setScheduleIII] = useStickyFlag('bs-schedule3', false)
   const { data, isPlaceholderData } = useQuery({
     queryKey: ['balanceSheet', asOn, comparePrior],
     queryFn: () => api.reports.balanceSheet(asOn, comparePrior),
@@ -104,6 +109,9 @@ export function BalanceSheetScreen(): React.JSX.Element {
                 setShowRatios(v.showRatios)
               }}
             />
+            <Button variant="ghost" data-testid="btn-bs-schedule3" onClick={() => setScheduleIII(!scheduleIII)}>
+              {scheduleIII ? 'Ledger view' : 'Schedule III'}
+            </Button>
             <Button variant="ghost" data-testid="btn-bs-ratios" onClick={() => setShowRatios(!showRatios)}>
               {showRatios ? 'Hide ratios' : 'Ratios'}
             </Button>
@@ -132,9 +140,11 @@ export function BalanceSheetScreen(): React.JSX.Element {
       >
         Balance sheet
       </SectionTitle>
+      {scheduleIII && <ScheduleIIIFace booksFrom={fyOf(data.asOn).from} asOn={data.asOn} />}
       {/* Stacked full width when comparing: the two-column layout has no room for three numeric
           columns a side. */}
       <div
+        hidden={scheduleIII}
         className={`grid gap-3 transition-opacity ${prior ? 'grid-cols-1' : 'grid-cols-2'} ${
           isPlaceholderData ? 'opacity-60' : ''
         }`}

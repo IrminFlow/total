@@ -54,4 +54,6 @@ export const MIGRATION_HASHES: readonly string[] = [
   '5e7b70af6c9734ce', // 38: ALTER TABLE ledgers ADD COLUMN default_cost_centre_id INTEGER RE
   '90ec58e175cd3ffb', // 39: CREATE TABLE voucher_attachments (
   'fe7893d1a9a8fc06', // 40: CREATE TABLE assistant_runs (
+  '526dfd40f1eb03c6', // 41: CREATE TABLE rcm_self_invoices (
+  '8c8fc35b9615d094', // 42: CREATE TABLE stock_item_gst_rates (
 ]

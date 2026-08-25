@@ -18,6 +18,7 @@ import { useStickyTab } from '../lib/useStickyTab'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { csvReport, printReport } from '../lib/reportExport'
+import { Form3cdTab, RateHistoryTab, RcmSelfInvoiceTab } from './statutoryTabs'
 
 /**
  * The things an auditor asks for that the books could not previously say about themselves.
@@ -25,13 +26,16 @@ import { csvReport, printReport } from '../lib/reportExport'
  * Each of these is read-only and none of them posts. They exist because the answer was always in
  * the data and always had to be assembled by a person the week before a filing.
  */
-type Tab = 'related' | 'audit' | 'lut' | 'einvoice'
+type Tab = 'related' | 'audit' | 'lut' | 'einvoice' | 'rcm' | '3cd' | 'rates'
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'related', label: 'Related parties', hint: 'Every transaction with a director, a relative, or a company under common control' },
   { id: 'audit', label: 'Audit trail', hint: 'What the log covers, measured from the log rather than claimed about it' },
   { id: 'lut', label: 'LUT', hint: 'The undertaking an exporter supplies zero-rated under' },
-  { id: 'einvoice', label: 'IRP window', hint: 'Invoices running out of time to reach the portal' }
+  { id: 'einvoice', label: 'IRP window', hint: 'Invoices running out of time to reach the portal' },
+  { id: 'rcm', label: 'Self-invoices', hint: 'The invoice a registered buyer raises themselves on a reverse-charge supply' },
+  { id: '3cd', label: 'Form 3CD', hint: 'Clause-wise extracts for the tax audit — the data, not the form' },
+  { id: 'rates', label: 'Rate history', hint: 'Rates that were not notified on the date they were charged' }
 ]
 
 export function DisclosureScreen(): React.JSX.Element {
@@ -68,6 +72,9 @@ export function DisclosureScreen(): React.JSX.Element {
       {tab === 'audit' && <AuditStatementTab />}
       {tab === 'lut' && <LutTab />}
       {tab === 'einvoice' && <EInvoiceWindowTab />}
+      {tab === 'rcm' && <RcmSelfInvoiceTab />}
+      {tab === '3cd' && <Form3cdTab />}
+      {tab === 'rates' && <RateHistoryTab />}
     </div>
   )
 }

@@ -54,6 +54,14 @@ await scenario('11-keyboard', async (h) => {
   // matters: nav.back()/home() run the unsaved-changes guard asynchronously, so pressing the
   // next letter immediately after Escape can land on the screen we were trying to leave.
   const home = async () => {
+    // Blur first. Some screens focus a field on arrival — the counter puts the cursor in its scan
+    // box, which is right for a till — and a bare letter must never fire while somebody is typing
+    // into a field. Without this the sweep types 'g' into the scan box and waits for a Gateway
+    // that is never coming, which reads as a broken accelerator rather than as a working guard.
+    await h.page.evaluate(() => {
+      const el = document.activeElement
+      if (el && typeof el.blur === 'function') el.blur()
+    })
     await h.page.keyboard.press('Escape')
     // Click rather than press 'g'.
     //

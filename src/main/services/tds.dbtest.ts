@@ -156,7 +156,7 @@ describe('tds service', () => {
     // Exercises saveSection's update branch (id given) — edits the seeded row in place.
     const edited = saveSection(db, {
       id: section.id, code: '194C', description: 'Payments to contractors (edited)', rate: 2,
-      thresholdSingle: 3000000, thresholdAnnual: 10000000
+      thresholdSingle: 3000000, thresholdAnnual: 10000000, code2025: null
     })
     expect(edited.description).toBe('Payments to contractors (edited)')
     paymentVoucherWithTds(db, { date: '2025-05-10', partyLedgerId: party.id, base: 5000000, tds: 100000, sectionId: section.id, sectionCode: '194C' })
