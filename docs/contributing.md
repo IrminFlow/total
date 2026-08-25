@@ -40,6 +40,13 @@ know this; hand-rolled year arithmetic usually does not.
 an existing one — someone's database has already run it. New tables go in `EXPECTED_TABLES` in
 `migrations.dbtest.ts`, which is the guard that catches a migration nobody wired up.
 
+**`prep(db, sql)` only for SQL that is a fixed string.** The prepared-statement cache in
+`src/main/db/stmt.ts` shares one `Statement` between every caller of that SQL on that connection —
+which is why `saveVoucher` compiles three statements a save instead of twenty-six. SQL assembled
+per call (`IN (${placeholders})`) must keep using `db.prepare`, or the cache grows forever; and
+nothing may chain `.pluck()`, `.raw()`, `.expand()` or `.iterate()` onto a cached statement,
+because all four leave state on it that the next caller inherits. `db/stmt.test.ts` checks both.
+
 **The engine stays pure.** `src/shared/` imports no Electron and no database. `npm test` must
 never load `better-sqlite3`: it is compiled for Electron's ABI, not Node's, and importing it there
 fails in a way that looks unrelated to what you changed.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNav, useRecentScreens, useScreen, useSession } from './state/stores'
 import { isPlainKey, isTypingTarget, useKeyLayer } from './lib/keyboard'
@@ -11,41 +11,10 @@ import { CompanySelect } from './screens/CompanySelect'
 import { Shell } from './components/Shell'
 import { Gateway } from './screens/Gateway'
 import { DayBook } from './screens/DayBook'
-import { ImportTallyScreen } from './screens/ImportTally'
 import { VoucherEntry } from './screens/VoucherEntry'
 import { Masters } from './screens/Masters'
-import { TrialBalanceScreen } from './screens/TrialBalance'
-import { ProfitLossScreen } from './screens/ProfitLoss'
-import { BalanceSheetScreen } from './screens/BalanceSheet'
-import { CashFlowScreen } from './screens/CashFlow'
-import { ExceptionsScreen } from './screens/Exceptions'
-import { StockSummaryScreen } from './screens/StockSummary'
-import { LedgerStatementScreen } from './screens/LedgerStatement'
-import { Gstr1Screen, Gstr3bScreen } from './screens/GstReturns'
-import { Gstr2bScreen } from './screens/Gstr2b'
-import { CompanyInfoScreen } from './screens/CompanyInfo'
-import { RegistersScreen } from './screens/Registers'
-import { OutstandingsScreen } from './screens/Outstandings'
-import { ConsolidatedScreen } from './screens/Consolidated'
-import { RecurringScreen } from './screens/Recurring'
-import { BankingScreen } from './screens/Banking'
-import { EdocsScreen } from './screens/Edocs'
-import { PayrollScreen } from './screens/Payroll'
-import { TdsScreen } from './screens/Tds'
-import { CompositionScreen } from './screens/Composition'
-import { FilingsScreen } from './screens/Filings'
-import { KhataScreen } from './screens/Khata'
-import { CollectionsScreen } from './screens/Collections'
-import { AssetsScreen } from './screens/Assets'
-import { CounterScreen } from './screens/Counter'
-import { SalesChainScreen } from './screens/SalesChain'
-import { JobWorkScreen } from './screens/JobWork'
-import { BorrowingScreen } from './screens/Borrowing'
-import { DisclosureScreen } from './screens/Disclosure'
-import { CostCentresScreen } from './screens/CostCentres'
-import { BudgetsScreen } from './screens/Budgets'
-import { YearEndScreen } from './screens/YearEnd'
-import { Settings } from './screens/Settings'
+// Everything else is code-split — see screens/lazy.ts for what is in the entry chunk and why.
+import * as Lazy from './screens/lazy'
 import { CommandPalette, SCREEN_SEARCH_SCOPE } from './components/CommandPalette'
 import { ShortcutHelp } from './components/ShortcutHelp'
 import { RecentRing } from './components/RecentRing'
@@ -215,9 +184,15 @@ export default function App(): React.JSX.Element {
         }}
       >
         <ErrorBoundary key={screen.name} screen={screen.name}>
+          {/* The fallback deliberately renders NOTHING — no `data-screen` marker and no spinner.
+              Every screen reports its own readiness through `data-screen`/`data-loading`, and a
+              placeholder that carried either would tell the harness (and a screen reader) that a
+              screen had arrived before it had. These chunks come off local disk in single-digit
+              milliseconds, so what a person sees is the previous screen for one frame. */}
+          <Suspense fallback={null}>
           {screen.name === 'gateway' && <Gateway />}
           {screen.name === 'daybook' && <DayBook span={screen.span} kind={screen.kind} />}
-          {screen.name === 'import-tally' && <ImportTallyScreen />}
+          {screen.name === 'import-tally' && <Lazy.ImportTallyScreen />}
           {screen.name === 'voucher-entry' && (
             <VoucherEntry
               key={screen.voucherId ?? (screen.draftId ? `draft-${screen.draftId}` : 'new')}
@@ -227,39 +202,40 @@ export default function App(): React.JSX.Element {
             />
           )}
           {screen.name === 'masters' && <Masters key={screen.tab ?? 'ledgers'} tab={screen.tab} />}
-          {screen.name === 'trial-balance' && <TrialBalanceScreen />}
-          {screen.name === 'profit-loss' && <ProfitLossScreen />}
-          {screen.name === 'balance-sheet' && <BalanceSheetScreen />}
-          {screen.name === 'cash-flow' && <CashFlowScreen />}
-          {screen.name === 'exceptions' && <ExceptionsScreen />}
-          {screen.name === 'stock-summary' && <StockSummaryScreen />}
-          {screen.name === 'ledger-statement' && <LedgerStatementScreen ledgerId={screen.ledgerId} />}
-          {screen.name === 'gstr1' && <Gstr1Screen />}
-          {screen.name === 'gstr3b' && <Gstr3bScreen />}
-          {screen.name === 'gstr2b' && <Gstr2bScreen />}
-          {screen.name === 'edocs' && <EdocsScreen />}
-          {screen.name === 'registers' && <RegistersScreen />}
-          {screen.name === 'outstandings' && <OutstandingsScreen />}
-          {screen.name === 'consolidated' && <ConsolidatedScreen />}
-          {screen.name === 'recurring' && <RecurringScreen />}
-          {screen.name === 'banking' && <BankingScreen />}
-          {screen.name === 'payroll' && <PayrollScreen />}
-          {screen.name === 'khata' && <KhataScreen />}
-          {screen.name === 'collections' && <CollectionsScreen />}
-          {screen.name === 'assets' && <AssetsScreen />}
-          {screen.name === 'counter' && <CounterScreen />}
-          {screen.name === 'sales-chain' && <SalesChainScreen />}
-          {screen.name === 'job-work' && <JobWorkScreen />}
-          {screen.name === 'borrowing' && <BorrowingScreen />}
-          {screen.name === 'disclosure' && <DisclosureScreen />}
-          {screen.name === 'filings' && <FilingsScreen />}
-          {screen.name === 'composition' && <CompositionScreen />}
-          {screen.name === 'tds' && <TdsScreen />}
-          {screen.name === 'cost-centres' && <CostCentresScreen />}
-          {screen.name === 'budgets' && <BudgetsScreen />}
-          {screen.name === 'year-end' && <YearEndScreen />}
-          {screen.name === 'company-info' && <CompanyInfoScreen />}
-          {screen.name === 'settings' && <Settings key={screen.tab ?? 'backups'} tab={screen.tab} />}
+          {screen.name === 'trial-balance' && <Lazy.TrialBalanceScreen />}
+          {screen.name === 'profit-loss' && <Lazy.ProfitLossScreen />}
+          {screen.name === 'balance-sheet' && <Lazy.BalanceSheetScreen />}
+          {screen.name === 'cash-flow' && <Lazy.CashFlowScreen />}
+          {screen.name === 'exceptions' && <Lazy.ExceptionsScreen />}
+          {screen.name === 'stock-summary' && <Lazy.StockSummaryScreen />}
+          {screen.name === 'ledger-statement' && <Lazy.LedgerStatementScreen ledgerId={screen.ledgerId} />}
+          {screen.name === 'gstr1' && <Lazy.Gstr1Screen />}
+          {screen.name === 'gstr3b' && <Lazy.Gstr3bScreen />}
+          {screen.name === 'gstr2b' && <Lazy.Gstr2bScreen />}
+          {screen.name === 'edocs' && <Lazy.EdocsScreen />}
+          {screen.name === 'registers' && <Lazy.RegistersScreen />}
+          {screen.name === 'outstandings' && <Lazy.OutstandingsScreen />}
+          {screen.name === 'consolidated' && <Lazy.ConsolidatedScreen />}
+          {screen.name === 'recurring' && <Lazy.RecurringScreen />}
+          {screen.name === 'banking' && <Lazy.BankingScreen />}
+          {screen.name === 'payroll' && <Lazy.PayrollScreen />}
+          {screen.name === 'khata' && <Lazy.KhataScreen />}
+          {screen.name === 'collections' && <Lazy.CollectionsScreen />}
+          {screen.name === 'assets' && <Lazy.AssetsScreen />}
+          {screen.name === 'counter' && <Lazy.CounterScreen />}
+          {screen.name === 'sales-chain' && <Lazy.SalesChainScreen />}
+          {screen.name === 'borrowing' && <Lazy.BorrowingScreen />}
+          {screen.name === 'disclosure' && <Lazy.DisclosureScreen />}
+          {screen.name === 'filings' && <Lazy.FilingsScreen />}
+          {screen.name === 'job-work' && <Lazy.JobWorkScreen />}
+          {screen.name === 'composition' && <Lazy.CompositionScreen />}
+          {screen.name === 'tds' && <Lazy.TdsScreen />}
+          {screen.name === 'cost-centres' && <Lazy.CostCentresScreen />}
+          {screen.name === 'budgets' && <Lazy.BudgetsScreen />}
+          {screen.name === 'year-end' && <Lazy.YearEndScreen />}
+          {screen.name === 'company-info' && <Lazy.CompanyInfoScreen />}
+          {screen.name === 'settings' && <Lazy.Settings key={screen.tab ?? 'backups'} tab={screen.tab} />}
+          </Suspense>
         </ErrorBoundary>
       </Shell>
       {paletteOpen && <CommandPalette scope={paletteScope ?? undefined} onClose={() => setPaletteOpen(false)} />}

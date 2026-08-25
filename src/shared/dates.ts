@@ -48,11 +48,24 @@ export function toPortalDate(date: string): string {
   return `${d}-${m}-${y}`
 }
 
-/** 'DD-MMM-YY' for on-screen display (Tally style). */
+/**
+ * 'DD-MMM-YY' for on-screen display (Tally style).
+ *
+ * Total on purpose: anything that is not a full ISO date comes back as an en dash, which is what
+ * every other empty cell in the app shows. It used to throw, and a formatter that throws is a
+ * formatter that can take a whole screen down — which it did. A row whose due date was null was
+ * rendered with `toDisplayDate(x ?? '')`, meaning to be careful; `''.split('-')` gives one part,
+ * the day is undefined, and `undefined.toString()` ended the render. The screen showed "Something
+ * went wrong" instead of one dash in one cell.
+ *
+ * Returning a dash rather than the raw input because the input in that case is empty or nonsense,
+ * and printing nonsense in a date column is worse than printing nothing.
+ */
 export function toDisplayDate(date: string): string {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number]
-  return `${d.toString().padStart(2, '0')}-${months[m - 1]}-${(y % 100).toString().padStart(2, '0')}`
+  const [y, m, d] = String(date ?? '').split('-').map(Number)
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d) || m! < 1 || m! > 12) return '–'
+  return `${d!.toString().padStart(2, '0')}-${months[m! - 1]}-${(y! % 100).toString().padStart(2, '0')}`
 }
 
 /** 'DD-MMM-YY HH:MM' (24h, local time) for on-screen timestamps — audit trail, backup list.

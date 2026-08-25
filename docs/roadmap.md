@@ -767,18 +767,62 @@ Ordering within a section is roughly by value.
 
 224. ✓ Measured benchmark: 30k vouchers, every report under 100 ms (M)
 225. ✗ Not doing: startup measured at 580 ms median over three cold launches, so the 1.5 MB single chunk is not costing anything worth splitting (M)
-226. Lazy-load screens that most users never open (S)
+     — still true about startup, and overtaken on the bytes. That chunk was **2,557,901 bytes** by
+     the time #226 looked at it, up from the 1.5 MB measured here, because six sections of
+     features had landed in it since. #226 split it anyway and found the same thing this line
+     did: the time it buys is tens of milliseconds. What it buys that this line could not have
+     known is a number worth guarding — #236's entry-chunk budget — and the guard is the point.
+226. ✓ Lazy-load screens that most users never open (S)
+     — the entry chunk went from **2,557,901 to 1,396,206 bytes** (−45%): thirty-three screens
+     a given business may never open are `React.lazy` chunks now (`screens/lazy.ts`), and the
+     Gateway, Day Book, voucher entry and Masters stay eager because they are the path a person
+     walks all day. The time it bought is small and honestly reported: over 12 PAIRED cold
+     launches — the two builds alternated launch by launch, because the machine was shared and an
+     A-then-B run measures whatever else was running during B — the renderer's DCL went **210 →
+     177 ms** and time to first screen **771 → 744 ms**, both at the minimum; the medians (245 vs
+     240, 974 vs 963) are inside the noise. First navigation to a split screen costs nothing: it
+     measured FASTER in all eight paired samples (trial balance 75 → 36 ms, banking 63 → 39,
+     payroll 65 → 28, settings 55 → 35). The durable number is the byte count, and #236's
+     entry-chunk budget now holds it there.
 227. ✓ Row virtualization on long tables (M)
      — the day book, the ledger statement and the trial balance render through `useVirtualRows`.
      On the e-document list it measured 1,638 → 1,310 ms warm, which is inside this machine's ±90
      ms spread, so it is kept on the grounds of DOM node count and not reported as a speed-up.
-228. Prepared-statement reuse across calls in hot services (S)
+228. ✓ Prepared-statement reuse across calls in hot services (S)
+     — `saveVoucher` compiled **26 statements on every save**, 233 µs of a 754 µs write (31%).
+     `db/stmt.ts` caches them per connection; the same code with the cache cleared before each
+     call — a paired A/B inside one process, so machine load lands on both arms — went **1,431 →
+     1,046 µs at the minimum of 40 runs (−27%)**, median 2,153 → 1,639 µs. Compiles per save:
+     **25 → 3**, and that count is what `db/stmt.dbtest.ts` asserts, because a count does not
+     move with the machine and a timing does. Reports were measured and deliberately left alone:
+     `trialBalance` spends 0.7% of its time preparing. The cache is opt-in rather than a patched
+     `db.prepare`, because a shared `Statement` carries sticky `.pluck()`/`.raw()` state and goes
+     busy inside `.iterate()`; `db/stmt.test.ts` greps every call site for both hazards and for
+     SQL assembled at run time.
 229. ✗ Query result caching keyed on the books' last-modified stamp (M)
      — measured and declined. After the pagination work the queries this would cache cost about
      3 ms, so the cache would be a correctness liability (every write path has to remember to
      bump the stamp) bought with no time saved.
-230. Incremental report recomputation rather than full recompute (L)
-231. Move PDF generation off the main process (M)
+230. ✗ Not doing: incremental report recomputation (L)
+     — priced and declined. Every report is computed from `voucher_lines` at query time, and that
+     is the invariant the books rest on. What incremental recomputation buys, measured on the
+     4,000-invoice fixture: `trialBalance` 1.4 ms, `profitAndLoss` and `balanceSheet` under 2 ms
+     each, a Day Book page 1.6 ms. Across the whole app at 5,500 vouchers no screen is over 75 ms
+     warm and only one is over 60 (see docs/performance.md). What it costs: a derived balance that
+     can disagree with the vouchers behind it, invalidated correctly by **15 call sites of
+     `saveVoucher` across 13 modules** plus delete, restore, purge, bulk edit, year-end and the
+     Tally import — and the failure mode is not a slow report, it is a trial balance that is
+     quietly wrong until an auditor finds it. Single-digit milliseconds is not worth a number that
+     can lie. This is the same reasoning that declined #229.
+231. ✗ Not doing: move PDF generation off the main process (M)
+     — measured, and it is already off it. `services/pdf.ts` renders in a hidden sandboxed
+     `BrowserWindow`, which is a separate process; main only awaits the promise. Sampling the MAIN
+     process event loop every 5 ms during real jobs: an invoice PDF (390–616 ms wall) stalls main
+     for **8–67 ms**, and a 5,000-row report PDF — the largest the schema allows — takes **17–21
+     seconds** of wall time while stalling main for **149–169 ms**, against a 3–8 ms stall on an
+     idle control. Better than 99% of that job is Chromium paginating somewhere else, and the UI
+     is a third process again. Moving the remaining work would relocate a 150 ms stall and leave
+     the 17 seconds exactly where it is.
 232. ✓ Streaming CSV export rather than building the whole string (M)
      — `export:streamCsv`, byte-identical to the in-memory path (asserted), and the heap no
      longer grows with the period.
@@ -796,13 +840,63 @@ Ordering within a section is roughly by value.
      rather than the fact. The rule is about the graph and not about a directory, because that is
      the thing that is actually true or false, and one added link would otherwise undo it in
      silence — nothing looks different afterwards except a number nobody is watching.
-236. Startup time budget with a test that fails if it regresses (M)
-237. Memory ceiling test on a large book (M)
+236. ✓ Startup time budget with a test that fails if it regresses (M)
+     — and the budget with teeth turned out not to be the stopwatch. `scripts/e2e/
+     37-startup-budget.mjs` cold-launches the built app four times and reports the fastest:
+     **743 ms to a settled first screen, renderer DCL 121 ms**. I first gave it a 2,500 ms
+     ceiling — three times the measurement, which felt generous — and it **failed on its first
+     real run at 4,454 ms**, with nothing wrong: that launch happened while the other 36 E2E
+     scenarios were finishing around it, and a retry in the same minute took 22 seconds. A
+     wall-clock ceiling on this machine cannot tell a regression from the load, so it is now a
+     liveness check (30 s) and the file says why in as many words. What survives contention is the
+     renderer's **DCL** — 121 ms quiet, 834 ms at the worst observed under the full suite — so
+     that keeps a real ceiling at 3,000 ms.
+     The assertion that actually catches a startup regression is in `scripts/bundle-budget.mjs`:
+     a byte budget on the ENTRY chunk, **1,363 KB of 1,600 KB**. One static import dragging a
+     screen back into the startup path shows up there exactly, in a unit that does not drift.
+     (`out/main` and `out/renderer/assets` were already over their budgets on this branch before
+     this lane started, from sections H/O/T/S/V; raised to 1,500 and 3,000 KB, because a budget
+     that is already breached is one nobody can use.)
+237. ✓ Memory ceiling test on a large book (M)
+     — `services/memoryCeiling.dbtest.ts`, on the shared 4,000-invoice fixture (7,800 vouchers).
+     Absolute ceilings per report, plus the machine-independent shapes: a 500-row Day Book page
+     must carry a fraction of the whole period's payload (**113 KB of 1,765 KB**), the streaming
+     CSV export of the whole book must not grow the heap at all (7,800 rows and 0.5 MB on disk for
+     no measurable heap), and four further sweeps of every report must stay flat. Baseline heap
+     21.7 MB, whole suite 149 MB RSS; a Day Book page shows as 0.5–0.8 MB of heap against 8.7 MB
+     for the whole period. There is no forced GC, so every heap number is an UPPER bound — the safe
+     direction for a ceiling and the wrong one for a ratio. The first version of this test asserted
+     the heap ratio and failed with `expected 831368 to be less than -7689820` when a collection
+     landed inside the measurement; that is an assertion the measurement cannot carry, so the
+     ratio moved to payload bytes and the heap numbers beside it are printed rather than checked.
 238. ✓ Avoid re-fetching the whole features object on every screen (S) — already shipped: the
      nine call sites share one react-query cache entry, so they make one request between them.
-239. Batch IPC calls that always happen together (M)
-240. Web worker for CSV parsing on import (M)
-241. Progressive rendering of very long reports (M)
+239. ✗ Not doing: batch IPC calls that always happen together (M)
+     — measured the round trip before building the layer. An empty `invoke` costs **0.10 ms
+     median, 0.20 ms p95**; ten sequential cost 0.80 ms and ten fired together cost 0.30 ms,
+     because react-query already fires them in parallel. Counted in main, the largest wave any
+     screen makes is **7 calls (voucher entry)** and then 6 (settings); every other screen makes
+     four or fewer and twenty of them make one. Batching the biggest wave could save about half a
+     millisecond, and would cost a second envelope schema, per-sub-call error semantics, and the
+     per-channel role check that `handle()` does today. The calls are not slow because they are
+     separate; they are as slow as the queries inside them.
+240. ✗ Not doing: web worker for CSV parsing on import (M)
+     — the premise does not hold: the renderer never parses CSV. It reads the file to a string and
+     posts it to main (`importer:preview`, `bank:importCsv`), so parsing already happens off the
+     thread a worker would move it off. Measured anyway, in case it was worth moving off MAIN:
+     `parseCsv` takes 17 ms on a 5,000-row statement, 53 ms on 20,000 and 222 ms on a 100,000-row
+     6.1 MB file; the full `parseStatement` 36 / 168 / 592 ms. A worker for a 36 ms parse inside a
+     user-initiated import that then writes thousands of rows is machinery with nothing to carry.
+241. ✗ Not doing: progressive rendering of very long reports (M)
+     — measured the render share and there is nothing left to make progressive. On a 5,500-voucher
+     book, splitting each screen's wait into the IPC call and everything after it: e-documents
+     **34 ms total for 2,814 rows / 697 KB, of which ~11 ms is React**; the Day Book fetches 5,500
+     rows / 1,244 KB in 40 ms and renders them in **3 ms**, because it is row-virtualized (#227);
+     trial balance and registers render in 25 ms each and are dominated by their own small
+     queries. The three reports that can be genuinely unbounded already cap their DOM nodes
+     regardless of length, and the rest are paginated. Progressive rendering would add a second
+     rendering mode — and a screen that can report itself idle before it is — to divide up eleven
+     milliseconds.
 
 ## L. Reliability and data safety
 

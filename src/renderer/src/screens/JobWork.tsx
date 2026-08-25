@@ -257,7 +257,7 @@ function Register(): React.JSX.Element {
                             ? `Overdue by ${r.daysOverdue} days — deemed sold on ${toDisplayDate(
                                 r.deemedSupplyDate as string
                               )}, tax payable with interest`
-                            : `${toDisplayDate(r?.dueBackBy ?? '')}${r?.extended ? ' (extended)' : ''}`}
+                            : `${r?.dueBackBy ? toDisplayDate(r.dueBackBy) : '–'}${r?.extended ? ' (extended)' : ''}`}
                     </td>
                     <td onClick={(e) => e.stopPropagation()} className="r whitespace-nowrap">
                       {c.balanceMilli > 0 && (

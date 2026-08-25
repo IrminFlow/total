@@ -1,4 +1,5 @@
 import type { DB } from '../db/connection'
+import { prep } from '../db/stmt'
 import {
   CHAIN_GENESIS,
   CHAIN_HEAD_META_KEY,
@@ -88,23 +89,22 @@ export function writeAudit(
   before: unknown,
   after: unknown
 ): void {
-  const written = db
-    .prepare(
-      `INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
+  const written = prep(
+    db,
+    `INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        RETURNING id, entity, entity_id AS entityId, action, at,
                  before_json AS beforeJson, after_json AS afterJson,
                  user_name AS userName, app_version AS appVersion`
-    )
-    .get(
-      entity,
-      entityId,
-      action,
-      before === null || before === undefined ? null : JSON.stringify(before),
-      after === null || after === undefined ? null : JSON.stringify(after),
-      context.getUserName(),
-      context.appVersion
-    ) as ChainedRow
+  ).get(
+    entity,
+    entityId,
+    action,
+    before === null || before === undefined ? null : JSON.stringify(before),
+    after === null || after === undefined ? null : JSON.stringify(after),
+    context.getUserName(),
+    context.appVersion
+  ) as ChainedRow
 
   try {
     chainRow(db, written)
@@ -115,13 +115,14 @@ export function writeAudit(
 
 /** Hash `row` onto the end of the chain and move the head stamp. */
 function chainRow(db: DB, row: ChainedRow): void {
-  const previous = db
-    .prepare('SELECT row_hash AS hash FROM audit_log WHERE id < ? AND row_hash IS NOT NULL ORDER BY id DESC LIMIT 1')
-    .get(row.id) as { hash: string } | undefined
+  const previous = prep(
+    db,
+    'SELECT row_hash AS hash FROM audit_log WHERE id < ? AND row_hash IS NOT NULL ORDER BY id DESC LIMIT 1'
+  ).get(row.id) as { hash: string } | undefined
   const prevHash = previous?.hash ?? CHAIN_GENESIS
   const hash = rowHash(prevHash, row)
-  db.prepare('UPDATE audit_log SET prev_hash = ?, row_hash = ? WHERE id = ?').run(prevHash, hash, row.id)
-  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
+  prep(db, 'UPDATE audit_log SET prev_hash = ?, row_hash = ? WHERE id = ?').run(prevHash, hash, row.id)
+  prep(db, 'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
     CHAIN_HEAD_META_KEY,
     JSON.stringify({ id: row.id, hash })
   )

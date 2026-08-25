@@ -1,4 +1,5 @@
 import type { DB } from '../db/connection'
+import { prep } from '../db/stmt'
 import { featuresSchema, mergeFeatures, type CompanyFeatures } from '@shared/features'
 import { invoiceConfigSchema, mergeInvoiceConfig, type InvoiceConfig } from '@shared/invoiceConfig'
 import { chequeConfigSchema, gst3bManualSchema, mergeChequeConfig, type ChequeConfig, type Gst3bManualInput } from '@shared/schemas'
@@ -10,7 +11,7 @@ import { parseExternalBackup, type ExternalBackupConfig } from '@shared/backupSc
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
  *  writeCompanyInfo (db/seed.ts) and the NIC credentials (services/nic.ts). */
 function readMeta(db: DB, key: string): unknown {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined
+  const row = prep(db, 'SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined
   if (!row) return null
   try {
     return JSON.parse(row.value)
@@ -20,7 +21,7 @@ function readMeta(db: DB, key: string): unknown {
 }
 
 function writeMeta(db: DB, key: string, value: unknown): void {
-  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
+  prep(db, 'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
     key,
     JSON.stringify(value)
   )

@@ -34,6 +34,13 @@ jobs:
 
       - name: DB-layer tests (Electron-as-Node — headless-safe, no display needed)
         run: npm run test:db
+        env:
+          # A shared CI runner is a contended machine, and the query-time budgets are wall-clock
+          # ceilings. They already take the best of five runs, which handles a blip; it does not
+          # handle a runner that is oversubscribed for the whole job. Scaled up here rather than
+          # loosened in the file, so a developer's own run keeps the tight number that would
+          # actually notice a regression.
+          TOTAL_QUERY_BUDGET_SCALE: 3
 
       # A report on the run's summary page, never a gate. A build that fails because something
       # published a minor version this morning teaches people to skip the check — and the check
@@ -129,6 +136,8 @@ jobs:
 
       - name: DB-layer tests (Electron-as-Node)
         run: npm run test:db
+        env:
+          TOTAL_QUERY_BUDGET_SCALE: 3
 
       - name: Build
         run: npm run build
