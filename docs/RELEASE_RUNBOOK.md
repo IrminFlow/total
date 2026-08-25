@@ -33,8 +33,10 @@ must remain limited to the `main` branch and require release-owner approval.
    when intentionally preparing a later patch version, never during promotion of an existing candidate.
 3. Dispatch **Release candidate** with the full `main` commit SHA and exact package version. Record the
    run ID, run attempt, immutable artifact ID and candidate-manifest SHA-256 from its summary.
-4. Run migration, clean-machine, human and mobile acceptance against those exact signed candidate
-   artifacts. Commit only the sanitized approval JSON under `docs/evidence/`.
+4. Confirm the candidate bundle contains passing GitHub-hosted macOS and Windows install, upgrade,
+   backup, restore, uninstall and data-preservation evidence. Run migration and human acceptance
+   against those exact signed artifacts. Physical Intel and other clean-device testing is optional,
+   best-effort evidence and must not be claimed unless performed. Commit only sanitized approval JSON.
 5. Dispatch **Promote release candidate** with the recorded candidate identity, source revision and
    version. Promotion re-downloads and verifies every candidate byte, then creates the tag and release.
 6. Confirm the public release contains DMG, ZIP, EXE, blockmaps, `latest-mac.yml`, and `latest.yml`, and
@@ -68,6 +70,9 @@ to overwrite an existing tag or release because partial or mixed-version assets 
   the platform scorecards and evidence files to be hashed by that build evidence. A copied label,
   an existing script or stale evidence from another commit cannot satisfy the gate.
 - Uninstall removes the installed application while leaving the company database intact.
+- Promotion requires install evidence from fresh GitHub-hosted macOS and Windows jobs. Each record
+  identifies the runner image and exact signed installer, and proves launch, posting, backup preview,
+  restore, uninstall and data preservation. Self-hosted or locally written evidence is rejected.
 - Update manifests match the tag, include SHA-512 integrity metadata, and reference assets in the
   same release.
 

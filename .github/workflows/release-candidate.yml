@@ -203,6 +203,8 @@ jobs:
 
       - name: Install from DMG, post, backup, restore and uninstall
         run: npm run release:install-smoke -- mac
+        env:
+          INSTALL_EVIDENCE: ${{ github.workspace }}/dist/install-evidence-mac.json
 
       - name: Download the actual public v0.4 macOS build
         shell: bash
@@ -247,6 +249,7 @@ jobs:
             dist/*.zip.blockmap
             dist/latest-mac.yml
             dist/build-evidence-mac.json
+            dist/install-evidence-mac.json
             dist/release-scorecard-mac.json
             dist/upgrade-evidence-mac.json
 
@@ -301,6 +304,8 @@ jobs:
 
       - name: Install NSIS, post, backup, restore and uninstall
         run: npm run release:install-smoke -- win
+        env:
+          INSTALL_EVIDENCE: ${{ github.workspace }}\dist\install-evidence-win.json
 
       - name: Download and install the actual public v0.4 Windows build
         shell: pwsh
@@ -350,6 +355,7 @@ jobs:
             dist/*.exe.blockmap
             dist/latest.yml
             dist/build-evidence-win.json
+            dist/install-evidence-win.json
             dist/release-scorecard-win.json
             dist/upgrade-evidence-win.json
 

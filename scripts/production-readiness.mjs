@@ -11,6 +11,14 @@ const env = process.env;
 const file = (path) => existsSync(resolve(root, path));
 const text = (path) => readFileSync(resolve(root, path), "utf8");
 const productVersion = JSON.parse(text("package.json")).version;
+const commercialEvidence = file("docs/evidence/commercial-policy-approved.json")
+  ? JSON.parse(text("docs/evidence/commercial-policy-approved.json"))
+  : null;
+const freePublicBeta = commercialEvidence?.status === "approved"
+  && commercialEvidence?.productVersion === productVersion
+  && commercialEvidence?.betaPricePaise === 0
+  && commercialEvidence?.automaticBetaConversion === false
+  && text("docs/COMMERCIAL_POLICY.md").includes("Paid sales are not open yet.");
 const sourceRevision = env.RELEASE_REVISION?.trim() || env.GITHUB_SHA?.trim() || execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 const siteRevision = env.SITE_REVISION?.trim() || sourceRevision;
 const hasAll = (...names) => names.every((name) => Boolean(env[name]?.trim()));
@@ -86,11 +94,44 @@ add(
   "release-owner",
 );
 add("real-migration-acceptance", approvedEvidence("MIGRATION_ACCEPTANCE_EVIDENCE", "docs/evidence/migration-acceptance-approved.json", "migration") ? "ready" : "external", "Reconcile representative consented Tally, Busy, Marg, Zoho and spreadsheet exports and approve the evidence.", "acceptance-owner");
-add("clean-device-acceptance", approvedEvidence("CLEAN_MACHINE_EVIDENCE", "docs/evidence/clean-machine-approved.json", "clean-machine") ? "ready" : "external", "Approve clean Apple Silicon, supported Intel macOS and Windows 11 installation, upgrade, backup, restore and uninstall evidence.", "acceptance-owner");
+add(
+  "hosted-runner-install-acceptance",
+  candidateEvidence?.hostedRunnerInstallVerified ? "ready" : candidateEvidenceDir ? "blocked" : preArtifact ? "pending" : "external",
+  candidateEvidence?.hostedRunnerInstallVerified
+    ? "Fresh GitHub-hosted macOS and Windows jobs installed the exact signed candidates, launched them, posted a voucher, backed up, restored, upgraded public v0.4 books, uninstalled, and preserved company data."
+    : candidateEvidenceError
+      ? `Hosted-runner install evidence failed validation: ${candidateEvidenceError}`
+      : preArtifact
+        ? "The candidate workflow must produce exact-artifact install, upgrade, backup, restore and uninstall evidence on fresh GitHub-hosted macOS and Windows runners."
+        : "Run the signed release-candidate workflow and provide its immutable evidence bundle.",
+  "release-owner",
+);
+add("physical-clean-device-acceptance", approvedEvidence("CLEAN_MACHINE_EVIDENCE", "docs/evidence/clean-machine-approved.json", "clean-machine") ? "ready" : "optional", "Physical Apple Silicon, Intel macOS and Windows testing is best-effort supplementary coverage; do not present it as completed without real evidence.", "acceptance-owner");
 add("human-acceptance", approvedEvidence("HUMAN_ACCEPTANCE_EVIDENCE", "docs/evidence/human-acceptance-approved.json", "human") ? "ready" : "external", "Approve structured bookkeeper, owner, CA, payroll and inventory/manufacturing sessions.", "product-owner");
-add("mobile-device-acceptance", approvedEvidence("MOBILE_ACCEPTANCE_EVIDENCE", "docs/evidence/mobile-acceptance-approved.json", "mobile") ? "ready" : "external", "Exercise camera capture and native sharing on current physical iOS and Android devices.", "acceptance-owner");
+add("mobile-device-acceptance", approvedEvidence("MOBILE_ACCEPTANCE_EVIDENCE", "docs/evidence/mobile-acceptance-approved.json", "mobile") ? "ready" : "optional", "Phone capture is an optional companion web workflow and is not a release gate for the macOS and Windows desktop app.", "acceptance-owner");
 add("commercial-approval", approvedEvidence("COMMERCIAL_APPROVAL_EVIDENCE", "docs/evidence/commercial-policy-approved.json", "commercial") ? "ready" : "external", "Approve pricing, licence model, refund terms, support targets and beta-to-paid transition before publication.", "product-owner");
-add("qualified-legal-review", approvedEvidence("LEGAL_REVIEW_EVIDENCE", "docs/evidence/legal-review-approved.json", "legal") ? "ready" : "external", "Obtain qualified legal review of privacy, terms, licensing and intended selling jurisdictions.", "legal-owner");
+const qualifiedLegalReview = approvedEvidence("LEGAL_REVIEW_EVIDENCE", "docs/evidence/legal-review-approved.json", "legal");
+const ownerLegalRiskAcceptance = approvedEvidence("LEGAL_RISK_ACCEPTANCE_EVIDENCE", "docs/evidence/legal-risk-acceptance-approved.json", "legal-risk");
+add(
+  "legal-release-governance",
+  qualifiedLegalReview || (freePublicBeta && ownerLegalRiskAcceptance) ? "ready" : "external",
+  qualifiedLegalReview
+    ? "A qualified reviewer approved the exact policy documents."
+    : freePublicBeta
+      ? "For this free public beta, record the product owner's explicit acceptance of unreviewed legal risk. This is not legal advice or legal approval."
+      : "Qualified legal review is required because this release is not a free public beta.",
+  qualifiedLegalReview ? "legal-owner" : "product-owner",
+);
+add(
+  "qualified-legal-review",
+  qualifiedLegalReview ? "ready" : freePublicBeta ? "recommended" : "external",
+  qualifiedLegalReview
+    ? "The exact privacy, terms, security and commercial-policy documents received qualified review."
+    : freePublicBeta
+      ? "Qualified review is recommended for the free beta and becomes mandatory before direct paid sales or significant paid marketing."
+      : "Obtain qualified legal review before direct paid sales or significant paid marketing.",
+  "legal-owner",
+);
 add("online-statutory", "excluded", "NIC and online GST portal connectivity are explicitly outside this production completion scope.", "product-owner");
 
 let dirty = false;

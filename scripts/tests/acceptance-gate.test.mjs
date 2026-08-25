@@ -383,6 +383,70 @@ test('binds qualified legal approval to the exact reviewed policy sources', () =
   assert.match(stale.stderr, /reviewed document has changed since approval/)
 })
 
+test('accepts explicit owner risk only for a free public beta without sales or paid marketing', () => {
+  const legalDocuments = {
+    privacy: 'site/app/privacy/page.tsx',
+    terms: 'site/app/terms/page.tsx',
+    security: 'site/app/security/page.tsx',
+    'commercial-policy': 'docs/COMMERCIAL_POLICY.md',
+  }
+  const evidence = {
+    schema: 1,
+    kind: 'legal-risk',
+    status: 'approved',
+    productVersion,
+    approvedAt,
+    approvers: [{ name: 'Product owner', role: 'Product owner', decision: 'approved' }],
+    releaseChannel: 'free-public-beta',
+    freeOfCharge: true,
+    directSalesEnabled: false,
+    significantPaidMarketingEnabled: false,
+    notQualifiedLegalReview: true,
+    ownerAcceptsUnreviewedLegalRisk: true,
+    qualifiedReviewRequiredBeforePaidSales: true,
+    documents: Object.entries(legalDocuments).map(([id, path]) => ({
+      id,
+      sha256: createHash('sha256').update(readFileSync(join(root, path))).digest('hex'),
+      result: 'risk_acknowledged',
+    })),
+  }
+  const accepted = runGate(evidence)
+  assert.equal(accepted.status, 0, accepted.stderr)
+  const acceptedPath = tempEvidence(evidence).path
+  const readinessOutput = JSON.parse(
+    execFileSync(process.execPath, [readiness], {
+      cwd: root,
+      env: { ...process.env, LEGAL_RISK_ACCEPTANCE_EVIDENCE: acceptedPath },
+      encoding: 'utf8',
+    }),
+  )
+  assert.equal(readinessOutput.checks.find((check) => check.id === 'legal-release-governance')?.status, 'ready')
+  assert.equal(readinessOutput.checks.find((check) => check.id === 'qualified-legal-review')?.status, 'recommended')
+
+  evidence.directSalesEnabled = true
+  const salesEnabled = runGate(evidence)
+  assert.notEqual(salesEnabled.status, 0)
+  assert.match(salesEnabled.stderr, /direct sales must remain disabled/)
+
+  evidence.directSalesEnabled = false
+  evidence.notQualifiedLegalReview = false
+  const misleading = runGate(evidence)
+  assert.notEqual(misleading.status, 0)
+  assert.match(misleading.stderr, /not qualified legal review/)
+})
+
+test('treats mobile acceptance as optional and qualified review as recommended for the free beta', () => {
+  const output = JSON.parse(
+    execFileSync(process.execPath, [readiness], {
+      cwd: root,
+      encoding: 'utf8',
+    }),
+  )
+  assert.equal(output.checks.find((check) => check.id === 'mobile-device-acceptance')?.status, 'optional')
+  assert.equal(output.checks.find((check) => check.id === 'qualified-legal-review')?.status, 'recommended')
+  assert.equal(output.checks.find((check) => check.id === 'legal-release-governance')?.status, 'external')
+})
+
 test('production readiness passes the exact release revision into acceptance validation', () => {
   const { evidence } = validMigration()
   const { path } = tempEvidence(evidence)

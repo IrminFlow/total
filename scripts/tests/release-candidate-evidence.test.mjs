@@ -22,6 +22,7 @@ function fixture() {
       : [write(join(root, "Total.Setup.0.5.0.exe"), "signed exe")];
     const digest = "f".repeat(64);
     const upgradeName = `upgrade-evidence-${platform}.json`;
+    const installName = `install-evidence-${platform}.json`;
     const scorecardName = `release-scorecard-${platform}.json`;
     const upgrade = {
       schema: 3, ok: true, executed: true, platform, sourceRevision: revision,
@@ -40,11 +41,42 @@ function fixture() {
       },
     };
     const upgradeArtifact = write(join(root, upgradeName), upgrade);
+    const installArtifact = write(join(root, installName), {
+      schema: 1,
+      ok: true,
+      executed: true,
+      testedAt: new Date().toISOString(),
+      sourceRevision: revision,
+      productVersion: version,
+      platform,
+      runner: {
+        provider: "github-actions",
+        environment: "github-hosted",
+        os: platform === "mac" ? "macOS" : "Windows",
+        arch: platform === "mac" ? "ARM64" : "X64",
+        imageOS: platform === "mac" ? "macos15" : "win25",
+        imageVersion: "20260820.1",
+        runId: "12345",
+        runAttempt: "1",
+        job: platform === "mac" ? "release-mac" : "release-win",
+      },
+      candidateArtifact: candidates.find((artifact) => artifact.name.endsWith(platform === "mac" ? ".dmg" : ".exe")),
+      installationMethod: platform === "mac" ? "mounted-readonly-dmg-and-copied-app" : "silent-nsis-install",
+      checks: {
+        freshIsolatedHomeAndProfile: "passed",
+        packagedLaunch: "passed",
+        postVoucher: "passed",
+        backupPreview: "passed",
+        backupRestore: "passed",
+        uninstallRemovesApplication: "passed",
+        uninstallPreservesCompanyData: "passed",
+      },
+    });
     const scorecardArtifact = write(join(root, scorecardName), { schema: 1, ok: true });
     write(join(root, `build-evidence-${platform}.json`), {
       schema: 1, revision, packageVersion: version, sourceDirty: false,
       signing: { macIdentityConfigured: platform === "mac", appleNotarizationConfigured: platform === "mac", windowsIdentityConfigured: platform === "win" },
-      artifacts: [...candidates, upgradeArtifact, scorecardArtifact],
+      artifacts: [...candidates, upgradeArtifact, installArtifact, scorecardArtifact],
     });
   }
   return root;
@@ -87,4 +119,22 @@ test("fails closed when signed candidate evidence does not confirm signing readi
   evidence.signing.windowsIdentityConfigured = false;
   writeFileSync(path, JSON.stringify(evidence));
   assert.throws(() => validateReleaseCandidateEvidence({ root, revision, version }), /signing identity/);
+});
+
+test("fails closed when install evidence is not from a GitHub-hosted runner", () => {
+  const root = fixture();
+  const path = join(root, "install-evidence-win.json");
+  const evidence = JSON.parse(readFileSync(path, "utf8"));
+  evidence.runner.environment = "self-hosted";
+  writeFileSync(path, JSON.stringify(evidence));
+  assert.throws(() => validateReleaseCandidateEvidence({ root, revision, version }), /GitHub-hosted runner/);
+});
+
+test("fails closed when a required install, restore or uninstall check did not pass", () => {
+  const root = fixture();
+  const path = join(root, "install-evidence-mac.json");
+  const evidence = JSON.parse(readFileSync(path, "utf8"));
+  evidence.checks.backupRestore = "failed";
+  writeFileSync(path, JSON.stringify(evidence));
+  assert.throws(() => validateReleaseCandidateEvidence({ root, revision, version }), /backupRestore did not pass/);
 });

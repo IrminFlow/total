@@ -63,12 +63,15 @@ export function validateReleaseCandidateEvidence(options) {
   const summaries = [];
   for (const platform of platforms) {
     const upgradeName = `upgrade-evidence-${platform}.json`;
+    const installName = `install-evidence-${platform}.json`;
     const buildName = `build-evidence-${platform}.json`;
     const scorecardName = `release-scorecard-${platform}.json`;
     const upgradePath = files.get(upgradeName);
+    const installPath = files.get(installName);
     const buildPath = files.get(buildName);
     const scorecardPath = files.get(scorecardName);
     const upgrade = json(upgradePath ?? join(root, upgradeName), `${platform} upgrade evidence`);
+    const install = json(installPath ?? join(root, installName), `${platform} hosted-runner install evidence`);
     const build = json(buildPath ?? join(root, buildName), `${platform} build evidence`);
     const scorecard = json(scorecardPath ?? join(root, scorecardName), `${platform} scorecard`);
 
@@ -126,7 +129,24 @@ export function validateReleaseCandidateEvidence(options) {
       assert(expected?.sha256 === artifact.sha256 && expected?.bytes === artifact.bytes, `${platform} build evidence does not link ${artifact.name}`);
     }
     assert(upgrade.publicArtifact?.version === "0.4.0" && /^[0-9a-f]{64}$/.test(upgrade.publicArtifact?.sha256 ?? ""), `${platform} public v0.4 package provenance is missing`);
-    summaries.push({ platform, fixtureDigest: upgrade.publicRelease.fixtureDigest, artifacts: upgrade.candidateArtifacts.map((artifact) => artifact.name) });
+    assert(install.schema === 1 && install.ok === true && install.executed === true, `${platform} hosted-runner install evidence was not executed successfully`);
+    assert(install.platform === platform, `${platform} hosted-runner install evidence has the wrong platform`);
+    assert(install.sourceRevision === revision && install.productVersion === version, `${platform} hosted-runner install evidence is not tied to this release`);
+    assert(install.runner?.provider === "github-actions" && install.runner?.environment === "github-hosted", `${platform} install evidence did not run on a GitHub-hosted runner`);
+    for (const field of ["os", "arch", "imageOS", "imageVersion", "runId", "runAttempt", "job"])
+      assert(typeof install.runner?.[field] === "string" && install.runner[field].trim().length > 0, `${platform} hosted-runner ${field} is missing`);
+    const expectedInstallMethod = platform === "mac" ? "mounted-readonly-dmg-and-copied-app" : "silent-nsis-install";
+    assert(install.installationMethod === expectedInstallMethod, `${platform} installer was not exercised with the required method`);
+    const expectedInstallSuffix = platform === "mac" ? ".dmg" : ".exe";
+    assert(install.candidateArtifact?.name?.endsWith(expectedInstallSuffix), `${platform} install evidence references the wrong artifact type`);
+    validateArtifact(files.get(install.candidateArtifact.name), install.candidateArtifact, `${platform} installed candidate artifact`);
+    const requiredInstallChecks = ["freshIsolatedHomeAndProfile", "packagedLaunch", "postVoucher", "backupPreview", "backupRestore", "uninstallRemovesApplication", "uninstallPreservesCompanyData"];
+    for (const check of requiredInstallChecks)
+      assert(install.checks?.[check] === "passed", `${platform} hosted-runner install check ${check} did not pass`);
+    const recordedInstall = recorded.get(installName);
+    assert(recordedInstall, `${platform} build evidence does not include ${installName}`);
+    validateArtifact(installPath, recordedInstall, `${platform} hosted-runner install evidence`);
+    summaries.push({ platform, fixtureDigest: upgrade.publicRelease.fixtureDigest, artifacts: upgrade.candidateArtifacts.map((artifact) => artifact.name), hostedRunnerInstallVerified: true });
   }
-  return { ok: true, revision, version, signingVerified: true, platforms: summaries };
+  return { ok: true, revision, version, signingVerified: true, hostedRunnerInstallVerified: true, platforms: summaries };
 }

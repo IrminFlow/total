@@ -66,14 +66,18 @@ cd site && npm run dev / npm run build   # marketing site
 For the prepared version already recorded in `package.json`, merge the reviewed release commit to
 `main`, then dispatch **Release candidate** with that full commit SHA and version. Its macOS and
 Windows jobs use the reviewer-protected `release-signing` environment and produce one private,
-content-addressed candidate artifact; they do not create a tag or release. Run migration,
-clean-machine and human acceptance against those exact installer digests, then merge only the
-sanitized evidence JSON under `docs/evidence/`.
+content-addressed candidate artifact; they do not create a tag or release. Confirm its hosted-runner
+installation evidence, then run migration and human acceptance against those exact installer digests
+and merge only the sanitized evidence JSON under `docs/evidence/`.
 
 Dispatch **Promote release candidate** with the candidate run ID, run attempt, artifact ID, manifest
 SHA-256, source revision and version. The workflow rejects non-evidence changes since the candidate,
 revalidates every byte and acceptance record, and then creates the tag and one non-draft release from
-the already signed artifacts. Do not create or push the release tag manually.
+the already signed artifacts. Fresh GitHub-hosted macOS and Windows candidate jobs are the mandatory
+clean-environment matrix: their immutable evidence covers install, public-v0.4 upgrade, posting,
+backup/restore, uninstall and preservation of company data. Physical Apple Silicon, Intel and Windows
+testing is optional supplementary coverage and must not be claimed unless performed. Do not create
+or push the release tag manually.
 
 Use `npm version patch` only when intentionally preparing the next patch version; do not run it again for an already-versioned release candidate.
 

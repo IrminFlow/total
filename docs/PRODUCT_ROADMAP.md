@@ -35,10 +35,13 @@ items in [BACKLOG_300.md](BACKLOG_300.md).
 1. Run the full release scorecard on the final clean commit.
 2. Reconcile representative Tally, Busy, Marg, Zoho and spreadsheet migrations using consented or
    synthetic production-scale data: openings, vouchers, tax totals, outstandings and stock value.
-3. Complete bookkeeper, owner, accountant, payroll and inventory acceptance on clean macOS and Windows.
-   Automated acceptance now covers the real public v0.4-to-v0.5 migration, repeated reopen, verified
-   restore and uninstall-with-data-preservation; the remaining gate is clean-device human use.
-4. Exercise phone capture on current iOS and Android, then confirm desktop import and duplicate review.
+3. Complete bookkeeper, owner, accountant, payroll and inventory acceptance against the exact signed
+   candidates. Mandatory clean-environment acceptance runs on fresh GitHub-hosted macOS and Windows
+   jobs and covers install, public v0.4 upgrade, repeated reopen, posting, verified backup/restore and
+   uninstall-with-data-preservation. Physical Apple Silicon, Intel and Windows checks are optional,
+   best-effort supplementary coverage and must not be claimed unless performed.
+4. Optionally exercise the website's phone-capture companion on current iOS and Android, then confirm
+   desktop import and duplicate review. This does not block the desktop release.
 5. Run an invited cohort, triage blockers and publish an owned support/response SLA.
 
 ## Remaining external release operations
@@ -47,7 +50,9 @@ items in [BACKLOG_300.md](BACKLOG_300.md).
 - Re-run the configured Vercel support, feedback, download and security-header checks on the final
   release deployment. The 24 August production exercise under `docs/evidence/` remains a historical
   audit record; release readiness requires fresh, executed evidence for the exact deployment.
-- Obtain legal review of the versioned privacy policy and terms for intended selling jurisdictions.
+- For the free public beta, record explicit product-owner acceptance of the unreviewed legal risk or
+  obtain qualified review. Qualified review remains mandatory before direct sales or significant paid
+  marketing.
 - Tag only after the final commit is clean and green, then verify installers and updater metadata from
   the public release. See [PRODUCTION_CUTOVER.md](PRODUCTION_CUTOVER.md).
 

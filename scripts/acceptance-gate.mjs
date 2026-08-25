@@ -100,7 +100,7 @@ function candidateArtifact(name, expectedSha, expectedBytes, label) {
 }
 function common() {
   assert(evidence.schema === 1, 'schema must be 1')
-  assert(['migration', 'clean-machine', 'human', 'mobile', 'commercial', 'legal'].includes(evidence.kind), 'Unknown acceptance kind')
+  assert(['migration', 'clean-machine', 'human', 'mobile', 'commercial', 'legal', 'legal-risk'].includes(evidence.kind), 'Unknown acceptance kind')
   assert(evidence.productVersion === productVersion, `productVersion must be ${productVersion}`)
   assert(evidence.status === 'approved', 'status must be approved')
   const approvedAt = timestamp(evidence.approvedAt, 'approvedAt')
@@ -285,6 +285,26 @@ function legal() {
     repositoryDocumentSha(documentPaths[document.id], document.sha256, `legal: ${document.id}`)
   })
 }
+function legalRisk() {
+  assert(evidence.releaseChannel === 'free-public-beta', 'legal-risk: releaseChannel must be free-public-beta')
+  assert(evidence.freeOfCharge === true, 'legal-risk: the accepted release must be free of charge')
+  assert(evidence.directSalesEnabled === false, 'legal-risk: direct sales must remain disabled')
+  assert(evidence.significantPaidMarketingEnabled === false, 'legal-risk: significant paid marketing must remain disabled')
+  assert(evidence.notQualifiedLegalReview === true, 'legal-risk: evidence must state that it is not qualified legal review')
+  assert(evidence.ownerAcceptsUnreviewedLegalRisk === true, 'legal-risk: product owner must explicitly accept unreviewed legal risk')
+  assert(evidence.qualifiedReviewRequiredBeforePaidSales === true, 'legal-risk: qualified review must remain required before paid sales')
+  exactIds(evidence.documents, ['privacy', 'terms', 'security', 'commercial-policy'], 'documents')
+  const documentPaths = {
+    privacy: 'site/app/privacy/page.tsx',
+    terms: 'site/app/terms/page.tsx',
+    security: 'site/app/security/page.tsx',
+    'commercial-policy': 'docs/COMMERCIAL_POLICY.md',
+  }
+  evidence.documents.forEach((document) => {
+    assert(document.result === 'risk_acknowledged', `legal-risk: ${document.id} must be risk_acknowledged`)
+    repositoryDocumentSha(documentPaths[document.id], document.sha256, `legal-risk: ${document.id}`)
+  })
+}
 
 common()
 if (evidence.kind === 'migration') migration()
@@ -293,6 +313,7 @@ if (evidence.kind === 'human') human()
 if (evidence.kind === 'mobile') mobile()
 if (evidence.kind === 'commercial') commercial()
 if (evidence.kind === 'legal') legal()
+if (evidence.kind === 'legal-risk') legalRisk()
 if (!quiet)
   console.log(
     JSON.stringify({

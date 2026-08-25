@@ -38,6 +38,7 @@
     "release:live": "node scripts/production-live-check.mjs",
     "acceptance:gate": "node scripts/acceptance-gate.mjs",
     "acceptance:legal-packet": "node scripts/legal-review-packet.mjs",
+    "acceptance:legal-risk-packet": "node scripts/legal-risk-packet.mjs",
     "security:dependencies": "node scripts/dependency-policy.mjs",
     "e2e": "node scripts/run-e2e.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",

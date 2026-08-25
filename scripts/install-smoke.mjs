@@ -1,8 +1,9 @@
 // Release-only smoke against the distributable itself. Installs into a disposable directory,
 // launches with a clean profile, creates/posts/backs up/restores, then uninstalls.
 import { _electron as electron } from 'playwright-core'
+import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
@@ -13,12 +14,65 @@ const installRoot = join(scratch, 'Applications')
 let mountPoint = null
 let executable = null
 let uninstaller = null
+let installer = null
 
 function filesBelow(dir) {
   return readdirSync(dir).flatMap((name) => {
     const path = join(dir, name)
     return statSync(path).isDirectory() ? filesBelow(path) : [path]
   })
+}
+
+function artifact(path) {
+  return {
+    name: basename(path),
+    bytes: statSync(path).size,
+    sha256: createHash('sha256').update(readFileSync(path)).digest('hex')
+  }
+}
+
+function writeHostedRunnerEvidence(result) {
+  const output = process.env.INSTALL_EVIDENCE?.trim()
+  if (!output) return
+  if (process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') {
+    throw new Error('Install evidence may only be recorded by a GitHub-hosted Actions runner')
+  }
+  const sourceRevision = (process.env.RELEASE_REVISION ?? process.env.GITHUB_SHA ?? '').trim()
+  if (!/^[0-9a-f]{40}$/i.test(sourceRevision)) throw new Error('Install evidence requires a full release revision')
+  if (!installer) throw new Error('Install evidence has no source installer')
+  const evidence = {
+    schema: 1,
+    ok: true,
+    executed: true,
+    testedAt: new Date().toISOString(),
+    sourceRevision,
+    productVersion: result.version,
+    platform: platform === 'mac' || platform === 'darwin' ? 'mac' : 'win',
+    runner: {
+      provider: 'github-actions',
+      environment: 'github-hosted',
+      os: process.env.RUNNER_OS,
+      arch: process.env.RUNNER_ARCH,
+      imageOS: process.env.ImageOS,
+      imageVersion: process.env.ImageVersion,
+      runId: process.env.GITHUB_RUN_ID,
+      runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+      job: process.env.GITHUB_JOB
+    },
+    candidateArtifact: artifact(installer),
+    installationMethod: platform === 'mac' || platform === 'darwin' ? 'mounted-readonly-dmg-and-copied-app' : 'silent-nsis-install',
+    checks: {
+      freshIsolatedHomeAndProfile: 'passed',
+      packagedLaunch: 'passed',
+      postVoucher: 'passed',
+      backupPreview: 'passed',
+      backupRestore: 'passed',
+      uninstallRemovesApplication: 'passed',
+      uninstallPreservesCompanyData: 'passed'
+    }
+  }
+  mkdirSync(resolve(output, '..'), { recursive: true })
+  writeFileSync(resolve(output), `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 })
 }
 
 async function runBookWorkflow(path) {
@@ -102,9 +156,9 @@ async function runBookWorkflow(path) {
 try {
   const files = filesBelow(dist)
   if (platform === 'mac' || platform === 'darwin') {
-    const dmg = files.find((path) => path.endsWith('.dmg'))
-    if (!dmg) throw new Error('DMG not found')
-    const attached = execFileSync('hdiutil', ['attach', dmg, '-nobrowse', '-readonly'], { encoding: 'utf8' })
+    installer = files.find((path) => path.endsWith('.dmg'))
+    if (!installer) throw new Error('DMG not found')
+    const attached = execFileSync('hdiutil', ['attach', installer, '-nobrowse', '-readonly'], { encoding: 'utf8' })
     mountPoint = attached.split(/\r?\n/).flatMap((line) => line.split('\t')).find((part) => part.startsWith('/Volumes/')) ?? null
     if (!mountPoint) throw new Error(`Could not identify mounted DMG: ${attached}`)
     const sourceApp = join(mountPoint, 'Total.app')
@@ -112,7 +166,7 @@ try {
     execFileSync('ditto', [sourceApp, installedApp], { stdio: 'inherit' })
     executable = join(installedApp, 'Contents', 'MacOS', 'Total')
   } else if (platform === 'win' || platform === 'win32') {
-    const installer = files.find((path) => path.endsWith('.exe') && !path.includes('win-unpacked'))
+    installer = files.find((path) => path.endsWith('.exe') && !path.includes('win-unpacked'))
     if (!installer) throw new Error('NSIS installer not found')
     execFileSync(installer, ['/S', `/D=${installRoot}`], { stdio: 'inherit' })
     executable = join(installRoot, 'Total.exe')
@@ -132,6 +186,7 @@ try {
   if (existsSync(executable)) throw new Error(`Uninstall left the application executable behind: ${executable}`)
   const preservedDb = join(result.dataDir, 'companies', result.slug, 'company.db')
   if (!existsSync(preservedDb)) throw new Error('Uninstall deleted the company database')
+  writeHostedRunnerEvidence(result)
   console.log(JSON.stringify({ ok: true, platform, executable: executableName, ...result, dataPreservedAfterUninstall: true }))
 } finally {
   if (uninstaller && existsSync(uninstaller)) {
