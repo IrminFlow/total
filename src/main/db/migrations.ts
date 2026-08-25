@@ -1623,5 +1623,111 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_tds_entries_challan ON tds_entries(challan_id);
 
   ALTER TABLE tds_sections ADD COLUMN code_2025 TEXT;
+  `,
+
+  // 40 — pay cycles that are not a month (roadmap #179).
+  //
+  // Payroll assumed a month everywhere: one run per month, keyed by a UNIQUE month string. A
+  // factory paying its floor weekly and its office monthly could not be run in this app at all.
+  //
+  // The hard part was never the arithmetic. PF's wage ceiling, ESI's gross limit, every state's
+  // professional-tax slab and TDS under section 192 are all defined PER MONTH. Computing each of
+  // them afresh on a week's wages does not produce a quarter of the monthly figure — it produces
+  // a number that is wrong, and wrong in the direction the employee discovers years later when
+  // EPFO's passbook does not match their payslips.
+  //
+  // So a run now carries the statutory month it accrues to alongside its own period. The month is
+  // the unit the statutory computation runs on; the period is the unit the money moves on. A run
+  // is identified by (cycle, period_start) rather than by month, which is what the UNIQUE had to
+  // go for.
+  //
+  // The table is rebuilt because SQLite cannot drop a UNIQUE constraint. Its two children are
+  // emptied into plain copies first: DROP TABLE runs ON DELETE CASCADE, and foreign_keys cannot
+  // be turned off from inside the transaction a migration runs in.
+  `
+  ALTER TABLE employees ADD COLUMN pay_cycle TEXT NOT NULL DEFAULT 'monthly'
+    CHECK (pay_cycle IN ('monthly','fortnightly','weekly'));
+
+  CREATE TABLE payroll_runs_bak AS SELECT * FROM payroll_runs;
+  CREATE TABLE payroll_lines_bak AS SELECT * FROM payroll_lines;
+  CREATE TABLE loan_recoveries_bak AS SELECT * FROM loan_recoveries;
+  DELETE FROM payroll_lines;
+  DELETE FROM loan_recoveries;
+  DROP TABLE payroll_runs;
+
+  CREATE TABLE payroll_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The statutory month the run accrues to, 'YYYY-MM'. A weekly period that straddles a month
+    -- end belongs to the month its LAST day falls in: wages accrue as the period closes.
+    month TEXT NOT NULL,
+    cycle TEXT NOT NULL DEFAULT 'monthly' CHECK (cycle IN ('monthly','fortnightly','weekly')),
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (cycle, period_start)
+  );
+  INSERT INTO payroll_runs (id, month, cycle, period_start, period_end, voucher_id, created_at)
+    SELECT id, month, 'monthly', month || '-01',
+           date(month || '-01', '+1 month', '-1 day'), voucher_id, created_at
+    FROM payroll_runs_bak;
+
+  INSERT INTO payroll_lines SELECT * FROM payroll_lines_bak;
+  INSERT INTO loan_recoveries SELECT * FROM loan_recoveries_bak;
+  DROP TABLE payroll_runs_bak;
+  DROP TABLE payroll_lines_bak;
+  DROP TABLE loan_recoveries_bak;
+
+  CREATE INDEX idx_payroll_runs_month ON payroll_runs(month);
+  `,
+
+  // 41 — CMA data for a working-capital application (roadmap #371).
+  //
+  // Three tables and a boundary. `cma_packs` pins which five financial years a pack covers, so a
+  // pack submitted to a bank in March still reads in June as it read when it was submitted.
+  //
+  // `cma_inputs` holds ONLY the figures the user typed. The audited columns are never stored:
+  // they are recomputed from the books every time the pack is opened, because the books are what
+  // the bank's own verification will be run against. Storing a copy would let the pack and the
+  // ledgers drift apart silently, and the pack is the one that would be wrong.
+  //
+  // A row exists here for exactly the cells a person asserted. That is what makes it possible for
+  // the screen to show a projection column as blank rather than as a column of confident zeros —
+  // a CMA pack that prints zeros for a year that does not exist is a pack that gets refused.
+  `
+  CREATE TABLE cma_packs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    -- FY start year of the CURRENT-YEAR ESTIMATE column. The two audited years count back from
+    -- it and the two projections count forward.
+    estimate_fy_start_year INTEGER NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE cma_inputs (
+    pack_id INTEGER NOT NULL REFERENCES cma_packs(id) ON DELETE CASCADE,
+    column_key TEXT NOT NULL CHECK (column_key IN ('a2','a1','e','p1','p2')),
+    line_key TEXT NOT NULL,
+    -- Integer paise, like every other amount in this database.
+    value INTEGER NOT NULL,
+    PRIMARY KEY (pack_id, column_key, line_key)
+  );
+
+  CREATE TABLE cma_facilities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pack_id INTEGER NOT NULL REFERENCES cma_packs(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL DEFAULT 0,
+    facility TEXT NOT NULL,
+    existing_limit INTEGER NOT NULL DEFAULT 0,
+    proposed_limit INTEGER NOT NULL DEFAULT 0,
+    -- Typed. NULL when a ledger is linked, in which case the books answer instead.
+    outstanding INTEGER,
+    ledger_id INTEGER REFERENCES ledgers(id) ON DELETE SET NULL,
+    security TEXT,
+    notes TEXT
+  );
+  CREATE INDEX idx_cma_facilities_pack ON cma_facilities(pack_id);
   `
 ]

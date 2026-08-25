@@ -50,9 +50,18 @@ await scenario('11-keyboard', async (h) => {
   )
 
   // Return to the Gateway between letters so each one is exercised from the same place and a
-  // failure names the letter rather than wherever we happened to be. Going via G and *waiting*
-  // matters: nav.back()/home() run the unsaved-changes guard asynchronously, so pressing the
-  // next letter immediately after Escape can land on the screen we were trying to leave.
+  // failure names the letter rather than wherever we happened to be. Waiting matters:
+  // nav.back()/home() run the unsaved-changes guard asynchronously, so pressing the next letter
+  // immediately after can land on the screen we were trying to leave.
+  //
+  // ⌘1 rather than a bare G, and the reason is a real property of the app rather than a test
+  // convenience. Counter mode keeps focus in the scan box on purpose — an operator's next scan
+  // has to land somewhere, so the box takes it back on a timeout after anything steals it,
+  // Escape included. A bare letter pressed there is therefore SCANNED, not navigated, and this
+  // loop was racing that timeout: it passed whenever the letter beat the refocus and failed
+  // whenever it did not. ⌘1 is positional (Gateway is the first sidebar entry) and is handled
+  // above the typing-target check, so it works from inside a focused field. Bare-G navigation is
+  // still asserted on its own further down, where no screen is swallowing letters.
   const home = async () => {
     // Blur first. Some screens focus a field on arrival — the counter puts the cursor in its scan
     // box, which is right for a till — and a bare letter must never fire while somebody is typing
@@ -63,16 +72,20 @@ await scenario('11-keyboard', async (h) => {
       if (el && typeof el.blur === 'function') el.blur()
     })
     await h.page.keyboard.press('Escape')
-    // Click rather than press 'g'.
+    // Get home with ⌘1, not with a bare 'g' and not with the mouse.
     //
-    // The Counter is a till: its scan box autofocuses and takes focus BACK on a timeout, because
-    // a barcode gun types into it and a letter that navigated away mid-scan would lose the sale.
-    // Escape in that box clears the cart and re-focuses it, so a letter pressed straight after
-    // races the refocus and lands in the field about one run in three. The accelerator layer is
-    // right to decline a letter typed into a text field, so this is the harness getting back to a
-    // known place, not the behaviour under test — the letters themselves are swept below, and 'g'
-    // from another screen is asserted explicitly right after.
-    await h.page.click('[data-testid="nav-gateway"]')
+    // The Counter is a till: its scan box autofocuses and takes focus BACK on a timeout, because a
+    // barcode gun types into it and a letter that navigated away mid-scan would lose the sale.
+    // Escape clears the cart and re-focuses it, so a letter pressed straight after races that
+    // refocus and lands in the field about one run in three. The accelerator layer is right to
+    // decline a letter typed into a text field — that is the product working, not a bug.
+    //
+    // ⌘1 is positional and is handled above the typing-target check, so it works from anywhere,
+    // including a focused field. A mouse click would also work and would be the wrong fix: this is
+    // the scenario that proves the app can be driven without a pointer, and a click inside it
+    // quietly stops proving that. Bare-'g' navigation is asserted separately, from a screen that
+    // does not hold focus in a field.
+    await h.page.keyboard.press('ControlOrMeta+1')
     await h.waitScreen('gateway', 20000)
   }
 

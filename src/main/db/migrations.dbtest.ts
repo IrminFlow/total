@@ -81,6 +81,9 @@ const EXPECTED_TABLES = [
   'ims_actions',
   'stock_item_gst_rates',
   'tds_challans',
+  'cma_packs',
+  'cma_inputs',
+  'cma_facilities',
   'migrations'
 ]
 

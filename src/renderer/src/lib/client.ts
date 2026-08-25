@@ -43,11 +43,13 @@ import type {
   ItemGstRateInput, TdsChallanInput, TdsFilingConfigInput
 } from '@shared/schemas'
 import type { CompanyFeatures } from '@shared/features'
+import type { DemoTrade } from '@shared/demo'
 import type { CartTotals, DrawerReconciliation, PricingMode, Tender, TenderResult } from '@shared/counter'
 import type { Scheme, SchemeApplication } from '@shared/scheme'
 import type { LoanSchedule } from '@shared/loan'
 import type { AmortisationRow } from '@shared/prepaid'
 import type { DrawingPowerMargins, DrawingPowerResult } from '@shared/drawingPower'
+import type { CmaColumnKey, CmaPack } from '@shared/cma'
 import type { CommissionStatement } from '@shared/commission'
 import type { EscpOptions } from '@shared/escp'
 import type { SearchHit } from '@shared/search'
@@ -1008,6 +1010,43 @@ export interface CommissionReport {
 
 export type CommissionDraft = JournalDraft
 
+// ---------- CMA data for a working-capital application (roadmap #371) ----------
+
+export interface CmaPackRow {
+  id: number
+  name: string
+  /** FY start year of the current-year estimate column; the rest count out from it. */
+  estimateFyStartYear: number
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CmaFacility {
+  id: number
+  seq: number
+  facility: string
+  existingLimitPaise: number
+  /** Null when nobody has answered it; read from the books when a ledger is linked. */
+  outstandingPaise: number | null
+  outstandingFromBooks: boolean
+  proposedLimitPaise: number
+  security: string | null
+  ledgerId: number | null
+  ledgerName: string | null
+  notes: string | null
+}
+
+export type CmaFacilityInput = Omit<CmaFacility, 'id' | 'outstandingFromBooks' | 'ledgerName'>
+
+export interface CmaPackView extends CmaPack {
+  pack: CmaPackRow
+  facilities: CmaFacility[]
+  facilityTotals: { existingLimitPaise: number; outstandingPaise: number; proposedLimitPaise: number }
+  /** Plain-language warnings the user has to read before this goes to a bank. */
+  warnings: string[]
+}
+
 export interface RawPrinter {
   name: string
   description: string | null
@@ -1884,7 +1923,8 @@ export const api = {
   company: {
     list: () => call<Registry>('company:list'),
     create: (input: CompanyCreateInput) => call<{ slug: string }>('company:create', input),
-    createDemo: () => call<{ slug: string }>('company:createDemo'),
+    /** Omitting the trade builds the original 'trading' sample. */
+    createDemo: (trade?: DemoTrade) => call<{ slug: string }>('company:createDemo', { trade }),
     remove: (slug: string, confirmName: string, pin?: string) =>
       call<null>('company:delete', { slug, confirmName, pin }),
     open: (slug: string) =>
@@ -2360,6 +2400,25 @@ export const api = {
       call<StockStatement>('bank:fileStatement', { asOn, margins, notes }),
     statements: () => call<FiledStatement[]>('bank:statements'),
     unfileStatement: (id: number) => call<null>('bank:unfileStatement', { id })
+  },
+  /**
+   * CMA data (roadmap #371). The audited columns are recomputed from the books on every read;
+   * only what the user typed is ever sent back here.
+   */
+  cma: {
+    packs: () => call<CmaPackRow[]>('cma:packs'),
+    pack: (id: number) => call<CmaPackView>('cma:pack', { id }),
+    savePack: (data: { name: string; estimateFyStartYear: number; notes: string | null }, id?: number) =>
+      call<CmaPackRow>('cma:savePack', { data, id }),
+    deletePack: (id: number) => call<null>('cma:deletePack', { id }),
+    /** `null` clears the cell back to blank, which is not the same as storing a nil. */
+    setInput: (packId: number, columnKey: CmaColumnKey, lineKey: string, value: number | null) =>
+      call<null>('cma:setInput', { packId, columnKey, lineKey, value }),
+    prefill: (packId: number, fromKey: CmaColumnKey, toKey: CmaColumnKey) =>
+      call<number>('cma:prefill', { packId, fromKey, toKey }),
+    saveFacility: (packId: number, data: CmaFacilityInput, id?: number) =>
+      call<number>('cma:saveFacility', { packId, data, id }),
+    deleteFacility: (id: number) => call<null>('cma:deleteFacility', { id })
   },
   /** Salesperson commission, computed on the receipt rather than on the invoice. */
   commission: {

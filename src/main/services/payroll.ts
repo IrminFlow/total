@@ -8,11 +8,15 @@ import {
   type EcrInput, type EcrProblem, type PayHeadSpec
 } from '@shared/payroll'
 import { ratesForMonth } from '@shared/statutory'
+import {
+  cycleContaining, cycleShare, cycleStatutory, cyclesInMonth, monthLabelOf, payableDaysInCycle,
+  proratedPayableDays, type CyclePeriod, type CycleShare, type PayCycle
+} from '@shared/payCycle'
 import { dueRecoveries, outstandingByEmployee, payableDaysFor, recordRecoveries } from './attendance'
 import { fullAndFinal, type FnfResult } from '@shared/fnf'
 import { whatsappNumber } from '@shared/outstanding'
 import { serviceLength } from '@shared/gratuity'
-import { fyOf } from '@shared/dates'
+import { fyOf, isValidISODate } from '@shared/dates'
 import {
   computeAnnualTax, fyStartYearOf, monthlyTds, monthsLeftInFy, type Regime, type TaxComputation
 } from '@shared/incomeTax'
@@ -32,6 +36,7 @@ interface EmployeeRow {
   bank_account: string | null; ifsc: string | null
   email: string | null; phone: string | null
   tax_regime: string | null; declared_deductions: number | null; opening_tds: number | null
+  pay_cycle: string | null
 }
 
 const mapEmployee = (r: EmployeeRow): Employee => ({
@@ -43,7 +48,10 @@ const mapEmployee = (r: EmployeeRow): Employee => ({
   email: r.email, phone: r.phone,
   // The new regime is the default in law, so a NULL here is 'new' rather than "not chosen".
   taxRegime: r.tax_regime === 'old' ? 'old' : 'new',
-  declaredDeductions: r.declared_deductions, openingTds: r.opening_tds
+  declaredDeductions: r.declared_deductions, openingTds: r.opening_tds,
+  // NULL cannot happen (the column is NOT NULL DEFAULT 'monthly'), but a row written by an older
+  // build through a raw INSERT reads back as monthly rather than as undefined.
+  payCycle: (r.pay_cycle === 'weekly' || r.pay_cycle === 'fortnightly' ? r.pay_cycle : 'monthly')
 })
 
 export function listEmployees(db: DB): Employee[] {
@@ -70,21 +78,23 @@ export function saveEmployee(db: DB, input: EmployeeInput, id?: number): Employe
       `UPDATE employees SET name = ?, code = ?, designation = ?, joined = ?, pan = ?, uan = ?, esic_no = ?,
        basic = ?, hra = ?, special = ?, pf_enabled = ?, esi_enabled = ?, pt_enabled = ?, pt_state = ?,
        bank_account = ?, ifsc = ?, email = ?, phone = ?, tax_regime = ?, declared_deductions = ?,
-       opening_tds = ?, active = ? WHERE id = ?`
+       opening_tds = ?, pay_cycle = ?, active = ? WHERE id = ?`
     ).run(input.name, input.code, input.designation, input.joined, input.pan, input.uan, input.esicNo,
       input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, input.ptState,
       input.bankAccount ?? null, input.ifsc ?? null, input.email ?? null, input.phone ?? null,
-      input.taxRegime ?? null, input.declaredDeductions ?? null, input.openingTds ?? null, +input.active, id)
+      input.taxRegime ?? null, input.declaredDeductions ?? null, input.openingTds ?? null,
+      input.payCycle ?? 'monthly', +input.active, id)
   } else {
     const res = db.prepare(
       `INSERT INTO employees (name, code, designation, joined, pan, uan, esic_no, basic, hra, special,
         pf_enabled, esi_enabled, pt_enabled, pt_state, bank_account, ifsc, email, phone,
-        tax_regime, declared_deductions, opening_tds, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        tax_regime, declared_deductions, opening_tds, pay_cycle, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(input.name, input.code, input.designation, input.joined, input.pan, input.uan, input.esicNo,
       input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, input.ptState,
       input.bankAccount ?? null, input.ifsc ?? null, input.email ?? null, input.phone ?? null,
-      input.taxRegime ?? null, input.declaredDeductions ?? null, input.openingTds ?? null, +input.active)
+      input.taxRegime ?? null, input.declaredDeductions ?? null, input.openingTds ?? null,
+      input.payCycle ?? 'monthly', +input.active)
     id = Number(res.lastInsertRowid)
   }
   syncSeededHeads(db, id, input)
@@ -213,6 +223,117 @@ function loadEmployeeHeadSpecs(db: DB): Map<number, PayHeadSpec[]> {
   return map
 }
 
+// ---------- pay cycles (roadmap #179) ----------
+
+/**
+ * The company's pay-week boundary: the date some weekly or fortnightly period started.
+ *
+ * One anchor for the whole company rather than one per employee. A factory's pay week is a fact
+ * about the factory — everybody's week ends on the same evening — and a per-employee boundary
+ * would put two people on the same cycle in different statutory months.
+ */
+const CYCLE_ANCHOR_KEY = 'payroll_cycle_anchor'
+
+/** 1 January 2024 was a Monday, so the default pay week runs Monday to Sunday. */
+export const DEFAULT_CYCLE_ANCHOR = '2024-01-01'
+
+export function cycleAnchor(db: DB): string {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(CYCLE_ANCHOR_KEY) as { value: string } | undefined
+  return row && isValidISODate(row.value) ? row.value : DEFAULT_CYCLE_ANCHOR
+}
+
+/**
+ * Move the pay-week boundary.
+ *
+ * Refused once anything is posted on a cycle that depends on it: the anchor decides which weeks
+ * exist, so moving it under a posted run would leave that run belonging to a period the app no
+ * longer believes in — and the month's true-up would then apportion against a different set of
+ * cycles than the one the money was actually paid on.
+ */
+export function setCycleAnchor(db: DB, date: string): string {
+  if (!isValidISODate(date)) throw new Error(`${date} is not a date`)
+  const posted = db.prepare("SELECT COUNT(*) AS n FROM payroll_runs WHERE cycle <> 'monthly'").get() as { n: number }
+  if (posted.n > 0 && date !== cycleAnchor(db)) {
+    throw new Error('Pay weeks are already posted against the current boundary — delete those runs before moving it')
+  }
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(CYCLE_ANCHOR_KEY, date)
+  return date
+}
+
+/** The cycles of a statutory month, on the company's boundary. */
+export function cyclePeriods(db: DB, cycle: PayCycle, month: string): CyclePeriod[] {
+  return cyclesInMonth(cycle, month, cycleAnchor(db))
+}
+
+/** The period a date falls in — what "run this week's payroll" resolves to. `on` may be a month. */
+export function periodFor(db: DB, cycle: PayCycle, on: string): CyclePeriod {
+  return cycleContaining(cycle, on.length === 7 ? `${on}-01` : on, cycleAnchor(db))
+}
+
+/** 'June 2026', or '29 Jan – 04 Feb 2026' — the same shape CyclePeriod.label carries. */
+function labelOfPeriod(cycle: PayCycle, from: string, to: string): string {
+  if (cycle === 'monthly') return monthLabelOf(from.slice(0, 7))
+  const day = (iso: string): string => `${iso.slice(8, 10)} ${MONTH_LABELS[Number(iso.slice(5, 7)) - 1]}`
+  return `${day(from)} – ${day(to)} ${to.slice(0, 4)}`
+}
+
+/** The statutory figures a month's EARLIER cycles have already taken off an employee. */
+interface Deducted {
+  pfEmp: number; pfEr: number; epsEr: number; pfAdmin: number; edli: number
+  esiEmp: number; esiEr: number; pt: number; tds: number
+}
+const NOTHING_DEDUCTED: Deducted = {
+  pfEmp: 0, pfEr: 0, epsEr: 0, pfAdmin: 0, edli: 0, esiEmp: 0, esiEr: 0, pt: 0, tds: 0
+}
+
+function deductedEarlierInMonth(db: DB, month: string, before: string): Map<number, Deducted> {
+  const rows = db
+    .prepare(
+      `SELECT pl.employee_id AS employeeId,
+              COALESCE(SUM(pl.pf_emp), 0) AS pfEmp, COALESCE(SUM(pl.pf_er), 0) AS pfEr,
+              COALESCE(SUM(pl.eps_er), 0) AS epsEr, COALESCE(SUM(pl.pf_admin), 0) AS pfAdmin,
+              COALESCE(SUM(pl.edli), 0) AS edli, COALESCE(SUM(pl.esi_emp), 0) AS esiEmp,
+              COALESCE(SUM(pl.esi_er), 0) AS esiEr, COALESCE(SUM(pl.pt), 0) AS pt,
+              COALESCE(SUM(pl.tds), 0) AS tds
+       FROM payroll_lines pl JOIN payroll_runs pr ON pr.id = pl.run_id
+       WHERE pr.month = ? AND pr.period_start < ?
+       GROUP BY pl.employee_id`
+    )
+    .all(month, before) as (Deducted & { employeeId: number })[]
+  return new Map(rows.map((r) => [r.employeeId, r]))
+}
+
+/**
+ * How a month's payable days split across its cycles.
+ *
+ * Each cycle takes the difference between its cumulative target and the previous one, exactly as
+ * the statutory true-up does. Prorating each cycle independently would not work: 31 days over
+ * four seven-day weeks is 7.75 days each, which the half-day rounding turns into 8 — and four
+ * eights is 32 days of pay in a 31-day month.
+ *
+ * The result is then clipped to the days the employee was actually on the payroll, so a
+ * mid-cycle joiner is paid from the day they joined rather than from the Monday the week opened.
+ */
+function cycleDayShares(periods: CyclePeriod[], monthPayableDays: number, joined: string | null): number[] {
+  let previous = 0
+  return periods.map((p) => {
+    const share = cycleShare(periods, p.key)!
+    const target = share.isLast ? monthPayableDays : proratedPayableDays(monthPayableDays, share, share.cumulativeDays)
+    const raw = target - previous
+    previous = target
+    // Scaled by the fraction of the period the employee was on the payroll for, not capped at it:
+    // a week is worth 7.5 days of a 30-day month once the month's own 28 covered days are shared
+    // out, and capping at the week's seven calendar days would quietly pay everybody 28/30ths.
+    // There is no leaving date on the employee record — someone who leaves is settled through
+    // full-and-final and marked inactive — so only the joining side can clip a period today.
+    const present = payableDaysInCycle(p, joined, null)
+    if (present >= p.days) return raw
+    // Half-day granularity, the same as the attendance register's.
+    return Math.max(0, Math.round(((raw * present) / p.days) * 2) / 2)
+  })
+}
+
 // ---------- pay runs ----------
 
 export interface RunPreviewLine extends Omit<PayrollLine, 'id'> {}
@@ -225,41 +346,148 @@ export interface RunPreviewLine extends Omit<PayrollLine, 'id'> {}
  * the register is the record, and the argument is the correction being tried out on the screen.
  */
 export function previewRun(db: DB, month: string, days: { employeeId: number; payableDays: number }[]): RunPreviewLine[] {
+  return previewPeriod(db, periodFor(db, 'monthly', month), days)
+}
+
+/**
+ * Preview one pay period — a month, a fortnight or a week (roadmap #179).
+ *
+ * Earnings are prorated to the period. Statutory deductions are NOT: PF's wage ceiling, ESI's
+ * gross limit, every state's professional-tax slab and TDS under section 192 are defined per
+ * MONTH, so each is computed on the whole statutory month and apportioned across that month's
+ * cycles. What this period deducts is the difference between its cumulative share and what the
+ * month's earlier cycles already took — a running true-up, so the month lands on exactly the
+ * right total even though its attendance was not fully known when its first week was paid.
+ *
+ * Only employees on this period's cycle appear in it. An employee has one pay cycle, and the
+ * office being monthly while the floor is weekly is the whole point of the feature.
+ */
+export function previewPeriod(
+  db: DB,
+  period: CyclePeriod,
+  days: { employeeId: number; payableDays: number }[]
+): RunPreviewLine[] {
+  const month = period.statutoryMonth
   const monthDays = daysInMonth(month)
   const rates = ratesForMonth(month)
+  const periods = cyclePeriods(db, period.cycle, month)
+  const share = cycleShare(periods, period.key)
+  if (!share) throw new Error(`${period.label} is not one of ${monthLabelOf(month)}'s pay periods`)
+
   const byId = new Map(days.map((d) => [d.employeeId, d.payableDays]))
   const fromRegister = new Map(payableDaysFor(db, month).map((a) => [a.employeeId, a.payableDays]))
+  // An advance instalment is a monthly event, and `loan_recoveries` is UNIQUE(loan_id, month), so
+  // it is recovered in the month's LAST cycle only. Splitting it across a month's weeks would
+  // either collide on that constraint or record the whole month's recovery against one week.
+  //
   // Grouped, not keyed: an employee can owe on two advances at once, and a Map keyed by employee
   // silently kept only the last one — deducting a single instalment and quietly stretching the
   // other loan by a month every month.
   const recoveries = new Map<number, number>()
-  for (const r of dueRecoveries(db, month)) {
-    recoveries.set(r.employeeId, (recoveries.get(r.employeeId) ?? 0) + r.amount)
+  if (share.isLast) {
+    for (const r of dueRecoveries(db, month)) {
+      recoveries.set(r.employeeId, (recoveries.get(r.employeeId) ?? 0) + r.amount)
+    }
   }
   const tdsByEmployee = tdsForMonth(db, month)
   const headsByEmployee = loadEmployeeHeadSpecs(db)
+  const already = deductedEarlierInMonth(db, month, period.from)
+
   return listEmployees(db)
-    .filter((e) => e.active)
+    .filter((e) => e.active && e.payCycle === period.cycle)
     .map((e) => {
-      const payableDays = byId.get(e.id) ?? fromRegister.get(e.id) ?? monthDays
+      const monthPayableDays = byId.get(e.id) ?? fromRegister.get(e.id) ?? monthDays
       const heads = headsByEmployee.get(e.id)
       const advanceRecovery = recoveries.get(e.id) ?? 0
       const tds = tdsByEmployee.get(e.id)?.thisMonth ?? 0
+
+      // A monthly run IS the month, so nothing is split and nothing is clipped: the register is
+      // the record for a monthly employee, joining date included, exactly as it has always been.
+      const shares = period.cycle === 'monthly' ? [monthPayableDays] : cycleDayShares(periods, monthPayableDays, e.joined)
+      const payableDays = shares[share.index] ?? 0
+      const monthEffectiveDays = shares.reduce((s, d) => s + d, 0)
+
       // The rates in force for THIS month, not today's. A run recomputed after a rate change
       // must still answer what it answered when it was posted and filed.
-      const pay = computeMonthlyPay({ ...e, heads, advanceRecovery, tds }, payableDays, monthDays, { rates })
-      return { employeeId: e.id, employeeName: e.name, payableDays, monthDays, ...pay }
+      const cyclePay = computeMonthlyPay({ ...e, heads }, payableDays, monthDays, { rates })
+      // The month as a whole — the only unit PF, ESI, PT and TDS are defined on.
+      const monthPay = computeMonthlyPay({ ...e, heads, advanceRecovery, tds }, monthEffectiveDays, monthDays, { rates })
+
+      // Apportioned on the days this employee is actually PAID for in each cycle, not on the
+      // month's bare calendar weeks. The two are the same for anyone there all month, which is
+      // almost everybody; where they differ — a mid-month joiner, a fortnight of unpaid leave —
+      // the deduction has to land in the weeks that carry the wages. Weighting a week somebody
+      // was not employed for would hand them a payslip with a PF deduction and no pay.
+      //
+      // This is not prorating twice: the monthly figure is already fixed, and only the question
+      // of which cycle carries which slice of it is being answered here.
+      const paidShare: CycleShare = {
+        ...share,
+        cumulativeDays: shares.slice(0, share.index + 1).reduce((s, d) => s + d, 0),
+        totalDays: monthEffectiveDays
+      }
+      const taken = already.get(e.id) ?? NOTHING_DEDUCTED
+      const take = (monthly: number, sofar: number): number => cycleStatutory(monthly, paidShare, sofar)
+      const pfEmp = take(monthPay.pfEmp, taken.pfEmp)
+      const pfEr = take(monthPay.pfEr, taken.pfEr)
+      const epsEr = take(monthPay.epsEr, taken.epsEr)
+      const pfAdmin = take(monthPay.pfAdmin, taken.pfAdmin)
+      const edli = take(monthPay.edli, taken.edli)
+      const esiEmp = take(monthPay.esiEmp, taken.esiEmp)
+      const esiEr = take(monthPay.esiEr, taken.esiEr)
+      const pt = take(monthPay.pt, taken.pt)
+      const thisTds = take(monthPay.tds, taken.tds)
+
+      const afterStatutory = cyclePay.gross - pfEmp - esiEmp - pt - cyclePay.otherDeductions
+      // Never recover more than this period can pay: an instalment that pushes the net negative
+      // turns a deduction into a debt, which is not what the payslip says and not what the bank
+      // file can carry. The remainder simply waits.
+      const recovered = Math.max(0, Math.min(monthPay.advanceRecovery, afterStatutory - thisTds))
+
+      return {
+        employeeId: e.id,
+        employeeName: e.name,
+        payableDays,
+        monthDays,
+        basic: cyclePay.basic,
+        hra: cyclePay.hra,
+        special: cyclePay.special,
+        otherEarnings: cyclePay.otherEarnings,
+        otherDeductions: cyclePay.otherDeductions,
+        advanceRecovery: recovered,
+        tds: thisTds,
+        gross: cyclePay.gross,
+        pfEmp, pfEr, epsEr, pfAdmin, edli, esiEmp, esiEr, pt,
+        net: afterStatutory - thisTds - recovered,
+        headAmounts: cyclePay.headAmounts
+      }
     })
 }
 
-/** Post the month's payroll: stores the run + lines and books one balanced Journal voucher — all
+/** Post a month's payroll — the monthly cycle's period for that month. */
+export function commitRun(db: DB, month: string, days: { employeeId: number; payableDays: number }[]): PayrollRun {
+  return commitPeriod(db, periodFor(db, 'monthly', month), days)
+}
+
+/** Post one pay period: stores the run + lines and books one balanced Journal voucher — all
  *  inside ONE transaction (saveVoucher's inner db.transaction nests as a savepoint), so a failure
  *  while writing run rows can never leave an orphaned salary voucher behind. */
-export function commitRun(db: DB, month: string, days: { employeeId: number; payableDays: number }[]): PayrollRun {
-  const existing = db.prepare('SELECT id FROM payroll_runs WHERE month = ?').get(month) as { id: number } | undefined
-  if (existing) throw new Error(`Payroll for ${month} is already posted`)
-  const lines = previewRun(db, month, days)
-  if (lines.length === 0) throw new Error('No active employees')
+export function commitPeriod(
+  db: DB,
+  period: CyclePeriod,
+  days: { employeeId: number; payableDays: number }[]
+): PayrollRun {
+  const month = period.statutoryMonth
+  const existing = db
+    .prepare('SELECT id FROM payroll_runs WHERE cycle = ? AND period_start = ?')
+    .get(period.cycle, period.from) as { id: number } | undefined
+  if (existing) throw new Error(`Payroll for ${period.cycle === 'monthly' ? month : period.label} is already posted`)
+  const lines = previewPeriod(db, period, days)
+  if (lines.length === 0) {
+    throw new Error(
+      period.cycle === 'monthly' ? 'No active employees' : `No active employees on the ${period.cycle} pay cycle`
+    )
+  }
 
   const sum = (f: (l: RunPreviewLine) => number): number => lines.reduce((s, l) => s + f(l), 0)
   const gross = sum((l) => l.gross)
@@ -303,7 +531,17 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
     amount: number,
     costAllocations: { costCentreId: number; amount: number }[] = []
   ): void => {
-    if (amount > 0) voucherLines.push({ ledgerId: findOrCreateLedger(db, name, group), drCr, amount, costAllocations })
+    if (amount === 0) return
+    // A negative figure is a refund — a month whose statutory total fell after earlier cycles of
+    // it had already deducted. It posts on the other side rather than being dropped: dropping it
+    // would unbalance the journal, and clamping it would leave the employee permanently short.
+    const side: 'dr' | 'cr' = amount > 0 ? drCr : drCr === 'dr' ? 'cr' : 'dr'
+    voucherLines.push({
+      ledgerId: findOrCreateLedger(db, name, group),
+      drCr: side,
+      amount: Math.abs(amount),
+      costAllocations
+    })
   }
   push(
     'Salaries',
@@ -325,30 +563,41 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
   push('Salary Advances', 'Loans & Advances (Asset)', 'cr', advanceRecovery)
   push('Salaries Payable', 'Provisions', 'cr', net)
 
-  const dueThisMonth = dueRecoveries(db, month)
-  const lastDay = `${month}-${String(daysInMonth(month)).padStart(2, '0')}`
+  // Only the month's last cycle recovers an advance, so only it has recoveries to record.
+  const periods = cyclePeriods(db, period.cycle, month)
+  const dueThisMonth = (cycleShare(periods, period.key)?.isLast ?? true) ? dueRecoveries(db, month) : []
   const commit = db.transaction((): number => {
-    const voucher = saveVoucher(db, {
-      voucherTypeId: journal.id,
-      date: lastDay,
-      number: undefined,
-      partyLedgerId: null,
-      narration: `Salary for ${month} — ${lines.length} employee${lines.length > 1 ? 's' : ''}`,
-      reference: null,
-      instrumentNo: null,
-      instrumentDate: null,
-      transporterId: null,
-      vehicleNo: null,
-      transportDistanceKm: null,
-      currencyCode: null,
-      exchangeRate: null,
-      lines: voucherLines,
-      inventory: [],
-      billRefs: [],
-      tds: null
-    })
+    // A period in which nobody earned anything — a week entirely before the only employee joined
+    // — posts the run with no voucher. There is nothing to book, and an empty journal is worse
+    // than none: it cannot balance, and it claims something happened.
+    const voucherId =
+      voucherLines.length === 0
+        ? null
+        : saveVoucher(db, {
+            voucherTypeId: journal.id,
+            date: period.to,
+            number: undefined,
+            partyLedgerId: null,
+            narration:
+              `Salary for ${period.cycle === 'monthly' ? month : period.label}` +
+              ` — ${lines.length} employee${lines.length > 1 ? 's' : ''}`,
+            reference: null,
+            instrumentNo: null,
+            instrumentDate: null,
+            transporterId: null,
+            vehicleNo: null,
+            transportDistanceKm: null,
+            currencyCode: null,
+            exchangeRate: null,
+            lines: voucherLines,
+            inventory: [],
+            billRefs: [],
+            tds: null
+          }).id
 
-    const res = db.prepare('INSERT INTO payroll_runs (month, voucher_id) VALUES (?, ?)').run(month, voucher.id)
+    const res = db
+      .prepare('INSERT INTO payroll_runs (month, cycle, period_start, period_end, voucher_id) VALUES (?, ?, ?, ?, ?)')
+      .run(month, period.cycle, period.from, period.to, voucherId)
     const runId = Number(res.lastInsertRowid)
     const insert = db.prepare(
       `INSERT INTO payroll_lines (run_id, employee_id, payable_days, month_days, basic, hra, special, gross,
@@ -390,7 +639,11 @@ export function commitRun(db: DB, month: string, days: { employeeId: number; pay
   return created
 }
 
-interface RunRow { id: number; month: string; voucher_id: number | null; created_at: string }
+interface RunRow {
+  id: number; month: string; cycle: PayCycle; period_start: string; period_end: string
+  voucher_id: number | null; created_at: string
+}
+
 interface LineRow {
   id: number; employee_id: number; employeeName: string; payable_days: number; month_days: number
   basic: number; hra: number; special: number; gross: number
@@ -412,6 +665,10 @@ export function getRun(db: DB, id: number): PayrollRun | null {
   return {
     id: r.id,
     month: r.month,
+    cycle: r.cycle,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    periodLabel: labelOfPeriod(r.cycle, r.period_start, r.period_end),
     voucherId: r.voucher_id,
     createdAt: r.created_at,
     lines: lines.map((l) => ({
@@ -428,7 +685,11 @@ export function getRun(db: DB, id: number): PayrollRun | null {
 }
 
 export function listRuns(db: DB): PayrollRun[] {
-  const rows = db.prepare('SELECT id FROM payroll_runs ORDER BY month DESC').all() as { id: number }[]
+  // By period end, not by month: a month can now hold four or five runs, and ordering by month
+  // alone left this week and last week in whatever order SQLite happened to return them.
+  const rows = db
+    .prepare('SELECT id FROM payroll_runs ORDER BY period_end DESC, id DESC')
+    .all() as { id: number }[]
   return rows.map((r) => getRun(db, r.id)!).filter(Boolean)
 }
 
@@ -436,10 +697,12 @@ export function deleteRun(db: DB, id: number): void {
   const run = getRun(db, id)
   if (!run) throw new Error('Pay run not found')
   const lock = getLockDate(db)
-  const lastDay = `${run.month}-${String(daysInMonth(run.month)).padStart(2, '0')}`
-  if (lock && lastDay <= lock) {
+  // The period's own last day — the date its voucher was posted on — rather than the statutory
+  // month's, which for a straddling week is days after the money moved.
+  if (lock && run.periodEnd <= lock) {
     throw new Error(
-      `Payroll for ${run.month} falls in a locked period (books are locked up to ${lock}) — move the lock date first`
+      `Payroll for ${run.cycle === 'monthly' ? run.month : run.periodLabel} falls in a locked period` +
+      ` (books are locked up to ${lock}) — move the lock date first`
     )
   }
   const del = db.transaction(() => {
@@ -459,12 +722,62 @@ interface EcrCandidate {
   skipReason: string | null
 }
 
-/** Every PF member in the run, whether or not they can be filed for — the validator needs both. */
+/** One employee's whole statutory month, summed across every run that paid into it. */
+export interface MonthlyLine {
+  employeeId: number
+  employeeName: string
+  /** Days paid across the month's cycles — 31 for a full month, however many weeks it took. */
+  payableDays: number
+  monthDays: number
+  basic: number
+  gross: number
+  pfEmp: number
+  pfEr: number
+  epsEr: number
+  esiEmp: number
+  esiEr: number
+  pt: number
+  tds: number
+  net: number
+  /** How many pay runs made up the month. */
+  runs: number
+}
+
+/**
+ * What a statutory month paid each employee, across ALL of its runs.
+ *
+ * Every monthly return — the ECR, the ESI upload, the state PT challan — is filed for a month,
+ * and a month is now four or five runs for anybody paid weekly. Reading one run would file a
+ * quarter of the wages and a quarter of the contributions, which EPFO accepts silently and the
+ * employee discovers in their passbook.
+ */
+export function monthlyLines(db: DB, month: string): MonthlyLine[] {
+  const monthDays = daysInMonth(month)
+  const rows = db
+    .prepare(
+      `SELECT pl.employee_id AS employeeId, e.name AS employeeName,
+              SUM(pl.payable_days) AS payableDays, SUM(pl.basic) AS basic, SUM(pl.gross) AS gross,
+              SUM(pl.pf_emp) AS pfEmp, SUM(pl.pf_er) AS pfEr, SUM(pl.eps_er) AS epsEr,
+              SUM(pl.esi_emp) AS esiEmp, SUM(pl.esi_er) AS esiEr, SUM(pl.pt) AS pt,
+              SUM(pl.tds) AS tds, SUM(pl.net) AS net, COUNT(*) AS runs
+       FROM payroll_lines pl
+       JOIN payroll_runs pr ON pr.id = pl.run_id
+       JOIN employees e ON e.id = pl.employee_id
+       WHERE pr.month = ?
+       GROUP BY pl.employee_id
+       ORDER BY e.name`
+    )
+    .all(month) as Omit<MonthlyLine, 'monthDays'>[]
+  return rows.map((r) => ({ ...r, monthDays }))
+}
+
+/** Every PF member in the run's MONTH, whether or not they can be filed for — the validator
+ *  needs both. */
 function ecrCandidates(db: DB, runId: number): { month: string; candidates: EcrCandidate[] } {
   const run = getRun(db, runId)
   if (!run) throw new Error('Pay run not found')
   const employees = new Map(listEmployees(db).map((e) => [e.id, e]))
-  const candidates = run.lines
+  const candidates = monthlyLines(db, run.month)
     .filter((l) => employees.get(l.employeeId)?.pfEnabled)
     .map((l) => {
       const e = employees.get(l.employeeId)!
@@ -473,6 +786,8 @@ function ecrCandidates(db: DB, runId: number): { month: string; candidates: EcrC
           uan: e.uan ?? '',
           name: l.employeeName,
           gross: l.gross,
+          // The month's PF wage, not a week's: the ₹15,000 ceiling is monthly, and the ECR's
+          // wage column is what the ceiling was applied to.
           basic: l.basic,
           pfEmp: l.pfEmp,
           pfEr: l.pfEr,
@@ -533,11 +848,12 @@ export function ecrForRun(db: DB, runId: number): { filename: string; text: stri
   }
 }
 
+/** The ESI return for the run's contribution MONTH — every run that fed it, summed. */
 export function esiForRun(db: DB, runId: number): { filename: string; text: string } {
   const run = getRun(db, runId)
   if (!run) throw new Error('Pay run not found')
   const employees = new Map(listEmployees(db).map((e) => [e.id, e]))
-  const rows = run.lines
+  const rows = monthlyLines(db, run.month)
     .filter((l) => {
       const e = employees.get(l.employeeId)
       return l.esiEmp > 0 && !!e?.esicNo
@@ -545,7 +861,9 @@ export function esiForRun(db: DB, runId: number): { filename: string; text: stri
     .map((l) => ({
       esicNo: employees.get(l.employeeId)!.esicNo!,
       name: l.employeeName,
-      payableDays: l.payableDays,
+      // Whole days: the portal's column is a count of days wages were paid for, and a month
+      // split into weeks can leave half a day on the arithmetic.
+      payableDays: Math.round(l.payableDays),
       gross: l.gross
     }))
   if (rows.length === 0) throw new Error('No ESI contributions with an ESIC number in this run')
@@ -559,13 +877,14 @@ export interface PtSummaryRow {
   pt: number
 }
 
-/** Professional tax collected per state for a posted run (drives the state-wise PT challans). */
+/** Professional tax collected per state for the run's MONTH (drives the state-wise PT challans).
+ *  PT is a monthly slab, so the challan is the month's — never one week's share of it. */
 export function ptSummaryForRun(db: DB, runId: number): PtSummaryRow[] {
   const run = getRun(db, runId)
   if (!run) throw new Error('Pay run not found')
   const stateById = new Map(listEmployees(db).map((e) => [e.id, e.ptState]))
   const byState = new Map<string, PtSummaryRow>()
-  for (const l of run.lines) {
+  for (const l of monthlyLines(db, run.month)) {
     const state = stateById.get(l.employeeId) ?? 'MH'
     const row = byState.get(state) ?? { state, employees: 0, gross: 0, pt: 0 }
     row.employees += 1
@@ -631,7 +950,7 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
   </style></head><body><div class="sheet">
     <div class="head">
       <div><h1>${esc(company.name)}</h1><div class="sub">${esc(company.address)}</div></div>
-      <div style="text-align:right"><b>PAYSLIP</b><div class="sub">${esc(run.month)}</div></div>
+      <div style="text-align:right"><b>PAYSLIP</b><div class="sub">${esc(run.periodLabel)}</div></div>
     </div>
     <div class="meta">
       <div><b>${esc(line.employeeName)}</b><div class="sub">${esc(emp?.designation ?? '')}${emp?.code ? ' · ' + esc(emp.code) : ''}</div></div>
@@ -657,7 +976,10 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
   </div></body></html>`
 
   const safeName = line.employeeName.replace(/[^a-zA-Z0-9-_]/g, '_')
-  return writeExportPdf(slug, `payslip-${run.month}-${safeName}.pdf`, html, { pageSize: 'A4' })
+  // Weekly payslips are named by the week they pay; four files called payslip-2026-07 would
+  // overwrite each other in the exports folder.
+  const period = run.cycle === 'monthly' ? run.month : run.periodStart
+  return writeExportPdf(slug, `payslip-${period}-${safeName}.pdf`, html, { pageSize: 'A4' })
 }
 
 /**
@@ -673,24 +995,30 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
  * what someone budgeting a hire needs to see.
  */
 export function payrollTrend(db: DB, months = 24): PayrollTrendPoint[] {
-  const runs = listRuns(db)
-    .slice()
-    .sort((a, b) => a.month.localeCompare(b.month))
-    .slice(-months)
+  // Grouped by statutory month rather than by run: a weekly payroll posts four or five runs into
+  // one month, and a point per run would draw four Januaries — each a quarter of the real cost.
+  const byMonth = new Map<string, PayrollLine[]>()
+  for (const run of listRuns(db)) {
+    byMonth.set(run.month, [...(byMonth.get(run.month) ?? []), ...run.lines])
+  }
 
-  return runs.map((run) => {
-    const lines = getRun(db, run.id)?.lines ?? []
+  return [...byMonth.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .slice(-months)
+    .map((month) => {
+    const lines = byMonth.get(month) ?? []
     const sum = (pick: (l: (typeof lines)[number]) => number): number => lines.reduce((t, l) => t + pick(l), 0)
 
     const gross = sum((l) => l.gross)
     const employerContributions = sum((l) => l.pfEr + l.pfAdmin + l.edli + l.esiEr)
     const employeeDeductions = sum((l) => l.pfEmp + l.esiEmp + l.pt + l.otherDeductions)
     const employerCost = gross + employerContributions
-    const headcount = lines.length
+    // People, not payslips: someone paid weekly has four lines in the month and is one head.
+    const headcount = new Set(lines.map((l) => l.employeeId)).size
 
-    const [y, m] = run.month.split('-')
+    const [y, m] = month.split('-')
     return {
-      month: run.month,
+      month,
       label: `${MONTH_LABELS[Number(m) - 1] ?? m} ${y}`,
       headcount,
       gross,
@@ -700,7 +1028,7 @@ export function payrollTrend(db: DB, months = 24): PayrollTrendPoint[] {
       employerContributions,
       costPerHead: headcount === 0 ? 0 : Math.round(employerCost / headcount)
     }
-  })
+    })
 }
 
 const MONTH_LABELS = [
@@ -728,7 +1056,8 @@ export function salaryTransferFile(db: DB, runId: number): TransferFile {
         netPaise: l.net
       }
     }),
-    `Salary ${run.month}`
+    // ASCII and unambiguous: this string lands in a bank portal's narration column.
+    run.cycle === 'monthly' ? `Salary ${run.month}` : `Salary ${run.periodStart} to ${run.periodEnd}`
   )
 }
 
@@ -987,12 +1316,16 @@ export function form16(db: DB, employeeId: number, fyStartYear: number): Form16 
 
   const fromMonth = `${fyStartYear}-04`
   const toMonth = `${fyStartYear + 1}-03`
+  // Grouped by month: the certificate states what a MONTH paid and what was deducted from it, and
+  // a weekly payroll puts four or five runs inside each of those months. One row per run would
+  // print fifty-two lines and count fifty-two "months paid".
   const months = (
     db
       .prepare(
-        `SELECT pr.month, pl.gross, pl.tds, pl.pt
+        `SELECT pr.month AS month, SUM(pl.gross) AS gross, SUM(pl.tds) AS tds, SUM(pl.pt) AS pt
          FROM payroll_lines pl JOIN payroll_runs pr ON pr.id = pl.run_id
          WHERE pl.employee_id = ? AND pr.month >= ? AND pr.month <= ?
+         GROUP BY pr.month
          ORDER BY pr.month`
       )
       .all(employeeId, fromMonth, toMonth) as { month: string; gross: number; tds: number; pt: number }[]
@@ -1166,7 +1499,7 @@ export async function payslipsForRun(
     const body = [
       `Dear ${line.employeeName},`,
       '',
-      `Your payslip for ${run.month} is attached.`,
+      `Your payslip for ${run.periodLabel} is attached.`,
       `Net pay: ${formatPaise(line.net, { symbol: true })}`,
       '',
       'Regards,',
@@ -1180,7 +1513,7 @@ export async function payslipsForRun(
       net: line.net,
       whatsapp: number ? `https://wa.me/${number}?text=${encodeURIComponent(body)}` : null,
       mailto: e?.email
-        ? `mailto:${e.email}?subject=${encodeURIComponent(`Payslip for ${run.month}`)}&body=${encodeURIComponent(body)}`
+        ? `mailto:${e.email}?subject=${encodeURIComponent(`Payslip for ${run.periodLabel}`)}&body=${encodeURIComponent(body)}`
         : null
     })
   }

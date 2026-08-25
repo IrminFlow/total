@@ -21,6 +21,7 @@ import { formatPaise } from '@shared/money'
 import { DEFAULT_MARGINS } from '@shared/drawingPower'
 import { drawingPowerRows } from '@shared/drawingPower'
 import { confirmDialog } from '../lib/dialogs'
+import { CmaTab } from './borrowing/CmaTab'
 
 /**
  * Money the business borrowed, parked or paid ahead (roadmap #369–#375, #380).
@@ -28,11 +29,14 @@ import { confirmDialog } from '../lib/dialogs'
  * Six registers that have nothing in common except that none of them existed and all of them
  * produce a journal somebody has to decide to post. Nothing here posts by itself.
  */
-type Tab = 'loans' | 'bank' | 'deposits' | 'projects' | 'prepaid' | 'commission'
+type Tab = 'loans' | 'bank' | 'cma' | 'deposits' | 'projects' | 'prepaid' | 'commission'
 
 const TABS: [Tab, string][] = [
   ['loans', 'Loans'],
   ['bank', 'Stock statement'],
+  // The CMA pack sits beside the stock statement rather than on a screen of its own: it is the
+  // same borrower, the same bank and the same working capital, and it reuses their classification.
+  ['cma', 'CMA data'],
   ['deposits', 'Deposits'],
   ['projects', 'Work in progress'],
   ['prepaid', 'Prepaid & accrued'],
@@ -67,6 +71,7 @@ export function BorrowingScreen(): React.JSX.Element {
       </SectionTitle>
       {tab === 'loans' && <LoansTab />}
       {tab === 'bank' && <BankTab />}
+      {tab === 'cma' && <CmaTab />}
       {tab === 'deposits' && <DepositsTab />}
       {tab === 'projects' && <ProjectsTab />}
       {tab === 'prepaid' && <PrepaidTab />}

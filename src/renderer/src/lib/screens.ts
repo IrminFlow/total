@@ -387,11 +387,12 @@ export const SCREENS: ScreenDef[] = [
     keywords: [
       'loan', 'emi', 'interest', 'amortisation', 'stock statement', 'drawing power', 'cash credit',
       'deposit', 'security deposit', 'cwip', 'capital work in progress', 'prepaid', 'accrued',
-      'commission', 'salesperson'
+      'commission', 'salesperson', 'cma', 'cma data', 'working capital', 'mpbf', 'tandon',
+      'fund flow', 'credit monitoring arrangement', 'form ii', 'form iii'
     ],
     invalidates: [
       'loans', 'loanView', 'stockStatement', 'filedStatements', 'deposits', 'depositSummary',
-      'cwipProjects', 'prepaid', 'commissionReport', 'commissionSchemes'
+      'cwipProjects', 'prepaid', 'commissionReport', 'commissionSchemes', 'cmaPacks', 'cmaPack'
     ]
   },
   {

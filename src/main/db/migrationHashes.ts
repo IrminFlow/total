@@ -56,4 +56,6 @@ export const MIGRATION_HASHES: readonly string[] = [
   'fe7893d1a9a8fc06', // 40: CREATE TABLE assistant_runs (
   '526dfd40f1eb03c6', // 41: CREATE TABLE rcm_self_invoices (
   '8c8fc35b9615d094', // 42: CREATE TABLE stock_item_gst_rates (
+  '0cb32b3adda4009e', // 43: ALTER TABLE employees ADD COLUMN pay_cycle TEXT NOT NULL DEFAULT
+  '7f2b67a2b36096a6', // 44: CREATE TABLE cma_packs (
 ]
