@@ -1,168 +1,242 @@
 /**
- * GST rate history, and what an item's rate was on a given date (roadmap #358).
+ * GST rate history per item — a rate is effective-dated data, not a field. (roadmap D-92)
  *
- * An item has never had one rate. It has had a rate on a date, and the September 2025
- * rationalisation is the case that makes the difference impossible to ignore: an invoice dated
- * 21 September 2025 and one dated 23 September 2025 for the same goods can carry different tax,
- * and a credit note issued in 2026 against a 2025 invoice carries the ORIGINAL invoice's rate
- * (section 34 read with section 15 — a note adjusts the supply it refers to, it is not a fresh
- * supply). A single `stock_items.gst_rate` column cannot answer any of that.
+ * A stock item carrying ONE `gst_rate` column is fine right up to the first time the Council
+ * changes a rate. When it does, editing the item silently rewrites history: every past invoice
+ * reprinted, and every return recomputed, now uses the new rate. A return computed last year must
+ * still answer what it answered when it was filed — so the rate an item charges is a list of
+ * dated changes, exactly like the thresholds in `src/shared/statutory.ts`, and a document is
+ * always priced with the rate in force on its own document date.
  *
- * So: rates are dated data. `stock_item_gst_rates` holds the changes, the master column holds the
- * current rate for entry convenience, and `itemRateOn` is what a report or a back-dated voucher
- * must ask.
+ * Every change carries the notification that made it, because a rate with no citation is a rate
+ * nobody can audit.
  *
- * ---------------------------------------------------------------------------------------------
- * WHAT IS AND IS NOT CLAIMED HERE — read before trusting anything below.
+ * Rates here are percentages (plain numbers) — that is what the statute states and what the
+ * portal expects. Money stays integer paise and is computed elsewhere (`gst/calc.ts`); nothing in
+ * this module does arithmetic on an amount.
  *
- * This module models the SLAB STRUCTURE in force on a date. It does NOT claim to know which slab
- * any particular HSN falls in, at any date. That mapping is thousands of lines of rate schedule,
- * it changes by notification several times a year, and half-modelling it would produce an app
- * that confidently taxes cement at the wrong rate. The per-item rate is the user's, entered once
- * per change; what this file adds is the date on it, plus a check that the rate entered is a slab
- * that existed on that date.
+ * Dates are ISO 'YYYY-MM-DD' and all arithmetic goes through `src/shared/dates.ts` (UTC).
  *
- * CHECKED AGAINST (August 2026), and flagged where the check was not conclusive:
- *   - Pre-rationalisation slabs 0 / 0.25 / 3 / 5 / 12 / 18 / 28 — the schedule as it stood since
- *     the 2017 rate notifications (1/2017-Central Tax (Rate) and its successors), with 0.25% for
- *     rough precious stones and 3% for gold and silver. Well established.
- *   - The 56th GST Council meeting (3 September 2025) recommended collapsing to two principal
- *     slabs of 5% and 18%, retaining 0 / 0.25 / 3 for the special categories, and introducing a
- *     40% rate for demerit and sin goods, **with effect from 22 September 2025**.
- *     ** THE EFFECTIVE DATE AND THE SLAB LIST ARE FROM THE COUNCIL'S RECOMMENDATION. The rate
- *        notification numbers that gave them effect have NOT been verified by this author, and
- *        the treatment of compensation cess after that date has NOT been verified either. Check
- *        both before relying on the advisory this file produces. **
- *
- * Because of that uncertainty every finding here is ADVICE — `slabAdvice` returns a note, never a
- * refusal, and nothing in the app blocks an entry on the strength of it.
+ * The slab table this file warns against lives in `./slabs.ts` — one slab history for the whole
+ * app, with its verification caveats written out in full. Read those before trusting a warning.
+ * Storage is `stock_item_gst_rates` (see `src/main/services/itemRates.ts`).
  */
 
-export interface GstSlabSet {
-  /** ISO date this structure took effect. */
+import { addDays, isValidISODate, toDisplayDate } from '../dates'
+import { slabsOn } from './slabs'
+
+export interface RateChange {
+  /** ISO date the rate took effect. In force ON this day (see `rateOn`). */
   effectiveFrom: string
-  /** Rates that exist as slabs, ascending. Percent, as the masters hold them. */
-  slabs: number[]
-  /** Why this set exists, and how sure we are of it. Shown in the UI next to any advice. */
-  note: string
-  /** True when the entry has not been verified against the notification that made it. */
-  unverified: boolean
-}
-
-/**
- * Ascending by date. `slabsOn` picks the last entry that has taken effect, so a date before the
- * first entry gets the first entry — refusing to answer for a 2016 voucher helps nobody, and a
- * pre-GST date has no GST slab to be wrong about anyway.
- */
-export const GST_SLAB_HISTORY: GstSlabSet[] = [
-  {
-    effectiveFrom: '2017-07-01',
-    slabs: [0, 0.25, 3, 5, 12, 18, 28],
-    note: 'GST as introduced: 5/12/18/28 with 0.25% on rough precious stones and 3% on gold and silver.',
-    unverified: false
-  },
-  {
-    effectiveFrom: '2025-09-22',
-    slabs: [0, 0.25, 3, 5, 18, 40],
-    note:
-      'Rate rationalisation recommended by the 56th GST Council (3 September 2025): two principal ' +
-      'slabs of 5% and 18%, a 40% demerit rate, and 12% and 28% withdrawn. Effective date and ' +
-      'slab list taken from the Council recommendation — the rate notifications have not been ' +
-      'verified. Treat any advice from this entry as a prompt to check, not as an answer.',
-    unverified: true
-  }
-]
-
-/** The slab structure in force on `date`. */
-export function slabsOn(date: string, history: GstSlabSet[] = GST_SLAB_HISTORY): GstSlabSet {
-  let current = history[0] as GstSlabSet
-  for (const s of history) {
-    if (s.effectiveFrom <= date) current = s
-    else break
-  }
-  return current
-}
-
-/** Whether `rate` is one of the slabs in force on `date`. */
-export function isNotifiedSlab(rate: number, date: string, history: GstSlabSet[] = GST_SLAB_HISTORY): boolean {
-  return slabsOn(date, history).slabs.includes(rate)
-}
-
-export interface SlabAdvice {
-  /** The slab set consulted. */
-  set: GstSlabSet
-  /** Null when the rate is a slab in force. Otherwise the sentence to show. */
-  message: string | null
-  /** The nearest surviving slabs, when the rate used is one that was withdrawn. */
-  suggestions: number[]
-}
-
-/**
- * Advice on a rate used on a date. Never a refusal — see the header.
- *
- * The interesting case is a rate that WAS a slab and no longer is: 12% and 28% on an invoice
- * dated after the rationalisation. That is almost always a master that nobody updated, and it is
- * exactly what the user will be asked about first.
- */
-export function slabAdvice(rate: number, date: string, history: GstSlabSet[] = GST_SLAB_HISTORY): SlabAdvice {
-  const set = slabsOn(date, history)
-  if (set.slabs.includes(rate)) return { set, message: null, suggestions: [] }
-
-  const wasASlab = history.some((s) => s.effectiveFrom < set.effectiveFrom && s.slabs.includes(rate))
-  const suggestions = set.slabs.filter((s) => s > 0)
-  const message = wasASlab
-    ? `${rate}% was withdrawn with effect from ${set.effectiveFrom}. Check the item's rate for this invoice date.`
-    : `${rate}% is not a notified slab on ${date}.`
-  return { set, message, suggestions }
-}
-
-// ---------- per-item dated rates ----------
-
-export interface ItemRate {
-  /** ISO date this rate took effect for this item. */
-  effectiveFrom: string
-  /** Percent. */
-  rate: number
-  cessRate: number
-  /** The user's own note — the notification, the Council meeting, "as advised by our CA". */
+  /** Combined GST rate, percent — split into CGST/SGST or IGST by `computeGst`. */
+  ratePercent: number
+  /** Compensation cess, percent. Zero for almost everything; never negative. */
+  cessPercent: number
+  /** The notification that made the change, e.g. "32/2017-CTR". Shown in the UI. */
   note: string | null
 }
 
+export type RateHistory = RateChange[]
+
+/** A stretch of a reporting period over which one rate was in force. */
+export interface RatePeriod {
+  from: string
+  to: string
+  /** The change in force across the stretch, or null when the item had no rate yet. */
+  rate: RateChange | null
+}
+
+export type ProblemSeverity = 'error' | 'warning'
+
+export interface RateProblem {
+  severity: ProblemSeverity
+  message: string
+  /** Index into the history the problem belongs to, or null when it is about the list itself. */
+  index: number | null
+}
+
+// ---------------------------------------------------------------------------
+// Ordering
+// ---------------------------------------------------------------------------
+
 /**
- * The rate for an item on a date, from its own history.
+ * Ascending by effective date.
  *
- * Returns null when the history says nothing about a date that early, rather than reaching for
- * the earliest entry: "we started tracking this item's rate in September 2025" is a true and
- * useful answer, and inventing a rate for an invoice from before that is not. The caller falls
- * back to the master column, which is what the books used at the time anyway.
+ * Two changes on the same date: **the one later in the list wins**. Same-day duplicates only
+ * happen because a human recorded the rate twice for that date — a correction — and the
+ * correction is the entry they typed second. The sort is stable, so a later-in-input entry stays
+ * later after sorting, and `rateOn` deliberately takes the LAST entry that has taken effect.
+ *
+ * Nothing is dropped: the duplicate stays in the list so `validateRateHistory` can still report
+ * it and the user can decide. Silently deleting a rate somebody entered is how books lose data.
  */
-export function itemRateOn(history: ItemRate[], date: string): ItemRate | null {
-  let current: ItemRate | null = null
-  for (const r of [...history].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))) {
-    if (r.effectiveFrom <= date) current = r
+export function normalizeRateHistory(history: RateHistory): RateHistory {
+  return [...history].sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : a.effectiveFrom > b.effectiveFrom ? 1 : 0))
+}
+
+/**
+ * The change in force ON `date` — the latest one whose `effectiveFrom` is on or before it.
+ *
+ * The boundary is inclusive: a notification "with effect from 22-09-2025" applies to an invoice
+ * dated 22 September, not from the 23rd.
+ *
+ * Returns null when the item had no rate yet on that date. That is NOT the same as zero-rated —
+ * "nobody has told us" and "the Council notified nil" are different answers, and collapsing the
+ * first into 0 is how an unpriced item quietly ships tax-free.
+ */
+export function rateOn(history: RateHistory, date: string): RateChange | null {
+  const sorted = normalizeRateHistory(history)
+  let current: RateChange | null = null
+  for (const c of sorted) {
+    if (c.effectiveFrom <= date) current = c
     else break
   }
   return current
 }
 
-/** Rate changes for an item that fall strictly inside a period — the ones that split a report. */
-export function changesWithin(history: ItemRate[], from: string, to: string): ItemRate[] {
-  return history
-    .filter((r) => r.effectiveFrom > from && r.effectiveFrom <= to)
-    .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+/** Structured problems, so callers can block on errors and merely show warnings. */
+export function checkRateHistory(history: RateHistory): RateProblem[] {
+  const problems: RateProblem[] = []
+
+  if (history.length === 0) {
+    problems.push({
+      severity: 'error',
+      message: 'No rate has been recorded for this item — it cannot be billed until one is.',
+      index: null
+    })
+    return problems
+  }
+
+  const sorted = normalizeRateHistory(history)
+  const seenDates = new Set<string>()
+
+  sorted.forEach((c, i) => {
+    if (!isValidISODate(c.effectiveFrom)) {
+      problems.push({
+        severity: 'error',
+        message: `"${c.effectiveFrom}" is not a valid date (expected YYYY-MM-DD).`,
+        index: i
+      })
+      return
+    }
+    if (seenDates.has(c.effectiveFrom)) {
+      problems.push({
+        severity: 'error',
+        message: `Two rate changes are dated ${toDisplayDate(c.effectiveFrom)} — only the last one would ever apply.`,
+        index: i
+      })
+    }
+    seenDates.add(c.effectiveFrom)
+
+    if (!Number.isFinite(c.ratePercent) || c.ratePercent < 0) {
+      problems.push({
+        severity: 'error',
+        message: `A GST rate cannot be ${c.ratePercent}% — rates are zero or above.`,
+        index: i
+      })
+    } else {
+      const set = slabsOn(c.effectiveFrom)
+      if (!set.slabs.includes(c.ratePercent)) {
+        problems.push({
+          severity: 'warning',
+          message:
+            `${c.ratePercent}% was not a notified slab on ${toDisplayDate(c.effectiveFrom)} ` +
+            `(${set.slabs.map((s) => `${s}%`).join(', ')}). Recorded anyway — check the notification.`,
+          index: i
+        })
+      }
+    }
+
+    if (!Number.isFinite(c.cessPercent) || c.cessPercent < 0) {
+      problems.push({
+        severity: 'error',
+        message: `Compensation cess cannot be ${c.cessPercent}% — cess is never negative.`,
+        index: i
+      })
+    }
+  })
+
+  return problems
 }
 
 /**
- * Whether a period straddles a change in the slab STRUCTURE.
+ * Human-readable problems, one line each, prefixed by severity.
  *
- * Worth saying out loud on a return: a GSTR-1 for September 2025 contains invoices under two
- * different rate structures, and the HSN summary will legitimately show the same HSN at two
- * rates. Without this, that looks like a data-entry error.
+ * Warnings are advisory and must never block saving: an unusual rate is usually a real rate the
+ * slab table has not caught up with.
  */
-export function structureChangedWithin(
-  from: string,
-  to: string,
-  history: GstSlabSet[] = GST_SLAB_HISTORY
-): GstSlabSet | null {
-  return history.find((s) => s.effectiveFrom > from && s.effectiveFrom <= to) ?? null
+export function validateRateHistory(history: RateHistory): string[] {
+  return checkRateHistory(history).map((p) => `${p.severity === 'error' ? 'Error' : 'Warning'}: ${p.message}`)
+}
+
+/** True when nothing is wrong enough to refuse the save. */
+export function hasRateHistoryErrors(history: RateHistory): boolean {
+  return checkRateHistory(history).some((p) => p.severity === 'error')
+}
+
+// ---------------------------------------------------------------------------
+// Reporting
+// ---------------------------------------------------------------------------
+
+/**
+ * The sub-periods of [from, to] and the rate in force in each.
+ *
+ * This is what lets a report say "this period contained a rate change on 22-Sep-25" rather than
+ * silently applying one rate to both halves of a month. A period with no change in it yields
+ * exactly one sub-period spanning the whole thing.
+ *
+ * Cuts land on the change date (inclusive start), so the previous sub-period ends the day before.
+ */
+export function splitByRatePeriods(history: RateHistory, from: string, to: string): RatePeriod[] {
+  if (from > to) return []
+
+  const sorted = normalizeRateHistory(history)
+  const periods: RatePeriod[] = []
+  let cursor = from
+  let current = rateOn(sorted, from)
+
+  for (const c of sorted) {
+    if (c.effectiveFrom <= from) continue
+    if (c.effectiveFrom > to) break
+    // Same-date duplicates: the last one wins, so an empty stretch is never emitted.
+    if (c.effectiveFrom > cursor) {
+      periods.push({ from: cursor, to: addDays(c.effectiveFrom, -1), rate: current })
+      cursor = c.effectiveFrom
+    }
+    current = c
+  }
+
+  periods.push({ from: cursor, to, rate: current })
+  return periods
+}
+
+/** True when the period straddles a rate change — worth telling the user before they file. */
+export function rateChangedWithin(history: RateHistory, from: string, to: string): boolean {
+  return splitByRatePeriods(history, from, to).length > 1
+}
+
+const pct = (n: number): string => `${n}%`
+
+/** A one-line sentence for the UI. `prev` is null for the very first rate an item is given. */
+export function describeRateChange(prev: RateChange | null, next: RateChange): string {
+  const when = toDisplayDate(next.effectiveFrom)
+  const cite = next.note ? ` (${next.note})` : ''
+  const cess = next.cessPercent > 0 ? ` + ${pct(next.cessPercent)} cess` : ''
+
+  if (!prev) return `GST set to ${pct(next.ratePercent)}${cess} with effect from ${when}${cite}.`
+
+  const bits: string[] = []
+  if (prev.ratePercent !== next.ratePercent) {
+    const direction = next.ratePercent > prev.ratePercent ? 'raised' : 'reduced'
+    bits.push(`GST ${direction} from ${pct(prev.ratePercent)} to ${pct(next.ratePercent)}`)
+  }
+  if (prev.cessPercent !== next.cessPercent) {
+    bits.push(`cess ${pct(prev.cessPercent)} → ${pct(next.cessPercent)}`)
+  }
+  if (bits.length === 0) return `Rate re-stated at ${pct(next.ratePercent)}${cess} with effect from ${when}${cite}.`
+  return `${bits.join(', ')} with effect from ${when}${cite}.`
 }

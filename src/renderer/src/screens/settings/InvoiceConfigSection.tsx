@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
-import { Button, Field, Panel, SectionTitle, TextInput } from '../../components/ui'
+import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
 import { DEFAULT_INVOICE_CONFIG, type InvoiceConfig } from '@shared/invoiceConfig'
+import { INVOICE_TEMPLATES } from '@shared/invoiceTemplates'
+import { INVOICE_LANGUAGES } from '@shared/i18n/invoiceLabels'
 import { isValidVpa } from '@shared/upi'
 
 const MAX_LOGO_BYTES = 200 * 1024
@@ -19,7 +21,18 @@ export function InvoiceConfigSection(): React.JSX.Element {
   const fileRef = useRef<HTMLInputElement>(null)
   const signatureRef = useRef<HTMLInputElement>(null)
   const value = draft ?? existing ?? DEFAULT_INVOICE_CONFIG
-  const canEdit = user?.role === 'owner'
+  /**
+   * Who may change the printed invoice.
+   *
+   * `user == null` means this company has no users at all, and a company with no users is not a
+   * company with no owner — it is a single-person install that never turned sign-in on, which is
+   * the default and the common case. The IPC layer already reads it that way (role gating is a
+   * no-op until a company HAS users, see `handle` in ipc.ts), so `user?.role === 'owner'` alone
+   * made every field on this screen read-only for exactly the people who own the books: nobody
+   * could set a logo, a template or even the invoice title until they had created a user. Same
+   * idiom as BinSection and DataSafetyPanels, and it must stay in step with the IPC gate.
+   */
+  const canEdit = user == null || user.role === 'owner'
 
   // A composition dealer prints BILL OF SUPPLY and an unregistered business prints INVOICE, and
   // neither heading is theirs to choose -- so the field is shown as overridden rather than left
@@ -105,6 +118,70 @@ export function InvoiceConfigSection(): React.JSX.Element {
       <div className="grid grid-cols-2 gap-5">
         <Panel className="p-5">
           <div className="flex flex-col gap-3">
+            {/* Template and language sit first, above the details: they change the whole sheet,
+                and the preview beside them re-renders as they change (roadmap I-182, I-184). */}
+            <Field
+              label="Template"
+              hint={INVOICE_TEMPLATES.find((t) => t.id === value.template)?.description ?? ''}
+            >
+              <Select
+                data-testid="select-invoice-template"
+                value={value.template}
+                disabled={!canEdit}
+                onChange={(e) => set({ template: e.target.value as InvoiceConfig['template'] })}
+              >
+                {INVOICE_TEMPLATES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field
+              label="Second language"
+              hint="Printed beside each English label, never instead of it — the English text is what an officer reads"
+            >
+              <Select
+                data-testid="select-invoice-language"
+                value={value.language}
+                disabled={!canEdit}
+                onChange={(e) => set({ language: e.target.value as InvoiceConfig['language'] })}
+              >
+                {INVOICE_LANGUAGES.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field
+              label="Thermal roll"
+              hint="Width of the counter receipt printer. Only used by the 3-inch receipt, never by this A4 sheet"
+            >
+              <Select
+                data-testid="select-thermal-width"
+                value={value.thermalWidthMm}
+                disabled={!canEdit}
+                onChange={(e) => set({ thermalWidthMm: Number(e.target.value) as 58 | 80 })}
+              >
+                <option value={80}>80 mm (3 inch)</option>
+                <option value={58}>58 mm (2 inch)</option>
+              </Select>
+            </Field>
+            <Field
+              label="Tax split on the receipt"
+              hint="Off makes the roll a plain bill and not a tax invoice — the receipt says so when it is"
+            >
+              <Select
+                data-testid="select-thermal-tax"
+                value={value.thermalShowTax ? 'yes' : 'no'}
+                disabled={!canEdit}
+                onChange={(e) => set({ thermalShowTax: e.target.value === 'yes' })}
+              >
+                <option value="yes">Show CGST/SGST/IGST</option>
+                <option value="no">Total only</option>
+              </Select>
+            </Field>
             <Field
               label="Title"
               hint={

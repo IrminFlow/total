@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { isValidVpa } from './upi'
+import { DEFAULT_INVOICE_TEMPLATE, type InvoiceTemplateId } from './invoiceTemplates'
+import type { InvoiceLanguage } from './i18n/invoiceLabels'
 
 /**
  * Company-wide invoice print customization (Tally's F12 invoice print config, roughly). Stored
@@ -56,6 +58,34 @@ export interface InvoiceConfig {
    * meant the block had to be generic enough to be useless.
    */
   termsByKind: Partial<Record<'sales' | 'credit_note' | 'debit_note', string>>
+  /**
+   * Which stylesheet the printed invoice uses. See src/shared/invoiceTemplates.ts — the markup is
+   * identical across templates, so switching one can change how the document looks and never what
+   * it says.
+   */
+  template: InvoiceTemplateId
+  /**
+   * A second language printed BESIDE each English label, never instead of it.
+   *
+   * Additive because the English text is what an officer reads and what the rules are written in;
+   * a Devanagari-only invoice would be a worse document, not a more local one. 'none' is the
+   * default, so an existing company's stationery does not change under it.
+   */
+  language: InvoiceLanguage
+  /**
+   * Paper width of the thermal receipt printer, in millimetres. 58 and 80 are the two rolls sold;
+   * everything else is a special order. Only consulted by the receipt print, never by the A4 one.
+   */
+  thermalWidthMm: 58 | 80
+  /**
+   * Print the GST rate/tax split on the thermal receipt.
+   *
+   * A counter receipt is a tax invoice when it carries the supplier's GSTIN, the tax split and an
+   * invoice number, and many shops want exactly that on the roll. Others want a short receipt and
+   * hand a proper invoice separately. Defaults on, because dropping the tax split silently is the
+   * failure that costs the customer their credit.
+   */
+  thermalShowTax: boolean
 }
 
 export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
@@ -74,7 +104,11 @@ export const DEFAULT_INVOICE_CONFIG: InvoiceConfig = {
   showEnteredBy: false,
   upiVpa: null,
   signatureDataUrl: null,
-  termsByKind: {}
+  termsByKind: {},
+  template: DEFAULT_INVOICE_TEMPLATE,
+  language: 'none',
+  thermalWidthMm: 80,
+  thermalShowTax: true
 }
 
 /** ~200KB of base64 (280,000 chars covers 200KB with base64's ~4/3 expansion plus headroom). */
@@ -129,7 +163,13 @@ export const invoiceConfigSchema = z.object({
       credit_note: z.string().trim().max(2000).optional(),
       debit_note: z.string().trim().max(2000).optional()
     })
-    .default({})
+    .default({}),
+  // All four .default() so a config saved before these fields existed still parses, and an
+  // upgrade never restyles stationery that was already in use.
+  template: z.enum(['classic', 'modern', 'compact']).default(DEFAULT_INVOICE_TEMPLATE),
+  language: z.enum(['none', 'hi', 'mr']).default('none'),
+  thermalWidthMm: z.union([z.literal(58), z.literal(80)]).default(80),
+  thermalShowTax: z.boolean().default(true)
 })
 
 /** Every field optional — for previewing unsaved edits. The renderer's draft form state is

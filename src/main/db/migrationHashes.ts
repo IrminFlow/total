@@ -59,4 +59,5 @@ export const MIGRATION_HASHES: readonly string[] = [
   '0cb32b3adda4009e', // 43: ALTER TABLE employees ADD COLUMN pay_cycle TEXT NOT NULL DEFAULT
   '7f2b67a2b36096a6', // 44: CREATE TABLE cma_packs (
   '73c693f56542e087', // 45: CREATE TABLE cheque_bounces (
+  'e0c57da343b5561d', // 46: CREATE TABLE job_work_challans (
 ]

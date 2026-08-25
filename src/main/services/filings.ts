@@ -6,6 +6,7 @@ import { periodBounds, periodKey, type Period } from '@shared/period'
 import type { FilingLiability, FilingRecord, FilingRow, FilingUpsert } from '@shared/gst/filings'
 import { IN_BOOKS } from './vouchers'
 import { cmp08, gstr3b } from './gst'
+import { dropGstr1Snapshot, snapshotGstr1, type Gstr1SnapshotResult } from './amendments'
 import { writeAudit } from './audit'
 
 /**
@@ -120,14 +121,37 @@ export function filingRegister(
   })
 }
 
+/** What a filing write did, including the GSTR-1 snapshot it took (or deliberately kept). */
+export interface FilingSaveResult extends FilingRecord {
+  /** Null for every form but GSTR-1, and for a GSTR-1 whose filing was cleared. */
+  snapshot: Gstr1SnapshotResult | null
+}
+
 /**
  * Record (or clear) a filing.
  *
  * Late fee and interest are recomputed from the dates on every write rather than accepted from
  * the caller: they are a function of (form, due date, filed date, tax), and storing a
  * hand-supplied figure alongside the inputs that contradict it is how a register starts lying.
+ *
+ * Marking a GSTR-1 filed is also the moment the return's documents are frozen
+ * (`snapshotGstr1`), because that is the only moment the books still hold what was filed. From
+ * the next correction onwards the original particulars exist nowhere else, and they are the
+ * portal's match key for a Table 9A/9C amendment row. Without this call the whole amendment
+ * feature is inert — it would diff today's books against nothing.
+ *
+ * IDEMPOTENT, first-writer-wins: re-marking a period filed (a corrected ARN, a re-entered date)
+ * keeps the ORIGINAL snapshot and writes nothing. Overwriting would make every amendment
+ * disappear the moment somebody retyped an ARN. Clearing the filing drops the snapshot, because
+ * a return that is not filed has nothing to amend against.
+ *
+ * // VERIFY: only GSTR-1 is snapshotted. IFF (the optional QRMP facility that pushes B2B
+ * invoices to buyers in months 1 and 2 of a quarter) also puts documents on the portal, but the
+ * quarterly GSTR-1 that follows restates them, and snapshotting both would key two snapshots to
+ * the same portal tax period. Amendments to IFF-pushed invoices are handled through the
+ * quarter's GSTR-1 snapshot.
  */
-export function recordFiling(db: DB, input: FilingUpsert): FilingRecord {
+export function recordFiling(db: DB, company: CompanyInfo, input: FilingUpsert): FilingSaveResult {
   const before = db
     .prepare('SELECT form, period, filed_at AS filedAt, arn, tax_paid AS taxPaid, late_fee AS lateFee, interest, notes FROM gst_filings WHERE form = ? AND period = ?')
     .get(input.form, input.period) as FilingRecord | undefined
@@ -169,7 +193,16 @@ export function recordFiling(db: DB, input: FilingUpsert): FilingRecord {
     .get(input.form, input.period) as FilingRecord
 
   writeAudit(db, 'gst_filing', 0, before ? 'update' : 'create', before ?? null, after)
-  return after
+
+  let snapshot: Gstr1SnapshotResult | null = null
+  if (input.form === 'GSTR-1') {
+    const { from, to } = filingPeriodBounds(input.period)
+    snapshot = input.filedAt
+      ? snapshotGstr1(db, company, to, from, to, input.filedAt)
+      : (dropGstr1Snapshot(db, to), null)
+  }
+
+  return { ...after, snapshot }
 }
 
 /**

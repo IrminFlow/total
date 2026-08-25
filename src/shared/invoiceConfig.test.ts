@@ -32,9 +32,24 @@ describe('invoiceConfigSchema / mergeInvoiceConfig', () => {
       showEnteredBy: true,
       upiVpa: 'totaltraders@ybl',
       signatureDataUrl: 'data:image/png;base64,c2ln',
-      termsByKind: { credit_note: 'Refund within 7 working days' }
+      termsByKind: { credit_note: 'Refund within 7 working days' },
+      template: 'modern' as const,
+      language: 'hi' as const,
+      thermalWidthMm: 58 as const,
+      thermalShowTax: false
     }
     expect(invoiceConfigSchema.parse(input)).toEqual(input)
+  })
+
+  it('defaults a config saved before templates existed to Classic, English and an 80mm roll', () => {
+    // The upgrade must not restyle stationery that was already in use.
+    const { template: _tpl, language: _l, thermalWidthMm: _w, thermalShowTax: _t, ...older } =
+      DEFAULT_INVOICE_CONFIG
+    const parsed = invoiceConfigSchema.parse(older)
+    expect(parsed.template).toBe('classic')
+    expect(parsed.language).toBe('none')
+    expect(parsed.thermalWidthMm).toBe(80)
+    expect(parsed.thermalShowTax).toBe(true)
   })
 
   it('defaults an older saved config to no signature and no per-kind terms', () => {

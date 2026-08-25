@@ -5,6 +5,7 @@ import { JsonPreview } from '../components/JsonPreview'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Modal, Money, Panel, SectionTitle, Select, SkeletonRows, useTableNav } from '../components/ui'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
+import { EWB_INELIGIBILITY_REASON, EWB_INELIGIBILITY_SHORT } from '@shared/gst/edocs'
 import { TransportModal } from './voucher/TransportModal'
 
 type DocTypeFilter = 'all' | 'INV' | 'CRN' | 'DBN'
@@ -238,10 +239,15 @@ export function EdocsScreen(): React.JSX.Element {
                     {r.ewbNo ? <span className="num text-dr">{r.ewbNo}</span> : <span className="text-muted">no EWB</span>}
                   </td>
                   <td className="text-hint">
-                    {r.ewbReason == null ? (
+                    {r.ewbReasonCode == null ? (
                       <span className="text-dr">Eligible</span>
                     ) : (
-                      <span className="text-muted" title={r.ewbReason}>{r.ewbReason}</span>
+                      // Three words, with the sentence on the tooltip and once in the footnote
+                      // below the table. A reason that is true of most rows is a property of the
+                      // screen, not row data (docs/chrome-spec.md section 6).
+                      <span className="text-muted" title={EWB_INELIGIBILITY_REASON[r.ewbReasonCode]}>
+                        {EWB_INELIGIBILITY_SHORT[r.ewbReasonCode]}
+                      </span>
                     )}
                   </td>
                   <td className="r whitespace-nowrap">
@@ -310,6 +316,21 @@ export function EdocsScreen(): React.JSX.Element {
           </table>
         )}
       </Panel>
+      {/*
+        The eligibility footnote. Said once here rather than sixty characters at a time on every
+        row: the threshold applies to the whole screen, not to any particular bill, and a sentence
+        repeated thirteen times over stops being read (docs/chrome-spec.md section 6). Only shown
+        when at least one row is actually ineligible, so a clean period does not carry a caveat
+        about nothing.
+      */}
+      {rows.some((r) => r.ewbReasonCode != null) && (
+        <p className="mt-2 text-hint text-muted" data-testid="edocs-ewb-footnote">
+          <b>Under ₹50,000</b> — left out of the combined e-way bill file; EWB JSON on the row
+          exports one anyway. <b>Credit note</b> and <b>Purchase-side</b> — an e-way bill
+          accompanies a movement of goods, and neither document is one. <b>Services only</b> —
+          nothing moves, so no bill is due.
+        </p>
+      )}
       <p className="mt-2 text-hint text-muted">
         Offline route: export JSON for the government offline tools — the period export writes one combined bulk file plus a per-bill file per consignment. Live route: add your NIC API credentials once, then generate IRNs and e-way bills directly — needs internet and a registered API user (einvoice1.gst.gov.in → API registration) or GSP credentials.
       </p>

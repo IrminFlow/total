@@ -46,7 +46,7 @@ function books() {
 
 describe('GSTR-1A', () => {
   const fileGstr1 = (db: ReturnType<typeof books>['db'], period = '2026-05') =>
-    recordFiling(db, { form: 'GSTR-1', period, dueDate: '2026-06-11', filedAt: '2026-06-10', arn: 'AA27', taxPaid: 0, notes: null })
+    recordFiling(db, GST_CO, { form: 'GSTR-1', period, dueDate: '2026-06-11', filedAt: '2026-06-10', arn: 'AA27', taxPaid: 0, notes: null })
 
   it('refuses to snapshot a period nobody has recorded as filed', () => {
     const b = books()
@@ -87,7 +87,7 @@ describe('GSTR-1A', () => {
   it('reports the window as shut once GSTR-3B is filed', () => {
     const b = books()
     fileGstr1(b.db)
-    recordFiling(b.db, { form: 'GSTR-3B', period: '2026-05', dueDate: '2026-06-20', filedAt: '2026-06-19', arn: 'BB27', taxPaid: 0, notes: null })
+    recordFiling(b.db, GST_CO, { form: 'GSTR-3B', period: '2026-05', dueDate: '2026-06-20', filedAt: '2026-06-19', arn: 'BB27', taxPaid: 0, notes: null })
     expect(gstr1aFor(b.db, GST_CO, '2026-05').window.open).toBe(false)
   })
 

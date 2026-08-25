@@ -31,7 +31,11 @@ const BADGE_ACCELS = new Set([
   'sales-chain',
   // Borrowing: B balance sheet, O outstandings, R registers, W edocs, I import,
   // N reconciliation, G gateway. 9 was free.
-  'borrowing'
+  'borrowing',
+  // Job work: J is journal-side voucher entry, O outstandings, B balance sheet, W edocs,
+  // R registers, K khata. Every letter of the label is claimed and so is every other digit —
+  // 0 was the last free key in the registry.
+  'job-work'
 ])
 
 /**
