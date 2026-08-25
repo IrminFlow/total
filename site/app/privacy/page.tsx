@@ -117,7 +117,45 @@ export default function PrivacyPage(): React.JSX.Element {
           <div className="folio-close" aria-hidden="true" />
         </section>
 
-        <section className="folio">
+        {/* The app's calls are the list above. This website is a second piece of software with its
+            own network behaviour, and the contact form made that behaviour worth writing down. */}
+        <section className="folio" data-reveal>
+          <h2 className="serif">And what this website does</h2>
+          <p className="sub">
+            The table above is the app. This site is separate software, so here is its side: four
+            things happen, all of them because you pressed something.
+          </p>
+          <ul className="plain-list">
+            <li>
+              <b>The contact form</b> posts what you typed, and the address you gave, to this
+              site&rsquo;s <span className="mono-inline">/api/feedback</span> — the same place the
+              app&rsquo;s Support dialog posts to. It is filed as a support message and answered.
+              It is not added to a mailing list.
+            </li>
+            <li>
+              <b>The trial reminder form</b> stores the address you type and the fact that you
+              ticked the box, sends one message before day thirty, and then the address is deleted.
+            </li>
+            <li>
+              <b>The buy page</b> loads the payment provider&rsquo;s checkout script, and your card
+              or UPI details go to them and never to us. Nothing loads it until you open that page.
+            </li>
+            <li>
+              <b>A partner link</b> like <span className="mono-inline">/r/CODE</span> writes one
+              first-party cookie holding the code and nothing else, so the partner can be paid if
+              you buy. There is no analytics script, no pixel and no third-party tag on any page of
+              this site.
+            </li>
+          </ul>
+          <p className="sub">
+            The prices page reads the country your request arrives with, to decide whether to show
+            a second indicative figure in your own currency. It is used to render the page and is
+            not stored.
+          </p>
+          <div className="folio-close" aria-hidden="true" />
+        </section>
+
+        <section className="folio" data-reveal>
           <h2 className="serif">Where your data actually is</h2>
           <p className="sub">
             One SQLite file per company under <span className="path">~/Documents/total</span>, plus its

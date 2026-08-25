@@ -48,6 +48,7 @@ export default async function Home(): Promise<React.JSX.Element> {
             <Link href="/pricing">Pricing</Link>
             <Link href="/compare">Compare</Link>
             <Link href="/roadmap">Roadmap</Link>
+            <Link href="/contact">Contact</Link>
           </span>
         </div>
 
@@ -71,7 +72,7 @@ export default async function Home(): Promise<React.JSX.Element> {
           </div>
         </div>
 
-        <section className="folio">
+        <section className="folio" data-reveal>
           <h2 className="serif">It foots, and you never typed the tax</h2>
           <p className="sub">
             One real sales invoice. Eighteen percent on ninety thousand, split into CGST and SGST because
@@ -105,7 +106,7 @@ export default async function Home(): Promise<React.JSX.Element> {
           <div className="folio-close" aria-hidden="true" />
         </section>
 
-        <section className="folio" id="ledger">
+        <section className="folio" id="ledger" data-reveal>
           <h2 className="serif">The ledger of features</h2>
           <p className="sub">
             Everything posts to real double-entry books. Every report below is computed from vouchers at the
@@ -139,7 +140,7 @@ export default async function Home(): Promise<React.JSX.Element> {
           <div className="folio-close" aria-hidden="true" />
         </section>
 
-        <section className="folio">
+        <section className="folio" data-reveal>
           <h2 className="serif">Your fingers already know it</h2>
           <p className="sub">
             One letter of every menu item is red. Press it and you are there, from any screen.
@@ -199,7 +200,7 @@ export default async function Home(): Promise<React.JSX.Element> {
           <div className="folio-close" aria-hidden="true" />
         </section>
 
-        <section className="folio" id="proof">
+        <section className="folio" id="proof" data-reveal>
           <h2 className="serif">Proof, not promises</h2>
           <p className="sub">Two screens from the app itself, running on the same demo books as the ledger above.</p>
           <div className="shots-grid">
@@ -227,7 +228,7 @@ export default async function Home(): Promise<React.JSX.Element> {
         </section>
       </div>
 
-      <div className="band">
+      <div className="band" data-reveal>
         <div className="wrap">
           <div className="band-grid">
             <div>
@@ -269,7 +270,7 @@ export default async function Home(): Promise<React.JSX.Element> {
       <div className="wrap">
         <Testimonials />
 
-        <div className="get" id="get">
+        <div className="get" id="get" data-reveal>
           <h2 className="serif">Open your books tonight</h2>
           <p className="sub">
             Thirty days of everything, with no account and no card. Create a company and post your first

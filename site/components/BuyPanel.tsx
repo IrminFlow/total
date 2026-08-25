@@ -58,6 +58,8 @@ export default function BuyPanel(props: {
   initialPlan: string
   initialCoupon: string
   salesEmail: string
+  /** A Razorpay Payment Page or UPI link, used when there is a price but no checkout keys. */
+  paymentLink?: string
 }): React.JSX.Element {
   const [plan, setPlan] = useState(props.initialPlan)
   const [name, setName] = useState('')
@@ -68,7 +70,56 @@ export default function BuyPanel(props: {
   const [message, setMessage] = useState('')
   const [licenceKey, setLicenceKey] = useState('')
 
+  // No plan carries an announced price yet, which is the state the site ships in: the figures
+  // come from the environment (TOTAL_PRICE_*_INR) and nobody has set one. Say that, rather than
+  // offer a form that would submit a purchase for an amount nobody has decided.
+  if (props.plans.length === 0) {
+    return (
+      <div className="callout warn buy-card">
+        <p>
+          <b>The price has not been published yet.</b>
+        </p>
+        <p>
+          Everything else here works: the trial is the whole product for thirty days, and it asks
+          for no card and no account. Write to{' '}
+          <a href={`mailto:${props.salesEmail}`}>{props.salesEmail}</a> and you will get the figure
+          and a payment link the same day, before it goes on the site.
+        </p>
+      </div>
+    )
+  }
+
   if (!props.enabled) {
+    // A price exists but the checkout keys do not. A payment link is a complete way to sell —
+    // Razorpay's own hosted page takes UPI, cards and net banking — so use it if there is one.
+    if (props.paymentLink) {
+      return (
+        <div className="buy-card">
+          <h3>Pay by UPI or card</h3>
+          <p className="buy-help">
+            The payment page is hosted by the payment provider and takes UPI, cards and net
+            banking. Put the name the licence should carry and the email to send the key to in the
+            fields it shows you.
+          </p>
+          <ul className="plain-list" style={{ marginTop: 0 }}>
+            {props.plans.map((p) => (
+              <li key={p.id}>
+                <b>{p.name}</b>, {p.price} {p.unit}
+              </li>
+            ))}
+          </ul>
+          <a className="btn" href={props.paymentLink}>
+            Go to the payment page
+          </a>
+          <p className="buy-help">
+            Keys are issued by hand at this stage, so allow a few hours rather than a few seconds.
+            If one is slow, write to <a href={`mailto:${props.salesEmail}`}>{props.salesEmail}</a>{' '}
+            and quote the payment reference.
+          </p>
+        </div>
+      )
+    }
+
     return (
       <div className="callout warn buy-card">
         <p>
@@ -123,7 +174,9 @@ export default function BuyPanel(props: {
       order_id: order.orderId,
       prefill: { name, email, contact: phone },
       notes: { plan, coupon },
-      theme: { color: '#f5b82e' },
+      // The checkout widget's accent. Kept in step with --accent in globals.css and the app's
+      // --t-accent-bar; it was still the pre-indigo amber until this was noticed.
+      theme: { color: '#4338ca' },
       modal: {
         ondismiss: () => {
           setStage('form')

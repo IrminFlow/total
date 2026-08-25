@@ -7,7 +7,14 @@ import SiteNav from '@/components/SiteNav'
 import { findCoupon } from '@/lib/coupons'
 import { canMint } from '@/lib/licence'
 import { paymentsConfigured } from '@/lib/payments'
-import { PLANS, SALES_EMAIL, WHATSAPP_DISPLAY, WHATSAPP_NUMBER, hasWhatsApp } from '@/lib/product'
+import {
+  SALES_EMAIL,
+  WHATSAPP_DISPLAY,
+  WHATSAPP_NUMBER,
+  hasWhatsApp,
+  paymentLink,
+  pricedPlans
+} from '@/lib/product'
 import { approximately, inr, rateFor, visitorCountry } from '@/lib/pricing'
 import { REF_COOKIE } from '@/lib/referral'
 
@@ -23,7 +30,10 @@ export default async function BuyPage(): Promise<React.JSX.Element> {
   const coupon = findCoupon(referral, today)
   const country = await visitorCountry()
   const rate = rateFor(country)
-  const sellable = PLANS.filter((p) => p.paise > 0)
+  // Only plans with an announced price, which is a runtime question: the figures come from
+  // TOTAL_PRICE_*_INR in the environment. With none set this list is empty and the panel says so.
+  const sellable = pricedPlans()
+  const link = paymentLink()
 
   return (
     <>
@@ -48,11 +58,18 @@ export default async function BuyPage(): Promise<React.JSX.Element> {
               initialPlan={sellable[0]?.id ?? 'annual'}
               initialCoupon={coupon?.code ?? ''}
               salesEmail={SALES_EMAIL}
+              paymentLink={link}
             />
 
             <div>
               <h3>What you are buying</h3>
               <ul className="plain-list">
+                {sellable.length === 0 ? (
+                  <li>
+                    A licence for the whole app on one machine, with unlimited companies and no
+                    per-user seats. The price is being set and is not on the site yet.
+                  </li>
+                ) : null}
                 {sellable.map((plan) => (
                   <li key={plan.id}>
                     <b>{plan.name}</b>, {inr(plan.paise)} {plan.unit}
