@@ -62,6 +62,17 @@ export interface LedgerStatement {
   months?: LedgerMonthRow[]
 }
 
+/** A bounded ledger-statement response for interactive screens and agent clients. */
+export interface LedgerStatementPage extends LedgerStatement {
+  page: {
+    offset: number
+    limit: number
+    totalRows: number
+    hasPrevious: boolean
+    hasMore: boolean
+  }
+}
+
 export interface TrialBalanceRow {
   ledgerId: number
   ledgerName: string

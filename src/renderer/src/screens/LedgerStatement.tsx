@@ -1,5 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { memo, useCallback, useEffect, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../lib/client";
 import { useNav, useSession, useToasts } from "../state/stores";
 import {
@@ -7,6 +7,7 @@ import {
   EmptyState,
   Money,
   Panel,
+  QueryErrorState,
   SectionTitle,
   SkeletonRows,
 } from "../components/ui";
@@ -18,8 +19,7 @@ import type {
 } from "../lib/client";
 import { toDisplayDate } from "@shared/dates";
 import { formatPaise } from "@shared/money";
-import type { LedgerStatementRow } from "@shared/reports";
-import { useBoundedRows } from "../lib/useBoundedRows";
+import type { LedgerStatement, LedgerStatementRow } from "@shared/reports";
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: "Date", align: "l" },
@@ -108,32 +108,33 @@ export function LedgerStatementScreen({
   const toast = useToasts();
   // Columnar month mode (v0.3 #55): one row per month with period totals + closing balance.
   const [mode, setMode] = useState<"detail" | "monthly">("detail");
-  const { data, isLoading } = useQuery({
-    queryKey: ["ledgerStatement", ledgerId, from, to, mode],
+  const [pageIndex, setPageIndex] = useState(0);
+  const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null);
+  useEffect(() => setPageIndex(0), [ledgerId, from, to, mode]);
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ["ledgerStatement", ledgerId, from, to, mode, pageIndex],
     queryFn: ({ signal }) =>
-      api.reports.ledger(
+      api.reports.ledgerPage(
         ledgerId,
         from,
         to,
-        mode === "monthly" ? "month" : undefined,
+        {
+          offset: mode === "monthly" ? 0 : pageIndex * PAGE,
+          limit: PAGE,
+          groupBy: mode === "monthly" ? "month" : undefined,
+        },
         signal,
       ),
+    placeholderData: keepPreviousData,
   });
 
   const rows = data?.rows ?? [];
   const months = data?.months ?? [];
 
-  const {
-    visibleRows: displayRows,
-    visibleCount,
-    remaining,
-    showMore,
-  } = useBoundedRows(rows, `${ledgerId}|${from}|${to}|${mode}`, PAGE);
-
   const { active, setActive } = useKeyNav(
-    displayRows.length,
+    rows.length,
     (i) => {
-      const r = displayRows[i];
+      const r = rows[i];
       if (r) nav.go({ name: "voucher-entry", voucherId: r.voucherId });
     },
     mode === "detail",
@@ -146,7 +147,7 @@ export function LedgerStatementScreen({
     [nav],
   );
 
-  if (!data) {
+  if (!data && isLoading) {
     return (
       <div className="mx-auto max-w-5xl">
         <Panel>
@@ -156,12 +157,26 @@ export function LedgerStatementScreen({
     );
   }
 
+  if (!data || isError) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <Panel>
+          <QueryErrorState
+            title="Could not load the ledger statement"
+            detail="The report request failed. No vouchers or balances were changed."
+            onRetry={() => void refetch()}
+          />
+        </Panel>
+      </div>
+    );
+  }
+
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`;
   const exportColumns = mode === "monthly" ? MONTHLY_COLUMNS : EXPORT_COLUMNS;
-  const exportRows: PdfRow[] =
+  const exportRowsFor = (statement: LedgerStatement): PdfRow[] =>
     mode === "monthly"
       ? [
-          ...months.map((m) => ({
+          ...(statement.months ?? []).map((m) => ({
             cells: [
               monthLabel(m.month),
               formatPaise(m.debit, { zeroDash: true }),
@@ -172,16 +187,16 @@ export function LedgerStatementScreen({
           {
             cells: [
               "Closing balance",
-              formatPaise(data.totalDebit, { zeroDash: true }),
-              formatPaise(data.totalCredit, { zeroDash: true }),
-              formatPaise(data.closing, { zeroDash: true }),
+              formatPaise(statement.totalDebit, { zeroDash: true }),
+              formatPaise(statement.totalCredit, { zeroDash: true }),
+              formatPaise(statement.closing, { zeroDash: true }),
             ],
             bold: true,
             rule: true,
           },
         ]
       : [
-          ...rows.map((r) => ({
+          ...statement.rows.map((r) => ({
             cells: [
               toDisplayDate(r.date),
               r.particulars,
@@ -196,14 +211,51 @@ export function LedgerStatementScreen({
               "",
               "Closing balance",
               "",
-              formatPaise(data.totalDebit, { zeroDash: true }),
-              formatPaise(data.totalCredit, { zeroDash: true }),
-              formatPaise(data.closing, { zeroDash: true }),
+              formatPaise(statement.totalDebit, { zeroDash: true }),
+              formatPaise(statement.totalCredit, { zeroDash: true }),
+              formatPaise(statement.closing, { zeroDash: true }),
             ],
             bold: true,
             rule: true,
           },
         ];
+
+  const exportReport = async (format: "pdf" | "csv"): Promise<void> => {
+    if (format === "pdf" && mode === "detail" && data.page.totalRows > 5_000) {
+      toast.push("error", "Too many rows for a PDF — narrow the period and try again");
+      return;
+    }
+    setExporting(format);
+    try {
+      const statement =
+        mode === "monthly"
+          ? data
+          : await api.reports.ledger(ledgerId, from, to);
+      const exportRows = exportRowsFor(statement);
+      if (format === "pdf") {
+        await printReport(
+          {
+            title: statement.ledgerName,
+            periodLabel,
+            columns: exportColumns,
+            rows: exportRows,
+          },
+          toast,
+        );
+      } else {
+        await csvReport(
+          exportColumns.map((column) => column.label),
+          exportRows.map((row) => row.cells),
+          `ledger-${slugFilename(statement.ledgerName)}${mode === "monthly" ? "-monthly" : ""}`,
+          toast,
+        );
+      }
+    } catch (error) {
+      toast.push("error", error instanceof Error ? error.message : "Could not export the ledger statement");
+    } finally {
+      setExporting(null);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -224,32 +276,17 @@ export function LedgerStatementScreen({
             </div>
             <Button
               variant="ghost"
-              onClick={() =>
-                void printReport(
-                  {
-                    title: data.ledgerName,
-                    periodLabel,
-                    columns: exportColumns,
-                    rows: exportRows,
-                  },
-                  toast,
-                )
-              }
+              disabled={exporting !== null}
+              onClick={() => void exportReport("pdf")}
             >
-              PDF
+              {exporting === "pdf" ? "Preparing…" : "PDF"}
             </Button>
             <Button
               variant="ghost"
-              onClick={() =>
-                void csvReport(
-                  exportColumns.map((c) => c.label),
-                  exportRows.map((r) => r.cells),
-                  `ledger-${slugFilename(data.ledgerName)}${mode === "monthly" ? "-monthly" : ""}`,
-                  toast,
-                )
-              }
+              disabled={exporting !== null}
+              onClick={() => void exportReport("csv")}
             >
-              CSV
+              {exporting === "csv" ? "Preparing…" : "CSV"}
             </Button>
             <Money paise={data.closing} signed className="text-[15px]" />
           </div>
@@ -269,7 +306,7 @@ export function LedgerStatementScreen({
         {isLoading ? (
           <SkeletonRows />
         ) : mode === "monthly" ? (
-          months.length === 0 ? (
+          data.page.totalRows === 0 ? (
             <EmptyState title="No entries for this ledger in the period" />
           ) : (
             <table className="ledger-table">
@@ -326,9 +363,9 @@ export function LedgerStatementScreen({
               </tr>
             </thead>
             <tbody data-testid="rows-ledger-statement">
-              {displayRows.map((r, i) => (
+              {rows.map((r, i) => (
                 <LedgerStatementRowView
-                  key={i}
+                  key={`${r.voucherId}-${i}`}
                   row={r}
                   index={i}
                   isActive={i === active}
@@ -336,20 +373,6 @@ export function LedgerStatementScreen({
                   onOpen={openRow}
                 />
               ))}
-              {remaining > 0 && (
-                <tr>
-                  <td colSpan={6} className="py-2 text-center">
-                    <Button variant="ghost" onClick={showMore}>
-                      Show next {Math.min(PAGE, remaining)} · {remaining}{" "}
-                      remaining
-                    </Button>
-                    <span className="ml-2 text-[10px] text-muted">
-                      Showing {visibleCount} of {rows.length}; closing balance
-                      is complete.
-                    </span>
-                  </td>
-                </tr>
-              )}
               <tr className="total-row">
                 <td colSpan={3}>Closing balance</td>
                 <td className="r">
@@ -362,6 +385,33 @@ export function LedgerStatementScreen({
                   <Money paise={data.closing} signed />
                 </td>
               </tr>
+              {data.page.totalRows > PAGE && (
+                <tr>
+                  <td colSpan={6} className="py-2">
+                    <div className="flex items-center justify-center gap-3">
+                      <Button
+                        variant="ghost"
+                        disabled={!data.page.hasPrevious || isFetching}
+                        onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-[11px] text-muted" aria-live="polite">
+                        {data.page.offset + 1}–{data.page.offset + rows.length} of{" "}
+                        {data.page.totalRows.toLocaleString()} entries
+                        {isFetching ? " · Loading…" : ""}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        disabled={!data.page.hasMore || isFetching}
+                        onClick={() => setPageIndex((current) => current + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}

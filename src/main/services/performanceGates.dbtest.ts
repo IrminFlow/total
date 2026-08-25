@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { seededDb } from '../db/testdb'
 import { createLedger } from './masters'
-import { dayBook, ledgerStatement, trialBalance } from './reports'
+import { dayBook, ledgerStatementPage, trialBalance } from './reports'
 
 const LINE_TARGET = Math.max(10_000, Number(process.env.TOTAL_LARGE_BOOK_LINES ?? 100_000))
 const VOUCHER_TARGET = Math.floor(LINE_TARGET / 2)
@@ -48,8 +48,11 @@ describe(`large-book release gates (${LINE_TARGET.toLocaleString()} requested vo
     expect(tb.value.totalDebit).toBe(tb.value.totalCredit)
     expect(tb.ms).toBeLessThan(REPORT_BUDGET_MS)
 
-    const ledger = timed(() => ledgerStatement(db, cashId, '2025-01-01', '2025-12-31'))
-    expect(ledger.value.rows.length).toBe(VOUCHER_TARGET)
+    const ledger = timed(() => ledgerStatementPage(db, cashId, '2025-01-01', '2025-12-31', { limit: 200 }))
+    expect(ledger.value.rows.length).toBe(200)
+    expect(ledger.value.page.totalRows).toBe(VOUCHER_TARGET)
+    expect(ledger.value.page.hasMore).toBe(true)
+    expect(ledger.value.closing).toBe(ledger.value.opening + ledger.value.totalDebit - ledger.value.totalCredit)
     expect(ledger.ms).toBeLessThan(REPORT_BUDGET_MS)
 
     const april = timed(() => dayBook(db, '2025-04-01', '2025-04-30'))

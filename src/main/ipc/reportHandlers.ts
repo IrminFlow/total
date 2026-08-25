@@ -60,6 +60,28 @@ export function registerReportHandlers({
     "viewer",
   );
   handle(
+    "report:ledgerPage",
+    (payload) =>
+      reportRequest(payload, () => {
+        const { ledgerId, from, to, offset, limit, groupBy } = periodSchema
+          .extend({
+            ledgerId: z.number().int().positive(),
+            offset: z.number().int().nonnegative().default(0),
+            limit: z.number().int().min(1).max(500).default(200),
+            groupBy: z.enum(["month"]).optional(),
+          })
+          .parse(payload);
+        return reports.ledgerStatementPage(
+          requireCompany().db,
+          ledgerId,
+          from,
+          to,
+          { offset, limit, groupBy },
+        );
+      }),
+    "viewer",
+  );
+  handle(
     "report:trialBalance",
     (payload) =>
       reportRequest(payload, () => {

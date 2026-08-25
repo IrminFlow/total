@@ -37,6 +37,7 @@ import type {
   ItemProfitRow,
   LedgerBalanceRow,
   LedgerStatement,
+  LedgerStatementPage,
   OutstandingBill,
   OutstandingParty,
   ProfitAndLoss,
@@ -2054,6 +2055,18 @@ export const api = {
       cancellableCall<LedgerStatement>(
         "report:ledger",
         { ledgerId, from, to, groupBy },
+        signal,
+      ),
+    ledgerPage: (
+      ledgerId: number,
+      from: string,
+      to: string,
+      options: { offset?: number; limit?: number; groupBy?: "month" } = {},
+      signal?: AbortSignal,
+    ) =>
+      cancellableCall<LedgerStatementPage>(
+        "report:ledgerPage",
+        { ledgerId, from, to, ...options },
         signal,
       ),
     trialBalance: (asOn: string, signal?: AbortSignal) =>

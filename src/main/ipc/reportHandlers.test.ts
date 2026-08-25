@@ -27,6 +27,7 @@ describe("report IPC registration", () => {
     expect(registrations.map(({ channel, role }) => [channel, role])).toEqual([
       ["report:dayBook", "viewer"],
       ["report:ledger", "viewer"],
+      ["report:ledgerPage", "viewer"],
       ["report:trialBalance", "viewer"],
       ["report:profitLoss", "viewer"],
       ["report:balanceSheet", "viewer"],
@@ -37,7 +38,7 @@ describe("report IPC registration", () => {
       ["report:itemProfitability", undefined],
       ["report:exceptions", "viewer"],
     ]);
-    expect(new Set(registrations.map(({ channel }) => channel)).size).toBe(11);
+    expect(new Set(registrations.map(({ channel }) => channel)).size).toBe(12);
   });
 
   it("keeps caller request IDs and generates IDs when absent", async () => {
