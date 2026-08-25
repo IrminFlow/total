@@ -130,7 +130,10 @@ describe('soft delete + bin', () => {
     const blocked = postSimpleVoucher(db, { date: '2025-04-05', amount: 5000, kind: 'payment' })
     const purgeable = postSimpleVoucher(db, { date: '2025-04-06', amount: 5000, kind: 'receipt' })
     // payroll_runs.voucher_id references vouchers WITHOUT ON DELETE CASCADE — the classic blocker.
-    db.prepare("INSERT INTO payroll_runs (month, voucher_id) VALUES ('2025-04', ?)").run(blocked.id)
+    db.prepare(
+      `INSERT INTO payroll_runs (month, cycle, period_start, period_end, voucher_id)
+       VALUES ('2025-04', 'monthly', '2025-04-01', '2025-04-30', ?)`
+    ).run(blocked.id)
     deleteVoucher(db, blocked.id)
     deleteVoucher(db, purgeable.id)
     db.prepare("UPDATE vouchers SET deleted_at = datetime('now', '-40 days')").run()

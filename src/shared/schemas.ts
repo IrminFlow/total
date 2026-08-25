@@ -346,9 +346,10 @@ export const employeeInputSchema = z.object({
   declaredDeductions: paise.min(0).nullable().optional(),
   /** TDS a previous system already took this financial year. */
   openingTds: paise.min(0).nullable().optional(),
-  /** How often this person is paid. Defaults to monthly, which is what every existing employee
-   *  is and what the column's migration default says. */
-  payCycle: z.enum(PAY_CYCLES).default('monthly'),
+  /** How often this person is paid. Optional rather than defaulted so that every form and script
+   *  that never heard of pay cycles still type-checks; absent means monthly, which is the
+   *  column's own default and what every existing employee is. */
+  payCycle: z.enum(PAY_CYCLES).optional(),
   active: z.boolean().default(true)
 })
 export type EmployeeInput = z.infer<typeof employeeInputSchema>

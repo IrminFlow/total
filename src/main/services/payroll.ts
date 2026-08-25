@@ -322,9 +322,15 @@ function cycleDayShares(periods: CyclePeriod[], monthPayableDays: number, joined
     const target = share.isLast ? monthPayableDays : proratedPayableDays(monthPayableDays, share, share.cumulativeDays)
     const raw = target - previous
     previous = target
+    // Scaled by the fraction of the period the employee was on the payroll for, not capped at it:
+    // a week is worth 7.5 days of a 30-day month once the month's own 28 covered days are shared
+    // out, and capping at the week's seven calendar days would quietly pay everybody 28/30ths.
     // There is no leaving date on the employee record — someone who leaves is settled through
     // full-and-final and marked inactive — so only the joining side can clip a period today.
-    return Math.max(0, Math.min(raw, payableDaysInCycle(p, joined, null)))
+    const present = payableDaysInCycle(p, joined, null)
+    if (present >= p.days) return raw
+    // Half-day granularity, the same as the attendance register's.
+    return Math.max(0, Math.round(((raw * present) / p.days) * 2) / 2)
   })
 }
 
@@ -407,8 +413,21 @@ export function previewPeriod(
       // The month as a whole — the only unit PF, ESI, PT and TDS are defined on.
       const monthPay = computeMonthlyPay({ ...e, heads, advanceRecovery, tds }, monthEffectiveDays, monthDays, { rates })
 
+      // Apportioned on the days this employee is actually PAID for in each cycle, not on the
+      // month's bare calendar weeks. The two are the same for anyone there all month, which is
+      // almost everybody; where they differ — a mid-month joiner, a fortnight of unpaid leave —
+      // the deduction has to land in the weeks that carry the wages. Weighting a week somebody
+      // was not employed for would hand them a payslip with a PF deduction and no pay.
+      //
+      // This is not prorating twice: the monthly figure is already fixed, and only the question
+      // of which cycle carries which slice of it is being answered here.
+      const paidShare: CycleShare = {
+        ...share,
+        cumulativeDays: shares.slice(0, share.index + 1).reduce((s, d) => s + d, 0),
+        totalDays: monthEffectiveDays
+      }
       const taken = already.get(e.id) ?? NOTHING_DEDUCTED
-      const take = (monthly: number, sofar: number): number => cycleStatutory(monthly, share, sofar)
+      const take = (monthly: number, sofar: number): number => cycleStatutory(monthly, paidShare, sofar)
       const pfEmp = take(monthPay.pfEmp, taken.pfEmp)
       const pfEr = take(monthPay.pfEr, taken.pfEr)
       const epsEr = take(monthPay.epsEr, taken.epsEr)
@@ -512,7 +531,17 @@ export function commitPeriod(
     amount: number,
     costAllocations: { costCentreId: number; amount: number }[] = []
   ): void => {
-    if (amount > 0) voucherLines.push({ ledgerId: findOrCreateLedger(db, name, group), drCr, amount, costAllocations })
+    if (amount === 0) return
+    // A negative figure is a refund — a month whose statutory total fell after earlier cycles of
+    // it had already deducted. It posts on the other side rather than being dropped: dropping it
+    // would unbalance the journal, and clamping it would leave the employee permanently short.
+    const side: 'dr' | 'cr' = amount > 0 ? drCr : drCr === 'dr' ? 'cr' : 'dr'
+    voucherLines.push({
+      ledgerId: findOrCreateLedger(db, name, group),
+      drCr: side,
+      amount: Math.abs(amount),
+      costAllocations
+    })
   }
   push(
     'Salaries',
@@ -921,7 +950,7 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
   </style></head><body><div class="sheet">
     <div class="head">
       <div><h1>${esc(company.name)}</h1><div class="sub">${esc(company.address)}</div></div>
-      <div style="text-align:right"><b>PAYSLIP</b><div class="sub">${esc(run.month)}</div></div>
+      <div style="text-align:right"><b>PAYSLIP</b><div class="sub">${esc(run.periodLabel)}</div></div>
     </div>
     <div class="meta">
       <div><b>${esc(line.employeeName)}</b><div class="sub">${esc(emp?.designation ?? '')}${emp?.code ? ' · ' + esc(emp.code) : ''}</div></div>
@@ -947,7 +976,10 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
   </div></body></html>`
 
   const safeName = line.employeeName.replace(/[^a-zA-Z0-9-_]/g, '_')
-  return writeExportPdf(slug, `payslip-${run.month}-${safeName}.pdf`, html, { pageSize: 'A4' })
+  // Weekly payslips are named by the week they pay; four files called payslip-2026-07 would
+  // overwrite each other in the exports folder.
+  const period = run.cycle === 'monthly' ? run.month : run.periodStart
+  return writeExportPdf(slug, `payslip-${period}-${safeName}.pdf`, html, { pageSize: 'A4' })
 }
 
 /**
@@ -963,24 +995,30 @@ export async function payslipPdf(db: DB, company: CompanyInfo, slug: string, run
  * what someone budgeting a hire needs to see.
  */
 export function payrollTrend(db: DB, months = 24): PayrollTrendPoint[] {
-  const runs = listRuns(db)
-    .slice()
-    .sort((a, b) => a.month.localeCompare(b.month))
-    .slice(-months)
+  // Grouped by statutory month rather than by run: a weekly payroll posts four or five runs into
+  // one month, and a point per run would draw four Januaries — each a quarter of the real cost.
+  const byMonth = new Map<string, PayrollLine[]>()
+  for (const run of listRuns(db)) {
+    byMonth.set(run.month, [...(byMonth.get(run.month) ?? []), ...run.lines])
+  }
 
-  return runs.map((run) => {
-    const lines = getRun(db, run.id)?.lines ?? []
+  return [...byMonth.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .slice(-months)
+    .map((month) => {
+    const lines = byMonth.get(month) ?? []
     const sum = (pick: (l: (typeof lines)[number]) => number): number => lines.reduce((t, l) => t + pick(l), 0)
 
     const gross = sum((l) => l.gross)
     const employerContributions = sum((l) => l.pfEr + l.pfAdmin + l.edli + l.esiEr)
     const employeeDeductions = sum((l) => l.pfEmp + l.esiEmp + l.pt + l.otherDeductions)
     const employerCost = gross + employerContributions
-    const headcount = lines.length
+    // People, not payslips: someone paid weekly has four lines in the month and is one head.
+    const headcount = new Set(lines.map((l) => l.employeeId)).size
 
-    const [y, m] = run.month.split('-')
+    const [y, m] = month.split('-')
     return {
-      month: run.month,
+      month,
       label: `${MONTH_LABELS[Number(m) - 1] ?? m} ${y}`,
       headcount,
       gross,
@@ -990,7 +1028,7 @@ export function payrollTrend(db: DB, months = 24): PayrollTrendPoint[] {
       employerContributions,
       costPerHead: headcount === 0 ? 0 : Math.round(employerCost / headcount)
     }
-  })
+    })
 }
 
 const MONTH_LABELS = [
@@ -1018,7 +1056,8 @@ export function salaryTransferFile(db: DB, runId: number): TransferFile {
         netPaise: l.net
       }
     }),
-    `Salary ${run.month}`
+    // ASCII and unambiguous: this string lands in a bank portal's narration column.
+    run.cycle === 'monthly' ? `Salary ${run.month}` : `Salary ${run.periodStart} to ${run.periodEnd}`
   )
 }
 
@@ -1277,12 +1316,16 @@ export function form16(db: DB, employeeId: number, fyStartYear: number): Form16 
 
   const fromMonth = `${fyStartYear}-04`
   const toMonth = `${fyStartYear + 1}-03`
+  // Grouped by month: the certificate states what a MONTH paid and what was deducted from it, and
+  // a weekly payroll puts four or five runs inside each of those months. One row per run would
+  // print fifty-two lines and count fifty-two "months paid".
   const months = (
     db
       .prepare(
-        `SELECT pr.month, pl.gross, pl.tds, pl.pt
+        `SELECT pr.month AS month, SUM(pl.gross) AS gross, SUM(pl.tds) AS tds, SUM(pl.pt) AS pt
          FROM payroll_lines pl JOIN payroll_runs pr ON pr.id = pl.run_id
          WHERE pl.employee_id = ? AND pr.month >= ? AND pr.month <= ?
+         GROUP BY pr.month
          ORDER BY pr.month`
       )
       .all(employeeId, fromMonth, toMonth) as { month: string; gross: number; tds: number; pt: number }[]
@@ -1456,7 +1499,7 @@ export async function payslipsForRun(
     const body = [
       `Dear ${line.employeeName},`,
       '',
-      `Your payslip for ${run.month} is attached.`,
+      `Your payslip for ${run.periodLabel} is attached.`,
       `Net pay: ${formatPaise(line.net, { symbol: true })}`,
       '',
       'Regards,',
@@ -1470,7 +1513,7 @@ export async function payslipsForRun(
       net: line.net,
       whatsapp: number ? `https://wa.me/${number}?text=${encodeURIComponent(body)}` : null,
       mailto: e?.email
-        ? `mailto:${e.email}?subject=${encodeURIComponent(`Payslip for ${run.month}`)}&body=${encodeURIComponent(body)}`
+        ? `mailto:${e.email}?subject=${encodeURIComponent(`Payslip for ${run.periodLabel}`)}&body=${encodeURIComponent(body)}`
         : null
     })
   }

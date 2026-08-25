@@ -113,7 +113,13 @@ function PackView({ packId, onDeleted }: { packId: number; onDeleted: () => void
   if (isLoading || !data) return <Panel><SkeletonRows rows={10} /></Panel>
 
   const remove = async (): Promise<void> => {
-    if (!(await confirmDialog(`Delete "${data.pack.name}"? The figures you typed into it go with it.`))) return
+    const ok = await confirmDialog({
+      title: `Delete "${data.pack.name}"?`,
+      message: 'The figures you typed into it go with it. The audited columns come back from the books, but the estimate and the projections do not come back at all.',
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!ok) return
     await api.cma.deletePack(packId)
     await queryClient.invalidateQueries({ queryKey: ['cmaPacks'] })
     onDeleted()
@@ -169,15 +175,15 @@ function Legend(): React.JSX.Element {
   return (
     <div className="flex flex-wrap items-center gap-4 text-hint text-muted" data-testid="cma-legend">
       <span className="flex items-center gap-1.5">
-        <span className="inline-block h-3 w-6 rounded-sm border border-line bg-panel" />
+        <span className="inline-block h-3 w-6 rounded-md border border-line bg-panel" />
         From your books — computed, not editable
       </span>
       <span className="flex items-center gap-1.5">
-        <span className="inline-block h-3 w-6 rounded-sm border border-accentbar/60 bg-accentbar/15" />
+        <span className="inline-block h-3 w-6 rounded-md border border-accentbar/60 bg-accentbar/15" />
         Your figure — typed, and asserted by you
       </span>
       <span className="flex items-center gap-1.5">
-        <span className="inline-block h-3 w-6 rounded-sm border border-line bg-panel2" />
+        <span className="inline-block h-3 w-6 rounded-md border border-line bg-panel2" />
         A subtotal this screen worked out
       </span>
     </div>

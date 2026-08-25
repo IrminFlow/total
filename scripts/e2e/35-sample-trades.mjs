@@ -1,4 +1,4 @@
-// Scenario 34 — the sample company mirrors the user's own trade (roadmap #293).
+// Scenario 35 — the sample company mirrors the user's own trade (roadmap #293).
 //
 // The complaint the feature answers is that one generic "Demo Traders" teaches a consultancy to
 // keep stock it will never have, and teaches a workshop nothing at all about making things. So
@@ -11,7 +11,7 @@
 // Both are asked at the point the sample is created, in one three-way choice.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
 
-await scenario('34-sample-trades', async (h) => {
+await scenario('35-sample-trades', async (h) => {
   // ---- the choice itself ----
   await h.waitScreen('company-select')
   await h.click('btn-company-demo')

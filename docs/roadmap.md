@@ -587,7 +587,16 @@ Ordering within a section is roughly by value.
      parser in an offline app to avoid a two-second conversion.
 292. ✓ The red letters taught as a checklist step rather than as a tour (S) — a modal tour is
      dismissed and forgotten; a step that stays until the shortcut sheet has been opened is not.
-293. Sample company that mirrors the user's own trade (M)
+293. ✓ Sample company that mirrors the user's own trade (M) — three of them, chosen at the point
+     the sample is created: a shop or distributor (the old Demo Traders, unchanged, still the
+     default so nothing that depended on it moved), a workshop with raw material, a real bill of
+     materials, a work-in-progress stage that shows on the stock summary, and finished goods; and
+     a practice that invoices fees against time, has no stock item at all, and comes with
+     inventory switched off. A manufacturer who opened the old sample saw no BOM and concluded
+     the app had none; a consultancy saw six stock items and concluded it would have to fight the
+     app. Both were the sample's fault. It also surfaced a real bug: react-query keys are not
+     company-scoped and nothing cleared the cache on switching, which never showed while every
+     company had identical feature defaults.
 294. ✓ Checklist that survives across sessions until complete (S) — derived from the books, so
      it cannot be ticked without doing the thing and it reopens if the thing is undone.
 295. ✗ Screenshots of Tally's own export dialog, per version (S) — cannot be obtained. Tally is
@@ -825,9 +834,18 @@ questions every year-end asks.
 370. ✓ A loan register for money the business borrowed (M) — the EMI split into interest and
      principal, a schedule that runs to the end, and the monthly journal. Every business with a
      vehicle or a machine has one, and every one of them books the whole EMI to the loan account.
-371. CMA data for a working-capital application (L) — the format banks require, generated from
-     the books. A CA charges thousands for this and rebuilds it from a trial balance by hand.
-     Nothing in this market produces it; the data to do so is already here.
+371. ✓ CMA data for a working-capital application (L) — the format banks require, generated from
+     the books. Forms I to VI and the ratio sheet, five columns wide: two audited years, the
+     current year's estimate, two projections. The audited columns are read out of the books and
+     recomputed on every open, never stored — a snapshot would be free to drift from the ledgers
+     the bank will verify against, and the snapshot is the half that would be wrong. The estimate
+     and the projections are typed, because a projection is a business's own claim about its
+     future and an accounting app has no business inventing one. Every cell carries where it came
+     from and the three states never look alike on screen: from the books, typed, derived. A year
+     the books do not reach is blank and says so in words, rather than printing the column of
+     confident zeros that gets a file refused. It reuses #372/#373's classification of the working
+     capital rather than deriving a second one — same borrower, same stock, one answer — and takes
+     DSCR's instalments off the loan register from #370.
 372. ✓ The monthly stock statement for the bank (M) — stock, book debts and creditors as at
      month end, which is the return every cash-credit borrower files and most file late.
 373. ✓ Drawing power, from #372 and the bank's margins (S) — the number the statement exists to
