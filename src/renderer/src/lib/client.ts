@@ -242,6 +242,9 @@ import type {
 import type { PayrollPreflight, PayrollTieOut } from "@shared/payrollOps";
 import type {
   AcceptanceResolution,
+  CommunicationBatch,
+  CommunicationBatchCreateInput,
+  CommunicationBatchStatus,
   OutboundDraftInput,
   OutboundDraftUpdate,
   OutboundMessage,
@@ -305,6 +308,24 @@ export interface LoginName {
   id: number;
   name: string;
   role: Role;
+}
+
+export interface CommunicationBatchEvent {
+  id: number;
+  batchId: string;
+  eventType:
+    | "created"
+    | "approved"
+    | "rejected"
+    | "enqueue_started"
+    | "item_queued"
+    | "item_failed"
+    | "retry_started"
+    | "enqueue_completed"
+    | "cancelled";
+  detail: Record<string, unknown>;
+  actor: string;
+  createdAt: string;
 }
 
 /** Mirrors src/main/db/backup.ts's BackupInfo shape (kept local — that file is main-process only). */
@@ -1445,6 +1466,38 @@ export const api = {
           "communications:messages:exportEml",
           { id, smtpProfileId },
         ),
+    },
+    batches: {
+      list: (
+        filter: { status?: CommunicationBatchStatus; limit?: number } = {},
+      ) =>
+        call<CommunicationBatch[]>("communications:batches:list", filter),
+      get: (id: string) =>
+        call<CommunicationBatch>("communications:batches:get", { id }),
+      events: (id: string) =>
+        call<CommunicationBatchEvent[]>("communications:batches:events", {
+          id,
+        }),
+      create: (data: CommunicationBatchCreateInput) =>
+        call<CommunicationBatch>("communications:batches:create", data),
+      approve: (id: string, note: string | null = null) =>
+        call<CommunicationBatch>("communications:batches:approve", {
+          id,
+          note,
+        }),
+      reject: (id: string, note: string) =>
+        call<CommunicationBatch>("communications:batches:reject", {
+          id,
+          note,
+        }),
+      enqueue: (id: string, smtpProfileId: number, itemIds?: number[]) =>
+        call<CommunicationBatch>("communications:batches:enqueue", {
+          id,
+          smtpProfileId,
+          itemIds,
+        }),
+      cancel: (id: string) =>
+        call<CommunicationBatch>("communications:batches:cancel", { id }),
     },
   },
   voucherTypes: {

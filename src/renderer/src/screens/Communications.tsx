@@ -18,6 +18,7 @@ import { useSession, useToasts } from "../state/stores";
 import { Button, EmptyState, Field, Panel, SectionTitle, Select, TextInput } from "../components/ui";
 import { confirmDialog } from "../lib/dialogs";
 import { readProductFlags } from "../lib/productFlags";
+import { CommunicationBatchesPanel } from "../components/CommunicationBatchesPanel";
 
 const STATUS: Record<OutboundMessageStatus, { label: string; detail: string; tone: string }> = {
   draft: { label: "Draft", detail: "Editable. It has not been approved or submitted.", tone: "text-muted" },
@@ -65,6 +66,7 @@ export function CommunicationsScreen(): React.JSX.Element {
   const permissions = useQuery({ queryKey: ["permissionMatrix"], queryFn: api.permissions.get });
   const profiles = useQuery({ queryKey: ["smtpProfiles"], queryFn: api.communications.smtp.list, enabled: owner });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState<"messages" | "batches">("messages");
   const [composeOpen, setComposeOpen] = useState(false);
   const [compose, setCompose] = useState<ComposeState>(blankCompose);
   const [profileId, setProfileId] = useState<number | "">("");
@@ -209,12 +211,46 @@ export function CommunicationsScreen(): React.JSX.Element {
     }
   };
 
+  const workspaceSwitch = (
+    <div className="flex items-center gap-1 rounded-md border border-line bg-panel2 p-1" aria-label="Communications workspace">
+      <button
+        type="button"
+        aria-pressed={workspace === "messages"}
+        className={`min-h-7 rounded px-2.5 text-[9.5px] font-semibold ${workspace === "messages" ? "bg-panel text-ink shadow-sm" : "text-muted hover:text-ink"}`}
+        onClick={() => setWorkspace("messages")}
+      >Messages</button>
+      <button
+        type="button"
+        aria-pressed={workspace === "batches"}
+        className={`min-h-7 rounded px-2.5 text-[9.5px] font-semibold ${workspace === "batches" ? "bg-panel text-ink shadow-sm" : "text-muted hover:text-ink"}`}
+        onClick={() => setWorkspace("batches")}
+      >Approval batches</button>
+    </div>
+  );
+
+  if (workspace === "batches") {
+    return (
+      <div className="mx-auto max-w-6xl" data-testid="communications-screen">
+        <SectionTitle right={workspaceSwitch}>Customer communications</SectionTitle>
+        <CommunicationBatchesPanel
+          messages={messages.data ?? []}
+          profiles={profiles.data ?? []}
+          canCreate={canCreate}
+          canApprove={canApprove}
+          canEdit={canEdit}
+          smtpQueueEnabled={smtpDeliveryEnabled}
+          smtpDisabledReason={smtpDisabledReason}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-6xl" data-testid="communications-screen">
       <SectionTitle
-        right={<Button variant="primary" disabled={!canCreate} disabledTitle="Your role cannot create drafts" onClick={() => setComposeOpen((value) => !value)}><Plus size={13} className="mr-1 inline" />New message</Button>}
+        right={<div className="flex flex-wrap items-center gap-2">{workspaceSwitch}<Button variant="primary" disabled={!canCreate} disabledTitle="Your role cannot create drafts" onClick={() => setComposeOpen((value) => !value)}><Plus size={13} className="mr-1 inline" />New message</Button></div>}
       >
-        Message outbox
+        Customer communications
       </SectionTitle>
 
       <div className="mb-3 grid gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3">
