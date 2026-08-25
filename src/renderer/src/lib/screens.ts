@@ -492,7 +492,8 @@ export const SCREENS: ScreenDef[] = [
     title: 'Company details',
     screen: { name: 'company-info' },
     navSection: null,
-    invalidates: []
+    // The GST registrations are edited here (roadmap #108); every GST screen's picker reads them.
+    invalidates: ['gstRegistrations']
   },
   {
     name: 'ledger-statement',

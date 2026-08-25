@@ -1895,5 +1895,130 @@ export const MIGRATIONS: string[] = [
     UNIQUE (period, doc_number, doc_type)
   );
   CREATE INDEX idx_gstr1_filed_documents_period ON gstr1_filed_documents(period);
+  `,
+
+  // 47 — multi-GSTIN companies: one book, several registrations (roadmap #108).
+  //
+  // Until now a company held ONE gstin and ONE stateCode in `meta.company`, and every GST
+  // computation read them. A business with one PAN and premises in several states holds a
+  // separate registration per state; it is still one set of books, but returns are filed per
+  // GSTIN and intra/inter is decided against the state of the registration that made the supply.
+  //
+  // The existing single registration is migrated in as the first row, marked primary, so an
+  // existing company opens computing exactly what it computed before.
+  //
+  // Every existing voucher is STAMPED with that primary id rather than left NULL. A voucher
+  // whose registration is re-derived at report time is a voucher whose tax can move under it
+  // when a second registration is added later; stamping is what makes "it keeps doing what it
+  // did" a fact about the data rather than a promise about the code.
+  `
+  CREATE TABLE gst_registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- NULL is legitimate: an unregistered company still gets exactly one row here.
+    gstin TEXT,
+    state_code TEXT NOT NULL,
+    trade_name TEXT NOT NULL,
+    address TEXT,
+    registered_on TEXT,
+    surrendered_on TEXT,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  -- Partial, so the several NULL-GSTIN rows a half-filled book may hold don't collide, while
+  -- the same GSTIN can never be entered twice.
+  CREATE UNIQUE INDEX idx_gst_registrations_gstin ON gst_registrations(gstin) WHERE gstin IS NOT NULL;
+
+  ALTER TABLE vouchers ADD COLUMN gst_registration_id INTEGER REFERENCES gst_registrations(id);
+  CREATE INDEX idx_vouchers_gst_registration ON vouchers(gst_registration_id);
+
+  -- Which registration a godown/branch sits under, so a new supply can default to the
+  -- registration whose state the goods actually left.
+  ALTER TABLE godowns ADD COLUMN gst_registration_id INTEGER REFERENCES gst_registrations(id);
+
+  INSERT INTO gst_registrations (gstin, state_code, trade_name, address, is_primary)
+  SELECT json_extract(value, '$.gstin'),
+         json_extract(value, '$.stateCode'),
+         COALESCE(json_extract(value, '$.name'), 'Head office'),
+         json_extract(value, '$.address'),
+         1
+  FROM meta
+  WHERE key = 'company' AND json_extract(value, '$.stateCode') IS NOT NULL;
+
+  UPDATE vouchers SET gst_registration_id = (SELECT id FROM gst_registrations WHERE is_primary = 1)
+  WHERE gst_registration_id IS NULL
+    AND EXISTS (SELECT 1 FROM gst_registrations WHERE is_primary = 1);
+
+  UPDATE godowns SET gst_registration_id = (SELECT id FROM gst_registrations WHERE is_primary = 1)
+  WHERE gst_registration_id IS NULL
+    AND EXISTS (SELECT 1 FROM gst_registrations WHERE is_primary = 1);
+  `,
+
+  // 48 — the filing register is per GSTIN.
+  //
+  // `gst_filings` carried UNIQUE (form, period), which is exactly right for one registration and
+  // exactly wrong for two: a Maharashtra GSTR-3B and a Gujarat GSTR-3B for the same month are two
+  // filings, two ARNs, two payments. SQLite cannot widen a UNIQUE constraint in place, so the
+  // table is rebuilt and every existing row is attributed to the primary registration.
+  `
+  CREATE TABLE gst_filings_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    form TEXT NOT NULL,
+    period TEXT NOT NULL,
+    due_date TEXT NOT NULL,
+    filed_at TEXT,
+    arn TEXT,
+    tax_paid INTEGER NOT NULL DEFAULT 0,
+    late_fee INTEGER NOT NULL DEFAULT 0,
+    interest INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
+    -- The GSTR-1A snapshot (migration 38): carried across verbatim, it is a whole return as JSON.
+    docs_json TEXT,
+    registration_id INTEGER REFERENCES gst_registrations(id),
+    UNIQUE (form, period, registration_id)
+  );
+
+  INSERT INTO gst_filings_new
+    (id, form, period, due_date, filed_at, arn, tax_paid, late_fee, interest, notes, docs_json, registration_id)
+  SELECT id, form, period, due_date, filed_at, arn, tax_paid, late_fee, interest, notes, docs_json,
+         (SELECT id FROM gst_registrations WHERE is_primary = 1)
+  FROM gst_filings;
+
+  DROP TABLE gst_filings;
+  ALTER TABLE gst_filings_new RENAME TO gst_filings;
+  CREATE INDEX idx_gst_filings_period ON gst_filings(period);
+  `,
+
+  // 49 — the GSTR-1 filed snapshot is per GSTIN too.
+  //
+  // `gstr1_filed_documents` was keyed UNIQUE (period, doc_number, doc_type). With two
+  // registrations that is one snapshot for two returns: marking the Gujarat GSTR-1 filed would
+  // find the Maharashtra snapshot already there, keep it (the deliberate first-writer-wins rule
+  // in recordFiling), and every Gujarat amendment would be computed against Maharashtra's
+  // documents. Rebuilt with the registration in the key; existing rows go to the primary.
+  `
+  CREATE TABLE gstr1_filed_documents_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period TEXT NOT NULL,
+    voucher_id INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    doc_number TEXT NOT NULL,
+    doc_date TEXT NOT NULL,
+    doc_type TEXT NOT NULL DEFAULT 'INV',
+    party_gstin TEXT,
+    pos TEXT,
+    payload TEXT NOT NULL,
+    registration_id INTEGER REFERENCES gst_registrations(id),
+    filed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (period, doc_number, doc_type, registration_id)
+  );
+
+  INSERT INTO gstr1_filed_documents_new
+    (id, period, voucher_id, doc_number, doc_date, doc_type, party_gstin, pos, payload, registration_id, filed_at)
+  SELECT id, period, voucher_id, doc_number, doc_date, doc_type, party_gstin, pos, payload,
+         (SELECT id FROM gst_registrations WHERE is_primary = 1), filed_at
+  FROM gstr1_filed_documents;
+
+  DROP TABLE gstr1_filed_documents;
+  ALTER TABLE gstr1_filed_documents_new RENAME TO gstr1_filed_documents;
+  CREATE INDEX idx_gstr1_filed_documents_period ON gstr1_filed_documents(period);
   `
 ]

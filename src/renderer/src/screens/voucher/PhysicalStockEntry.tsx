@@ -91,6 +91,7 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
         vehicleNo: null,
         transportDistanceKm: null,
         posOverride: null,
+        gstRegistrationId: null,
         currencyCode: null,
         exchangeRate: null,
         lines: [],

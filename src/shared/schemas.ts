@@ -37,6 +37,24 @@ const optionalIdSchema = (regex: RegExp, message: string) =>
 export const panSchema = optionalIdSchema(/^[A-Z]{5}\d{4}[A-Z]$/, 'Invalid PAN')
 export const tanSchema = optionalIdSchema(/^[A-Z]{4}\d{5}[A-Z]$/, 'Invalid TAN')
 
+/**
+ * One GST registration of this company (roadmap #108).
+ *
+ * `isPrimary` is deliberately NOT here: which registration is primary is changed through its own
+ * channel, so that "exactly one primary" cannot be broken by a save that forgot to clear the
+ * old one.
+ */
+export const gstRegistrationSchema = z.object({
+  id: id.nullable().optional(),
+  gstin: gstinSchema.nullable(),
+  stateCode: stateCodeSchema,
+  tradeName: z.string().trim().min(1).max(120),
+  address: z.string().trim().max(500).nullable().default(null),
+  registeredOn: isoDate.nullable().default(null),
+  surrenderedOn: isoDate.nullable().default(null)
+})
+export type GstRegistrationSchemaInput = z.infer<typeof gstRegistrationSchema>
+
 export const companyCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
   stateCode: stateCodeSchema,
@@ -194,7 +212,9 @@ export type StockItemInput = z.infer<typeof stockItemInputSchema>
 
 export const godownInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  address: z.string().trim().max(500).nullable().optional()
+  address: z.string().trim().max(500).nullable().optional(),
+  /** The GST registration this location sits under — what a new supply from it defaults to. */
+  gstRegistrationId: id.nullable().optional()
 })
 export type GodownInput = z.infer<typeof godownInputSchema>
 
@@ -259,6 +279,15 @@ export const voucherInputSchema = z.object({
   transportDistanceKm: z.number().int().min(0).max(10000).nullable().default(null),
   /** Place-of-supply override (two-digit state code) for GST returns; null = party/company state. */
   posOverride: stateCodeSchema.nullable().default(null),
+  /**
+   * Which GST registration made this supply (roadmap #108).
+   *
+   * Null on input means "decide it now" — saveVoucher stamps the godown's registration, else the
+   * primary — rather than "decide it at report time". A voucher whose registration is inferred
+   * when a return is built is a voucher whose tax can change under it when a second registration
+   * is added later.
+   */
+  gstRegistrationId: id.nullable().default(null),
   currencyCode: z.string().trim().length(3).transform((s) => s.toUpperCase()).nullable().default(null),
   exchangeRate: z.number().positive().max(100000).nullable().default(null),
   /** Post-dated: kept out of the books until the date arrives (auto-matures on company open). */

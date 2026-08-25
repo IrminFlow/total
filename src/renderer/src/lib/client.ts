@@ -25,6 +25,9 @@ import type { Recon26asResult, Statement26asRow } from '@shared/tds/form26as'
 import type { VoucherDraft } from '../state/stores'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
+import type {
+  CrossRegistrationTransfer, GstRegistration, GstRegistrationInput
+} from '@shared/gst/registrations'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import type { ImsAction, ImsWorklist } from '@shared/gst/ims'
 import type { AmendmentWindow, Gstr1aResult } from '@shared/gst/gstr1a'
@@ -2554,21 +2557,40 @@ export const api = {
     run: (slugs: string[], kind: 'tb' | 'pnl', from: string, to: string) =>
       call<ConsolidatedResult>('consol:run', { slugs, kind, from, to })
   },
+  /**
+   * The company's GST registrations (roadmap #108).
+   *
+   * A single-registration company has exactly one row here and never sees a picker — every GST
+   * screen passes `registrationId: null`, which the main side resolves to the primary and scopes
+   * with an empty SQL filter.
+   */
+  gstReg: {
+    list: () => call<GstRegistration[]>('gstReg:list'),
+    save: (input: GstRegistrationInput) => call<GstRegistration>('gstReg:save', input),
+    setPrimary: (id: number) => call<GstRegistration[]>('gstReg:setPrimary', { id }),
+    delete: (id: number) => call<{ ok: true }>('gstReg:delete', { id }),
+    /** Stock that moved between two registrations — a taxable supply this app does not invoice. */
+    crossTransfers: (from: string, to: string) =>
+      call<CrossRegistrationTransfer[]>('gstReg:crossTransfers', { from, to })
+  },
   gst: {
-    gstr1: (from: string, to: string, period: string) => call<Gstr1Result>('gst:gstr1', { from, to, period }),
-    gstr3b: (from: string, to: string, period: string) => call<Gstr3bResult>('gst:gstr3b', { from, to, period }),
-    exportGstr1: (from: string, to: string, period: string) =>
-      call<{ jsonPath: string; csvPath: string }>('gst:exportGstr1', { from, to, period }),
-    exportGstr3b: (from: string, to: string, period: string) =>
-      call<{ jsonPath: string }>('gst:exportGstr3b', { from, to, period }),
-    recon2b: (jsonText: string, from: string, to: string) =>
-      call<{ result: Recon2bResult; errors: string[]; period: string | null }>('gst:recon2b', { jsonText, from, to }),
+    gstr1: (from: string, to: string, period: string, registrationId?: number | null) =>
+      call<Gstr1Result>('gst:gstr1', { from, to, period, registrationId }),
+    gstr3b: (from: string, to: string, period: string, registrationId?: number | null) =>
+      call<Gstr3bResult>('gst:gstr3b', { from, to, period, registrationId }),
+    exportGstr1: (from: string, to: string, period: string, registrationId?: number | null) =>
+      call<{ jsonPath: string; csvPath: string }>('gst:exportGstr1', { from, to, period, registrationId }),
+    exportGstr3b: (from: string, to: string, period: string, registrationId?: number | null) =>
+      call<{ jsonPath: string }>('gst:exportGstr3b', { from, to, period, registrationId }),
+    recon2b: (jsonText: string, from: string, to: string, registrationId?: number | null) =>
+      call<{ result: Recon2bResult; errors: string[]; period: string | null }>('gst:recon2b', { jsonText, from, to, registrationId }),
     recon2bPickFile: () => call<{ jsonText: string; fileName: string } | null>('gst:recon2bPickFile'),
-    validate: (from: string, to: string) =>
+    validate: (from: string, to: string, registrationId?: number | null) =>
       call<{
         issues: GstIssue[]
         roundOff: { voucherId: number; number: string; roundOff: number; lines: string[] }[]
-      }>('gst:validate', { from, to }),
+        crossRegistration: CrossRegistrationTransfer[]
+      }>('gst:validate', { from, to, registrationId }),
     get3bManual: (period: string) => call<Gst3bManualInput>('gst:3bManualGet', { period }),
     set3bManual: (period: string, data: Gst3bManualInput) =>
       call<Gst3bManualInput>('gst:3bManualSet', { period, data }),
@@ -3288,7 +3310,8 @@ export const api = {
       call<Gstr4>('gst:gstr4', { fyStartYear, category })
   },
   filings: {
-    register: (fyStartYear: number) => call<FilingRow[]>('filings:register', { fyStartYear }),
+    register: (fyStartYear: number, registrationId?: number | null) =>
+      call<FilingRow[]>('filings:register', { fyStartYear, registrationId }),
     record: (input: {
       form: string
       period: string
@@ -3297,9 +3320,10 @@ export const api = {
       arn: string | null
       taxPaid: number
       notes: string | null
+      registrationId?: number | null
     }) => call<FilingRecord>('filings:record', input),
-    liability: (form: string, period: string) =>
-      call<FilingLiability>('filings:liability', { form, period })
+    liability: (form: string, period: string, registrationId?: number | null) =>
+      call<FilingLiability>('filings:liability', { form, period, registrationId })
   },
   mcp: {
     snippet: (client: 'claude-desktop' | 'claude-code' | 'codex', allowWrites: boolean) =>

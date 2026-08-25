@@ -23,7 +23,7 @@ import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, exportStreamCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
-  isoDate, itemRateInputSchema, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, reportScheduleInputSchema, reportViewSaveSchema, exportXlsSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema, supportSendSchema,
+  gstRegistrationSchema, isoDate, itemRateInputSchema, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, reportScheduleInputSchema, reportViewSaveSchema, exportXlsSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema, supportSendSchema,
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, tdsCertificateInputSchema, tds26asSchema,
   unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema,
@@ -46,6 +46,7 @@ import * as vouchers from './services/vouchers'
 import * as reports from './services/reports'
 import { streamReportCsv, type StreamRequest } from './services/exportStream'
 import * as gst from './services/gst'
+import * as registrations from './services/registrations'
 import * as filings from './services/filings'
 import * as amendments from './services/amendments'
 import * as partyNotes from './services/partyNotes'
@@ -1400,25 +1401,54 @@ export function registerIpc(): void {
     return consolidated.consolidated(slugs, kind, from, to)
   }, 'viewer')
 
-  // ---------- gst ----------
-  const gstPeriodInput = periodSchema.extend({ period: z.string().regex(/^\d{6}$/) })
-  handle('gst:gstr1', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+  // ---------- gst registrations (roadmap #108) ----------
+  //
+  // Which GSTIN a GST screen is looking at. Optional everywhere, and null on a single-registration
+  // book — where `gstScope` returns an empty SQL filter and every return computes exactly what it
+  // computed before any of this existed.
+  const regIdField = { registrationId: z.number().int().positive().nullish() }
+  const scopeOf = (c: OpenCompany, registrationId?: number | null): registrations.GstScope =>
+    registrations.gstScope(c.db, c.info, registrationId ?? null)
+
+  handle('gstReg:list', () => registrations.listRegistrations(requireCompany().db), 'viewer')
+  handle('gstReg:save', (p) => registrations.saveRegistration(requireCompany().db, gstRegistrationSchema.parse(p)), 'owner')
+  handle('gstReg:setPrimary', (p) => {
     const c = requireCompany()
-    return gst.gstr1(c.db, c.info, from, to, period)
+    const regs = registrations.setPrimaryRegistration(c.db, idSchema.parse(p).id)
+    // The primary registration IS the company's gstin/stateCode (db/seed.ts explains the mirror),
+    // so the in-memory company must move with it or every screen keeps showing the old GSTIN.
+    c.info = readCompanyInfo(c.db)
+    return regs
+  }, 'owner')
+  handle('gstReg:delete', (p) => {
+    registrations.deleteRegistration(requireCompany().db, idSchema.parse(p).id)
+    return { ok: true }
+  }, 'owner')
+  handle('gstReg:crossTransfers', (p) => {
+    const { from, to } = periodSchema.parse(p)
+    return registrations.crossRegistrationTransfers(requireCompany().db, from, to)
+  }, 'viewer')
+
+  // ---------- gst ----------
+  const gstPeriodInput = periodSchema.extend({ period: z.string().regex(/^\d{6}$/), ...regIdField })
+  handle('gst:gstr1', (p) => {
+    const { from, to, period, registrationId } = gstPeriodInput.parse(p)
+    const c = requireCompany()
+    return gst.gstr1(c.db, scopeOf(c, registrationId), from, to, period)
   }, 'viewer')
   handle('gst:gstr3b', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    const { from, to, period, registrationId } = gstPeriodInput.parse(p)
     const c = requireCompany()
-    return gst.gstr3b(c.db, c.info, from, to, period)
+    return gst.gstr3b(c.db, scopeOf(c, registrationId), from, to, period)
   }, 'viewer')
   handle('gst:exportGstr1', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    const { from, to, period, registrationId } = gstPeriodInput.parse(p)
     const c = requireCompany()
+    const scope = scopeOf(c, registrationId)
     // Server-side export gate (G7): blocking validation issues refuse the export outright —
     // the renderer disables the button too, but the gate must hold for any caller.
-    gst.assertExportable(c.db, c.info, from, to)
-    const result = gst.gstr1(c.db, c.info, from, to, period)
+    gst.assertExportable(c.db, scope, from, to)
+    const result = gst.gstr1(c.db, scope, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr1', period, result.json)
     const csvPath = gst.exportGstr1Csv(c.slug, result)
     auditExport(c.db, 'gstr1', { period, path: jsonPath })
@@ -1427,11 +1457,16 @@ export function registerIpc(): void {
   })
   // ---------- gst rebuild (lane G): validation panel + 3B manual adjustments ----------
   handle('gst:validate', (p) => {
-    const { from, to } = periodSchema.parse(p)
+    const { from, to, registrationId } = periodSchema.extend(regIdField).parse(p)
     const c = requireCompany()
-    const issues = gst.gstValidate(c.db, c.info, from, to)
-    const roundOff = edocs.einvoiceRoundOffIssues(c.db, c.info, from, to)
-    return { issues, roundOff }
+    const scope = scopeOf(c, registrationId)
+    const issues = gst.gstValidate(c.db, scope, from, to)
+    const roundOff = edocs.einvoiceRoundOffIssues(c.db, scope, from, to)
+    // Stock moved between two registrations of the same PAN is a taxable supply under Schedule I
+    // para 2, and this app does not raise the invoice for it — so it is REPORTED here rather than
+    // left looking innocent. See services/registrations.ts.
+    const crossRegistration = registrations.crossRegistrationTransfers(c.db, from, to)
+    return { issues, roundOff, crossRegistration }
   }, 'viewer')
   handle('gst:3bManualGet', (p) => {
     const { period } = z.object({ period: z.string().regex(/^\d{6}$/) }).parse(p)
@@ -1442,20 +1477,22 @@ export function registerIpc(): void {
     return configSvc.setGst3bManual(requireCompany().db, period, data)
   })
   handle('gst:exportGstr3b', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    const { from, to, period, registrationId } = gstPeriodInput.parse(p)
     const c = requireCompany()
+    const scope = scopeOf(c, registrationId)
     // Same server-side gate as gst:exportGstr1 — 3B is computed from the same extracted
     // documents, so a period with blocking validation issues must not export either return.
-    gst.assertExportable(c.db, c.info, from, to)
-    const result = gst.gstr3b(c.db, c.info, from, to, period)
+    gst.assertExportable(c.db, scope, from, to)
+    const result = gst.gstr3b(c.db, scope, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr3b', period, result.json)
     auditExport(c.db, 'gstr3b', { period, path: jsonPath })
     shell.showItemInFolder(jsonPath)
     return { jsonPath }
   })
   handle('gst:recon2b', (p) => {
-    const { jsonText, from, to } = gstr2bSchema.parse(p)
-    return gst.recon2b(requireCompany().db, jsonText, from, to)
+    const { jsonText, from, to, registrationId } = gstr2bSchema.extend(regIdField).parse(p)
+    const c = requireCompany()
+    return gst.recon2b(c.db, jsonText, from, to, scopeOf(c, registrationId))
   }, 'viewer')
   handle('gst:recon2bPickFile', async () => {
     const picked = await dialog.showOpenDialog({
@@ -1469,40 +1506,46 @@ export function registerIpc(): void {
   }, 'viewer')
 
   handle('gst:gstr9', (p) => {
-    const { fyStartYear } = z.object({ fyStartYear: z.number().int().min(1990).max(2100) }).parse(p)
+    const { fyStartYear, registrationId } = z
+      .object({ fyStartYear: z.number().int().min(1990).max(2100), ...regIdField })
+      .parse(p)
     const c = requireCompany()
-    return gst.gstr9(c.db, c.info, fyStartYear)
+    return gst.gstr9(c.db, scopeOf(c, registrationId), fyStartYear)
   }, 'viewer')
 
   // ---------- composition scheme ----------
   handle('gst:cmp08', (p) => {
-    const { from, to, category, interest, lateFee } = periodSchema
+    const { from, to, category, interest, lateFee, registrationId } = periodSchema
       .extend({
         category: z.enum(['trader', 'restaurant', 'service']),
         interest: z.number().int().min(0).optional(),
-        lateFee: z.number().int().min(0).optional()
+        lateFee: z.number().int().min(0).optional(),
+        ...regIdField
       })
       .parse(p)
     const c = requireCompany()
-    return gst.cmp08(c.db, c.info, from, to, category, { interest, lateFee })
+    return gst.cmp08(c.db, scopeOf(c, registrationId), from, to, category, { interest, lateFee })
   }, 'viewer')
 
   handle('gst:gstr4', (p) => {
-    const { fyStartYear, category } = z
+    const { fyStartYear, category, registrationId } = z
       .object({
         fyStartYear: z.number().int().min(1990).max(2100),
-        category: z.enum(['trader', 'restaurant', 'service'])
+        category: z.enum(['trader', 'restaurant', 'service']),
+        ...regIdField
       })
       .parse(p)
     const c = requireCompany()
-    return gst.gstr4(c.db, c.info, fyStartYear, category)
+    return gst.gstr4(c.db, scopeOf(c, registrationId), fyStartYear, category)
   }, 'viewer')
 
   // ---------- filing register ----------
   handle('filings:register', (p) => {
-    const { fyStartYear } = z.object({ fyStartYear: z.number().int().min(1990).max(2100) }).parse(p)
+    const { fyStartYear, registrationId } = z
+      .object({ fyStartYear: z.number().int().min(1990).max(2100), ...regIdField })
+      .parse(p)
     const c = requireCompany()
-    return filings.filingRegister(c.db, c.info, fyStartYear, todayISO())
+    return filings.filingRegister(c.db, scopeOf(c, registrationId), fyStartYear, todayISO())
   }, 'viewer')
 
   handle('filings:record', (p) => {
@@ -1517,24 +1560,27 @@ export function registerIpc(): void {
         // rather than pinning a length that would reject a valid ARN.
         arn: z.string().trim().min(1).max(64).nullable(),
         taxPaid: z.number().int().min(0),
-        notes: z.string().trim().max(500).nullable()
+        notes: z.string().trim().max(500).nullable(),
+        ...regIdField
       })
       .parse(p)
     const c = requireCompany()
     // Marking a GSTR-1 filed is also when its documents are frozen for later amendment
-    // (services/amendments.ts) — hence the company, which the snapshot extraction needs.
-    return filings.recordFiling(c.db, c.info, input)
+    // (services/amendments.ts) — hence the scope, which the snapshot extraction needs and which
+    // also decides WHICH registration's filing this is.
+    return filings.recordFiling(c.db, scopeOf(c, input.registrationId), input)
   }, 'owner')
 
   handle('filings:liability', (p) => {
-    const { form, period } = z
+    const { form, period, registrationId } = z
       .object({
         form: z.string().trim().min(1).max(20),
-        period: z.string().trim().regex(/^\d{4}-(\d{2}|Q[1-4]|H[12]|FY)$/, 'Not a period key')
+        period: z.string().trim().regex(/^\d{4}-(\d{2}|Q[1-4]|H[12]|FY)$/, 'Not a period key'),
+        ...regIdField
       })
       .parse(p)
     const c = requireCompany()
-    return filings.filingLiability(c.db, c.info, form, period)
+    return filings.filingLiability(c.db, scopeOf(c, registrationId), form, period)
   }, 'viewer')
 
   // ---------- GSTR-1 amendments (Tables 9A / 9C) ----------
@@ -1546,13 +1592,13 @@ export function registerIpc(): void {
   handle('amendments:report', (p) => {
     const { period } = z.object({ period: portalPeriod }).parse(p)
     const c = requireCompany()
-    return amendments.gstr1Amendments(c.db, c.info, period)
+    return amendments.gstr1Amendments(c.db, scopeOf(c, (p as { registrationId?: number | null } | null)?.registrationId ?? null), period)
   }, 'viewer')
 
   handle('amendments:export', (p) => {
     const { period } = z.object({ period: portalPeriod }).parse(p)
     const c = requireCompany()
-    const report = amendments.gstr1Amendments(c.db, c.info, period)
+    const report = amendments.gstr1Amendments(c.db, scopeOf(c, (p as { registrationId?: number | null } | null)?.registrationId ?? null), period)
     if (!report.json) throw new Error('Nothing to amend in this period — no amendment table has a row.')
     const path = amendments.exportAmendmentJson(c.slug, period, report.json)
     auditExport(c.db, 'gstr1-amendments', { period, path })
@@ -2758,14 +2804,18 @@ export function registerIpc(): void {
 
   // ---------- GSTR-1A, the amendment return (roadmap #353) ----------
   handle('gst:gstr1a', (p) => {
-    const { period } = z.object({ period: z.string().trim().min(1).max(20) }).parse(p)
+    const { period, registrationId } = z
+      .object({ period: z.string().trim().min(1).max(20), ...regIdField })
+      .parse(p)
     const c = requireCompany()
-    return gstr1a.gstr1aFor(c.db, c.info, period)
+    return gstr1a.gstr1aFor(c.db, scopeOf(c, registrationId), period)
   }, 'viewer')
   handle('gst:gstr1Snapshot', (p) => {
-    const { period } = z.object({ period: z.string().trim().min(1).max(20) }).parse(p)
+    const { period, registrationId } = z
+      .object({ period: z.string().trim().min(1).max(20), ...regIdField })
+      .parse(p)
     const c = requireCompany()
-    return gstr1a.snapshotGstr1(c.db, c.info, period)
+    return gstr1a.snapshotGstr1(c.db, scopeOf(c, registrationId), period)
   })
 
   // ---------- dated item rates (roadmap #358) ----------
@@ -3176,15 +3226,15 @@ export function registerIpc(): void {
     }
   }, 'viewer')
   handle('edoc:exportEInvoice', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    const { from, to, period, registrationId } = gstPeriodInput.parse(p)
     const c = requireCompany()
-    const r = edocs.exportEInvoices(c.db, c.info, c.slug, from, to, period)
+    const r = edocs.exportEInvoices(c.db, scopeOf(c, registrationId), c.slug, from, to, period)
     auditExport(c.db, 'einvoice', { period, path: r.path, count: r.count })
     shell.showItemInFolder(r.path)
     return r
   })
   handle('edoc:exportEwb', (p) => {
-    const { from, to, period, voucherIds, includeBelowThreshold } = gstPeriodInput
+    const { from, to, period, voucherIds, includeBelowThreshold, registrationId } = gstPeriodInput
       .extend({
         voucherIds: z.array(z.number().int().positive()).max(500).optional(),
         includeBelowThreshold: z.boolean().default(false)
@@ -3192,7 +3242,7 @@ export function registerIpc(): void {
       .parse(p)
     const c = requireCompany()
     // Writes the combined bulk file AND one single-bill file per voucher (exports/ewb/<period>/).
-    const r = edocs.exportEwb(c.db, c.info, c.slug, from, to, period, { voucherIds, includeBelowThreshold })
+    const r = edocs.exportEwb(c.db, scopeOf(c, registrationId), c.slug, from, to, period, { voucherIds, includeBelowThreshold })
     auditExport(c.db, 'ewb', { period, path: r.path, count: r.count })
     shell.showItemInFolder(r.path)
     return r
@@ -3200,7 +3250,10 @@ export function registerIpc(): void {
   handle('edoc:ewbJson', (p) => {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
-    const r = edocs.ewbJsonForVoucher(c.db, c.info, c.slug, voucherId)
+    // The voucher's OWN registration, not whichever one a screen is showing: the portal
+    // authenticates as a GSTIN, and a bill generated under the wrong one is filed under the
+    // wrong return.
+    const r = edocs.ewbJsonForVoucher(c.db, registrations.gstScopeForVoucher(c.db, c.info, voucherId), c.slug, voucherId)
     shell.showItemInFolder(r.path)
     return r
   })
@@ -3215,7 +3268,13 @@ export function registerIpc(): void {
       })
       .parse(p)
     const c = requireCompany()
-    return edocs.previewJson(c.db, c.info, kind, from, to, { voucherId, includeBelowThreshold })
+    // A single document previews under the registration that RAISED it; a period previews under
+    // the one the screen is showing.
+    const scope =
+      voucherId != null
+        ? registrations.gstScopeForVoucher(c.db, c.info, voucherId)
+        : scopeOf(c, (p as { registrationId?: number | null } | null)?.registrationId ?? null)
+    return edocs.previewJson(c.db, scope, kind, from, to, { voucherId, includeBelowThreshold })
   }, 'viewer')
 
   handle('edoc:transportGet', (p) => {
@@ -3832,7 +3891,10 @@ export function registerIpc(): void {
   handle('export:caPack', async (p) => {
     const { from, to } = periodSchema.parse(p)
     const c = requireCompany()
-    const r = caPack.exportCaPack(c.db, c.info, c.slug, from, to)
+    // The CA pack's GSTR-1 sheet is one registration's return (roadmap #108) — the primary,
+    // since the pack is not asked which. Its accounts sheets are the whole entity, as they should
+    // be: the books do not split by registration.
+    const r = caPack.exportCaPack(c.db, scopeOf(c), c.slug, from, to)
     // The CSVs are for a machine; the PDF and the workbook are for the accountant who opens the
     // folder. All three, because the pack is handed to a person who then feeds it to a tool.
     const pdf = await caPack.exportCaPackPdf(c.db, c.info, c.slug, from, to)

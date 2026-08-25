@@ -27,6 +27,7 @@ const FIELD_DOCS: Record<string, string> = {
   vehicleNo: 'Vehicle number for e-way bill flows.',
   transportDistanceKm: 'Transport distance in km (integer).',
   posOverride: 'Place-of-supply override: two-digit GST state code (e.g. "27"); null = derive from party/company state.',
+  gstRegistrationId: 'Which of the company\'s GST registrations made this supply; null = the primary (see gstReg:list).',
   postDated: 'Post-dated voucher (PDC): stays out of the books until its date arrives, then matures automatically on company open.',
   isOptional: 'Optional (memorandum) voucher: recorded but never counted in books or reports.',
   currencyCode: '3-letter currency code for multi-currency vouchers (e.g. USD); null = base currency (INR).',

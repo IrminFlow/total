@@ -1,7 +1,8 @@
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
-import type { CompanyInfo } from '@shared/domain'
+import type { GstScope } from './registrations'
+import { primaryRegistrationId } from './registrationId'
 import type { GstDoc } from '@shared/gst/returns'
 import {
   buildAmendmentTables,
@@ -79,24 +80,28 @@ export interface Gstr1SnapshotResult {
  */
 export function snapshotGstr1(
   db: DB,
-  company: CompanyInfo,
+  company: GstScope,
   periodEndIso: string,
   from: string,
   to: string,
   filedAt: string
 ): Gstr1SnapshotResult {
   const period = portalPeriodOf(periodEndIso)
-  const existing = db
-    .prepare('SELECT COUNT(*) AS n FROM gstr1_filed_documents WHERE period = ?')
-    .get(period) as { n: number }
+  const registrationId = company.registrationId ?? primaryRegistrationId(db)
+  // Scoped by registration: two registrations file two GSTR-1s for the same period, and the
+  // first-writer-wins rule below must not let one of them keep the other's snapshot.
+  const countStmt = db.prepare(
+    'SELECT COUNT(*) AS n FROM gstr1_filed_documents WHERE period = ? AND registration_id IS ?'
+  )
+  const existing = countStmt.get(period, registrationId) as { n: number }
   if (existing.n > 0) return { period, written: 0, docs: existing.n, keptExisting: true }
 
   const docs = extractOutwardDocs(db, company, from, to)
   const stmt = db.prepare(
     `INSERT INTO gstr1_filed_documents
-       (period, voucher_id, doc_number, doc_date, doc_type, party_gstin, pos, payload, filed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (period, doc_number, doc_type) DO NOTHING`
+       (period, voucher_id, doc_number, doc_date, doc_type, party_gstin, pos, payload, registration_id, filed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (period, doc_number, doc_type, registration_id) DO NOTHING`
   )
   const write = db.transaction((list: GstDoc[]) => {
     for (const d of list) {
@@ -109,15 +114,14 @@ export function snapshotGstr1(
         d.partyGstin,
         d.pos,
         JSON.stringify(d),
+        registrationId,
         filedAt
       )
     }
   })
   write(docs)
 
-  const after = db
-    .prepare('SELECT COUNT(*) AS n FROM gstr1_filed_documents WHERE period = ?')
-    .get(period) as { n: number }
+  const after = countStmt.get(period, registrationId) as { n: number }
   return { period, written: after.n, docs: after.n, keptExisting: false }
 }
 
@@ -127,9 +131,14 @@ export function snapshotGstr1(
  * A return that is no longer marked filed has not been filed, and diffing against a snapshot of
  * one would invent amendments to a return the portal has never seen.
  */
-export function dropGstr1Snapshot(db: DB, periodEndIso: string): number {
+export function dropGstr1Snapshot(db: DB, periodEndIso: string, registrationId?: number | null): number {
   const period = portalPeriodOf(periodEndIso)
-  const r = db.prepare('DELETE FROM gstr1_filed_documents WHERE period = ?').run(period)
+  const r =
+    registrationId === undefined
+      ? db.prepare('DELETE FROM gstr1_filed_documents WHERE period = ?').run(period)
+      : db
+          .prepare('DELETE FROM gstr1_filed_documents WHERE period = ? AND registration_id IS ?')
+          .run(period, registrationId)
   return r.changes
 }
 
@@ -218,15 +227,18 @@ interface EmittedFlatNote { ont_num: string; ont_dt: string }
  * particular (a corrected invoice can be renumbered), and matching on it would read a renumbered
  * invoice as one document deleted and another added.
  */
-export function gstr1Amendments(db: DB, company: CompanyInfo, period: string): AmendmentReport {
+export function gstr1Amendments(db: DB, company: GstScope, period: string): AmendmentReport {
   const order = periodOrder(period)
+  const registrationId = company.registrationId ?? primaryRegistrationId(db)
   const snapshots = db
     .prepare(
       `SELECT id, period, voucher_id AS voucherId, doc_number AS docNumber, doc_date AS docDate,
               doc_type AS docType, payload, filed_at AS filedAt
-       FROM gstr1_filed_documents ORDER BY period, id`
+       FROM gstr1_filed_documents
+       WHERE ? IS NULL OR registration_id IS ? OR registration_id IS NULL
+       ORDER BY period, id`
     )
-    .all() as SnapshotRow[]
+    .all(registrationId, registrationId) as SnapshotRow[]
 
   const byPeriod = new Map<string, SnapshotRow[]>()
   for (const row of snapshots) {

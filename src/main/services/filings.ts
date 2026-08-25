@@ -1,5 +1,6 @@
 import type { DB } from '../db/connection'
-import type { CompanyInfo } from '@shared/domain'
+import type { GstScope } from './registrations'
+import { primaryRegistrationId } from './registrationId'
 import { filingSchedule } from '@shared/compliance'
 import { lateCharge } from '@shared/gst/lateFee'
 import { periodBounds, periodKey, type Period } from '@shared/period'
@@ -60,16 +61,25 @@ function periodsWithEntries(db: DB, from: string, to: string): Set<string> {
   return out
 }
 
-function readRecords(db: DB, periods: string[]): Map<string, FilingRecord> {
+/**
+ * The recorded filings for these periods, for ONE registration (roadmap #108).
+ *
+ * A registration id of null means "the book has no registrations", which only happens before
+ * `ensureRegistrations` has run; it reads every row, which is what a single-GSTIN book saw
+ * before this column existed. Otherwise the register is per GSTIN, because filing is: two
+ * registrations file two GSTR-3Bs for the same month, with two ARNs and two payments.
+ */
+function readRecords(db: DB, periods: string[], registrationId: number | null): Map<string, FilingRecord> {
   if (periods.length === 0) return new Map()
+  const regFilter = registrationId == null ? '' : ' AND (registration_id = ? OR registration_id IS NULL)'
   const rows = db
     .prepare(
       `SELECT form, period, filed_at AS filedAt, arn, tax_paid AS taxPaid,
               late_fee AS lateFee, interest, notes
        FROM gst_filings
-       WHERE period IN (${periods.map(() => '?').join(',')})`
+       WHERE period IN (${periods.map(() => '?').join(',')})${regFilter}`
     )
-    .all(...periods) as FilingRecord[]
+    .all(...periods, ...(registrationId == null ? [] : [registrationId])) as FilingRecord[]
   return new Map(rows.map((r) => [`${r.form}/${r.period}`, r]))
 }
 
@@ -82,7 +92,7 @@ function readRecords(db: DB, periods: string[]): Map<string, FilingRecord> {
  */
 export function filingRegister(
   db: DB,
-  company: CompanyInfo,
+  company: GstScope,
   fyStartYear: number,
   today: string
 ): FilingRow[] {
@@ -92,7 +102,11 @@ export function filingRegister(
     company.gstFilingFrequency,
     company.stateCode
   )
-  const records = readRecords(db, [...new Set(schedule.map((d) => d.period))])
+  const records = readRecords(
+    db,
+    [...new Set(schedule.map((d) => d.period))],
+    company.registrationId ?? primaryRegistrationId(db)
+  )
   const active = periodsWithEntries(db, `${fyStartYear}-04-01`, `${fyStartYear + 1}-03-31`)
 
   return schedule.map((d) => {
@@ -151,10 +165,16 @@ export interface FilingSaveResult extends FilingRecord {
  * the same portal tax period. Amendments to IFF-pushed invoices are handled through the
  * quarter's GSTR-1 snapshot.
  */
-export function recordFiling(db: DB, company: CompanyInfo, input: FilingUpsert): FilingSaveResult {
-  const before = db
-    .prepare('SELECT form, period, filed_at AS filedAt, arn, tax_paid AS taxPaid, late_fee AS lateFee, interest, notes FROM gst_filings WHERE form = ? AND period = ?')
-    .get(input.form, input.period) as FilingRecord | undefined
+export function recordFiling(db: DB, company: GstScope, input: FilingUpsert): FilingSaveResult {
+  // Resolve to the primary rather than leaving NULL: `gst_filings` is UNIQUE on
+  // (form, period, registration_id) and SQLite treats NULLs as distinct, so a NULL here would
+  // make the upsert insert a second row every time a filing was re-recorded.
+  const registrationId = company.registrationId ?? primaryRegistrationId(db)
+  const readOne = db.prepare(
+    `SELECT form, period, filed_at AS filedAt, arn, tax_paid AS taxPaid, late_fee AS lateFee, interest, notes
+     FROM gst_filings WHERE form = ? AND period = ? AND registration_id IS ?`
+  )
+  const before = readOne.get(input.form, input.period, registrationId) as FilingRecord | undefined
 
   const charge = input.filedAt
     ? lateCharge({
@@ -166,9 +186,9 @@ export function recordFiling(db: DB, company: CompanyInfo, input: FilingUpsert):
     : { daysLate: 0, lateFeePaise: 0, interestPaise: 0, totalPaise: 0, feeCapped: false }
 
   db.prepare(
-    `INSERT INTO gst_filings (form, period, due_date, filed_at, arn, tax_paid, late_fee, interest, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (form, period) DO UPDATE SET
+    `INSERT INTO gst_filings (form, period, due_date, filed_at, arn, tax_paid, late_fee, interest, notes, registration_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (form, period, registration_id) DO UPDATE SET
        due_date = excluded.due_date,
        filed_at = excluded.filed_at,
        arn = excluded.arn,
@@ -185,12 +205,11 @@ export function recordFiling(db: DB, company: CompanyInfo, input: FilingUpsert):
     input.taxPaid,
     charge.lateFeePaise,
     charge.interestPaise,
-    input.notes
+    input.notes,
+    registrationId
   )
 
-  const after = db
-    .prepare('SELECT form, period, filed_at AS filedAt, arn, tax_paid AS taxPaid, late_fee AS lateFee, interest, notes FROM gst_filings WHERE form = ? AND period = ?')
-    .get(input.form, input.period) as FilingRecord
+  const after = readOne.get(input.form, input.period, registrationId) as FilingRecord
 
   writeAudit(db, 'gst_filing', 0, before ? 'update' : 'create', before ?? null, after)
 
@@ -199,7 +218,7 @@ export function recordFiling(db: DB, company: CompanyInfo, input: FilingUpsert):
     const { from, to } = filingPeriodBounds(input.period)
     snapshot = input.filedAt
       ? snapshotGstr1(db, company, to, from, to, input.filedAt)
-      : (dropGstr1Snapshot(db, to), null)
+      : (dropGstr1Snapshot(db, to, registrationId), null)
   }
 
   return { ...after, snapshot }
@@ -218,7 +237,7 @@ export function recordFiling(db: DB, company: CompanyInfo, input: FilingUpsert):
  */
 export function filingLiability(
   db: DB,
-  company: CompanyInfo,
+  company: GstScope,
   form: string,
   period: string
 ): FilingLiability {

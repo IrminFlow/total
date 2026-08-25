@@ -29,6 +29,7 @@ import { buildInvoiceShare, type InvoiceShare } from '@shared/invoiceShare'
 import { einvoiceQrPayload } from '@shared/einvoiceQr'
 import { upiIntentUrl } from '@shared/upi'
 import { extractEdocInvoices } from './edocs'
+import { gstScopeForVoucher } from './registrations'
 import { getInvoiceConfig } from './config'
 import { companyExportsDir } from '../paths'
 import { htmlToPdf, writeExportPdf } from './pdf'
@@ -504,11 +505,16 @@ function auditTrailFor(db: DB, voucherId: number): InvoiceAuditTrail {
 }
 
 export function invoiceHtml(db: DB, company: CompanyInfo, voucherId: number): { html: string; number: string } {
-  const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
+  // Rule 46(b): the tax invoice carries the GSTIN of the supplier who issued it. On a multi-GSTIN
+  // book (roadmap #108) that is the voucher's OWN registration, not the head office's — printing
+  // the wrong one makes the document defective and the buyer's credit deniable. Resolved here
+  // rather than at every call site so the PDF, the batch, the preview and the e-mail all agree.
+  const seller = gstScopeForVoucher(db, company, voucherId)
+  const [inv] = extractEdocInvoices(db, seller, '0000-01-01', '9999-12-31', voucherId)
   if (!inv) throw new Error('Invoice not found (only sales vouchers can be printed)')
   attachDiscounts(db, voucherId, inv)
   const config = getInvoiceConfig(db)
-  return { html: buildInvoiceHtml(company, config, inv, auditTrailFor(db, voucherId)), number: inv.number }
+  return { html: buildInvoiceHtml(seller, config, inv, auditTrailFor(db, voucherId)), number: inv.number }
 }
 
 /** invoice:previewHtml — renders the current (unsaved) print config against a real voucher when
@@ -525,10 +531,11 @@ export function invoicePreviewHtml(
   const saved = getInvoiceConfig(db)
   const config = configOverride ? mergeInvoiceConfig({ ...saved, ...configOverride }) : saved
   if (voucherId != null) {
-    const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
+    const seller = gstScopeForVoucher(db, company, voucherId)
+    const [inv] = extractEdocInvoices(db, seller, '0000-01-01', '9999-12-31', voucherId)
     if (!inv) throw new Error('Invoice not found (only sales vouchers can be printed)')
     attachDiscounts(db, voucherId, inv)
-    return { html: buildInvoiceHtml(company, config, inv, auditTrailFor(db, voucherId)) }
+    return { html: buildInvoiceHtml(seller, config, inv, auditTrailFor(db, voucherId)) }
   }
   return { html: buildInvoiceHtml(company, config, SAMPLE_INVOICE) }
 }
@@ -545,7 +552,9 @@ export function thermalReceiptHtml(
   company: CompanyInfo,
   voucherId: number
 ): { html: string; number: string; heightMm: number; widthMm: ThermalWidthMm } {
-  const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
+  // Same seller resolution as the A4 print: the CGST+SGST / IGST split on the roll is computed
+  // against the registration that raised the sale (roadmap #108).
+  const [inv] = extractEdocInvoices(db, gstScopeForVoucher(db, company, voucherId), '0000-01-01', '9999-12-31', voucherId)
   if (!inv) throw new Error('Receipt not found (only sales vouchers can be printed)')
   const config = getInvoiceConfig(db)
 

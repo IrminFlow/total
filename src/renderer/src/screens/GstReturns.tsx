@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { GstinPicker, usePrimaryRegistrationId } from '../components/GstinPicker'
 import { JsonPreview } from '../components/JsonPreview'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { AmountInput, Button, EmptyState, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner, useTableNav } from '../components/ui'
@@ -450,14 +451,19 @@ export function Gstr1Screen(): React.JSX.Element {
   const { info } = useSession()
   const nav = useNav()
   const toast = useToasts()
+  // Which GSTIN this return is for (roadmap #108). Null on a one-registration book, where the
+  // picker renders nothing and the main side resolves null to the primary.
+  const primaryRegId = usePrimaryRegistrationId()
+  const [regId, setRegId] = useState<number | null>(null)
+  const registrationId = regId ?? primaryRegId
   const { data, isLoading } = useQuery({
-    queryKey: ['gstr1', month?.key],
-    queryFn: () => api.gst.gstr1(month!.from, month!.to, month!.period),
+    queryKey: ['gstr1', month?.key, registrationId],
+    queryFn: () => api.gst.gstr1(month!.from, month!.to, month!.period, registrationId),
     enabled: !!month
   })
   const { data: validation, isLoading: validating } = useQuery({
-    queryKey: ['gstValidate', month?.key],
-    queryFn: () => api.gst.validate(month!.from, month!.to),
+    queryKey: ['gstValidate', month?.key, registrationId],
+    queryFn: () => api.gst.validate(month!.from, month!.to, registrationId),
     enabled: !!month
   })
   // Selection only: these are section totals with nowhere to drill. It still earns its place --
@@ -472,6 +478,10 @@ export function Gstr1Screen(): React.JSX.Element {
   const blocking = issues.filter((i) => i.severity === 'blocking')
   const warnings = issues.filter((i) => i.severity === 'warning')
   const roundOff = validation?.roundOff ?? []
+  // Stock that moved from one of the company's registrations to another (roadmap #108). Under
+  // Schedule I para 2 that is a taxable supply even though nothing was sold, and this app does
+  // not raise the invoice for it — so it is said plainly here rather than left invisible.
+  const crossRegistration = validation?.crossRegistration ?? []
   const exportBlockedReason = !info?.gstin
     ? 'Add the company GSTIN under Company details to enable portal export.'
     : blocking.length
@@ -481,7 +491,7 @@ export function Gstr1Screen(): React.JSX.Element {
   const doExport = async (): Promise<void> => {
     if (!month) return
     try {
-      const r = await api.gst.exportGstr1(month.from, month.to, month.period)
+      const r = await api.gst.exportGstr1(month.from, month.to, month.period, registrationId)
       toast.push('success', `GSTR-1 JSON ready to upload — ${r.jsonPath.split('/').pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -525,6 +535,7 @@ export function Gstr1Screen(): React.JSX.Element {
                 </button>
               ))}
             </div>
+            <GstinPicker value={registrationId} onChange={setRegId} testId="select-gstr1-gstin" />
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr1-month" />
             {tab === 'return' && (
               <>
@@ -582,11 +593,20 @@ export function Gstr1Screen(): React.JSX.Element {
             <Spinner /> Validating period documents…
           </div>
         </Panel>
-      ) : issues.length > 0 || roundOff.length > 0 ? (
+      ) : issues.length > 0 || roundOff.length > 0 || crossRegistration.length > 0 ? (
         <Panel className="mb-4" scroll={{ maxH: '18rem' }}>
           <div data-testid="rows-gstr1-issues">
             {[...blocking, ...warnings].map((issue, i) => (
               <IssueRow key={`${issue.code}-${i}`} severity={issue.severity} code={issue.code} message={issue.message} voucherIds={issue.voucherIds} onOpen={openVoucher} />
+            ))}
+            {crossRegistration.map((t) => (
+              <IssueRow
+                key={`crossreg-${t.voucherId}-${t.fromRegistrationId}-${t.toRegistrationId}`}
+                severity="warning"
+                message={`${t.number} moved ₹${formatPaise(t.valuePaise)} of stock from ${t.fromGstin ?? t.fromStateCode} to ${t.toGstin ?? t.toStateCode}. Under Schedule I para 2 that is a taxable supply between two registrations of the same PAN — Total does not raise the tax invoice for it, so it is not in this return. Raise it on the portal, valued under rule 28.`}
+                voucherIds={[t.voucherId]}
+                onOpen={openVoucher}
+              />
             ))}
             {roundOff.map((r) => (
               <IssueRow
@@ -780,16 +800,19 @@ export function Gstr3bScreen(): React.JSX.Element {
   const { months, month, monthKey, setMonthKey } = useMonth()
   const { info } = useSession()
   const toast = useToasts()
+  const primaryRegId = usePrimaryRegistrationId()
+  const [regId, setRegId] = useState<number | null>(null)
+  const registrationId = regId ?? primaryRegId
   const { data, isLoading } = useQuery({
-    queryKey: ['gstr3b', month?.key],
-    queryFn: () => api.gst.gstr3b(month!.from, month!.to, month!.period),
+    queryKey: ['gstr3b', month?.key, registrationId],
+    queryFn: () => api.gst.gstr3b(month!.from, month!.to, month!.period, registrationId),
     enabled: !!month
   })
 
   const doExport = async (): Promise<void> => {
     if (!month) return
     try {
-      const r = await api.gst.exportGstr3b(month.from, month.to, month.period)
+      const r = await api.gst.exportGstr3b(month.from, month.to, month.period, registrationId)
       toast.push('success', `GSTR-3B JSON saved — ${r.jsonPath.split('/').pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -830,6 +853,7 @@ export function Gstr3bScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
+            <GstinPicker value={registrationId} onChange={setRegId} testId="select-gstr3b-gstin" />
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr3b-month" />
             <JsonPreview
               value={data?.json}

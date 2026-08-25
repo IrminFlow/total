@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
+import type { GstScope } from './registrations'
 import type { StatementNode } from '@shared/reports'
 import type { TallyGroup, TallyLedger, TallyUnit, TallyItem, TallyVoucher } from '@shared/tally'
 import { buildTallyMastersXml, buildTallyVouchersXml } from '@shared/tallyExport'
@@ -271,7 +272,7 @@ export function exportTallyXml(db: DB, _company: CompanyInfo, slug: string, from
 }
 
 /** The full CA handover pack: Tally XML + every standard report as CSV, for the period. */
-export function exportCaPack(db: DB, company: CompanyInfo, slug: string, from: string, to: string): { path: string } {
+export function exportCaPack(db: DB, company: GstScope, slug: string, from: string, to: string): { path: string } {
   const dir = join(companyExportsDir(slug), `ca-pack-${from}_${to}`)
   mkdirSync(dir, { recursive: true })
 

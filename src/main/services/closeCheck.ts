@@ -11,7 +11,7 @@
  */
 
 import type { DB } from '../db/connection'
-import type { CompanyInfo } from '@shared/domain'
+import type { GstScope } from './registrations'
 import { closeChecklist, type CloseChecklist } from '@shared/ai/closeCheck'
 import { formatPaise } from '@shared/money'
 import { daysBetween } from '@shared/dates'
@@ -29,7 +29,7 @@ import { gstValidate } from './gst'
 export function monthEndChecklist(
   db: DB,
   slug: string,
-  info: CompanyInfo,
+  info: GstScope,
   from: string,
   to: string,
   today: string

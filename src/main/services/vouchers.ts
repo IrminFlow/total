@@ -13,6 +13,7 @@ import { getFeatures } from './config'
 import { writeAudit } from './audit'
 import { applyApprovalGate } from './approvals'
 import type { Role } from './roles'
+import { primaryRegistrationId } from './registrationId'
 
 interface VoucherRow {
   id: number; voucher_type_id: number; date: string; number: string
@@ -20,6 +21,7 @@ interface VoucherRow {
   instrument_no: string | null; instrument_date: string | null
   transporter_id: string | null; vehicle_no: string | null; transport_distance: number | null
   pos_override: string | null
+  gst_registration_id: number | null
   currency_code: string | null; exchange_rate: number | null
   irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null
   ewb_no: string | null; ewb_valid_upto: string | null
@@ -138,6 +140,7 @@ export function getVoucher(db: DB, id: number): Voucher | null {
     vehicleNo: v.vehicle_no,
     transportDistanceKm: v.transport_distance,
     posOverride: v.pos_override,
+    gstRegistrationId: v.gst_registration_id,
     currencyCode: v.currency_code,
     exchangeRate: v.exchange_rate,
     irn: v.irn,
@@ -346,6 +349,18 @@ export interface SaveVoucherActor {
   hasUsers: boolean
 }
 
+/** The registration a voucher defaults to: the one its godown sits under, else the primary. */
+function defaultRegistrationId(db: DB, input: VoucherInputParsed): number | null {
+  const godownId = input.inventory.find((l) => l.godownId != null)?.godownId ?? null
+  if (godownId != null) {
+    const g = db.prepare('SELECT gst_registration_id AS id FROM godowns WHERE id = ?').get(godownId) as
+      | { id: number | null }
+      | undefined
+    if (g?.id != null) return g.id
+  }
+  return primaryRegistrationId(db)
+}
+
 export function saveVoucher(
   db: DB,
   raw: VoucherInput,
@@ -382,6 +397,13 @@ export function saveVoucher(
   const postDated = input.postDated ?? before?.postDated ?? false
   const isOptional = input.isOptional ?? before?.isOptional ?? false
 
+  // Which registration made this supply (roadmap #108). Decided HERE and stored, never inferred
+  // when a return is built: a voucher whose registration is re-derived at report time is a
+  // voucher whose tax moves under it the day a second registration is added. An edit that says
+  // nothing keeps what the voucher already had.
+  const gstRegistrationId =
+    input.gstRegistrationId ?? before?.gstRegistrationId ?? defaultRegistrationId(db, input)
+
   const run = db.transaction((): number => {
     let voucherId: number
     if (existingId) {
@@ -389,11 +411,12 @@ export function saveVoucher(
         `UPDATE vouchers SET voucher_type_id = ?, date = ?, number = ?, party_ledger_id = ?,
          narration = ?, reference = ?, instrument_no = ?, instrument_date = ?,
          transporter_id = ?, vehicle_no = ?, transport_distance = ?, pos_override = ?,
-         currency_code = ?, exchange_rate = ?, post_dated = ?, is_optional = ?,
+         gst_registration_id = ?, currency_code = ?, exchange_rate = ?, post_dated = ?, is_optional = ?,
          updated_at = datetime('now') WHERE id = ?`
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
-        input.posOverride, input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0, existingId)
+        input.posOverride, gstRegistrationId, input.currencyCode, input.exchangeRate,
+        postDated ? 1 : 0, isOptional ? 1 : 0, existingId)
       db.prepare('DELETE FROM voucher_lines WHERE voucher_id = ?').run(existingId)
       db.prepare('DELETE FROM inventory_lines WHERE voucher_id = ?').run(existingId)
       voucherId = existingId
@@ -401,11 +424,12 @@ export function saveVoucher(
       const res = db.prepare(
         `INSERT INTO vouchers (voucher_type_id, date, number, party_ledger_id, narration, reference,
           instrument_no, instrument_date, transporter_id, vehicle_no, transport_distance, pos_override,
-          currency_code, exchange_rate, post_dated, is_optional)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          gst_registration_id, currency_code, exchange_rate, post_dated, is_optional)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(vt.id, input.date, number, input.partyLedgerId, input.narration, input.reference,
         input.instrumentNo, input.instrumentDate, input.transporterId, input.vehicleNo, input.transportDistanceKm,
-        input.posOverride, input.currencyCode, input.exchangeRate, postDated ? 1 : 0, isOptional ? 1 : 0)
+        input.posOverride, gstRegistrationId, input.currencyCode, input.exchangeRate,
+        postDated ? 1 : 0, isOptional ? 1 : 0)
       voucherId = Number(res.lastInsertRowid)
     }
 

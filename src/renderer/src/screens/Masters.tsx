@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Godown, Ledger, StockGroup, StockItem, VoucherType } from '@shared/domain'
 import type { GroupTreeNode } from '@shared/reports'
 import { api } from '../lib/client'
+import { useGstRegistrations } from '../components/GstinPicker'
+import { registrationLabel } from '@shared/gst/registrations'
 import { useNav, useToasts, type Screen } from '../state/stores'
 import { AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useKeyNav } from '../components/ui'
 import { TabBar } from '../components/TabBar'
@@ -1406,11 +1408,17 @@ function GodownFormModal({ godown, onClose }: { godown: Godown | null; onClose: 
   const queryClient = useQueryClient()
   const [name, setName] = useState(godown?.name ?? '')
   const [address, setAddress] = useState(godown?.address ?? '')
+  // Which GST registration this location sits under (roadmap #108) — what a supply from it
+  // defaults to, and what makes a transfer out of it a supply between two registrations.
+  const registrations = useGstRegistrations()
+  const [gstRegistrationId, setGstRegistrationId] = useState<number | null>(
+    godown?.gstRegistrationId ?? null
+  )
 
   const save = async (): Promise<void> => {
     try {
       if (!name.trim()) return void toast.push('error', 'Name the godown')
-      const data = { name: name.trim(), address: address.trim() || null }
+      const data = { name: name.trim(), address: address.trim() || null, gstRegistrationId }
       if (godown) await api.godowns.update(godown.id, data)
       else await api.godowns.create(data)
       await queryClient.invalidateQueries({ queryKey: ['godowns'] })
@@ -1449,6 +1457,25 @@ function GodownFormModal({ godown, onClose }: { godown: Godown | null; onClose: 
         <Field label="Address">
           <TextInput value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Optional" />
         </Field>
+        {registrations.length > 1 && (
+          <Field
+            label="GST registration"
+            hint="Moving stock to a godown under another registration is a taxable supply"
+          >
+            <Select
+              data-testid="select-godown-registration"
+              value={String(gstRegistrationId ?? '')}
+              onChange={(e) => setGstRegistrationId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">Not set</option>
+              {registrations.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {registrationLabel(r)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <div className="flex justify-between">
           <div>
             {godown && (

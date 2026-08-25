@@ -663,6 +663,7 @@ export function AccountingEntry({
       transportDistanceKm: existing?.transportDistanceKm ?? null,
       // Preserve an existing override on alteration; the edit UI itself is Wave-3 (S4).
       posOverride: existing?.posOverride ?? null,
+      gstRegistrationId: existing?.gstRegistrationId ?? null,
       currencyCode: existing?.currencyCode ?? null,
       exchangeRate: existing?.exchangeRate ?? null,
       isOptional: optionalVoucher,

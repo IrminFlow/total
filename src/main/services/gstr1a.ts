@@ -12,7 +12,8 @@
  */
 
 import type { DB } from '../db/connection'
-import type { CompanyInfo } from '@shared/domain'
+import type { GstScope } from './registrations'
+import { primaryRegistrationId } from './registrationId'
 import type { GstDoc } from '@shared/gst/returns'
 import { amendmentWindow, diffGstr1, type AmendmentWindow, type Gstr1aResult } from '@shared/gst/gstr1a'
 import { extractOutwardDocs } from './gst'
@@ -26,16 +27,18 @@ import { writeAudit } from './audit'
  * two facts belong together: a snapshot without a filing date is a copy of nothing in particular.
  * Overwriting an existing snapshot is allowed and is what a REVISED filing record does.
  */
-export function snapshotGstr1(db: DB, company: CompanyInfo, period: string): { period: string; docs: number } {
-  const row = db.prepare("SELECT id FROM gst_filings WHERE form = 'GSTR-1' AND period = ?").get(period) as
-    | { id: number }
-    | undefined
+export function snapshotGstr1(db: DB, company: GstScope, period: string): { period: string; docs: number } {
+  const registrationId = company.registrationId ?? primaryRegistrationId(db)
+  const row = db
+    .prepare("SELECT id FROM gst_filings WHERE form = 'GSTR-1' AND period = ? AND registration_id IS ?")
+    .get(period, registrationId) as { id: number } | undefined
   if (!row) {
     throw new Error(`No GSTR-1 filing recorded for ${period}. Record the filing first — the snapshot is a copy of what was filed.`)
   }
   const { from, to } = filingPeriodBounds(period)
   const docs = extractOutwardDocs(db, company, from, to)
-  db.prepare("UPDATE gst_filings SET docs_json = ? WHERE form = 'GSTR-1' AND period = ?").run(JSON.stringify(docs), period)
+  db.prepare("UPDATE gst_filings SET docs_json = ? WHERE form = 'GSTR-1' AND period = ? AND registration_id IS ?")
+    .run(JSON.stringify(docs), period, registrationId)
   writeAudit(db, 'gst_filing', row.id, 'update', null, { snapshot: { period, docs: docs.length } })
   return { period, docs: docs.length }
 }
@@ -62,11 +65,15 @@ export interface Gstr1aState {
  * user: no filing recorded (record it), filed but never snapshotted (nothing can be said, and
  * saying "clean" would be a lie), and snapshotted (here is the difference).
  */
-export function gstr1aFor(db: DB, company: CompanyInfo, period: string): Gstr1aState {
+export function gstr1aFor(db: DB, company: GstScope, period: string): Gstr1aState {
   const { from, to } = filingPeriodBounds(period)
+  const registrationId = company.registrationId ?? primaryRegistrationId(db)
   const filings = db
-    .prepare("SELECT form, filed_at AS filedAt, docs_json AS docsJson FROM gst_filings WHERE period = ? AND form IN ('GSTR-1','GSTR-3B')")
-    .all(period) as { form: string; filedAt: string | null; docsJson: string | null }[]
+    .prepare(
+      `SELECT form, filed_at AS filedAt, docs_json AS docsJson FROM gst_filings
+       WHERE period = ? AND form IN ('GSTR-1','GSTR-3B') AND registration_id IS ?`
+    )
+    .all(period, registrationId) as { form: string; filedAt: string | null; docsJson: string | null }[]
 
   const g1 = filings.find((f) => f.form === 'GSTR-1') ?? null
   const g3b = filings.find((f) => f.form === 'GSTR-3B') ?? null

@@ -6,6 +6,7 @@ import type { GroupTreeNode, LedgerBalanceRow } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { todayISO } from '@shared/dates'
 import { writeAudit } from './audit'
+import { primaryRegistrationId } from './registrationId'
 import { rateForItemOn } from './itemRates'
 
 // ---------- row mappers ----------
@@ -418,29 +419,45 @@ export function deleteStockItem(db: DB, id: number): void {
   writeAudit(db, 'stockItem', id, 'delete', mapItem(existing), null)
 }
 
+const GODOWN_COLS = 'id, name, address, gst_registration_id AS gstRegistrationId'
+
+/** A godown's registration defaults to whatever the previous row said, so that adding the column
+ *  never silently moved an existing location into a different state's books. */
+function getGodown(db: DB, id: number): Godown | undefined {
+  return db.prepare(`SELECT ${GODOWN_COLS} FROM godowns WHERE id = ?`).get(id) as Godown | undefined
+}
+
 export function listGodowns(db: DB): Godown[] {
-  return db.prepare('SELECT * FROM godowns ORDER BY name').all() as Godown[]
+  return db.prepare(`SELECT ${GODOWN_COLS} FROM godowns ORDER BY name`).all() as Godown[]
 }
 
 export function createGodown(db: DB, input: GodownInput): Godown {
-  const res = db.prepare('INSERT INTO godowns (name, address) VALUES (?, ?)').run(input.name, input.address ?? null)
-  const created = db.prepare('SELECT * FROM godowns WHERE id = ?').get(res.lastInsertRowid) as Godown
+  const regId = input.gstRegistrationId ?? primaryRegistrationId(db)
+  const res = db
+    .prepare('INSERT INTO godowns (name, address, gst_registration_id) VALUES (?, ?, ?)')
+    .run(input.name, input.address ?? null, regId)
+  const created = getGodown(db, Number(res.lastInsertRowid))!
   writeAudit(db, 'godown', created.id, 'create', null, created)
   return created
 }
 
 export function updateGodown(db: DB, id: number, input: GodownInput): Godown {
-  const existing = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown | undefined
+  const existing = getGodown(db, id)
   if (!existing) throw new Error('Godown not found')
-  db.prepare('UPDATE godowns SET name = ?, address = ? WHERE id = ?')
-    .run(input.name, input.address === undefined ? existing.address : input.address, id)
-  const updated = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown
+  db.prepare('UPDATE godowns SET name = ?, address = ?, gst_registration_id = ? WHERE id = ?')
+    .run(
+      input.name,
+      input.address === undefined ? existing.address : input.address,
+      input.gstRegistrationId === undefined ? existing.gstRegistrationId : input.gstRegistrationId,
+      id
+    )
+  const updated = getGodown(db, id)!
   writeAudit(db, 'godown', id, 'update', existing, updated)
   return updated
 }
 
 export function deleteGodown(db: DB, id: number): void {
-  const existing = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown | undefined
+  const existing = getGodown(db, id)
   if (!existing) throw new Error('Godown not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM inventory_lines WHERE godown_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Godown has stock movements; delete those first')

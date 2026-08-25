@@ -375,12 +375,49 @@ Ordering within a section is roughly by value.
      session crypto) and has never been run against the portal, because there are no sandbox
      credentials to run it with. Nothing in this pass changed that. It stays experimental, and the
      first person with a sandbox login should treat every response shape in it as a guess.
-108. Multi-GSTIN companies: one book, several registrations (L) — still open, and deliberately
-     not attempted in this pass. It is not a feature so much as a change to what a "company"
-     is: every query, every return, every export and the whole numbering scheme assume one
-     registration. Today the honest answer is one company per GSTIN with the Consolidated screen
-     over the top, which is what the law asks for anyway — each registration files its own
-     returns.
+108. Multi-GSTIN companies: one book, several registrations (L) — **built, except the
+     branch-transfer invoice, and therefore not ticked.** `gst_registrations` holds one
+     row per registration (GSTIN, state, trade name, address, registered/surrendered dates, one
+     primary), and the company's single GSTIN migrates in as the first row. Every voucher carries
+     `gst_registration_id`, **stamped at save rather than inferred at report time** — a voucher
+     whose registration is re-derived when a return is built is a voucher whose tax moves under it
+     the day a second registration is added; migration 47 stamps every voucher that already
+     existed, for the same reason. Place of supply is decided by the SUPPLYING registration's
+     state, which is the correctness core: billing a Gujarat customer from the Gujarat
+     registration is CGST+SGST, and computing it against a company-level Maharashtra state — what
+     every single-GSTIN book does — makes it IGST. GSTR-1, GSTR-3B, GSTR-9, CMP-08/GSTR-4, the
+     GSTR-2B reconciliation, the document series (Table 13), the GSTR-1 filed snapshot, the
+     amendment tables, the filing register and the e-invoice/e-way payloads all take a
+     registration and cover only its supplies; `gst_filings` and `gstr1_filed_documents` were
+     rebuilt with the registration in their unique keys, because two registrations file two
+     GSTR-3Bs for one month with two ARNs. A GSTIN picker sits on GSTR-1, GSTR-3B, GSTR-2B and the
+     filing register, and **renders nothing at all below two registrations** — a single-GSTIN
+     company gets an empty SQL scope fragment, so it runs byte-identical queries and is never
+     asked a question it has no answer to. The books stay whole: the trial balance, P&L and
+     balance sheet do not split by registration and were not touched. The primary registration
+     mirrors `meta.company`'s gstin/stateCode in both directions, so every screen that reads
+     `company.gstin` still works. Aggregate turnover (GSTR-1's GT) is deliberately PAN-level and
+     stays unscoped. Printed invoices (A4, thermal, ESC/P) carry the ISSUING registration's GSTIN,
+     because rule 46(b) asks for the supplier's and a defective invoice is the buyer's credit
+     denied. **Still computed against the primary registration only:** the reverse-charge
+     self-invoice register (#356) and counter sales — both read the company's own state rather
+     than the supplying one, which is exact for every single-GSTIN book and approximate for a
+     second registration's RCM purchases or counter till.
+
+     **Not built, and marked rather than half-built: the branch-transfer invoice.** Under Schedule
+     I para 2 a supply between two registrations of the same person is a taxable supply even
+     without consideration — the sender raises a tax invoice valued under rule 28, reports it in
+     its GSTR-1, and the receiver claims the credit. Doing that properly means rule 28 valuation
+     (open market value, or the 90% option where the recipient resells), a self-party ledger per
+     registration, and output tax in one registration's return against input tax in another's,
+     all inside ONE set of books whose trial balance must not move. This release does not raise
+     that invoice. What it does instead is refuse to let the movement look innocent:
+     `crossRegistrationTransfers` finds every godown-to-godown transfer that crossed a
+     registration boundary and reports it — on `gst:validate`, which is what the GSTR-1 screen
+     calls before an export — naming both GSTINs and the book value moved. Anyone with two
+     registrations and stock moving between them must still raise that invoice by hand. That gap
+     is why this item carries no ✓: everything else it asks for is in, and the one thing that is
+     not is the thing multi-GSTIN software most often gets quietly wrong.
 109. ✓ TDS lower-deduction certificate handling (M) — a section 197 certificate names a section,
      a rate, a validity window and, the part everyone gets wrong, a **ceiling**. Once cumulative
      payments pass it the normal rate resumes on the excess *within the same payment*, so a
@@ -1171,11 +1208,14 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      turnover band must report an invoice to the IRP within 30 days of its date, after which the
      portal simply refuses it. `turnover.ts` already knows the band; nothing counts the days.
      — `src/shared/gst/eInvoiceWindow.ts`, with the countdown on the Disclosure screen.
-355. ✗ Input Service Distributor for multi-GSTIN businesses (L) — declined here, as the item
-     itself says: ISD distributes common input credit from one registration to the others on the
-     same PAN, and a company with one GSTIN has nothing to distribute to. Multi-GSTIN (#108) is
-     not built, so an ISD screen would be a form with no second registration to name, an ISD
-     invoice with no recipient, and a GSTR-6 nobody could file. Build it with #108.
+355. Input Service Distributor for multi-GSTIN businesses (L) — still open, but no longer blocked.
+     The reason it was declined was that #108 did not exist: ISD distributes common input credit
+     from one registration to the others on the same PAN, and a company with one GSTIN has nothing
+     to distribute to. #108 now exists, so an ISD screen has second registrations to name, an ISD
+     invoice has a recipient, and a GSTR-6 has a set of GSTINs to apportion across. The
+     apportionment rule (section 20 read with rule 39 — pro rata on the previous period's turnover
+     of the recipients, eligible and ineligible credit split, and the reversal path when a
+     recipient's turnover is nil) is the work, and none of it is built.
 356. ✓ The reverse-charge self-invoice (M) — the document section 31(3)(f) makes the recipient
      raise, issued from its own Rule 46(b) serial series, with the Rule 46 particulars the books
      cannot supply named on the face rather than invented. Built over exactly the supplies

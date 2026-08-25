@@ -19,6 +19,7 @@ import { renderInvoiceEscp, type EscpInvoice, type EscpOptions } from '@shared/e
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { extractEdocInvoices } from './edocs'
+import { gstScopeForVoucher } from './registrations'
 import { amountInWords, formatPaise, plainMilli } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 
@@ -107,7 +108,10 @@ export function invoiceEscp(
   voucherId: number,
   opts: EscpOptions = {}
 ): { bytes: Uint8Array; number: string } {
-  const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
+  // Rule 46(b) again: the dot-matrix copy carries the issuing registration's GSTIN, same as the
+  // A4 print (roadmap #108). On a single-GSTIN book this is the company's own.
+  const seller = gstScopeForVoucher(db, company, voucherId)
+  const [inv] = extractEdocInvoices(db, seller, '0000-01-01', '9999-12-31', voucherId)
   if (!inv) throw new Error('Invoice not found (only sales vouchers can be printed)')
 
   const totals: { label: string; value: string }[] = [{ label: 'Taxable', value: formatPaise(inv.taxable) }]
@@ -120,7 +124,7 @@ export function invoiceEscp(
   const doc: EscpInvoice = {
     companyName: company.name,
     companyAddress: (company.address ?? '').split('\n').filter(Boolean),
-    gstin: company.gstin,
+    gstin: seller.gstin,
     title: inv.isOptional ? 'PROFORMA INVOICE' : 'TAX INVOICE',
     number: inv.number,
     date: toDisplayDate(inv.date),
