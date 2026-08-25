@@ -1,0 +1,40 @@
+# AI operations and release policy
+
+Total’s accounting engine does not depend on AI. AI may extract, classify, search, explain and
+prepare proposals; it cannot post vouchers, change report calculations or bypass approval.
+
+## Provider setup
+
+- OpenAI: enter a project API key in Settings → AI. The key is encrypted with the operating
+  system credential facility and is never written to the JSON mirror.
+- OpenAI-compatible cloud: use an HTTPS base URL and a provider-specific key.
+- Local model: use a loopback endpoint such as `http://127.0.0.1:11434/v1` or
+  `http://localhost:1234/v1`. Total deliberately rejects clear-text non-loopback endpoints.
+- Route OCR, classification, analysis and writing separately. A small local model may be suitable
+  for classification while a stronger reviewed provider handles variance narratives.
+
+Before sharing context, the app shows the exact categories selected. No-context questions must
+return no book citations. Contextual claims must cite only resources present in that request.
+
+## Release evaluation
+
+The fixed evaluation harness scores three dimensions independently:
+
+1. extraction equals the reviewed expected structured document in integer paise;
+2. every citation belongs to the explicitly shared context (and no citation appears without it);
+3. voucher proposals pass the IPC schema and are exactly balanced in double-entry terms.
+
+Release thresholds are at least 95% extraction accuracy, 100% citation validity and 100% balanced
+draft validity on the reviewed corpus. A provider/model change requires a new recorded run. Never
+lower a threshold to make a release pass; inspect the failed fixtures, prompt, parser or model.
+
+## Production review
+
+- Treat low-confidence extraction, ambiguous dates, missing GSTINs and arithmetic mismatches as a
+  manual-review queue, not an automatic fallback.
+- Test English plus the invoice languages actually used by the acceptance cohort.
+- Use synthetic or consented redacted documents in evaluation evidence.
+- Record provider, endpoint class (cloud or loopback), model, prompt version, fixture-set version,
+  scores and reviewer. Do not record API keys or unredacted customer documents.
+- Roll back a model route independently if extraction or evidence quality regresses; core books and
+  reports remain available while AI is disabled.

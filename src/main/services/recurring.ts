@@ -5,6 +5,9 @@ import { voucherInputSchema, type RecurringInput, type VoucherInputParsed } from
 import { nextDueAfter, dueTemplates } from '@shared/recurring'
 import { writeAudit } from './audit'
 import { saveVoucher } from './vouchers'
+import type { Role } from './roles'
+import * as departmentScope from './departmentScope'
+import { assertVoucherDiscountAuthority, postVoucherWithApprovalControl, type ControlledVoucherPostResult, type VoucherPostingActor } from './voucherPostingControls'
 
 const SELECT_WITH_KIND = `
   SELECT rt.*, vt.kind AS voucher_kind
@@ -37,7 +40,7 @@ const mapRow = (r: RecurringRow): RecurringTemplate => ({
   nextDue: r.next_due,
   lastPosted: r.last_posted,
   active: !!r.active,
-  voucherKind: r.voucher_kind
+  voucherKind: r.voucher_kind,
 })
 
 /** Always joined with voucher_types so callers (and mapRow) consistently see voucher_kind,
@@ -74,15 +77,50 @@ function parseTemplateVoucher(name: string, voucherJson: string): VoucherInputPa
  *  works for an auto-numbered voucher type. Checked both at save time (reject early) and at post
  *  time (guards a template saved before this check existed, or a type edited to 'manual' since). */
 function assertAutoNumbered(db: DB, voucherTypeId: number): void {
-  const vt = db.prepare('SELECT numbering FROM voucher_types WHERE id = ?').get(voucherTypeId) as
-    | { numbering: 'auto' | 'manual' }
-    | undefined
+  const vt = db.prepare('SELECT numbering FROM voucher_types WHERE id = ?').get(voucherTypeId) as { numbering: 'auto' | 'manual' } | undefined
   if (!vt) throw new Error('Voucher type not found')
   if (vt.numbering === 'manual') throw new Error('Recurring templates need an auto-numbered voucher type')
 }
 
 export function listTemplates(db: DB): RecurringTemplate[] {
   return (db.prepare(`${SELECT_WITH_KIND} ORDER BY rt.next_due, rt.name`).all() as RecurringRow[]).map(mapRow)
+}
+
+function templateVoucher(row: Pick<RecurringRow, 'name' | 'voucher_json'>): VoucherInputParsed {
+  return parseTemplateVoucher(row.name, row.voucher_json)
+}
+
+function assertTemplateInScope(db: DB, id: number, role: Role): RecurringRow {
+  const row = getRow(db, id)
+  if (!row) throw new Error('Recurring template not found')
+  departmentScope.assertVoucherInputDepartmentScope(db, role, templateVoucher(row))
+  return row
+}
+
+function assertNoPendingApproval(db: DB, id: number): void {
+  const pendingApproval = db
+    .prepare(
+      `SELECT 1
+       FROM recurring_approval_links link
+       JOIN approval_requests request ON request.id = link.approval_request_id
+       WHERE link.recurring_template_id = ? AND request.status = 'pending'`,
+    )
+    .get(id)
+  if (pendingApproval) throw new Error('This recurring template has an approval pending')
+}
+
+/** Never return an opaque saved voucher payload before its dimensions have been authorized. */
+export function listTemplatesInScope(db: DB, role: Role): RecurringTemplate[] {
+  if (role === 'owner' || !departmentScope.hasDepartmentScope(db, role)) return listTemplates(db)
+  return (db.prepare(`${SELECT_WITH_KIND} ORDER BY rt.next_due, rt.name`).all() as RecurringRow[])
+    .filter((row) => {
+      try {
+        return departmentScope.voucherInputInDepartmentScope(db, role, templateVoucher(row))
+      } catch {
+        return false
+      }
+    })
+    .map(mapRow)
 }
 
 export function saveTemplate(db: DB, input: RecurringInput, id?: number): RecurringTemplate {
@@ -96,12 +134,13 @@ export function saveTemplate(db: DB, input: RecurringInput, id?: number): Recurr
   const active = input.active ? 1 : 0
 
   if (id) {
+    assertNoPendingApproval(db, id)
     const existing = getRow(db, id)
     if (!existing) throw new Error('Recurring template not found')
     db.prepare(
       `UPDATE recurring_templates
        SET name = ?, voucher_json = ?, cadence = ?, day_of_month = ?, weekday = ?, next_due = ?, voucher_type_id = ?, active = ?
-       WHERE id = ?`
+       WHERE id = ?`,
     ).run(input.name, voucherJson, input.cadence, dayOfMonth, weekday, input.nextDue, parsed.voucherTypeId, active, id)
     const updated = mapRow(getRow(db, id)!)
     writeAudit(db, 'recurring_template', id, 'update', mapRow(existing), updated)
@@ -111,7 +150,7 @@ export function saveTemplate(db: DB, input: RecurringInput, id?: number): Recurr
   const res = db
     .prepare(
       `INSERT INTO recurring_templates (name, voucher_json, cadence, day_of_month, weekday, next_due, voucher_type_id, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(input.name, voucherJson, input.cadence, dayOfMonth, weekday, input.nextDue, parsed.voucherTypeId, active)
   const created = mapRow(getRow(db, Number(res.lastInsertRowid))!)
@@ -119,11 +158,26 @@ export function saveTemplate(db: DB, input: RecurringInput, id?: number): Recurr
   return created
 }
 
+export function saveTemplateInScope(db: DB, input: RecurringInput, id: number | undefined, role: Role): RecurringTemplate {
+  const parsed = parseTemplateVoucher(input.name, input.voucherJson)
+  departmentScope.assertVoucherInputDepartmentScope(db, role, parsed)
+  if (id) {
+    assertTemplateInScope(db, id, role)
+  }
+  return saveTemplate(db, input, id)
+}
+
 export function deleteTemplate(db: DB, id: number): void {
   const existing = getRow(db, id)
   if (!existing) throw new Error('Recurring template not found')
+  assertNoPendingApproval(db, id)
   db.prepare('DELETE FROM recurring_templates WHERE id = ?').run(id)
   writeAudit(db, 'recurring_template', id, 'delete', mapRow(existing), null)
+}
+
+export function deleteTemplateInScope(db: DB, id: number, role: Role): void {
+  assertTemplateInScope(db, id, role)
+  deleteTemplate(db, id)
 }
 
 /** Active templates whose next_due has arrived, earliest first. */
@@ -131,10 +185,17 @@ export function due(db: DB, todayISO: string): RecurringTemplate[] {
   return dueTemplates(listTemplates(db), todayISO)
 }
 
-function cadenceOpts(row: RecurringRow): { dayOfMonth?: number; weekday?: number } {
+export function dueInScope(db: DB, todayISO: string, role: Role): RecurringTemplate[] {
+  return dueTemplates(listTemplatesInScope(db, role), todayISO)
+}
+
+function cadenceOpts(row: RecurringRow): {
+  dayOfMonth?: number
+  weekday?: number
+} {
   return {
     dayOfMonth: row.day_of_month ?? undefined,
-    weekday: row.weekday ?? undefined
+    weekday: row.weekday ?? undefined,
   }
 }
 
@@ -154,7 +215,11 @@ export function postFromTemplate(db: DB, id: number, dateISO: string): Voucher {
   const nextDue = nextDueAfter(row.cadence, cadenceOpts(row), row.next_due)
 
   const run = db.transaction((): Voucher => {
-    const input: VoucherInputParsed = { ...parsed, date: dateISO, number: undefined }
+    const input: VoucherInputParsed = {
+      ...parsed,
+      date: dateISO,
+      number: undefined,
+    }
     const saved = saveVoucher(db, input)
     db.prepare('UPDATE recurring_templates SET last_posted = ?, next_due = ? WHERE id = ?').run(dateISO, nextDue, id)
     return saved
@@ -162,11 +227,46 @@ export function postFromTemplate(db: DB, id: number, dateISO: string): Voucher {
   return run()
 }
 
+/** The IPC posting path: scope, discount authority and maker-checker are all enforced before the
+ * schedule advances. An approval request is the durable occurrence when approval is required. */
+export function postFromTemplateControlled(db: DB, id: number, dateISO: string, actor: VoucherPostingActor | null): ControlledVoucherPostResult {
+  const row = assertTemplateInScope(db, id, actor?.role ?? 'owner')
+  const parsed = templateVoucher(row)
+  assertAutoNumbered(db, parsed.voucherTypeId)
+  const input: VoucherInputParsed = {
+    ...parsed,
+    date: dateISO,
+    number: undefined,
+  }
+  assertVoucherDiscountAuthority(db, input, actor)
+  const nextDue = nextDueAfter(row.cadence, cadenceOpts(row), row.next_due)
+  return db.transaction(() => {
+    assertNoPendingApproval(db, id)
+    const result = postVoucherWithApprovalControl(db, input, actor)
+    if (result.approvalRequired) {
+      db.prepare(
+        `INSERT INTO recurring_approval_links
+          (approval_request_id, recurring_template_id, occurrence_date, next_due)
+         VALUES (?, ?, ?, ?)`,
+      ).run(result.request.id, id, row.next_due, nextDue)
+    } else {
+      db.prepare(`UPDATE recurring_templates SET last_posted = ?, next_due = ? WHERE id = ?`).run(dateISO, nextDue, id)
+    }
+    return result
+  })()
+}
+
 /** Advances next_due one cadence step without posting anything. */
 export function skip(db: DB, id: number): RecurringTemplate {
   const row = getRow(db, id)
   if (!row) throw new Error('Recurring template not found')
+  assertNoPendingApproval(db, id)
   const nextDue = nextDueAfter(row.cadence, cadenceOpts(row), row.next_due)
   db.prepare('UPDATE recurring_templates SET next_due = ? WHERE id = ?').run(nextDue, id)
   return mapRow(getRow(db, id)!)
+}
+
+export function skipInScope(db: DB, id: number, role: Role): RecurringTemplate {
+  assertTemplateInScope(db, id, role)
+  return skip(db, id)
 }

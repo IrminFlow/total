@@ -1,0 +1,73 @@
+name: Unsigned package validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "electron.vite.config.ts"
+      - "build/**"
+      - "src/main/**"
+      - "src/preload/**"
+      - "src/renderer/**"
+      - "scripts/package-contract.mjs"
+      - "scripts/lib/package-contract.mjs"
+      - "scripts/install-smoke.mjs"
+      - ".github/workflows/package-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+            build: npx electron-builder --mac --arm64 --publish never --config.forceCodeSigning=false --config.mac.notarize=false
+          - os: windows-latest
+            platform: win
+            build: npx electron-builder --win --publish never --config.forceCodeSigning=false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build unsigned installer and unpacked application
+        run: ${{ matrix.build }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Verify package contents, permissions, icon and updater metadata
+        run: npm run release:package-contract -- ${{ matrix.platform }}
+        env:
+          PACKAGE_CONTRACT_EVIDENCE: dist/package-contract-${{ matrix.platform }}.json
+
+      - name: Fresh install, posting, backup, restore and data-preserving uninstall
+        run: npm run release:install-smoke -- ${{ matrix.platform }}
+        env:
+          INSTALL_EVIDENCE: dist/install-evidence-${{ matrix.platform }}.json
+
+      - name: Upload unsigned package evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsigned-package-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            dist/package-contract-${{ matrix.platform }}.json
+            dist/install-evidence-${{ matrix.platform }}.json

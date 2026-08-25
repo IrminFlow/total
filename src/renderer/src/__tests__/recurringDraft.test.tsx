@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RecurringTemplate } from '@shared/domain'
 import { todayISO } from '@shared/dates'
-import { draftFromTemplate, templateOpenTarget } from '../screens/Recurring'
+import { draftFromTemplate, templateOpenTarget } from '../screens/recurringDraft'
 
 function template(overrides: Partial<RecurringTemplate>): RecurringTemplate {
   return {

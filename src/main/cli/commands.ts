@@ -7,9 +7,9 @@
  */
 import { existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { openCompanyDb, type DB } from '../db/connection'
+import { openCompanyDb, openExistingCompanyDb, type DB } from '../db/connection'
 import { seedCompany } from '../db/seed'
-import { readRegistry, upsertCompany, type Registry } from '../registry'
+import { readRegistry, requireRegisteredCompany, upsertCompany, type Registry } from '../registry'
 import { companyDbPath, dataRoot, ensureCompanyTree, slugify } from '../paths'
 import { companyCreateSchema, voucherInputSchema } from '@shared/schemas'
 import type { CompanyInfo, Voucher } from '@shared/domain'
@@ -26,10 +26,12 @@ export function cmdCompanies(): Registry {
 
 /** Open an existing company DB the same way the app does (migrations, WAL, busy_timeout). */
 export function openCompany(slug: string): DB {
-  if (!existsSync(companyDbPath(slug))) {
+  try {
+    requireRegisteredCompany(slug)
+  } catch {
     throw new Error(`Company '${slug}' not found — run 'companies' to list slugs`)
   }
-  return openCompanyDb(slug)
+  return openExistingCompanyDb(slug)
 }
 
 export interface CreateCompanyOpts {

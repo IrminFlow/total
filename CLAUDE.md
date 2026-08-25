@@ -63,12 +63,30 @@ cd site && npm run dev / npm run build   # marketing site
 
 ## Release steps (auto-update pipeline)
 
-```bash
-npm version patch      # bumps version, commits, tags vX.Y.Z
-git push --follow-tags # → GitHub Actions: tests, DMG+ZIP build, publishes the release
-```
+For the prepared version already recorded in `package.json`, merge the reviewed release commit to
+`main`, then dispatch **Release candidate** with that full commit SHA and version. Its macOS and
+Windows jobs use the reviewer-protected `release-signing` environment and produce one private,
+content-addressed candidate artifact; they do not create a tag or release. Confirm its hosted-runner
+installation evidence, then run migration and human acceptance against those exact installer digests
+and merge only the sanitized evidence JSON under `docs/evidence/`.
 
-- `.github/workflows/release.yml` runs on `v*` tags (macOS runner, `GITHUB_TOKEN` automatic). `releaseType: "release"` in package.json `build.publish` — releases publish directly, **never leave them as drafts** (drafts are invisible to the `releases/latest` API that feeds updates and the site).
+Dispatch **Promote release candidate** with the candidate run ID, run attempt, artifact ID, manifest
+SHA-256, source revision and version. The workflow rejects non-evidence changes since the candidate,
+revalidates every byte and acceptance record, and then creates the tag and one non-draft release from
+the already signed artifacts. Fresh GitHub-hosted macOS and Windows candidate jobs are the mandatory
+clean-environment matrix: their immutable evidence covers install, public-v0.4 upgrade, posting,
+backup/restore, uninstall and preservation of company data. Physical Apple Silicon, Intel and Windows
+testing is optional supplementary coverage and must not be claimed unless performed. Do not create
+or push the release tag manually.
+
+Use `npm version patch` only when intentionally preparing the next patch version; do not run it again for an already-versioned release candidate.
+
+- `.github/workflows/release-candidate.yml` builds signed candidates; `.github/workflows/release.yml`
+  promotes an accepted candidate without rebuilding it. `releaseType: "release"` in package.json
+  `build.publish` remains non-draft. Promotion creates a non-draft prerelease, uploads and re-downloads
+  every allowlisted asset, then changes it to the public latest release in one API update. A failed
+  publication uses bounded cleanup retries and removes only a release/tag whose identity and candidate
+  revision it can prove before confirming both are absent.
 - Installed apps check for updates on launch (`src/main/updater.ts`): electron-updater first; because builds are unsigned and the repo is private, the working path is the fallback — it asks the site's `/api/latest` and offers `/api/download`. Once an Apple Developer ID (`CSC_LINK`/`CSC_KEY_PASSWORD` secrets) exists **and** releases are public, silent in-place updates take over.
 - If the repo owner/name ever changes: update package.json `build.publish`, `GITHUB_REPO` + `SITE_LATEST_URL` in `src/main/updater.ts`, and Vercel's `GITHUB_REPO` env.
 
@@ -77,6 +95,12 @@ git push --follow-tags # → GitHub Actions: tests, DMG+ZIP build, publishes the
 - Import the repo, **Root Directory = `site`**, framework auto-detected (Next.js). Auto-deploys on push to `main`.
 - Required env while the repo is private: `GITHUB_TOKEN` — fine-grained PAT, read-only on this repo — lets the site show the latest version, serve `/api/download` (exchanges the private DMG asset for a short-lived URL; token never reaches the browser), and answer `/api/latest` for the app's update check.
 - Optional env: `NEXT_PUBLIC_SITE_URL` (custom domain, for OG cards), `GITHUB_REPO` (override).
+- Support intake: private Blob storage is the v0.5 system of record for tracking, retention and
+  deletion. `CONVEX_SUPPORT_URL` or `SUPPORT_WEBHOOK_URL` is an optional notification destination;
+  `INTAKE_ADMIN_SECRET`, `INTAKE_SECURITY_SECRET` and `CRON_SECRET` separately protect administration,
+  intake controls and scheduled retention. Optional notification providers use distinct
+  `SUPPORT_PROVIDER_SECRET`, `FEEDBACK_PROVIDER_SECRET` and `COHORT_PROVIDER_SECRET` values. Without
+  Blob, `/api/support` falls back to email.
 - Canonical site URL is `https://devjindal.tech`. `src/shared/product.ts` (`SITE_URL`, `GITHUB_REPO`) is the
   in-app source of truth — `src/main/updater.ts` imports it. The site under `site/` can't import
   `src/shared` (separate tsconfig, no path there) so it stays env-driven instead: `NEXT_PUBLIC_SITE_URL`

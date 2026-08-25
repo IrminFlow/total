@@ -22,6 +22,13 @@ describe('parseCsvLine', () => {
 })
 
 describe('parseCsv (full-text, v0.3 #67)', () => {
+  it('removes an Excel UTF-8 BOM from the first header', () => {
+    expect(parseCsv('\uFEFFName,Amount\r\nCash,100')).toEqual([
+      { line: 1, cells: ['Name', 'Amount'] },
+      { line: 2, cells: ['Cash', '100'] }
+    ])
+  })
+
   it('parses simple rows with 1-based line numbers, skipping blank lines', () => {
     expect(parseCsv('a,b\n\n1,2\r\n3,4\n')).toEqual([
       { line: 1, cells: ['a', 'b'] },

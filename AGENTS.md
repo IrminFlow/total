@@ -18,6 +18,6 @@ Fully offline accounting app for macOS (Electron + React + TS + better-sqlite3) 
 
 ## Ship
 
-- Release: `npm version patch && git push --follow-tags` → GitHub Actions builds and publishes DMG/ZIP; releases must publish directly (never drafts — the update feed reads `releases/latest`).
+- Release: tag the reviewed `main` commit with the version already in `package.json`, then `git push origin main --follow-tags`; GitHub Actions builds and publishes DMG/ZIP. Use `npm version patch` only when preparing a new patch version. Releases must publish directly (never drafts — the update feed reads `releases/latest`).
 - App updates: installed apps poll the site's `/api/latest` (private-repo path); electron-updater goes silent only once builds are signed and releases public.
 - Site: Vercel auto-deploys `site/` on push to `main`; needs `GITHUB_TOKEN` (read-only PAT) env while the repo is private.

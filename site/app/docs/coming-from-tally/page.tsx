@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Coming from Tally — Total Docs'
+  title: 'Coming from Tally - Docs'
 }
 
 export default function ComingFromTallyPage(): React.JSX.Element {
@@ -12,7 +12,7 @@ export default function ComingFromTallyPage(): React.JSX.Element {
 
       <h2>Keyboard map</h2>
       <p>
-        The function-key vocabulary carries over exactly — twenty years of muscle memory still works. A few keys are
+        The function-key vocabulary carries over exactly, so twenty years of muscle memory still works. A few keys are
         new.
       </p>
       <table>
@@ -87,7 +87,7 @@ export default function ComingFromTallyPage(): React.JSX.Element {
             <td>
               <kbd>⌘K</kbd>
             </td>
-            <td>Global search — jump to any ledger, voucher, or command by name (new in Total)</td>
+            <td>Global search: jump to any ledger, voucher, or command by name (new in Total)</td>
           </tr>
           <tr>
             <td>
@@ -110,7 +110,7 @@ export default function ComingFromTallyPage(): React.JSX.Element {
         <tbody>
           <tr>
             <td>Groups</td>
-            <td>Groups — same chart-of-accounts hierarchy</td>
+            <td>Groups use the same chart-of-accounts hierarchy</td>
           </tr>
           <tr>
             <td>Ledgers</td>
@@ -151,12 +151,12 @@ export default function ComingFromTallyPage(): React.JSX.Element {
         <li>Pick the exported file</li>
         <li>Review the preview counts (ledgers, groups, stock items, vouchers found)</li>
         <li>Apply the import</li>
-        <li>Compare the Trial Balance Total now shows against Tally&rsquo;s — it should match to the paise</li>
+        <li>Compare the Trial Balance Total now shows against Tally&rsquo;s. It should match to the paise.</li>
       </ol>
 
       <h2>Known limits</h2>
       <ul>
-        <li>Cost centres and bill references in the Tally XML are skipped on import — re-enter these in Total.</li>
+        <li>Cost centres and bill references in the Tally XML are skipped on import. Re-enter these in Total.</li>
         <li>Multi-currency amounts import as INR; re-tag foreign-currency vouchers after import if you need them.</li>
       </ul>
     </>

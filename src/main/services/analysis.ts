@@ -1,7 +1,7 @@
 import type { DB } from '../db/connection'
-import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@shared/reports'
+import type { OutstandingBill, OutstandingParty, RegisterGranularity, RegisterMonthRow, RegisterPeriodRow } from '@shared/reports'
 import { allocateBills, type BillEvent, type BillRef } from '@shared/outstanding'
-import { fyOf } from '@shared/dates'
+import { financialQuarterOf, fyOf } from '@shared/dates'
 import { descendantIdsByName } from './masters'
 import { IN_BOOKS } from './vouchers'
 
@@ -37,6 +37,54 @@ export function registerByMonth(db: DB, kind: 'sales' | 'purchase', from: string
   return [...months.values()]
     .map(({ seen: _seen, ...rest }) => rest)
     .sort((a, b) => a.month.localeCompare(b.month))
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function monthPeriod(month: string, queryFrom: string, queryTo: string): Pick<RegisterPeriodRow, 'key' | 'label' | 'from' | 'to'> {
+  const [year, monthNo] = month.split('-').map(Number) as [number, number]
+  const lastDay = new Date(Date.UTC(year, monthNo, 0)).getUTCDate()
+  const naturalFrom = `${month}-01`
+  const naturalTo = `${month}-${String(lastDay).padStart(2, '0')}`
+  return {
+    key: month,
+    label: `${MONTH_NAMES[monthNo - 1]} ${year}`,
+    from: naturalFrom < queryFrom ? queryFrom : naturalFrom,
+    to: naturalTo > queryTo ? queryTo : naturalTo
+  }
+}
+
+/** Sales/purchase register grouped by calendar month or Indian financial-year quarter. */
+export function registerByPeriod(
+  db: DB,
+  kind: 'sales' | 'purchase',
+  from: string,
+  to: string,
+  granularity: RegisterGranularity
+): RegisterPeriodRow[] {
+  const months = registerByMonth(db, kind, from, to)
+  if (granularity === 'month') return months.map((row) => ({ ...monthPeriod(row.month, from, to), ...row }))
+
+  const quarters = new Map<string, RegisterPeriodRow>()
+  for (const row of months) {
+    const q = financialQuarterOf(`${row.month}-01`)
+    const current = quarters.get(q.key) ?? {
+      key: q.key,
+      label: q.label,
+      from: q.from < from ? from : q.from,
+      to: q.to > to ? to : q.to,
+      vouchers: 0,
+      taxable: 0,
+      tax: 0,
+      total: 0
+    }
+    current.vouchers += row.vouchers
+    current.taxable += row.taxable
+    current.tax += row.tax
+    current.total += row.total
+    quarters.set(q.key, current)
+  }
+  return [...quarters.values()].sort((a, b) => a.from.localeCompare(b.from))
 }
 
 /** Every party's movements + bill_refs, expressed as pure `BillEvent`s for `allocateBills` —
@@ -148,4 +196,14 @@ export function openBills(db: DB, partyLedgerId: number, asOn: string): Outstand
   const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)
   const events = [...openingEvent(asOn, ledger.opening_balance, sign), ...(eventsByParty.get(partyLedgerId) ?? [])]
   return allocateBills(events, asOn, ledger.credit_days).bills
+}
+
+/** Unapplied creditor-side settlements are supplier advances. They remain live until future
+ * bills consume them through the same FIFO allocator used by payables, so this report can never
+ * disagree with the amount available for adjustment. */
+export function supplierAdvances(db: DB, asOn: string): import('@shared/payables').SupplierAdvanceRow[] {
+  const creditorIds=descendantIdsByName(db,['Sundry Creditors'])
+  const parties=(db.prepare('SELECT id,name,group_id AS groupId,opening_balance,credit_days FROM ledgers').all() as {id:number;name:string;groupId:number;opening_balance:number;credit_days:number|null}[]).filter((row)=>creditorIds.has(row.groupId))
+  const eventsByParty=partyEventsBatch(db,parties.map((row)=>row.id),asOn,-1)
+  return parties.flatMap((party)=>{const events=[...openingEvent(asOn,party.opening_balance,-1),...(eventsByParty.get(party.id)??[])];const allocation=allocateBills(events,asOn,party.credit_days);if(allocation.unappliedCredit<=0)return[];const settlements=events.filter((event)=>event.amount<0&&event.voucherId!=null);const oldestDate=settlements.map((event)=>event.date).sort()[0]??fyOf(asOn).from;return[{ledgerId:party.id,name:party.name,pendingAdjustment:allocation.unappliedCredit,oldestDate,ageDays:Math.max(0,Math.round((Date.parse(asOn)-Date.parse(oldestDate))/86_400_000)),paymentVoucherIds:[...new Set(settlements.flatMap((event)=>event.voucherId?[event.voucherId]:[]))]}] }).sort((a,b)=>b.pendingAdjustment-a.pendingAdjustment)
 }

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { seededDb, postSimpleVoucher } from '../db/testdb'
-import { deleteVoucher, getVoucher, nextVoucherNumber, saveVoucher } from './vouchers'
+import { deleteVoucher, findSuspiciousEntry, getVoucher, nextVoucherNumber, saveVoucher } from './vouchers'
 import { createLedger, createVoucherType } from './masters'
+import { voucherInputSchema } from '@shared/schemas'
 
 describe('saveVoucher / getVoucher round-trip', () => {
   it('persists lines in order with the right amounts, and getVoucher reads them back deeply', () => {
@@ -130,6 +131,34 @@ describe('saveVoucher / getVoucher round-trip', () => {
       .prepare("SELECT action FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id")
       .all(saved.id) as { action: string }[]
     expect(rows.map((r) => r.action)).toEqual(['create', 'update'])
+  })
+})
+
+describe('suspicious entry preflight', () => {
+  it('explains future dates, large round totals, reversed party direction and asymmetric GST', () => {
+    const db = seededDb()
+    const id = (table: string, name: string): number =>
+      (db.prepare(`SELECT id FROM ${table} WHERE name = ?`).get(name) as { id: number }).id
+    const debtor = createLedger(db, {
+      name: 'Control Customer', groupId: id('groups', 'Sundry Debtors'), stateCode: '27'
+    }).id
+    const sales = createLedger(db, { name: 'Control Sales', groupId: id('groups', 'Sales Accounts'), gstRate: 18 }).id
+    const cgst = createLedger(db, { name: 'Control CGST', groupId: id('groups', 'Duties & Taxes'), taxType: 'cgst' }).id
+    const sgst = createLedger(db, { name: 'Control SGST', groupId: id('groups', 'Duties & Taxes'), taxType: 'sgst' }).id
+    const input = voucherInputSchema.parse({
+      voucherTypeId: id('voucher_types', 'Sales'),
+      date: '2099-12-31', partyLedgerId: debtor,
+      lines: [
+        { ledgerId: debtor, drCr: 'cr', amount: 10_000_000, costAllocations: [] },
+        { ledgerId: sales, drCr: 'dr', amount: 9_000_000, costAllocations: [] },
+        { ledgerId: cgst, drCr: 'dr', amount: 600_000, costAllocations: [] },
+        { ledgerId: sgst, drCr: 'dr', amount: 400_000, costAllocations: [] }
+      ], inventory: [], billRefs: [], tds: null
+    })
+
+    expect(findSuspiciousEntry(db, input).map((warning) => warning.code)).toEqual([
+      'future_date', 'round_amount', 'party_direction', 'tax_asymmetry'
+    ])
   })
 })
 

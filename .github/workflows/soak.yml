@@ -1,0 +1,47 @@
+name: Reliability soak
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: Company-switch/import/backup/report cycles
+        required: false
+        default: "60"
+  schedule:
+    - cron: "43 2 * * 0"
+
+permissions:
+  contents: read
+
+jobs:
+  soak-mac:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Repeat company switches, imports, reports, backups and restores
+        run: npm run test:soak
+        env:
+          TOTAL_SOAK_ITERATIONS: ${{ inputs.iterations || '60' }}
+          TOTAL_DATA_DIR: ${{ runner.temp }}/total-soak-data
+          SMOKE_OUT: ${{ runner.temp }}/total-soak-evidence
+
+      - name: Upload soak evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: total-soak-evidence
+          path: ${{ runner.temp }}/total-soak-evidence
+          if-no-files-found: error

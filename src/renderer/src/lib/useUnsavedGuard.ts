@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 /**
  * Screen-level unsaved-changes guard. A screen (or editor) calls `useUnsavedGuard(dirty)`;
@@ -20,6 +20,13 @@ export function useUnsavedGuard(dirty: boolean): void {
       guards.delete(token)
     }
   }, [dirty])
+}
+
+/** A restored durable draft starts clean even though its form is populated. Any subsequent
+ * fingerprint change is guarded; a brand-new form keeps its ordinary content-based rule. */
+export function useDraftAwareUnsavedGuard(draftId: number | undefined, ordinaryDirty: boolean, fingerprint: string): void {
+  const initial = useRef(fingerprint)
+  useUnsavedGuard(draftId ? fingerprint !== initial.current : ordinaryDirty)
 }
 
 export function hasUnsavedChanges(): boolean {

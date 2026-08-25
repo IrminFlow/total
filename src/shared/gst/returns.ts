@@ -170,6 +170,8 @@ export interface Gstr1Result {
     cgst: number
     sgst: number
     cess: number
+    /** Exact posted vouchers contributing to this summary row, for books-to-return drill-down. */
+    voucherIds: number[]
   }[]
 }
 
@@ -542,7 +544,7 @@ export function buildGstr1(
 
   const s = (label: string, section: string, list: NormalizedDoc[]) => {
     const t = sumItems(list)
-    return { section, label, docs: list.length, ...t }
+    return { section, label, docs: list.length, ...t, voucherIds: [...new Set(list.map((doc) => doc.voucherId))] }
   }
   const nilTotal = all.reduce(
     (sum, d) => sum + (d.kind === 'sales' ? 1 : noteSign(d.kind)) * d.nil.reduce((s2, l) => s2 + l.taxable, 0),
@@ -582,12 +584,12 @@ export function buildGstr1(
       s('Exports (Table 6A)', 'exp', expDocs),
       s('Credit/Debit Notes (registered)', 'cdnr', cdnrDocs),
       s('Credit/Debit Notes (unregistered)', 'cdnur', cdnurDocs),
-      { section: 'nil', label: 'Nil-rated (Table 8)', docs: 0, taxable: nilTotal, igst: 0, cgst: 0, sgst: 0, cess: 0 },
-      { section: 'hsn_b2b', label: 'HSN summary — B2B (Table 12)', docs: hsnB2b.length, ...hsnTotals(all.filter((d) => d.partyGstin)) },
-      { section: 'hsn_b2c', label: 'HSN summary — B2C (Table 12)', docs: hsnB2c.length, ...hsnTotals(all.filter((d) => !d.partyGstin)) },
-      { section: 'at', label: 'Advances received (11A)', docs: at.length, ...advTotals(extras.advances ?? []) },
-      { section: 'txpd', label: 'Advances adjusted (11B)', docs: txpd.length, ...advTotals(extras.advanceAdjustments ?? []) },
-      { section: 'doc_issue', label: 'Documents issued (Table 13)', docs: docIssueNet, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 }
+      { section: 'nil', label: 'Nil-rated (Table 8)', docs: 0, taxable: nilTotal, igst: 0, cgst: 0, sgst: 0, cess: 0, voucherIds: all.filter((d) => d.nil.length > 0).map((d) => d.voucherId) },
+      { section: 'hsn_b2b', label: 'HSN summary — B2B (Table 12)', docs: hsnB2b.length, ...hsnTotals(all.filter((d) => d.partyGstin)), voucherIds: all.filter((d) => d.partyGstin && d.hsnLines.length > 0).map((d) => d.voucherId) },
+      { section: 'hsn_b2c', label: 'HSN summary — B2C (Table 12)', docs: hsnB2c.length, ...hsnTotals(all.filter((d) => !d.partyGstin)), voucherIds: all.filter((d) => !d.partyGstin && d.hsnLines.length > 0).map((d) => d.voucherId) },
+      { section: 'at', label: 'Advances received (11A)', docs: at.length, ...advTotals(extras.advances ?? []), voucherIds: [] },
+      { section: 'txpd', label: 'Advances adjusted (11B)', docs: txpd.length, ...advTotals(extras.advanceAdjustments ?? []), voucherIds: [] },
+      { section: 'doc_issue', label: 'Documents issued (Table 13)', docs: docIssueNet, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, voucherIds: all.map((d) => d.voucherId) }
     ]
   }
 }
@@ -636,6 +638,7 @@ export interface Gstr3bInputs {
   /** 3.1(d) — inward supplies liable to reverse charge (taxable + tax payable). */
   rcmInward: TaxTotals
   manual?: Gst3bManual | null
+  sourceVoucherIds?: Gstr3bResult['voucherIds']
 }
 
 export interface Gstr3bResult {
@@ -661,6 +664,17 @@ export interface Gstr3bResult {
   itcParts: ItcBreakdown
   /** Manual adjustments applied to this build (4(B) reversals + 5.1 interest/late fee). */
   manual: Gst3bManual
+  voucherIds: {
+    outward: number[]
+    zeroRated: number[]
+    nilExempt: number[]
+    rcm: number[]
+    impg: number[]
+    isrc: number[]
+    oth: number[]
+    blocked: number[]
+    netItc: number[]
+  }
   json: Record<string, unknown>
 }
 
@@ -829,6 +843,9 @@ export function buildGstr3b(
     interState,
     itcParts: inputs.itc,
     manual,
+    voucherIds: inputs.sourceVoucherIds ?? {
+      outward: [], zeroRated: [], nilExempt: [], rcm: [], impg: [], isrc: [], oth: [], blocked: [], netItc: []
+    },
     json
   }
 }

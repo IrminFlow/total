@@ -1,11 +1,23 @@
-import { readFileSync, writeFileSync, existsSync, renameSync, rmSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, rmSync, statSync } from 'fs'
 import type { CompanySummary } from '@shared/domain'
-import { registryPath, ensureDataTree } from './paths'
+import {
+  assertCanonicalCompanySlug,
+  ensureDataTree,
+  existingCompanyPaths,
+  registryPath,
+  type ExistingCompanyPaths
+} from './paths'
+import { atomicWriteFile } from './atomicFile'
 
 export interface Registry {
   version: 1
   companies: CompanySummary[]
   lastOpened: string | null
+}
+
+export interface RegisteredCompany {
+  summary: CompanySummary
+  paths: ExistingCompanyPaths
 }
 
 /** Always a FRESH object: callers mutate the returned registry (push into `companies`) before
@@ -31,9 +43,17 @@ export function readRegistry(): Registry {
 export function writeRegistry(registry: Registry): void {
   ensureDataTree()
   const path = registryPath()
-  const tmpPath = `${path}.tmp`
-  writeFileSync(tmpPath, JSON.stringify(registry, null, 2))
-  renameSync(tmpPath, path)
+  atomicWriteFile(path, JSON.stringify(registry, null, 2))
+}
+
+/** Resolve one existing company through both independent trust boundaries: the canonical registry
+ * entry and the contained, non-symlinked on-disk path. Existing-company callers must not infer
+ * authorization merely because a caller-supplied path happens to contain a SQLite file. */
+export function requireRegisteredCompany(slug: string): RegisteredCompany {
+  const safeSlug = assertCanonicalCompanySlug(slug)
+  const matches = readRegistry().companies.filter((company) => company.slug === safeSlug)
+  if (matches.length !== 1) throw new Error('Company not found')
+  return { summary: matches[0]!, paths: existingCompanyPaths(safeSlug) }
 }
 
 // ---------- write lock (task Q3 #99) ----------
@@ -94,6 +114,7 @@ export function withRegistryLock<T>(fn: () => T): T {
 }
 
 export function upsertCompany(summary: CompanySummary): void {
+  assertCanonicalCompanySlug(summary.slug)
   withRegistryLock(() => {
     const reg = readRegistry()
     const idx = reg.companies.findIndex((c) => c.slug === summary.slug)
@@ -104,6 +125,7 @@ export function upsertCompany(summary: CompanySummary): void {
 }
 
 export function touchLastOpened(slug: string): void {
+  assertCanonicalCompanySlug(slug)
   withRegistryLock(() => {
     const reg = readRegistry()
     const company = reg.companies.find((c) => c.slug === slug)
@@ -113,9 +135,10 @@ export function touchLastOpened(slug: string): void {
   })
 }
 
-/** Drop `slug` from the registry (its on-disk company directory is removed separately by the
- *  caller — see company:delete in ipc.ts). No-op if the slug isn't in the registry. */
+/** Drop `slug` from the registry (its on-disk company directory is quarantined separately by the
+ *  caller; see company:delete in ipc.ts). No-op if the slug isn't in the registry. */
 export function removeCompany(slug: string): void {
+  assertCanonicalCompanySlug(slug)
   withRegistryLock(() => {
     const reg = readRegistry()
     reg.companies = reg.companies.filter((c) => c.slug !== slug)

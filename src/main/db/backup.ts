@@ -4,12 +4,25 @@ import Database from 'better-sqlite3'
 import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync } from 'fs'
 import { join, basename } from 'path'
 import type { DB } from './connection'
+import type { CompanyInfo } from '@shared/domain'
 
 export interface BackupInfo {
   file: string
   sizeBytes: number
   mtime: number
   tag: string
+}
+
+export interface BackupPreview {
+  valid: boolean
+  integrity: 'ok' | 'failed'
+  detail: string
+  company: Pick<CompanyInfo, 'name' | 'booksFrom' | 'stateCode'> | null
+  schemaVersion: number | null
+  firstVoucherDate: string | null
+  lastVoucherDate: string | null
+  voucherCount: number | null
+  sizeBytes: number
 }
 
 /** ISO stamp with ':' and '.' replaced by '-', fixed-width (e.g. "2025-08-15T12-34-56"). */
@@ -106,6 +119,58 @@ export function quickCheckOk(path: string): boolean {
     return false
   } finally {
     db.close()
+  }
+}
+
+/** Read-only restore preview. It opens the actual backup, proves SQLite integrity, and extracts
+ *  only non-sensitive identity/version/period metadata. The selected file is never migrated or
+ *  modified during preview. Invalid files return a displayable result rather than throwing. */
+export function inspectBackup(path: string): BackupPreview {
+  const sizeBytes = existsSync(path) ? statSync(path).size : 0
+  let db: Database.Database | null = null
+  try {
+    db = new Database(path, { readonly: true, fileMustExist: true })
+    const quick = db.pragma('quick_check') as Array<{ quick_check: string }>
+    const detail = quick[0]?.quick_check ?? 'No integrity result'
+    if (detail !== 'ok') {
+      return { valid: false, integrity: 'failed', detail, company: null, schemaVersion: null, firstVoucherDate: null, lastVoucherDate: null, voucherCount: null, sizeBytes }
+    }
+    const companyRow = db.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string } | undefined
+    if (!companyRow) throw new Error('Missing Total company metadata')
+    const company = JSON.parse(companyRow.value) as CompanyInfo
+    const schemaVersion = (db.prepare('SELECT MAX(id) AS version FROM migrations').get() as { version: number | null }).version
+    const voucherColumns = db.pragma('table_info(vouchers)') as Array<{ name: string }>
+    const activeFilter = voucherColumns.some((column) => column.name === 'deleted_at') ? ' WHERE deleted_at IS NULL' : ''
+    const period = db.prepare(`SELECT MIN(date) AS firstDate, MAX(date) AS lastDate, COUNT(*) AS count FROM vouchers${activeFilter}`).get() as {
+      firstDate: string | null
+      lastDate: string | null
+      count: number
+    }
+    return {
+      valid: true,
+      integrity: 'ok',
+      detail: 'SQLite integrity verified',
+      company: { name: company.name, booksFrom: company.booksFrom, stateCode: company.stateCode },
+      schemaVersion,
+      firstVoucherDate: period.firstDate,
+      lastVoucherDate: period.lastDate,
+      voucherCount: period.count,
+      sizeBytes
+    }
+  } catch (err) {
+    return {
+      valid: false,
+      integrity: 'failed',
+      detail: err instanceof Error ? err.message : String(err),
+      company: null,
+      schemaVersion: null,
+      firstVoucherDate: null,
+      lastVoucherDate: null,
+      voucherCount: null,
+      sizeBytes
+    }
+  } finally {
+    db?.close()
   }
 }
 

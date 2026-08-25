@@ -88,6 +88,8 @@ export function parseCsv(text: string): CsvRecord[] {
     }
   }
   if (current !== '' || cells.length > 0) endRecord()
+  if (records[0]?.cells[0]?.startsWith('\uFEFF'))
+    records[0].cells[0] = records[0].cells[0].slice(1)
   return records
 }
 

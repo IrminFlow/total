@@ -1,44 +1,63 @@
-@import '@fontsource/ibm-plex-sans/400.css';
-@import '@fontsource/ibm-plex-sans/500.css';
-@import '@fontsource/ibm-plex-sans/600.css';
-@import '@fontsource/ibm-plex-serif/500.css';
-@import '@fontsource/ibm-plex-serif/600.css';
-@import '@fontsource/ibm-plex-mono/400.css';
-@import '@fontsource/ibm-plex-mono/500.css';
-@import 'tailwindcss';
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-serif/500.css";
+@import "@fontsource/ibm-plex-serif/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "tailwindcss";
 
 /* ---------- theme tokens: light (default) and dark ---------- */
 
 :root {
-  --t-bg: #f4f4ef;
-  --t-panel: #ffffff;
-  --t-panel2: #f6f7fa;
-  --t-line: #dcdfe6;
-  --t-ink: #21263a;
-  --t-muted: #6a7186;
-  --t-amber: #b97f0a;
-  --t-amber-bar: #f5b82e;
-  --t-amber-soft: rgba(245, 184, 46, 0.18);
+  --t-bg: #f3f5f7;
+  --t-panel: #fbfcfd;
+  --t-panel2: #edf1f4;
+  --t-line: #d7dee5;
+  --t-ink: #1c2633;
+  --t-muted: #566477;
+  --t-amber: #875900;
+  --t-amber-bar: #dda21c;
+  --t-amber-soft: rgba(221, 162, 28, 0.16);
   --t-dr: #157a53;
   --t-cr: #bb4433;
   --t-blue: #1f5fc2;
-  --t-shadow: 0 1px 2px rgba(30, 35, 60, 0.06), 0 4px 16px rgba(30, 35, 60, 0.05);
+  --t-shortcut: #9f241f;
+  --t-shadow:
+    0 1px 2px rgba(31, 45, 61, 0.05), 0 10px 28px rgba(31, 45, 61, 0.045);
   --t-rule: #3a4053;
 }
 
-[data-theme='dark'] {
-  --t-bg: #0e1220;
-  --t-panel: #151b2c;
-  --t-panel2: #1b2338;
-  --t-line: #273049;
-  --t-ink: #e9e9e2;
-  --t-muted: #8c94ab;
+html[data-font-scale="large"] { font-size: 112%; }
+html[data-font-scale="xlarge"] { font-size: 122%; }
+
+html[data-font-scale="large"] .gateway-kpis,
+html[data-font-scale="xlarge"] .gateway-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+[data-reading-mode="dyslexia"] {
+  --font-sans: Verdana, Arial, system-ui, sans-serif;
+}
+
+[data-reading-mode="dyslexia"] body {
+  letter-spacing: 0.025em;
+  word-spacing: 0.08em;
+  line-height: 1.58;
+}
+
+[data-theme="dark"] {
+  --t-bg: #0c1118;
+  --t-panel: #121925;
+  --t-panel2: #192231;
+  --t-line: #293548;
+  --t-ink: #e9edf2;
+  --t-muted: #929daf;
   --t-amber: #f0b429;
   --t-amber-bar: #f0b429;
   --t-amber-soft: rgba(240, 180, 41, 0.14);
   --t-dr: #6ec6a0;
   --t-cr: #e4796b;
   --t-blue: #6e8ef5;
+  --t-shortcut: #ff7066;
   --t-shadow: none;
   --t-rule: #e9e9e2;
 }
@@ -58,24 +77,66 @@
   --color-dr: var(--t-dr);
   --color-cr: var(--t-cr);
   --color-blue: var(--t-blue);
+  --color-shortcut: var(--t-shortcut);
   --color-rule: var(--t-rule);
 
-  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
-  --font-serif: 'IBM Plex Serif', Georgia, serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-serif: "IBM Plex Serif", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
   /* Type scale — use these (text-label, text-hint, …) in kit components instead of raw
      bracket sizes; screens converge opportunistically. */
-  --text-label: 10.5px; /* uppercase micro-labels, Kbd */
-  --text-caption: 11px; /* field labels */
-  --text-hint: 11.5px; /* hints + inline errors */
-  --text-small: 12px; /* small links/actions */
-  --text-body-sm: 12.5px; /* secondary body */
-  --text-detail: 13px; /* buttons, dense rows */
-  --text-body: 13.5px; /* inputs + default body */
-  --text-lead: 14.5px; /* emphasized row titles */
-  --text-title: 16px; /* modal titles */
-  --text-heading: 19px; /* section titles */
+  --text-label: 0.6875rem; /* uppercase micro-labels, Kbd */
+  --text-caption: 0.71875rem; /* field labels */
+  --text-hint: 0.75rem; /* hints + inline errors */
+  --text-small: 0.78125rem; /* small links/actions */
+  --text-body-sm: 0.8125rem; /* secondary body */
+  --text-detail: 0.84375rem; /* buttons, dense rows */
+  --text-body: 0.875rem; /* inputs + default body */
+  --text-lead: 0.90625rem; /* emphasized row titles */
+  --text-title: 1rem; /* modal titles */
+  --text-heading: 1.1875rem; /* section titles */
+}
+
+/* Tailwind's bracketed pixel utilities are legacy screen typography. Express their
+   generated values in rem so the accessibility text-size setting changes text and
+   reflows layout without scaling the viewport. */
+.text-\[7px\] { font-size: 0.4375rem; }
+.text-\[8px\] { font-size: 0.5rem; }
+.text-\[8\.5px\] { font-size: 0.53125rem; }
+.text-\[9px\] { font-size: 0.5625rem; }
+.text-\[9\.5px\] { font-size: 0.59375rem; }
+.text-\[10px\] { font-size: 0.625rem; }
+.text-\[10\.5px\] { font-size: 0.6875rem; }
+.text-\[11px\] { font-size: 0.71875rem; }
+.text-\[11\.5px\] { font-size: 0.75rem; }
+.text-\[12px\] { font-size: 0.75rem; }
+.text-\[12\.5px\] { font-size: 0.78125rem; }
+.text-\[13px\] { font-size: 0.8125rem; }
+.text-\[13\.5px\] { font-size: 0.84375rem; }
+.text-\[14px\] { font-size: 0.875rem; }
+.text-\[14\.5px\] { font-size: 0.90625rem; }
+.text-\[15px\] { font-size: 0.9375rem; }
+.text-\[16px\] { font-size: 1rem; }
+.text-\[17px\] { font-size: 1.0625rem; }
+.text-\[18px\] { font-size: 1.125rem; }
+.text-\[19px\] { font-size: 1.1875rem; }
+.text-\[20px\] { font-size: 1.25rem; }
+.text-\[21px\] { font-size: 1.3125rem; }
+.text-\[22px\] { font-size: 1.375rem; }
+.text-\[23px\] { font-size: 1.4375rem; }
+.text-\[24px\] { font-size: 1.5rem; }
+.text-\[25px\] { font-size: 1.5625rem; }
+.text-\[26px\] { font-size: 1.625rem; }
+.text-\[28px\] { font-size: 1.75rem; }
+.text-\[29px\] { font-size: 1.8125rem; }
+.text-\[30px\] { font-size: 1.875rem; }
+.text-\[31px\] { font-size: 1.9375rem; }
+.text-\[38px\] { font-size: 2.375rem; }
+
+/* Treasury's fixed 13-week horizon intentionally exceeds Tailwind's default 12-column scale. */
+.grid-cols-13 {
+  grid-template-columns: repeat(13, minmax(0, 1fr));
 }
 
 html,
@@ -88,10 +149,59 @@ body {
   background: var(--t-bg);
   color: var(--t-ink);
   font-family: var(--font-sans);
-  font-size: 13.5px;
+  font-size: 0.84375rem;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
+}
+
+/* Accounting output is working material. Keep app chrome tactile while allowing users to
+   select amounts, references and report text for copying. */
+main {
+  user-select: text;
+}
+button,
+a,
+summary,
+[role="button"]:not(tr) {
+  user-select: none;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  transition-property:
+    color, background-color, border-color, opacity, transform, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.app-nav-item {
+  position: relative;
+  line-height: 1.3;
+  overflow-wrap: normal;
+}
+
+.app-nav-item[data-active="true"] {
+  background: var(--t-amber-soft);
+  color: var(--t-ink);
+  font-weight: 500;
+}
+
+.app-nav-item[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 5px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--t-amber-bar);
 }
 
 .num {
@@ -103,6 +213,15 @@ body {
   box-shadow: var(--t-shadow);
 }
 
+/* The global shortcut red is dark enough for paper-like panels. On the one inverse-ink CTA,
+   use a light red so the mnemonic remains red and clears the same contrast threshold. */
+.shortcut-on-dark .text-shortcut {
+  color: #ff938c;
+}
+[data-theme="dark"] .shortcut-on-dark .text-shortcut {
+  color: #9f241f;
+}
+
 .drag-region {
   -webkit-app-region: drag;
 }
@@ -112,16 +231,56 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* The header has a strict priority order at the supported 1080px minimum: period and support
+   stay readable, while secondary action labels collapse to their named icons. */
+@media (max-width: 1279px) {
+  .shell-header {
+    gap: 0.375rem;
+    padding-right: 0.5rem;
+  }
+  .shell-action {
+    padding-inline: 0.5rem;
+  }
+  .shell-action-label,
+  .shell-search-kbd,
+  .shell-user-badge {
+    display: none;
+  }
+  .shell-screen-title {
+    max-width: 7rem;
+  }
+  .feature-tip-detail {
+    display: none;
+  }
+}
+
+html[data-font-scale="large"] .shell-sidebar,
+html[data-ui-language="hi"] .shell-sidebar {
+  width: 15rem;
+}
+html[data-font-scale="xlarge"] .shell-sidebar,
+html[data-ui-language="hi"][data-font-scale="large"] .shell-sidebar,
+html[data-ui-language="hi"][data-font-scale="xlarge"] .shell-sidebar {
+  width: 16rem;
+}
+html[data-font-scale="large"] .feature-tip-detail,
+html[data-font-scale="xlarge"] .feature-tip-detail {
+  display: none;
+}
+html[data-font-scale="xlarge"] .shell-screen-title {
+  display: none;
+}
+
 /* ---------- amber keyboard bar — the signature ---------- */
 
 .kbar-row {
   position: relative;
 }
-.kbar-row[data-active='true'] {
+.kbar-row[data-active="true"] {
   background: var(--t-amber-soft);
 }
-.kbar-row[data-active='true']::before {
-  content: '';
+.kbar-row[data-active="true"]::before {
+  content: "";
   position: absolute;
   left: 0;
   top: 2px;
@@ -132,21 +291,25 @@ body {
 }
 /* On table rows a ::before would become a phantom first cell — use an inset bar instead. */
 tr.kbar-row::before,
-tr.kbar-row[data-active='true']::before {
+tr.kbar-row[data-active="true"]::before {
   content: none;
 }
-tr.kbar-row[data-active='true'] td:first-child {
+tr.kbar-row[data-active="true"] td:first-child {
   box-shadow: inset 3px 0 0 0 var(--t-amber-bar);
+}
+tr.kbar-row:focus-visible td {
+  background: var(--t-amber-soft);
 }
 
 /* ---------- ledger tables: hand-rules + double-rule totals ---------- */
 
 .ledger-table {
   width: 100%;
+  min-width: max-content;
   border-collapse: collapse;
 }
 .ledger-table th {
-  font-size: 10.5px;
+  font-size: 0.65625rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -180,6 +343,33 @@ tr.kbar-row[data-active='true'] td:first-child {
   background: color-mix(in oklab, var(--t-panel2) 70%, transparent);
 }
 
+.daybook-table-scroll {
+  scrollbar-gutter: stable;
+  user-select: text;
+}
+.daybook-ledger {
+  min-width: 56rem;
+  table-layout: fixed;
+}
+.daybook-ledger thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  white-space: nowrap;
+  box-shadow: 0 1px 0 var(--t-line);
+}
+
+/* Only report/table panels gain horizontal scrolling as text grows. Other panels keep
+   their existing clipping behavior for menus and form overlays. */
+.app-panel:has(> .ledger-table),
+.app-panel-scroll:has(> .ledger-table) {
+  overflow-x: auto;
+}
+
+.interactive-report-row:focus-visible td {
+  background: var(--t-amber-soft);
+}
+
 input,
 select,
 textarea {
@@ -210,4 +400,13 @@ textarea {
     animation: none !important;
     transition: none !important;
   }
+}
+
+[data-motion="reduce"] *,
+[data-motion="reduce"] *::before,
+[data-motion="reduce"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.001ms !important;
 }

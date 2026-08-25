@@ -1,4 +1,11 @@
 import type { DB } from '../db/connection'
+import {
+  AUDIT_GENESIS_HASH,
+  auditRowHash,
+  setAuditChainAnchor,
+  setAuditChainHead,
+  type AuditHashFields
+} from '../db/auditHash'
 
 // The write side owns the entity vocabulary; the list itself lives in src/shared so the
 // Settings → Audit filter can import it too (renderer can't reach main-process modules).
@@ -59,18 +66,27 @@ export function writeAudit(
   before: unknown,
   after: unknown
 ): void {
-  db.prepare(
-    `INSERT INTO audit_log (entity, entity_id, action, before_json, after_json, user_name, app_version)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    entity,
-    entityId,
-    action,
-    before === null || before === undefined ? null : JSON.stringify(before),
-    after === null || after === undefined ? null : JSON.stringify(after),
-    context.getUserName(),
-    context.appVersion
-  )
+  const beforeJson = before === null || before === undefined ? null : JSON.stringify(before)
+  const afterJson = after === null || after === undefined ? null : JSON.stringify(after)
+  const userName = context.getUserName()
+  const appVersion = context.appVersion || null
+  const at = new Date().toISOString()
+  db.transaction(() => {
+    const previous = db.prepare('SELECT id, row_hash AS rowHash FROM audit_log ORDER BY id DESC LIMIT 1').get() as
+      | { id: number; rowHash: string }
+      | undefined
+    const prevHash = previous?.rowHash ?? AUDIT_GENESIS_HASH
+    if (!/^[a-f0-9]{64}$/.test(prevHash)) throw new Error('Audit chain is not initialized or has a missing tail hash')
+    const result = db.prepare(
+      `INSERT INTO audit_log (
+         entity, entity_id, action, at, before_json, after_json, user_name, app_version, prev_hash, row_hash
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '')`
+    ).run(entity, entityId, action, at, beforeJson, afterJson, userName, appVersion, prevHash)
+    const id = Number(result.lastInsertRowid)
+    const rowHash = auditRowHash({ id, entity, entityId, action, at, beforeJson, afterJson, userName, appVersion, prevHash })
+    db.prepare('UPDATE audit_log SET row_hash = ? WHERE id = ?').run(rowHash, id)
+    setAuditChainHead(db, id, rowHash)
+  })()
 }
 
 /**
@@ -80,7 +96,54 @@ export function writeAudit(
  */
 export function pruneAudit(db: DB, keepDays: number): number {
   const res = db.prepare(`DELETE FROM audit_log WHERE at < datetime('now', ?)`).run(`-${keepDays} days`)
+  const first = db.prepare('SELECT prev_hash AS prevHash FROM audit_log ORDER BY id LIMIT 1').get() as { prevHash: string } | undefined
+  if (first) setAuditChainAnchor(db, first.prevHash)
+  else {
+    setAuditChainAnchor(db, AUDIT_GENESIS_HASH)
+    setAuditChainHead(db, 0, AUDIT_GENESIS_HASH)
+  }
   return res.changes
+}
+
+export interface AuditIntegrityStatus {
+  ok: boolean
+  rowsChecked: number
+  firstBrokenId: number | null
+  reason: 'anchor_mismatch' | 'previous_hash_mismatch' | 'row_hash_mismatch' | 'head_mismatch' | null
+  verifiedAt: string
+  headHash: string
+}
+
+/** Verify row contents, ordering, links, retained-prefix anchor, and the separately stored tail. */
+export function verifyAuditChain(db: DB): AuditIntegrityStatus {
+  const rows = db.prepare(
+    `SELECT id, entity, entity_id AS entityId, action, at, before_json AS beforeJson,
+            after_json AS afterJson, user_name AS userName, app_version AS appVersion,
+            prev_hash AS prevHash, row_hash AS rowHash
+     FROM audit_log ORDER BY id`
+  ).all() as (AuditHashFields & { rowHash: string })[]
+  const meta = new Map((db.prepare("SELECT key, value FROM meta WHERE key IN ('audit_chain_anchor','audit_chain_head')").all() as { key: string; value: string }[]).map((row) => [row.key, row.value]))
+  const verifiedAt = new Date().toISOString()
+  const anchor = meta.get('audit_chain_anchor') ?? AUDIT_GENESIS_HASH
+  const fail = (reason: AuditIntegrityStatus['reason'], firstBrokenId: number | null, headHash: string): AuditIntegrityStatus =>
+    ({ ok: false, rowsChecked: rows.length, firstBrokenId, reason, verifiedAt, headHash })
+  if (rows.length > 0 && rows[0]!.prevHash !== anchor) return fail('anchor_mismatch', rows[0]!.id, rows.at(-1)!.rowHash)
+  let expectedPrev = anchor
+  for (const row of rows) {
+    if (row.prevHash !== expectedPrev) return fail('previous_hash_mismatch', row.id, rows.at(-1)!.rowHash)
+    const computed = auditRowHash(row)
+    if (row.rowHash !== computed) return fail('row_hash_mismatch', row.id, rows.at(-1)!.rowHash)
+    expectedPrev = row.rowHash
+  }
+  let storedHead: { id: number; hash: string }
+  try {
+    storedHead = JSON.parse(meta.get('audit_chain_head') ?? '{}') as { id: number; hash: string }
+  } catch {
+    return fail('head_mismatch', rows.at(-1)?.id ?? null, expectedPrev)
+  }
+  const lastId = rows.at(-1)?.id ?? 0
+  if (storedHead.id !== lastId || storedHead.hash !== expectedPrev) return fail('head_mismatch', lastId || null, expectedPrev)
+  return { ok: true, rowsChecked: rows.length, firstBrokenId: null, reason: null, verifiedAt, headHash: expectedPrev }
 }
 
 export interface AuditRow {

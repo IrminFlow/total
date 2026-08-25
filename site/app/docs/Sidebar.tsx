@@ -8,6 +8,7 @@ const LINKS: { href: string; label: string }[] = [
   { href: '/docs/coming-from-tally', label: 'Coming from Tally' },
   { href: '/docs/gst-returns', label: 'GST returns' },
   { href: '/docs/backups', label: 'Backups & data' },
+  { href: '/docs/ai-data', label: 'AI & data use' },
   { href: '/docs/faq', label: 'FAQ' }
 ]
 

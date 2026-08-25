@@ -122,6 +122,7 @@ describe('tallyImport transaction + summary audit (Q1 #90/#94)', () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM groups WHERE name = 'Office Expenses'").get()).toMatchObject({ n: 0 })
     expect(db.prepare("SELECT COUNT(*) AS n FROM ledgers WHERE name = 'Rent Paid'").get()).toMatchObject({ n: 0 })
     expect(auditRows(db, 'tally_import')).toHaveLength(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM import_batches').get()).toMatchObject({ n: 0 })
   })
 })
 

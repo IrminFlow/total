@@ -4,7 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import {
   assertExportable, exportGstr1Csv, extractAdvances, extractOutwardDocs, extractDocSeries,
-  gstValidate, itcBreakdown, rcmInwardSummary, turnover
+  acknowledgeGstReturn, freezeGstReturn, gstReturnStatus, gstValidate, gstr1, gstr3b, itcBreakdown, rcmInwardSummary, turnover
 } from './gst'
 import { companyExportsDir, ensureCompanyTree } from '../paths'
 import type { Gstr1Result } from '@shared/gst/returns'
@@ -12,6 +12,7 @@ import type { DrCr } from '@shared/domain'
 import { seededDb, TEST_INFO } from '../db/testdb'
 import { createLedger } from './masters'
 import { saveVoucher, deleteVoucher } from './vouchers'
+import { companyForGstRegistration, saveGstRegistration } from './complianceOps'
 
 describe('gst service — exportGstr1Csv', () => {
   it('writes plain (integer-math) rupee decimals — no float division artifacts, zero pads to "0.00"', () => {
@@ -28,10 +29,10 @@ describe('gst service — exportGstr1Csv', () => {
       summary: [
         // 3333 paise / 3 lines-worth is a classic float-division trap (33.33 repeating) — pure
         // integer math must still land on an exact 2-decimal string.
-        { section: 'B2B', label: 'B2B Invoices', docs: 3, taxable: 3333, igst: 0, cgst: 300, sgst: 300, cess: 0 },
+        { section: 'B2B', label: 'B2B Invoices', docs: 3, taxable: 3333, igst: 0, cgst: 300, sgst: 300, cess: 0, voucherIds: [1, 2, 3] },
         // A row with every tax column at exactly zero used to print bare "0" (a JS number
         // stringified), not the "0.00" a portal CSV column expects.
-        { section: 'NIL', label: 'Nil rated', docs: 1, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 }
+        { section: 'NIL', label: 'Nil rated', docs: 1, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, voucherIds: [4] }
       ]
     }
 
@@ -128,19 +129,19 @@ describe('gst service — extraction (G1)', () => {
 
   it('itemises ITC: blocked vendors → 4(D), import vendors → IMPG, RCM computed at master rates → ISRC + 3.1(d)', () => {
     const s = setup()
-    s.post('purchase', '2026-07-10', s.blockedVendor, [
+    const blocked = s.post('purchase', '2026-07-10', s.blockedVendor, [
       { ledgerId: s.purchases, drCr: 'dr', amount: 10000 },
       { ledgerId: s.cgstL, drCr: 'dr', amount: 900 },
       { ledgerId: s.sgstL, drCr: 'dr', amount: 900 },
       { ledgerId: s.blockedVendor, drCr: 'cr', amount: 11800 }
     ])
-    s.post('purchase', '2026-07-11', s.importVendor, [
+    const imported = s.post('purchase', '2026-07-11', s.importVendor, [
       { ledgerId: s.purchases, drCr: 'dr', amount: 30000 },
       { ledgerId: s.igstL, drCr: 'dr', amount: 5400 },
       { ledgerId: s.importVendor, drCr: 'cr', amount: 35400 }
     ])
     // RCM purchase books no tax lines — tax is computed from the purchase ledger's 18% rate.
-    s.post('purchase', '2026-07-12', s.rcmVendor, [
+    const rcmPurchase = s.post('purchase', '2026-07-12', s.rcmVendor, [
       { ledgerId: s.purchases, drCr: 'dr', amount: 20000 },
       { ledgerId: s.rcmVendor, drCr: 'cr', amount: 20000 }
     ])
@@ -153,6 +154,13 @@ describe('gst service — extraction (G1)', () => {
     expect(itc.impg).toEqual({ igst: 5400, cgst: 0, sgst: 0, cess: 0 })
     expect(itc.isrc).toEqual({ igst: 0, cgst: 1800, sgst: 1800, cess: 0 })
     expect(itc.oth).toEqual({ igst: 0, cgst: 0, sgst: 0, cess: 0 })
+
+    const result = gstr3b(s.db, TEST_INFO, FROM, TO, '072026')
+    expect(result.voucherIds.blocked).toEqual([blocked.id])
+    expect(result.voucherIds.impg).toEqual([imported.id])
+    expect(result.voucherIds.rcm).toEqual([rcmPurchase.id])
+    expect(result.voucherIds.isrc).toEqual([rcmPurchase.id])
+    expect(result.voucherIds.netItc).toEqual(expect.arrayContaining([imported.id, rcmPurchase.id]))
   })
 
   it('doc series (Table 13) counts deleted vouchers as cancelled; turnover excludes them', () => {
@@ -274,5 +282,50 @@ describe('gst service — extraction (G1)', () => {
     expect(() =>
       assertExportable(s.db, { ...TEST_INFO, gstRegistrationType: 'composition' }, FROM, TO)
     ).toThrow(/composition/)
+  })
+
+  it('freezes exact return JSON, detects later book changes, and retains filing acknowledgement', () => {
+    const s = setup()
+    s.post('sales', '2026-07-05', s.buyer, [
+      { ledgerId: s.buyer, drCr: 'dr', amount: 118000 },
+      { ledgerId: s.sales, drCr: 'cr', amount: 100000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 9000 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 9000 }
+    ])
+
+    expect(freezeGstReturn(s.db, TEST_INFO, 'gstr1', FROM, TO, '072026')).toMatchObject({
+      status: 'prepared', changedSinceFreeze: false, arn: null
+    })
+    s.post('sales', '2026-07-09', s.buyer, [
+      { ledgerId: s.buyer, drCr: 'dr', amount: 59000 },
+      { ledgerId: s.sales, drCr: 'cr', amount: 50000 },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: 4500 },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: 4500 }
+    ])
+    expect(gstReturnStatus(s.db, TEST_INFO, 'gstr1', FROM, TO, '072026').changedSinceFreeze).toBe(true)
+    freezeGstReturn(s.db, TEST_INFO, 'gstr1', FROM, TO, '072026')
+    const filed = acknowledgeGstReturn(s.db, TEST_INFO, 'gstr1', FROM, TO, '072026', {
+      arn: 'AA2707261234567', filedAt: '2026-08-11', submittedJson: '{"filed":true}'
+    })
+    expect(filed).toMatchObject({ status: 'filed', arn: 'AA2707261234567', filedAt: '2026-08-11', hasSubmittedJson: true })
+    expect(() => freezeGstReturn(s.db, TEST_INFO, 'gstr1', FROM, TO, '072026')).toThrow(/already marked filed/)
+  })
+
+  it('calculates and freezes independent returns for two GST registrations in the same period', () => {
+    const s=setup()
+    const mh=saveGstRegistration(s.db,{gstin:'27AAPFU0939F1ZV',legalName:'Test MH',stateCode:'27',address:'Pune',registrationType:'regular',isPrimary:true,active:true,invoicePrefix:'MH'},'Owner')
+    const ka=saveGstRegistration(s.db,{gstin:'29AAPFU0939F1ZR',legalName:'Test KA',stateCode:'29',address:'Bengaluru',registrationType:'regular',isPrimary:false,active:true,invoicePrefix:'KA'},'Owner')
+    const mhVoucher=s.post('sales','2026-07-05',s.buyer,[{ledgerId:s.buyer,drCr:'dr',amount:118000},{ledgerId:s.sales,drCr:'cr',amount:100000},{ledgerId:s.cgstL,drCr:'cr',amount:9000},{ledgerId:s.sgstL,drCr:'cr',amount:9000}])
+    const kaVoucher=s.post('sales','2026-07-06',s.buyer,[{ledgerId:s.buyer,drCr:'dr',amount:236000},{ledgerId:s.sales,drCr:'cr',amount:200000},{ledgerId:s.igstL,drCr:'cr',amount:36000}],'27')
+    s.db.prepare('UPDATE vouchers SET gst_registration_id=? WHERE id=?').run(mh.id,mhVoucher.id)
+    s.db.prepare('UPDATE vouchers SET gst_registration_id=? WHERE id=?').run(ka.id,kaVoucher.id)
+    const mhInfo=companyForGstRegistration(s.db,TEST_INFO,mh.id);const kaInfo=companyForGstRegistration(s.db,TEST_INFO,ka.id)
+    expect(extractOutwardDocs(s.db,mhInfo,FROM,TO,mh.id).flatMap((doc)=>doc.items).reduce((sum,row)=>sum+row.taxable,0)).toBe(100000)
+    expect(extractOutwardDocs(s.db,kaInfo,FROM,TO,ka.id).flatMap((doc)=>doc.items).reduce((sum,row)=>sum+row.taxable,0)).toBe(200000)
+    expect(gstr1(s.db,mhInfo,FROM,TO,'072026',mh.id).gstin).toBe(mh.gstin)
+    expect(gstr1(s.db,kaInfo,FROM,TO,'072026',ka.id).gstin).toBe(ka.gstin)
+    expect(freezeGstReturn(s.db,mhInfo,'gstr1',FROM,TO,'072026',mh.id).registrationId).toBe(mh.id)
+    expect(freezeGstReturn(s.db,kaInfo,'gstr1',FROM,TO,'072026',ka.id).registrationId).toBe(ka.id)
+    expect((s.db.prepare("SELECT COUNT(*) AS n FROM gst_return_periods WHERE period='072026' AND return_type='gstr1'").get() as {n:number}).n).toBe(2)
   })
 })

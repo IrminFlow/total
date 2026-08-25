@@ -1,35 +1,96 @@
 /**
  * Agent access layer (lane A): CSV/JSON mirrors of the books under `<company>/agent/`, plus the
  * validated `<company>/inbox/` drop-folder that lets external agents (Claude Code, Codex, ...)
- * post vouchers and masters without touching SQLite directly.
+ * prepare inert voucher proposals and import explicitly supported master CSVs without touching
+ * SQLite directly.
  *
- * Every write goes through the exact same code path as the UI: zod `voucherInputSchema` →
- * `saveVoucher` (which runs `validateVoucher` + the period lock) — the inbox/CLI can never post
- * anything the voucher screen would reject. Reads are recomputed from voucher_lines at export
- * time, never denormalised.
+ * Voucher JSON never posts from the drop folder. It is schema-checked and placed in the same
+ * human review queue as MCP/AI drafts. Posting happens only after an authenticated approval and
+ * the ordinary permission, department, discount and maker-checker gates. Reads are recomputed
+ * from voucher_lines at export time, never denormalised.
  *
  * Concurrency: the app and the CLI may have the same company.db open at once — WAL journal mode
  * + busy_timeout (set in db/connection.ts) make that safe; nothing here takes exclusive locks.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, watch, writeFileSync, type FSWatcher } from 'fs'
-import { basename, extname, join } from 'path'
+import {
+  existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, readdirSync, realpathSync,
+  renameSync, rmSync, statSync, watch, writeFileSync, type Dirent, type FSWatcher
+} from 'fs'
+import { basename, dirname, extname, isAbsolute, join, posix, relative, sep } from 'path'
+import { createHash, randomUUID } from 'crypto'
 import { Notification } from 'electron'
 import type { DB } from '../db/connection'
 import { companyDir } from '../paths'
 import { rowsToCsv } from '@shared/csv'
 import { fyOf, todayISO } from '@shared/dates'
 import { voucherInputSchema } from '@shared/schemas'
-import type { Voucher } from '@shared/domain'
+import type { VoucherInputParsed } from '@shared/schemas'
+import type { Voucher, VoucherKind } from '@shared/domain'
+import { validateVoucher, type LedgerFacts } from '@shared/posting'
 import * as masters from './masters'
 import { trialBalance } from './reports'
 import { outstandings } from './analysis'
-import { getVoucher, saveVoucher, NOT_DELETED } from './vouchers'
+import { getVoucher, NOT_DELETED } from './vouchers'
 import { applyImport, type ImportKind, type ImportResult } from './importers'
 import { runAsAuditUser } from './audit'
 import { log } from '../log'
+import {
+  assertVoucherDiscountAuthority,
+  postVoucherWithApprovalControl,
+  type ControlledVoucherPostResult,
+  type VoucherPostingActor
+} from './voucherPostingControls'
 
-/** Bumped whenever the mirror file shapes change incompatibly; stamped into meta.json. */
-export const MIRROR_SCHEMA_VERSION = 1
+/** Bumped whenever the versioned mirror contract changes; legacy meta.json fields stay readable. */
+export const MIRROR_SCHEMA_VERSION = 2
+export const MIRROR_SCHEMA_ID = 'total.agent-mirror'
+
+const MAX_MIRROR_MANIFEST_BYTES = 1024 * 1024
+const MAX_MIRROR_FILES = 256
+const MAX_MIRROR_FILE_BYTES = 64 * 1024 * 1024
+const MAX_MIRROR_TOTAL_BYTES = 512 * 1024 * 1024
+const MIRROR_FILE_NAME = /^[a-z0-9][a-z0-9./-]*$/
+
+export interface MirrorFileManifest {
+  /** Stable logical identifier; it does not include a generation timestamp or FY-specific digest. */
+  id: string
+  path: string
+  mediaType: 'application/json' | 'text/csv'
+  bytes: number
+  sha256: string
+  schemaId: string
+  schemaRef: string | null
+}
+
+export interface MirrorManifestV2 {
+  schema: typeof MIRROR_SCHEMA_ID
+  schemaVersion: typeof MIRROR_SCHEMA_VERSION
+  generationId: string
+  generatedAt: string
+  company: string
+  units: {
+    amount: { name: 'paise'; type: 'integer'; scale: 100; currency: 'INR' }
+    quantity: { name: 'milli-unit'; type: 'integer'; scale: 1000 }
+  }
+  /** Legacy aliases retained for v1 readers. */
+  amountsUnit: string
+  quantitiesUnit: string
+  voucherTypes: ReturnType<typeof masters.listVoucherTypes>
+  /** Legacy file-name list retained for MCP/client readers written against mirror v1. */
+  files: string[]
+  manifest: {
+    algorithm: 'sha256'
+    files: MirrorFileManifest[]
+  }
+  schemas: Record<string, string>
+}
+
+/** @internal Deterministic filesystem fault injection used only by DB tests. */
+export interface MirrorExportHooks {
+  /** Deterministic failure injection for DB tests; not exposed through IPC. */
+  beforePromote?: (stagingDir: string) => void
+  afterPreviousMoved?: () => void
+}
 
 export type MirrorWhat = 'masters' | 'vouchers' | 'reports' | 'all'
 export type MirrorFormat = 'csv' | 'json' | 'all'
@@ -55,10 +116,502 @@ export function inboxDir(slug: string): string {
   return join(companyDir(slug), 'inbox')
 }
 
+export interface AgentProposal {
+  version: 1
+  id: string
+  createdAt: string
+  source: 'mcp' | 'ai' | 'external'
+  status: 'pending'
+  summary: string
+  voucher: unknown
+}
+
+function proposalsDir(slug: string): string {
+  return join(companyDir(slug), 'proposals')
+}
+
+const INBOX_BATCH_ID = /^inbox-[a-f0-9]{64}$/
+const INBOX_PROPOSAL_ID = /^(inbox-[a-f0-9]{64})--(\d{4})\.json$/
+const MAX_LISTED_PROPOSALS = 200
+const MAX_BATCH_DIRECTORIES_SCANNED = 200
+const MAX_STAGING_DIRECTORIES_SCANNED = 200
+const MAX_LIST_DIRECTORY_ENTRIES_SCANNED = 400
+const STALE_STAGING_MS = 24 * 60 * 60 * 1000
+
+function assertPathContained(root: string, target: string): void {
+  const rel = relative(root, target)
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error('Proposal path escapes company storage')
+  }
+}
+
+function secureProposalRoot(slug: string, create = false): { path: string; real: string } {
+  const company = companyDir(slug)
+  const companyEntry = lstatSync(company)
+  if (companyEntry.isSymbolicLink() || !companyEntry.isDirectory()) {
+    throw new Error('Company storage is not a regular directory')
+  }
+  const companyReal = realpathSync(company)
+  const root = proposalsDir(slug)
+  if (!existsSync(root)) {
+    if (!create) throw new Error('Proposal storage does not exist')
+    mkdirSync(root, { mode: 0o700 })
+  }
+  const rootEntry = lstatSync(root)
+  if (rootEntry.isSymbolicLink() || !rootEntry.isDirectory()) {
+    throw new Error('Proposal storage is not a regular directory')
+  }
+  const rootReal = realpathSync(root)
+  assertPathContained(companyReal, rootReal)
+  return { path: root, real: rootReal }
+}
+
+function secureProposalDirectory(
+  slug: string,
+  segments: string[],
+  create = false
+): { path: string; rootReal: string } {
+  const root = secureProposalRoot(slug, create)
+  let current = root.path
+  for (const segment of segments) {
+    if (!/^[a-zA-Z0-9._-]+$/.test(segment)) throw new Error('Invalid proposal directory')
+    current = join(current, segment)
+    assertPathContained(root.path, current)
+    if (!existsSync(current)) {
+      if (!create) throw new Error('Proposal directory does not exist')
+      mkdirSync(current, { mode: 0o700 })
+    }
+    const entry = lstatSync(current)
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
+      throw new Error('Proposal directory is not a regular directory')
+    }
+    assertPathContained(root.real, realpathSync(current))
+  }
+  return { path: current, rootReal: root.real }
+}
+
+function assertSecureProposalFile(path: string, rootReal: string): void {
+  const entry = lstatSync(path)
+  if (entry.isSymbolicLink() || !entry.isFile()) throw new Error('Proposal is not a regular file')
+  assertPathContained(rootReal, realpathSync(path))
+}
+
+function proposalLocation(slug: string, file: string): { path: string; rootReal: string } {
+  const name = safeProposalName(file)
+  const batch = INBOX_PROPOSAL_ID.exec(name)
+  if (batch) {
+    const parent = secureProposalDirectory(slug, ['queued', batch[1]!])
+    return { path: join(parent.path, `${batch[2]}.json`), rootReal: parent.rootReal }
+  }
+  const root = secureProposalRoot(slug)
+  return { path: join(root.path, name), rootReal: root.real }
+}
+
+export function createProposal(slug: string, source: AgentProposal['source'], summary: string, voucher: unknown): AgentProposal {
+  const dir = secureProposalRoot(slug, true)
+  const createdAt = new Date().toISOString()
+  const id = `${createdAt.replace(/[:.]/g, '-')}-${randomUUID()}.json`
+  const proposal: AgentProposal = { version: 1, id, createdAt, source, status: 'pending', summary: summary.slice(0, 240), voucher }
+  writeFileSync(join(dir.path, id), JSON.stringify(proposal, null, 2), { flag: 'wx', mode: 0o600 })
+  return proposal
+}
+
+function safeProposalName(file: string): string {
+  const name = basename(file)
+  if (name !== file || !/^[a-zA-Z0-9._-]+\.json$/.test(name)) throw new Error('Invalid proposal name')
+  return name
+}
+
+function readProposal(slug: string, file: string): { proposal: AgentProposal; sha256: string } {
+  const name = safeProposalName(file)
+  const location = proposalLocation(slug, name)
+  const path = location.path
+  if (!existsSync(path)) throw new Error('Proposal no longer exists')
+  assertSecureProposalFile(path, location.rootReal)
+  if (statSync(path).size > 512 * 1024) throw new Error('Proposal is too large')
+  const text = readFileSync(path, 'utf8')
+  const parsed = JSON.parse(text) as AgentProposal
+  if (parsed.version !== 1 || parsed.status !== 'pending' || !parsed.voucher) throw new Error('Invalid proposal')
+  return {
+    proposal: { ...parsed, id: name },
+    sha256: createHash('sha256').update(text).digest('hex')
+  }
+}
+
+export function getProposal(slug: string, file: string): AgentProposal {
+  return readProposal(slug, file).proposal
+}
+
+function isIsoInstant(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const parsed = new Date(value)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value
+}
+
+function boundedDirectoryEntries(path: string, limit: number): Dirent[] {
+  const entries: Dirent[] = []
+  const directory = opendirSync(path)
+  try {
+    while (entries.length < limit) {
+      const entry = directory.readSync()
+      if (!entry) break
+      entries.push(entry)
+    }
+  } finally {
+    directory.closeSync()
+  }
+  return entries
+}
+
+function pruneStaleProposalStages(slug: string, now = Date.now()): void {
+  const root = secureProposalRoot(slug)
+  const stagingPath = join(root.path, '.staging')
+  if (!existsSync(stagingPath)) return
+  const staging = secureProposalDirectory(slug, ['.staging'])
+  for (const entry of boundedDirectoryEntries(staging.path, MAX_STAGING_DIRECTORIES_SCANNED)) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue
+    const path = join(staging.path, entry.name)
+    const first = lstatSync(path)
+    if (first.isSymbolicLink() || !first.isDirectory() || now - first.mtimeMs < STALE_STAGING_MS) continue
+    const secured = secureProposalDirectory(slug, ['.staging', entry.name])
+    const latest = lstatSync(secured.path)
+    if (latest.isSymbolicLink() || !latest.isDirectory() || now - latest.mtimeMs < STALE_STAGING_MS) continue
+    rmSync(secured.path, { recursive: true })
+  }
+}
+
+/** Read-only listing of reviewable agent drafts. Nothing in proposals/ affects the books. */
+export function listProposals(slug: string): AgentProposal[] {
+  const rootPath = proposalsDir(slug)
+  if (!existsSync(rootPath)) return []
+  const root = secureProposalRoot(slug)
+  pruneStaleProposalStages(slug)
+  const candidates: { path: string; id: string; rootReal: string }[] = []
+  let entryBudget = MAX_LIST_DIRECTORY_ENTRIES_SCANNED
+  const rootEntries = boundedDirectoryEntries(root.path, Math.min(entryBudget, MAX_LISTED_PROPOSALS * 2))
+  entryBudget -= rootEntries.length
+  for (const entry of rootEntries) {
+    if (candidates.length >= Math.floor(MAX_LISTED_PROPOSALS / 2)) break
+    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith('.json')) continue
+    candidates.push({ path: join(root.path, entry.name), id: entry.name, rootReal: root.real })
+  }
+  const queuedPath = join(root.path, 'queued')
+  if (existsSync(queuedPath) && candidates.length < MAX_LISTED_PROPOSALS && entryBudget > 0) {
+    const queued = secureProposalDirectory(slug, ['queued'])
+    let batchesScanned = 0
+    const batchEntries = boundedDirectoryEntries(
+      queued.path,
+      Math.min(entryBudget, MAX_BATCH_DIRECTORIES_SCANNED)
+    )
+    entryBudget -= batchEntries.length
+    for (const batchEntry of batchEntries) {
+      if (candidates.length >= MAX_LISTED_PROPOSALS) break
+      if (!batchEntry.isDirectory() || batchEntry.isSymbolicLink() || !INBOX_BATCH_ID.test(batchEntry.name)) continue
+      batchesScanned++
+      if (batchesScanned > MAX_BATCH_DIRECTORIES_SCANNED) break
+      const batch = secureProposalDirectory(slug, ['queued', batchEntry.name])
+      const remaining = MAX_LISTED_PROPOSALS - candidates.length
+      if (entryBudget <= 0) break
+      const files = boundedDirectoryEntries(
+        batch.path,
+        Math.min(entryBudget, remaining * 2, MAX_LISTED_PROPOSALS)
+      )
+      entryBudget -= files.length
+      for (const file of files) {
+        if (candidates.length >= MAX_LISTED_PROPOSALS) break
+        if (!file.isFile() || file.isSymbolicLink() || !/^\d{4}\.json$/.test(file.name)) continue
+        candidates.push({
+          path: join(batch.path, file.name),
+          id: `${batchEntry.name}--${file.name}`,
+          rootReal: batch.rootReal
+        })
+      }
+    }
+  }
+  return candidates
+    .flatMap(({ path, id, rootReal }) => {
+      try {
+        assertSecureProposalFile(path, rootReal)
+        if (statSync(path).size > 512 * 1024) return []
+        const parsed = JSON.parse(readFileSync(path, 'utf8')) as AgentProposal
+        if (
+          parsed.version !== 1 || parsed.status !== 'pending' || !parsed.id || !parsed.voucher ||
+          !isIsoInstant(parsed.createdAt)
+        ) return []
+        return [{ ...parsed, id }]
+      } catch {
+        return []
+      }
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+    .slice(0, 200)
+}
+
+/**
+ * A proposal review is still subject to the company's posting controls. An approval click can
+ * therefore be refused by discount authority or routed into maker-checker instead of silently
+ * becoming a back door around the ordinary voucher screen.
+ */
+export function approveProposal(
+  db: DB,
+  slug: string,
+  file: string,
+  actor: VoucherPostingActor | null,
+  authorize?: (input: VoucherInputParsed) => void,
+  hooks: { beforeArchiveMove?: () => void } = {}
+): ControlledVoucherPostResult {
+  const name = safeProposalName(file)
+  const location = proposalLocation(slug, name)
+  const path = location.path
+  // Validate/create the archive destination before any accounting write. A symlink here must
+  // never turn a successful review into an external move after the DB transaction commits.
+  const reviewed = secureProposalDirectory(slug, ['reviewed'], true)
+  const resultRow = db.prepare(
+    `SELECT proposal_sha256 AS proposalSha256,proposal_json AS proposalJson,result_kind AS resultKind,
+            result_id AS resultId,result_json AS resultJson
+     FROM agent_proposal_results WHERE proposal_id=?`
+  )
+  type ResultRow = {
+    proposalSha256: string
+    proposalJson: string
+    resultKind: 'voucher' | 'approval_request'
+    resultId: number
+    resultJson: string
+  }
+  const decodeResult = (row: ResultRow): ControlledVoucherPostResult => {
+    const result = JSON.parse(row.resultJson) as ControlledVoucherPostResult
+    const identity = result.approvalRequired ? result.request.id : result.id
+    const kind = result.approvalRequired ? 'approval_request' : 'voucher'
+    if (identity !== row.resultId || kind !== row.resultKind) {
+      throw new Error('Stored proposal result is inconsistent')
+    }
+    return result
+  }
+  const archive = (): void => {
+    if (!existsSync(path)) return
+    assertSecureProposalFile(path, location.rootReal)
+    const destination = join(reviewed.path, `${stamp()}-${randomUUID()}-${name}`)
+    hooks.beforeArchiveMove?.()
+    renameSync(path, destination)
+    assertSecureProposalFile(destination, reviewed.rootReal)
+  }
+
+  const previous = resultRow.get(name) as ResultRow | undefined
+  if (previous) {
+    authorize?.(voucherInputSchema.parse(JSON.parse(previous.proposalJson)))
+    if (existsSync(path)) {
+      const pending = readProposal(slug, name)
+      if (pending.sha256 !== previous.proposalSha256) {
+        throw new Error('Proposal content changed after it was processed')
+      }
+      // The accounting result is already durable. Archival is housekeeping on a replay and must
+      // not turn a successful, idempotent retry into another apparent posting failure.
+      try {
+        archive()
+      } catch (error) {
+        log('warn', 'agent-proposal-archive-retry-failed', {
+          slug,
+          proposalId: name,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+    return decodeResult(previous)
+  }
+
+  const { proposal, sha256 } = readProposal(slug, name)
+  const input = voucherInputSchema.parse(proposal.voucher)
+  authorize?.(input)
+  assertVoucherDiscountAuthority(db, input, actor)
+  const saved = runAsAuditUser(`agent-${proposal.source}`, () =>
+    db.transaction(() => {
+      // Recheck under the write transaction so two near-simultaneous approvals share one result.
+      const concurrent = resultRow.get(name) as ResultRow | undefined
+      if (concurrent) {
+        if (concurrent.proposalSha256 !== sha256) {
+          throw new Error('Proposal content changed while it was being processed')
+        }
+        return decodeResult(concurrent)
+      }
+      const result = postVoucherWithApprovalControl(db, input, actor)
+      const resultKind = result.approvalRequired ? 'approval_request' : 'voucher'
+      const resultId = result.approvalRequired ? result.request.id : result.id
+      db.prepare(
+        `INSERT INTO agent_proposal_results
+         (proposal_id,proposal_sha256,proposal_json,result_kind,result_id,result_json)
+         VALUES(?,?,?,?,?,?)`
+      ).run(name, sha256, JSON.stringify(input), resultKind, resultId, JSON.stringify(result))
+      return result
+    })()
+  )
+  // Deliberately after the DB commit. If this fails, the durable result above makes every retry
+  // return the same voucher/request rather than posting again.
+  archive()
+  return saved
+}
+
+export function discardProposal(
+  slug: string,
+  file: string,
+  authorize?: (proposal: AgentProposal) => void
+): void {
+  const proposal = getProposal(slug, file)
+  authorize?.(proposal)
+  const name = proposal.id
+  const location = proposalLocation(slug, name)
+  assertSecureProposalFile(location.path, location.rootReal)
+  rmSync(location.path)
+}
+
 /** FY label for a voucher date, e.g. '2025-26' for anything in FY 2025-04-01..2026-03-31. */
 function fyLabel(date: string): string {
   const startYear = Number(fyOf(date).from.slice(0, 4))
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`
+}
+
+const mirrorJsonSchema = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: 'total://schemas/agent-mirror-v2',
+  title: 'Total agent mirror v2 payloads',
+  $defs: {
+    ledgers: {
+      type: 'array',
+      items: {
+        type: 'object', required: ['id', 'name', 'groupId', 'groupName', 'openingBalance'],
+        properties: {
+          id: { type: 'integer', minimum: 1 }, name: { type: 'string' },
+          groupId: { type: 'integer', minimum: 1 }, groupName: { type: 'string' },
+          openingBalance: { type: 'integer', description: 'Integer paise' }
+        },
+        additionalProperties: true
+      }
+    },
+    vouchers: {
+      type: 'array',
+      items: {
+        type: 'object', required: ['id', 'date', 'lines'],
+        properties: {
+          id: { type: 'integer', minimum: 1 }, date: { type: 'string', format: 'date' },
+          lines: {
+            type: 'array',
+            items: {
+              type: 'object', required: ['ledgerId', 'drCr', 'amount'],
+              properties: {
+                ledgerId: { type: 'integer', minimum: 1 },
+                drCr: { enum: ['dr', 'cr'] }, amount: { type: 'integer', minimum: 0 }
+              },
+              additionalProperties: true
+            }
+          }
+        },
+        additionalProperties: true
+      }
+    },
+    trialBalance: { type: 'object', required: ['asOn', 'rows', 'totalDebit', 'totalCredit'], additionalProperties: true },
+    outstandings: { type: 'object', required: ['asOn', 'receivable', 'payable'], additionalProperties: true }
+  }
+} as const
+
+function assertMirrorRelativePath(path: string): void {
+  if (
+    path.length < 1 || path.length > 180 || path.includes('\\') || isAbsolute(path) ||
+    path !== posix.normalize(path) || path.split('/').some((part) => part === '.' || part === '..') ||
+    !MIRROR_FILE_NAME.test(path)
+  ) throw new Error(`Unsafe mirror path: ${path}`)
+}
+
+function mirrorSchemaFor(name: string): { id: string; ref: string | null } {
+  if (name === 'ledgers.json') return { id: 'total.mirror.ledgers.v2', ref: 'schemas/mirror.schema.json#/$defs/ledgers' }
+  if (/^vouchers-\d{4}-\d{2}\.json$/.test(name)) {
+    return { id: 'total.mirror.vouchers.v2', ref: 'schemas/mirror.schema.json#/$defs/vouchers' }
+  }
+  if (name === 'trial-balance.json') return { id: 'total.mirror.trial-balance.v2', ref: 'schemas/mirror.schema.json#/$defs/trialBalance' }
+  if (name === 'outstandings.json') return { id: 'total.mirror.outstandings.v2', ref: 'schemas/mirror.schema.json#/$defs/outstandings' }
+  if (name === 'ledgers.csv') return { id: 'total.mirror.ledgers-csv.v2', ref: null }
+  if (name === 'items.csv') return { id: 'total.mirror.items-csv.v2', ref: null }
+  if (name === 'schemas/mirror.schema.json') return { id: 'total.mirror.schemas.v2', ref: null }
+  throw new Error(`Unsupported mirror file: ${name}`)
+}
+
+function sha256(content: Buffer | string): string {
+  return createHash('sha256').update(content).digest('hex')
+}
+
+/**
+ * Verify an on-disk generation without trusting paths or sizes declared by its metadata. This is
+ * also useful to agents that copy a mirror and want to reject a partial or tampered projection.
+ */
+export function verifyMirrorManifest(dir: string): MirrorManifestV2 {
+  const rootEntry = lstatSync(dir)
+  if (rootEntry.isSymbolicLink() || !rootEntry.isDirectory()) throw new Error('Mirror is not a regular directory')
+  const rootReal = realpathSync(dir)
+  const metaPath = join(dir, 'meta.json')
+  const metaEntry = lstatSync(metaPath)
+  if (metaEntry.isSymbolicLink() || !metaEntry.isFile() || metaEntry.size > MAX_MIRROR_MANIFEST_BYTES) {
+    throw new Error('Mirror metadata is invalid or exceeds 1 MB')
+  }
+  assertPathContained(rootReal, realpathSync(metaPath))
+  const parsed = JSON.parse(readFileSync(metaPath, 'utf8')) as Partial<MirrorManifestV2>
+  if (
+    parsed.schema !== MIRROR_SCHEMA_ID || parsed.schemaVersion !== MIRROR_SCHEMA_VERSION ||
+    typeof parsed.generationId !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(parsed.generationId) ||
+    typeof parsed.generatedAt !== 'string' || !isIsoInstant(parsed.generatedAt) ||
+    typeof parsed.company !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parsed.company) ||
+    parsed.units?.amount?.name !== 'paise' || parsed.units.amount.type !== 'integer' ||
+    parsed.units.amount.scale !== 100 || parsed.units.amount.currency !== 'INR' ||
+    parsed.units?.quantity?.name !== 'milli-unit' || parsed.units.quantity.type !== 'integer' ||
+    parsed.units.quantity.scale !== 1000 ||
+    !parsed.manifest || parsed.manifest.algorithm !== 'sha256' || !Array.isArray(parsed.manifest.files)
+  ) throw new Error('Mirror metadata does not match the v2 contract')
+  if (parsed.manifest.files.length > MAX_MIRROR_FILES) throw new Error('Mirror contains too many files')
+
+  const paths = new Set<string>()
+  const ids = new Set<string>()
+  let totalBytes = 0
+  for (const file of parsed.manifest.files) {
+    if (!file || typeof file.path !== 'string') throw new Error('Mirror file entry is invalid')
+    assertMirrorRelativePath(file.path)
+    if (paths.has(file.path)) throw new Error(`Duplicate mirror path: ${file.path}`)
+    paths.add(file.path)
+    if (typeof file.id !== 'string' || file.id.length > 100 || !/^total\.mirror\.[a-z0-9.-]+\.v2$/.test(file.id)) {
+      throw new Error(`Invalid mirror schema identifier for ${file.path}`)
+    }
+    if (file.schemaId !== file.id) throw new Error(`Mirror schema identifier mismatch: ${file.path}`)
+    const expectedSchema = mirrorSchemaFor(file.path)
+    if (file.id !== expectedSchema.id || file.schemaRef !== expectedSchema.ref) {
+      throw new Error(`Unexpected mirror schema for ${file.path}`)
+    }
+    const expectedMediaType = file.path.endsWith('.csv') ? 'text/csv' : 'application/json'
+    if (file.mediaType !== expectedMediaType) throw new Error(`Invalid mirror media type: ${file.path}`)
+    // FY voucher files deliberately share one stable schema identifier.
+    if (ids.has(file.id) && file.id !== 'total.mirror.vouchers.v2') throw new Error(`Duplicate mirror identifier: ${file.id}`)
+    ids.add(file.id)
+    if (!Number.isSafeInteger(file.bytes) || file.bytes < 0 || file.bytes > MAX_MIRROR_FILE_BYTES) {
+      throw new Error(`Mirror file exceeds the 64 MB limit: ${file.path}`)
+    }
+    totalBytes += file.bytes
+    if (totalBytes > MAX_MIRROR_TOTAL_BYTES) throw new Error('Mirror exceeds the 512 MB total limit')
+    if (!/^[a-f0-9]{64}$/.test(file.sha256)) throw new Error(`Invalid mirror digest: ${file.path}`)
+    if (file.schemaRef !== null && (
+      typeof file.schemaRef !== 'string' || !file.schemaRef.startsWith('schemas/mirror.schema.json#/')
+    )) throw new Error(`Invalid mirror schema reference: ${file.path}`)
+    const path = join(dir, ...file.path.split('/'))
+    const entry = lstatSync(path)
+    if (entry.isSymbolicLink() || !entry.isFile()) throw new Error(`Mirror payload is not a regular file: ${file.path}`)
+    assertPathContained(rootReal, realpathSync(path))
+    if (entry.size !== file.bytes) throw new Error(`Mirror byte count mismatch: ${file.path}`)
+    if (sha256(readFileSync(path)) !== file.sha256) throw new Error(`Mirror digest mismatch: ${file.path}`)
+  }
+  if (!Array.isArray(parsed.files) || parsed.files.some((file) => typeof file !== 'string' || !paths.has(file))) {
+    throw new Error('Legacy mirror file list is invalid')
+  }
+  if (new Set(parsed.files).size !== parsed.files.length) throw new Error('Legacy mirror file list contains duplicates')
+  for (const file of parsed.manifest.files) {
+    const schemaPath = file.schemaRef?.split('#', 1)[0]
+    if (schemaPath && !paths.has(schemaPath)) throw new Error(`Mirror schema is missing: ${schemaPath}`)
+  }
+  return parsed as MirrorManifestV2
 }
 
 /**
@@ -67,21 +620,65 @@ function fyLabel(date: string): string {
  *   outstandings.json, meta.json (schema version + generated-at + voucher types).
  * Amounts are integer paise, quantities integer milli-units — lossless, same as the DB.
  */
-export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): MirrorResult {
+export function exportMirror(
+  db: DB,
+  slug: string,
+  opts: MirrorOptions = {},
+  hooks: MirrorExportHooks = {}
+): MirrorResult {
   const what = opts.what ?? 'all'
   const format = opts.format ?? 'all'
   const dir = agentDir(slug)
-  mkdirSync(dir, { recursive: true })
-  const files: string[] = []
-  const writeOut = (name: string, content: string): void => {
-    writeFileSync(join(dir, name), content)
-    files.push(name)
+  const company = companyDir(slug)
+  const companyEntry = lstatSync(company)
+  if (companyEntry.isSymbolicLink() || !companyEntry.isDirectory()) {
+    throw new Error('Company storage is not a regular directory')
   }
+  const companyReal = realpathSync(company)
+  if (existsSync(dir)) {
+    const current = lstatSync(dir)
+    if (current.isSymbolicLink() || !current.isDirectory()) throw new Error('Mirror storage is not a regular directory')
+    assertPathContained(companyReal, realpathSync(dir))
+  }
+
+  const generationId = randomUUID()
+  const stagingDir = join(company, `.agent-staging-${generationId}`)
+  const previousDir = join(company, `.agent-previous-${generationId}`)
+  mkdirSync(stagingDir, { mode: 0o700 })
+  assertPathContained(companyReal, realpathSync(stagingDir))
+
+  const files: string[] = []
+  const entries: MirrorFileManifest[] = []
+  let totalBytes = 0
+  const writePayload = (name: string, content: string, legacy = true): void => {
+    assertMirrorRelativePath(name)
+    if (entries.length >= MAX_MIRROR_FILES) throw new Error('Mirror contains too many files')
+    const bytes = Buffer.byteLength(content)
+    if (bytes > MAX_MIRROR_FILE_BYTES) throw new Error(`Mirror file exceeds the 64 MB limit: ${name}`)
+    totalBytes += bytes
+    if (totalBytes > MAX_MIRROR_TOTAL_BYTES) throw new Error('Mirror exceeds the 512 MB total limit')
+    const path = join(stagingDir, ...name.split('/'))
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+    writeFileSync(path, content, { mode: 0o600 })
+    const schema = mirrorSchemaFor(name)
+    entries.push({
+      id: schema.id,
+      path: name,
+      mediaType: name.endsWith('.csv') ? 'text/csv' : 'application/json',
+      bytes,
+      sha256: sha256(content),
+      schemaId: schema.id,
+      schemaRef: schema.ref
+    })
+    if (legacy) files.push(name)
+  }
+  const writeOut = (name: string, content: string): void => writePayload(name, content)
   const wantCsv = format !== 'json'
   const wantJson = format !== 'csv'
   const asOn = opts.to ?? todayISO()
 
-  if (what === 'masters' || what === 'all') {
+  try {
+    if (what === 'masters' || what === 'all') {
     const groups = new Map(masters.listGroups(db).map((g) => [g.id, g.name]))
     const ledgers = masters.listLedgers(db).map((l) => ({ ...l, groupName: groups.get(l.groupId) ?? '' }))
     if (wantCsv) {
@@ -115,9 +712,9 @@ export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): Mi
         )
       )
     }
-  }
+    }
 
-  if ((what === 'vouchers' || what === 'all') && wantJson) {
+    if ((what === 'vouchers' || what === 'all') && wantJson) {
     const conds = [NOT_DELETED]
     const params: string[] = []
     if (opts.from) { conds.push('v.date >= ?'); params.push(opts.from) }
@@ -136,9 +733,9 @@ export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): Mi
     for (const [label, vouchersOfFy] of byFy) {
       writeOut(`vouchers-${label}.json`, JSON.stringify(vouchersOfFy, null, 2))
     }
-  }
+    }
 
-  if ((what === 'reports' || what === 'all') && wantJson) {
+    if ((what === 'reports' || what === 'all') && wantJson) {
     writeOut('trial-balance.json', JSON.stringify({ asOn, ...trialBalance(db, asOn) }, null, 2))
     writeOut(
       'outstandings.json',
@@ -148,26 +745,58 @@ export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): Mi
         2
       )
     )
-  }
+    }
 
-  const voucherTypes = masters.listVoucherTypes(db)
-  writeOut(
-    'meta.json',
-    JSON.stringify(
-      {
+    writePayload('schemas/mirror.schema.json', JSON.stringify(mirrorJsonSchema, null, 2), false)
+    const voucherTypes = masters.listVoucherTypes(db)
+    const meta: MirrorManifestV2 = {
+        schema: MIRROR_SCHEMA_ID,
         schemaVersion: MIRROR_SCHEMA_VERSION,
+        generationId,
         generatedAt: new Date().toISOString(),
         company: slug,
+        units: {
+          amount: { name: 'paise', type: 'integer', scale: 100, currency: 'INR' },
+          quantity: { name: 'milli-unit', type: 'integer', scale: 1000 }
+        },
         amountsUnit: 'paise (integer, 100 paise = 1 rupee)',
         quantitiesUnit: 'milli-units (integer, 1000 = 1 unit)',
         voucherTypes,
-        files
-      },
-      null,
-      2
-    )
-  )
-  return { dir, files }
+        files,
+        manifest: { algorithm: 'sha256', files: entries },
+        schemas: { payloads: 'schemas/mirror.schema.json' }
+    }
+    const metaText = JSON.stringify(meta, null, 2)
+    if (Buffer.byteLength(metaText) > MAX_MIRROR_MANIFEST_BYTES) throw new Error('Mirror metadata exceeds 1 MB')
+    writeFileSync(join(stagingDir, 'meta.json'), metaText, { mode: 0o600 })
+    verifyMirrorManifest(stagingDir)
+    hooks.beforePromote?.(stagingDir)
+
+    let previousMoved = false
+    try {
+      if (existsSync(dir)) {
+        renameSync(dir, previousDir)
+        previousMoved = true
+        hooks.afterPreviousMoved?.()
+      }
+      renameSync(stagingDir, dir)
+    } catch (error) {
+      if (previousMoved && !existsSync(dir) && existsSync(previousDir)) renameSync(previousDir, dir)
+      throw error
+    }
+    if (existsSync(previousDir)) {
+      try { rmSync(previousDir, { recursive: true }) } catch (error) {
+        log('warn', 'agent-mirror-previous-cleanup-failed', {
+          slug, error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+    return { dir, files: [...files, 'meta.json'] }
+  } catch (error) {
+    if (existsSync(stagingDir)) rmSync(stagingDir, { recursive: true, force: true })
+    if (!existsSync(dir) && existsSync(previousDir)) renameSync(previousDir, dir)
+    throw error
+  }
 }
 
 // ---------- debounced auto-refresh after saveVoucher (feature-flag gated in ipc.ts) ----------
@@ -251,19 +880,141 @@ class CsvRowErrors extends Error {
   }
 }
 
+/** Pure posting validation for inert proposals. It catches unbalanced/invalid accounting drafts
+ * without allocating a voucher number, touching period state, or calling saveVoucher. */
+function validateInertVoucher(db: DB, input: VoucherInputParsed): void {
+  const voucherType = db.prepare('SELECT kind FROM voucher_types WHERE id=?').get(input.voucherTypeId) as
+    | { kind: VoucherKind }
+    | undefined
+  if (!voucherType) throw new Error('Voucher type not found')
+  const cashBankGroups = masters.cashBankGroupIds(db)
+  const ledger = db.prepare('SELECT group_id AS groupId FROM ledgers WHERE id=?')
+  const cache = new Map<number, LedgerFacts>()
+  const facts = (id: number): LedgerFacts => {
+    const known = cache.get(id)
+    if (known) return known
+    const row = ledger.get(id) as { groupId: number } | undefined
+    const resolved = { exists: !!row, isCashOrBank: !!row && cashBankGroups.has(row.groupId) }
+    cache.set(id, resolved)
+    return resolved
+  }
+  const errors = validateVoucher(input, voucherType.kind, facts)
+  if (errors.length > 0) throw new Error(errors.map((error) => error.message).join('; '))
+}
+
+interface InboxProposalBatchHooks {
+  /** @internal Deterministic filesystem-failure injection used by DB tests. */
+  beforeStageWrite?: (index: number) => void
+  /** @internal Simulates a source-file move failure after a batch is durably promoted. */
+  beforeSourceMove?: () => void
+}
+
 /**
- * Validate + apply one dropped file, then move it to `inbox/processed/<ts>-<file>` on success or
- * `inbox/failed/<file>` (+ `<file>.error.txt`) on failure. `*.json` = voucher input (single object
- * or array); `*.csv` = masters import (ledgers/items, sniffed from the header). BOTH kinds apply
- * atomically per file — any bad voucher or bad CSV row rolls back the entire drop, so a failure
- * report always truthfully means "nothing was applied". All writes are audited as user
- * 'agent-inbox' and run through the same validation/period-lock path as the UI.
+ * Materialise one JSON drop as a content-and-file-identity-addressed proposal batch. Files are
+ * invisible under a hidden staging directory until one atomic directory rename exposes the
+ * complete batch. The deterministic destination doubles as a durable completion marker: a retry after promotion
+ * reuses the batch even if the source drop could not yet be moved to processed/.
+ */
+function createInboxProposalBatch(
+  slug: string,
+  sourcePath: string,
+  sourceText: string,
+  inputs: VoucherInputParsed[],
+  hooks: InboxProposalBatchHooks
+): number {
+  if (inputs.length > 9999) throw new Error('A voucher proposal batch cannot exceed 9,999 entries')
+  const sourceSha256 = createHash('sha256').update(sourceText).digest('hex')
+  const sourceStat = statSync(sourcePath)
+  // Bind idempotency to this physical drop as well as its bytes. Retrying the same file reuses
+  // the batch, while a genuinely new file with intentionally identical vouchers remains valid.
+  const dropFingerprint = createHash('sha256')
+    .update(sourceSha256)
+    .update(`:${sourceStat.dev}:${sourceStat.ino}:${sourceStat.birthtimeMs}:${sourceStat.size}`)
+    .digest('hex')
+  const batchId = `inbox-${dropFingerprint}`
+  secureProposalRoot(slug, true)
+  const queued = secureProposalDirectory(slug, ['queued'], true)
+  const destination = join(queued.path, batchId)
+  const manifestName = '.manifest.json'
+  const expectedManifest = { version: 1, sourceSha256, count: inputs.length }
+  const verifyExisting = (): number => {
+    const batch = secureProposalDirectory(slug, ['queued', batchId])
+    const manifest = join(batch.path, manifestName)
+    assertSecureProposalFile(manifest, batch.rootReal)
+    const parsed = JSON.parse(readFileSync(manifest, 'utf8')) as typeof expectedManifest
+    if (parsed.version !== 1 || parsed.sourceSha256 !== sourceSha256 || parsed.count !== inputs.length) {
+      throw new Error('Existing inbox proposal batch is inconsistent')
+    }
+    return parsed.count
+  }
+
+  if (existsSync(destination)) return verifyExisting()
+
+  const stagingRoot = secureProposalDirectory(slug, ['.staging'], true)
+  const stagingName = `${batchId}-${randomUUID()}`
+  const staging = join(stagingRoot.path, stagingName)
+  mkdirSync(staging, { mode: 0o700 })
+  secureProposalDirectory(slug, ['.staging', stagingName])
+  const removeOwnStaging = (): void => {
+    if (!existsSync(staging)) return
+    const secured = secureProposalDirectory(slug, ['.staging', stagingName])
+    rmSync(secured.path, { recursive: true })
+  }
+  try {
+    const createdAt = new Date().toISOString()
+    for (let index = 0; index < inputs.length; index++) {
+      hooks.beforeStageWrite?.(index)
+      const file = `${String(index + 1).padStart(4, '0')}.json`
+      const id = `${batchId}--${file}`
+      const proposal: AgentProposal = {
+        version: 1,
+        id,
+        createdAt,
+        source: 'external',
+        status: 'pending',
+        summary: `Inbox voucher proposal${inputs.length > 1 ? ` ${index + 1}/${inputs.length}` : ''} · ${inputs[index]!.date}`,
+        voucher: inputs[index]
+      }
+      writeFileSync(join(staging, file), JSON.stringify(proposal, null, 2), { flag: 'wx', mode: 0o600 })
+    }
+    writeFileSync(join(staging, manifestName), JSON.stringify(expectedManifest), { flag: 'wx', mode: 0o600 })
+    try {
+      renameSync(staging, destination)
+      secureProposalDirectory(slug, ['queued', batchId])
+    } catch (error) {
+      // Another process may have promoted the same drop batch first. Its manifest
+      // is authoritative; otherwise preserve the original promotion failure.
+      if (existsSync(destination)) {
+        removeOwnStaging()
+        return verifyExisting()
+      }
+      throw error
+    }
+    return inputs.length
+  } catch (error) {
+    // Only this invocation's UUID-scoped staging tree is removed. No earlier or unrelated
+    // proposal can be touched, and a partially written batch was never visible to reviewers.
+    removeOwnStaging()
+    throw error
+  }
+}
+
+/**
+ * Validate one dropped file, then move it to `inbox/processed/<ts>-<file>` on success or
+ * `inbox/failed/<file>` (+ `<file>.error.txt`) on failure. `*.json` = inert voucher proposal
+ * (single object or array); `*.csv` = masters import (ledgers/items, sniffed from the header).
+ * JSON never changes the books. CSV applies atomically per file and is audited as agent-inbox.
  *
  * Concurrent writers: agents that write the drop in place (no temp-file-then-rename) can be read
  * mid-write. When the content doesn't parse, the file is re-read after a short pause for as long
  * as it keeps changing (bounded) — a static malformed file costs exactly one extra read.
  */
-export function processInboxFile(db: DB, slug: string, filePath: string): InboxOutcome {
+export function processInboxFile(
+  db: DB,
+  slug: string,
+  filePath: string,
+  proposalBatchHooks: InboxProposalBatchHooks = {}
+): InboxOutcome {
   const inbox = inboxDir(slug)
   const name = basename(filePath)
   const processedDir = join(inbox, 'processed')
@@ -280,6 +1031,7 @@ export function processInboxFile(db: DB, slug: string, filePath: string): InboxO
   }
   const succeed = (detail: string): InboxOutcome => {
     const dest = join(processedDir, `${stamp()}-${name}`)
+    proposalBatchHooks.beforeSourceMove?.()
     renameSync(filePath, dest)
     notify('Total — inbox file processed', `${name}: ${detail.slice(0, 180)}`)
     return { file: name, ok: true, detail, movedTo: dest }
@@ -329,17 +1081,12 @@ export function processInboxFile(db: DB, slug: string, filePath: string): InboxO
       }
       const items = Array.isArray(parsed) ? parsed : [parsed]
       if (items.length === 0) return fail('Empty voucher array')
-      // All-or-nothing per file: saveVoucher's own transaction nests as a savepoint inside this
-      // one, so a failure on voucher 3 of 5 rolls back 1-2 as well — no half-applied drops.
-      const posted = runAsAuditUser('agent-inbox', () =>
-        db.transaction(() =>
-          items.map((item) => {
-            const input = voucherInputSchema.parse(item)
-            return saveVoucher(db, input)
-          })
-        )()
-      )
-      return succeed(`posted ${posted.length} voucher(s): ${posted.map((v) => `#${v.number} (id ${v.id})`).join(', ')}`)
+      // Validate the complete file before creating any proposal, so one malformed member leaves
+      // the review queue unchanged. Approval is a separate authenticated action.
+      const inputs = items.map((item) => voucherInputSchema.parse(item))
+      for (const input of inputs) validateInertVoucher(db, input)
+      const proposalCount = createInboxProposalBatch(slug, filePath, text, inputs, proposalBatchHooks)
+      return succeed(`queued ${proposalCount} voucher proposal(s) for review`)
     }
     if (ext === '.csv') {
       for (let attempt = 0; ; attempt++) {

@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows, useKeyNav } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
+import { useKeyNav } from '../components/useKeyNav'
 import { ReportConfigButton } from '../components/ReportConfigButton'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { useReportConfig, type ReportColumn } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -20,7 +22,7 @@ export function TrialBalanceScreen(): React.JSX.Element {
   const { to } = useSession()
   const nav = useNav()
   const toast = useToasts()
-  const { data, isLoading } = useQuery({ queryKey: ['trialBalance', to], queryFn: () => api.reports.trialBalance(to) })
+  const { data, isLoading } = useQuery({ queryKey: ['trialBalance', to], queryFn: ({ signal }) => api.reports.trialBalance(to, signal) })
   const rows = data?.rows ?? []
   const { active, setActive } = useKeyNav(rows.length, (i) => {
     const r = rows[i]
@@ -80,7 +82,7 @@ export function TrialBalanceScreen(): React.JSX.Element {
     <div className="mx-auto max-w-4xl">
       <SectionTitle
         right={
-          <div className="flex items-center gap-2">
+          <ReportToolbar compact>
             <span className="num text-[12px] text-muted">as on {toDisplayDate(to)}</span>
             <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
             <Button
@@ -102,7 +104,7 @@ export function TrialBalanceScreen(): React.JSX.Element {
             >
               CSV
             </Button>
-          </div>
+          </ReportToolbar>
         }
       >
         Trial balance

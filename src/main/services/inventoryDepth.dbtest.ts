@@ -115,6 +115,41 @@ describe('stockAnalysis.stockSummary — valuation methods', () => {
     expect(row.closingQtyMilli).toBe(15000)
     expect(row.closingValue).toBe(450000) // 5 @ avg ₹10 + 10 @ ₹40
   })
+
+  it('explains every running quantity and value through its exact source voucher', () => {
+    const db = seededDb()
+    const id = makeItem(db, 'Auditable Widget', 'weighted_avg', 10000, 100000)
+    const purchase = postStock(db, '2025-05-01', [{ stockItemId: id, qtyMilli: 10000, amount: 200000, direction: 'in' }])
+    const issue = postStock(db, '2025-05-02', [{ stockItemId: id, qtyMilli: 5000, direction: 'out' }])
+    const trail = stockAnalysis.stockMovementTrail(db, id, '2025-05-31')
+    expect(trail.map((row) => row.voucherId)).toEqual([purchase.id, issue.id])
+    expect(trail.map((row) => [row.runningQtyMilli, row.runningValue])).toEqual([
+      [20000, 300000],
+      [15000, 225000]
+    ])
+    expect(trail[1]).toMatchObject({ consumedValue: 75000, direction: 'out' })
+  })
+
+  it('reconciles computed closing stock to the Balance Sheet and identifies carrying-ledger differences', () => {
+    const cleanDb = seededDb()
+    makeItem(cleanDb, 'Computed Stock', 'fifo', 10000, 100000)
+    expect(stockAnalysis.stockValuationReconciliation(cleanDb, '2025-05-31')).toEqual({
+      asOn: '2025-05-31', inventoryValue: 100000, financialStatementValue: 100000,
+      difference: 0, mode: 'computed_closing_stock', carryingLedgerCount: 0
+    })
+
+    const ledgerDb = seededDb()
+    makeItem(ledgerDb, 'Ledger Stock', 'fifo', 10000, 100000)
+    const stockGroup = ledgerDb.prepare("SELECT id FROM groups WHERE name = 'Stock-in-Hand'").get() as { id: number }
+    createLedger(ledgerDb, { name: 'Inventory Control', groupId: stockGroup.id, openingBalance: 60000 })
+    expect(stockAnalysis.stockValuationReconciliation(ledgerDb, '2025-05-31')).toMatchObject({
+      inventoryValue: 100000,
+      financialStatementValue: 60000,
+      difference: 40000,
+      mode: 'stock_ledger_balance',
+      carryingLedgerCount: 1
+    })
+  })
 })
 
 describe('physical stock (absolute) lines', () => {

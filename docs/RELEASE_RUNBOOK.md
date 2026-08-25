@@ -1,0 +1,99 @@
+# Production release runbook
+
+Total releases are fail-closed. A tag is published only after macOS and Windows artifacts have
+both passed signing, integrity, updater-manifest and packaged-launch checks.
+
+## One-time repository secrets
+
+- `MAC_CSC_LINK`: base64 Developer ID Application `.p12`
+- `MAC_CSC_KEY_PASSWORD`: password for that certificate
+- `APPLE_API_KEY`: base64 App Store Connect `.p8` notarization key
+- `APPLE_API_KEY_ID`: App Store Connect key ID
+- `APPLE_API_ISSUER`: App Store Connect issuer ID
+- `WIN_CSC_LINK`: base64 Windows code-signing `.pfx`
+- `WIN_CSC_KEY_PASSWORD`: password for that certificate
+- `GITHUB_TOKEN`: supplied automatically by GitHub Actions
+
+Never store certificates or secret values in the repository. The release workflow refuses to
+build when any credential is absent and electron-builder's `forceCodeSigning` prevents an
+unsigned fallback.
+
+Store the seven signing secrets on the reviewer-protected `release-signing` GitHub environment,
+not as plaintext variables or repository files. `APPLE_API_KEY` is the base64 encoding of the
+complete `.p8` file (including its BEGIN/END lines); the workflow decodes it to a permission-limited
+temporary file because Apple's `notarytool` requires a filesystem path. GitHub environment access
+must remain limited to the `main` branch and require release-owner approval.
+
+## Release
+
+1. Merge the reviewed version commit to protected `main` and wait for the exact commit's push CI to
+   finish successfully. The candidate workflow verifies this through the GitHub API; a passing PR
+   run, ancestor run or still-running workflow does not qualify.
+2. Confirm `package.json` already contains the intended release version. Use `npm version patch` only
+   when intentionally preparing a later patch version, never during promotion of an existing candidate.
+3. Dispatch **Release candidate** with the full `main` commit SHA and exact package version. Record the
+   run ID, run attempt, immutable artifact ID and candidate-manifest SHA-256 from its summary.
+4. Confirm the candidate bundle contains passing GitHub-hosted macOS and Windows install, upgrade,
+   backup, restore, uninstall and data-preservation evidence. Run migration and human acceptance
+   against those exact signed artifacts. Physical Intel and other clean-device testing is optional,
+   best-effort evidence and must not be claimed unless performed. Commit only sanitized approval JSON.
+5. Dispatch **Promote release candidate** with the recorded candidate identity, source revision and
+   version. Promotion re-downloads and verifies every candidate byte, then creates the tag and release.
+6. Confirm the public release contains DMG, ZIP, EXE, blockmaps, `latest-mac.yml`, and `latest.yml`, and
+   confirm the website's `/api/latest` and `/api/download` serve v0.5 correctly.
+
+Do not create or push the release tag manually. The promotion workflow owns tag creation and refuses
+to overwrite an existing tag or release because partial or mixed-version assets would break updates.
+
+## What the gates prove
+
+- Every historical database migration path reaches the current schema and passes SQLite
+  `quick_check` plus `foreign_key_check`.
+- A failed migration restores the exact verified pre-upgrade snapshot.
+- The macOS app and native SQLite module are universal Intel/Apple Silicon binaries.
+- The macOS signature, Gatekeeper assessment and stapled notarization ticket are valid.
+- The Windows application and NSIS installer have valid Authenticode signatures.
+- Both packaged applications launch with `app.isPackaged === true`.
+- The signed candidate source has a completed successful push CI run for that exact commit on `main`.
+- The actual public v0.4 packaged app creates representative inventory and batch movements, a
+  reconciled bank receipt, a committed payroll run, GST and TDS transactions, and owner/viewer
+  access with a company lock. Each platform candidate opens the same books twice and preserves the
+  exact fixture digest, registry entry and lock; the first migrated open also produces a verified
+  backup. The evidence records that v0.4 has no managed voucher attachments, rather than pretending
+  an unsupported attachment migration was exercised.
+- The candidate used by that migration is materialized by the smoke itself from the signed macOS
+  ZIP or Windows NSIS installer. It never launches `dist/mac-*` or `dist/win-unpacked`; evidence
+  records the source artifact digest, extraction/install method, relative executable path and
+  materialized executable digest.
+- The final publication job recalculates the DMG, ZIP and NSIS digests and requires them to match
+  both the executed platform-upgrade evidence and the clean-commit build evidence. It also requires
+  the platform scorecards and evidence files to be hashed by that build evidence. A copied label,
+  an existing script or stale evidence from another commit cannot satisfy the gate.
+- Uninstall removes the installed application while leaving the company database intact.
+- Promotion requires install evidence from fresh GitHub-hosted macOS and Windows jobs. Each record
+  identifies the runner image and exact signed installer, and proves launch, posting, backup preview,
+  restore, uninstall and data preservation. Self-hosted or locally written evidence is rejected.
+- Update manifests match the tag, include SHA-512 integrity metadata, and reference assets in the
+  same release.
+
+## Readiness before and after artifacts
+
+`npm run release:readiness` remains useful on a developer machine: before candidate artifacts exist,
+the public-v0.4 gate is reported as `external` and the command writes the other readiness findings to
+`dist/production-readiness.json`. The release workflow alone uses `--strict --pre-artifact` before
+building; this permits only the upgrade gate to remain pending while all other strict gates still
+apply.
+
+Publication runs readiness again without `--pre-artifact`, with
+`RELEASE_CANDIDATE_EVIDENCE_DIR` pointing at the downloaded macOS and Windows workflow artifacts and
+`RELEASE_REVISION` set to the tagged commit. Missing, modified, wrong-version or wrong-revision
+evidence is a release failure. Do not use `--pre-artifact` in the publication job or as a manual
+waiver.
+
+Before either platform build starts, release CI also exercises support create/track/resolve/delete
+and feedback submit/vote/follow/delete against production. `/api/deployment` must report the exact
+tagged commit, Vercel deployment ID and site product version. `dist/production-services.json` is
+accepted for six hours only. The publication job repeats the entire synthetic lifecycle in case
+production was redeployed while platform builds were running, replaces the earlier evidence with
+that result, and publishes it with the release evidence. Provider credentials or historical JSON
+files do not satisfy this gate.

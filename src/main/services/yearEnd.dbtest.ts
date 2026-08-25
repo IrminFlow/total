@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { seededDb, TEST_INFO } from '../db/testdb'
+import { inspectBackup } from '../db/backup'
+import { ensureCompanyTree } from '../paths'
 import { createLedger } from './masters'
 import { saveVoucher, getLockDate } from './vouchers'
+import { createYearEndRestorePoint } from './resilience'
 import { closePreview, postClose } from './yearEnd'
 import { trialBalance } from './reports'
 import { fyOf, todayISO } from '@shared/dates'
@@ -172,6 +178,59 @@ describe('year-end close', () => {
   it('refuses to close a FY with no income/expense activity', () => {
     const db = seededDb()
     expect(() => postClose(db, TEST_INFO, 2025)).toThrow(/no income or expense activity/i)
+  })
+
+  it('takes a verified pre-close restore point before the closing journal mutates the books', () => {
+    const root = mkdtempSync(join(tmpdir(), 'total-year-end-restore-'))
+    process.env.TOTAL_DATA_DIR = root
+    try {
+      const slug = 'year-end-restore-books'
+      ensureCompanyTree(slug)
+      const db = seededDb()
+      const cashId = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+      const salesId = ledgerUnder(db, 'Restore Point Sales', 'Direct Incomes')
+      journal(db, '2025-06-01', [
+        { ledgerId: cashId, drCr: 'dr', amount: 100000, costAllocations: [] },
+        { ledgerId: salesId, drCr: 'cr', amount: 100000, costAllocations: [] }
+      ])
+      const beforeCount = (db.prepare('SELECT COUNT(*) AS count FROM vouchers').get() as { count: number }).count
+      let restorePoint = ''
+
+      const result = postClose(db, TEST_INFO, 2025, () => {
+        expect(getLockDate(db)).toBeNull()
+        restorePoint = createYearEndRestorePoint(db, slug, 2025)
+      })
+
+      expect(result.lockedUpTo).toBe('2026-03-31')
+      expect(restorePoint).toMatch(/year-end-pre-close-fy2025-/)
+      expect(inspectBackup(restorePoint)).toMatchObject({
+        valid: true,
+        voucherCount: beforeCount,
+      })
+      expect((db.prepare('SELECT COUNT(*) AS count FROM vouchers').get() as { count: number }).count).toBe(beforeCount + 1)
+      db.close()
+    } finally {
+      delete process.env.TOTAL_DATA_DIR
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not post or lock when the pre-close restore-point step fails', () => {
+    const db = seededDb()
+    const cashId = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const salesId = ledgerUnder(db, 'Safety Sales', 'Direct Incomes')
+    journal(db, '2025-06-01', [
+      { ledgerId: cashId, drCr: 'dr', amount: 100000, costAllocations: [] },
+      { ledgerId: salesId, drCr: 'cr', amount: 100000, costAllocations: [] }
+    ])
+    const beforeCount = (db.prepare('SELECT COUNT(*) AS count FROM vouchers').get() as { count: number }).count
+
+    expect(() => postClose(db, TEST_INFO, 2025, () => {
+      throw new Error('snapshot unavailable')
+    })).toThrow(/snapshot unavailable/)
+    expect(getLockDate(db)).toBeNull()
+    expect((db.prepare('SELECT COUNT(*) AS count FROM vouchers').get() as { count: number }).count).toBe(beforeCount)
+    expect(closePreview(db, 2025).alreadyClosed).toBe(false)
   })
 
   it('refuses to close the running (not-yet-ended) financial year', () => {

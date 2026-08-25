@@ -1,16 +1,26 @@
-// Inbox drop-folder semantics: valid voucher JSON posts (audited as 'agent-inbox') and moves to
+// Inbox drop-folder semantics: valid voucher JSON creates inert review proposals and moves to
 // processed/; invalid drops move to failed/ with an .error.txt; multi-voucher files are atomic.
 // The fs.watch wiring itself isn't timing-tested here — scanInbox/processInboxFile ARE the watcher
 // callback body, so this covers the whole pipeline deterministically.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync, mkdtempSync } from 'fs'
+import {
+  existsSync, mkdirSync, readdirSync, readFileSync, renameSync, symlinkSync,
+  utimesSync, writeFileSync, rmSync, mkdtempSync
+} from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { setAuditContext } from './audit'
 import { getAgentBridgeEnabled, setAgentBridgeEnabled } from './config'
-import { inboxDir, processInboxFile, scanInbox } from './agentBridge'
+import {
+  approveProposal, createProposal, discardProposal, getProposal, inboxDir,
+  listProposals, processInboxFile, scanInbox
+} from './agentBridge'
 import { cmdCreateCompany, openCompany } from '../cli/commands'
 import type { DB } from '../db/connection'
+import { companyDir } from '../paths'
+import { saveDiscountPolicy } from './discountAuthority'
+import { listApprovalRequests, setApprovalPolicy } from './approvals'
+import { saveUser } from './users'
 
 let dataDir: string
 let prevDataDir: string | undefined
@@ -82,7 +92,11 @@ describe('inbox drop processing', () => {
     expect(audit.user_name).toBe('agent-inbox')
   })
 
-  it('posts a valid voucher JSON drop and audits it as agent-inbox', () => {
+  it('turns a valid voucher JSON drop into an inert review proposal', () => {
+    const before = voucherCount()
+    const voucherAuditsBefore = (db.prepare(
+      "SELECT COUNT(*) AS n FROM audit_log WHERE entity='voucher'"
+    ).get() as { n: number }).n
     const file = join(inbox, 'sale.json')
     writeFileSync(
       file,
@@ -98,14 +112,13 @@ describe('inbox drop processing', () => {
     )
     const outcome = processInboxFile(db, slug, file)
     expect(outcome.ok).toBe(true)
-    expect(outcome.detail).toContain('posted 1 voucher')
-    expect(voucherCount()).toBe(1)
-    const audit = db
-      .prepare("SELECT user_name FROM audit_log WHERE entity = 'voucher' ORDER BY id DESC LIMIT 1")
-      .get() as { user_name: string }
-    expect(audit.user_name).toBe('agent-inbox')
-    // The app session user is restored after the inbox write.
-    db.prepare("SELECT 1").get()
+    expect(outcome.detail).toContain('queued 1 voucher proposal')
+    expect(voucherCount()).toBe(before)
+    expect(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity='voucher'").get())
+      .toEqual({ n: voucherAuditsBefore })
+    const proposal = listProposals(slug).find((row) => row.source === 'external')
+    expect(proposal).toMatchObject({ status: 'pending', source: 'external' })
+    discardProposal(slug, proposal!.id)
   })
 
   it('rejects an invalid drop into failed/ with an error file, changing nothing', () => {
@@ -129,6 +142,7 @@ describe('inbox drop processing', () => {
 
   it('is atomic across a multi-voucher file — one bad voucher rolls back the whole drop', () => {
     const before = voucherCount()
+    const proposalsBefore = listProposals(slug).length
     const good = {
       voucherTypeId: receiptTypeId(),
       date: '2025-08-03',
@@ -142,7 +156,94 @@ describe('inbox drop processing', () => {
     writeFileSync(file, JSON.stringify([good, good, bad]))
     const outcome = processInboxFile(db, slug, file)
     expect(outcome.ok).toBe(false)
-    expect(voucherCount()).toBe(before) // the two good ones rolled back too
+    expect(voucherCount()).toBe(before)
+    expect(listProposals(slug)).toHaveLength(proposalsBefore)
+  })
+
+  it('hides and removes a partially staged batch when the second proposal write fails', () => {
+    const existingIds = new Set(listProposals(slug).map((proposal) => proposal.id))
+    const voucher = (amount: number) => ({
+      voucherTypeId: receiptTypeId(),
+      date: '2025-08-04',
+      lines: [
+        { ledgerId: ledgerId('Cash'), drCr: 'dr', amount },
+        { ledgerId: ledgerId('Inbox Sales'), drCr: 'cr', amount }
+      ]
+    })
+    const file = join(inbox, 'atomic-batch.json')
+    writeFileSync(file, JSON.stringify([voucher(6100), voucher(6200)]))
+
+    const failed = processInboxFile(db, slug, file, {
+      beforeStageWrite: (index) => {
+        if (index === 1) throw new Error('injected second proposal write failure')
+      }
+    })
+    expect(failed).toMatchObject({ ok: false, file: 'atomic-batch.json' })
+    expect(failed.detail).toContain('injected second proposal write failure')
+    expect(listProposals(slug).map((proposal) => proposal.id)).toEqual([...existingIds])
+    const failedDrop = join(inbox, 'failed', 'atomic-batch.json')
+    expect(existsSync(failedDrop)).toBe(true)
+
+    renameSync(failedDrop, file)
+    const retried = processInboxFile(db, slug, file)
+    expect(retried.ok).toBe(true)
+    const created = listProposals(slug).filter((proposal) => !existingIds.has(proposal.id))
+    expect(created).toHaveLength(2)
+    expect(new Set(created.map((proposal) => proposal.id)).size).toBe(2)
+    for (const proposal of created) discardProposal(slug, proposal.id)
+  })
+
+  it('reuses a promoted batch when moving its source file fails and the drop is retried', () => {
+    const existingIds = new Set(listProposals(slug).map((proposal) => proposal.id))
+    const voucher = (amount: number) => ({
+      voucherTypeId: receiptTypeId(),
+      date: '2025-08-05',
+      lines: [
+        { ledgerId: ledgerId('Cash'), drCr: 'dr', amount },
+        { ledgerId: ledgerId('Inbox Sales'), drCr: 'cr', amount }
+      ]
+    })
+    const file = join(inbox, 'move-retry.json')
+    writeFileSync(file, JSON.stringify([voucher(7100), voucher(7200)]))
+
+    const failed = processInboxFile(db, slug, file, {
+      beforeSourceMove: () => { throw new Error('injected source move failure') }
+    })
+    expect(failed.ok).toBe(false)
+    let created = listProposals(slug).filter((proposal) => !existingIds.has(proposal.id))
+    expect(created).toHaveLength(2)
+
+    renameSync(join(inbox, 'failed', 'move-retry.json'), file)
+    expect(processInboxFile(db, slug, file).ok).toBe(true)
+    created = listProposals(slug).filter((proposal) => !existingIds.has(proposal.id))
+    expect(created).toHaveLength(2)
+    for (const proposal of created) discardProposal(slug, proposal.id)
+  })
+
+  it('approves and discards individual proposals inside an atomically promoted batch', () => {
+    const existingIds = new Set(listProposals(slug).map((proposal) => proposal.id))
+    const voucher = (amount: number) => ({
+      voucherTypeId: receiptTypeId(),
+      date: '2025-08-06',
+      lines: [
+        { ledgerId: ledgerId('Cash'), drCr: 'dr', amount },
+        { ledgerId: ledgerId('Inbox Sales'), drCr: 'cr', amount }
+      ]
+    })
+    const file = join(inbox, 'nested-review.json')
+    writeFileSync(file, JSON.stringify([voucher(8100), voucher(8200)]))
+    expect(processInboxFile(db, slug, file).ok).toBe(true)
+    const nested = listProposals(slug).filter((proposal) => !existingIds.has(proposal.id))
+    expect(nested).toHaveLength(2)
+    expect(nested.every((proposal) => proposal.id.startsWith('inbox-'))).toBe(true)
+    const before = voucherCount()
+
+    const approved = approveProposal(db, slug, nested[0]!.id, null)
+    expect(approved.approvalRequired).toBe(false)
+    discardProposal(slug, nested[1]!.id)
+
+    expect(voucherCount()).toBe(before + 1)
+    expect(listProposals(slug).filter((proposal) => nested.some((row) => row.id === proposal.id))).toEqual([])
   })
 
   it('rejects malformed JSON and unknown extensions with readable errors', () => {
@@ -195,5 +296,306 @@ describe('inbox drop processing', () => {
     // processed/, failed/ and the leftovers from previous tests must not be re-processed.
     const outcomes = scanInbox(db, slug)
     expect(outcomes).toEqual([])
+  })
+})
+
+describe('agent proposal review queue', () => {
+  const draft = () => ({
+    voucherTypeId: receiptTypeId(),
+    date: '2025-09-01',
+    lines: [
+      { ledgerId: ledgerId('Cash'), drCr: 'dr' as const, amount: 7700 },
+      { ledgerId: ledgerId('Inbox Sales'), drCr: 'cr' as const, amount: 7700 }
+    ]
+  })
+
+  it('keeps a draft inert until an accountant explicitly approves it', () => {
+    const before = voucherCount()
+    const proposal = createProposal(slug, 'mcp', '₹77 cash receipt', draft())
+    expect(voucherCount()).toBe(before)
+    expect(listProposals(slug).map((p) => p.id)).toContain(proposal.id)
+    const saved = approveProposal(db, slug, proposal.id, null)
+    expect(saved.approvalRequired).toBe(false)
+    if (saved.approvalRequired) throw new Error('Unexpected approval request')
+    expect(saved.id).toBeGreaterThan(0)
+    expect(voucherCount()).toBe(before + 1)
+    expect(listProposals(slug).map((p) => p.id)).not.toContain(proposal.id)
+    const audit = db.prepare("SELECT user_name FROM audit_log WHERE entity = 'voucher' ORDER BY id DESC LIMIT 1").get() as { user_name: string }
+    expect(audit.user_name).toBe('agent-mcp')
+  })
+
+  it('rolls posting back when the durable proposal result cannot be recorded', () => {
+    const before = voucherCount()
+    const proposal = createProposal(slug, 'ai', 'Injected result-ledger failure', draft())
+    db.exec(`CREATE TRIGGER fail_agent_proposal_result
+      BEFORE INSERT ON agent_proposal_results
+      BEGIN SELECT RAISE(ABORT, 'injected proposal result failure'); END`)
+
+    expect(() => approveProposal(db, slug, proposal.id, null))
+      .toThrow(/injected proposal result failure/)
+    expect(voucherCount()).toBe(before)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM agent_proposal_results WHERE proposal_id=?').get(proposal.id))
+      .toEqual({ n: 0 })
+    expect(listProposals(slug).map((row) => row.id)).toContain(proposal.id)
+
+    db.exec('DROP TRIGGER fail_agent_proposal_result')
+    const retry = approveProposal(db, slug, proposal.id, null)
+    expect(retry.approvalRequired).toBe(false)
+    expect(voucherCount()).toBe(before + 1)
+  })
+
+  it('returns the same posted voucher after archival failure instead of posting twice', () => {
+    const before = voucherCount()
+    const proposal = createProposal(slug, 'mcp', 'Archive failure replay', draft())
+
+    expect(() => approveProposal(db, slug, proposal.id, null, undefined, {
+      beforeArchiveMove: () => { throw new Error('injected proposal archive failure') }
+    })).toThrow(/injected proposal archive failure/)
+    expect(voucherCount()).toBe(before + 1)
+    expect(listProposals(slug).map((row) => row.id)).toContain(proposal.id)
+    const durable = db.prepare(
+      `SELECT result_kind AS resultKind,result_id AS resultId
+       FROM agent_proposal_results WHERE proposal_id=?`
+    ).get(proposal.id) as { resultKind: string; resultId: number }
+    expect(durable.resultKind).toBe('voucher')
+
+    const retry = approveProposal(db, slug, proposal.id, null)
+    expect(retry.approvalRequired).toBe(false)
+    if (retry.approvalRequired) throw new Error('Unexpected approval request')
+    expect(retry.id).toBe(durable.resultId)
+    expect(voucherCount()).toBe(before + 1)
+    expect(listProposals(slug).map((row) => row.id)).not.toContain(proposal.id)
+
+    // A client retry after the file has already moved still resolves from the durable ledger.
+    const afterMoveRetry = approveProposal(db, slug, proposal.id, null)
+    expect(afterMoveRetry.approvalRequired).toBe(false)
+    if (afterMoveRetry.approvalRequired) throw new Error('Unexpected approval request')
+    expect(afterMoveRetry.id).toBe(durable.resultId)
+    expect(voucherCount()).toBe(before + 1)
+  })
+
+  it('discards a draft without changing the books', () => {
+    const before = voucherCount()
+    const proposal = createProposal(slug, 'ai', 'discard me', draft())
+    discardProposal(slug, proposal.id)
+    expect(voucherCount()).toBe(before)
+    expect(listProposals(slug).map((p) => p.id)).not.toContain(proposal.id)
+  })
+
+  it('refuses an excessive sales discount and leaves the proposal pending', () => {
+    const before = voucherCount()
+    const unitId = (db.prepare('SELECT id FROM units ORDER BY id LIMIT 1').get() as { id: number }).id
+    const itemId = Number(
+      db.prepare("INSERT INTO stock_items(name,unit_id,gst_rate) VALUES('Protected proposal item',?,0)")
+        .run(unitId).lastInsertRowid
+    )
+    saveDiscountPolicy(db, {
+      name: 'Agent proposal ceiling',
+      scopeKind: 'role',
+      role: 'accountant',
+      stockItemId: null,
+      customerLedgerId: null,
+      maxDiscountBps: 500,
+      active: true
+    }, 'Owner')
+    const salesTypeId = (db.prepare("SELECT id FROM voucher_types WHERE kind='sales' LIMIT 1").get() as { id: number }).id
+    const proposal = createProposal(slug, 'mcp', 'Discount outside authority', {
+      voucherTypeId: salesTypeId,
+      date: '2025-09-02',
+      lines: [
+        { ledgerId: ledgerId('Cash'), drCr: 'dr', amount: 90_000 },
+        { ledgerId: ledgerId('Inbox Sales'), drCr: 'cr', amount: 90_000 }
+      ],
+      inventory: [{
+        stockItemId: itemId,
+        godownId: null,
+        qtyMilli: 2_000,
+        ratePaise: 50_000,
+        discountPaise: 10_000,
+        amount: 90_000,
+        direction: 'out'
+      }]
+    })
+
+    expect(() => approveProposal(db, slug, proposal.id, {
+      id: 999,
+      name: 'Restricted accountant',
+      role: 'accountant'
+    })).toThrow('exceeds the 5% authority limit')
+    expect(voucherCount()).toBe(before)
+    expect(listProposals(slug).map((row) => row.id)).toContain(proposal.id)
+    expect(db.prepare(
+      "SELECT actor_role AS actorRole, actor_name AS actorName, outcome FROM sales_discount_events ORDER BY id DESC LIMIT 1"
+    ).get()).toEqual({ actorRole: 'accountant', actorName: 'Restricted accountant', outcome: 'blocked' })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM agent_proposal_results WHERE proposal_id=?').get(proposal.id))
+      .toEqual({ n: 0 })
+  })
+
+  it('routes a controlled proposal into maker-checker once even when archival fails', () => {
+    const owner = saveUser(db, { name: 'Proposal owner', role: 'owner', pin: '1357' })
+    const maker = saveUser(db, { name: 'Proposal maker', role: 'accountant', pin: '2468' })
+    setApprovalPolicy(db, {
+      enabled: true,
+      thresholdPaise: 1,
+      voucherTypeIds: [],
+      expenseEnabled: false,
+      expenseThresholdPaise: null
+    })
+    const before = voucherCount()
+    const proposal = createProposal(slug, 'ai', 'Controlled receipt', draft())
+
+    expect(() => approveProposal(db, slug, proposal.id, maker, undefined, {
+      beforeArchiveMove: () => { throw new Error('injected proposal archive failure') }
+    })).toThrow(/injected proposal archive failure/)
+    expect(voucherCount()).toBe(before)
+    expect(listApprovalRequests(db)).toHaveLength(1)
+    const durable = db.prepare(
+      `SELECT result_kind AS resultKind,result_id AS resultId
+       FROM agent_proposal_results WHERE proposal_id=?`
+    ).get(proposal.id) as { resultKind: string; resultId: number }
+    expect(durable.resultKind).toBe('approval_request')
+
+    const result = approveProposal(db, slug, proposal.id, maker)
+
+    expect(result.approvalRequired).toBe(true)
+    if (!result.approvalRequired) throw new Error('Expected maker-checker handoff')
+    expect(voucherCount()).toBe(before)
+    expect(result.request).toMatchObject({
+      id: durable.resultId,
+      status: 'pending',
+      makerUserId: maker.id,
+      makerName: maker.name,
+      postedVoucherId: null
+    })
+    expect(listApprovalRequests(db)).toHaveLength(1)
+    expect(listProposals(slug).map((row) => row.id)).not.toContain(proposal.id)
+    expect(owner.role).toBe('owner')
+  })
+})
+
+describe('agent proposal filesystem boundaries', () => {
+  const validVoucher = (amount = 9100) => ({
+    voucherTypeId: receiptTypeId(),
+    date: '2025-10-01',
+    lines: [
+      { ledgerId: ledgerId('Cash'), drCr: 'dr' as const, amount },
+      { ledgerId: ledgerId('Inbox Sales'), drCr: 'cr' as const, amount }
+    ]
+  })
+
+  it('rejects proposal-root, queued, batch, staging, and reviewed symlink traversal', () => {
+    const external = mkdtempSync(join(dataDir, 'proposal-external-'))
+
+    const rootSlug = cmdCreateCompany({ name: 'Proposal Root Symlink', stateCode: '27', booksFrom: 2025 }).slug
+    symlinkSync(external, join(companyDir(rootSlug), 'proposals'), 'dir')
+    expect(() => createProposal(rootSlug, 'external', 'must not write outside', validVoucher()))
+      .toThrow(/Proposal storage is not a regular directory/)
+    expect(() => listProposals(rootSlug)).toThrow(/Proposal storage is not a regular directory/)
+    expect(readdirSync(external)).toEqual([])
+
+    const queuedSlug = cmdCreateCompany({ name: 'Proposal Queued Symlink', stateCode: '27', booksFrom: 2025 }).slug
+    const queuedRoot = join(companyDir(queuedSlug), 'proposals')
+    mkdirSync(queuedRoot, { recursive: true })
+    symlinkSync(external, join(queuedRoot, 'queued'), 'dir')
+    const batchId = `inbox-${'a'.repeat(64)}`
+    const publicId = `${batchId}--0001.json`
+    expect(() => getProposal(queuedSlug, publicId)).toThrow(/Proposal directory is not a regular directory/)
+    expect(() => listProposals(queuedSlug)).toThrow(/Proposal directory is not a regular directory/)
+
+    const batchSlug = cmdCreateCompany({ name: 'Proposal Batch Symlink', stateCode: '27', booksFrom: 2025 }).slug
+    const batchRoot = join(companyDir(batchSlug), 'proposals')
+    const queued = join(batchRoot, 'queued')
+    mkdirSync(queued, { recursive: true })
+    const externalBatch = join(external, 'batch-target')
+    mkdirSync(externalBatch)
+    const externalProposal = join(externalBatch, '0001.json')
+    writeFileSync(externalProposal, JSON.stringify({
+      version: 1,
+      id: publicId,
+      createdAt: new Date().toISOString(),
+      source: 'external',
+      status: 'pending',
+      summary: 'outside',
+      voucher: validVoucher()
+    }))
+    symlinkSync(externalBatch, join(queued, batchId), 'dir')
+    expect(() => getProposal(batchSlug, publicId)).toThrow(/Proposal directory is not a regular directory/)
+    expect(() => approveProposal(db, batchSlug, publicId, null)).toThrow(/Proposal directory is not a regular directory/)
+    expect(() => discardProposal(batchSlug, publicId)).toThrow(/Proposal directory is not a regular directory/)
+    expect(existsSync(externalProposal)).toBe(true)
+    expect(listProposals(batchSlug).map((proposal) => proposal.id)).not.toContain(publicId)
+
+    const stagingSlug = cmdCreateCompany({ name: 'Proposal Staging Symlink', stateCode: '27', booksFrom: 2025 }).slug
+    const stagingRoot = join(companyDir(stagingSlug), 'proposals')
+    mkdirSync(stagingRoot, { recursive: true })
+    const externalStaging = join(external, 'staging-target')
+    mkdirSync(externalStaging)
+    symlinkSync(externalStaging, join(stagingRoot, '.staging'), 'dir')
+    const stagingInbox = inboxDir(stagingSlug)
+    mkdirSync(stagingInbox, { recursive: true })
+    const stagingDrop = join(stagingInbox, 'proposal.json')
+    writeFileSync(stagingDrop, JSON.stringify(validVoucher()))
+    expect(processInboxFile(db, stagingSlug, stagingDrop).ok).toBe(false)
+    expect(readdirSync(externalStaging)).toEqual([])
+
+    const reviewedSlug = cmdCreateCompany({ name: 'Proposal Reviewed Symlink', stateCode: '27', booksFrom: 2025 }).slug
+    const proposal = createProposal(reviewedSlug, 'external', 'reviewed boundary', validVoucher())
+    const externalReviewed = join(external, 'reviewed-target')
+    mkdirSync(externalReviewed)
+    symlinkSync(externalReviewed, join(companyDir(reviewedSlug), 'proposals', 'reviewed'), 'dir')
+    const before = voucherCount()
+    expect(() => approveProposal(db, reviewedSlug, proposal.id, null))
+      .toThrow(/Proposal directory is not a regular directory/)
+    expect(voucherCount()).toBe(before)
+    expect(readdirSync(externalReviewed)).toEqual([])
+    expect(getProposal(reviewedSlug, proposal.id).id).toBe(proposal.id)
+  })
+
+  it('bounds listing, ignores corrupt timestamps, and prunes only stale regular stages', () => {
+    const storageSlug = cmdCreateCompany({ name: 'Proposal Bounded Listing', stateCode: '27', booksFrom: 2025 }).slug
+    const valid = createProposal(storageSlug, 'external', 'valid timestamp', validVoucher())
+    const root = join(companyDir(storageSlug), 'proposals')
+    const corruptId = 'corrupt-created-at.json'
+    writeFileSync(join(root, corruptId), JSON.stringify({
+      version: 1,
+      id: corruptId,
+      createdAt: 'not-an-iso-instant',
+      source: 'external',
+      status: 'pending',
+      summary: 'corrupt',
+      voucher: validVoucher()
+    }))
+    expect(listProposals(storageSlug).map((proposal) => proposal.id)).toEqual([valid.id])
+
+    for (let index = 0; index < 240; index++) {
+      const id = `bounded-${String(index).padStart(4, '0')}.json`
+      writeFileSync(join(root, id), JSON.stringify({
+        version: 1,
+        id,
+        createdAt: new Date(1_700_000_000_000 + index).toISOString(),
+        source: 'external',
+        status: 'pending',
+        summary: 'bounded',
+        voucher: validVoucher(10_000 + index)
+      }))
+    }
+    expect(listProposals(storageSlug).length).toBeLessThanOrEqual(200)
+
+    const staging = join(root, '.staging')
+    const stale = join(staging, 'stale-stage')
+    const recent = join(staging, 'recent-stage')
+    mkdirSync(stale, { recursive: true })
+    mkdirSync(recent)
+    writeFileSync(join(stale, 'partial.json'), '{}')
+    const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+    utimesSync(stale, old, old)
+    const externalStage = mkdtempSync(join(dataDir, 'stale-stage-external-'))
+    symlinkSync(externalStage, join(staging, 'linked-stage'), 'dir')
+
+    listProposals(storageSlug)
+    expect(existsSync(stale)).toBe(false)
+    expect(existsSync(recent)).toBe(true)
+    expect(existsSync(join(staging, 'linked-stage'))).toBe(true)
+    expect(readdirSync(externalStage)).toEqual([])
   })
 })

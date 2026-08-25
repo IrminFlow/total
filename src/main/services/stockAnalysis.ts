@@ -6,6 +6,7 @@ import {
 } from '@shared/valuation'
 import { IN_BOOKS, checkStock } from './vouchers'
 import type { NegativeStockWarning } from '@shared/domain'
+import { descendantIdsByName } from './masters'
 
 /**
  * Valuation-engine-driven stock reports (lane I). Unlike the legacy reports.stockSummary
@@ -48,6 +49,18 @@ interface MovementRow {
  */
 function additionalCostByLine(db: DB, asOn: string): Map<number, number> {
   const extraByLine = new Map<number, number>()
+  // Imported-stock freight, duty and clearing allocations are reviewed evidence attached to
+  // the original inward line. They become part of carrying cost without creating a second
+  // inventory movement or a derived balance table.
+  const landed = db.prepare(
+    `SELECT lca.inventory_line_id AS lineId, SUM(lca.amount) AS amount
+     FROM landed_cost_allocations lca
+     JOIN inventory_lines il ON il.id = lca.inventory_line_id
+     JOIN vouchers v ON v.id = il.voucher_id
+     WHERE v.date <= ? AND ${IN_BOOKS}
+     GROUP BY lca.inventory_line_id`
+  ).all(asOn) as { lineId: number; amount: number }[]
+  for (const row of landed) extraByLine.set(row.lineId, row.amount)
   const costRows = db
     .prepare(
       `SELECT v.id AS voucherId,
@@ -66,7 +79,7 @@ function additionalCostByLine(db: DB, asOn: string): Map<number, number> {
     const inLines = inLinesStmt.all(voucherId) as { id: number; amount: number }[]
     if (inLines.length === 0) continue
     const shares = allocateAdditionalCost(inLines.map((l) => l.amount), extra)
-    inLines.forEach((l, i) => extraByLine.set(l.id, shares[i]!))
+    inLines.forEach((l, i) => extraByLine.set(l.id, (extraByLine.get(l.id) ?? 0) + shares[i]!))
   }
   return extraByLine
 }
@@ -154,6 +167,105 @@ export function stockSummary(db: DB, asOn: string, opts: StockSummaryOptions = {
 /** Total closing stock value as of `asOn` — engine-valued drop-in for reports.stockValue. */
 export function stockValue(db: DB, asOn: string): number {
   return stockSummary(db, asOn).reduce((s, r) => s + r.closingValue, 0)
+}
+
+export interface StockMovementTrailRow {
+  lineId: number
+  voucherId: number
+  date: string
+  voucherType: string
+  number: string
+  partyName: string | null
+  godownName: string | null
+  batchName: string | null
+  direction: 'in' | 'out'
+  isAbsolute: boolean
+  qtyMilli: number
+  amount: number
+  runningQtyMilli: number
+  runningValue: number
+  consumedValue: number
+}
+
+/** Chronological, source-voucher-complete explanation for one item's reported quantity/value. */
+export function stockMovementTrail(db: DB, stockItemId: number, asOn: string): StockMovementTrailRow[] {
+  const item = listItems(db).find((row) => row.id === stockItemId)
+  if (!item) throw new Error('Stock item not found')
+  const rows = db.prepare(
+    `SELECT il.id AS lineId, il.stock_item_id AS stockItemId, il.godown_id AS godownId,
+            il.batch_id AS batchId, v.id AS voucherId, v.date, vt.name AS voucherType,
+            v.number, p.name AS partyName, g.name AS godownName, b.name AS batchName,
+            il.qty_milli AS qtyMilli, il.amount, il.direction, il.is_absolute AS isAbsolute
+     FROM inventory_lines il
+     JOIN vouchers v ON v.id = il.voucher_id
+     JOIN voucher_types vt ON vt.id = v.voucher_type_id
+     LEFT JOIN ledgers p ON p.id = v.party_ledger_id
+     LEFT JOIN godowns g ON g.id = il.godown_id
+     LEFT JOIN batches b ON b.id = il.batch_id
+     WHERE il.stock_item_id = ? AND v.date <= ? AND ${IN_BOOKS}
+     ORDER BY v.date, v.id, il.line_order, il.id`
+  ).all(stockItemId, asOn) as (MovementRow & {
+    voucherId: number; voucherType: string; number: string; partyName: string | null
+    godownName: string | null; batchName: string | null
+  })[]
+  const extraByLine = additionalCostByLine(db, asOn)
+  for (const row of rows) row.amount += extraByLine.get(row.lineId) ?? 0
+  const steps = new Map<number, { runningQtyMilli: number; runningValue: number; consumedValue: number }>()
+  valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, rows.map(toMovement), (result, _movement, index) => {
+    steps.set(index, { runningQtyMilli: result.closingQtyMilli, runningValue: result.closingValue, consumedValue: result.consumedValue })
+  })
+  return rows.map((row, index) => ({
+    lineId: row.lineId,
+    voucherId: row.voucherId,
+    date: row.date,
+    voucherType: row.voucherType,
+    number: row.number,
+    partyName: row.partyName,
+    godownName: row.godownName,
+    batchName: row.batchName,
+    direction: row.direction,
+    isAbsolute: !!row.isAbsolute,
+    qtyMilli: row.qtyMilli,
+    amount: row.amount,
+    ...(steps.get(index) ?? { runningQtyMilli: item.openingQtyMilli, runningValue: item.openingValue, consumedValue: 0 })
+  }))
+}
+
+export interface StockValuationReconciliation {
+  asOn: string
+  inventoryValue: number
+  financialStatementValue: number
+  difference: number
+  mode: 'computed_closing_stock' | 'stock_ledger_balance'
+  carryingLedgerCount: number
+}
+
+/** Tie the valuation engine to the Balance Sheet's Stock-in-Hand presentation rule. */
+export function stockValuationReconciliation(db: DB, asOn: string): StockValuationReconciliation {
+  const inventoryValue = stockValue(db, asOn)
+  const groupIds = [...descendantIdsByName(db, ['Stock-in-Hand'])]
+  const ledgers = groupIds.length === 0 ? [] : db.prepare(
+    `SELECT l.id, l.opening_balance AS opening,
+            COALESCE(SUM(CASE WHEN v.id IS NOT NULL AND vl.dr_cr = 'dr' THEN vl.amount WHEN v.id IS NOT NULL THEN -vl.amount ELSE 0 END), 0) AS movement
+     FROM ledgers l
+     LEFT JOIN voucher_lines vl ON vl.ledger_id = l.id
+     LEFT JOIN vouchers v ON v.id = vl.voucher_id AND v.date <= ? AND ${IN_BOOKS}
+     WHERE l.group_id IN (${groupIds.map(() => '?').join(',')})
+     GROUP BY l.id`
+  ).all(asOn, ...groupIds) as { id: number; opening: number; movement: number }[]
+  const carrying = ledgers.filter((row) => row.opening !== 0 || row.movement !== 0)
+  const mode = carrying.length > 0 ? 'stock_ledger_balance' : 'computed_closing_stock'
+  const financialStatementValue = mode === 'computed_closing_stock'
+    ? inventoryValue
+    : carrying.reduce((sum, row) => sum + row.opening + row.movement, 0)
+  return {
+    asOn,
+    inventoryValue,
+    financialStatementValue,
+    difference: inventoryValue - financialStatementValue,
+    mode,
+    carryingLedgerCount: carrying.length
+  }
 }
 
 export interface PeriodConsumption {

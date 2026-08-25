@@ -2,11 +2,18 @@
 // dbtest suite because registry.ts sits behind paths.ts (Electron import) — TOTAL_DATA_DIR keeps
 // everything inside a scratch dir, mirroring how the app's hermetic drivers run.
 import { describe, it, expect, beforeEach } from 'vitest'
-import { mkdtempSync, writeFileSync, existsSync, utimesSync, readFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { readRegistry, upsertCompany, removeCompany, touchLastOpened, withRegistryLock } from './registry'
-import { registryPath } from './paths'
+import {
+  readRegistry,
+  removeCompany,
+  requireRegisteredCompany,
+  touchLastOpened,
+  upsertCompany,
+  withRegistryLock
+} from './registry'
+import { companiesDir, companyDir, registryPath } from './paths'
 
 function summary(slug: string) {
   return { slug, name: slug.toUpperCase(), stateCode: '27', gstin: null, lastOpenedAt: null }
@@ -62,5 +69,27 @@ describe('registry write lock', () => {
     // And a subsequent locked write still works.
     upsertCompany(summary('epsilon'))
     expect(readRegistry().companies).toHaveLength(1)
+  })
+
+  it('rejects traversal and unregistered on-disk company identifiers', () => {
+    expect(() => companyDir('../outside')).toThrow('Invalid company identifier')
+    const unregistered = companyDir('not-registered')
+    mkdirSync(unregistered, { recursive: true })
+    writeFileSync(join(unregistered, 'company.db'), 'placeholder')
+    expect(() => requireRegisteredCompany('not-registered')).toThrow('Company not found')
+  })
+
+  it('resolves a canonical registered company only when its DB path is contained and regular', () => {
+    const directory = companyDir('alpha')
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(join(directory, 'company.db'), 'placeholder')
+    upsertCompany(summary('alpha'))
+    expect(requireRegisteredCompany('alpha').paths.database).toBe(join(directory, 'company.db'))
+
+    const outside = mkdtempSync(join(tmpdir(), 'total-registry-outside-'))
+    writeFileSync(join(outside, 'company.db'), 'outside')
+    symlinkSync(outside, join(companiesDir(), 'linked-company'))
+    upsertCompany(summary('linked-company'))
+    expect(() => requireRegisteredCompany('linked-company')).toThrow('regular directory')
   })
 })

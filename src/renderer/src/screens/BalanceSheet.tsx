@@ -8,6 +8,11 @@ import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
+import { SavedReportViews } from '../components/SavedReportViews'
+import { ReportToolbar } from '../components/ReportToolbar'
+import { useSavedReportViews } from '../lib/reportConfig'
+
+interface BalanceSheetView { asOn: string; comparePrior: boolean }
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Particulars', align: 'l' },
@@ -20,13 +25,15 @@ export function BalanceSheetScreen(): React.JSX.Element {
   // Local, on-screen as-on date (user ask): seeded from the header period, editable here
   // without touching the global session period other screens read.
   const [asOn, setAsOn] = useState(sessionTo)
+  const [comparePrior, setComparePrior] = useState(false)
+  const savedViews = useSavedReportViews<BalanceSheetView>('balance-sheet')
   useEffect(() => setAsOn(sessionTo), [sessionTo])
   // keepPreviousData: editing the on-screen as-on date changes the query key — keep the previous
   // figures rendered (with a subtle hint) instead of unmounting the screen into "Loading…",
   // which would drop focus from the very DateInput being edited.
   const { data, isPlaceholderData } = useQuery({
-    queryKey: ['balanceSheet', asOn],
-    queryFn: () => api.reports.balanceSheet(asOn),
+    queryKey: ['balanceSheet', asOn, comparePrior],
+    queryFn: ({ signal }) => api.reports.balanceSheet(asOn, comparePrior, signal),
     placeholderData: keepPreviousData
   })
   if (!data) return <p className="text-muted">Loading…</p>
@@ -46,7 +53,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <div className="flex items-center gap-2">
+          <ReportToolbar compact>
             {isPlaceholderData && (
               <span data-testid="bs-refreshing" className="text-[11px] text-muted" aria-live="polite">
                 Updating…
@@ -54,6 +61,10 @@ export function BalanceSheetScreen(): React.JSX.Element {
             )}
             <span className="text-[12px] text-muted">as on</span>
             <DateInput value={asOn} context={asOn} onChange={setAsOn} className="w-28" testId="input-bs-ason" />
+            <Button variant={comparePrior ? 'primary' : 'default'} data-testid="btn-bs-compare" onClick={() => setComparePrior((v) => !v)}>
+              Prior year
+            </Button>
+            <SavedReportViews views={savedViews.views} current={{ asOn, comparePrior }} onSave={savedViews.save} onRemove={savedViews.remove} onApply={(view) => { setAsOn(view.asOn); setComparePrior(view.comparePrior) }} />
             <Button
               variant="ghost"
               onClick={() => void printReport({ title: 'Balance sheet', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
@@ -68,11 +79,21 @@ export function BalanceSheetScreen(): React.JSX.Element {
             >
               CSV
             </Button>
-          </div>
+          </ReportToolbar>
         }
       >
         Balance sheet
       </SectionTitle>
+      {comparePrior && data.prior && <div className="mb-3 grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-line bg-line">
+        {[
+          { label: 'Total assets', current: data.totalAssets, prior: data.prior.totalAssets },
+          { label: 'Total liabilities', current: data.totalLiabilities, prior: data.prior.totalLiabilities },
+          { label: 'Current-period profit', current: data.profitCurrentPeriod, prior: data.prior.profitCurrentPeriod }
+        ].map((item) => {
+          const change = item.prior === 0 ? null : ((item.current - item.prior) / Math.abs(item.prior)) * 100
+          return <div key={item.label} className="bg-panel px-4 py-3"><p className="text-[10px] font-semibold tracking-[0.08em] text-muted uppercase">{item.label}</p><div className="mt-1 flex items-baseline justify-between"><Money paise={item.current} className="text-[13px] font-medium" /><span className={`num text-[10.5px] ${change !== null && change < 0 ? 'text-cr' : 'text-dr'}`}>{change === null ? 'new' : `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`}</span></div><p className="mt-0.5 text-[10px] text-muted">Prior <Money paise={item.prior} /></p></div>
+        })}
+      </div>}
       <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
         <Panel className="p-4">
           <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Liabilities</p>

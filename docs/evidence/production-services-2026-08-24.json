@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "checkedAt": "2026-08-24T11:28:00.000Z",
+  "origin": "https://devjindal.tech",
+  "sourceRevision": "a3573823bfd0ebf7b6041991974407bcbd2a13f9",
+  "deploymentId": "dpl_EghjxdmYoCGe1jnmCRoVgcB2LDVz",
+  "support": {
+    "ok": true,
+    "syntheticCaseId": "TOT-20260824-4BC6DF",
+    "lifecycle": ["submitted", "tracked", "resolved", "deleted"],
+    "statusEventCountDeleted": 1,
+    "trackingAfterDeletionStatus": 404,
+    "privatePayloadReturnedByTracking": false
+  },
+  "feedback": {
+    "ok": true,
+    "vote": { "before": 0, "after": 1, "afterCleanup": 0 },
+    "followStatus": "recorded",
+    "suggestionStatus": "awaiting_review",
+    "syntheticEventsDeleted": 3
+  },
+  "fallback": {
+    "ok": true,
+    "status": 202,
+    "caseIdPreserved": true,
+    "preparedEmailReturned": true
+  },
+  "securityHeaders": {
+    "ok": true,
+    "contentSecurityPolicy": true,
+    "strictTransportSecurity": true,
+    "noSniff": true,
+    "referrerPolicy": true
+  },
+  "privateReleaseDownload": {
+    "ok": true,
+    "resolvedPublicVersion": "0.4.0",
+    "downloadRedirectStatus": 307
+  },
+  "v05ReleaseMetadata": {
+    "ok": false,
+    "expectedVersion": "0.5.0",
+    "reportedVersion": "0.4.0",
+    "reason": "Signed v0.5 installers have not been published. The live check correctly remains fail-closed."
+  },
+  "dataHandling": {
+    "syntheticSupportCaseDeleted": true,
+    "syntheticFeedbackEventsDeleted": true,
+    "containsCredentials": false,
+    "containsCustomerBookData": false
+  }
+}

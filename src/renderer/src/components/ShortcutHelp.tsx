@@ -1,77 +1,202 @@
-import { Kbd, Modal } from './ui'
-import { CARD_SCREENS } from '../lib/screens'
-
-interface ShortcutRow {
-  keys: string[]
-  label: string
-}
+import { useMemo, useState } from "react";
+import { Kbd, Modal } from "./ui";
+import { useAccessibilityPreferences } from "../lib/accessibilityPrefs";
+import { localizedLabel } from "../lib/localization";
+import { useFeatures } from "../lib/useFeatures";
+import { useSession } from "../state/stores";
+import {
+  GLOBAL_COMMANDS,
+  NAVIGATION_COMMANDS,
+  VOUCHER_COMMANDS,
+  commandAvailable,
+  effectiveBindings,
+  formatShortcut,
+  resetShortcutOverrides,
+  setShortcutOverride,
+  useShortcutOverrides,
+  type CommandDefinition,
+  type ShortcutBinding,
+} from "../lib/commands";
+import {
+  completeShortcutGuide,
+  readShortcutGuide,
+} from "../lib/shortcutOnboarding";
 
 interface ShortcutGroup {
-  title: string
-  rows: ShortcutRow[]
+  title: string;
+  commands: CommandDefinition[];
+  context?: "global" | "gateway" | "voucher";
 }
 
-/** Mirrors the keydown handlers actually wired up in App.tsx (⌘K/Esc/?), VoucherEntry.tsx
- *  (F4–F9 + the note variants + ⌘↵), and ui.tsx's `useKeyNav` (↑↓↵ on every list screen);
- *  the Gateway group derives from the screen registry's cards, same as Gateway itself. */
-export const SHORTCUT_GROUPS: ShortcutGroup[] = [
-  {
-    title: 'Global',
-    rows: [
-      { keys: ['⌘K'], label: 'Open the command palette' },
-      { keys: ['Esc'], label: 'Close a dialog, or go back a screen' },
-      { keys: ['?'], label: 'Show this shortcut reference' }
-    ]
-  },
-  {
-    title: 'Gateway',
-    rows: CARD_SCREENS.map((s) => ({ keys: [s.card.key], label: s.title }))
-  },
-  {
-    title: 'Voucher entry',
-    rows: [
-      { keys: ['F4'], label: 'Contra' },
-      { keys: ['F5'], label: 'Payment' },
-      { keys: ['F6'], label: 'Receipt' },
-      { keys: ['F7'], label: 'Journal' },
-      { keys: ['F8'], label: 'Sales' },
-      { keys: ['F9'], label: 'Purchase' },
-      { keys: ['Ctrl/Alt', 'F8'], label: 'Credit note' },
-      { keys: ['Ctrl/Alt', 'F9'], label: 'Debit note' },
-      { keys: ['⌘', '↵'], label: 'Save the voucher' }
-    ]
-  },
-  {
-    title: 'Lists',
-    rows: [
-      { keys: ['↑', '↓'], label: 'Move the selection' },
-      { keys: ['↵'], label: 'Open the selected row' }
-    ]
-  }
-]
+function parseNavigationBinding(value: string): ShortcutBinding | null {
+  const parts = value.toLowerCase().split("+").map((part) => part.trim()).filter(Boolean);
+  const key = parts.at(-1) ?? "";
+  if (key.length !== 1 || !/^[a-z0-9]$/.test(key)) return null;
+  if (!parts.includes("alt") || parts.some((part) => !["alt", "shift", key].includes(part))) return null;
+  return { key, context: "global", alt: true, shift: parts.includes("shift") };
+}
+
+function ShortcutKeys({ bindings }: { bindings: ShortcutBinding[] }): React.JSX.Element {
+  return (
+    <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+      {bindings.map((binding) => (
+        <Kbd key={`${binding.context}:${formatShortcut(binding)}`}>{formatShortcut(binding)}</Kbd>
+      ))}
+    </span>
+  );
+}
 
 export function ShortcutHelp({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const language = useAccessibilityPreferences((state) => state.language);
+  const features = useFeatures();
+  const role = useSession((state) => state.user?.role ?? "owner");
+  const overrides = useShortcutOverrides();
+  const [query, setQuery] = useState("");
+  const [customizing, setCustomizing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [guideStep, setGuideStep] = useState<number | null>(
+    () => (readShortcutGuide(localStorage).completed ? null : 0),
+  );
+
+  const guide = [
+    {
+      title: "Read the red letter",
+      detail: "On Home, press the red mnemonic by itself. V opens Voucher entry immediately.",
+    },
+    {
+      title: "Use Alt from any screen",
+      detail: "Navigation uses Alt plus its letter. Voucher type letters also have Alt variants while an editor is active.",
+    },
+    {
+      title: "Make the map yours",
+      detail: "Choose Customize to change navigation bindings. Total blocks collisions before saving them.",
+    },
+  ];
+
+  const groups = useMemo<ShortcutGroup[]>(() => {
+    const visible = (commands: CommandDefinition[]) =>
+      commands.filter((command) => commandAvailable(command, features, role));
+    return [
+      { title: "Global", commands: visible(GLOBAL_COMMANDS), context: "global" },
+      { title: "Home", commands: visible(NAVIGATION_COMMANDS), context: "gateway" },
+      { title: "Navigation", commands: visible(NAVIGATION_COMMANDS), context: "global" },
+      { title: "Voucher entry", commands: visible(VOUCHER_COMMANDS), context: "voucher" },
+    ];
+  }, [features, role]);
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredGroups = groups.map((group) => ({
+    ...group,
+    commands: group.commands.filter((command) => {
+      const bindings = effectiveBindings(command, overrides).filter(
+        (binding) => !group.context || binding.context === group.context,
+      );
+      return bindings.length > 0 && (!normalizedQuery ||
+        `${command.label} ${command.keywords?.join(" ") ?? ""} ${bindings.map(formatShortcut).join(" ")}`
+          .toLowerCase().includes(normalizedQuery));
+    }),
+  })).filter((group) => group.commands.length > 0);
+
   return (
-    <Modal title="Keyboard shortcuts" onClose={onClose} wide>
-      <div className="grid grid-cols-2 gap-x-8 gap-y-6">
-        {SHORTCUT_GROUPS.map((group) => (
-          <div key={group.title}>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{group.title}</p>
-            <div className="flex flex-col gap-1.5">
-              {group.rows.map((row) => (
-                <div key={row.label} className="flex items-center justify-between gap-4">
-                  <span className="text-[13px] text-ink">{row.label}</span>
-                  <span className="flex shrink-0 items-center gap-1">
-                    {row.keys.map((k, i) => (
-                      <Kbd key={i}>{k}</Kbd>
-                    ))}
-                  </span>
-                </div>
-              ))}
+    <Modal title={localizedLabel("Keyboard shortcuts", language)} onClose={onClose} wide>
+      <div className="mb-5 flex items-center gap-2 border-b border-line pb-4">
+        <input
+          autoFocus
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          aria-label="Search keyboard shortcuts"
+          placeholder="Search a task or key"
+          className="min-w-0 flex-1 rounded-md border border-line bg-panel2 px-3 py-2 text-[13px] outline-none focus:border-amber focus:ring-2 focus:ring-amber/20"
+        />
+        <button type="button" className="rounded-md border border-line px-3 py-2 text-[12px] font-medium text-ink hover:bg-panel2" onClick={() => { setError(null); setCustomizing((current) => !current); }}>
+          {customizing ? "Done" : "Customize"}
+        </button>
+        {customizing && (
+          <button type="button" className="px-2 py-2 text-[12px] text-muted hover:text-ink" onClick={() => { resetShortcutOverrides(); setError(null); }}>
+            Reset defaults
+          </button>
+        )}
+      </div>
+
+      {error && <p role="alert" className="mb-3 rounded-md bg-danger/10 px-3 py-2 text-[12px] text-danger">{error}</p>}
+
+      {guideStep !== null && (
+        <section data-testid="shortcut-guide" className="mb-4 rounded-md border border-amber/40 bg-amber/5 p-4" aria-labelledby="shortcut-guide-title">
+          <div className="flex items-start justify-between gap-5">
+            <div>
+              <p className="text-[10px] font-semibold text-amber">Keyboard setup {guideStep + 1} of {guide.length}</p>
+              <h3 id="shortcut-guide-title" className="mt-1 text-[14px] font-semibold text-ink">{guide[guideStep]!.title}</h3>
+              <p className="mt-1 max-w-[62ch] text-[12px] leading-5 text-muted">{guide[guideStep]!.detail}</p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              {guideStep > 0 && <button type="button" className="rounded-md px-3 py-2 text-[12px] text-muted hover:bg-panel2 hover:text-ink" onClick={() => setGuideStep(guideStep - 1)}>Back</button>}
+              <button
+                type="button"
+                className="rounded-md bg-ink px-3 py-2 text-[12px] font-medium text-bg"
+                onClick={() => {
+                  if (guideStep < guide.length - 1) setGuideStep(guideStep + 1);
+                  else {
+                    completeShortcutGuide(localStorage);
+                    setGuideStep(null);
+                    setCustomizing(true);
+                  }
+                }}
+              >
+                {guideStep < guide.length - 1 ? "Next" : "Customize shortcuts"}
+              </button>
             </div>
           </div>
+        </section>
+      )}
+
+      <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+        {filteredGroups.map((group) => (
+          <section key={group.title} aria-labelledby={`shortcut-${group.title}`}>
+            <h3 id={`shortcut-${group.title}`} className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+              {localizedLabel(group.title, language)}
+            </h3>
+            <div className="flex flex-col gap-1.5">
+              {group.commands.map((command) => {
+                const bindings = effectiveBindings(command, overrides).filter(
+                  (binding) => !group.context || binding.context === group.context,
+                );
+                const editable = customizing && group.title === "Navigation" && command.customizable;
+                return (
+                  <div key={`${group.title}:${command.id}`} className="flex min-h-8 items-center justify-between gap-4 rounded-md px-1 hover:bg-panel2/70">
+                    <span className="text-[13px] text-ink">{localizedLabel(command.label, language)}</span>
+                    {editable ? (
+                      <input
+                        key={`${command.id}:${formatShortcut(bindings[0]!)}`}
+                        aria-label={`Shortcut for ${command.label}`}
+                        defaultValue={formatShortcut(bindings[0]!)}
+                        className="w-28 rounded border border-line bg-panel px-2 py-1 text-right font-mono text-[11px] outline-none focus:border-amber"
+                        onBlur={(event) => {
+                          const binding = parseNavigationBinding(event.target.value);
+                          if (!binding) {
+                            setError("Use Alt+letter or Alt+Shift+letter.");
+                            event.target.value = formatShortcut(bindings[0]!);
+                            return;
+                          }
+                          const conflicts = setShortcutOverride(command.id, [binding]);
+                          if (conflicts.length) {
+                            setError(`That shortcut is already assigned (${conflicts[0]!.binding}).`);
+                            event.target.value = formatShortcut(bindings[0]!);
+                          } else setError(null);
+                        }}
+                      />
+                    ) : <ShortcutKeys bindings={bindings} />}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         ))}
       </div>
+      {filteredGroups.length === 0 && <p className="py-10 text-center text-[13px] text-muted">No shortcuts match “{query}”.</p>}
+      <p className="mt-5 border-t border-line pt-3 text-[11px] leading-relaxed text-muted">
+        Shortcuts pause while you type. Voucher letters work before entry begins; Alt variants remain available throughout voucher entry.
+        {guideStep === null && <button type="button" className="ml-2 font-medium text-blue hover:underline" onClick={() => setGuideStep(0)}>Run keyboard setup again</button>}
+      </p>
     </Modal>
-  )
+  );
 }

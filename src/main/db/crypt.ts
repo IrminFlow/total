@@ -3,8 +3,20 @@
 // File format ("TOTALBK1"): magic(8) | salt(16) | iv(12) | ciphertext(N) | gcmTag(16)
 // AES-256-GCM with a scrypt-derived key. Streaming so multi-GB company databases don't need
 // to fit in memory twice.
-import { randomBytes, scryptSync, createCipheriv, createDecipheriv, type DecipherGCM } from 'crypto'
-import { createReadStream, createWriteStream, openSync, readSync, closeSync, statSync, unlink } from 'fs'
+import { randomBytes, scryptSync, createCipheriv, createDecipheriv } from 'crypto'
+import {
+  closeSync,
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  fsyncSync,
+  openSync,
+  readSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'fs'
+import { finished, pipeline } from 'stream/promises'
 
 export const MAGIC = Buffer.from('TOTALBK1', 'utf8')
 const SALT_LEN = 16
@@ -19,6 +31,24 @@ function deriveKey(passphrase: string, salt: Buffer): Buffer {
   return scryptSync(passphrase, salt, 32, SCRYPT_OPTS)
 }
 
+function fsyncFile(path: string): void {
+  const fd = openSync(path, 'r')
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function removePartial(path: string): void {
+  try {
+    rmSync(path, { force: true })
+  } catch {
+    // The caller also owns the containing private workspace and will retry its cleanup. Never
+    // replace the useful authentication/I/O error with a secondary removal failure.
+  }
+}
+
 /** Encrypt `srcPath` into `destPath` in the TOTALBK1 format, streaming throughout. */
 export async function encryptFile(srcPath: string, destPath: string, passphrase: string): Promise<void> {
   const salt = randomBytes(SALT_LEN)
@@ -27,33 +57,25 @@ export async function encryptFile(srcPath: string, destPath: string, passphrase:
   const cipher = createCipheriv('aes-256-gcm', key, iv)
 
   const src = createReadStream(srcPath)
-  const dest = createWriteStream(destPath)
-
-  await new Promise<void>((resolve, reject) => {
-    let settled = false
-    const fail = (err: Error): void => {
-      if (settled) return
-      settled = true
-      reject(err)
-    }
-    src.on('error', fail)
-    cipher.on('error', fail)
-    dest.on('error', fail)
-    dest.on('finish', () => {
-      if (settled) return
-      settled = true
-      resolve()
-    })
-
+  const dest = createWriteStream(destPath, { flags: 'wx', mode: 0o600 })
+  try {
     dest.write(Buffer.concat([MAGIC, salt, iv]))
-    src.pipe(cipher).pipe(dest, { end: false })
-    cipher.on('end', () => {
-      dest.end(cipher.getAuthTag())
-    })
-  }).catch((err) => {
-    unlink(destPath, () => {})
-    throw err
-  })
+    await pipeline(src, cipher, dest, { end: false })
+    dest.end(cipher.getAuthTag())
+    await finished(dest)
+    fsyncFile(destPath)
+  } catch (error) {
+    src.destroy()
+    cipher.destroy()
+    dest.destroy()
+    try {
+      await finished(dest)
+    } catch {
+      // Expected when the pipeline or destination failed.
+    }
+    removePartial(destPath)
+    throw error
+  }
 }
 
 /** Decrypt a TOTALBK1 file produced by `encryptFile`. Throws on wrong passphrase / corruption. */
@@ -79,7 +101,7 @@ export async function decryptFile(srcPath: string, destPath: string, passphrase:
   const iv = header.subarray(MAGIC.length + SALT_LEN, HEADER_LEN)
   const key = deriveKey(passphrase, salt)
 
-  let decipher: DecipherGCM
+  let decipher
   try {
     decipher = createDecipheriv('aes-256-gcm', key, iv)
     decipher.setAuthTag(tag)
@@ -88,34 +110,23 @@ export async function decryptFile(srcPath: string, destPath: string, passphrase:
   }
 
   const ciphertextLen = size - HEADER_LEN - TAG_LEN
-  const dest = createWriteStream(destPath)
-
   try {
-    await new Promise<void>((resolve, reject) => {
-      let settled = false
-      const fail = (err: Error): void => {
-        if (settled) return
-        settled = true
-        reject(err)
-      }
-      dest.on('error', fail)
-      dest.on('finish', () => {
-        if (settled) return
-        settled = true
-        resolve()
+    if (ciphertextLen === 0) {
+      // Authenticate before creating the destination when there is no ciphertext body.
+      writeFileSync(destPath, decipher.final(), { flag: 'wx', mode: 0o600 })
+    } else {
+      const src = createReadStream(srcPath, {
+        start: HEADER_LEN,
+        end: HEADER_LEN + ciphertextLen - 1
       })
-      if (ciphertextLen === 0) {
-        // No body — GCM still needs final() run to validate the tag against empty ciphertext.
-        dest.end(decipher.final())
-        return
-      }
-      const src = createReadStream(srcPath, { start: HEADER_LEN, end: HEADER_LEN + ciphertextLen - 1 })
-      decipher.on('error', fail)
-      src.on('error', fail)
-      src.pipe(decipher).pipe(dest)
-    })
+      const dest = createWriteStream(destPath, { flags: 'wx', mode: 0o600 })
+      await pipeline(src, decipher, dest)
+    }
+    fsyncFile(destPath)
   } catch {
-    unlink(destPath, () => {})
+    // pipeline() closes all streams before rejecting, so this synchronous removal cannot race an
+    // open writer. This matters on Windows and prevents authenticated plaintext from lingering.
+    if (existsSync(destPath)) removePartial(destPath)
     throw new Error(WRONG_PASSPHRASE)
   }
 }

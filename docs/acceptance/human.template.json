@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "kind": "human",
+  "status": "pending",
+  "productVersion": "0.5.0",
+  "testedRevision": "",
+  "testedAt": "",
+  "testedArtifacts": [
+    { "id": "macos-dmg", "name": "", "bytes": 0, "sha256": "" },
+    { "id": "macos-zip", "name": "", "bytes": 0, "sha256": "" },
+    { "id": "windows-exe", "name": "", "bytes": 0, "sha256": "" }
+  ],
+  "approvedAt": "",
+  "approvers": [],
+  "cohorts": [
+    { "id": "bookkeeper", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "Daily posting and corrections", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }, { "name": "Bank reconciliation and collections", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }, { "name": "Month close and reports", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }], "blockers": [] },
+    { "id": "business-owner", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "Business overview and cash position", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }, { "name": "Invoice and payment follow-up", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }, { "name": "Backup, restore and portable export", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }], "blockers": [] },
+    { "id": "chartered-accountant", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "Ledger scrutiny and audit trail", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }, { "name": "GST review and offline exports", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }, { "name": "Year-end controls and CA pack", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }], "blockers": [] },
+    { "id": "payroll-operator", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "Employee and attendance setup", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }, { "name": "Payroll calculation and approval", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }, { "name": "Payslips, books and statutory workspace", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }], "blockers": [] },
+    { "id": "inventory-manufacturing", "participants": 0, "durationMinutes": 0, "scenarios": [{ "name": "Purchase, stock and batch movement", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }, { "name": "BOM production and consumption", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }, { "name": "Valuation and negative-stock review", "durationMinutes": 0, "evidenceSha256": "", "artifactIds": [], "result": "pending" }], "blockers": [] }
+  ]
+}

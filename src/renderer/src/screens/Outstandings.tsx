@@ -10,6 +10,7 @@ import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { buildReminder } from '@shared/outstanding'
 import type { OutstandingBill } from '@shared/reports'
+import { useLedgers } from '../components/pickerHooks'
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Party', align: 'l' },
@@ -20,24 +21,29 @@ const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Pending', align: 'r' }
 ]
 
-async function remind(companyName: string, partyName: string, bills: OutstandingBill[], toast: ToastState): Promise<void> {
-  const reminder = buildReminder({ name: companyName }, { name: partyName, email: null }, bills)
+async function remind(companyName: string, party: { name: string; email: string | null; phone: string | null }, bills: OutstandingBill[], channel: 'email' | 'whatsapp', toast: ToastState): Promise<void> {
+  const reminder = buildReminder({ name: companyName }, { name: party.name, email: party.email }, bills)
   let copied = true
   try {
-    await navigator.clipboard.writeText(reminder.body)
+    await api.privacy.copySensitive(reminder.body)
   } catch {
     // Clipboard access can fail in some sandboxes — the mailto still opens with the body.
     copied = false
   }
-  window.open(reminder.mailto)
-  if (copied) toast.push('success', 'Reminder copied — email draft opened')
-  else toast.push('warning', "Couldn't copy to the clipboard — the email draft still has the full text")
+  if (channel === 'whatsapp') {
+    const number = party.phone?.replace(/\D/g, '') ?? ''
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(reminder.body)}`)
+  } else window.open(reminder.mailto)
+  const destination = channel === 'whatsapp' ? 'WhatsApp' : 'email'
+  if (copied) toast.push('success', `Reminder copied — ${destination} draft opened`)
+  else toast.push('warning', `Couldn't copy to the clipboard — the ${destination} draft still has the full text`)
 }
 
 export function OutstandingsScreen(): React.JSX.Element {
   const { to, info } = useSession()
   const nav = useNav()
   const toast = useToasts()
+  const ledgers = useLedgers()
   const [side, setSide] = useState<'receivable' | 'payable'>('receivable')
   const [openParty, setOpenParty] = useState<number | null>(null)
   const { data, isLoading } = useQuery({
@@ -129,7 +135,7 @@ export function OutstandingsScreen(): React.JSX.Element {
                 <th className="r w-32">61–90 d</th>
                 <th className="r w-32">90+ d</th>
                 <th className="r w-36">Pending</th>
-                <th className="w-24"></th>
+                <th className="w-36"></th>
               </tr>
             </thead>
             <tbody data-testid="rows-outstandings">
@@ -151,16 +157,10 @@ export function OutstandingsScreen(): React.JSX.Element {
                     <td className="r"><span className={p.buckets[3] > 0 ? 'text-cr' : ''}><Money paise={p.buckets[3]} /></span></td>
                     <td className="r font-medium"><Money paise={p.pending} /></td>
                     <td className="r">
-                      <button
-                        data-testid="btn-outstandings-remind"
-                        className="text-[11.5px] text-blue hover:underline"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void remind(info?.name ?? '', p.name, p.bills, toast)
-                        }}
-                      >
-                        Remind
-                      </button>
+                      <span className="flex justify-end gap-2">
+                        <button data-testid="btn-outstandings-remind" className="text-[11.5px] text-blue hover:underline" onClick={(e) => { const contact = ledgers.find((ledger) => ledger.id === p.ledgerId); e.stopPropagation(); void remind(info?.name ?? '', { name: p.name, email: contact?.email ?? null, phone: contact?.phone ?? null }, p.bills, 'email', toast) }}>Email</button>
+                        <button className="text-[11.5px] text-blue hover:underline disabled:text-muted disabled:no-underline" disabled={!ledgers.find((ledger) => ledger.id === p.ledgerId)?.phone} title={ledgers.find((ledger) => ledger.id === p.ledgerId)?.phone ? 'Open a WhatsApp draft' : 'Add a phone number to the party ledger'} onClick={(e) => { const contact = ledgers.find((ledger) => ledger.id === p.ledgerId); e.stopPropagation(); void remind(info?.name ?? '', { name: p.name, email: contact?.email ?? null, phone: contact?.phone ?? null }, p.bills, 'whatsapp', toast) }}>WhatsApp</button>
+                      </span>
                     </td>
                   </tr>
                   {openParty === p.ledgerId &&

@@ -10,11 +10,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const appPath = process.env.APP_PATH ?? join(process.cwd(), 'dist/mac-arm64/Total.app/Contents/MacOS/Total')
+const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...desktopEnv } = process.env
 const app = await electron.launch({
   executablePath: appPath,
   timeout: 60000,
   env: {
-    ...process.env,
+    ...desktopEnv,
     TOTAL_DATA_DIR: mkdtempSync(join(tmpdir(), 'total-update-check-')),
     TOTAL_SUPPRESS_SYNC_WARNING: '1'
   }

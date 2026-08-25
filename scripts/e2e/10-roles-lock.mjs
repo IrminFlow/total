@@ -90,4 +90,11 @@ await scenario('10-roles-lock', async (h) => {
   const ownerRow = users.find((u) => u.name === 'Priya Owner')
   await h.invoke('auth:login', { userId: ownerRow.id, pin: '1234' })
   assertEq((await h.invoke('users:list')).length, 3, 'owner lists users again')
+
+  const auditIntegrity = await h.invoke('audit:verify')
+  assert(auditIntegrity.ok, `audit chain verifies after auth and permission activity (${auditIntegrity.rowsChecked} rows)`)
+  await h.goto('settings')
+  await h.click('tab-settings-audit')
+  await h.page.waitForFunction(() => document.body.innerText.includes('Audit integrity') && document.body.innerText.includes('are intact'))
+  await h.shot('05-audit-integrity')
 })

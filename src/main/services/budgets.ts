@@ -20,6 +20,7 @@ interface BudgetLineDbRow {
   budget_id: number
   ledger_id: number | null
   group_id: number | null
+  cost_centre_id: number | null
   month: string | null
   amount: number
 }
@@ -28,6 +29,7 @@ const mapLine = (r: BudgetLineDbRow): BudgetLine => ({
   id: r.id,
   ledgerId: r.ledger_id,
   groupId: r.group_id,
+  costCentreId: r.cost_centre_id,
   month: r.month,
   amount: r.amount
 })
@@ -61,10 +63,10 @@ export function saveBudget(db: DB, input: BudgetInput, id?: number): Budget {
       budgetId = Number(res.lastInsertRowid)
     }
     const insertLine = db.prepare(
-      'INSERT INTO budget_lines (budget_id, ledger_id, group_id, month, amount) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO budget_lines (budget_id, ledger_id, group_id, cost_centre_id, month, amount) VALUES (?, ?, ?, ?, ?, ?)'
     )
     for (const line of input.lines) {
-      insertLine.run(budgetId, line.ledgerId, line.groupId, line.month, line.amount)
+      insertLine.run(budgetId, line.ledgerId ?? null, line.groupId ?? null, line.costCentreId ?? null, line.month ?? null, line.amount)
     }
     const after = getBudget(db, budgetId)!
     writeAudit(db, 'budget', budgetId, id ? 'update' : 'create', before, after)
@@ -110,6 +112,15 @@ export function budgetVarianceReport(db: DB, budgetId: number, upToMonth: string
        GROUP BY vl.ledger_id, month`
     )
     .all(fy.from, fy.to) as ActualRow[]
+  const costCentreActuals=db.prepare(
+    `SELECT 0 AS ledgerId,a.cost_centre_id AS costCentreId,strftime('%Y-%m',v.date) AS month,
+      SUM(CASE WHEN g.nature='income' THEN CASE WHEN vl.dr_cr='cr' THEN a.amount ELSE -a.amount END
+               ELSE CASE WHEN vl.dr_cr='dr' THEN a.amount ELSE -a.amount END END) AS amount
+     FROM voucher_line_cost_allocations a JOIN voucher_lines vl ON vl.id=a.voucher_line_id
+     JOIN vouchers v ON v.id=vl.voucher_id JOIN ledgers l ON l.id=vl.ledger_id JOIN groups g ON g.id=l.group_id
+     WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} GROUP BY a.cost_centre_id,month`
+  ).all(fy.from,fy.to) as ActualRow[]
+  actuals.push(...costCentreActuals)
 
   const ledgerGroup = db.prepare('SELECT id, group_id AS groupId FROM ledgers').all() as { id: number; groupId: number }[]
   const groupDescendants = new Map<number, Set<number>>()
@@ -125,17 +136,24 @@ export function budgetVarianceReport(db: DB, budgetId: number, upToMonth: string
   const groupNames = new Map(
     (db.prepare('SELECT id, name FROM groups').all() as { id: number; name: string }[]).map((g) => [g.id, g.name])
   )
+  const costCentres=db.prepare('SELECT id,name,parent_id AS parentId FROM cost_centres').all() as {id:number;name:string;parentId:number|null}[]
+  const costCentreNames=new Map(costCentres.map((row)=>[row.id,row.name]))
+  const costCentreDescendants=new Map<number,Set<number>>()
+  const collect=(id:number):Set<number>=>{const found=costCentreDescendants.get(id);if(found)return found;const result=new Set<number>([id]);for(const child of costCentres.filter((row)=>row.parentId===id))for(const nested of collect(child.id))result.add(nested);costCentreDescendants.set(id,result);return result}
+  for(const line of budget.lines)if(line.costCentreId!=null)collect(line.costCentreId)
 
   const lineRows: BudgetLineRow[] = budget.lines.map((line) => ({
     targetName:
       line.ledgerId != null
         ? (ledgerNames.get(line.ledgerId) ?? `Ledger #${line.ledgerId}`)
-        : (groupNames.get(line.groupId!) ?? `Group #${line.groupId}`),
+        : line.groupId != null ? (groupNames.get(line.groupId) ?? `Group #${line.groupId}`)
+        : (costCentreNames.get(line.costCentreId!) ?? `Cost centre #${line.costCentreId}`),
     ledgerId: line.ledgerId,
     groupId: line.groupId,
+    costCentreId: line.costCentreId,
     month: line.month,
     amount: line.amount
   }))
 
-  return budgetVariance(lineRows, actuals, groupDescendants, upToMonth)
+  return budgetVariance(lineRows, actuals, groupDescendants, upToMonth, costCentreDescendants)
 }

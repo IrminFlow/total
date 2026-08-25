@@ -1,5 +1,5 @@
 // Site proof screenshots: launches the BUILT app (out/) against a fresh scratch data dir,
-// drives the real "Explore with sample data" flow (createDemo + open, chained by the renderer
+// drives the real sample-business flow (createDemo + open, chained by the renderer
 // itself — see CompanySelect.tsx), and captures Gateway / GSTR-1 / dark-theme voucher shots
 // straight into site/public/. Modeled on scripts/smoke-ci.mjs (launch pattern) and
 // the scripts/lib/harness.mjs conventions (clickText DOM-click pattern). Run `npm run build` first.
@@ -11,6 +11,7 @@ import * as os from 'node:os'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron')
+const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...desktopEnv } = process.env
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'total-shots-site-'))
 const outDir = path.join(process.cwd(), 'site', 'public')
@@ -23,7 +24,7 @@ async function launchApp() {
     executablePath: electronPath,
     args: [process.cwd()],
     timeout: 60000,
-    env: { ...process.env, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
+    env: { ...desktopEnv, TOTAL_DATA_DIR: dataDir, TOTAL_SUPPRESS_SYNC_WARNING: '1' }
   })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
@@ -74,12 +75,11 @@ let page
 try {
   ;({ app, page } = await launchApp())
 
-  // --- Get to the Gateway with demo data. "Explore with sample data" chains
+  // --- Get to the Gateway with demo data. The sample-business action chains
   // company:createDemo -> company:open -> setCompany itself (CompanySelect.tsx), so a single
   // click drives create+open, integrity/locked handling included.
-  await waitForText(page, 'Explore with sample data', 15000)
-  const clicked = await clickText(page, 'Explore with sample data')
-  if (clicked !== 'OK') throw new Error('could not find "Explore with sample data" button')
+  await page.waitForSelector('[data-testid="btn-company-demo"]', { state: 'visible', timeout: 15000 })
+  await page.click('[data-testid="btn-company-demo"]')
   await waitForTextWithLog(page, 'Cash in hand', { intervalMs: 3000, maxIterations: 15, label: 'Cash in hand (Gateway loaded)' })
   await wait(800)
 

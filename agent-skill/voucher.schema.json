@@ -9,6 +9,14 @@
       "type": "integer",
       "exclusiveMinimum": 0
     },
+    "gstRegistrationId": {
+      "description": "GST registration identity for this voucher in a multi-GSTIN company; null uses the company primary registration.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "exclusiveMinimum": 0
+    },
     "date": {
       "description": "Voucher date, YYYY-MM-DD. Must be after the period lock date if one is set.",
       "type": "string",

@@ -1,0 +1,17 @@
+import Link from 'next/link'
+
+export default function SiteFooter(): React.JSX.Element {
+  return (
+    <footer className="site-footer wrap">
+      <span>Total. Private accounting for macOS and Windows.</span>
+      <span className="site-footer-links">
+        <Link href="/privacy">Privacy</Link>
+        <Link href="/terms">Terms</Link>
+        <Link href="/security">Security</Link>
+        <Link href="/docs/ai-data">AI &amp; data</Link>
+        <Link href="/pricing">Pricing</Link>
+        <Link href="/support">Support</Link>
+      </span>
+    </footer>
+  )
+}

@@ -65,7 +65,12 @@ export interface CloseResult {
  * the lock is set, since saveVoucher itself refuses to post into a locked period — the lock is set
  * only once the closing entry (dated the same 31 Mar) already exists.
  */
-export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): CloseResult {
+export function postClose(
+  db: DB,
+  company: CompanyInfo,
+  fyStartYear: number,
+  beforeClose?: () => void,
+): CloseResult {
   const fy = fyFromStartYear(fyStartYear)
   if (fyStartYear < company.booksFrom) {
     throw new Error(`Books start in FY ${fyFromStartYear(company.booksFrom).label} — nothing to close before that`)
@@ -105,6 +110,11 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
   if (!journalType) throw new Error('Journal voucher type not found')
 
   const closeDate = fy.to // `${fyStartYear + 1}-03-31`
+
+  // The IPC path supplies a verified pre-close snapshot here, after every business validation
+  // has passed but before the journal and lock mutate the books. If snapshot verification fails,
+  // the callback throws and the close is not attempted.
+  beforeClose?.()
 
   const run = db.transaction((): number => {
     const voucher = saveVoucher(db, {

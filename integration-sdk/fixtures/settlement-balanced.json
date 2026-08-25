@@ -1,0 +1,14 @@
+{
+  "provider": "razorpay",
+  "payoutReference": "setl_fixture_1",
+  "date": "2026-08-24",
+  "currency": "INR",
+  "grossPaise": 100000,
+  "feePaise": 2000,
+  "feeTaxPaise": 360,
+  "refundPaise": 10000,
+  "withholdingPaise": 1000,
+  "netPaise": 86640,
+  "bankAmountPaise": 86640,
+  "transactionReferences": ["pay_fixture_1"]
+}

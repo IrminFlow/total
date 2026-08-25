@@ -24,6 +24,7 @@ import * as os from 'node:os'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron')
+const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...desktopEnv } = process.env
 
 /** Console noise that is not the app's fault — never fails a scenario. */
 const CONSOLE_IGNORE = [
@@ -55,15 +56,20 @@ export class Harness {
     const attempt = async () => {
       const app = await electron.launch({
         executablePath: electronPath,
-        args: [this.appDir],
+        // A per-scenario Electron profile keeps requestSingleInstanceLock, Chromium state and
+        // safeStorage tests hermetic even when another worktree is running E2E concurrently.
+        args: [`--user-data-dir=${path.join(this.dataDir, '.electron-profile')}`, this.appDir],
         timeout: 60000,
         env: {
-          ...process.env,
+          ...desktopEnv,
           TOTAL_DATA_DIR: this.dataDir,
           TOTAL_SUPPRESS_SYNC_WARNING: '1'
         }
       })
       const page = await app.firstWindow()
+      // Attach before waiting for DOM readiness: module-initialization failures can fire during
+      // the first script turn and would otherwise leave only a blank window with no diagnostic.
+      this._collectConsole(page)
       await page.setViewportSize({ width: 1440, height: 900 })
       await page.waitForLoadState('domcontentloaded')
       await page.waitForFunction(() => Boolean(window.total), null, { timeout: 30000 })
@@ -80,12 +86,11 @@ export class Harness {
       }
       ;({ app: this.app, page: this.page } = await attempt())
     }
-    this._collectConsole()
     return this
   }
 
-  _collectConsole() {
-    this.page.on('console', (msg) => {
+  _collectConsole(page = this.page) {
+    page.on('console', (msg) => {
       const text = msg.text()
       if (/unique "?key"? prop|Each child in a list should have a unique/i.test(text)) {
         this.keyWarnings.push(text)
@@ -95,7 +100,7 @@ export class Harness {
         this.consoleErrors.push({ kind: 'console-error', text })
       }
     })
-    this.page.on('pageerror', (err) => {
+    page.on('pageerror', (err) => {
       this.consoleErrors.push({ kind: 'page-error', text: err.message })
     })
   }
@@ -127,12 +132,62 @@ export class Harness {
       state: 'attached',
       timeout
     })
+    // The Shell marker changes before a lazy route chunk has necessarily mounted. Wait for the
+    // shared Suspense status to leave, then re-check query idleness.
+    await this.page.waitForFunction(
+      (screen) => {
+        const main = document.querySelector(`[data-screen="${screen}"]`)
+        // Voucher validation and other live regions legitimately persist with role=status.
+        // Only the App-level lazy-route fallback blocks readiness.
+        return main && ![...main.querySelectorAll('[role="status"]')].some((status) =>
+          status.textContent?.includes('Loading workspace')
+        )
+      },
+      name,
+      { timeout }
+    )
+    await this.page.waitForSelector(`[data-screen="${name}"][data-loading="false"]`, {
+      state: 'attached',
+      timeout
+    })
   }
 
   /** Sidebar navigation: click nav-<name>, wait for the screen to render + go idle. */
   async goto(name, timeout = 15000) {
-    await this.page.click(`[data-testid="nav-${name}"]`, { timeout })
+    // Route effects can collapse the previously active accordion section. Let those effects
+    // commit before revealing a destination so the button cannot be detached mid-click.
+    await this.page.evaluate(() => new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    ))
+    const target = this.page.locator(`[data-testid="nav-${name}"]`)
+    if ((await target.count()) === 0) {
+      // The production sidebar is a single-open accordion: opening one section closes the
+      // previous section. Probe each section at most once and stop as soon as the requested
+      // destination is mounted; waiting for every section to be open would never terminate.
+      const sections = this.page.locator('nav[aria-label="Application"] button[aria-expanded]')
+      const sectionCount = await sections.count()
+      for (let index = 0; index < sectionCount && (await target.count()) === 0; index += 1) {
+        const section = sections.nth(index)
+        if ((await section.getAttribute('aria-expanded')) !== 'true') await section.click({ timeout })
+      }
+    }
+    if ((await target.count()) === 0) throw new Error(`goto: navigation target ${JSON.stringify(name)} is unavailable`)
+    await target.click({ timeout })
     await this.waitScreen(name, timeout)
+  }
+
+  /** Reveal one destination without navigating to it. */
+  async revealNavigation(name, timeout = 15000) {
+    const target = this.page.locator(`[data-testid="nav-${name}"]`)
+    if ((await target.count()) > 0) return target
+    const sections = this.page.locator('nav[aria-label="Application"] button[aria-expanded]')
+    const sectionCount = await sections.count()
+    for (let index = 0; index < sectionCount && (await target.count()) === 0; index += 1) {
+      const section = sections.nth(index)
+      if ((await section.getAttribute('aria-expanded')) !== 'true') await section.click({ timeout })
+    }
+    if ((await target.count()) === 0) throw new Error(`revealNavigation: target ${JSON.stringify(name)} is unavailable`)
+    return target
   }
 
   /** Click any control by data-testid. */
@@ -143,8 +198,11 @@ export class Harness {
   /** Click the first button/row whose text matches (exact button text preferred). */
   async clickText(text) {
     const result = await this.page.evaluate((t) => {
+      const semantic = [...document.querySelectorAll('button, a, [role="button"]')]
       const clickables = [...document.querySelectorAll('button, a, [role="button"], .kbar-row, [class*="cursor-pointer"]')]
       const el =
+        semantic.find((e) => e.textContent?.trim() === t) ??
+        semantic.find((e) => e.textContent?.includes(t)) ??
         clickables.find((e) => e.textContent?.trim() === t) ??
         clickables.find((e) => e.textContent?.includes(t))
       if (!el) return false
@@ -178,13 +236,15 @@ export class Harness {
     await this.fill('input-company-name', name)
     await this.click('btn-company-save')
     await this.waitScreen('gateway', timeout)
+    await this.page.waitForSelector('[data-testid="card-voucher-entry"]', { state: 'visible', timeout })
   }
 
   /** From company-select: build the Demo Traders sample company and land on the Gateway. */
   async createDemoCompany(timeout = 60000) {
     await this.waitScreen('company-select')
-    await this.clickText('Explore with sample data')
+    await this.click('btn-company-demo')
     await this.waitScreen('gateway', timeout)
+    await this.page.waitForSelector('[data-testid="card-voucher-entry"]', { state: 'visible', timeout })
   }
 
   /** Screenshot into the out dir; auto-numbered unless a name is given. */
@@ -272,6 +332,9 @@ export async function scenario(name, fn, opts = {}) {
     ok = true
   } catch (err) {
     error = err instanceof Error ? (err.stack ?? err.message) : String(err)
+    if (h.consoleErrors.length > 0) {
+      error += `\nRenderer diagnostics:\n${h.consoleErrors.map((entry) => `  [${entry.kind}] ${entry.text}`).join('\n')}`
+    }
     console.error(`[${name}] FAILED:`, error)
     try {
       if (h.page) await h.shot('99-failure')

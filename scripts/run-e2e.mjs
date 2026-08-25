@@ -5,7 +5,9 @@
 // picture at the end. Screenshots land in <out>/<scenario>/, results in <out>/results.json
 // (out = $SMOKE_OUT or ./smoke-out/e2e).
 //
-// Filter by substring:  node scripts/run-e2e.mjs 03 06   → only 03-* and 06-*.
+// Filter by scenario number or exact filename stem:
+//   node scripts/run-e2e.mjs 03 06          → only 03-* and 06-*
+//   node scripts/run-e2e.mjs 11-keyboard    → only 11-keyboard.mjs
 import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -21,7 +23,14 @@ const files = fs
   .readdirSync(e2eDir)
   .filter((f) => /^\d\d-.*\.mjs$/.test(f))
   .sort()
-  .filter((f) => filters.length === 0 || filters.some((s) => f.includes(s)))
+  .filter((f) => {
+    if (filters.length === 0) return true
+    const stem = f.replace(/\.mjs$/, '')
+    return filters.some((filter) => {
+      if (/^\d{1,2}$/.test(filter)) return f.startsWith(`${filter.padStart(2, '0')}-`)
+      return stem === filter
+    })
+  })
 
 if (files.length === 0) {
   console.error(`no scenarios match ${JSON.stringify(filters)} in ${e2eDir}`)
@@ -41,6 +50,10 @@ function runOne(file) {
     const child = spawn(process.execPath, [path.join(e2eDir, file)], {
       cwd: root,
       env: { ...process.env, SMOKE_OUT: outRoot },
+      // A dedicated POSIX process group lets a timeout terminate Electron and its Chromium
+      // helpers as well as the scenario's Node parent. Killing only the parent leaked every
+      // descendant into later scenarios and eventually exhausted the macOS runner.
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'inherit']
     })
     let tail = ''
@@ -51,7 +64,15 @@ function runOne(file) {
     // A hung scenario must not wedge the whole run.
     const timer = setTimeout(() => {
       console.error(`[runner] ${name} timed out after 5 minutes — killing`)
-      child.kill('SIGKILL')
+      if (child.pid && process.platform !== 'win32') {
+        try {
+          process.kill(-child.pid, 'SIGKILL')
+        } catch {
+          child.kill('SIGKILL')
+        }
+      } else {
+        child.kill('SIGKILL')
+      }
     }, 5 * 60 * 1000)
     child.on('close', (code) => {
       clearTimeout(timer)

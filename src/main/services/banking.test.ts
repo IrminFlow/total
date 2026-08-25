@@ -11,8 +11,8 @@ describe('bank statement CSV parser', () => {
     ].join('\n')
     const rows = parseStatementCsv(csv)
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toEqual({ date: '2026-08-15', description: 'NEFT UMBRELLA', reference: '', deposit: 5000000, withdrawal: 0 })
-    expect(rows[1]).toEqual({ date: '2026-08-16', description: 'CHQ 123', reference: '', deposit: 0, withdrawal: 2500050 })
+    expect(rows[0]).toEqual({ rowNo: 1, date: '2026-08-15', description: 'NEFT UMBRELLA', reference: '', deposit: 5000000, withdrawal: 0, balance: 10000000 })
+    expect(rows[1]).toEqual({ rowNo: 2, date: '2026-08-16', description: 'CHQ 123', reference: '', deposit: 0, withdrawal: 2500050, balance: 7500000 })
   })
 
   it('parses signed single-amount statements', () => {

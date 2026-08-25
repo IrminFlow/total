@@ -1,8 +1,8 @@
-// useKeyNav — the ↑↓↵ amber-bar registry (components/ui.tsx): movement, clamping, Enter,
+// useKeyNav — the ↑↓↵ amber-bar registry: movement, clamping, Enter,
 // input-target suppression, and the topmost-list-wins stack.
 import { describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import { useKeyNav } from '../components/ui'
+import { useKeyNav } from '../components/useKeyNav'
 
 function press(key: string, target?: HTMLElement): void {
   const ev = new KeyboardEvent('keydown', { key, bubbles: true })

@@ -4,9 +4,10 @@ import type { Godown, Ledger, StockGroup, StockItem, VoucherType } from '@shared
 import type { GroupTreeNode } from '@shared/reports'
 import { api } from '../lib/client'
 import { useNav, useToasts, type Screen } from '../state/stores'
-import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, Select, TextInput, useKeyNav } from '../components/ui'
+import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, Select, TextInput } from '../components/ui'
+import { useKeyNav } from '../components/useKeyNav'
 import { TabBar } from '../components/TabBar'
-import { useGroups, useLedgers, useStockItems } from '../components/pickers'
+import { useGroups, useLedgers, useStockItems } from '../components/pickerHooks'
 import { LedgerFormModal } from '../components/LedgerFormModal'
 import { validateHsn } from '@shared/gst/validate'
 import { confirmDialog, promptDialog } from '../lib/dialogs'
@@ -30,7 +31,7 @@ export function Masters({ tab }: { tab?: MastersTab }): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl">
       <div className="mb-4 flex items-center gap-1">
-        <h2 className="mr-4 font-serif text-[19px] font-semibold tracking-tight">Masters</h2>
+        <h2 className="mr-4 text-[20px] font-semibold tracking-[-0.015em]">Masters</h2>
         {/* Tab lives in the nav stack (not local state) so Esc/back retraces tabs and
             other screens can deep-link straight to a tab — same pattern as Settings. */}
         <TabBar
@@ -873,6 +874,8 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
   const [suffix, setSuffix] = useState(vt?.suffix ?? '')
   const [padWidth, setPadWidth] = useState((vt?.padWidth ?? 0).toString())
   const [restartFy, setRestartFy] = useState(vt?.restartFy ?? true)
+  const [gstRegistrationId,setGstRegistrationId]=useState<number|null>(vt?.gstRegistrationId??null)
+  const {data:gstRegistrations}=useQuery({queryKey:['gstRegistrations'],queryFn:api.gst.registrations})
 
   const pad = Math.min(8, Math.max(0, Number(padWidth) || 0))
   const previewNumber = (seq: number): string => `${prefix}${String(seq).padStart(pad, '0')}${suffix}`
@@ -882,7 +885,7 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
   const save = async (): Promise<void> => {
     try {
       if (!name.trim()) return void toast.push('error', 'Name the voucher type')
-      const data = { name: name.trim(), kind, numbering, prefix, suffix, padWidth: pad, restartFy }
+      const data = { name: name.trim(), kind, numbering, prefix, suffix, padWidth: pad, restartFy, gstRegistrationId }
       if (vt) await api.voucherTypes.update(vt.id, data)
       else await api.voucherTypes.create(data)
       await queryClient.invalidateQueries({ queryKey: ['voucherTypes'] })
@@ -913,6 +916,9 @@ function TypeFormModal({ vt, onClose }: { vt: VoucherType | null; onClose: () =>
             <option value="auto">Automatic per FY</option>
             <option value="manual">Manual</option>
           </Select>
+        </Field>
+        <Field label="GST registration" hint="Numbers and returns remain scoped to this GSTIN">
+          <Select value={gstRegistrationId??''} onChange={(e)=>setGstRegistrationId(e.target.value?Number(e.target.value):null)}><option value="">Primary / company default</option>{(gstRegistrations??[]).filter((row)=>row.active).map((row)=><option key={row.id} value={row.id}>{row.stateCode} · {row.gstin}</option>)}</Select>
         </Field>
         <Field label="Prefix" hint="e.g. INV- gives INV-1, INV-2…">
           <TextInput value={prefix} onChange={(e) => setPrefix(e.target.value)} />
@@ -995,11 +1001,13 @@ function GodownFormModal({ godown, onClose }: { godown: Godown | null; onClose: 
   const queryClient = useQueryClient()
   const [name, setName] = useState(godown?.name ?? '')
   const [address, setAddress] = useState(godown?.address ?? '')
+  const [gstRegistrationId,setGstRegistrationId]=useState<number|null>(godown?.gstRegistrationId??null)
+  const {data:gstRegistrations}=useQuery({queryKey:['gstRegistrations'],queryFn:api.gst.registrations})
 
   const save = async (): Promise<void> => {
     try {
       if (!name.trim()) return void toast.push('error', 'Name the godown')
-      const data = { name: name.trim(), address: address.trim() || null }
+      const data = { name: name.trim(), address: address.trim() || null, gstRegistrationId }
       if (godown) await api.godowns.update(godown.id, data)
       else await api.godowns.create(data)
       await queryClient.invalidateQueries({ queryKey: ['godowns'] })
@@ -1037,6 +1045,9 @@ function GodownFormModal({ godown, onClose }: { godown: Godown | null; onClose: 
         </Field>
         <Field label="Address">
           <TextInput value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Optional" />
+        </Field>
+        <Field label="GST registration" hint="Stock at this location belongs to the selected state registration">
+          <Select value={gstRegistrationId??''} onChange={(e)=>setGstRegistrationId(e.target.value?Number(e.target.value):null)}><option value="">Unscoped / primary</option>{(gstRegistrations??[]).filter((row)=>row.active).map((row)=><option key={row.id} value={row.id}>{row.stateCode} · {row.gstin}</option>)}</Select>
         </Field>
         <div className="flex justify-between">
           <div>

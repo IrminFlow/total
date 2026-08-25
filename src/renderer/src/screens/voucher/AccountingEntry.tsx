@@ -7,15 +7,24 @@ import { formatPaise } from '@shared/money'
 import { toDisplayDate } from '@shared/dates'
 import { api, type TdsSuggestion } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput } from '../../components/ui'
-import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
+import { AmountInput, Button, DateInput, Field, LineTableScroller, Modal, Money, Panel, Select, TextInput } from '../../components/ui'
+import { isAnyModalOpen } from '../../components/modalRegistry'
+import { LedgerPicker } from '../../components/pickers'
+import { useGroups, useLedgers } from '../../components/pickerHooks'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
-import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
+import { useDraftAwareUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey, NUMBER_LOADING, TRADING_KINDS, useVoucherNumberField } from './hooks'
 import { CostAllocModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
 import { TransportModal } from './TransportModal'
+import type { VoucherWorkDraft, VoucherWorkDraftInput } from '@shared/voucherDrafts'
+import { saveEntryTemplate } from '../../lib/saveEntryTemplate'
+import { recordCohortEvent } from '../../lib/commercialOps'
+import { parseVoucherClipboard } from '../../lib/voucherClipboard'
+import { EntryValidationStatus } from './EntryValidationStatus'
+import { useVoucherDraftAutosave } from '../../lib/useVoucherDraftAutosave'
+import { useFormHistory } from '../../lib/useFormHistory'
 
 // ---------- accounting mode (payment / receipt / contra / journal + alteration) ----------
 
@@ -30,16 +39,41 @@ interface AcctRow {
 
 const blankAcctRow = (drCr: 'dr' | 'cr'): AcctRow => ({ key: nextLineKey(), drCr, ledgerId: null, amount: null, costAllocations: [] })
 
+interface SavedAccountingPayload {
+  date?: string; number?: string; narration?: string; instrumentNo?: string
+  rows?: { drCr?: string; ledgerId?: number | null; amount?: number | null; costAllocations?: AcctRow['costAllocations'] }[]
+  billRefs?: VoucherBillRef[]; advanceReceipt?: boolean; optionalVoucher?: boolean
+  tds?: { sectionId: number; baseAmount: number; tdsAmount: number } | null
+}
+
+interface AccountingHistoryState {
+  date: string
+  number: string
+  rows: AcctRow[]
+  narration: string
+  instrumentNo: string
+  billRefs: VoucherBillRef[]
+  advanceReceipt: boolean
+  optionalVoucher: boolean
+  tds: { sectionId: number; baseAmount: number; tdsAmount: number } | null
+}
+
+function accountingPayload(draft?: VoucherWorkDraft): SavedAccountingPayload {
+  return draft?.mode === 'accounting' && draft.payloadVersion === 1 ? draft.payload as SavedAccountingPayload : {}
+}
+
 export function AccountingEntry({
   typeId,
   kind,
   voucherId,
-  draft
+  draft,
+  workDraft
 }: {
   typeId: number
   kind: VoucherKind
   voucherId?: number
   draft?: VoucherDraft
+  workDraft?: VoucherWorkDraft
 }): React.JSX.Element {
   const { workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
@@ -49,20 +83,26 @@ export function AccountingEntry({
   const ledgers = useLedgers()
   const groups = useGroups()
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups])
-  const [date, setDate] = useState(draft?.date ?? workingDate)
+  const savedDraft = accountingPayload(workDraft)
+  const [date, setDate] = useState(savedDraft.date ?? draft?.date ?? workingDate)
   const [rows, setRows] = useState<AcctRow[]>(
-    draft?.lines?.length
-      ? [...draft.lines.map((l) => ({ ...l, key: nextLineKey(), costAllocations: [] as AcctRow['costAllocations'] })), blankAcctRow('cr')]
+    savedDraft.rows?.length
+      ? savedDraft.rows.map((line) => ({ key: nextLineKey(), drCr: line.drCr === 'dr' ? 'dr' : 'cr', ledgerId: typeof line.ledgerId === 'number' ? line.ledgerId : null, amount: typeof line.amount === 'number' ? line.amount : null, costAllocations: Array.isArray(line.costAllocations) ? line.costAllocations : [] }))
+      : draft?.lines?.length
+      ? [...draft.lines.map((l) => ({ ...l, key: nextLineKey(), costAllocations: l.costAllocations ?? [] })), blankAcctRow('cr')]
       : [blankAcctRow('dr'), blankAcctRow('cr')]
   )
-  const [narration, setNarration] = useState(draft?.narration ?? '')
-  const [instrumentNo, setInstrumentNo] = useState('')
+  const [narration, setNarration] = useState(savedDraft.narration ?? draft?.narration ?? '')
+  const [instrumentNo, setInstrumentNo] = useState(savedDraft.instrumentNo ?? '')
   const [quickLedger, setQuickLedger] = useState<{ name: string; row: number } | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
   const [showTransport, setShowTransport] = useState(false)
+  const [clipboardOpen, setClipboardOpen] = useState(false)
+  const [defaultsDismissed, setDefaultsDismissed] = useState(false)
   const [editingParty, setEditingParty] = useState<Ledger | null>(null)
+  const [revealValidationIssues, setRevealValidationIssues] = useState(() => Boolean(voucherId || draft || workDraft))
   // Alteration keeps the voucher's own number editable but never auto-suggests a fresh one off
   // voucher:nextNumber (that would rename an existing document to "the next available number"
   // the moment you touch its date) — it's seeded once from the loaded voucher below. New-entry
@@ -76,9 +116,10 @@ export function AccountingEntry({
     queryFn: () => api.vouchers.get(voucherId!),
     enabled: !!voucherId
   })
+  const immutable = !!existing && (existing.reversalOfId !== null || existing.reversedById !== null)
 
   // ---------- TDS (payment / journal to a party flagged for TDS) ----------
-  const [tds, setTds] = useState<{ sectionId: number; baseAmount: number; tdsAmount: number } | null>(null)
+  const [tds, setTds] = useState<{ sectionId: number; baseAmount: number; tdsAmount: number } | null>(savedDraft.tds ?? null)
   const [tdsSuggestion, setTdsSuggestion] = useState<TdsSuggestion | null>(null)
   const [tdsDismissed, setTdsDismissed] = useState(false)
   // Set right before WE mutate rows in a way that would otherwise re-trigger the suggestion
@@ -88,14 +129,20 @@ export function AccountingEntry({
   const skipNextTdsEffectRef = useRef(false)
 
   // ---------- bill allocations (receipt/payment checkbox list; trading-kind alteration editor) ----------
-  const [billRefs, setBillRefs] = useState<VoucherBillRef[]>([])
+  const [billRefs, setBillRefs] = useState<VoucherBillRef[]>(savedDraft.billRefs ?? [])
   const [billsOpen, setBillsOpen] = useState(true)
 
   // ---------- GST / book-keeping flags ----------
   // Advance receipt (GSTR-1 11A): the unallocated remainder of the party line goes out as a
   // 'new' bill ref, which is exactly what gst.extractAdvances counts. Optional = memorandum.
-  const [advanceReceipt, setAdvanceReceipt] = useState(false)
-  const [optionalVoucher, setOptionalVoucher] = useState(false)
+  const [advanceReceipt, setAdvanceReceipt] = useState(savedDraft.advanceReceipt ?? false)
+  const [optionalVoucher, setOptionalVoucher] = useState(savedDraft.optionalVoucher ?? draft?.isOptional ?? false)
+
+  useEffect(() => {
+    if (savedDraft.number !== undefined) numberField.onChange(savedDraft.number)
+    // Restore the persisted override once. numberField.onChange is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ---------- per-line cost-centre allocation ----------
   const { data: ccList } = useQuery({ queryKey: ['costCentres'], queryFn: api.cc.list })
@@ -127,11 +174,49 @@ export function AccountingEntry({
   // Unsaved-entry guard for NEW vouchers only (save resets the form). Alterations are exempt:
   // rows are seeded from the stored voucher, so content alone can't distinguish edited from
   // pristine — guarding them would also fire on the programmatic nav.back() after save.
-  useUnsavedGuard(
-    !voucherId && (rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== '')
-  )
+  const draftFingerprint = JSON.stringify({ date, rows: rows.map(({ key: _key, ...row }) => row), narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds })
+  const hasMeaningfulDraft = !voucherId && (rows.some((r) => r.ledgerId != null || (r.amount ?? 0) !== 0) || narration.trim() !== '')
+  const autosaveInput = useMemo<VoucherWorkDraftInput>(() => ({
+    voucherTypeId: typeId,
+    mode: 'accounting',
+    title: narration.trim().slice(0, 120) || `${kind.replace('_', ' ')} on ${date}`,
+    payloadVersion: 1,
+    payload: { date, number: numberField.forPayload, rows: rows.map(({ key: _key, ...row }) => row), narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds }
+  }), [advanceReceipt, billRefs, date, instrumentNo, kind, narration, numberField.forPayload, optionalVoucher, rows, tds, typeId])
+  const autosave = useVoucherDraftAutosave({
+    enabled: !saving && !voucherId,
+    meaningful: hasMeaningfulDraft,
+    initialDraftId: workDraft?.id,
+    draft: autosaveInput
+  })
+  useDraftAwareUnsavedGuard(autosave.draftId ?? workDraft?.id, hasMeaningfulDraft, draftFingerprint)
+  const historyState = useMemo<AccountingHistoryState>(() => ({
+    date,
+    number: numberField.value === NUMBER_LOADING ? '' : numberField.value,
+    rows,
+    narration,
+    instrumentNo,
+    billRefs,
+    advanceReceipt,
+    optionalVoucher,
+    tds,
+  }), [advanceReceipt, billRefs, date, instrumentNo, narration, numberField.value, optionalVoucher, rows, tds])
+  const applyHistory = useCallback((state: AccountingHistoryState): void => {
+    setDate(state.date)
+    numberField.onChange(state.number)
+    setRows(state.rows)
+    setNarration(state.narration)
+    setInstrumentNo(state.instrumentNo)
+    setBillRefs(state.billRefs)
+    setAdvanceReceipt(state.advanceReceipt)
+    setOptionalVoucher(state.optionalVoucher)
+    setTds(state.tds)
+    setRevealValidationIssues(true)
+  }, [numberField.onChange])
+  const formHistory = useFormHistory(historyState, applyHistory, !voucherId && !saving && numberField.value !== NUMBER_LOADING)
 
   const setRow = (i: number, patch: Partial<AcctRow>): void => {
+    setRevealValidationIssues(true)
     setRows((rs) => {
       const next = rs.map((r, j) => (j === i ? { ...r, ...patch } : r))
       const last = next[next.length - 1]!
@@ -154,6 +239,26 @@ export function AccountingEntry({
     if (candidates.size === 1) return [...candidates][0]!
     return draftPartyId
   }, [rows, ledgers, groupMap, draftPartyId])
+  const { data: smartDefaults } = useQuery({
+    queryKey: ['voucher-smart-defaults', derivedPartyId, kind],
+    queryFn: () => api.vouchers.smartDefaults(derivedPartyId!, kind),
+    enabled: !voucherId && derivedPartyId != null
+  })
+
+  const applySmartDefaults = (): void => {
+    if (!smartDefaults) return
+    if (smartDefaults.narration) setNarration(smartDefaults.narration)
+    if (kind === 'receipt' && smartDefaults.billBehavior === 'advance') setAdvanceReceipt(true)
+    if (smartDefaults.billBehavior === 'against') setBillsOpen(true)
+    if (hasCc && smartDefaults.costAllocations.length) {
+      setRows((current) => current.map((row) => {
+        if (row.ledgerId == null || !row.amount || row.costAllocations.length) return row
+        const suggestion = smartDefaults.costAllocations.find((item) => item.ledgerId === row.ledgerId)
+        return suggestion ? { ...row, costAllocations: [{ costCentreId: suggestion.costCentreId, amount: row.amount }] } : row
+      }))
+    }
+    setDefaultsDismissed(true)
+  }
 
   // How much of a prior Apply is already sitting in the TDS payable line — i.e. how much the
   // target line has already been reduced (the cumulative reduction on the target always equals
@@ -310,6 +415,32 @@ export function AccountingEntry({
 
   const partyLineTotal = derivedPartyId != null ? rows.filter((r) => r.ledgerId === derivedPartyId).reduce((s, r) => s + (r.amount ?? 0), 0) : 0
   const billAllocatedTotal = billRefs.reduce((s, r) => s + r.amount, 0)
+  const validationIssues = useMemo(() => {
+    const issues: string[] = []
+    const entered = rows.filter((row) => row.ledgerId != null || (row.amount ?? 0) !== 0)
+    entered.forEach((row, index) => {
+      if (row.ledgerId == null) issues.push(`Line ${index + 1}: choose a ledger`)
+      if (row.amount == null || row.amount <= 0) issues.push(`Line ${index + 1}: enter a positive amount`)
+      const allocated = row.costAllocations.reduce((sum, allocation) => sum + allocation.amount, 0)
+      if (row.amount != null && allocated > row.amount) issues.push(`Line ${index + 1}: cost-centre allocation exceeds the line amount`)
+    })
+    if (entered.length < 2) issues.push('Enter at least one debit and one credit')
+    if (!entered.some((row) => row.drCr === 'dr')) issues.push('Add a debit line')
+    if (!entered.some((row) => row.drCr === 'cr')) issues.push('Add a credit line')
+    if (totalDr !== totalCr && totalDr + totalCr > 0) issues.push(`Balance the voucher: difference is ${formatPaise(Math.abs(totalDr - totalCr), { symbol: true })}`)
+    const completed = entered.filter((row) => row.ledgerId != null && row.amount != null && row.amount > 0)
+    if (kind === 'contra' && completed.some((row) => {
+      const ledger = ledgers.find((candidate) => candidate.id === row.ledgerId)
+      return !ledger || !isCashOrBankLedger(ledger, groupMap)
+    })) issues.push('Contra entries can use only cash and bank ledgers')
+    const moneySide = kind === 'payment' ? 'cr' : kind === 'receipt' ? 'dr' : null
+    if (moneySide && completed.filter((row) => row.drCr === moneySide).some((row) => {
+      const ledger = ledgers.find((candidate) => candidate.id === row.ledgerId)
+      return !ledger || !isCashOrBankLedger(ledger, groupMap)
+    })) issues.push(`${kind === 'payment' ? 'Payment credits' : 'Receipt debits'} must use cash or bank ledgers`)
+    if (billRefs.length > 0 && billAllocatedTotal !== partyLineTotal) issues.push('Bill allocations must equal the party ledger amount')
+    return [...new Set(issues)]
+  }, [rows, totalDr, totalCr, kind, ledgers, groupMap, billRefs.length, billAllocatedTotal, partyLineTotal])
 
   const toggleBill = (bill: OutstandingBill, checked: boolean): void => {
     setBillRefs((refs) => {
@@ -380,6 +511,9 @@ export function AccountingEntry({
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
+    setRevealValidationIssues(true)
+    if (immutable) return void toast.push('error', 'Linked reversal entries are immutable; create a fresh adjustment instead')
+    if (validationIssues.length > 0) return void toast.push('error', validationIssues[0]!)
     const input = buildPayload()
     if (!input) return void toast.push('error', 'Enter at least one debit and one credit')
     setSaving(true)
@@ -390,6 +524,30 @@ export function AccountingEntry({
         const proceed = await confirmDialog({
           title: 'Duplicate number',
           message: `Voucher number ${input.number} is already used by another voucher of this type. Save anyway with the same number?`,
+          confirmLabel: 'Save anyway'
+        })
+        if (!proceed) return
+      }
+      const suspicious = await api.vouchers.suspicious(input)
+      if (suspicious.length > 0) {
+        const proceed = await confirmDialog({
+          title: 'Review unusual details',
+          message: suspicious.map((warning) => `• ${warning.message}`).join('\n'),
+          confirmLabel: 'Reviewed, save'
+        })
+        if (!proceed) return
+      }
+      const duplicates = await api.vouchers.duplicates(input, voucherId)
+      if (duplicates.length > 0) {
+        const first = duplicates[0]!
+        const evidence = first.reasons.includes('same_bill_reference')
+          ? 'the same party and bill reference'
+          : first.reasons.includes('same_reference')
+            ? 'the same party and external reference'
+            : 'the same party and amount within three days'
+        const proceed = await confirmDialog({
+          title: 'Possible duplicate',
+          message: `Voucher ${first.number} on ${toDisplayDate(first.date)} has ${evidence}. Save this entry anyway?`,
           confirmLabel: 'Save anyway'
         })
         if (!proceed) return
@@ -405,8 +563,13 @@ export function AccountingEntry({
         })
         if (!proceed) return
       }
-      const saved = await api.vouchers.save(input, voucherId)
-      toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
+      const saved = await api.vouchers.save(input, voucherId, autosave.draftId ?? workDraft?.id)
+      autosave.markCommitted()
+      if (!saved.approvalRequired)
+        recordCohortEvent(localStorage, 'first_voucher_posted')
+      toast.push('success', saved.approvalRequired
+        ? `Sent for approval — request #${saved.request.id}`
+        : `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
       setWorkingDate(date)
       await queryClient.invalidateQueries()
       if (voucherId) nav.back()
@@ -419,6 +582,7 @@ export function AccountingEntry({
         setTds(null)
         setTdsSuggestion(null)
         setTdsDismissed(false)
+        setRevealValidationIssues(false)
         numberField.reset()
       }
     } catch (err) {
@@ -426,7 +590,26 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset])
+  }, [saving, immutable, validationIssues, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, nav, numberField.reset, autosave.draftId, autosave.markCommitted, workDraft?.id])
+
+  const saveDraft = async (): Promise<void> => {
+    if (saving || voucherId) return
+    setSaving(true)
+    try {
+      await autosave.saveNow()
+      await queryClient.invalidateQueries({ queryKey: ['voucher-drafts'] })
+      toast.push('success', workDraft ? 'Draft updated' : 'Voucher draft saved')
+      nav.replace({ name: 'voucher-drafts' })
+    } catch (error) { toast.push('error', (error as Error).message) }
+    finally { setSaving(false) }
+  }
+
+  const saveTemplate = async (): Promise<void> => {
+    try {
+      const name = await saveEntryTemplate({ voucherTypeId: typeId, mode: 'accounting', title: 'Template', payloadVersion: 1, payload: { date, number: '', rows: rows.map(({ key: _key, ...row }) => row), narration, instrumentNo, billRefs: [], advanceReceipt: false, optionalVoucher, tds: null } }, narration.trim().slice(0, 80) || kind.replace('_', ' '))
+      if (name) { await queryClient.invalidateQueries({ queryKey: ['entry-templates'] }); toast.push('success', `${name} template saved`) }
+    } catch (error) { toast.push('error', (error as Error).message) }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -517,6 +700,13 @@ export function AccountingEntry({
           </p>
         </div>
       </div>
+
+      {smartDefaults && !defaultsDismissed && (
+        <div data-testid="smart-ledger-defaults" className="mt-4 flex items-center justify-between gap-4 rounded-md border border-blue/25 bg-blue/5 px-3 py-2">
+          <p className="text-[11.5px] leading-5 text-ink">Prior party pattern available: {smartDefaults.narration ? 'narration' : 'entry behavior'}{smartDefaults.costAllocations.length ? ` · ${smartDefaults.costAllocations.length} cost-centre rule${smartDefaults.costAllocations.length === 1 ? '' : 's'}` : ''}{smartDefaults.taxLedgerIds.length ? ` · ${smartDefaults.taxLedgerIds.length} tax ledger${smartDefaults.taxLedgerIds.length === 1 ? '' : 's'}` : ''}. Review before applying.</p>
+          <div className="flex shrink-0 gap-2"><Button variant="ghost" onClick={() => setDefaultsDismissed(true)}>Dismiss</Button><Button data-testid="btn-apply-smart-defaults" onClick={applySmartDefaults}>Apply defaults</Button></div>
+        </div>
+      )}
 
       {/* Long journals scroll inside a capped container; short ones stay unwrapped so the
           absolutely-positioned LedgerPicker dropdowns are never clipped. */}
@@ -746,9 +936,21 @@ export function AccountingEntry({
         </label>
       </div>
 
-      <div className="mt-5 flex justify-between">
-        <div>{voucherId && <Button variant="danger" onClick={() => void remove()}>Delete voucher</Button>}</div>
+      <div className="mt-5 grid gap-3">
+        <EntryValidationStatus
+          issues={validationIssues}
+          revealIssues={revealValidationIssues}
+          guidance={['Choose debit and credit ledgers', 'Enter a positive amount on each line', 'Make debit and credit totals equal']}
+        />
+      <div className="flex justify-between">
+        <div>{voucherId && <Button variant="danger" disabled={immutable} disabledTitle="Linked reversal entries are immutable" onClick={() => void remove()}>Delete voucher</Button>}</div>
         <div className="flex gap-2">
+          {!voucherId && (
+            <div className="mr-1 flex overflow-hidden rounded-md border border-line" role="group" aria-label="Voucher edit history">
+              <button type="button" data-testid="btn-undo-voucher" disabled={!formHistory.canUndo} onClick={formHistory.undo} className="px-2.5 py-1.5 text-[11.5px] text-muted hover:bg-panel2 hover:text-ink disabled:opacity-35" title="Undo form edit (Cmd/Ctrl+Z)">Undo</button>
+              <button type="button" data-testid="btn-redo-voucher" disabled={!formHistory.canRedo} onClick={formHistory.redo} className="border-l border-line px-2.5 py-1.5 text-[11.5px] text-muted hover:bg-panel2 hover:text-ink disabled:opacity-35" title="Redo form edit (Cmd/Ctrl+Shift+Z)">Redo</button>
+            </div>
+          )}
           {voucherId && kind === 'payment' && bankCrLine && (
             <>
               <Button onClick={() => void printCheque()}>Print cheque</Button>
@@ -761,11 +963,16 @@ export function AccountingEntry({
             </Button>
           )}
           {balanced && <Button onClick={() => setShowRecurring(true)}>Save as recurring…</Button>}
+          {!voucherId && <Button data-testid="btn-paste-voucher-lines" onClick={() => setClipboardOpen(true)}>Paste lines…</Button>}
+          {!voucherId && balanced && <Button data-testid="btn-save-entry-template" onClick={() => void saveTemplate()}>Record safe macro…</Button>}
+          {!voucherId && <span className="self-center text-[10.5px] text-muted" aria-live="polite">{autosave.status === 'saving' || autosave.status === 'waiting' ? 'Saving draft…' : autosave.status === 'saved' ? 'Draft saved' : autosave.status === 'error' ? 'Draft not saved' : ''}</span>}
+          {!voucherId && <Button data-testid="btn-save-voucher-draft" disabled={saving} onClick={() => void saveDraft()}>Save draft</Button>}
           <Button onClick={() => nav.back()}>Cancel</Button>
-          <Button variant="primary" data-testid="btn-save-voucher" disabled={!balanced || saving} onClick={() => void save()}>
+          <Button variant="primary" data-testid="btn-save-voucher" disabled={immutable || saving} disabledTitle={immutable ? 'Linked reversal entries are immutable' : undefined} onClick={() => void save()}>
             {voucherId ? 'Save changes' : 'Save voucher'} ⌘↵
           </Button>
         </div>
+      </div>
       </div>
 
       {quickLedger && (
@@ -780,6 +987,7 @@ export function AccountingEntry({
           }}
         />
       )}
+      {clipboardOpen && <ClipboardLinesModal ledgers={ledgers} onClose={() => setClipboardOpen(false)} onApply={(imported) => { setRevealValidationIssues(true); setRows([...imported.map((row) => ({ ...row, key: nextLineKey(), costAllocations: [] })), blankAcctRow('cr')]); setClipboardOpen(false) }} />}
       {ccModalRow != null && (
         <CostAllocModal
           lineAmount={rows[ccModalRow]?.amount ?? 0}
@@ -796,4 +1004,32 @@ export function AccountingEntry({
       {editingParty && <LedgerFormModal ledger={editingParty} onClose={() => setEditingParty(null)} />}
     </Panel>
   )
+}
+
+function ClipboardLinesModal({ ledgers, onClose, onApply }: { ledgers: Ledger[]; onClose: () => void; onApply: (rows: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]) => void }): React.JSX.Element {
+  const [text, setText] = useState('')
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    api.vouchers.clipboardLines().then((result) => setText(result.text)).finally(() => setLoading(false))
+  }, [])
+  const parsed = useMemo(() => parseVoucherClipboard(text), [text])
+  const ledgerByName = useMemo(() => new Map(ledgers.map((ledger) => [ledger.name.trim().toLowerCase(), ledger])), [ledgers])
+  const unknown = parsed.lines.filter((line) => !ledgerByName.has(line.ledgerName.trim().toLowerCase()))
+  const resolved = parsed.lines.flatMap((line) => {
+    const ledger = ledgerByName.get(line.ledgerName.trim().toLowerCase())
+    return ledger ? [{ ledgerId: ledger.id, drCr: line.drCr, amount: line.amount }] : []
+  })
+  const debit = resolved.reduce((sum, row) => sum + (row.drCr === 'dr' ? row.amount : 0), 0)
+  const credit = resolved.reduce((sum, row) => sum + (row.drCr === 'cr' ? row.amount : 0), 0)
+  const issues = [...parsed.issues, ...unknown.map((line) => `Row ${line.row}: ledger “${line.ledgerName}” was not found`), ...(resolved.length && debit !== credit ? [`Debits ${formatPaise(debit)} and credits ${formatPaise(credit)} do not balance`] : [])]
+  return <Modal title="Paste voucher lines" onClose={onClose}>
+    <p className="mb-3 text-[12px] leading-5 text-muted">Copy three columns from a spreadsheet: <span className="text-ink">Ledger, Debit, Credit</span>. Review the exact posting before applying it to this draft.</p>
+    <textarea data-testid="input-clipboard-voucher-lines" value={text} onChange={(event) => setText(event.target.value)} rows={7} placeholder={loading ? 'Reading clipboard…' : 'Ledger\tDebit\tCredit'} className="num w-full resize-y rounded-md border border-line bg-panel2 px-3 py-2 text-[12px] leading-5 text-ink" />
+    <div className="mt-3 max-h-48 overflow-y-auto rounded-md border border-line">
+      {resolved.map((row, index) => <div key={`${row.ledgerId}-${index}`} className="grid grid-cols-[1fr_70px_120px] border-b border-line px-3 py-2 text-[11.5px] last:border-0"><span>{ledgers.find((ledger) => ledger.id === row.ledgerId)?.name}</span><span className="uppercase text-muted">{row.drCr}</span><span className="num text-right">{formatPaise(row.amount)}</span></div>)}
+      {!resolved.length && <p className="px-3 py-6 text-center text-[11.5px] text-muted">No valid rows to preview</p>}
+    </div>
+    {!!issues.length && <div data-testid="clipboard-line-issues" className="mt-3 rounded-md border border-cr/30 bg-cr/5 px-3 py-2 text-[11px] leading-5 text-cr">{issues.map((issue) => <p key={issue}>{issue}</p>)}</div>}
+    <div className="mt-4 flex items-center justify-between"><span className="num text-[11px] text-muted">Dr {formatPaise(debit)} · Cr {formatPaise(credit)}</span><div className="flex gap-2"><Button onClick={onClose}>Cancel</Button><Button data-testid="btn-apply-clipboard-lines" variant="primary" disabled={!resolved.length || !!issues.length} onClick={() => onApply(resolved)}>Apply reviewed lines</Button></div></div>
+  </Modal>
 }

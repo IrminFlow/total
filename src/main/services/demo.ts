@@ -1,9 +1,10 @@
 import { existsSync } from 'fs'
+import { join } from 'path'
 import type { DB } from '../db/connection'
 import { openCompanyDb } from '../db/connection'
 import { seedCompany } from '../db/seed'
 import { upsertCompany } from '../registry'
-import { companyDbPath, ensureCompanyTree, slugify } from '../paths'
+import { companyDbPath, companyDir, ensureCompanyTree, slugify } from '../paths'
 import { createLedger, createStockItem } from './masters'
 import { saveVoucher } from './vouchers'
 import {
@@ -12,6 +13,16 @@ import {
 } from '@shared/demo'
 import { todayISO } from '@shared/dates'
 import type { VoucherKind } from '@shared/domain'
+import { applyBusinessTemplate, defaultOnboardingProfile, writeOnboardingProfile, type BusinessType } from './onboarding'
+
+const DEMO_INDUSTRIES: Record<BusinessType, { name: string; needsInventory: boolean; needsPayroll: boolean }> = {
+  retailer: { name: DEMO_COMPANY.name, needsInventory: true, needsPayroll: false },
+  wholesaler: { name: 'Demo Wholesale House', needsInventory: true, needsPayroll: false },
+  service: { name: 'Demo Services Studio', needsInventory: false, needsPayroll: false },
+  manufacturer: { name: 'Demo Manufacturing Works', needsInventory: true, needsPayroll: true },
+  freelancer: { name: 'Demo Freelancer Books', needsInventory: false, needsPayroll: false },
+  professional: { name: 'Demo Professional Practice', needsInventory: false, needsPayroll: true },
+}
 
 function groupId(db: DB, name: string): number {
   const row = db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number } | undefined
@@ -83,15 +94,18 @@ function postDemoVoucher(
  * without typing anything in. Mirrors company:create (slugify + dedup, ensureCompanyTree,
  * openCompanyDb, seedCompany), then layers demo-specific masters and vouchers on top.
  */
-export function createDemoCompany(): { slug: string } {
-  let slug = slugify(DEMO_COMPANY.name)
+export function createDemoCompany(businessType: BusinessType = 'retailer'): { slug: string } {
+  const industry = DEMO_INDUSTRIES[businessType]
+  const company = { ...DEMO_COMPANY, name: industry.name }
+  let slug = slugify(company.name)
   let n = 2
-  while (existsSync(companyDbPath(slug))) slug = `${slugify(DEMO_COMPANY.name)}-${n++}`
+  while (existsSync(companyDbPath(slug))) slug = `${slugify(company.name)}-${n++}`
 
   ensureCompanyTree(slug)
   const db = openCompanyDb(slug)
   try {
-    seedCompany(db, DEMO_COMPANY)
+    seedCompany(db, company)
+    applyBusinessTemplate(db, businessType)
 
     const debtorGroup = groupId(db, 'Sundry Debtors')
     const creditorGroup = groupId(db, 'Sundry Creditors')
@@ -156,10 +170,19 @@ export function createDemoCompany(): { slug: string } {
     for (const v of demoVouchers(todayISO())) {
       postDemoVoucher(db, v, ledgerIdByName, itemIdByName)
     }
+
+    const profile = defaultOnboardingProfile({
+      businessType,
+      priorSoftware: 'first-time',
+      needsInventory: industry.needsInventory,
+      needsPayroll: industry.needsPayroll,
+    })
+    profile.setupSteps = { company: true, ledgers: true, opening: true, bank: true, tax: true, backup: false, firstVoucher: true }
+    writeOnboardingProfile(join(companyDir(slug), 'setup.json'), profile)
   } finally {
     db.close()
   }
 
-  upsertCompany({ slug, name: DEMO_COMPANY.name, stateCode: DEMO_COMPANY.stateCode, gstin: DEMO_COMPANY.gstin, lastOpenedAt: null })
+  upsertCompany({ slug, name: company.name, stateCode: company.stateCode, gstin: company.gstin, lastOpenedAt: null })
   return { slug }
 }

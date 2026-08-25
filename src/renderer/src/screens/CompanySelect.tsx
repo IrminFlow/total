@@ -1,24 +1,32 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type IntegrityResult } from '../lib/client'
+import { api, type IntegrityResult, type BusinessType, type PriorSoftware } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, Field, Modal, ScrollList, Select, TextInput, useKeyNav } from '../components/ui'
+import { Button, Field, Kbd, Modal, ScrollList, Select, TextInput } from '../components/ui'
+import { useKeyNav } from '../components/useKeyNav'
 import { SupportLink } from '../components/SupportLink'
+import { MnemonicText } from '../components/MnemonicText'
 import { GST_STATES } from '@shared/gst/states'
 import { gstinErrorMessage } from '../lib/gstinError'
 import { fyOf, todayISO } from '@shared/dates'
 import type { CompanyCreateInput } from '@shared/schemas'
 import type { CompanyInfo, CompanySummary } from '@shared/domain'
+import { readContinuation } from '../lib/continuation'
+import { recordCohortEvent } from '../lib/commercialOps'
+import { ArrowRight, Buildings, HardDrive, Plus, ShieldCheck, UploadSimple } from '@phosphor-icons/react'
+
+const totalIcon = new URL('../assets/total-icon.png', import.meta.url).href
 
 export function CompanySelect(): React.JSX.Element {
   const queryClient = useQueryClient()
   const { data: registry } = useQuery({ queryKey: ['registry'], queryFn: api.company.list })
-  const { setCompany } = useSession()
+  const { setCompany, setPeriod } = useSession()
   const nav = useNav()
   const toast = useToasts()
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [demoLoading, setDemoLoading] = useState(false)
+  const [demoType, setDemoType] = useState<BusinessType>('retailer')
   const [deleting, setDeleting] = useState<CompanySummary | null>(null)
   const [integrityIssue, setIntegrityIssue] = useState<{
     pending: { slug: string; info: CompanyInfo; locked: boolean }
@@ -35,6 +43,13 @@ export function CompanySelect(): React.JSX.Element {
         return
       }
       setCompany(r.slug, r.info, r.locked)
+      const continuation = readContinuation(r.slug)
+      if (continuation) {
+        setPeriod(continuation.from, continuation.to)
+        nav.replace(continuation.screen)
+      } else {
+        nav.home()
+      }
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -46,91 +61,214 @@ export function CompanySelect(): React.JSX.Element {
   })
   const fetching = useIsFetching()
 
+  const createDemo = async (): Promise<void> => {
+    if (demoLoading) return
+    setDemoLoading(true)
+    try {
+      const r = await api.company.createDemo(demoType)
+      recordCohortEvent(localStorage, 'company_created')
+      await queryClient.invalidateQueries({ queryKey: ['registry'] })
+      await open(r.slug)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setDemoLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (creating || importing || deleting || integrityIssue) return
+      const tag = (event.target as HTMLElement).tagName
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+      if (event.key.toLowerCase() === 'c') {
+        event.preventDefault()
+        setCreating(true)
+      } else if (event.key.toLowerCase() === 'i') {
+        event.preventDefault()
+        setImporting(true)
+      } else if (event.key.toLowerCase() === 'e') {
+        event.preventDefault()
+        void createDemo()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [creating, importing, deleting, integrityIssue, demoType, demoLoading])
+
   return (
     <div
       data-screen="company-select"
       data-loading={fetching > 0 ? 'true' : 'false'}
-      className="drag-region flex h-full flex-col items-center justify-center"
+      className="drag-region flex h-full min-h-0 flex-col overflow-hidden bg-bg"
     >
-      <div className="w-full max-w-lg">
-        <h1 className="text-center font-serif text-[34px] font-semibold tracking-tight">Total</h1>
-        <p className="mt-1 mb-8 text-center text-[13px] text-muted">
-          Your books, on this Mac, nowhere else · ~/Documents/total
-        </p>
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-line px-7">
+        <div className="flex items-center gap-3">
+          <img src={totalIcon} alt="" className="h-8 w-8 rounded-[9px]" />
+          <div className="flex items-baseline gap-2.5">
+            <span className="text-[15px] font-semibold tracking-[-0.01em]">Total</span>
+            <span className="text-[11px] text-muted">Private accounting</span>
+          </div>
+        </div>
+        <SupportLink className="rounded-md px-2.5 py-1.5 text-[11.5px] hover:bg-panel2" />
+      </header>
 
-        <div className="overflow-hidden rounded-xl border border-line bg-panel">
-          <ScrollList maxH="50vh">
-          {companies.length === 0 && (
-            <p className="px-6 py-10 text-center text-[13.5px] text-muted">
-              No companies yet. Create your first — books open in seconds.
-            </p>
-          )}
-          {companies.map((c, i) => (
-            <div
-              key={c.slug}
-              data-active={i === active}
-              className="kbar-row group flex cursor-pointer items-center justify-between border-b border-line/50 px-5 py-3.5 last:border-b-0"
-              onMouseEnter={() => setActive(i)}
-              onClick={() => void open(c.slug)}
-            >
-              <div>
-                <p className="text-[14.5px] font-medium">{c.name}</p>
-                <p className="num mt-0.5 text-[11px] text-muted">
-                  {GST_STATES[c.stateCode] ?? c.stateCode}
-                  {c.gstin ? ` · ${c.gstin}` : ' · Unregistered'}
-                </p>
+      <main className="min-h-0 flex-1">
+        <div className="mx-auto grid h-full max-w-7xl grid-cols-[minmax(300px,0.8fr)_minmax(560px,1.2fr)]">
+          <section className="flex min-h-0 flex-col justify-between border-r border-line px-10 py-9">
+            <div>
+              <div className="inline-flex items-center gap-2 text-[12px] font-medium text-muted">
+                <ShieldCheck size={17} weight="duotone" className="text-amber" />
+                Offline accounting
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-[11.5px] text-muted">Enter ↵</span>
-                <button
-                  type="button"
-                  data-testid={`btn-company-delete-${c.slug}`}
-                  title={`Delete ${c.name}`}
-                  className="rounded px-1.5 py-0.5 text-[13px] text-muted opacity-0 transition-opacity hover:border hover:border-cr/50 hover:text-cr group-hover:opacity-100 focus-visible:opacity-100 focus-visible:text-cr focus-visible:outline-2 focus-visible:outline-cr/60"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setDeleting(c)
-                  }}
-                >
-                  ×
-                </button>
+              <h1 className="mt-5 max-w-md text-[38px] font-semibold leading-[1.08] tracking-[-0.035em]">
+                Open your books
+              </h1>
+              <p className="mt-4 max-w-md text-[14px] leading-6 text-muted">
+                Choose a company, restore a backup, or open sample books. Your accounting data stays on this computer.
+              </p>
+
+              <div className="mt-9 grid gap-5">
+                <div className="flex gap-3.5">
+                  <HardDrive size={20} weight="duotone" className="mt-0.5 shrink-0 text-amber" />
+                  <div>
+                    <p className="text-[13px] font-medium">Local company files</p>
+                    <p className="mt-0.5 text-[12px] leading-5 text-muted">Each company has its own data file and backups.</p>
+                  </div>
+                </div>
+                <div className="flex gap-3.5">
+                  <Buildings size={20} weight="duotone" className="mt-0.5 shrink-0 text-amber" />
+                  <div>
+                    <p className="text-[13px] font-medium">Ready for daily work</p>
+                    <p className="mt-0.5 text-[12px] leading-5 text-muted">Post vouchers, manage stock, run payroll and prepare reports.</p>
+                  </div>
+                </div>
               </div>
             </div>
-          ))}
-          </ScrollList>
-        </div>
 
-        <div className="mt-4 flex justify-center gap-2">
-          <Button variant="primary" data-testid="btn-company-create" onClick={() => setCreating(true)}>
-            Create company
-          </Button>
-          <Button variant="ghost" onClick={() => setImporting(true)}>
-            Import encrypted backup…
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={demoLoading}
-            onClick={async () => {
-              setDemoLoading(true)
-              try {
-                const r = await api.company.createDemo()
-                await queryClient.invalidateQueries({ queryKey: ['registry'] })
-                await open(r.slug)
-              } catch (err) {
-                toast.push('error', (err as Error).message)
-              } finally {
-                setDemoLoading(false)
-              }
-            }}
-          >
-            {demoLoading ? 'Setting up sample data…' : 'Explore with sample data'}
-          </Button>
-        </div>
+            <div className="border-t border-line pt-5">
+              <p className="text-[10.5px] font-medium text-muted">Data folder</p>
+              <p className="num mt-1 text-[11.5px] text-ink">~/Documents/total</p>
+            </div>
+          </section>
 
-        <div className="mt-8 text-center">
-          <SupportLink />
+          <section className="flex min-h-0 flex-col px-10 py-9">
+            <div className="flex items-end justify-between">
+              <div>
+                <h2 className="text-[24px] font-semibold tracking-[-0.025em]">Companies</h2>
+                <p className="mt-1 text-[12px] text-muted">
+                  {companies.length === 0
+                    ? 'Create or restore a company to begin.'
+                    : `${companies.length} ${companies.length === 1 ? 'company' : 'companies'} available`}
+                </p>
+              </div>
+              <Button variant="primary" data-testid="btn-company-create" onClick={() => setCreating(true)} className="flex items-center gap-2">
+                <Plus size={15} weight="bold" />
+                <span><MnemonicText label="Create company" mnemonic="C" /></span>
+                <span aria-hidden="true"><Kbd>C</Kbd></span>
+              </Button>
+            </div>
+
+            <div className="mt-6 min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-panel">
+              <ScrollList maxH="100%">
+                {companies.length === 0 && (
+                  <div className="flex min-h-56 flex-col items-center justify-center px-8 py-10 text-center">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-panel2 text-muted">
+                      <Buildings size={24} weight="duotone" />
+                    </span>
+                    <p className="mt-4 text-[14px] font-medium">No companies found</p>
+                    <p className="mt-1 max-w-sm text-[12px] leading-5 text-muted">
+                      Create a company, restore a complete backup, or explore a sample company.
+                    </p>
+                  </div>
+                )}
+                {companies.map((company, index) => (
+                  <div
+                    key={company.slug}
+                    data-active={index === active}
+                    className="kbar-row group flex w-full items-center justify-between border-b border-line/60 px-5 py-4 text-left last:border-b-0"
+                    onMouseEnter={() => setActive(index)}
+                  >
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center justify-between text-left focus-visible:outline-2 focus-visible:outline-amber/60"
+                      onClick={() => void open(company.slug)}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[14px] font-medium">{company.name}</span>
+                        <span className="num mt-1 block truncate text-[11px] text-muted">
+                          {GST_STATES[company.stateCode] ?? company.stateCode}
+                          {company.gstin ? ` · ${company.gstin}` : ' · Unregistered'}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5 text-[11px] text-muted">
+                        Open <ArrowRight size={13} />
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid={`btn-company-delete-${company.slug}`}
+                      title={`Delete ${company.name}`}
+                      className="ml-4 shrink-0 rounded-md px-2 py-1 text-[11px] text-muted opacity-0 hover:bg-cr/10 hover:text-cr focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-cr/60 group-hover:opacity-100"
+                      onClick={() => setDeleting(company)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </ScrollList>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setImporting(true)}
+                className="flex min-h-20 items-center gap-3 rounded-lg border border-line bg-panel px-4 text-left transition-colors hover:border-amber/60 hover:bg-panel2"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-panel2 text-muted">
+                  <UploadSimple size={18} weight="duotone" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12.5px] font-medium"><MnemonicText label="Import backup" mnemonic="I" /></span>
+                  <span className="mt-0.5 block text-[11px] text-muted">Open an encrypted .totalbak file</span>
+                </span>
+                <span aria-hidden="true"><Kbd>I</Kbd></span>
+              </button>
+
+              <div className="flex min-h-20 items-center gap-3 rounded-lg border border-line bg-panel px-4">
+                <div className="min-w-0 flex-1">
+                  <label htmlFor="demo-business-type" className="block text-[11px] font-medium text-muted">Sample business</label>
+                  <Select
+                    id="demo-business-type"
+                    aria-label="Sample business type"
+                    data-testid="demo-business-type"
+                    className="mt-1 h-8 bg-panel2 text-[11.5px]"
+                    value={demoType}
+                    onChange={(event) => setDemoType(event.target.value as BusinessType)}
+                  >
+                    <option value="retailer">Retail</option>
+                    <option value="wholesaler">Wholesale</option>
+                    <option value="service">Services</option>
+                    <option value="manufacturer">Manufacturing</option>
+                    <option value="freelancer">Freelancer</option>
+                    <option value="professional">Professional</option>
+                  </Select>
+                </div>
+                <Button
+                  variant="ghost"
+                  data-testid="btn-company-demo"
+                  className="shrink-0 px-2"
+                  disabled={demoLoading}
+                  onClick={() => void createDemo()}
+                >
+                  {demoLoading ? 'Preparing' : <><MnemonicText label="Explore" mnemonic="E" /> <span aria-hidden="true"><Kbd>E</Kbd></span></>}
+                </Button>
+              </div>
+            </div>
+          </section>
         </div>
-      </div>
+      </main>
 
       {deleting && (
         <DeleteCompanyModal
@@ -148,6 +286,7 @@ export function CompanySelect(): React.JSX.Element {
         <CreateCompanyModal
           onClose={() => setCreating(false)}
           onCreated={async (slug) => {
+            recordCohortEvent(localStorage, 'company_created')
             setCreating(false)
             await queryClient.invalidateQueries({ queryKey: ['registry'] })
             await open(slug)
@@ -175,7 +314,7 @@ export function CompanySelect(): React.JSX.Element {
             setCompany(pending.slug, pending.info, pending.locked)
           }}
           onGoBackups={() => {
-            // Restoring a backup needs the company open — open it and land on Settings → Backups.
+            // Restoring a backup needs the company open. Land on Settings > Backups.
             const { pending } = integrityIssue
             setIntegrityIssue(null)
             setCompany(pending.slug, pending.info, pending.locked)
@@ -264,7 +403,8 @@ function ImportBackupModal({
         setBusy(false)
         return // dialog cancelled
       }
-      toast.push('success', `${result.name} imported`)
+      const evidence = result.attachmentsRestored === 1 ? '1 attachment' : `${result.attachmentsRestored} attachments`
+      toast.push('success', result.format === 'complete' ? `${result.name} restored with ${evidence}` : `${result.name} restored from a legacy database backup`)
       onImported(result.slug)
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -273,10 +413,11 @@ function ImportBackupModal({
   }
 
   return (
-    <Modal title="Import encrypted backup" onClose={onClose}>
+    <Modal title="Restore complete backup" onClose={onClose}>
       <div className="flex flex-col gap-4">
         <p className="text-[13px] text-muted">
-          Choose a <span className="num">.totalbak</span> file and enter the passphrase it was exported with.
+          Choose a <span className="num">.totalbak</span> file and enter its passphrase. Complete backups restore the
+          books and managed evidence into a separate company; older database-only backups remain supported.
         </p>
         <Field label="Passphrase">
           <TextInput
@@ -316,7 +457,7 @@ function DeleteCompanyModal({
   const [confirmName, setConfirmName] = useState('')
   const [pin, setPin] = useState('')
   // Set once the main process refuses the delete because this company has users and no (or the
-  // wrong) PIN was supplied — see company:delete / assertDeleteAuthorized. The typed-name confirm
+  // wrong) PIN was supplied. See company:delete / assertDeleteAuthorized. The typed-name confirm
   // above stays visible; this just adds the PIN field the protected path additionally requires.
   const [needsPin, setNeedsPin] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -359,7 +500,7 @@ function DeleteCompanyModal({
           />
         </Field>
         {needsPin && (
-          <Field label="Owner PIN" hint="This company has signed-in users — an owner PIN is required to delete it">
+          <Field label="Owner PIN" hint="This company has signed-in users. An owner PIN is required to delete it.">
             <TextInput
               autoFocus
               type="password"
@@ -392,12 +533,17 @@ function DeleteCompanyModal({
 
 function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (slug: string) => void }): React.JSX.Element {
   const toast = useToasts()
+  const preflight = useQuery({ queryKey: ['onboarding-preflight'], queryFn: api.onboarding.preflight })
   const [name, setName] = useState('')
   const [stateCode, setStateCode] = useState('27')
   const [gstin, setGstin] = useState('')
   const [regType, setRegType] = useState<CompanyCreateInput['gstRegistrationType']>('regular')
   const [address, setAddress] = useState('')
   const [booksFrom, setBooksFrom] = useState(fyOf(todayISO()).startYear)
+  const [businessType, setBusinessType] = useState<BusinessType>('service')
+  const [priorSoftware, setPriorSoftware] = useState<PriorSoftware>('first-time')
+  const [needsInventory, setNeedsInventory] = useState(false)
+  const [needsPayroll, setNeedsPayroll] = useState(false)
 
   const gstinError = gstinErrorMessage(gstin, stateCode)
 
@@ -423,7 +569,7 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
         toast.push('error', gstinError)
         return
       }
-      const r = await api.company.create(input)
+      const r = await api.company.create({ ...input, onboarding: { businessType, priorSoftware, needsInventory, needsPayroll } })
       toast.push('success', `${input.name} created`)
       onCreated(r.slug)
     } catch (err) {
@@ -434,6 +580,18 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
   return (
     <Modal title="Create company" onClose={onClose}>
       <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-4 gap-px overflow-hidden rounded-md border border-line bg-line text-[9px]">
+          {[
+            ['Folder', preflight.data?.writable],
+            ['Disk', preflight.data?.diskReady],
+            ['Clock', preflight.data?.clockReady],
+            ['Credentials', preflight.data?.secureCredentials],
+          ].map(([label, ready]) => (
+            <div key={String(label)} className="bg-panel2 px-2 py-2 text-center">
+              <span className={ready ? 'text-dr' : ready === false ? 'text-cr' : 'text-muted'}>{ready ? '✓' : ready === false ? '!' : '…'}</span>{' '}{label}
+            </div>
+          ))}
+        </div>
         <Field label="Company name">
           <TextInput autoFocus data-testid="input-company-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Sharma Traders" />
         </Field>
@@ -442,7 +600,7 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
             <Select value={stateCode} onChange={(e) => setStateCode(e.target.value)}>
               {Object.entries(GST_STATES).map(([code, label]) => (
                 <option key={code} value={code}>
-                  {code} — {label}
+                  {code} - {label}
                 </option>
               ))}
             </Select>
@@ -456,6 +614,23 @@ function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCre
               ))}
             </Select>
           </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Business type">
+            <Select value={businessType} onChange={(e) => { const value = e.target.value as BusinessType; setBusinessType(value); setNeedsInventory(['retailer', 'wholesaler', 'manufacturer'].includes(value)) }}>
+              <option value="retailer">Retailer</option><option value="wholesaler">Wholesaler</option><option value="service">Service firm</option><option value="manufacturer">Manufacturer</option><option value="freelancer">Freelancer</option><option value="professional">Professional services</option>
+            </Select>
+          </Field>
+          <Field label="Coming from">
+            <Select value={priorSoftware} onChange={(e) => setPriorSoftware(e.target.value as PriorSoftware)}>
+              <option value="first-time">First accounting app</option><option value="tally">Tally</option><option value="busy">Busy</option><option value="marg">Marg</option><option value="zoho">Zoho Books</option><option value="excel">Excel</option>
+            </Select>
+          </Field>
+        </div>
+        <div className="flex gap-5 rounded-md border border-line bg-panel2 px-3 py-2.5 text-[11.5px]">
+          <label className="flex items-center gap-2"><input type="checkbox" checked={needsInventory} onChange={(e) => setNeedsInventory(e.target.checked)} /> Inventory</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={needsPayroll} onChange={(e) => setNeedsPayroll(e.target.checked)} /> Payroll</label>
+          <span className="ml-auto text-muted">Defaults stay editable</span>
         </div>
         <Field label="GSTIN" hint="Leave empty if not GST-registered" error={gstinError}>
           <TextInput value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="27AAPFU0939F1ZV" className="num" />

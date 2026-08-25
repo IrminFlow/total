@@ -1,5 +1,6 @@
 import type { DB } from './connection'
 import { MIGRATIONS } from './migrations'
+import { backfillAuditChain } from './auditHash'
 
 /** Apply any not-yet-applied numbered migrations, in order, inside a transaction each. Idempotent. */
 export function migrate(db: DB): void {
@@ -10,6 +11,7 @@ export function migrate(db: DB): void {
     const sql = MIGRATIONS[i]!
     const run = db.transaction(() => {
       db.exec(sql)
+      if (i + 1 === 19) backfillAuditChain(db)
       db.prepare('INSERT INTO migrations (id, applied_at) VALUES (?, ?)').run(i + 1, new Date().toISOString())
     })
     run()

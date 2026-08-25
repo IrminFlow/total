@@ -1,6 +1,8 @@
 // Scenario 04 — Tally XML import: inline xmlText through the same IPC surface the screen
 // uses (no native dialog), then verify masters + vouchers landed and the TB still ties.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 const TALLY_XML = `<?xml version="1.0"?><ENVELOPE><BODY>
   <TALLYMESSAGE><GROUP NAME="Overseas Debtors"><PARENT>Sundry Debtors</PARENT></GROUP></TALLYMESSAGE>
@@ -17,10 +19,29 @@ await scenario('04-tally-import', async (h) => {
   await h.goto('import-tally')
   await h.shot('01-import-screen')
 
-  const r = await h.invoke('tally:import', { xmlText: TALLY_XML })
-  // Result shape: counts of created groups/ledgers/vouchers (+ warnings). Assert loosely on
-  // the parts that matter, so cosmetic result-shape drift doesn't break the scenario.
-  assert(JSON.stringify(r).includes('1') || r != null, 'tally:import returned a result')
+  const xmlPath = path.join(h.dataDir, 'tally-export.xml')
+  fs.writeFileSync(xmlPath, TALLY_XML)
+  await h.stubDialogs({ openPaths: [xmlPath] })
+  await h.click('btn-import-tally-pick')
+  await h.page.waitForFunction(() => document.body.innerText.includes('nothing has been imported yet'))
+  const previewText = await h.page.locator('[data-screen="import-tally"]').innerText()
+  assert(previewText.includes('File fingerprint'), 'preview exposes source fingerprint')
+  await h.shot('02-reviewed-file')
+
+  await h.click('btn-import-tally-import')
+  await h.page.waitForFunction(() => document.body.innerText.includes('Import complete and recorded'))
+  const doneText = await h.page.locator('[data-screen="import-tally"]').innerText()
+  assert(doneText.includes('Batch #1'), 'completed import exposes immutable batch identity')
+  assert(doneText.includes('Verified fingerprint'), 'completed import retains source fingerprint')
+  await h.shot('03-import-complete')
+
+  let replayBlocked = false
+  try {
+    await h.invoke('tally:import', { xmlText: TALLY_XML })
+  } catch (err) {
+    replayBlocked = /already imported/i.test(String(err))
+  }
+  assert(replayBlocked, 'exact Tally file replay is blocked')
 
   const ledgers = await h.invoke('master:ledgers:list')
   const imported = ledgers.find((l) => l.name === 'Imported Ledger Co')
@@ -40,5 +61,5 @@ await scenario('04-tally-import', async (h) => {
   assertEq(tb.totalDebit, tb.totalCredit, 'TB ties after import')
 
   await h.goto('daybook')
-  await h.shot('02-daybook-after-import')
+  await h.shot('04-daybook-after-import')
 })

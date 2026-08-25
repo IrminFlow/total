@@ -14,7 +14,7 @@ import { saveVoucher, nextVoucherNumber, findDuplicates } from './vouchers'
 import { voucherInputSchema } from '@shared/schemas'
 import type { VoucherInput } from '@shared/schemas'
 import { trialBalance, profitAndLoss, balanceSheet, ledgerStatement, stockSummary, dashboard } from './reports'
-import { outstandings, openBills, registerByMonth } from './analysis'
+import { outstandings, openBills, registerByMonth, registerByPeriod } from './analysis'
 import { suggestLedgers, anomalyCheck } from './intel'
 import { saveBudget, budgetVarianceReport } from './budgets'
 
@@ -168,6 +168,69 @@ describe('R2 parity — statements', () => {
     expect(registerByMonth(db, 'sales', '2025-04-01', '2025-06-30')).toMatchSnapshot('sales register')
     expect(registerByMonth(db, 'purchase', '2025-04-01', '2025-06-30')).toMatchSnapshot('purchase register')
   })
+
+  it('groups registers into Indian financial-year quarters and clips partial periods', () => {
+    const { db, ids } = richBook()
+    post(db, {
+      kind: 'sales', date: '2025-07-05', partyLedgerId: ids.debtorB,
+      lines: [
+        { ledgerId: ids.debtorB!, drCr: 'dr', amount: 24000 },
+        { ledgerId: ids.sales!, drCr: 'cr', amount: 24000 }
+      ]
+    })
+    expect(registerByPeriod(db, 'sales', '2025-05-01', '2025-07-31', 'quarter')).toEqual([
+      {
+        key: '2025-26-Q1', label: 'Q1 2025-26', from: '2025-05-01', to: '2025-06-30',
+        vouchers: 1, taxable: 59000, tax: 0, total: 59000
+      },
+      {
+        key: '2025-26-Q2', label: 'Q2 2025-26', from: '2025-07-01', to: '2025-07-31',
+        vouchers: 1, taxable: 24000, tax: 0, total: 24000
+      }
+    ])
+  })
+
+  it('keeps Jan-Mar in Q4, crosses financial years, returns empty periods, and reconciles monthly totals', () => {
+    const { db, ids } = richBook()
+    const addSale = (date: string, amount: number): void => {
+      post(db, {
+        kind: 'sales', date, partyLedgerId: ids.debtorB,
+        lines: [
+          { ledgerId: ids.debtorB!, drCr: 'dr', amount },
+          { ledgerId: ids.sales!, drCr: 'cr', amount }
+        ]
+      })
+    }
+    addSale('2026-01-15', 10000)
+    addSale('2026-03-31', 20000)
+    addSale('2026-04-01', 30000)
+
+    const monthly = registerByPeriod(db, 'sales', '2025-04-01', '2026-04-30', 'month')
+    const quarterly = registerByPeriod(db, 'sales', '2025-04-01', '2026-04-30', 'quarter')
+    const sum = (rows: typeof monthly, field: 'vouchers' | 'taxable' | 'tax' | 'total'): number =>
+      rows.reduce((total, row) => total + row[field], 0)
+    for (const field of ['vouchers', 'taxable', 'tax', 'total'] as const) {
+      expect(sum(quarterly, field)).toBe(sum(monthly, field))
+    }
+    expect(quarterly.find((row) => row.key === '2025-26-Q4')).toMatchObject({
+      label: 'Q4 2025-26',
+      from: '2026-01-01',
+      to: '2026-03-31',
+      vouchers: 2,
+      taxable: 30000,
+      tax: 0,
+      total: 30000
+    })
+    expect(quarterly.find((row) => row.key === '2026-27-Q1')).toMatchObject({
+      label: 'Q1 2026-27',
+      from: '2026-04-01',
+      to: '2026-04-30',
+      vouchers: 1,
+      taxable: 30000,
+      total: 30000
+    })
+    expect(registerByPeriod(db, 'sales', '2024-01-01', '2024-03-31', 'quarter')).toEqual([])
+  })
 })
 
 describe('R2 parity — outstandings', () => {
@@ -257,6 +320,26 @@ describe('R2 parity — voucher numbering & duplicates', () => {
     } as VoucherInput
     expect(findDuplicates(db, voucherInputSchema.parse(probe))).toMatchSnapshot('duplicates within window')
     expect(findDuplicates(db, voucherInputSchema.parse({ ...probe, date: '2025-04-20' }))).toEqual([])
+  })
+
+  it('findDuplicates catches repeated external and supplier bill references outside the date window', () => {
+    const { db, ids } = richBook()
+    const vt = db.prepare("SELECT id FROM voucher_types WHERE kind = 'sales'").get() as { id: number }
+    const existing = db.prepare("SELECT id FROM vouchers WHERE voucher_type_id = ? AND number = '1'").get(vt.id) as { id: number }
+    db.prepare("UPDATE vouchers SET reference = 'PO-8842' WHERE id = ?").run(existing.id)
+    const base = {
+      voucherTypeId: vt.id, date: '2025-08-19', partyLedgerId: ids.debtorA!,
+      narration: null, reference: 'po-8842', instrumentNo: null, instrumentDate: null,
+      transporterId: null, vehicleNo: null, transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+      lines: [
+        { ledgerId: ids.debtorA!, drCr: 'dr' as const, amount: 99000, costAllocations: [] },
+        { ledgerId: ids.sales!, drCr: 'cr' as const, amount: 99000, costAllocations: [] }
+      ],
+      inventory: [], billRefs: [{ kind: 'new' as const, name: 'inv-1', amount: 99000, dueDate: null }], tds: null
+    }
+    const matches = findDuplicates(db, voucherInputSchema.parse(base))
+    expect(matches).toHaveLength(1)
+    expect(matches[0]).toMatchObject({ voucherId: existing.id, reasons: ['same_reference', 'same_bill_reference'] })
   })
 })
 

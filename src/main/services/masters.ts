@@ -19,7 +19,7 @@ const mapGroup = (r: GroupRow): Group => ({
 
 interface LedgerRow {
   id: number; name: string; group_id: number; opening_balance: number
-  gstin: string | null; state_code: string | null; address: string | null
+  gstin: string | null; state_code: string | null; address: string | null; email: string | null; phone: string | null
   tax_type: Ledger['taxType']; gst_rate: number | null; hsn: string | null; is_system: number
   tds_section_id: number | null; pan: string | null; credit_days: number | null; export_type: Ledger['exportType']
   rcm: number; itc_eligibility: Ledger['itcEligibility'] | null
@@ -27,7 +27,7 @@ interface LedgerRow {
 }
 const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
-  gstin: r.gstin, stateCode: r.state_code, address: r.address,
+  gstin: r.gstin, stateCode: r.state_code, address: r.address, email: r.email, phone: r.phone,
   taxType: r.tax_type, gstRate: r.gst_rate, hsn: r.hsn, isSystem: !!r.is_system,
   tdsSectionId: r.tds_section_id, pan: r.pan, creditDays: r.credit_days, exportType: r.export_type,
   rcm: !!r.rcm, itcEligibility: r.itc_eligibility ?? 'eligible',
@@ -153,12 +153,12 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
   const input = ledgerInputSchema.parse(raw)
   const res = db
     .prepare(
-      `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, tax_type, gst_rate, hsn,
+      `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, email, phone, tax_type, gst_rate, hsn,
         tds_section_id, pan, credit_days, export_type, rcm, itc_eligibility, price_level_id, credit_limit, is_system)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+      input.email, input.phone, input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
       input.rcm ? 1 : 0, input.itcEligibility,
       input.priceLevelId ?? null, input.creditLimit ?? null)
   const created = getLedger(db, Number(res.lastInsertRowid))!
@@ -172,11 +172,11 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
   if (!existing) throw new Error('Ledger not found')
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
-     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
+     address = ?, email = ?, phone = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
      rcm = ?, itc_eligibility = ?, price_level_id = ?, credit_limit = ?
      WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+    input.email, input.phone, input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
     input.rcm ? 1 : 0, input.itcEligibility,
     input.priceLevelId === undefined ? existing.priceLevelId : input.priceLevelId,
     input.creditLimit === undefined ? existing.creditLimit : input.creditLimit, id)
@@ -219,11 +219,11 @@ export function ledgerBalances(db: DB, asOn: string, includeZero = false): Ledge
 
 interface VtRow {
   id: number; name: string; kind: VoucherType['kind']; numbering: 'auto' | 'manual'; prefix: string
-  suffix: string; pad_width: number; restart_fy: number; is_system: number
+  suffix: string; pad_width: number; restart_fy: number; is_system: number; gst_registration_id: number | null
 }
 const mapVt = (r: VtRow): VoucherType => ({
   id: r.id, name: r.name, kind: r.kind, numbering: r.numbering, prefix: r.prefix,
-  suffix: r.suffix, padWidth: r.pad_width, restartFy: !!r.restart_fy, isSystem: !!r.is_system
+  suffix: r.suffix, padWidth: r.pad_width, restartFy: !!r.restart_fy, isSystem: !!r.is_system, gstRegistrationId: r.gst_registration_id
 })
 
 export function listVoucherTypes(db: DB): VoucherType[] {
@@ -232,8 +232,8 @@ export function listVoucherTypes(db: DB): VoucherType[] {
 
 export function createVoucherType(db: DB, input: VoucherTypeInput): VoucherType {
   const res = db
-    .prepare('INSERT INTO voucher_types (name, kind, numbering, prefix, suffix, pad_width, restart_fy, is_system) VALUES (?, ?, ?, ?, ?, ?, ?, 0)')
-    .run(input.name, input.kind, input.numbering, input.prefix, input.suffix, input.padWidth, input.restartFy ? 1 : 0)
+    .prepare('INSERT INTO voucher_types (name, kind, numbering, prefix, suffix, pad_width, restart_fy, is_system, gst_registration_id) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)')
+    .run(input.name, input.kind, input.numbering, input.prefix, input.suffix, input.padWidth, input.restartFy ? 1 : 0, input.gstRegistrationId ?? null)
   const created = mapVt(db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(res.lastInsertRowid) as VtRow)
   writeAudit(db, 'voucherType', created.id, 'create', null, created)
   return created
@@ -243,8 +243,8 @@ export function updateVoucherType(db: DB, id: number, input: VoucherTypeInput): 
   const existing = db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as VtRow | undefined
   if (!existing) throw new Error('Voucher type not found')
   const kind = existing.is_system ? existing.kind : input.kind
-  db.prepare('UPDATE voucher_types SET name = ?, kind = ?, numbering = ?, prefix = ?, suffix = ?, pad_width = ?, restart_fy = ? WHERE id = ?')
-    .run(existing.is_system ? existing.name : input.name, kind, input.numbering, input.prefix, input.suffix, input.padWidth, input.restartFy ? 1 : 0, id)
+  db.prepare('UPDATE voucher_types SET name = ?, kind = ?, numbering = ?, prefix = ?, suffix = ?, pad_width = ?, restart_fy = ?, gst_registration_id = ? WHERE id = ?')
+    .run(existing.is_system ? existing.name : input.name, kind, input.numbering, input.prefix, input.suffix, input.padWidth, input.restartFy ? 1 : 0, input.gstRegistrationId ?? null, id)
   const updated = mapVt(db.prepare('SELECT * FROM voucher_types WHERE id = ?').get(id) as VtRow)
   writeAudit(db, 'voucherType', id, 'update', mapVt(existing), updated)
   return updated
@@ -331,22 +331,22 @@ export function deleteStockItem(db: DB, id: number): void {
 }
 
 export function listGodowns(db: DB): Godown[] {
-  return db.prepare('SELECT * FROM godowns ORDER BY name').all() as Godown[]
+  return (db.prepare('SELECT id,name,address,gst_registration_id AS gstRegistrationId FROM godowns ORDER BY name').all() as Godown[])
 }
 
 export function createGodown(db: DB, input: GodownInput): Godown {
-  const res = db.prepare('INSERT INTO godowns (name, address) VALUES (?, ?)').run(input.name, input.address ?? null)
-  const created = db.prepare('SELECT * FROM godowns WHERE id = ?').get(res.lastInsertRowid) as Godown
+  const res = db.prepare('INSERT INTO godowns (name, address, gst_registration_id) VALUES (?, ?, ?)').run(input.name, input.address ?? null, input.gstRegistrationId ?? null)
+  const created = listGodowns(db).find((row)=>row.id===Number(res.lastInsertRowid))!
   writeAudit(db, 'godown', created.id, 'create', null, created)
   return created
 }
 
 export function updateGodown(db: DB, id: number, input: GodownInput): Godown {
-  const existing = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown | undefined
+  const existing = listGodowns(db).find((row)=>row.id===id)
   if (!existing) throw new Error('Godown not found')
-  db.prepare('UPDATE godowns SET name = ?, address = ? WHERE id = ?')
-    .run(input.name, input.address === undefined ? existing.address : input.address, id)
-  const updated = db.prepare('SELECT * FROM godowns WHERE id = ?').get(id) as Godown
+  db.prepare('UPDATE godowns SET name = ?, address = ?, gst_registration_id = ? WHERE id = ?')
+    .run(input.name, input.address === undefined ? existing.address : input.address, input.gstRegistrationId ?? null, id)
+  const updated = listGodowns(db).find((row)=>row.id===id)!
   writeAudit(db, 'godown', id, 'update', existing, updated)
   return updated
 }

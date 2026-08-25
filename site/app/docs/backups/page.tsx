@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Backups & data — Total Docs'
+  title: 'Backups and data - Docs'
 }
 
 export default function BackupsPage(): React.JSX.Element {
@@ -16,21 +16,21 @@ export default function BackupsPage(): React.JSX.Element {
       </p>
       <ul>
         <li>
-          <code>companies/&lt;slug&gt;/company.db</code> — one SQLite file per company; this is the single source of
+          <code>companies/&lt;slug&gt;/company.db</code>: one SQLite file per company; this is the single source of
           truth for every ledger, voucher, and report
         </li>
         <li>
-          <code>companies/&lt;slug&gt;/backups/</code> — automatic snapshots (see below)
+          <code>companies/&lt;slug&gt;/backups/</code>: automatic snapshots (see below)
         </li>
         <li>
-          <code>companies/&lt;slug&gt;/exports/</code> — PDFs, CSVs, and JSON you&rsquo;ve exported (invoices, GST
+          <code>companies/&lt;slug&gt;/exports/</code>: PDFs, CSVs, and JSON you&rsquo;ve exported (invoices, GST
           returns, CA packs, registers)
         </li>
       </ul>
 
       <h2>Automatic snapshots</h2>
       <p>
-        Total takes a WAL-safe snapshot of the active company automatically — every 30 minutes while it&rsquo;s open,
+        Total takes a WAL-safe snapshot of the active company automatically: every 30 minutes while it&rsquo;s open,
         once when you open a company, and once when you quit. It keeps the most recent 20 automatic snapshots and
         prunes older ones; any backup you take manually is never pruned.
       </p>
@@ -38,29 +38,30 @@ export default function BackupsPage(): React.JSX.Element {
       <h2>Restoring a backup</h2>
       <p>
         Go to Settings → Backups, pick a snapshot, and restore it. Before it overwrites anything, Total takes a
-        pre-restore safety copy of your current database — so a restore can never silently destroy the state you
+        pre-restore safety copy of your current database, so a restore can never silently destroy the state you
         restored away from.
       </p>
 
-      <h2>Encrypted export, for off-machine backup</h2>
+      <h2>Complete backup for another computer</h2>
       <p>
         Automatic snapshots live next to your company file, which protects you from a bad voucher but not from a dead
-        disk. For that, export an <b>encrypted backup</b> — a single AES-256-GCM file locked with a passphrase you
-        choose — and copy it to a drive, another machine, or cloud storage of your choice. Total never uploads it
-        anywhere itself.
+        disk. For that, create a <b>complete encrypted backup</b>: one passphrase-protected file containing the verified
+        database, managed documents, workflow files, and a portable key for encrypted attachments. Copy it to a drive,
+        another machine, or storage you control. Total does not upload it for you.
       </p>
 
       <h2>Moving to a new machine</h2>
       <p>
-        Copy the whole <code>~/Documents/total/</code> folder to the new machine and open Total — every company,
-        with full history, comes across intact. There&rsquo;s no export/import step and nothing to re-enter.
+        From the company launcher, choose Restore backup and select the <code>.totalbak</code> file. Total verifies the
+        package before creating a separate restored company. Keep the passphrase outside the old computer; Total cannot
+        recover it.
       </p>
 
       <h2>Privacy</h2>
       <p>
-        Nothing about your business — no ledger names, no amounts, no company data of any kind — ever leaves the
-        machine. The only network call Total makes on its own is a periodic check against the update endpoint to see
-        whether a newer version is available; that request carries a version number and nothing else.
+        Your books, ledger names and amounts remain on the machine by default. The automatic update check carries the
+        installed version and no book contents. Data leaves only when you deliberately export it, submit support
+        context, or enable an optional provider or integration. Total shows that boundary before sharing.
       </p>
     </>
   )
