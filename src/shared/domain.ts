@@ -256,6 +256,8 @@ export interface Voucher {
   transportDistanceKm: number | null
   /** Place-of-supply override (two-digit state code); null = derive from party/company state. */
   posOverride: string | null
+  /** The GST registration that made this supply (roadmap #108); null only on a book that has none. */
+  gstRegistrationId: number | null
   /** Foreign-currency invoice: ISO code + base-currency (INR) per unit rate. */
   currencyCode: string | null
   exchangeRate: number | null
@@ -373,6 +375,8 @@ export interface Godown {
   id: number
   name: string
   address: string | null
+  /** The GST registration this location sits under (roadmap #108). */
+  gstRegistrationId: number | null
 }
 
 /** A batch/lot of a stock item (F11 `batches`), created on the fly from voucher entry. */

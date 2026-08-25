@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { GstinPicker, usePrimaryRegistrationId } from '../components/GstinPicker'
 import { useNav, useToasts, nextDraftId } from '../state/stores'
 import { Button, EmptyState, Modal, Money, Panel, SectionTitle, useTableNav } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
@@ -133,10 +134,15 @@ export function Gstr2bScreen(): React.JSX.Element {
   // One import, two readings of it — which is why this is a mode on the same screen rather than a
   // screen of its own that would need the JSON imported twice.
   const [showIms, setShowIms] = useState(false)
+  // Which GSTIN's 2B this is (roadmap #108): the portal issues one per registration, and books
+  // matched against the wrong one report every invoice as missing.
+  const primaryRegId = usePrimaryRegistrationId()
+  const [regId, setRegId] = useState<number | null>(null)
+  const registrationId = regId ?? primaryRegId
 
   const { data, isFetching } = useQuery({
-    queryKey: ['gstr2b', month?.key, imported?.jsonText],
-    queryFn: () => api.gst.recon2b(imported!.jsonText, month!.from, month!.to),
+    queryKey: ['gstr2b', month?.key, imported?.jsonText, registrationId],
+    queryFn: () => api.gst.recon2b(imported!.jsonText, month!.from, month!.to, registrationId),
     enabled: !!imported && !!month
   })
 
@@ -208,6 +214,7 @@ export function Gstr2bScreen(): React.JSX.Element {
       <SectionTitle
         right={
           <div className="flex items-center gap-2">
+            <GstinPicker value={registrationId} onChange={setRegId} testId="select-gstr2b-gstin" />
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} />
             <Button data-testid="btn-2b-pick" onClick={() => void doPick()}>Pick 2B JSON…</Button>
             <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>

@@ -100,6 +100,15 @@
       ],
       "default": null
     },
+    "gstRegistrationId": {
+      "description": "Which of the company's GST registrations made this supply; null = the primary (see gstReg:list).",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "exclusiveMinimum": 0,
+      "default": null
+    },
     "currencyCode": {
       "description": "3-letter currency code for multi-currency vouchers (e.g. USD); null = base currency (INR).",
       "type": [

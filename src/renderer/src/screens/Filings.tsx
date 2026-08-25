@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
+import { GstinPicker, usePrimaryRegistrationId } from '../components/GstinPicker'
 import { useNav, useSession, useToasts } from '../state/stores'
 import {
   AmountInput,
@@ -83,9 +84,14 @@ export function FilingsScreen(): React.JSX.Element {
 
   const registered = info?.gstRegistrationType !== 'unregistered'
 
+  // The filing register is per GSTIN (roadmap #108): two registrations file two GSTR-3Bs for the
+  // same month, with two ARNs and two payments.
+  const primaryRegId = usePrimaryRegistrationId()
+  const [regId, setRegId] = useState<number | null>(null)
+  const registrationId = regId ?? primaryRegId
   const { data: rows, isLoading } = useQuery({
-    queryKey: ['filings', fyStartYear],
-    queryFn: () => api.filings.register(fyStartYear),
+    queryKey: ['filings', fyStartYear, registrationId],
+    queryFn: () => api.filings.register(fyStartYear, registrationId),
     enabled: registered
   })
 
@@ -148,6 +154,7 @@ export function FilingsScreen(): React.JSX.Element {
               active={tab}
               onSelect={setTab}
             />
+            <GstinPicker value={registrationId} onChange={setRegId} testId="select-filings-gstin" />
             <Select
               data-testid="select-filings-year"
               className="w-40"
@@ -303,6 +310,7 @@ export function FilingsScreen(): React.JSX.Element {
 
       {nilling && (
         <NilFilingModal
+          registrationId={registrationId}
           row={nilling}
           onClose={() => setNilling(null)}
           onSaved={() => {
@@ -314,6 +322,7 @@ export function FilingsScreen(): React.JSX.Element {
 
       {editing && (
         <FilingModal
+          registrationId={registrationId}
           row={editing}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -341,11 +350,13 @@ export function FilingsScreen(): React.JSX.Element {
  */
 function FilingModal({
   row,
+  registrationId,
   onClose,
   onSaved,
   onOpenPeriod
 }: {
   row: FilingRow
+  registrationId: number | null
   onClose: () => void
   onSaved: () => void
   onOpenPeriod: (period: string) => void
@@ -360,8 +371,8 @@ function FilingModal({
   // What the books say is payable, fetched for this one row: the register would otherwise run
   // twelve return builds to draw a table nobody has drilled into yet.
   const { data: liability } = useQuery({
-    queryKey: ['filingLiability', row.form, row.period],
-    queryFn: () => api.filings.liability(row.form, row.period)
+    queryKey: ['filingLiability', row.form, row.period, registrationId],
+    queryFn: () => api.filings.liability(row.form, row.period, registrationId)
   })
 
   // Prefill from the books once, and only into an untouched field on an unrecorded filing --
@@ -399,7 +410,8 @@ function FilingModal({
       filedAt: clear ? null : filedAt,
       arn: clear ? null : arn.trim(),
       taxPaid: clear ? 0 : (taxPaid ?? 0),
-      notes: notes.trim() || null
+      notes: notes.trim() || null,
+      registrationId
     })
   }
 
@@ -529,10 +541,12 @@ function LiveCharge({
  */
 function NilFilingModal({
   row,
+  registrationId,
   onClose,
   onSaved
 }: {
   row: FilingRow
+  registrationId: number | null
   onClose: () => void
   onSaved: () => void
 }): React.JSX.Element {
@@ -598,6 +612,7 @@ function NilFilingModal({
                 filedAt,
                 arn: arn.trim(),
                 taxPaid: 0,
+                registrationId,
                 notes: 'Nil return'
               })
             }

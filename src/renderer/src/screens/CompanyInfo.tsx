@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Panel, SectionTitle, Select, TextInput } from '../components/ui'
@@ -198,8 +198,175 @@ export function CompanyInfoScreen(): React.JSX.Element {
       <p className="mt-3 text-small text-muted">
         Books from FY {info?.booksFrom}-{((info?.booksFrom ?? 0) + 1) % 100}. Data lives in ~/Documents/total/companies/{slug} — back it up like any folder.
       </p>
+      <RegistrationsCard />
       <CsvImportCard />
     </div>
+  )
+}
+
+/**
+ * The company's other GST registrations (roadmap #108).
+ *
+ * One PAN, premises in several states, one registration per state — one set of books, but a
+ * return per GSTIN. The first row is the company's own registration and is not editable here:
+ * it mirrors the GSTIN and state above, so that there is exactly one place to change them.
+ *
+ * A company with one registration sees this card explaining that, and nothing else changes
+ * anywhere in the app.
+ */
+function RegistrationsCard(): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data: regs } = useQuery({ queryKey: ['gstRegistrations'], queryFn: api.gstReg.list })
+  const [adding, setAdding] = useState(false)
+  const [gstin, setGstin] = useState('')
+  const [stateCode, setStateCode] = useState('27')
+  const [tradeName, setTradeName] = useState('')
+  const [registeredOn, setRegisteredOn] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // The state code IS the first two digits of the GSTIN. Following it as the user types removes
+  // the only way to save a registration that taxes its supplies against the wrong state.
+  useEffect(() => {
+    const prefix = gstin.trim().slice(0, 2)
+    if (prefix.length === 2 && prefix in GST_STATES) setStateCode(prefix)
+  }, [gstin])
+
+  const refresh = async (): Promise<void> => {
+    await queryClient.invalidateQueries({ queryKey: ['gstRegistrations'] })
+  }
+
+  const add = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await api.gstReg.save({
+        gstin: gstin.trim().toUpperCase() || null,
+        stateCode,
+        tradeName: tradeName.trim() || 'Branch',
+        address: null,
+        registeredOn: registeredOn || null,
+        surrenderedOn: null
+      })
+      toast.push('success', 'Registration added')
+      setAdding(false)
+      setGstin('')
+      setTradeName('')
+      setRegisteredOn('')
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (id: number): Promise<void> => {
+    try {
+      await api.gstReg.delete(id)
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <Panel className="mt-4 flex flex-col gap-3 p-5">
+      <SectionTitle
+        right={
+          <Button variant="ghost" data-testid="btn-add-registration" onClick={() => setAdding((v) => !v)}>
+            {adding ? 'Cancel' : 'Add a registration'}
+          </Button>
+        }
+      >
+        GST registrations
+      </SectionTitle>
+      <p className="text-small text-muted">
+        One PAN with premises in several states holds a registration per state. The books stay
+        whole — one trial balance, one P&amp;L — but GSTR-1, GSTR-3B and the filing register are
+        per GSTIN, and CGST+SGST against IGST is decided by the state of the registration that
+        made the supply.
+      </p>
+      <table className="w-full text-body-sm" data-testid="rows-gst-registrations">
+        <thead>
+          <tr className="border-b border-line text-micro font-semibold tracking-[0.08em] text-muted uppercase">
+            <th className="py-1 text-left">State</th>
+            <th className="py-1 text-left">GSTIN</th>
+            <th className="py-1 text-left">Trade name</th>
+            <th className="py-1 text-left">From</th>
+            <th className="py-1" />
+          </tr>
+        </thead>
+        <tbody>
+          {(regs ?? []).map((r) => (
+            <tr key={r.id} className="border-b border-line/60">
+              <td className="py-1.5">
+                {r.stateCode} — {GST_STATES[r.stateCode] ?? ''}
+              </td>
+              <td className="py-1.5 font-mono text-small">{r.gstin ?? '—'}</td>
+              <td className="py-1.5">
+                {r.tradeName}
+                {r.isPrimary && <span className="ml-2 text-micro text-accent uppercase">primary</span>}
+                {r.surrenderedOn && <span className="ml-2 text-micro text-muted">surrendered {r.surrenderedOn}</span>}
+              </td>
+              <td className="py-1.5 text-muted">{r.registeredOn ?? '—'}</td>
+              <td className="py-1.5 text-right">
+                {r.isPrimary ? (
+                  <span className="text-micro text-muted">edited above</span>
+                ) : (
+                  <div className="flex justify-end gap-2">
+                    <Button variant="ghost" onClick={() => void api.gstReg.setPrimary(r.id).then(refresh)}>
+                      Make primary
+                    </Button>
+                    <Button variant="ghost" onClick={() => void remove(r.id)}>
+                      Remove
+                    </Button>
+                  </div>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {adding && (
+        <div className="grid grid-cols-4 items-end gap-3">
+          <Field label="GSTIN">
+            <TextInput
+              data-testid="input-registration-gstin"
+              value={gstin}
+              onChange={(e) => setGstin(e.target.value.toUpperCase())}
+            />
+          </Field>
+          <Field label="State" hint="Taken from the GSTIN's first two digits">
+            <Select
+              data-testid="select-registration-state"
+              value={stateCode}
+              onChange={(e) => setStateCode(e.target.value)}
+            >
+              {Object.entries(GST_STATES).map(([code, label]) => (
+                <option key={code} value={code}>
+                  {code} — {label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Trade name">
+            <TextInput
+              data-testid="input-registration-trade-name"
+              value={tradeName}
+              onChange={(e) => setTradeName(e.target.value)}
+            />
+          </Field>
+          <Field label="Registered on">
+            <TextInput type="date" value={registeredOn} onChange={(e) => setRegisteredOn(e.target.value)} />
+          </Field>
+          <div className="col-span-4 flex justify-end">
+            <Button variant="primary" data-testid="btn-save-registration" disabled={busy} onClick={() => void add()}>
+              Add registration
+            </Button>
+          </div>
+        </div>
+      )}
+    </Panel>
   )
 }
 

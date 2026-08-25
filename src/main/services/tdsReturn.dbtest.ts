@@ -52,7 +52,7 @@ function setup() {
     const input: VoucherInputParsed = {
       voucherTypeId: vt.id, date: opts.date, number: undefined, partyLedgerId: opts.partyLedgerId,
       narration: null, reference: null, instrumentNo: null, instrumentDate: null, transporterId: null,
-      vehicleNo: null, transportDistanceKm: null, posOverride: null, currencyCode: null, exchangeRate: null,
+      vehicleNo: null, transportDistanceKm: null, posOverride: null, gstRegistrationId: null, currencyCode: null, exchangeRate: null,
       postDated: undefined, isOptional: undefined,
       lines: [
         { ledgerId: opts.partyLedgerId, drCr: 'dr', amount: opts.base, costAllocations: [] },

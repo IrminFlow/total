@@ -86,6 +86,7 @@ export function ManufactureEntry({ typeId }: { typeId: number }): React.JSX.Elem
         vehicleNo: null,
         transportDistanceKm: null,
         posOverride: null,
+        gstRegistrationId: null,
         currencyCode: null,
         exchangeRate: null,
         lines: [],

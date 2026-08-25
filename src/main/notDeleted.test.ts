@@ -91,6 +91,23 @@ const ALLOWED: { file: string; contains: string; why: string }[] = [
     why: 'a by-id lookup for the voucher being posted'
   },
   {
+    file: 'src/main/services/registrations.ts',
+    contains: 'SELECT COUNT(*) AS n FROM vouchers v WHERE v.gst_registration_id = ?',
+    // The question is "is this registration referenced by anything at all", asked before deleting
+    // it. A binned voucher can be restored, and restoring one whose registration had been deleted
+    // in the meantime would leave an invoice attributed to no GSTIN. Excluding the bin here would
+    // make the check pass in exactly the case it exists to catch.
+    why: 'a binned voucher still holds its registration, and restoring it must not dangle'
+  },
+  {
+    file: 'src/main/services/registrations.ts',
+    contains: 'SELECT v.gst_registration_id AS id FROM vouchers v WHERE v.id = ?',
+    // A by-id lookup for a voucher the caller is already holding, asking only which GSTIN raised
+    // it. An e-document already generated for a voucher that was later binned still has to say
+    // which registration signed it.
+    why: 'a by-id lookup of the registration that raised a voucher, bin included on purpose'
+  },
+  {
     file: 'src/main/services/rcm.ts',
     contains: 'SELECT DISTINCT siv.voucher_id AS id',
     // The join exists to read the voucher's date; the question is "which purchases already carry

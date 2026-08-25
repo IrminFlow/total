@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
-import type { CompanyInfo, VoucherTransport } from '@shared/domain'
+import type { VoucherTransport } from '@shared/domain'
+import { regScope, type GstScope } from './registrations'
 import type { EdocListRow } from '@shared/reports'
 import type { VoucherTransportInput } from '@shared/schemas'
 import {
@@ -323,7 +324,7 @@ export function estimateTransportDistance(
 // ---------- extraction ----------
 
 /** Assemble full e-doc invoices (items, party, transport, ship-to) for the sales vouchers in a period. */
-export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, to: string, voucherId?: number): EdocInvoice[] {
+export function extractEdocInvoices(db: DB, company: GstScope, from: string, to: string, voucherId?: number): EdocInvoice[] {
   const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
   const vouchers = db
     .prepare(
@@ -342,7 +343,7 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
        LEFT JOIN voucher_transport t ON t.voucher_id = v.id
        WHERE vt.kind IN (${kindPlaceholders}) AND v.date BETWEEN ? AND ?
-         AND (? IS NULL OR v.id = ?) AND ${voucherId != null ? NOT_DELETED : IN_BOOKS}
+         AND (? IS NULL OR v.id = ?) AND ${voucherId != null ? NOT_DELETED : IN_BOOKS}${voucherId != null ? '' : regScope(company)}
        ORDER BY v.date, v.id`
     )
     .all(...EDOC_KINDS, from, to, voucherId ?? null, voucherId ?? null) as {
@@ -391,6 +392,9 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
 
   return vouchers.map((v) => {
     const supTyp = supTypFor(v.partyExportType, v.partyState)
+    // `company` is the book as ONE registration sees it (roadmap #108): the seller GSTIN and
+    // the state that decides CGST+SGST vs IGST are the supplying registration's, not a single
+    // company-level state. With one registration these are the company's own, as before.
     const pos = v.posOverride ?? v.partyState ?? company.stateCode
     // SEZ/export supplies are ALWAYS inter-state (sec 7(5)(b) IGST Act): a same-state SEZ
     // unit must be billed IGST — the IRP rejects SEZWP/SEZWOP payloads carrying CGST/SGST.
@@ -521,8 +525,9 @@ export function extractEdocInvoices(db: DB, company: CompanyInfo, from: string, 
   })
 }
 
-function edocCompany(company: CompanyInfo): EdocCompany {
+function edocCompany(company: GstScope): EdocCompany {
   return {
+    // Trade name stays the company's legal name; the GSTIN and state are the registration's.
     name: company.name,
     gstin: company.gstin ?? '',
     stateCode: company.stateCode,
@@ -530,12 +535,12 @@ function edocCompany(company: CompanyInfo): EdocCompany {
   }
 }
 
-export function exportEInvoices(db: DB, company: CompanyInfo, slug: string, from: string, to: string, period: string): { path: string; count: number } {
+export function exportEInvoices(db: DB, company: GstScope, slug: string, from: string, to: string, period: string): { path: string; count: number } {
   // Purchase-side debit notes (goods returned to a supplier) are NOT outward documents —
   // e-invoicing one would register a spurious IRN and auto-populate portal GSTR-1 with
   // output tax the books don't contain. Same outwardDebitNoteIds split as every sibling
   // path (listSalesInvoices, ewbInvoicesFor, GSTR-1 extraction).
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+  const outwardDbn = outwardDebitNoteIds(db, from, to, company)
   // A GSTIN is required for domestic/SEZ buyers, but exports legitimately have none — the
   // builder maps those to BuyerDtls.Gstin 'URP', so don't drop them here.
   const invoices = extractEdocInvoices(db, company, from, to).filter(
@@ -580,10 +585,10 @@ const ewbFileName = (inv: EdocInvoice): string =>
  * docType enum has no DBN — outward debit notes export as docType 'OTH'.
  */
 function ewbInvoicesFor(
-  db: DB, company: CompanyInfo, from: string, to: string,
+  db: DB, company: GstScope, from: string, to: string,
   opts: { voucherIds?: number[]; includeBelowThreshold?: boolean }
 ): { eligible: EdocInvoice[]; skipped: EwbSkipped[] } {
-  const outwardDbn = outwardDebitNoteIds(db, from, to)
+  const outwardDbn = outwardDebitNoteIds(db, from, to, company)
   const all = extractEdocInvoices(db, company, from, to)
 
   const eligible: EdocInvoice[] = []
@@ -620,7 +625,7 @@ function ewbInvoicesFor(
  * single-row files, and per-bill files let each consignment be uploaded independently.
  */
 export function exportEwb(
-  db: DB, company: CompanyInfo, slug: string, from: string, to: string, period: string,
+  db: DB, company: GstScope, slug: string, from: string, to: string, period: string,
   opts: { voucherIds?: number[]; includeBelowThreshold?: boolean } = {}
 ): EwbExportResult {
   const { eligible, skipped } = ewbInvoicesFor(db, company, from, to, opts)
@@ -642,7 +647,7 @@ export function exportEwb(
 
 /** Single-voucher EWB JSON (the per-row button): throws with the blocking reasons when the
  *  bill can't be generated, otherwise writes a one-entry bulk file and returns its path. */
-export function ewbJsonForVoucher(db: DB, company: CompanyInfo, slug: string, voucherId: number): { path: string } {
+export function ewbJsonForVoucher(db: DB, company: GstScope, slug: string, voucherId: number): { path: string } {
   const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
   if (!inv) throw new Error('Voucher not found')
   const elig = ewbEligibility(inv, true) // explicit per-bill request overrides the threshold
@@ -670,7 +675,7 @@ export function ewbJsonForVoucher(db: DB, company: CompanyInfo, slug: string, vo
  */
 export function previewJson(
   db: DB,
-  company: CompanyInfo,
+  company: GstScope,
   kind: 'einvoice' | 'ewb',
   from: string,
   to: string,
@@ -679,7 +684,7 @@ export function previewJson(
   const comp = edocCompany(company)
 
   if (kind === 'einvoice') {
-    const outwardDbn = outwardDebitNoteIds(db, from, to)
+    const outwardDbn = outwardDebitNoteIds(db, from, to, company)
     const invoices = extractEdocInvoices(db, company, from, to, opts.voucherId).filter(
       (i) =>
         (i.docType !== 'DBN' || (i.voucherId != null && outwardDbn.has(i.voucherId))) &&
@@ -721,7 +726,7 @@ export interface RoundOffIssue {
  * represent (freight, discounts booked as bare ledger lines, …) — surfaced per voucher with
  * the offending line names instead of silently landing in RndOffAmt (audit D11).
  */
-export function einvoiceRoundOffIssues(db: DB, company: CompanyInfo, from: string, to: string): RoundOffIssue[] {
+export function einvoiceRoundOffIssues(db: DB, company: GstScope, from: string, to: string): RoundOffIssue[] {
   const invoices = extractEdocInvoices(db, company, from, to)
   const lineStmt = db.prepare(
     `SELECT l.name, l.tax_type AS taxType, l.group_id AS groupId, vl.ledger_id AS ledgerId

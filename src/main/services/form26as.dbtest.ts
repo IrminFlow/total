@@ -53,7 +53,7 @@ function receiptWithTds(
     transporterId: null,
     vehicleNo: null,
     transportDistanceKm: null,
-    posOverride: null,
+    posOverride: null, gstRegistrationId: null,
     currencyCode: null,
     exchangeRate: null,
     lines: [

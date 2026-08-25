@@ -9,6 +9,8 @@ import { suggestNarration } from '@shared/autoNarration'
 import { useStickyFlag } from '../../lib/useStickyTab'
 import { computeGst, supplyTypeFor, addBreakups, type GstBreakup } from '@shared/gst/calc'
 import { GST_STATES } from '@shared/gst/states'
+import { registrationLabel } from '@shared/gst/registrations'
+import { useGstRegistrations } from '../../components/GstinPicker'
 import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
 import { applyInvoiceDiscount, discountFromPercent } from '@shared/invoiceDiscount'
 import { addDays, toDisplayDate } from '@shared/dates'
@@ -75,6 +77,12 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   // ---------- GST details (place-of-supply override + memorandum flag) ----------
   const [gstOpen, setGstOpen] = useState(false)
   const [posOverride, setPosOverride] = useState<string | null>(null)
+  // Which of the company's GST registrations made this supply (roadmap #108). Null means the
+  // primary, which is what every single-GSTIN book has and what the save path stamps.
+  const registrations = useGstRegistrations()
+  const [gstRegistrationId, setGstRegistrationId] = useState<number | null>(null)
+  const activeRegistration =
+    registrations.find((r) => r.id === gstRegistrationId) ?? registrations.find((r) => r.isPrimary) ?? null
   const [keepParty, setKeepParty] = useStickyFlag('invoice-keep-party', false)
   const [optionalVoucher, setOptionalVoucher] = useState(false)
 
@@ -131,8 +139,12 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     enabled: !!partyId && isNoteKind && !manualNewBillMode
   })
 
-  // Same precedence the GSTR builders use: explicit override → party state → company state.
-  const supply = supplyTypeFor(info!.stateCode, posOverride ?? party?.stateCode ?? info!.stateCode)
+  // Same precedence the GSTR builders use: explicit override → party state → the SUPPLYING
+  // REGISTRATION's state. With one registration that is the company's own state, exactly as
+  // before; with several, billing from a Gujarat registration to a Gujarat customer is CGST+SGST
+  // even though the company's head office is in Maharashtra.
+  const supplyState = activeRegistration?.stateCode ?? info!.stateCode
+  const supply = supplyTypeFor(supplyState, posOverride ?? party?.stateCode ?? supplyState)
 
   const fxRate = currencyCode && fxRateText.trim() ? Number(fxRateText) : null
   const fxActive = !!currencyCode && !!fxRate && Number.isFinite(fxRate) && fxRate > 0
@@ -336,6 +348,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
       vehicleNo: vehicleNo.trim().toUpperCase() || null,
       transportDistanceKm: distanceKm.trim() ? Number(distanceKm) : null,
       posOverride,
+      gstRegistrationId,
       currencyCode: fxActive ? currencyCode : null,
       exchangeRate: fxActive ? fxRate : null,
       isOptional: optionalVoucher,
@@ -357,7 +370,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
             : [],
       tds: null
     }
-  }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
+  }, [partyId, accountId, computed, kind, typeId, date, numberField.forPayload, narration, transporterId, vehicleNo, distanceKm, posOverride, gstRegistrationId, optionalVoucher, fxActive, currencyCode, fxRate, isNoteKind, manualNewBillMode, noteBillRefs, billName, billDueDate, ensureTax, ensureRoundOff])
 
   const formValid = !!partyId && !!accountId && computed.detail.length > 0
 
@@ -920,10 +933,11 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         >
           <span className="inline-block w-3 text-label">{gstOpen ? '▾' : '▸'}</span>
           GST details
-          {(posOverride || optionalVoucher) && (
+          {(posOverride || optionalVoucher || registrations.length > 1) && (
             <span className="normal-case text-muted/80">
               {' '}
               ·{posOverride ? ` POS ${posOverride} — ${GST_STATES[posOverride] ?? ''}` : ''}
+              {registrations.length > 1 && activeRegistration ? ` · ${activeRegistration.gstin ?? activeRegistration.stateCode}` : ''}
               {optionalVoucher ? ' optional (memorandum)' : ''}
             </span>
           )}
@@ -939,7 +953,7 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                 value={posOverride ?? ''}
                 onChange={(e) => setPosOverride(e.target.value || null)}
               >
-                <option value="">Auto — {party?.stateCode ?? info!.stateCode}</option>
+                <option value="">Auto — {party?.stateCode ?? supplyState}</option>
                 {Object.entries(GST_STATES).map(([code, name]) => (
                   <option key={code} value={code}>
                     {code} — {name}
@@ -947,7 +961,25 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                 ))}
               </Select>
             </Field>
-            <label className="col-span-2 flex items-center gap-2 pb-2 text-body-sm">
+            {registrations.length > 1 && (
+              <Field
+                label="Supplied by"
+                hint="Decides the GSTIN this invoice is filed under, and CGST+SGST vs IGST"
+              >
+                <Select
+                  data-testid="input-voucher-registration"
+                  value={String(activeRegistration?.id ?? '')}
+                  onChange={(e) => setGstRegistrationId(e.target.value ? Number(e.target.value) : null)}
+                >
+                  {registrations.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {registrationLabel(r)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+            <label className={`${registrations.length > 1 ? '' : 'col-span-2 '}flex items-center gap-2 pb-2 text-body-sm`}>
               <input
                 type="checkbox"
                 data-testid="input-optional-voucher"
