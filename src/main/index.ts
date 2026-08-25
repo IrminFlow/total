@@ -3,7 +3,7 @@ import { isAbsolute, join } from 'path'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { registerIpc, closeCurrentCompany, getCurrentCompany } from './ipc'
+import { registerIpc, closeCurrentCompany, getCurrentCompany, getMcpPresenceContext } from './ipc'
 import { ensureDataTree, dataRoot } from './paths'
 import { initUpdater } from './updater'
 import { initLogging, log } from './log'
@@ -11,6 +11,7 @@ import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
 import { deliverDueWebhooks, runDueAutomations } from './services/integrations'
 import { syncFolderWarning } from '@shared/syncpath'
 import { writeCrashEnvelope } from './services/crashReports'
+import { startMcpPresenceBroker, stopMcpPresenceBroker } from './services/mcpPresenceBroker'
 
 const isolatedUserDataDir = process.env.TOTAL_ELECTRON_USER_DATA_DIR
 if (isolatedUserDataDir) {
@@ -139,13 +140,20 @@ if (gotSingleInstanceLock) {
     }
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     initLogging()
     log('info', 'app-start', { version: app.getVersion(), platform: process.platform })
     electronApp.setAppUserModelId('com.irminlabs.total')
     app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
     ensureDataTree()
     registerIpc()
+    try {
+      await startMcpPresenceBroker(getMcpPresenceContext)
+    } catch (error) {
+      log('error', 'mcp-presence-broker-start-failed', {
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
     startBackupScheduler(getCurrentCompany)
     const integrationTimer = setInterval(() => {
       const current = getCurrentCompany()
@@ -174,6 +182,7 @@ if (gotSingleInstanceLock) {
   })
 
   app.on('before-quit', () => {
+    void stopMcpPresenceBroker()
     backupOnQuit(getCurrentCompany)
     closeCurrentCompany()
   })

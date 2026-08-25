@@ -4,6 +4,13 @@ import { scenario, assert, assertEq } from "../lib/harness.mjs";
 
 await scenario("47-accessibility-language", async (h) => {
   await h.createDemoCompany();
+  await h.invoke("device-safety:set", {
+    aiCopilot: false,
+    mcpAccess: false,
+    supportUploads: true,
+    telemetry: false,
+  });
+  await h.page.evaluate(() => window.dispatchEvent(new Event("total:device-safety-refresh")));
   await h.page.setViewportSize({ width: 1080, height: 700 });
   const minimumShell = await h.page.evaluate(() => {
     const header = document.querySelector('[data-testid="app-header"]');

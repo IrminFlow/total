@@ -110,6 +110,7 @@ import {
 } from "@shared/schemas";
 import { todayISO } from "@shared/dates";
 import { formatPaise } from "@shared/money";
+import { MCP_SCOPES } from "@shared/mcp";
 import * as configSvc from "./services/config";
 import { createBoundedTemporaryDirectory } from "./services/tempArtifacts";
 import * as masters from "./services/masters";
@@ -174,6 +175,8 @@ import * as privacyControls from "./services/privacyControls";
 import * as exportSigning from "./services/exportSigning";
 import { backgroundWork } from "./services/workloadGovernor";
 import * as systemHealthService from "./services/systemHealth";
+import * as deviceSafety from "./services/deviceSafety";
+import { deviceSafetyControlsSchema } from "@shared/deviceSafety";
 import { writePerformanceProfilerPack } from "./services/performanceProfiler";
 import * as onboarding from "./services/onboarding";
 import * as voucherAccelerators from "./services/voucherAccelerators";
@@ -248,6 +251,13 @@ export function getCurrentCompany(): OpenCompany | null {
   return current;
 }
 
+/** Local MCP presence context. Companies without configured users use the app's implicit owner. */
+export function getMcpPresenceContext(): { company: string; role: Role } | null {
+  if (!current) return null;
+  const role = sessionUser?.role ?? (current.usersExist ? null : "owner");
+  return role ? { company: current.slug, role } : null;
+}
+
 /** Move a file into place. Copy+delete rather than fs.renameSync, since the source (os.tmpdir())
  *  and destination (~/Documents/total) may be on different filesystems (EXDEV). */
 function renameFile(src: string, dest: string): void {
@@ -295,6 +305,9 @@ const UNGATED_CHANNELS = new Set([
   "support:captureScreenshot",
   "support:case:create",
   "support:case:list",
+  "support:outbox:list",
+  "support:outbox:retry",
+  "support:outbox:discard",
   "support:bundleOffline",
   "support:submit",
 ]);
@@ -6412,6 +6425,13 @@ export function registerIpc(): void {
     hasSession: () => sessionUser !== null,
   });
 
+  handle("device-safety:get", () => deviceSafety.readDeviceSafetyControls(), "viewer");
+  handle(
+    "device-safety:set",
+    (payload) => deviceSafety.writeDeviceSafetyControls(deviceSafetyControlsSchema.parse(payload)),
+    "owner",
+  );
+
   // ---------- agent bridge (CSV/JSON mirrors + inbox, lane A) ----------
   handle("agent:exportMirror", (p) => {
     const input = agentExportSchema.parse(p ?? {});
@@ -6485,27 +6505,23 @@ export function registerIpc(): void {
   // expiry-bound and scope-bound; plaintext is returned exactly once when issued.
   handle(
     "mcp:tokens:list",
-    () => mcpAccess.listTokens(requireCompany().slug),
+    () => {
+      deviceSafety.requireDeviceSafetyControl("mcpAccess", "Local MCP access is disabled on this device");
+      return mcpAccess.listTokens(requireCompany().slug);
+    },
     "owner",
   );
   handle(
     "mcp:tokens:issue",
     (p) => {
+      deviceSafety.requireDeviceSafetyControl("mcpAccess", "Local MCP access is disabled on this device");
       const input = z
         .object({
           name: z.string().trim().min(1).max(80),
           scopes: z
-            .array(
-              z.enum([
-                "companies:list",
-                "mirror:read",
-                "attachment:read",
-                "proposal:create",
-                "mirror:refresh",
-              ]),
-            )
+            .array(z.enum(MCP_SCOPES))
             .min(1)
-            .max(5),
+            .max(MCP_SCOPES.length),
           expiresAt: z.string().datetime(),
         })
         .refine((value) => Date.parse(value.expiresAt) > Date.now(), {
@@ -6534,6 +6550,7 @@ export function registerIpc(): void {
   handle(
     "mcp:tokens:revoke",
     (p) => {
+      deviceSafety.requireDeviceSafetyControl("mcpAccess", "Local MCP access is disabled on this device");
       const { id } = z.object({ id: z.string().uuid() }).parse(p);
       const company = requireCompany();
       return mcpAccess.revokeToken(
@@ -6548,6 +6565,7 @@ export function registerIpc(): void {
   handle(
     "mcp:audit:list",
     (p) => {
+      deviceSafety.requireDeviceSafetyControl("mcpAccess", "Local MCP access is disabled on this device");
       const { limit } = z
         .object({ limit: z.number().int().min(1).max(1000).default(200) })
         .parse(p ?? {});
@@ -6557,17 +6575,24 @@ export function registerIpc(): void {
   );
   handle(
     "mcp:mirror:status",
-    () => mcpAccess.mirrorStatus(requireCompany().slug),
+    () => {
+      deviceSafety.requireDeviceSafetyControl("mcpAccess", "Local MCP access is disabled on this device");
+      return mcpAccess.mirrorStatus(requireCompany().slug);
+    },
     "viewer",
   );
   handle(
     "mcp:refresh:list",
-    () => mcpAccess.listRefreshRequests(requireCompany().slug),
+    () => {
+      deviceSafety.requireDeviceSafetyControl("mcpAccess", "Local MCP access is disabled on this device");
+      return mcpAccess.listRefreshRequests(requireCompany().slug);
+    },
     "owner",
   );
   handle(
     "mcp:refresh:decide",
     (p) => {
+      deviceSafety.requireDeviceSafetyControl("mcpAccess", "Local MCP access is disabled on this device");
       const { id, approved } = z
         .object({ id: z.string().uuid(), approved: z.boolean() })
         .parse(p);

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow, dialog, safeStorage } from "electron";
 import {
   mkdtempSync,
   readdirSync,
@@ -16,6 +16,8 @@ import { log, logsDir } from "../log";
 import * as configSvc from "../services/config";
 import * as crashReports from "../services/crashReports";
 import * as supportCases from "../services/supportCases";
+import * as supportOutbox from "../services/supportOutbox";
+import { requireDeviceSafetyControl } from "../services/deviceSafety";
 import type { IpcHandle, OpenCompany } from "./types";
 
 interface SupportHandlerDependencies {
@@ -75,6 +77,31 @@ function safeSupportDiagnostics(): {
 
 function supportCasePath(): string {
   return join(dataRoot(), "support-cases.json");
+}
+
+function supportOutboxPath(): string {
+  return join(dataRoot(), "support-outbox.json");
+}
+
+const queuedDeliverySchema = z
+  .object({
+    caseId: z.string().regex(/^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/),
+    category: z.enum(["question", "bug", "idea", "accessibility"]),
+    source: z.literal("app"),
+  })
+  .passthrough();
+
+async function deliverSupportPayload(body: Record<string, unknown>): Promise<void> {
+  const response = await fetch("https://devjindal.tech/api/support", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "user-agent": `Total/${app.getVersion()}`,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error("Support service unavailable");
 }
 
 function safeSupportContext(current: OpenCompany | null): {
@@ -255,6 +282,11 @@ export function registerSupportHandlers(
     }
   }, "viewer");
   handle("support:case:list", () => supportCases.readSupportCases(supportCasePath()));
+  handle("support:outbox:list", () =>
+    supportOutbox.summarizeSupportOutbox(
+      supportOutbox.readSupportOutbox(supportOutboxPath()),
+    ),
+  );
   handle("support:case:create", (payload) => {
     const input = z
       .object({
@@ -270,6 +302,7 @@ export function registerSupportHandlers(
     "viewer",
   );
   handle("support:captureScreenshot", async () => {
+    requireDeviceSafetyControl("supportUploads", "Support attachments are disabled on this device");
     const win =
       BrowserWindow.getFocusedWindow() ??
       BrowserWindow.getAllWindows().find(
@@ -296,44 +329,120 @@ export function registerSupportHandlers(
       status: "sending",
       lastError: null,
     });
+    if (input.screenshotDataUrl !== null)
+      requireDeviceSafetyControl("supportUploads", "Support attachments are disabled on this device");
     const context = safeSupportContext(dependencies.getCurrentCompany());
+    const delivery = {
+      caseId: input.caseId,
+      category: input.category,
+      email: input.email,
+      message: input.message,
+      source: "app" as const,
+      diagnostics: input.includeDiagnostics ? safeSupportDiagnostics() : null,
+      logs: input.includeLogs ? context.logs : null,
+      companyMetadata: input.includeCompanyMetadata ? context.company : null,
+      focusContext: input.focusContext,
+      screenshotDataUrl: input.screenshotDataUrl,
+    };
     try {
-      const response = await fetch("https://devjindal.tech/api/support", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "user-agent": `Total/${app.getVersion()}`,
-        },
-        body: JSON.stringify({
-          caseId: input.caseId,
-          category: input.category,
-          email: input.email,
-          message: input.message,
-          source: "app",
-          diagnostics: input.includeDiagnostics ? safeSupportDiagnostics() : null,
-          logs: input.includeLogs ? context.logs : null,
-          companyMetadata: input.includeCompanyMetadata ? context.company : null,
-          focusContext: input.focusContext,
-          screenshotDataUrl: input.screenshotDataUrl,
-        }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!response.ok) throw new Error("Support service unavailable");
+      await deliverSupportPayload(delivery);
       const record = supportCases.updateSupportCase(supportCasePath(), input.caseId, {
         status: "submitted",
         lastError: null,
       });
       log("info", "support-case-submitted", { caseId: input.caseId });
-      return { ok: true, caseId: input.caseId, status: record.status };
+      return { ok: true, queued: false, caseId: input.caseId, status: record.status };
     } catch {
-      supportCases.updateSupportCase(supportCasePath(), input.caseId, {
-        status: "failed",
+      if (!safeStorage.isEncryptionAvailable()) {
+        supportCases.updateSupportCase(supportCasePath(), input.caseId, {
+          status: "failed",
+          lastError: "Network delivery failed",
+        });
+        throw new Error(
+          "Support could not be reached and secure device storage is unavailable. Save an encrypted offline bundle or use email.",
+        );
+      }
+      const encryptedPayload = safeStorage
+        .encryptString(JSON.stringify(delivery))
+        .toString("base64");
+      const queued = supportOutbox.enqueueSupportPayload(supportOutboxPath(), {
+        caseId: input.caseId,
+        encryptedPayload,
+        hasAttachment: input.screenshotDataUrl !== null,
         lastError: "Network delivery failed",
       });
-      throw new Error(
-        "Support could not be reached. Save an encrypted offline bundle or use email.",
-      );
+      const record = supportCases.updateSupportCase(supportCasePath(), input.caseId, {
+        status: "queued",
+        lastError: "Waiting for a manual retry",
+      });
+      log("info", "support-case-queued", { caseId: input.caseId });
+      return {
+        ok: true,
+        queued: true,
+        outboxId: queued.id,
+        caseId: input.caseId,
+        status: record.status,
+      };
     }
+  });
+  handle("support:outbox:retry", async (payload) => {
+    const input = z
+      .object({
+        id: z.string().uuid(),
+        approveAttachmentRetry: z.boolean().default(false),
+      })
+      .parse(payload);
+    const item = supportOutbox.getSupportOutboxItem(supportOutboxPath(), input.id);
+    if (item.hasAttachment)
+      requireDeviceSafetyControl("supportUploads", "Support attachments are disabled on this device");
+    if (item.hasAttachment && !input.approveAttachmentRetry) {
+      throw new Error("Confirm the screenshot upload before retrying this submission");
+    }
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error("Secure device storage is unavailable");
+    }
+    supportOutbox.updateSupportOutboxItem(supportOutboxPath(), input.id, {
+      status: "retrying",
+      attempts: item.attempts + 1,
+      attachmentRetryApproved: item.hasAttachment && input.approveAttachmentRetry,
+      lastError: null,
+    });
+    try {
+      const plaintext = safeStorage.decryptString(Buffer.from(item.encryptedPayload, "base64"));
+      const delivery = queuedDeliverySchema.parse(JSON.parse(plaintext));
+      await deliverSupportPayload(delivery);
+      supportOutbox.removeSupportOutboxItem(supportOutboxPath(), input.id);
+      const record = supportCases.updateSupportCase(supportCasePath(), item.caseId, {
+        status: "submitted",
+        lastError: null,
+      });
+      log("info", "support-case-retry-submitted", { caseId: item.caseId });
+      return { ok: true, caseId: item.caseId, status: record.status };
+    } catch (error) {
+      supportOutbox.updateSupportOutboxItem(supportOutboxPath(), input.id, {
+        status: "failed",
+        attachmentRetryApproved: false,
+        lastError: "Retry failed",
+      });
+      supportCases.updateSupportCase(supportCasePath(), item.caseId, {
+        status: "queued",
+        lastError: "Retry failed",
+      });
+      throw new Error(error instanceof Error && error.message.includes("decrypt")
+        ? "The queued submission can no longer be decrypted on this device"
+        : "Support is still unavailable. The encrypted submission remains queued.");
+    }
+  });
+  handle("support:outbox:discard", (payload) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(payload);
+    const item = supportOutbox.getSupportOutboxItem(supportOutboxPath(), id);
+    supportOutbox.removeSupportOutboxItem(supportOutboxPath(), id);
+    supportCases.updateSupportCase(supportCasePath(), item.caseId, {
+      status: "failed",
+      lastError: "Queued submission discarded on this device",
+    });
+    log("info", "support-case-queue-discarded", { caseId: item.caseId });
+    return { ok: true };
   });
   handle("support:bundleOffline", async (payload) => {
     const input = supportPayloadSchema.extend({ passphrase: passphraseSchema }).parse(payload);

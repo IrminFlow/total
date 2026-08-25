@@ -5,7 +5,7 @@ import {
   readdirSync,
   renameSync,
 } from "fs";
-import { createHash, randomBytes, randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { basename, join } from "path";
 import type { DB } from "../db/connection";
 import { atomicWriteFile } from "../atomicFile";
@@ -57,6 +57,23 @@ export function listTokens(company: string): McpTokenSummary[] {
     .tokens.filter((token) => token.company === company)
     .map(publicToken)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Broker-only token lookup. Receives a one-way digest, never the plaintext pairing secret. */
+export function authorizeTokenHash(
+  company: string,
+  scope: string,
+  tokenHash: string,
+): McpTokenSummary | null {
+  if (!/^[a-f0-9]{64}$/.test(tokenHash)) return null;
+  const supplied = Buffer.from(tokenHash, "hex");
+  const stored = readStore().tokens.find((candidate) => {
+    if (candidate.company !== company || candidate.revokedAt ||
+      !candidate.expiresAt || Date.parse(candidate.expiresAt) <= Date.now() ||
+      !candidate.scopes.includes(scope as McpScope) || !/^[a-f0-9]{64}$/.test(candidate.tokenHash)) return false;
+    return timingSafeEqual(Buffer.from(candidate.tokenHash, "hex"), supplied);
+  });
+  return stored ? publicToken(stored) : null;
 }
 
 export function issueToken(

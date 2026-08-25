@@ -189,6 +189,48 @@ describe('R2 parity — statements', () => {
       }
     ])
   })
+
+  it('keeps Jan-Mar in Q4, crosses financial years, returns empty periods, and reconciles monthly totals', () => {
+    const { db, ids } = richBook()
+    const addSale = (date: string, amount: number): void => {
+      post(db, {
+        kind: 'sales', date, partyLedgerId: ids.debtorB,
+        lines: [
+          { ledgerId: ids.debtorB!, drCr: 'dr', amount },
+          { ledgerId: ids.sales!, drCr: 'cr', amount }
+        ]
+      })
+    }
+    addSale('2026-01-15', 10000)
+    addSale('2026-03-31', 20000)
+    addSale('2026-04-01', 30000)
+
+    const monthly = registerByPeriod(db, 'sales', '2025-04-01', '2026-04-30', 'month')
+    const quarterly = registerByPeriod(db, 'sales', '2025-04-01', '2026-04-30', 'quarter')
+    const sum = (rows: typeof monthly, field: 'vouchers' | 'taxable' | 'tax' | 'total'): number =>
+      rows.reduce((total, row) => total + row[field], 0)
+    for (const field of ['vouchers', 'taxable', 'tax', 'total'] as const) {
+      expect(sum(quarterly, field)).toBe(sum(monthly, field))
+    }
+    expect(quarterly.find((row) => row.key === '2025-26-Q4')).toMatchObject({
+      label: 'Q4 2025-26',
+      from: '2026-01-01',
+      to: '2026-03-31',
+      vouchers: 2,
+      taxable: 30000,
+      tax: 0,
+      total: 30000
+    })
+    expect(quarterly.find((row) => row.key === '2026-27-Q1')).toMatchObject({
+      label: 'Q1 2026-27',
+      from: '2026-04-01',
+      to: '2026-04-30',
+      vouchers: 1,
+      taxable: 30000,
+      total: 30000
+    })
+    expect(registerByPeriod(db, 'sales', '2024-01-01', '2024-03-31', 'quarter')).toEqual([])
+  })
 })
 
 describe('R2 parity — outstandings', () => {

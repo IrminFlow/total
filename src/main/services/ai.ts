@@ -16,6 +16,7 @@ import {
   type AiContextFieldId,
   type AiContextPreview,
   type AiGroundedAnswer,
+  type AiUsage,
   type AiProviderConfig,
   type AiProviderInput,
 } from "@shared/ai";
@@ -481,6 +482,7 @@ export function contextPreview(
 export async function ask(
   prompt: string,
   context: BuiltContext | null,
+  signal?: AbortSignal,
 ): Promise<AiAnswer> {
   const stored = readStored();
   if (!stored.enabled) throw new Error("AI is turned off in Settings");
@@ -497,6 +499,17 @@ export async function ask(
       : "Return an empty citations array because no book context was shared.",
   ].join("\n\n");
   let parsed: AiGroundedAnswer;
+  let usage: AiUsage | null = null;
+  const normalizeUsage = (value: unknown): AiUsage | null => {
+    if (!value || typeof value !== "object") return null;
+    const row = value as Record<string, unknown>;
+    const inputTokens = Number(row.input_tokens ?? row.prompt_tokens ?? 0);
+    const outputTokens = Number(row.output_tokens ?? row.completion_tokens ?? 0);
+    const totalTokens = Number(row.total_tokens ?? inputTokens + outputTokens);
+    return [inputTokens, outputTokens, totalTokens].every((number) => Number.isInteger(number) && number >= 0)
+      ? { inputTokens, outputTokens, totalTokens }
+      : null;
+  };
   if (stored.apiMode === "chat_completions" && stored.provider === "openai") {
     const response = await sdk.chat.completions.parse({
       model: stored.model,
@@ -508,8 +521,9 @@ export async function ask(
         { role: "system", content: system },
         { role: "user", content: prompt },
       ],
-    });
+    }, signal ? { signal } : undefined);
     parsed = aiGroundedAnswerSchema.parse(response.choices[0]?.message.parsed);
+    usage = normalizeUsage(response.usage);
   } else if (stored.apiMode === "responses" && stored.provider === "openai") {
     const response = await sdk.responses.parse({
       model: stored.model,
@@ -518,30 +532,33 @@ export async function ask(
       text: {
         format: zodTextFormat(aiGroundedAnswerSchema, "grounded_book_answer"),
       },
-    });
+    }, signal ? { signal } : undefined);
     parsed = aiGroundedAnswerSchema.parse(response.output_parsed);
+    usage = normalizeUsage(response.usage);
   } else {
     // OpenAI-compatible endpoints vary in Structured Outputs support. JSON mode plus local Zod
     // validation preserves the exact same trust boundary without assuming vendor extensions.
-    const raw =
-      stored.apiMode === "chat_completions"
-        ? ((
-            await sdk.chat.completions.create({
+    let raw: string;
+    if (stored.apiMode === "chat_completions") {
+      const response = await sdk.chat.completions.create({
               model: stored.model,
               response_format: { type: "json_object" },
               messages: [
                 { role: "system", content: system },
                 { role: "user", content: prompt },
               ],
-            })
-          ).choices[0]?.message.content ?? "")
-        : (
-            await sdk.responses.create({
+            }, signal ? { signal } : undefined);
+      raw = response.choices[0]?.message.content ?? "";
+      usage = normalizeUsage(response.usage);
+    } else {
+      const response = await sdk.responses.create({
               model: stored.model,
               instructions: `${system}\n\nReturn one JSON object with answer and citations.`,
               input: prompt,
-            })
-          ).output_text;
+            }, signal ? { signal } : undefined);
+      raw = response.output_text;
+      usage = normalizeUsage(response.usage);
+    }
     try {
       parsed = aiGroundedAnswerSchema.parse(JSON.parse(raw));
     } catch {
@@ -557,6 +574,7 @@ export async function ask(
     model: stored.model,
     provider: stored.provider,
     citations,
+    usage,
   };
 }
 

@@ -16,7 +16,7 @@ import {
   existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, readdirSync, realpathSync,
   renameSync, rmSync, statSync, watch, writeFileSync, type Dirent, type FSWatcher
 } from 'fs'
-import { basename, extname, isAbsolute, join, relative, sep } from 'path'
+import { basename, dirname, extname, isAbsolute, join, posix, relative, sep } from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { Notification } from 'electron'
 import type { DB } from '../db/connection'
@@ -41,8 +41,56 @@ import {
   type VoucherPostingActor
 } from './voucherPostingControls'
 
-/** Bumped whenever the mirror file shapes change incompatibly; stamped into meta.json. */
-export const MIRROR_SCHEMA_VERSION = 1
+/** Bumped whenever the versioned mirror contract changes; legacy meta.json fields stay readable. */
+export const MIRROR_SCHEMA_VERSION = 2
+export const MIRROR_SCHEMA_ID = 'total.agent-mirror'
+
+const MAX_MIRROR_MANIFEST_BYTES = 1024 * 1024
+const MAX_MIRROR_FILES = 256
+const MAX_MIRROR_FILE_BYTES = 64 * 1024 * 1024
+const MAX_MIRROR_TOTAL_BYTES = 512 * 1024 * 1024
+const MIRROR_FILE_NAME = /^[a-z0-9][a-z0-9./-]*$/
+
+export interface MirrorFileManifest {
+  /** Stable logical identifier; it does not include a generation timestamp or FY-specific digest. */
+  id: string
+  path: string
+  mediaType: 'application/json' | 'text/csv'
+  bytes: number
+  sha256: string
+  schemaId: string
+  schemaRef: string | null
+}
+
+export interface MirrorManifestV2 {
+  schema: typeof MIRROR_SCHEMA_ID
+  schemaVersion: typeof MIRROR_SCHEMA_VERSION
+  generationId: string
+  generatedAt: string
+  company: string
+  units: {
+    amount: { name: 'paise'; type: 'integer'; scale: 100; currency: 'INR' }
+    quantity: { name: 'milli-unit'; type: 'integer'; scale: 1000 }
+  }
+  /** Legacy aliases retained for v1 readers. */
+  amountsUnit: string
+  quantitiesUnit: string
+  voucherTypes: ReturnType<typeof masters.listVoucherTypes>
+  /** Legacy file-name list retained for MCP/client readers written against mirror v1. */
+  files: string[]
+  manifest: {
+    algorithm: 'sha256'
+    files: MirrorFileManifest[]
+  }
+  schemas: Record<string, string>
+}
+
+/** @internal Deterministic filesystem fault injection used only by DB tests. */
+export interface MirrorExportHooks {
+  /** Deterministic failure injection for DB tests; not exposed through IPC. */
+  beforePromote?: (stagingDir: string) => void
+  afterPreviousMoved?: () => void
+}
 
 export type MirrorWhat = 'masters' | 'vouchers' | 'reports' | 'all'
 export type MirrorFormat = 'csv' | 'json' | 'all'
@@ -421,27 +469,216 @@ function fyLabel(date: string): string {
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`
 }
 
+const mirrorJsonSchema = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: 'total://schemas/agent-mirror-v2',
+  title: 'Total agent mirror v2 payloads',
+  $defs: {
+    ledgers: {
+      type: 'array',
+      items: {
+        type: 'object', required: ['id', 'name', 'groupId', 'groupName', 'openingBalance'],
+        properties: {
+          id: { type: 'integer', minimum: 1 }, name: { type: 'string' },
+          groupId: { type: 'integer', minimum: 1 }, groupName: { type: 'string' },
+          openingBalance: { type: 'integer', description: 'Integer paise' }
+        },
+        additionalProperties: true
+      }
+    },
+    vouchers: {
+      type: 'array',
+      items: {
+        type: 'object', required: ['id', 'date', 'lines'],
+        properties: {
+          id: { type: 'integer', minimum: 1 }, date: { type: 'string', format: 'date' },
+          lines: {
+            type: 'array',
+            items: {
+              type: 'object', required: ['ledgerId', 'drCr', 'amount'],
+              properties: {
+                ledgerId: { type: 'integer', minimum: 1 },
+                drCr: { enum: ['dr', 'cr'] }, amount: { type: 'integer', minimum: 0 }
+              },
+              additionalProperties: true
+            }
+          }
+        },
+        additionalProperties: true
+      }
+    },
+    trialBalance: { type: 'object', required: ['asOn', 'rows', 'totalDebit', 'totalCredit'], additionalProperties: true },
+    outstandings: { type: 'object', required: ['asOn', 'receivable', 'payable'], additionalProperties: true }
+  }
+} as const
+
+function assertMirrorRelativePath(path: string): void {
+  if (
+    path.length < 1 || path.length > 180 || path.includes('\\') || isAbsolute(path) ||
+    path !== posix.normalize(path) || path.split('/').some((part) => part === '.' || part === '..') ||
+    !MIRROR_FILE_NAME.test(path)
+  ) throw new Error(`Unsafe mirror path: ${path}`)
+}
+
+function mirrorSchemaFor(name: string): { id: string; ref: string | null } {
+  if (name === 'ledgers.json') return { id: 'total.mirror.ledgers.v2', ref: 'schemas/mirror.schema.json#/$defs/ledgers' }
+  if (/^vouchers-\d{4}-\d{2}\.json$/.test(name)) {
+    return { id: 'total.mirror.vouchers.v2', ref: 'schemas/mirror.schema.json#/$defs/vouchers' }
+  }
+  if (name === 'trial-balance.json') return { id: 'total.mirror.trial-balance.v2', ref: 'schemas/mirror.schema.json#/$defs/trialBalance' }
+  if (name === 'outstandings.json') return { id: 'total.mirror.outstandings.v2', ref: 'schemas/mirror.schema.json#/$defs/outstandings' }
+  if (name === 'ledgers.csv') return { id: 'total.mirror.ledgers-csv.v2', ref: null }
+  if (name === 'items.csv') return { id: 'total.mirror.items-csv.v2', ref: null }
+  if (name === 'schemas/mirror.schema.json') return { id: 'total.mirror.schemas.v2', ref: null }
+  throw new Error(`Unsupported mirror file: ${name}`)
+}
+
+function sha256(content: Buffer | string): string {
+  return createHash('sha256').update(content).digest('hex')
+}
+
+/**
+ * Verify an on-disk generation without trusting paths or sizes declared by its metadata. This is
+ * also useful to agents that copy a mirror and want to reject a partial or tampered projection.
+ */
+export function verifyMirrorManifest(dir: string): MirrorManifestV2 {
+  const rootEntry = lstatSync(dir)
+  if (rootEntry.isSymbolicLink() || !rootEntry.isDirectory()) throw new Error('Mirror is not a regular directory')
+  const rootReal = realpathSync(dir)
+  const metaPath = join(dir, 'meta.json')
+  const metaEntry = lstatSync(metaPath)
+  if (metaEntry.isSymbolicLink() || !metaEntry.isFile() || metaEntry.size > MAX_MIRROR_MANIFEST_BYTES) {
+    throw new Error('Mirror metadata is invalid or exceeds 1 MB')
+  }
+  assertPathContained(rootReal, realpathSync(metaPath))
+  const parsed = JSON.parse(readFileSync(metaPath, 'utf8')) as Partial<MirrorManifestV2>
+  if (
+    parsed.schema !== MIRROR_SCHEMA_ID || parsed.schemaVersion !== MIRROR_SCHEMA_VERSION ||
+    typeof parsed.generationId !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(parsed.generationId) ||
+    typeof parsed.generatedAt !== 'string' || !isIsoInstant(parsed.generatedAt) ||
+    typeof parsed.company !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parsed.company) ||
+    parsed.units?.amount?.name !== 'paise' || parsed.units.amount.type !== 'integer' ||
+    parsed.units.amount.scale !== 100 || parsed.units.amount.currency !== 'INR' ||
+    parsed.units?.quantity?.name !== 'milli-unit' || parsed.units.quantity.type !== 'integer' ||
+    parsed.units.quantity.scale !== 1000 ||
+    !parsed.manifest || parsed.manifest.algorithm !== 'sha256' || !Array.isArray(parsed.manifest.files)
+  ) throw new Error('Mirror metadata does not match the v2 contract')
+  if (parsed.manifest.files.length > MAX_MIRROR_FILES) throw new Error('Mirror contains too many files')
+
+  const paths = new Set<string>()
+  const ids = new Set<string>()
+  let totalBytes = 0
+  for (const file of parsed.manifest.files) {
+    if (!file || typeof file.path !== 'string') throw new Error('Mirror file entry is invalid')
+    assertMirrorRelativePath(file.path)
+    if (paths.has(file.path)) throw new Error(`Duplicate mirror path: ${file.path}`)
+    paths.add(file.path)
+    if (typeof file.id !== 'string' || file.id.length > 100 || !/^total\.mirror\.[a-z0-9.-]+\.v2$/.test(file.id)) {
+      throw new Error(`Invalid mirror schema identifier for ${file.path}`)
+    }
+    if (file.schemaId !== file.id) throw new Error(`Mirror schema identifier mismatch: ${file.path}`)
+    const expectedSchema = mirrorSchemaFor(file.path)
+    if (file.id !== expectedSchema.id || file.schemaRef !== expectedSchema.ref) {
+      throw new Error(`Unexpected mirror schema for ${file.path}`)
+    }
+    const expectedMediaType = file.path.endsWith('.csv') ? 'text/csv' : 'application/json'
+    if (file.mediaType !== expectedMediaType) throw new Error(`Invalid mirror media type: ${file.path}`)
+    // FY voucher files deliberately share one stable schema identifier.
+    if (ids.has(file.id) && file.id !== 'total.mirror.vouchers.v2') throw new Error(`Duplicate mirror identifier: ${file.id}`)
+    ids.add(file.id)
+    if (!Number.isSafeInteger(file.bytes) || file.bytes < 0 || file.bytes > MAX_MIRROR_FILE_BYTES) {
+      throw new Error(`Mirror file exceeds the 64 MB limit: ${file.path}`)
+    }
+    totalBytes += file.bytes
+    if (totalBytes > MAX_MIRROR_TOTAL_BYTES) throw new Error('Mirror exceeds the 512 MB total limit')
+    if (!/^[a-f0-9]{64}$/.test(file.sha256)) throw new Error(`Invalid mirror digest: ${file.path}`)
+    if (file.schemaRef !== null && (
+      typeof file.schemaRef !== 'string' || !file.schemaRef.startsWith('schemas/mirror.schema.json#/')
+    )) throw new Error(`Invalid mirror schema reference: ${file.path}`)
+    const path = join(dir, ...file.path.split('/'))
+    const entry = lstatSync(path)
+    if (entry.isSymbolicLink() || !entry.isFile()) throw new Error(`Mirror payload is not a regular file: ${file.path}`)
+    assertPathContained(rootReal, realpathSync(path))
+    if (entry.size !== file.bytes) throw new Error(`Mirror byte count mismatch: ${file.path}`)
+    if (sha256(readFileSync(path)) !== file.sha256) throw new Error(`Mirror digest mismatch: ${file.path}`)
+  }
+  if (!Array.isArray(parsed.files) || parsed.files.some((file) => typeof file !== 'string' || !paths.has(file))) {
+    throw new Error('Legacy mirror file list is invalid')
+  }
+  if (new Set(parsed.files).size !== parsed.files.length) throw new Error('Legacy mirror file list contains duplicates')
+  for (const file of parsed.manifest.files) {
+    const schemaPath = file.schemaRef?.split('#', 1)[0]
+    if (schemaPath && !paths.has(schemaPath)) throw new Error(`Mirror schema is missing: ${schemaPath}`)
+  }
+  return parsed as MirrorManifestV2
+}
+
 /**
  * Regenerate the read mirror under `<company>/agent/`:
  *   ledgers.csv, ledgers.json, items.csv, vouchers-<FY>.json, trial-balance.json,
  *   outstandings.json, meta.json (schema version + generated-at + voucher types).
  * Amounts are integer paise, quantities integer milli-units — lossless, same as the DB.
  */
-export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): MirrorResult {
+export function exportMirror(
+  db: DB,
+  slug: string,
+  opts: MirrorOptions = {},
+  hooks: MirrorExportHooks = {}
+): MirrorResult {
   const what = opts.what ?? 'all'
   const format = opts.format ?? 'all'
   const dir = agentDir(slug)
-  mkdirSync(dir, { recursive: true })
-  const files: string[] = []
-  const writeOut = (name: string, content: string): void => {
-    writeFileSync(join(dir, name), content)
-    files.push(name)
+  const company = companyDir(slug)
+  const companyEntry = lstatSync(company)
+  if (companyEntry.isSymbolicLink() || !companyEntry.isDirectory()) {
+    throw new Error('Company storage is not a regular directory')
   }
+  const companyReal = realpathSync(company)
+  if (existsSync(dir)) {
+    const current = lstatSync(dir)
+    if (current.isSymbolicLink() || !current.isDirectory()) throw new Error('Mirror storage is not a regular directory')
+    assertPathContained(companyReal, realpathSync(dir))
+  }
+
+  const generationId = randomUUID()
+  const stagingDir = join(company, `.agent-staging-${generationId}`)
+  const previousDir = join(company, `.agent-previous-${generationId}`)
+  mkdirSync(stagingDir, { mode: 0o700 })
+  assertPathContained(companyReal, realpathSync(stagingDir))
+
+  const files: string[] = []
+  const entries: MirrorFileManifest[] = []
+  let totalBytes = 0
+  const writePayload = (name: string, content: string, legacy = true): void => {
+    assertMirrorRelativePath(name)
+    if (entries.length >= MAX_MIRROR_FILES) throw new Error('Mirror contains too many files')
+    const bytes = Buffer.byteLength(content)
+    if (bytes > MAX_MIRROR_FILE_BYTES) throw new Error(`Mirror file exceeds the 64 MB limit: ${name}`)
+    totalBytes += bytes
+    if (totalBytes > MAX_MIRROR_TOTAL_BYTES) throw new Error('Mirror exceeds the 512 MB total limit')
+    const path = join(stagingDir, ...name.split('/'))
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+    writeFileSync(path, content, { mode: 0o600 })
+    const schema = mirrorSchemaFor(name)
+    entries.push({
+      id: schema.id,
+      path: name,
+      mediaType: name.endsWith('.csv') ? 'text/csv' : 'application/json',
+      bytes,
+      sha256: sha256(content),
+      schemaId: schema.id,
+      schemaRef: schema.ref
+    })
+    if (legacy) files.push(name)
+  }
+  const writeOut = (name: string, content: string): void => writePayload(name, content)
   const wantCsv = format !== 'json'
   const wantJson = format !== 'csv'
   const asOn = opts.to ?? todayISO()
 
-  if (what === 'masters' || what === 'all') {
+  try {
+    if (what === 'masters' || what === 'all') {
     const groups = new Map(masters.listGroups(db).map((g) => [g.id, g.name]))
     const ledgers = masters.listLedgers(db).map((l) => ({ ...l, groupName: groups.get(l.groupId) ?? '' }))
     if (wantCsv) {
@@ -475,9 +712,9 @@ export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): Mi
         )
       )
     }
-  }
+    }
 
-  if ((what === 'vouchers' || what === 'all') && wantJson) {
+    if ((what === 'vouchers' || what === 'all') && wantJson) {
     const conds = [NOT_DELETED]
     const params: string[] = []
     if (opts.from) { conds.push('v.date >= ?'); params.push(opts.from) }
@@ -496,9 +733,9 @@ export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): Mi
     for (const [label, vouchersOfFy] of byFy) {
       writeOut(`vouchers-${label}.json`, JSON.stringify(vouchersOfFy, null, 2))
     }
-  }
+    }
 
-  if ((what === 'reports' || what === 'all') && wantJson) {
+    if ((what === 'reports' || what === 'all') && wantJson) {
     writeOut('trial-balance.json', JSON.stringify({ asOn, ...trialBalance(db, asOn) }, null, 2))
     writeOut(
       'outstandings.json',
@@ -508,26 +745,58 @@ export function exportMirror(db: DB, slug: string, opts: MirrorOptions = {}): Mi
         2
       )
     )
-  }
+    }
 
-  const voucherTypes = masters.listVoucherTypes(db)
-  writeOut(
-    'meta.json',
-    JSON.stringify(
-      {
+    writePayload('schemas/mirror.schema.json', JSON.stringify(mirrorJsonSchema, null, 2), false)
+    const voucherTypes = masters.listVoucherTypes(db)
+    const meta: MirrorManifestV2 = {
+        schema: MIRROR_SCHEMA_ID,
         schemaVersion: MIRROR_SCHEMA_VERSION,
+        generationId,
         generatedAt: new Date().toISOString(),
         company: slug,
+        units: {
+          amount: { name: 'paise', type: 'integer', scale: 100, currency: 'INR' },
+          quantity: { name: 'milli-unit', type: 'integer', scale: 1000 }
+        },
         amountsUnit: 'paise (integer, 100 paise = 1 rupee)',
         quantitiesUnit: 'milli-units (integer, 1000 = 1 unit)',
         voucherTypes,
-        files
-      },
-      null,
-      2
-    )
-  )
-  return { dir, files }
+        files,
+        manifest: { algorithm: 'sha256', files: entries },
+        schemas: { payloads: 'schemas/mirror.schema.json' }
+    }
+    const metaText = JSON.stringify(meta, null, 2)
+    if (Buffer.byteLength(metaText) > MAX_MIRROR_MANIFEST_BYTES) throw new Error('Mirror metadata exceeds 1 MB')
+    writeFileSync(join(stagingDir, 'meta.json'), metaText, { mode: 0o600 })
+    verifyMirrorManifest(stagingDir)
+    hooks.beforePromote?.(stagingDir)
+
+    let previousMoved = false
+    try {
+      if (existsSync(dir)) {
+        renameSync(dir, previousDir)
+        previousMoved = true
+        hooks.afterPreviousMoved?.()
+      }
+      renameSync(stagingDir, dir)
+    } catch (error) {
+      if (previousMoved && !existsSync(dir) && existsSync(previousDir)) renameSync(previousDir, dir)
+      throw error
+    }
+    if (existsSync(previousDir)) {
+      try { rmSync(previousDir, { recursive: true }) } catch (error) {
+        log('warn', 'agent-mirror-previous-cleanup-failed', {
+          slug, error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+    return { dir, files: [...files, 'meta.json'] }
+  } catch (error) {
+    if (existsSync(stagingDir)) rmSync(stagingDir, { recursive: true, force: true })
+    if (!existsSync(dir) && existsSync(previousDir)) renameSync(previousDir, dir)
+    throw error
+  }
 }
 
 // ---------- debounced auto-refresh after saveVoucher (feature-flag gated in ipc.ts) ----------

@@ -2624,4 +2624,52 @@ export const MIGRATIONS: string[] = [
     BEFORE DELETE ON communication_batch_events
     BEGIN SELECT RAISE(ABORT,'communication batch events are append-only'); END;
   `,
+  // 062 - local AI conversation history and immutable draft-action evidence. Provider keys
+  // remain device-only in safeStorage and are never written to these company tables.
+  `
+  CREATE TABLE ai_conversations (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_ai_conversations_updated ON ai_conversations(updated_at DESC,id);
+
+  CREATE TABLE ai_conversation_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+    request_id TEXT,
+    role TEXT NOT NULL CHECK (role IN ('user','assistant')),
+    content TEXT NOT NULL CHECK (length(content) BETWEEN 1 AND 20000),
+    citations_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(citations_json) AND json_type(citations_json)='array'),
+    provider TEXT,
+    model TEXT,
+    input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+    output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+    total_tokens INTEGER CHECK (total_tokens IS NULL OR total_tokens >= 0),
+    status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('completed','cancelled','failed')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_ai_conversation_messages_conversation
+    ON ai_conversation_messages(conversation_id,id);
+  CREATE UNIQUE INDEX idx_ai_conversation_messages_request_role
+    ON ai_conversation_messages(request_id,role) WHERE request_id IS NOT NULL;
+
+  CREATE TABLE ai_draft_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT REFERENCES ai_conversations(id) ON DELETE SET NULL,
+    proposal_id TEXT NOT NULL,
+    action_kind TEXT NOT NULL CHECK (action_kind IN ('voucher','master_change')),
+    source_prompt TEXT NOT NULL CHECK (length(source_prompt) BETWEEN 1 AND 4000),
+    status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','approved','rejected','discarded')),
+    explanation TEXT NOT NULL DEFAULT '',
+    warnings_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(warnings_json) AND json_type(warnings_json)='array'),
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_ai_draft_actions_status ON ai_draft_actions(status,updated_at DESC,id);
+  CREATE UNIQUE INDEX idx_ai_draft_actions_proposal ON ai_draft_actions(proposal_id);
+  `,
 ];

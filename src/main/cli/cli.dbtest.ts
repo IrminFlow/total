@@ -135,7 +135,7 @@ describe('total-cli command layer', () => {
       schemaVersion: number
       voucherTypes: { id: number; name: string }[]
     }
-    expect(meta.schemaVersion).toBe(1)
+    expect(meta.schemaVersion).toBe(2)
     expect(meta.voucherTypes.some((t) => t.name === 'Receipt')).toBe(true)
   })
 

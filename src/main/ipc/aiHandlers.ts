@@ -10,6 +10,14 @@ import { companyDir } from "../paths";
 import * as ai from "../services/ai";
 import * as assistiveAutomation from "../services/assistiveAutomation";
 import * as attachmentVault from "../services/attachmentVault";
+import * as aiConversations from "../services/aiConversations";
+import { requireDeviceSafetyControl } from "../services/deviceSafety";
+
+const activeAiRequests = new Map<string, { controller: AbortController; companySlug: string }>();
+
+function isCancellation(error: unknown): boolean {
+  return error instanceof Error && (error.name === "AbortError" || /abort|cancel/i.test(error.message));
+}
 
 export interface AiHandlerContext {
   handle: IpcHandle;
@@ -20,8 +28,14 @@ export interface AiHandlerContext {
 export function registerAiHandlers({ handle, requireCompany, actor }: AiHandlerContext): void {
   handle("ai:getConfig", () => ai.getConfig(), "viewer");
   handle("ai:setConfig", (payload) => ai.setConfig(aiProviderInputSchema.parse(payload)), "owner");
-  handle("ai:testConnection", () => ai.testConnection(), "owner");
+  const requireAi = (): void =>
+    requireDeviceSafetyControl("aiCopilot", "AI copilot is disabled on this device");
+  handle("ai:testConnection", () => {
+    requireAi();
+    return ai.testConnection();
+  }, "owner");
   handle("ai:contextPreview", (payload) => {
+    requireAi();
     const { from, to, fields } = periodSchema.extend({
       fields: z.array(z.enum(["company", "period", "dashboard", "trial_balance", "receivables", "payables", "units"])).max(7).optional(),
     }).parse(payload);
@@ -29,20 +43,98 @@ export function registerAiHandlers({ handle, requireCompany, actor }: AiHandlerC
     return ai.contextPreview(company.db, company.info, from, to, fields);
   }, "viewer");
   handle("ai:ask", async (payload) => {
+    requireAi();
     const input = aiAskSchema.parse(payload);
     const company = requireCompany();
+    const requestId = input.requestId ?? randomUUID();
+    if (activeAiRequests.has(requestId)) throw new Error("This AI request is already running");
+    if (input.conversationId) {
+      aiConversations.appendAiConversationMessage(company.db, {
+        conversationId: input.conversationId,
+        requestId,
+        role: "user",
+        content: input.prompt,
+      });
+    }
     const context = input.includeContext
       ? ai.selectedContext(company.db, company.info, input.from, input.to, input.contextFields)
       : null;
-    return ai.ask(input.prompt, context);
+    const controller = new AbortController();
+    activeAiRequests.set(requestId, { controller, companySlug: company.slug });
+    try {
+      const answer = await ai.ask(input.prompt, context, controller.signal);
+      if (input.conversationId) {
+        aiConversations.appendAiConversationMessage(company.db, {
+          conversationId: input.conversationId,
+          requestId,
+          role: "assistant",
+          content: answer.text,
+          citations: answer.citations,
+          provider: answer.provider,
+          model: answer.model,
+          usage: answer.usage,
+        });
+      }
+      return { ...answer, requestId };
+    } catch (error) {
+      if (input.conversationId) {
+        aiConversations.appendAiConversationMessage(company.db, {
+          conversationId: input.conversationId,
+          requestId,
+          role: "assistant",
+          content: isCancellation(error)
+            ? "Request cancelled before an answer was completed."
+            : "Request failed before an answer was completed.",
+          status: isCancellation(error) ? "cancelled" : "failed",
+        });
+      }
+      if (isCancellation(error)) throw new Error("AI request cancelled");
+      throw error;
+    } finally {
+      activeAiRequests.delete(requestId);
+    }
   }, "accountant");
-  handle("ai:draftVoucher", async (payload) => {
-    const { prompt, shareMasterData } = aiDraftVoucherSchema.parse(payload);
+  handle("ai:cancel", (payload) => {
+    const { requestId } = z.object({ requestId: z.string().uuid() }).parse(payload);
     const company = requireCompany();
-    return ai.draftVoucher(company.db, company.slug, prompt, shareMasterData);
+    const active = activeAiRequests.get(requestId);
+    if (!active || active.companySlug !== company.slug) return { cancelled: false };
+    active.controller.abort();
+    return { cancelled: true };
+  }, "accountant");
+  handle("ai:conversations:list", () => aiConversations.listAiConversations(requireCompany().db), "accountant");
+  handle("ai:conversations:create", (payload) => {
+    const { title } = z.object({ title: z.string().trim().min(1).max(120) }).parse(payload);
+    return aiConversations.createAiConversation(requireCompany().db, title, actor());
+  }, "accountant");
+  handle("ai:conversations:messages", (payload) => {
+    const { conversationId } = z.object({ conversationId: z.string().uuid() }).parse(payload);
+    return aiConversations.listAiConversationMessages(requireCompany().db, conversationId);
+  }, "accountant");
+  handle("ai:conversations:delete", (payload) => {
+    const { conversationId } = z.object({ conversationId: z.string().uuid() }).parse(payload);
+    return { deleted: aiConversations.deleteAiConversation(requireCompany().db, conversationId) };
+  }, "accountant");
+  handle("ai:conversations:deleteAll", () => ({
+    deleted: aiConversations.deleteAllAiConversations(requireCompany().db),
+  }), "owner");
+  handle("ai:draftVoucher", async (payload) => {
+    requireAi();
+    const { prompt, shareMasterData, conversationId } = aiDraftVoucherSchema.parse(payload);
+    const company = requireCompany();
+    const proposal = await ai.draftVoucher(company.db, company.slug, prompt, shareMasterData);
+    aiConversations.recordAiDraftAction(company.db, {
+      conversationId,
+      proposalId: proposal.id,
+      prompt,
+      explanation: "AI-generated voucher proposal. Review every ledger and amount before approval.",
+      warnings: ["Nothing has been posted. Approval is required inside Total."],
+    }, actor());
+    return proposal;
   }, "accountant");
   handle("ai:documents:list", () => assistiveAutomation.listDocumentInbox(requireCompany().db), "viewer");
   handle("ai:documents:capture", async (payload) => {
+    requireAi();
     const { kind } = z.object({ kind: z.enum(["supplier_invoice", "receipt"]) }).parse(payload);
     const picked = await dialog.showOpenDialog({
       title: kind === "supplier_invoice" ? "Choose a supplier invoice image" : "Choose a receipt image",

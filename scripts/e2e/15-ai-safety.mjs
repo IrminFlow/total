@@ -4,6 +4,23 @@ import { scenario, assert } from '../lib/harness.mjs'
 
 await scenario('15-ai-safety', async (h) => {
   await h.createDemoCompany()
+  await h.invoke('device-safety:set', {
+    aiCopilot: true,
+    mcpAccess: false,
+    supportUploads: false,
+    telemetry: false,
+  })
+  await h.page.evaluate(() => {
+    const key = 'total:product-flags:v1'
+    const current = JSON.parse(localStorage.getItem(key) ?? '{"version":1,"flags":{},"history":[]}')
+    current.flags = { ...current.flags, aiCopilot: true }
+    localStorage.setItem(key, JSON.stringify(current))
+    window.dispatchEvent(new Event('total:device-safety-refresh'))
+  })
+  await h.page.waitForFunction(async () => {
+    const result = await window.total.invoke('device-safety:get')
+    return result.ok && result.data.aiCopilot === true
+  })
 
   // See scenario 13: avoid unsigned-test Keychain UI while retaining a reversible encrypted
   // envelope inside this one isolated Electron process.

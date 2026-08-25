@@ -3,6 +3,13 @@ import { scenario, assert, assertEq } from "../lib/harness.mjs";
 
 await scenario("43-mcp-access", async (h) => {
   await h.createDemoCompany();
+  await h.invoke("device-safety:set", {
+    aiCopilot: false,
+    mcpAccess: true,
+    supportUploads: false,
+    telemetry: false,
+  });
+  await h.page.evaluate(() => window.dispatchEvent(new Event("total:device-safety-refresh")));
   await h.goto("settings");
   await h.page.getByRole("button", { name: "Agent access", exact: true }).click();
   await h.page.locator('[data-testid="agent-access-settings"]').waitFor();
@@ -12,7 +19,7 @@ await scenario("43-mcp-access", async (h) => {
   await h.click("btn-settings-agent-export");
   await h.page.getByText("Current", { exact: true }).waitFor();
   const status = await h.invoke("mcp:mirror:status");
-  assertEq(status.schemaVersion, 1, "mirror status exposes schema version");
+  assertEq(status.schemaVersion, 2, "mirror status exposes schema version");
   assert(!status.stale, "new mirror is reported current");
 
   await h.click("btn-mcp-issue");

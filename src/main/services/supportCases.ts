@@ -6,6 +6,7 @@ import { atomicWriteFile } from "../atomicFile";
 export type SupportCaseStatus =
   | "draft"
   | "sending"
+  | "queued"
   | "submitted"
   | "failed"
   | "saved_offline";
@@ -73,7 +74,7 @@ function validCase(value: unknown): value is SupportCaseRecord {
     ["question", "bug", "idea", "accessibility"].includes(
       String(item.category),
     ) &&
-    ["draft", "sending", "submitted", "failed", "saved_offline"].includes(
+    ["draft", "sending", "queued", "submitted", "failed", "saved_offline"].includes(
       String(item.status),
     ) &&
     typeof item.createdAt === "string" &&

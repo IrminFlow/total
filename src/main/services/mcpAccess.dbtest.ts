@@ -8,10 +8,11 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { seededDb } from "../db/testdb";
 import { companyDir, ensureCompanyTree } from "../paths";
 import {
+  authorizeTokenHash,
   decideRefreshRequest,
   issueToken,
   listAudit,
@@ -59,9 +60,13 @@ describe("MCP access control and owner approvals", () => {
       scopes: ["mirror:read", "proposal:create"],
       revokedAt: null,
     });
+    const digest = createHash("sha256").update(issued.token).digest("hex");
+    expect(authorizeTokenHash(slug, "mirror:read", digest)).toMatchObject({ id: issued.record.id });
+    expect(authorizeTokenHash(slug, "mirror:refresh", digest)).toBeNull();
     expect(
       revokeToken(db, slug, issued.record.id, "Owner").revokedAt,
     ).not.toBeNull();
+    expect(authorizeTokenHash(slug, "mirror:read", digest)).toBeNull();
   });
 
   it("shows mirror freshness and requires an owner decision before a refresh touches the mirror", () => {
@@ -73,7 +78,7 @@ describe("MCP access control and owner approvals", () => {
     });
     exportMirror(db, slug);
     expect(mirrorStatus(slug)).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       stale: false,
     });
     const id = randomUUID();
