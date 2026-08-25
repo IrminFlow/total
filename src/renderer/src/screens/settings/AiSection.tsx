@@ -156,7 +156,7 @@ export function AiSection(): React.JSX.Element {
                   disabled={!canEdit}
                   title={preset.hint}
                   className={`rounded-md border px-3 py-1.5 text-body-sm disabled:opacity-50 ${
-                    active ? 'border-blue bg-blue/10 text-blue' : 'border-line hover:bg-panel2'
+                    active ? 'border-accent bg-accent/10 text-accent' : 'border-line hover:bg-panel2'
                   }`}
                   onClick={() => set(applyPreset(preset))}
                 >

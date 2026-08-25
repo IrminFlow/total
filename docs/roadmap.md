@@ -371,24 +371,36 @@ Ordering within a section is roughly by value.
 
 204. ✓ Bring-your-own-key assistant grounded on tool calls (L)
 205. ✓ MCP server for Claude Desktop, Claude Code and Codex (M)
-206. Natural-language voucher entry producing a draft (M)
-207. Document to voucher: photograph a bill, extract, draft (L)
-208. Bank reconciliation AI re-ranker behind the deterministic pass (M)
-209. GST anomaly explanation grounded on the validation output (M)
-210. Month-end close checklist assistant, read-only (M)
-211. Anomaly watch: flag entries unlike anything in the history (M)
-212. Ask-bar in ⌘K that resolves to a report, deterministically first (M)
-213. Assistant spend caps per session and per day, enforced in main (S)
-214. A visible "show me exactly what would be sent" payload viewer (S)
-215. Streaming cancellation from the Esc key (S)
-216. Local-model presets for Ollama and LM Studio (S)
-217. Assistant audit trail joining question, draft and posted voucher (S)
-218. MCP write tools behind two independent switches (done) plus a rate limit (S)
-219. MCP resources for the chart of accounts and the voucher schema (done) (S)
-220. An agent-facing changelog resource so a model knows what changed (S)
-221. Prompt-injection hardening: tool results are data, never instructions (M)
-222. Redaction preview: show what the assistant will and will not send (S)
-223. Assistant answers cite refs the UI can click through to (M)
+206. ✓ Natural-language voucher entry producing a draft (M)
+207. ✗ Not doing: document to voucher needs vision, and a bill photograph is the one payload
+     Total cannot redact — the GSTIN, the PAN and the bank line are pixels, so the "never sent"
+     promise every other AI feature keeps would have to be withdrawn for this one. It also needs a
+     capability probe and its own consent line, because roughly half of bring-your-own-key users
+     point Total at a text-only local model and would otherwise meet a confusing failure. Against
+     that, the win is re-typing a bill — real, but the same bill arrives as a CSV or a Tally XML
+     for most people, and both of those paths already exist and are exact (L)
+208. ✗ Not doing: the deterministic pass already returns candidates WITH the reason it found them
+     (a single open entry within ±₹1 and ±5 days, or up to three entries of one party summing to
+     the row), so a re-ranker can only reorder a list that is usually one or two long. To do it it
+     would have to send every unmatched bank narration and every candidate, and a remittance line
+     carries payer names, UTR numbers and account fragments — a much larger egress than any other
+     feature, on the one kind of text field redaction cannot generalise over. And a confidently
+     mis-ranked top candidate is precisely the one a tired person clicks at 7pm (M)
+209. ✓ GST anomaly explanation grounded on the validation output (M)
+210. ✓ Month-end close checklist assistant, read-only (M)
+211. ✓ Anomaly watch: flag entries unlike anything in the history (M)
+212. ✓ Ask-bar in ⌘K that resolves to a report, deterministically first (M)
+213. ✓ Assistant spend caps per session and per day, enforced in main (S)
+214. ✓ A visible "show me exactly what would be sent" payload viewer (S)
+215. ✓ Streaming cancellation from the Esc key (S)
+216. ✓ Local-model presets for Ollama and LM Studio (S)
+217. ✓ Assistant audit trail joining question, draft and posted voucher (S)
+218. ✓ MCP write tools behind two independent switches (done) plus a rate limit (S)
+219. ✓ MCP resources for the chart of accounts and the voucher schema (done) (S)
+220. ✓ An agent-facing changelog resource so a model knows what changed (S)
+221. ✓ Prompt-injection hardening: tool results are data, never instructions (M)
+222. ✓ Redaction preview: show what the assistant will and will not send (S)
+223. ✓ Assistant answers cite refs the UI can click through to (M)
 
 ## K. Performance and scale
 

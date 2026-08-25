@@ -10,6 +10,13 @@ import { startFakeOpenAi } from '../lib/fake-openai.mjs'
 
 const KEY = 'sk-test-DO-NOT-LEAK-1234567890'
 
+/** Every file under a directory, recursively — the key hunt walks the whole data dir. */
+const walk = (dir) =>
+  fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name)
+    return e.isDirectory() ? walk(full) : [full]
+  })
+
 await scenario('14-ai-off-by-default', async (h) => {
   const fake = await startFakeOpenAi()
   try {
@@ -47,11 +54,6 @@ await scenario('14-ai-off-by-default', async (h) => {
     assert(!inDom, 'the key never appears in the DOM')
 
     // ---- and never touches the data directory ----
-    const walk = (dir) =>
-      fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-        const full = path.join(dir, e.name)
-        return e.isDirectory() ? walk(full) : [full]
-      })
     const files = walk(h.dataDir)
     assert(files.length > 0, `data dir has files to scan (${files.length})`)
     for (const file of files) {
@@ -111,6 +113,80 @@ await scenario('14-ai-off-by-default', async (h) => {
     assert(finish.text.includes('50,000.00'), `the answer streamed through (${finish.text})`)
 
     await h.shot('01-ai-answered')
+
+    // ---- the audit trail records the question, and never the key ----
+    //
+    // The trail lives in the company database, which is what lets it join a question to the
+    // voucher a human eventually saved. That makes it exactly the file the key must not be in.
+    const runs = await h.invoke('ai:log', { limit: 5 })
+    assert(runs.length > 0, 'the run was recorded in the assistant audit trail')
+    assertEq(runs[0].question, 'what is my cash balance?', 'the trail holds the question that was asked')
+    assertEq(runs[0].voucherId, null, 'nothing was posted, so nothing is linked')
+    assert(!JSON.stringify(runs).includes(KEY), 'the key is not in the audit trail')
+
+    // ---- the payload viewer works without contacting anything ----
+    const preview = await h.invoke('ai:preview', { question: 'who owes me?' })
+    assert(preview.payload.messages[0].role === 'system', 'the preview leads with the system prompt')
+    assert(
+      preview.payload.tools.length > 0 && !preview.payload.tools.includes('post_voucher'),
+      'the tool list the user can read has no tool that writes'
+    )
+    assert(!JSON.stringify(preview).includes(KEY), 'the payload viewer never shows the key')
+    assert(
+      preview.redaction.withheld.some((f) => f.field === 'pan'),
+      'the redaction preview shows PAN being withheld'
+    )
+    const gstinRow = preview.redaction.withheld.find((f) => f.field === 'gstin')
+    assert(gstinRow && !gstinRow.after.includes('AAPFU0939F'), 'the GSTIN loses its embedded PAN')
+
+    // ---- the spend cap is enforced in main, before anything is sent ----
+    //
+    // Set against a REMOTE host: a local endpoint costs nothing and is never capped, which is the
+    // configuration the rest of this scenario runs in.
+    const sentBefore = fake.requests.length
+    await h.invoke('ai:setConfig', {
+      baseUrl: 'https://api.example.invalid/v1',
+      model: 'gpt-4o-mini',
+      apiKey: '••••••••',
+      sessionCapPaise: 0,
+      consentedHost: 'api.example.invalid'
+    })
+    await h.page.evaluate(() => {
+      window.__capFrames = []
+      window.__capOff = window.total.on('ai:stream', (f) => window.__capFrames.push(f))
+    })
+    const capped = await h.invoke('ai:chat', { question: 'anything at all' })
+    const capFinish = await h.page.evaluate(
+      (id) =>
+        new Promise((resolve) => {
+          const settle = () => {
+            const mine = window.__capFrames.filter((f) => f.runId === id)
+            const done = mine.find((f) => f.t === 'done')
+            if (!done) return false
+            window.__capOff()
+            resolve({ finish: done.finish, error: mine.find((f) => f.t === 'error')?.kind ?? null })
+            return true
+          }
+          if (settle()) return
+          const poll = setInterval(() => {
+            if (settle()) clearInterval(poll)
+          }, 50)
+          setTimeout(() => {
+            clearInterval(poll)
+            window.__capOff()
+            resolve({ finish: 'timeout', error: null })
+          }, 15000)
+        }),
+      capped.runId
+    )
+    assertEq(capFinish.finish, 'cap', 'a run over the spend cap ends as capped')
+    assertEq(capFinish.error, 'cap', 'and says why')
+    assertEq(fake.requests.length, sentBefore, 'nothing was sent: the cap is checked before the request')
+
+    // ---- and the key still is not anywhere on disk, after all of that ----
+    for (const file of walk(h.dataDir)) {
+      assert(!fs.readFileSync(file).includes(KEY), `the key leaked into ${path.relative(h.dataDir, file)}`)
+    }
 
     // The drawer UI itself is covered by scenario 15, which needs a signed-in owner so the
     // in-app feature toggle is enabled.

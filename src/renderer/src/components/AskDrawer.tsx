@@ -208,7 +208,16 @@ export function AskDrawer({ onClose }: { onClose: () => void }): React.JSX.Eleme
         </div>
       </div>
 
-      {payloadOpen && <PayloadViewer question={question} onClose={() => setPayloadOpen(false)} />}
+      {payloadOpen && (
+        <PayloadViewer
+          // What is in the box if anything, else the last thing actually asked. A viewer that
+          // shows "(your question)" after a conversation has happened answers a question nobody
+          // has: what matters is what a follow-up in THIS conversation would carry.
+          question={question.trim() || [...state.turns].reverse().find((t) => t.role === 'user')?.content || ''}
+          history={state.turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.content }))}
+          onClose={() => setPayloadOpen(false)}
+        />
+      )}
     </aside>
   )
 }
@@ -311,7 +320,7 @@ function DraftCard({ draft, onClose }: { draft: AiDraft; onClose: () => void }):
           {draft.issues.map((issue, i) => (
             <li
               key={i}
-              className={issue.severity === 'blocking' ? 'text-body-sm text-cr' : 'text-body-sm text-amber'}
+              className={issue.severity === 'blocking' ? 'text-body-sm text-cr' : 'text-body-sm text-warn'}
             >
               {issue.message}
             </li>
@@ -339,15 +348,26 @@ function DraftCard({ draft, onClose }: { draft: AiDraft; onClose: () => void }):
  * it works with no key, no network and a misconfigured endpoint, which is the state a person is
  * in when they are deciding whether to configure this at all.
  */
-function PayloadViewer({ question, onClose }: { question: string; onClose: () => void }): React.JSX.Element {
+function PayloadViewer({
+  question,
+  history,
+  onClose
+}: {
+  question: string
+  history: { role: 'user' | 'assistant'; content: string }[]
+  onClose: () => void
+}): React.JSX.Element {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.ai.preview>> | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.ai
-      .preview({ question: question.trim() || undefined })
+      .preview({ question: question.trim() || undefined, history })
       .then(setData)
       .catch((err: Error) => setError(err.message))
+    // The payload is a snapshot taken when the viewer opened; re-fetching it as the conversation
+    // moves underneath would show something the user never asked about.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question])
 
   return (
@@ -374,7 +394,7 @@ function PayloadViewer({ question, onClose }: { question: string; onClose: () =>
           {data.payload.messages.map((message, i) => (
             <div key={i} className="rounded-md border border-line bg-panel2 p-2">
               <p className="text-caption font-semibold tracking-wide text-muted uppercase">{message.role}</p>
-              <pre className="num mt-1 max-h-56 overflow-auto text-label leading-relaxed whitespace-pre-wrap">
+              <pre className="mt-1 max-h-56 overflow-auto font-mono text-label leading-relaxed break-words whitespace-pre-wrap">
                 {message.content}
               </pre>
             </div>
@@ -449,7 +469,7 @@ function Sources({ tools }: { tools: ToolTrace[] }): React.JSX.Element {
           {withResults.map((t, i) => (
             <div key={i} className="rounded-md border border-line bg-panel2 p-2">
               <p className="num text-caption text-muted">{t.name}</p>
-              <pre className="num mt-1 max-h-40 overflow-auto text-label leading-relaxed whitespace-pre-wrap">
+              <pre className="mt-1 max-h-40 overflow-auto font-mono text-label leading-relaxed break-words whitespace-pre-wrap">
                 {JSON.stringify(t.result, null, 1)}
               </pre>
             </div>

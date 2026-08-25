@@ -67,10 +67,92 @@ await scenario('15-ai-drawer', async (h) => {
     assert(withSources.includes('trial_balance'), 'the answer shows the tool it read from')
     await h.shot('02-answer-with-sources')
 
+    // ---- the citation is a link, not a footnote (roadmap #223) ----
+    //
+    // The ref came from a tool row, so the screen it opens recomputes the figure from the books.
+    // That is the difference between citing and merely quoting: the reader can go and disagree.
+    const citation = await h.page.textContent('[data-testid="ai-citation"]')
+    assertEq(citation.trim(), 'tb:1', 'the answer rendered its ref as a control')
+    await h.page.click('[data-testid="ai-citation"]')
+    await h.waitScreen('ledger-statement', 15000)
+    assert(
+      (await h.page.$('[data-testid="ask-drawer"]')) !== null,
+      'following a citation keeps the conversation open beside it'
+    )
+
+    // ---- "show me exactly what would be sent" (roadmap #214, #222) ----
+    await h.page.click('[data-testid="btn-ai-payload"]')
+    await h.page.waitForSelector('[data-testid="ai-payload"]', { timeout: 15000 })
+    const payload = await h.page.textContent('[data-testid="ai-payload"]')
+    assert(payload.includes('There is no tool that writes'), 'the payload viewer names the absence of a write tool')
+    assert(payload.includes('how much cash do I have?'), 'and shows the question that would go with it')
+    const redaction = await h.page.textContent('[data-testid="ai-redaction"]')
+    assert(redaction.includes('pan') && redaction.includes('ifsc'), 'the redaction preview lists what never leaves')
+    // The sample PAN DOES appear here, struck through in the "in your books" column — that is the
+    // point of a before-and-after. What must be true is that the "what leaves" side is masked.
+    assert(redaction.includes('[redacted]'), 'the worked example shows the fields being dropped')
+    assert(redaction.includes('27••••••••••1ZV'), 'and the GSTIN keeping only its non-identifying parts')
+    await h.shot('03-payload-viewer')
+    await h.page.keyboard.press('Escape')
+    await h.page.waitForSelector('[data-testid="ai-payload"]', { state: 'detached', timeout: 10000 })
+
+    // ---- Esc stops a running answer before it closes anything (roadmap #215) ----
+    //
+    // Losing a half-finished answer to a stray Esc would be worse than an extra keystroke, so the
+    // first press cancels and only the second closes.
+    fake.push({ kind: 'hang', ms: 20000 })
+    await h.page.fill('[data-testid="input-ask"]', 'something slow')
+    await h.page.keyboard.press('Enter')
+    await h.page.waitForFunction(
+      () => [...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Stop'),
+      null,
+      { timeout: 15000 }
+    )
+    await h.page.keyboard.press('Escape')
+    await h.page.waitForFunction(
+      () => [...document.querySelectorAll('button')].every((b) => b.textContent?.trim() !== 'Stop'),
+      null,
+      { timeout: 15000 }
+    )
+    assert((await h.page.$('[data-testid="ask-drawer"]')) !== null, 'the first Esc stopped the answer, not the drawer')
+
     // Esc closes the drawer once nothing is running.
     await h.page.keyboard.press('Escape')
     await h.page.waitForSelector('[data-testid="ask-drawer"]', { state: 'detached', timeout: 10000 })
-    assertEq(await h.page.getAttribute('[data-screen]', 'data-screen'), 'gateway', 'Esc closed the drawer, not the screen')
+    assertEq(
+      await h.page.getAttribute('[data-screen]', 'data-screen'),
+      'ledger-statement',
+      'Esc closed the drawer, not the screen'
+    )
+
+    // ---- the ask bar resolves deterministically first (roadmap #212) ----
+    //
+    // Most of what people type into a box marked "ask your books" is a report name with a period
+    // attached. Routing those through an endpoint would be slower, costlier and less exact than
+    // the screen that already answers them — so the palette offers the report, and only an
+    // unmatched question offers the assistant.
+    await h.page.keyboard.press('Control+k')
+    await h.page.waitForSelector('[data-testid="command-palette"]', { timeout: 15000 })
+    await h.page.fill('[data-testid="input-palette"]', 'trial balance last month')
+    await h.page.waitForFunction(
+      () => document.querySelector('[data-testid="command-palette"]')?.textContent?.includes('Trial balance —'),
+      null,
+      { timeout: 10000 }
+    )
+    await h.shot('04-ask-bar')
+    await h.page.keyboard.press('Enter')
+    await h.waitScreen('trial-balance', 15000)
+
+    // A question no report answers is where the assistant comes in — and only there.
+    await h.page.keyboard.press('Control+k')
+    await h.page.waitForSelector('[data-testid="command-palette"]', { timeout: 15000 })
+    await h.page.fill('[data-testid="input-palette"]', 'why is my cash lower than last month')
+    await h.page.waitForFunction(
+      () => document.querySelector('[data-testid="command-palette"]')?.textContent?.includes('Ask the assistant'),
+      null,
+      { timeout: 10000 }
+    )
+    await h.page.keyboard.press('Escape')
   } finally {
     await fake.close()
   }
