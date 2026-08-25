@@ -21,7 +21,7 @@ import { log, recentLogLines, revealLogs } from './log'
 import { checkForUpdatesInteractive } from './updater'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
-  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
+  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, exportStreamCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, reportScheduleInputSchema, reportViewSaveSchema, exportXlsSchema, priceRateInputSchema, recurringInputSchema, rendererLogSchema, reportPdfSchema, supportSendSchema,
   searchGlobalSchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, tallyImportSchema, tdsExport26qSchema, tdsSectionInputSchema, tdsSuggestSchema,
   tdsSummarySchema, unitInputSchema, voucherInputSchema, voucherTransportSchema, voucherTypeInputSchema,
@@ -42,6 +42,7 @@ import * as configSvc from './services/config'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
 import * as reports from './services/reports'
+import { streamReportCsv, type StreamRequest } from './services/exportStream'
 import * as gst from './services/gst'
 import * as filings from './services/filings'
 import * as partyNotes from './services/partyNotes'
@@ -267,6 +268,7 @@ const ARCHIVE_EXEMPT_CHANNELS = new Set([
   'backup:exportEncrypted',
   'backup:external:runNow',
   'export:csv',
+  'export:streamCsv',
   'export:caPack',
   'export:tallyXml',
   'export:portable',
@@ -296,6 +298,7 @@ const LICENSE_EXEMPT_CHANNELS = new Set([
   'backup:exportEncrypted',
   'backup:importEncrypted',
   'export:csv',
+  'export:streamCsv',
   'export:xls',
   'export:caPack',
   'export:tallyXml',
@@ -1186,28 +1189,37 @@ export function registerIpc(): void {
 
   // ---------- reports ----------
   handle('report:dayBook', (p) => {
-    const { from, to, includeOutOfBooks, limit, offset } = periodSchema
+    const { from, to, includeOutOfBooks, limit, offset, after } = periodSchema
       .extend({
         includeOutOfBooks: z.boolean().optional(),
         limit: z.number().int().min(1).max(2000).optional(),
-        offset: z.number().int().min(0).optional()
+        offset: z.number().int().min(0).optional(),
+        // An opaque cursor from a previous page. Bounded because it crosses a trust boundary;
+        // malformed content is ignored by decodeCursor rather than throwing the screen away.
+        after: z.string().max(512).nullish()
       })
       .parse(p)
     const { db } = requireCompany()
     // Paged by default from the screen; the CA pack and Tally export call the service directly
     // and still get every row.
+    const rows = reports.dayBook(db, from, to, { includeOutOfBooks, limit, offset, after })
     return {
-      rows: reports.dayBook(db, from, to, { includeOutOfBooks, limit, offset }),
-      total: reports.dayBookCount(db, from, to, includeOutOfBooks)
+      rows,
+      total: reports.dayBookCount(db, from, to, includeOutOfBooks),
+      // Null means "no more rows", so the screen can stop asking without comparing counts that
+      // may have moved under it. A short page is the end of the book.
+      nextCursor:
+        limit != null && rows.length === limit ? reports.dayBookCursor(rows[rows.length - 1]!) : null
     }
   }, 'viewer')
   handle('report:ledger', (p) => {
-    const { ledgerId, from, to, groupBy, limit, offset } = periodSchema
+    const { ledgerId, from, to, groupBy, limit, offset, after } = periodSchema
       .extend({
         ledgerId: z.number().int().positive(),
         groupBy: z.enum(PERIODS).optional(),
         limit: z.number().int().min(1).max(2000).optional(),
-        offset: z.number().int().min(0).optional()
+        offset: z.number().int().min(0).optional(),
+        after: z.string().max(512).nullish()
       })
       .parse(p)
     return reports.ledgerStatement(
@@ -1216,7 +1228,7 @@ export function registerIpc(): void {
       from,
       to,
       groupBy,
-      limit == null ? undefined : { limit, offset }
+      limit == null ? undefined : { limit, offset, after }
     )
   }, 'viewer')
   handle('payroll:transferFile', (p) => {
@@ -2880,8 +2892,22 @@ export function registerIpc(): void {
 
   // ---------- e-documents + invoice printing ----------
   handle('edoc:list', (p) => {
-    const { from, to } = periodSchema.parse(p)
-    return edocs.listSalesInvoices(requireCompany().db, from, to)
+    const { from, to, limit, after } = periodSchema
+      .extend({
+        limit: z.number().int().min(1).max(2000).optional(),
+        after: z.string().max(512).nullish()
+      })
+      .parse(p)
+    const { db } = requireCompany()
+    // Paged like the Day Book, and for a worse reason: unpaged, on a book of 85,000 vouchers this
+    // screen never rendered at all. Callers that need every document (the e-invoice and e-way
+    // exports) call the service directly and still get everything.
+    const rows = edocs.listSalesInvoices(db, from, to, { limit, after })
+    return {
+      rows,
+      total: edocs.countSalesInvoices(db, from, to),
+      nextCursor: limit != null && rows.length === limit ? edocs.edocCursor(rows[rows.length - 1]!) : null
+    }
   }, 'viewer')
   handle('edoc:exportEInvoice', (p) => {
     const { from, to, period } = gstPeriodInput.parse(p)
@@ -3409,6 +3435,27 @@ export function registerIpc(): void {
     writeFileSync(path, csv, 'utf8')
     auditExport(c.db, 'csv', { filename, path })
     return { path }
+  }, 'viewer')
+
+  /**
+   * The same CSV, for a period too big to build in one piece.
+   *
+   * `export:csv` takes a finished string: the renderer fetches every row, formats it, joins it,
+   * and hands ~6 MB across IPC for three years of a Day Book. This takes the REQUEST instead and
+   * streams the report out of the database a page at a time (services/exportStream.ts), so peak
+   * memory is a page rather than the period, and nothing but the request crosses the boundary.
+   *
+   * The renderer uses it only for an unfiltered export, because the filters live on the screen —
+   * a streamed export cannot know about a text filter typed into a box. That is stated where it
+   * is decided, in the screen.
+   */
+  handle('export:streamCsv', (p) => {
+    const parsed = exportStreamCsvSchema.parse(p)
+    const c = requireCompany()
+    const path = join(companyExportsDir(c.slug), `${parsed.filename}.csv`)
+    const result = streamReportCsv(c.db, parsed.request as StreamRequest, path)
+    auditExport(c.db, 'csv', { filename: parsed.filename, path })
+    return { path, rows: result.rows, bytes: result.bytes }
   }, 'viewer')
 
   /**

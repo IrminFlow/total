@@ -56,3 +56,16 @@ export function rowWindow({ count, rowHeight, scrollTop, viewportHeight, oversca
  *  scroll listener cost more than the DOM nodes they save, and a short report should keep the
  *  browser's own find-in-page working on every row. */
 export const VIRTUALIZE_THRESHOLD = 300
+
+/**
+ * Where the list starts inside the thing that scrolls.
+ *
+ * `rowWindow` wants a scroll position measured from the top of the LIST. When the list has its own
+ * scroll container those are the same number. When it does not — a report that scrolls with the
+ * page, which is most of them — the container's scrollTop counts a header, a filter bar and a
+ * summary strip that sit above the first row, and using it unadjusted renders the wrong window:
+ * the list appears blank at the top and the rows arrive late on the way down.
+ */
+export function listScrollTop(containerScrollTop: number, listTopWithinContainer: number): number {
+  return Math.max(0, containerScrollTop - listTopWithinContainer)
+}

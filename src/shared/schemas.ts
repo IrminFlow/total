@@ -774,6 +774,41 @@ export const exportCsvSchema = z.object({
 })
 export type ExportCsvInput = z.infer<typeof exportCsvSchema>
 
+/**
+ * A streamed export: the REQUEST, not the finished file.
+ *
+ * `exportCsvSchema` caps the payload at 2 MB, which three years of a Day Book exceeds — and the
+ * cap is right, because a 6 MB string built in the renderer and cloned across IPC is the thing
+ * worth avoiding. This says which report to write instead, and main pages it out of the database
+ * a chunk at a time (services/exportStream.ts).
+ */
+export const exportStreamCsvSchema = z.object({
+  filename: exportFilename,
+  request: z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('dayBook'),
+      from: z.string(),
+      to: z.string(),
+      includeOutOfBooks: z.boolean(),
+      /** Mirrors the screen's column toggles, so the file matches what was on screen. */
+      columns: z.object({
+        type: z.boolean(),
+        number: z.boolean(),
+        account: z.boolean(),
+        debit: z.boolean(),
+        credit: z.boolean()
+      })
+    }),
+    z.object({
+      kind: z.literal('ledgerStatement'),
+      ledgerId: z.number().int().positive(),
+      from: z.string(),
+      to: z.string()
+    })
+  ])
+})
+export type ExportStreamCsvInput = z.infer<typeof exportStreamCsvSchema>
+
 // ---------- spreadsheet export, saved views, scheduled reports (roadmap C58/C59/C67) ----------
 
 /** A cell as the renderer sends it: money stays integer paise all the way into the workbook. */

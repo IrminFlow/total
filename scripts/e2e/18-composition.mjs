@@ -81,7 +81,7 @@ await scenario('18-composition', async (h) => {
   // A composition dealer may not collect tax and may not issue a tax invoice. Before this the
   // print said TAX INVOICE with nil CGST/SGST rows, which is a document they are barred from
   // issuing — so this asserts on the real rendered HTML, not on a helper.
-  const invoices = await h.invoke('edoc:list', { from: iso(qStart), to: iso(qEnd) })
+  const { rows: invoices } = await h.invoke('edoc:list', { from: iso(qStart), to: iso(qEnd) })
   assert(invoices.length > 0, 'the demo books have sales invoices in the quarter')
   const { html } = await h.invoke('invoice:previewHtml', {
     voucherId: invoices[0].voucherId ?? invoices[0].id

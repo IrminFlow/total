@@ -31,7 +31,9 @@ await scenario('06-gst', async (h) => {
   assert(Array.isArray(v.roundOff), 'gst:validate returns round-off issues')
 
   // Per-bill EWB for one sales invoice: set transport details, then generate.
-  const invoices = await h.invoke('edoc:list', { from, to })
+  // edoc:list is paginated: { rows, total, nextCursor }. The list of documents in a period is
+  // unbounded, and the screen that reads it was the slowest in the app on a real book.
+  const { rows: invoices } = await h.invoke('edoc:list', { from, to })
   assert(invoices.length > 0, 'edoc:list finds sales invoices in the month')
   const inv = invoices[0]
   const voucherId = inv.voucherId ?? inv.id
@@ -271,7 +273,7 @@ await scenario('06-gst', async (h) => {
   assert(!/Refund within 7/.test(signed.html), 'and not the credit-note terms')
 
   // A credit note takes its own terms — "payment due in 30 days" on one is nonsense.
-  const notes = await h.invoke('edoc:list', { from, to })
+  const { rows: notes } = await h.invoke('edoc:list', { from, to })
   const creditNote = notes.find((n) => n.docType === 'CRN')
   if (creditNote) {
     const cn = await h.invoke('invoice:previewHtml', { voucherId: creditNote.voucherId ?? creditNote.id })

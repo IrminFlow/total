@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { rowWindow } from './virtualWindow'
+import { listScrollTop, rowWindow } from './virtualWindow'
 
 describe('rowWindow', () => {
   it('renders nothing for an empty list', () => {
@@ -60,5 +60,22 @@ describe('rowWindow', () => {
   it('never returns a negative start at the top of the list', () => {
     const w = rowWindow({ count: 1000, rowHeight: 20, scrollTop: 0, viewportHeight: 400, overscan: 50 })
     expect(w.start).toBe(0)
+  })
+})
+
+describe('listScrollTop', () => {
+  it('is the container scroll position when the list starts at the top of it', () => {
+    expect(listScrollTop(340, 0)).toBe(340)
+  })
+
+  it('subtracts whatever sits above the first row — the header, the filters, the totals strip', () => {
+    // Scrolled 340px down a page whose table starts 180px in: the list itself is 160px scrolled.
+    expect(listScrollTop(340, 180)).toBe(160)
+  })
+
+  it('never goes negative while the list is still below the fold', () => {
+    // Before the table has been reached at all, the window must start at the first row, not at a
+    // negative index that renders nothing.
+    expect(listScrollTop(40, 180)).toBe(0)
   })
 })
