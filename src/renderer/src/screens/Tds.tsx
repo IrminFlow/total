@@ -375,9 +375,12 @@ function SectionsModal({ sections, onClose }: { sections: TdsSection[]; onClose:
             </Field>
           </div>
           <p className="mt-2 text-hint text-muted">
-            The Income-tax Act 2025 renumbers deduction at source. Leave the 2025 reference blank and certificates for
-            payments on or after 1 April 2026 carry a proposed number marked <em>unverified</em>; type the reference your
-            certificates should carry and it is used instead.
+            The Income-tax Act 2025 consolidates deduction at source: salary is section 392, everything else is a
+            serial in the Table under section 393(1), and 194C becomes <span className="num">393(1) [Table: Sl. No.
+            6(i)]</span>. The serials below are read in the Act as gazetted. What has <em>not</em> been checked is
+            whether the prescribed certificate wants the Act&rsquo;s own citation form or a short code of its own, so a
+            proposed reference is still flagged for your eye. Type the reference your certificates should carry and it
+            is used instead.
           </p>
           {error && <p className="mt-2 text-body-sm text-cr">{error}</p>}
           <div className="mt-3 flex justify-end gap-2">

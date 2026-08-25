@@ -134,18 +134,26 @@ describe('the 26Q working', () => {
     expect(w.issues.some((i) => i.severity === 'blocking' && i.message.includes('challan'))).toBe(true)
   })
 
+  /**
+   * FY 2025-26, not 2026-27, and this is the point rather than a convenience.
+   *
+   * Form 26Q does not exist from tax year 2026-27 — the quarterly statements become Form 138 and
+   * Form 140 with a new file format — so the working for 2026-27 is BLOCKED, correctly, and a
+   * test asserting a clean 26Q there would be asserting a form that no longer exists. The refusal
+   * has its own test below.
+   */
   it('is clean once the challan is recorded and linked', () => {
     const s = setup()
     const p = s.party('Ram Contractors', '194C', 'AAAPA0000A')
-    s.deduct({ date: '2026-06-10', partyLedgerId: p.id, base: 5_00_000_00, tds: 5_000_00, code: '194C' })
-    linkDeductions(s.db, s.entryIds(), saveChallan(s.db, CHALLAN))
-    const w = tdsReturnWorking(s.db, INFO, '26Q', 2026, 1)
+    s.deduct({ date: '2025-06-10', partyLedgerId: p.id, base: 5_00_000_00, tds: 5_000_00, code: '194C' })
+    linkDeductions(s.db, s.entryIds(), saveChallan(s.db, { ...CHALLAN, paidOn: '2025-07-07' }))
+    const w = tdsReturnWorking(s.db, INFO, '26Q', 2025, 1)
     // Nothing blocking. The one remaining warning is the Income-tax Act 2025 section reference,
     // which is unverified by design and has its own test below.
     expect(w.issues.filter((i) => i.severity === 'blocking')).toEqual([])
     expect(w.challans).toHaveLength(1)
     expect(w.totalTds).toBe(5_000_00)
-    expect(w.dueDate).toBe('2026-07-31')
+    expect(w.dueDate).toBe('2025-07-31')
   })
 
   it('blocks when the company has no TAN', () => {
@@ -159,9 +167,11 @@ describe('the 26Q working', () => {
     const p = s.party('No PAN Vendor', '194C', null)
     // 206AA forces 20% where there is no PAN — the suggestion machinery already does that, and
     // the return has to show the rate that was actually applied.
-    s.deduct({ date: '2026-06-10', partyLedgerId: p.id, base: 1_00_000_00, tds: 20_000_00, code: '194C' })
-    linkDeductions(s.db, s.entryIds(), saveChallan(s.db, { ...CHALLAN, tax: 20_000_00 }))
-    const w = tdsReturnWorking(s.db, INFO, '26Q', 2026, 1)
+    s.deduct({ date: '2025-06-10', partyLedgerId: p.id, base: 1_00_000_00, tds: 20_000_00, code: '194C' })
+    linkDeductions(s.db, s.entryIds(), saveChallan(s.db, { ...CHALLAN, tax: 20_000_00, paidOn: '2025-07-07' }))
+    // FY 2025-26: this test is about PAN and the 206AA rate, and running it in a year where the
+    // form itself does not exist would drown that in a blocking issue about the form.
+    const w = tdsReturnWorking(s.db, INFO, '26Q', 2025, 1)
     expect(w.deductions[0]!.rate).toBeCloseTo(20, 5)
     expect(w.issues.every((i) => i.severity === 'warning')).toBe(true)
   })
@@ -180,7 +190,7 @@ describe('the 26Q working', () => {
 
   it('says something useful about a quarter with no deductions at all', () => {
     const s = setup()
-    const w = tdsReturnWorking(s.db, INFO, '26Q', 2026, 3)
+    const w = tdsReturnWorking(s.db, INFO, '26Q', 2025, 3)
     expect(w.deductions).toEqual([])
     expect(w.issues[0]!.message).toContain('TRACES')
   })

@@ -1553,9 +1553,17 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      GSTR-1 filing is recorded, and a diff of the books against it. Three states rather than one,
      because a period with no snapshot has to say so instead of reporting itself clean. A changed
      recipient GSTIN is reported as its own kind — GSTR-1A cannot amend the counter-party, and
-     calling it an amendment would send the user to a form that rejects it. **Needs verification:**
-     the opening and closing conditions of the amendment window are stated as understood and
-     marked unverified against rule 59(4A) in the code and on the screen.
+     calling it an amendment would send the user to a form that rejects it.
+     **VERIFIED, and one citation was WRONG.** The window is not in rule 59(4A) at all. It is the
+     PROVISO TO RULE 59(1), inserted by Notn. 12/2024-Central Tax (10 Jul 2024): after furnishing
+     GSTR-1 for a tax period "but before filing of return in FORM GSTR-3B for the said tax period, at
+     his own option". Rule 59(4A), inserted by the same notification, is a different provision — it
+     says what GSTR-1A may CONTAIN, mirroring rule 59(4) for GSTR-1. The app's mechanism was right and
+     its authority was misnamed. The OPENING date (the later of the GSTR-1 due date and the date it was
+     actually filed) is the portal's, not the rule's — GSTN's own FAQ on GSTR-1A — and is now stated as
+     such and applied when the caller knows the due date. Three restrictions from the same FAQ that
+     nothing modelled are now carried and shown: GSTR-1A can be filed only ONCE per period, a nil
+     GSTR-1A cannot be filed, and only records from the same period's GSTR-1 can be amended.
 354. ✓ The e-invoice reporting deadline, as a countdown (S) — registrations above the ₹10 crore
      turnover band must report an invoice to the IRP within 30 days of its date, after which the
      portal simply refuses it. `turnover.ts` already knows the band; nothing counts the days.
@@ -1588,14 +1596,31 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      moves credit between two of the business's own electronic credit ledgers, so the trial balance
      and the P&L are unchanged, and `isd.dbtest.ts` and E2E 53 assert it. GSTR-6 is produced as
      DATA with its section 39(4) due date of the 13th, never as a portal JSON.
-     **Needs verification, and said on the screen as well as in the code:** the commencement date of
-     the Finance (No. 2) Act 2024 substitution of sections 2(61) and 20 is taken as 1 April 2025 and
-     has not been checked against the gazette; the clause lettering of substituted rule 39 is not
-     reproduced, and the substance is stated on the pre-substitution rule 39(1)(d)/(f)/(g); the
-     treatment of compensation cess on distribution is modelled cess-to-cess and is NOT verified;
-     and the GSTR-6 table numbering is the shape of the working, not a claim about the current form
-     layout. The rules are dated data (`ISD_RULES_HISTORY`), so a month before April 2025 is told
-     the mechanism was optional then rather than being judged by today's rule.
+     **VERIFIED on all four counts, and the clause lettering had MOVED.** Rule 39(1) as substituted by
+     Notn. 12/2024-Central Tax now reads: (c) credit attributable to one recipient goes to that
+     recipient only; (d) and (e) the pro-rata on turnover in the State; (f) the C1 = (t1/T) × C
+     formula; (g) eligible and ineligible distributed separately; (h) the four heads separately;
+     (i) IGST as IGST; (j)(i)/(j)(ii) CGST+SGST as CGST+SGST in-State and as their aggregate in IGST
+     out-of-State; (k)/(l) the rule 54(1) invoice and credit note. The old citations in the code —
+     39(1)(d)/(f)/(g) on the pre-substitution numbering — pointed at (d)/(e), (g) and (h)–(j) in the
+     substituted rule, and every one has been moved. COMMENCEMENT 1 April 2025 is confirmed twice over
+     by CBIC's own consolidated repository: the footnote to section 20 ("Substituted (w.e.f.
+     01.04.2025)") and the footnote to rule 39 ("w.e.f. 1st day of April, 2025, appointed vide
+     Notification No. 09/2025-CT, dated 11.02.2025"); the Act sections were appointed by Notn.
+     16/2024-Central Tax (6 Aug 2024). CESS-TO-CESS holds: FORM GSTR-6 carries a CESS column in its
+     distribution table and s.11 of the GST (Compensation to States) Act applies the ITC provisions
+     mutatis mutandis. The GSTR-6 TABLE NUMBERS are checked against FORM GSTR-6 [See rule 65] — Table 3
+     inward, Table 4 (a)/(b)/(c) available, Table 5 with 5A eligible and 5B ineligible — and Notn.
+     12/2024 left that form untouched. **What is still not verified, sharpened:** CBIC's repository
+     footnotes section 2(61) as "w.e.f. 01.04.2024" and section 20 as "w.e.f. 01.04.2025", which
+     cannot both be right — one notification brought both into force, and the substituted 2(61)
+     points at a section 20 that did not exist in April 2024. The 2025 date is taken on the strength
+     of the section 20 and rule 39 footnotes; the gazette text of Notn. 16/2024-CT would settle it and
+     could not be read (the copy on gstcouncil.gov.in is a scan with no text layer). And nothing
+     writes a portal file because the offline utility's JSON SCHEMA is GSTN's, published with its
+     tool rather than in the Rules, and has not been read. The rules are dated data (`ISD_RULES_HISTORY`), so a
+     month before April 2025 is told the mechanism was optional then rather than being judged by
+     today's rule.
      — `src/shared/gst/isd.ts`, `src/main/services/isd.ts`, Disclosure › ISD.
 356. ✓ The reverse-charge self-invoice (M) — the document section 31(3)(f) makes the recipient
      raise, issued from its own Rule 46(b) serial series, with the Rule 46 particulars the books
@@ -1612,28 +1637,69 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      per-item change list, and an advisory that separates the three questions: did the structure
      change inside this period (September 2025's return legitimately shows one HSN at two rates),
      does a voucher carry a rate that was not notified on its own date, and does an item master
-     still hold a withdrawn slab. Nothing recomputes a posted voucher. **Needs verification:** the
-     22 September 2025 entry is taken from the 56th GST Council's recommendation; the rate
-     notifications behind it, and the treatment of compensation cess after that date, have not
-     been checked. The entry is flagged `unverified` in the data and on the screen. Per-HSN rates
-     are deliberately NOT modelled — that mapping is the user's, dated, per item.
+     still hold a withdrawn slab. Nothing recomputes a posted voucher. **THE SLAB TABLE WAS WRONG, in two ways, and
+     both came from reading the 56th Council's press description instead of the notification.**
+     Notn. 9/2025-Integrated Tax (Rate) dated 17 Sep 2025, in supersession of 1/2017-IT(R) and in force
+     22 Sep 2025, notifies SEVEN rates, not three: 5 (Sch I), 18 (II), 40 (III), 3 (IV), 0.25 (V),
+     **1.50 (VI)** and **28 (VII)**. So (a) 28% was NOT withdrawn — Schedule VII keeps it for pan
+     masala and tobacco — and the app was telling every cigarette wholesaler its own rate no longer
+     existed; and (b) 1.5% was missing entirely, before and after the rationalisation. A third dated
+     entry now covers 18 Jul 2022, when Notn. 6/2022-Central Tax (Rate) inserted "Schedule VII – 0.75%"
+     (= 1.5% GST) into 1/2017-CT(R) for cut and polished diamonds. Every entry now carries the
+     notification it was read in, and the screen shows it. **What is still not verified, sharpened:**
+     the 1 Feb 2026 tobacco restructure (Notn. 3/2025-Compensation Cess (Rate) and Notn.
+     19/2025-Central Tax (Rate), both said to be dated 31 Dec 2025) could NOT be obtained from any
+     government source as at 25 Aug 2026 — cbic-gst.gov.in and gstcouncil.gov.in both still list
+     Central Tax (Rate) notifications only to 08/2025 — so no entry is made for it and the table
+     knowingly reports 28% as a slab after that date. Compensation cess is now out of scope by
+     decision rather than by omission: it is a different Act's levy with its own rate notifications,
+     not a GST slab, and `rateHistory.ts` carries it per item. Per-HSN rates are deliberately NOT
+     modelled — that mapping is the user's, dated, per item.
 359. ✓ Income-tax Act 2025 section mapping (M) — the mechanism, complete: both numbers on the
      section master, the payment's own date deciding which is printed, a user override that wins
      over anything the app proposes, and the warning carried onto the 26Q and the Form 16A. A
      certificate for an old quarter does not become a 2025 Act certificate because it was printed
-     late. **Needs verification, and says so everywhere it appears:** the proposed mapping assumes
-     deduction at source is consolidated in section 393 with a table, and NO table serial — nor
-     the section number itself — has been checked against the Act. Nothing is written into a
-     user's master until they confirm it.
+     late. **VERIFIED against the bare Act, and every proposed
+     reference changed.** The Income-tax Act, 2025 (Act 30 of 2025) as gazetted on 21 August 2025 was
+     read directly. Section 393(1) does carry one Table, headed FOR PAYMENTS TO RESIDENT, and the Act
+     cites its own entries as "section 393(1) [Table: Sl. No. 6(i)]" — which is the form now used.
+     Every entry pointed at a bare "393" before, which names the whole provision rather than the
+     payment: 194C is 6(i), 194J is 6(iii), 194H is 1(ii), 194I is 2(ii), 193 is 5(i), 194A is 5(iii),
+     194 is 7, 194IA is 3(i), 194Q is 8(ii). Two are not in that Table at all — **192 is section
+     392(1) and 192A is section 392(7)** — and 206AA, which had no mapping proposed, is **section
+     397(2)**. Two 1961 Act splits collapse: 194I(a)/(b) and 194J(a)/(b) are now rate limbs inside one
+     serial each. **What is still not verified, sharpened:** whether the prescribed certificate and
+     quarterly statement want the Act's own citation form or a short code of their own — the forms for
+     tax year 2026-27 were not read — so the reference is still marked for a human's eye and nothing
+     is written into a user's master until they confirm it. The Department's official 1961-to-2025
+     Navigator (incometaxindia.gov.in/documents/20117/43138/new-income-tax-bill-2025-navigator.pdf) is
+     the right thing to reconcile against; it returned 403 to everything but a browser as at 25 Aug 2026.
 360. ✓ TDS return files: 24Q and 26Q (L) — with the piece that was actually missing: challans.
      A quarterly statement is built challan by challan (BSR code, date, bank serial) and none of
      that was recorded anywhere, so the deductions had nothing to hang from. Adds the challan
      register, the deduction-to-challan link, a validation pass that names everything standing
      between the quarter and the utility, and two exports. **The challan and deductee CSVs are
-     facts out of the books and are safe.** **Needs verification:** the `^`-separated e-TDS record
-     layout has NOT been checked against a published file format — it is written from one array in
-     `src/shared/tdsReturn.ts`, the export is behind an explicit acknowledgement, refuses while
-     the return has a blocking issue, and writes `.unverified.txt`. Run it through the FVU.
+     facts out of the books and are safe.** **THE RECORD LAYOUT WAS WRONG IN EVERY RECORD, and
+     is now read out of the published file format.** Protean's own workbooks — Form 26Q Q1–Q4 v7.8,
+     Form 24Q Q1–Q3 v6.3, Form 24Q Q4 v7.5, all 27 May 2025 — give File Header 18 fields, Batch Header
+     **72**, Challan Detail **41**, Deductee Detail **54**. The array in this build had 18 in a
+     different order, **18**, **16** and **17**. It also put the record type first (the format puts the
+     line number first), wrote a bare LF where General Note 2 requires CRLF on every record including
+     the last, and — the sharpest one — wrote `194C` into the Section field, which takes the
+     three-character Annexure 2 code `94C`. That mapping is not mechanical: 192A is `2AA`, 194IA is
+     `9IA`, and bare 194I and 194J have no code at all because the return wants `4IA`/`4IB` and
+     `4JA`/`4JB` and the amount does not say which — so the app now BLOCKS rather than picking a limb.
+     Two more refusals fell out of reading the source: a 24Q Q4 needs Annexure II, which this build does
+     not produce; and **from tax year 2026-27 the statements are FORM NUMBER 138 (salary) and FORM
+     NUMBER 140 (non-salary)** — Protean states the 24Q/26Q formats apply up to FY 2025-26 — so a
+     quarter from FY 2026-27 onwards is blocked instead of being written into a superseded form.
+     **What is still not verified, sharpened:** the layout is right, the FILE IS STILL NOT FILEABLE.
+     A regular statement has mandatory Batch Header fields these books have never held — the
+     deductor's State code and PIN, the responsible person's own PAN, address, State, PIN and mobile.
+     They are written EMPTY rather than invented, `blankMandatoryFields` names all twelve, and the FVU
+     will reject the file until a person fills them in. The acknowledgement, the refusal on a blocking
+     issue and the `.unverified.txt` name all stay, and the acknowledgement text now says that rather
+     than "the layout is a guess". The file has never been through the FVU. Run it through the FVU.
 361. ✓ Form 16A for vendors (M) — quarterly, per deductee, with the challan each deduction was
      paid under and the rule 31(3) due date. Refuses to produce a certificate for a quarter with
      no deduction, because that is not a nil certificate — it tells a vendor to look for credit

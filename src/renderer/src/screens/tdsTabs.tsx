@@ -236,7 +236,7 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
       const r = await api.tds.returnFile(form, fyStartYear, quarter)
       toast.push(
         'success',
-        `${r.lineCount} records written. The record layout in this build is UNVERIFIED — run it through the FVU before filing.`
+        `${r.lineCount} records written in the ${r.formatVersion} layout. ${r.blankMandatoryFields.length} mandatory fields were left EMPTY because these books do not hold them — fill them in and run it through the FVU before filing.`
       )
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -268,9 +268,12 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
 
       <Panel>
         <div className="border-b border-line bg-amber/10 px-3 py-2 text-body-sm text-amber">
-          The e-TDS record layout in this build has <b>not been verified</b> against a published file format. The
-          working CSVs are facts out of your books and are safe to use; the text file is a mechanism, and has to be
-          validated by the FVU before it goes anywhere.
+          The e-TDS record layout is checked against the published Protean file format (26Q v7.8, 24Q v6.3, 27 May
+          2025). <b>The file is still not fileable.</b> A regular statement needs things these books have never held —
+          the deductor&rsquo;s State code and PIN, the responsible person&rsquo;s own PAN, address, State, PIN and
+          mobile number. Those slots are written <b>empty</b> rather than filled with something plausible, so the FVU
+          will reject the file until a person supplies them. The working CSVs are facts out of your books and are safe
+          to use.
         </div>
         {isLoading ? (
           <div className="p-3 text-body-sm text-muted">Loading…</div>

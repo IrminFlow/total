@@ -56,9 +56,19 @@ describe('the rules, as dated data', () => {
     expect(isdRulesOn('2026-06-01').distributesRcmCredit).toBe(true)
   })
 
-  it('marks the 2025 entry unverified rather than asserting the commencement date', () => {
-    expect(isdRulesOn('2026-06-01').unverified).toBe(true)
-    expect(isdRulesOn('2026-06-01').cessVerified).toBe(false)
+  it('cites the notification that made each entry, and no longer calls either unverified', () => {
+    // The 1 Apr 2025 commencement is CBIC's own footnote on s.20 and on rule 39, which agree; the
+    // rule 39 footnote also names the appointing notification for the rules (9/2025-CT, 11 Feb 2025).
+    for (const date of ['2018-06-01', '2026-06-01']) {
+      expect(isdRulesOn(date).unverified ?? false).toBe(false)
+      expect(isdRulesOn(date).authority).toBeTruthy()
+    }
+    expect(isdRulesOn('2026-06-01').authority).toContain('16/2024-Central Tax')
+    expect(isdRulesOn('2026-06-01').authority).toContain('12/2024-Central Tax')
+  })
+
+  it('treats cess-to-cess as checked — FORM GSTR-6 has a CESS column in its distribution table', () => {
+    expect(isdRulesOn('2026-06-01').cessVerified).toBe(true)
   })
 })
 
@@ -228,9 +238,9 @@ describe('what a distribution cannot say for itself', () => {
     expect(w.join(' ')).toContain('receive nothing')
   })
 
-  it('says out loud that the rules applied are unverified', () => {
+  it('no longer says the rules applied are unverified, because they are not', () => {
     const w = distributionWarnings({ month: '2026-06', recipients: [recipient(2, '27', 100)], credits: [credit()], period })
-    expect(w.join(' ')).toContain('marked unverified')
+    expect(w.join(' ')).not.toContain('not been checked against the notification')
   })
 
   it('says the ISD was optional for a month before April 2025', () => {
@@ -238,14 +248,14 @@ describe('what a distribution cannot say for itself', () => {
     expect(w.join(' ')).toContain('was optional')
   })
 
-  it('flags cess, whose treatment on distribution is not verified', () => {
+  it('no longer warns about cess — cess-to-cess is checked and cess needs no head conversion', () => {
     const w = distributionWarnings({
       month: '2026-06',
       recipients: [recipient(2, '27', 100)],
       credits: [credit({ heads: { igst: 0, cgst: 100, sgst: 100, cess: 50 } })],
       period
     })
-    expect(w.join(' ')).toContain('compensation cess')
+    expect(w.join(' ')).not.toContain('compensation cess')
   })
 
   it('flags a hand-typed turnover, because rule 39 wants a figure these books may not hold', () => {
@@ -281,7 +291,8 @@ describe('GSTR-6', () => {
     // CGST+SGST leaves as IGST for the Gujarat recipient and a per-head comparison would report a
     // shortfall on a distribution that is complete.
     expect(g6.undistributedPaise).toBe(0)
-    // And it never claims to be a portal file.
-    expect(g6.layoutUnverified).toBe(true)
+    // The table numbering is now read in FORM GSTR-6 itself, so it no longer claims to be a guess.
+    expect(g6.layoutUnverified).toBe(false)
+    expect(g6.formCitation).toContain('rule 65')
   })
 })

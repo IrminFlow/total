@@ -5,6 +5,7 @@ import { useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Field, Money, Panel, Select, TextInput } from '../components/ui'
 import { useStockItems } from '../components/pickers'
 import { fyOf, toDisplayDate } from '@shared/dates'
+import { GSTR1A_RESTRICTIONS } from '@shared/gst/gstr1a'
 
 /**
  * The three statutory packs that belong on the Disclosure screen (roadmap #356, #358, #362).
@@ -373,6 +374,7 @@ export function RateHistoryTab(): React.JSX.Element {
           <div className="bg-amber/10 px-3 py-2 text-body-sm text-amber" data-testid="rate-structure-change">
             The GST rate structure changed on {toDisplayDate(data.structureChange.effectiveFrom)}, inside this period.
             One HSN can legitimately appear at two rates in this month&rsquo;s return. {data.structureChange.note}
+            <div className="mt-1 text-hint">{data.structureChange.notification}</div>
           </div>
         </Panel>
       )}
@@ -918,7 +920,12 @@ export function Gstr1aPanel({ period }: { period: string }): React.JSX.Element {
           </Button>
         </div>
         <div className="border-t border-line px-3 py-2 text-hint text-muted">
-          The rule window above has not been verified against the current text of rule 59(4A) — treat it as a prompt.
+          <div>{data.window.authority}</div>
+          <ul className="mt-1 list-disc pl-4">
+            {GSTR1A_RESTRICTIONS.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
         </div>
       </Panel>
 

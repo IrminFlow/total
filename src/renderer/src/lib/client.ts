@@ -3361,11 +3361,19 @@ export const api = {
       call<TdsReturnWorking>('tds:return', { form, fyStartYear, quarter }),
     returnCsv: (form: TdsFormCode, fyStartYear: number, quarter: number) =>
       call<{ challansPath: string; deducteesPath: string; issues: TdsReturnIssue[] }>('tds:returnCsv', { form, fyStartYear, quarter }),
-    /** The e-TDS text file. The acknowledgement is required — the record layout is unverified. */
+    /**
+     * The e-TDS text file.
+     *
+     * The acknowledgement is still required, and now for a precise reason: the LAYOUT is verified
+     * against the published Protean file format, but the file leaves mandatory deductor and
+     * responsible-person fields empty because these books do not hold them. `blankMandatoryFields`
+     * names them.
+     */
     returnFile: (form: TdsFormCode, fyStartYear: number, quarter: number) =>
-      call<{ path: string; lineCount: number; unverifiedFormat: boolean }>('tds:returnFile', {
-        form, fyStartYear, quarter, acknowledgedUnverifiedFormat: true
-      }),
+      call<{ path: string; lineCount: number; unverifiedFormat: boolean; blankMandatoryFields: string[]; formatVersion: string }>(
+        'tds:returnFile',
+        { form, fyStartYear, quarter, acknowledgedUnverifiedFormat: true }
+      ),
 
     /** Form 16A for a vendor (roadmap #361). */
     form16aDeductees: (fyStartYear: number, quarter: number) =>

@@ -302,8 +302,11 @@ describe('GSTR-6', () => {
     expect(g6.inward).toHaveLength(1)
     expect(g6.distribution).toHaveLength(2)
     expect(g6.undistributedPaise).toBe(0)
-    // It never claims to be a portal file — the table layout is unverified and says so.
-    expect(g6.layoutUnverified).toBe(true)
-    expect(g6.warnings.join(' ')).toContain('marked unverified')
+    // The table NUMBERING is now checked against FORM GSTR-6 [See rule 65] and the flag says so,
+    // which is what the verification pass changed. What is still not claimed is a portal FILE:
+    // the offline utility's JSON schema is GSTN's rather than the Rules', and is unread — so the
+    // export stays data, and the working names the form it read its numbering in.
+    expect(g6.layoutUnverified).toBe(false)
+    expect(g6.formCitation).toContain('GSTR-6')
   })
 })

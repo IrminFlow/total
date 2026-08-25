@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { amendmentWindow, diffGstr1 } from './gstr1a'
+import { amendmentWindow, diffGstr1, GSTR1A_RESTRICTIONS } from './gstr1a'
 import type { GstDoc } from './returns'
 
 const doc = (over: Partial<GstDoc> = {}): GstDoc => ({
@@ -102,7 +102,32 @@ describe('amendmentWindow', () => {
     expect(w.reason).toContain('amendment tables')
   })
 
-  it('never claims to be verified', () => {
-    expect(amendmentWindow({ gstr1FiledAt: null, gstr3bFiledAt: null }).unverified).toBe(true)
+  it('cites the proviso to rule 59(1), not rule 59(4A)', () => {
+    // Rule 59(4A) says what GSTR-1A may CONTAIN. The window is in the proviso to rule 59(1).
+    const w = amendmentWindow({ gstr1FiledAt: '2026-06-11', gstr3bFiledAt: null })
+    expect(w.authority).toContain('Proviso to rule 59(1)')
+    expect(w.authority).not.toContain('59(4A)')
+    expect(w.unverified).toBe(false)
+  })
+
+  it('opens on the due date when GSTR-1 was filed early', () => {
+    // GSTN FAQ: the window opens on the later of the GSTR-1 due date and the actual filing date.
+    const w = amendmentWindow({ gstr1FiledAt: '2026-06-05', gstr3bFiledAt: null, gstr1DueDate: '2026-06-11' })
+    expect(w.open).toBe(true)
+    expect(w.reason).toContain('2026-06-11')
+  })
+
+  it('does not push the opening back when GSTR-1 was filed late', () => {
+    const w = amendmentWindow({ gstr1FiledAt: '2026-06-19', gstr3bFiledAt: null, gstr1DueDate: '2026-06-11' })
+    expect(w.reason).not.toContain('2026-06-11')
+  })
+})
+
+describe('GSTR1A_RESTRICTIONS', () => {
+  it('carries the four things the portal will not let a GSTR-1A do', () => {
+    expect(GSTR1A_RESTRICTIONS).toHaveLength(4)
+    expect(GSTR1A_RESTRICTIONS.join(' ')).toContain('only once')
+    expect(GSTR1A_RESTRICTIONS.join(' ')).toContain('nil GSTR-1A')
+    expect(GSTR1A_RESTRICTIONS.join(' ')).toContain('recipient GSTIN')
   })
 })
