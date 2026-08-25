@@ -250,7 +250,7 @@ export const SCREENS: ScreenDef[] = [
     navLabel: 'Reconciliation',
     invalidates: [
       'bankLedgers', 'bankRecon', 'bankRules', 'bankImportProfiles', 'bankStatementInspect',
-      'chequeConfig', 'brs', 'pdc', 'reconStatus'
+      'chequeConfig', 'brs', 'pdc', 'reconStatus', 'bankReconLocks', 'bounces'
     ]
   },
 

@@ -79,3 +79,72 @@ describe('useTableNav', () => {
     expect(onEnter).not.toHaveBeenCalled()
   })
 })
+
+describe('useTableNav — Space folds the selected row (A17)', () => {
+  beforeEach(() => __resetLayersForTest())
+
+  /** Returns whether the default was prevented, i.e. whether the page would have scrolled. */
+  const pressSpace = (): boolean => {
+    const e = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true })
+    act(() => {
+      window.dispatchEvent(e)
+    })
+    return e.defaultPrevented
+  }
+
+  it('toggles the selected row, and swallows the page scroll', () => {
+    const onToggle = vi.fn()
+    renderHook(() => useTableNav(ROWS, { onToggle }))
+    press('ArrowDown')
+    const prevented = pressSpace()
+    expect(onToggle).toHaveBeenCalledWith(ROWS[1], 1)
+    expect(prevented, 'Space must not scroll the report out from under the reader').toBe(true)
+  })
+
+  it('leaves Space alone on a table with nothing to fold', () => {
+    renderHook(() => useTableNav(ROWS, { onEnter: vi.fn() }))
+    expect(pressSpace()).toBe(false)
+  })
+
+  it('never fires while the caret is in a field', () => {
+    const onToggle = vi.fn()
+    renderHook(() => useTableNav(ROWS, { onToggle }))
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true }))
+    })
+    expect(onToggle).not.toHaveBeenCalled()
+    input.remove()
+  })
+
+  it('defers to a focused button, which the browser activates with Space itself', () => {
+    const onToggle = vi.fn()
+    renderHook(() => useTableNav(ROWS, { onToggle }))
+    // The statement trees on the Balance Sheet and P&L are nested buttons; without this guard a
+    // single Space would fold a tree row AND a table row.
+    const button = document.createElement('button')
+    document.body.appendChild(button)
+    button.focus()
+    expect(pressSpace()).toBe(false)
+    expect(onToggle).not.toHaveBeenCalled()
+    button.remove()
+  })
+
+  it('ignores a modified Space, which belongs to the browser', () => {
+    const onToggle = vi.fn()
+    renderHook(() => useTableNav(ROWS, { onToggle }))
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: ' ',
+          code: 'Space',
+          metaKey: true,
+          bubbles: true,
+          cancelable: true
+        })
+      )
+    })
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+})

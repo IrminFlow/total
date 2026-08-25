@@ -1,7 +1,7 @@
 import type {
-  Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
+  Batch, BomDetail, BomLine, BomRequirement, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
   PayrollLine, PayrollRun, PriceLevel, PriceListRate, RecurringTemplate, SaveVoucherWarnings, StockGroup, StockItem, TdsSection, Unit,
-  Voucher, VoucherTransport, VoucherType
+  Voucher, VoucherKind, VoucherTransport, VoucherType
 } from '@shared/domain'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type {
@@ -34,7 +34,7 @@ import type { ScheduleIIIBalanceSheet, ScheduleIIIProfitAndLoss } from '@shared/
 import type { Form3cdPack } from '@shared/form3cd'
 import type {
   AgentExportInput,
-  AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
+  AuditListInput, BankRuleInput, BatchInput, BomInputPayload, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
   CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
   PayHeadInput, PriceLevelInput,
   PriceRateInput, RecurringInput,
@@ -1364,7 +1364,8 @@ export interface BankSuggestion {
   ledgerName: string
   kind: 'payment' | 'receipt'
   voucherDraft: BankVoucherDraft
-  source: 'rule' | 'learned'
+  /** 'charge' is the bank's own charge or interest, recognised from the narration (#135). */
+  source: 'rule' | 'learned' | 'charge'
   /** 0-100; a rule is 100. Bulk accept (#134) compares this against the user's threshold. */
   confidence: number
   matched: string[]
@@ -1374,6 +1375,72 @@ export interface BankSuggestion {
 export interface BankSuggestionRow {
   statementRow: BankUnmatchedRow
   suggestion: BankSuggestion | null
+  /** Set when the narration reads as the bank's own charge, even where no ledger exists to post
+   *  it to — that is exactly when the screen should offer to create them (#135). */
+  chargeCategory?: BankChargeCategory
+}
+
+/** Mirrors src/shared/bankCharges.ts's ChargeCategory and banking.ts's ChargeLedgerRow (#135). */
+export type BankChargeCategory = 'charge' | 'gst_on_charge' | 'interest_paid' | 'interest_earned'
+
+export interface BankChargeLedger {
+  category: BankChargeCategory
+  name: string
+  /** null = not created yet. */
+  ledgerId: number | null
+  groupName: string
+}
+
+/** Mirrors banking.ts's listReconLocks row (#142). */
+export interface BankReconLock {
+  ledgerId: number
+  ledgerName: string
+  /** Bank dates on or before this cannot be set or cleared. null = nothing frozen. */
+  lockedTo: string | null
+}
+
+/** Mirrors src/main/services/voucherTemplates.ts's VoucherTemplate (#27). */
+export interface VoucherTemplate {
+  id: number
+  name: string
+  voucherTypeId: number
+  voucherKind: VoucherKind | null
+  voucherTypeName: string | null
+  voucherJson: string
+  usedCount: number
+  lastUsedAt: string | null
+  createdAt: string
+  lineCount: number
+  /** Debit-side total, paise. */
+  total: number
+  /** Non-null when the saved shape no longer validates — it lists so it can be deleted, but it
+   *  cannot be applied. */
+  problem: string | null
+}
+
+/** Mirrors src/main/services/chequeBounce.ts (#138). */
+export interface BounceRecord {
+  id: number
+  voucherId: number
+  voucherNumber: string
+  voucherDate: string
+  partyName: string | null
+  instrumentNo: string | null
+  amount: number
+  bounceDate: string
+  reason: string | null
+  chargeAmount: number
+  reversalVoucherId: number | null
+  reversalNumber: string | null
+}
+
+export interface BounceInput {
+  voucherId: number
+  bounceDate: string
+  reason?: string | null
+  chargeAmount?: number
+  chargeLedgerId?: number | null
+  bankLedgerId?: number | null
 }
 
 /** Mirrors src/shared/bankImport.ts's ProfileColumns / StatementProfile (#131). */
@@ -1436,7 +1503,7 @@ export interface BankBulkAcceptRow {
   ledgerId: number
   ledgerName: string
   confidence: number
-  source: 'rule' | 'learned'
+  source: 'rule' | 'learned' | 'charge'
   voucherId?: number
 }
 
@@ -2122,6 +2189,10 @@ export const api = {
     purgePolicy: () =>
       call<{ days: number; count: number; oldestDate: string | null }>('config:binPurge:get'),
     setPurgeDays: (days: number) => call<{ days: number }>('config:binPurge:set', { days }),
+    /** Change the narration or the cost centre on many vouchers at once (#39). An `undefined`
+     *  field is left alone; an explicit null clears it. */
+    bulkEdit: (ids: number[], edit: { narration?: string | null; costCentreId?: number | null }) =>
+      call<{ vouchers: number; linesAllocated: number }>('voucher:bulkEdit', { ids, ...edit }),
     bin: () => call<BinRow[]>('voucher:bin'),
     restore: (id: number) => call<null>('voucher:restore', { id }),
     purge: (id: number) => call<null>('voucher:purge', { id })
@@ -2537,6 +2608,18 @@ export const api = {
     post: (id: number, date: string) => call<Voucher>('recurring:post', { id, date }),
     skip: (id: number) => call<RecurringTemplate>('recurring:skip', { id })
   },
+  /** Named voucher templates: a saved shape with no schedule (#27). Applying one loads the entry
+   *  screen; nothing here posts a voucher. */
+  vtemplates: {
+    list: (voucherTypeId?: number) => call<VoucherTemplate[]>('vtemplate:list', { voucherTypeId }),
+    save: (data: { name: string; voucherTypeId: number; voucherJson: string }, id?: number) =>
+      call<VoucherTemplate>('vtemplate:save', { id, data }),
+    remove: (id: number) => call<null>('vtemplate:delete', { id }),
+    /** Loads the shape into the entry screen. Posts nothing; `date` is the date the resulting
+     *  voucher will carry (today when omitted). */
+    use: (id: number, date?: string) =>
+      call<{ template: VoucherTemplate; shape: VoucherInputParsed }>('vtemplate:use', { id, date })
+  },
   bank: {
     ledgers: () => call<{ id: number; name: string }[]>('bank:ledgers'),
     reconciliationStatus: (asOn: string) =>
@@ -2568,7 +2651,20 @@ export const api = {
     matchSuggestions: (ledgerId: number, csvText: string, tolerancePaise?: number) =>
       call<BankMatchSuggestion[]>('banking:matchSuggestions', { ledgerId, csvText, tolerancePaise }),
     brs: (ledgerId: number, asOn: string) => call<BrsReport>('banking:brs', { ledgerId, asOn }),
-    brsPdf: (ledgerId: number, asOn: string) => call<{ path: string }>('banking:brsPdf', { ledgerId, asOn })
+    brsPdf: (ledgerId: number, asOn: string) => call<{ path: string }>('banking:brsPdf', { ledgerId, asOn }),
+    /** The four ledgers a recognised bank charge posts to, and whether each exists yet (#135). */
+    chargeLedgers: () => call<BankChargeLedger[]>('bank:charges:list'),
+    setupChargeLedgers: () => call<{ created: string[]; existing: string[] }>('bank:charges:setup'),
+    /** Reconciliation freeze, per bank account (#142). */
+    reconLocks: () => call<BankReconLock[]>('bank:reconLock:list'),
+    setReconLock: (ledgerId: number, date: string | null) => call<null>('bank:reconLock:set', { ledgerId, date })
+  },
+  /** Bounced cheques and their reversals (#138). */
+  bounce: {
+    list: (from?: string, to?: string) => call<BounceRecord[]>('bank:bounce:list', { from, to }),
+    byParty: () => call<{ partyLedgerId: number; partyName: string; bounces: number }[]>('bank:bounce:byParty'),
+    create: (input: BounceInput) => call<BounceRecord>('bank:bounce:create', input),
+    remove: (id: number) => call<null>('bank:bounce:remove', { id })
   },
   bankProfiles: {
     list: () => call<BankImportProfile[]>('bankprofile:list'),
@@ -2636,8 +2732,11 @@ export const api = {
   },
   bom: {
     get: (itemId: number) => call<BomLine[]>('bom:get', { itemId }),
-    set: (data: BomInput) => call<BomLine[]>('bom:set', data),
-    items: () => call<{ itemId: number; name: string; components: number }[]>('bom:items')
+    detail: (itemId: number) => call<BomDetail>('bom:detail', { itemId }),
+    set: (data: BomInputPayload) => call<BomLine[]>('bom:set', data),
+    items: () => call<{ itemId: number; name: string; components: number }[]>('bom:items'),
+    /** Requirement for a quantity, nested sub-assemblies included (#126). */
+    explode: (itemId: number, qtyMilli: number) => call<BomRequirement>('bom:explode', { itemId, qtyMilli })
   },
   payroll: {
     employees: () => call<Employee[]>('payroll:employees:list'),

@@ -84,6 +84,8 @@ const EXPECTED_TABLES = [
   'cma_packs',
   'cma_inputs',
   'cma_facilities',
+  'cheque_bounces',
+  'voucher_templates',
   'migrations'
 ]
 

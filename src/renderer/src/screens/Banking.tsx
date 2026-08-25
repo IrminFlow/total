@@ -3,14 +3,18 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ChequeConfig } from '@shared/schemas'
 import {
   api, type BankAdHocProfile, type BankBulkAcceptResult, type BankImportResult, type BankProfileColumns,
-  type BankRuleRecord, type BankStatementInspection, type BankSuggestionRow, type BankUnmatchedRow, type BrsItem
+  type BankMatchSuggestion, type BankRuleRecord, type BankStatementInspection, type BankSuggestionRow,
+  type BankUnmatchedRow, type BrsItem, type PdcRow
 } from '../lib/client'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
 import {
-  Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, SkeletonRows, Spinner, TextInput, useTableNav
+  AmountInput, Button, DateInput, EmptyState, Field, Modal, Money, Panel, ScrollList, SectionTitle, Select, SkeletonRows,
+  Spinner, TextInput, useTableNav
 } from '../components/ui'
 import { LedgerPicker } from '../components/pickers'
 import { toDisplayDate, todayISO } from '@shared/dates'
+import { formatPaise } from '@shared/money'
+import { WEEKDAY_LABELS, bucketByDueDate, monthGrid, monthLabel, monthOf, monthTotal, shiftMonth } from '@shared/pdcCalendar'
 import { useStickyTab } from '../lib/useStickyTab'
 import { suggestPattern } from '@shared/bankRules'
 import { PROFILE_FIELDS, type ProfileField } from '@shared/bankImport'
@@ -39,6 +43,7 @@ export function BankingScreen(): React.JSX.Element {
   const [tab, setTab] = useStickyTab<BankTab>('banking', ['status', 'recon', 'brs', 'pdc'], 'status')
   const [ledgerId, setLedgerId] = useState<number | null>(null)
   const [suggestions, setSuggestions] = useState<BankSuggestionRow[] | null>(null)
+  const [matches, setMatches] = useState<BankMatchSuggestion[] | null>(null)
   const [rulesOpen, setRulesOpen] = useState(false)
   const [rulesPrefill, setRulesPrefill] = useState<{ pattern: string; kind: 'payment' | 'receipt' } | null>(null)
   const [rulesModalKey, setRulesModalKey] = useState(0)
@@ -52,6 +57,13 @@ export function BankingScreen(): React.JSX.Element {
   const [threshold, setThreshold] = useState(DEFAULT_CONFIDENCE_THRESHOLD)
   const [bulkPreview, setBulkPreview] = useState<BankBulkAcceptResult | null>(null)
   const [inlineRule, setInlineRule] = useState<{ row: BankUnmatchedRow; ruleId: number | null; ledgerId: number | null } | null>(null)
+  const [freezeOpen, setFreezeOpen] = useState(false)
+
+  // #142: the freeze is per bank account, so the header states the selected account's own lock
+  // rather than a global one — "frozen" without saying which account is what makes an operator
+  // stop trusting the message.
+  const { data: reconLocks } = useQuery({ queryKey: ['bankReconLocks'], queryFn: api.bank.reconLocks })
+  const lockedTo = (reconLocks ?? []).find((l) => l.ledgerId === ledgerId)?.lockedTo ?? null
 
   useEffect(() => {
     if (ledgerId == null && ledgers?.length) setLedgerId(ledgers[0]!.id)
@@ -60,6 +72,7 @@ export function BankingScreen(): React.JSX.Element {
   // A new bank ledger's statement lines have nothing to do with the last one's suggestions.
   useEffect(() => {
     setSuggestions(null)
+    setMatches(null)
     setReading(null)
   }, [ledgerId])
 
@@ -99,6 +112,9 @@ export function BankingScreen(): React.JSX.Element {
     try {
       const rows = await api.bank.suggest(ledgerId, csvText, choice)
       setSuggestions(rows)
+      // The second pass over the same rows (#144). Read from the same bytes in the same call so
+      // a group can never be proposed against a statement the list below has moved on from.
+      setMatches(await api.bank.matchSuggestions(ledgerId, csvText))
       const withSuggestion = rows.filter((r) => r.suggestion).length
       if (announce && withSuggestion > 0) {
         toast.push('info', `${withSuggestion} of ${rows.length} unmatched lines have a suggested ledger below`)
@@ -221,6 +237,51 @@ export function BankingScreen(): React.JSX.Element {
     })
   }
 
+  /**
+   * Accept a grouped or near match (#144).
+   *
+   * One statement line, several book entries: every line in the group takes the statement row's
+   * date, because they were all cleared by the same credit, and a group reconciled at two
+   * different dates is a group nobody can unpick later.
+   *
+   * Sequentially, and stopping at the first refusal: the reconciliation freeze (#142) answers the
+   * same way for every line of one account, so a lock stops the whole group before anything is
+   * written rather than leaving half a settlement reconciled.
+   */
+  const acceptMatch = async (match: BankMatchSuggestion): Promise<void> => {
+    try {
+      for (const line of match.lines) await api.bank.setBankDate(line.lineId, match.statementRow.date)
+      toast.push(
+        'success',
+        `${match.lines.length} ${match.lines.length === 1 ? 'entry' : 'entries'} reconciled against ${match.statementRow.description}`
+      )
+      await refresh()
+      if (reading) await reloadSuggestions(reading.csvText, reading.choice)
+    } catch (err) {
+      // Carries the freeze's "Reconciliation is frozen up to …" — the one message that explains
+      // why an otherwise obvious match refuses to go through.
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  /** #135: create the four charge/interest ledgers, then re-read the same statement so the rows
+   *  that had nowhere to post now carry a suggestion instead of a dead end. */
+  const setupChargeLedgers = async (): Promise<void> => {
+    try {
+      const result = await api.bank.setupChargeLedgers()
+      await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+      toast.push(
+        result.created.length > 0 ? 'success' : 'info',
+        result.created.length > 0
+          ? `Created ${result.created.join(', ')}`
+          : `Already there: ${result.existing.join(', ')}`
+      )
+      if (reading) await reloadSuggestions(reading.csvText, reading.choice)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
   const openRules = (prefill: { pattern: string; kind: 'payment' | 'receipt' } | null): void => {
     setRulesPrefill(prefill)
     setRulesModalKey((k) => k + 1)
@@ -243,6 +304,11 @@ export function BankingScreen(): React.JSX.Element {
   const acceptableCount = (suggestions ?? []).filter(
     (r) => r.suggestion && !r.suggestion.ambiguous && r.suggestion.confidence >= threshold
   ).length
+
+  // Rows the narration says are the bank's own charge, with no ledger behind them (#135). The
+  // count is what makes the offer worth making — one stray row is noise, eleven is a missing
+  // chart of accounts.
+  const unpostableCharges = (suggestions ?? []).filter((r) => r.chargeCategory && !r.suggestion).length
 
   if (ledgers && ledgers.length === 0) {
     return (
@@ -276,6 +342,16 @@ export function BankingScreen(): React.JSX.Element {
             )}
             {tab === 'recon' && (
               <>
+                {ledgerId != null && (
+                  <>
+                    <span className="text-hint text-muted" data-testid="banking-recon-lock">
+                      {lockedTo ? `Frozen up to ${toDisplayDate(lockedTo)}` : 'Not frozen'}
+                    </span>
+                    <Button data-testid="btn-recon-freeze" onClick={() => setFreezeOpen(true)}>
+                      Freeze…
+                    </Button>
+                  </>
+                )}
                 <Button data-testid="btn-banking-rules" onClick={() => openRules(null)}>
                   Rules…
                 </Button>
@@ -417,6 +493,23 @@ export function BankingScreen(): React.JSX.Element {
                   </Button>
                 </div>
               </div>
+              {/* #135: the bank's own charges are recognised whether or not there is a ledger to
+                  put them in. When there isn't, saying so once above the list beats repeating
+                  "No match" on eleven rows that all have the same single cause. */}
+              {unpostableCharges > 0 && (
+                <div
+                  className="flex items-center justify-between gap-3 border-b border-line bg-panel2 px-4 py-2.5"
+                  data-testid="banking-charge-notice"
+                >
+                  <p className="text-detail text-ink">
+                    {unpostableCharges} {unpostableCharges === 1 ? 'row looks' : 'rows look'} like the bank’s own
+                    charges and interest — there is nowhere to post them yet.
+                  </p>
+                  <Button data-testid="btn-setup-charge-ledgers" onClick={() => void setupChargeLedgers()}>
+                    Create charge ledgers
+                  </Button>
+                </div>
+              )}
               <ScrollList maxH="40vh">
                 <table className="ledger-table">
                   <thead>
@@ -441,8 +534,12 @@ export function BankingScreen(): React.JSX.Element {
                               <span className="rounded-md px-1.5 py-0.5 text-label bg-blue/10 text-blue">{s.suggestion.ledgerName}</span>
                               {/* Where a suggestion came from changes how much it is worth
                                   trusting, so it is on the row rather than in a tooltip. */}
-                              <span className="text-hint text-muted">
-                                {s.suggestion.source === 'rule' ? 'rule' : `learned: ${s.suggestion.matched.join(' ')}`}
+                              <span className="text-hint text-muted" data-testid="banking-suggestion-source">
+                                {s.suggestion.source === 'rule'
+                                  ? 'rule'
+                                  : s.suggestion.source === 'charge'
+                                    ? "bank's own charge"
+                                    : `learned: ${s.suggestion.matched.join(' ')}`}
                               </span>
                             </span>
                           ) : (
@@ -490,6 +587,10 @@ export function BankingScreen(): React.JSX.Element {
               </ScrollList>
             </Panel>
           )}
+
+          {matches && matches.length > 0 && (
+            <MatchSuggestionsPanel matches={matches} onAccept={acceptMatch} />
+          )}
         </>
       )}
 
@@ -505,6 +606,19 @@ export function BankingScreen(): React.JSX.Element {
           bankLedgerId={ledgerId}
           bankLedgerName={(ledgers ?? []).find((l) => l.id === ledgerId)?.name ?? ''}
           onClose={() => setChequeSetupOpen(false)}
+        />
+      )}
+      {freezeOpen && ledgerId != null && (
+        <ReconFreezeModal
+          ledgerId={ledgerId}
+          ledgerName={(ledgers ?? []).find((l) => l.id === ledgerId)?.name ?? ''}
+          lockedTo={lockedTo}
+          context={to}
+          onClose={() => setFreezeOpen(false)}
+          onDone={() => {
+            setFreezeOpen(false)
+            void queryClient.invalidateQueries({ queryKey: ['bankReconLocks'] })
+          }}
         />
       )}
       {dateEdit && (
@@ -563,6 +677,179 @@ export function BankingScreen(): React.JSX.Element {
         />
       )}
     </div>
+  )
+}
+
+/**
+ * Statement lines that match a GROUP of book entries, or miss a single one narrowly (#144).
+ *
+ * The exact matcher works one-to-one, so the commonest settlement in a small business — one NEFT
+ * paying three invoices — falls out of it as an unmatched line, and the operator ends up setting
+ * three bank dates by hand after adding the amounts up on paper.
+ *
+ * The service finds the combination; it deliberately does not accept it. A set of three amounts
+ * summing to a fourth is a coincidence that happens often enough to matter, and the only party
+ * who can tell a real settlement from an arithmetic accident is the person who knows the party.
+ * So every constituent voucher is shown with its number, date and amount, under a stated total —
+ * the working, not just the answer.
+ */
+function MatchSuggestionsPanel({
+  matches,
+  onAccept
+}: {
+  matches: BankMatchSuggestion[]
+  onAccept: (match: BankMatchSuggestion) => void
+}): React.JSX.Element {
+  return (
+    <Panel className="mt-3">
+      <div className="border-b border-line px-4 py-2.5">
+        <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">
+          Grouped and near matches · {matches.length}
+        </p>
+        <p className="mt-1 text-hint text-muted">
+          Entries the exact matcher could not take one-to-one. Check the vouchers add up to the statement line for the
+          right reason before reconciling them.
+        </p>
+      </div>
+      <ScrollList maxH="40vh">
+        {matches.map((m, i) => {
+          const sum = m.lines.reduce((s, l) => s + l.amount, 0)
+          const difference = m.statementRow.amount - sum
+          return (
+            <div
+              key={`${m.statementRow.date}-${m.statementRow.reference}-${i}`}
+              className="border-b border-line px-4 py-3 last:border-b-0"
+              data-testid="banking-match-suggestion"
+              data-match-kind={m.kind}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-body">
+                    <span className="num text-muted">{toDisplayDate(m.statementRow.date)}</span>{' '}
+                    {m.statementRow.description}
+                  </p>
+                  <p className="mt-0.5 text-hint text-muted" data-testid="banking-match-kind">
+                    {m.kind === 'many_to_one'
+                      ? `${m.lines.length} entries for the same party add up to this ${m.statementRow.kind}`
+                      : `One entry, off by ${formatPaise(Math.abs(difference))}`}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="num text-lead font-medium">
+                    <Money paise={m.statementRow.amount} />
+                  </span>
+                  <Button
+                    data-testid="btn-banking-accept-match"
+                    onClick={() => onAccept(m)}
+                    title={`Set the bank date to ${toDisplayDate(m.statementRow.date)} on ${m.lines.length === 1 ? 'this entry' : `all ${m.lines.length} entries`}`}
+                  >
+                    Reconcile {m.lines.length} {m.lines.length === 1 ? 'entry' : 'entries'}
+                  </Button>
+                </div>
+              </div>
+              <table className="ledger-table mt-2">
+                <tbody data-testid="rows-banking-match-lines">
+                  {m.lines.map((l) => (
+                    <tr key={l.lineId} data-row-id={l.voucherId}>
+                      <td className="num w-24 text-muted">{toDisplayDate(l.date)}</td>
+                      <td className="num w-24">{l.number}</td>
+                      <td></td>
+                      <td className="r num w-32">
+                        <Money paise={l.amount} />
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="total-row">
+                    <td className="text-muted" colSpan={2}>
+                      {m.lines.length === 1 ? 'Book entry' : `${m.lines.length} entries`}
+                    </td>
+                    <td className="r text-muted">
+                      {/* A difference of nothing is stated as such: "they add up exactly" is the
+                          fact that makes a group safe to accept, and a blank cell does not say it. */}
+                      {difference === 0 ? 'adds up exactly' : `${difference > 0 ? 'short by' : 'over by'} ${formatPaise(Math.abs(difference))}`}
+                    </td>
+                    <td className="r num w-32">
+                      <Money paise={sum} />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
+      </ScrollList>
+    </Panel>
+  )
+}
+
+/**
+ * Reconciliation freeze, one bank account at a time (#142).
+ *
+ * A signed-off BRS is a statement somebody has already given to a lender or an auditor. Moving a
+ * bank date inside that period changes the figure they were given without changing the paper, so
+ * main refuses it — this modal is where the refusal is set up and lifted, deliberately, rather
+ * than being a setting three screens away from the reconciliation it governs.
+ */
+function ReconFreezeModal({
+  ledgerId,
+  ledgerName,
+  lockedTo,
+  context,
+  onDone,
+  onClose
+}: {
+  ledgerId: number
+  ledgerName: string
+  lockedTo: string | null
+  /** Date context for shorthand parsing (period end). */
+  context: string
+  onDone: () => void
+  onClose: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const [date, setDate] = useState(lockedTo ?? context)
+  const [saving, setSaving] = useState(false)
+
+  const set = async (value: string | null): Promise<void> => {
+    setSaving(true)
+    try {
+      await api.bank.setReconLock(ledgerId, value)
+      toast.push('success', value ? `${ledgerName} frozen up to ${toDisplayDate(value)}` : `${ledgerName} unfrozen`)
+      onDone()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title="Freeze reconciliation" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <p className="text-detail text-muted">
+          {lockedTo
+            ? `${ledgerName} is frozen up to ${toDisplayDate(lockedTo)}. Bank dates on or before that day cannot be set or cleared.`
+            : `${ledgerName} is not frozen. Bank dates anywhere in its history can still be changed.`}
+        </p>
+        <Field label="Freeze everything up to and including" hint="Shorthand works: 7, 7/4, t (today), y (yesterday)">
+          <DateInput value={date} context={context} onChange={setDate} testId="input-recon-freeze-date" className="w-40" />
+        </Field>
+        <div className="flex justify-between gap-2">
+          <span>
+            {lockedTo && (
+              <Button variant="danger" disabled={saving} data-testid="btn-recon-unfreeze" onClick={() => void set(null)}>
+                Unfreeze
+              </Button>
+            )}
+          </span>
+          <span className="flex gap-2">
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" disabled={saving} data-testid="btn-recon-freeze-save" onClick={() => void set(date)}>
+              Freeze
+            </Button>
+          </span>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -852,6 +1139,16 @@ function PdcSection(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: rows, isLoading } = useQuery({ queryKey: ['pdc'], queryFn: api.pdc.list })
+  const [month, setMonth] = useState(monthOf(todayISO()))
+  const [bounceFor, setBounceFor] = useState<PdcRow | null>(null)
+
+  const refreshAfterBounce = (): Promise<void> =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['bounces'] }),
+      queryClient.invalidateQueries({ queryKey: ['pdc'] }),
+      queryClient.invalidateQueries({ queryKey: ['bankRecon'] }),
+      queryClient.invalidateQueries({ queryKey: ['brs'] })
+    ]).then(() => undefined)
 
   const mature = async (id: number, number: string): Promise<void> => {
     const proceed = await confirmDialog({
@@ -873,59 +1170,329 @@ function PdcSection(): React.JSX.Element {
     }
   }
 
+  const buckets = bucketByDueDate(rows ?? [])
+  const grid = monthGrid(month)
+
   return (
-    <Panel scroll={{ maxH: '64vh' }}>
+    <>
+      {/* #137: the register sorted by date answers "what is next". The month answers "how much
+          clears in the week of the 15th, and is there enough in the account by then" — which is
+          the question the register is actually opened for, and a list cannot show it. */}
+      <Panel className="mb-3">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+          <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">
+            {monthLabel(month)} · falling due{' '}
+            <span className="num text-ink">{formatPaise(monthTotal(rows ?? [], month))}</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <Button aria-label="Previous month" data-testid="btn-pdc-prev-month" onClick={() => setMonth(shiftMonth(month, -1))}>
+              ←
+            </Button>
+            <Button data-testid="btn-pdc-this-month" onClick={() => setMonth(monthOf(todayISO()))}>
+              This month
+            </Button>
+            <Button aria-label="Next month" data-testid="btn-pdc-next-month" onClick={() => setMonth(shiftMonth(month, 1))}>
+              →
+            </Button>
+          </div>
+        </div>
+        <div className="p-3" data-testid="pdc-calendar" data-month={month}>
+          <div className="grid grid-cols-7 gap-1">
+            {WEEKDAY_LABELS.map((w) => (
+              <div key={w} className="px-1 pb-1 text-label font-semibold tracking-[0.08em] text-muted uppercase">
+                {w}
+              </div>
+            ))}
+            {grid.flat().map((cell) => {
+              const bucket = buckets.get(cell.date)
+              return (
+                <div
+                  key={cell.date}
+                  data-testid="pdc-day"
+                  data-date={cell.date}
+                  data-in-month={cell.inMonth ? 'true' : 'false'}
+                  className={`min-h-14 rounded-md border border-line px-1.5 py-1 ${
+                    cell.inMonth ? 'bg-panel' : 'bg-panel2 opacity-50'
+                  }`}
+                >
+                  <span className="num text-hint text-muted">{Number(cell.date.slice(8, 10))}</span>
+                  {bucket && (
+                    <span className="mt-0.5 block" title={bucket.rows.map((r) => `${r.number} ${r.partyName ?? ''}`.trim()).join('\n')}>
+                      <span className="num block truncate text-detail font-medium text-ink">{formatPaise(bucket.total)}</span>
+                      <span className="block text-hint text-muted">
+                        {bucket.rows.length} {bucket.rows.length === 1 ? 'cheque' : 'cheques'}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </Panel>
+
+      <Panel scroll={{ maxH: '40vh' }}>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Spinner />
+          </div>
+        ) : !rows?.length ? (
+          <EmptyState
+            title="No post-dated vouchers"
+            hint="Tick “Post-dated” on a payment or receipt to keep it out of the books until its date arrives"
+          />
+        ) : (
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th scope="col" className="w-24">Matures</th>
+                <th scope="col" className="w-24">Number</th>
+                <th scope="col" className="w-28">Type</th>
+                <th scope="col">Party</th>
+                <th scope="col" className="w-28">Instrument</th>
+                <th scope="col" className="r w-32">Amount</th>
+                <th scope="col" className="w-52"></th>
+              </tr>
+            </thead>
+            <tbody data-testid="rows-banking-pdc">
+              {rows.map((r) => (
+                <tr key={r.id} data-row-id={r.id} className="group hover:bg-panel2">
+                  <td className="num text-muted">{toDisplayDate(r.date)}</td>
+                  <td className="num">{r.number}</td>
+                  <td className="text-muted">{r.voucherTypeName}</td>
+                  <td className="max-w-52 truncate">{r.partyName ?? ''}</td>
+                  <td className="num text-muted">{r.instrumentNo ?? ''}</td>
+                  <td className="r"><Money paise={r.amount} /></td>
+                  <td className="r">
+                    <button
+                      className="mr-3 text-small text-blue hover:underline"
+                      data-testid="btn-banking-pdc-mature"
+                      onClick={() => void mature(r.id, r.number)}
+                    >
+                      Mature now
+                    </button>
+                    {/* Quiet until the row is hovered, active or focused — a cheque coming back
+                        is the rare case, and an always-lit "Bounced…" beside every row reads as
+                        an instruction rather than an exception (#138). */}
+                    <button
+                      className="row-action mr-3 text-small text-muted hover:text-ink"
+                      data-testid="btn-banking-pdc-bounce"
+                      onClick={() => setBounceFor(r)}
+                    >
+                      Bounced…
+                    </button>
+                    <button
+                      className="text-small text-muted hover:text-ink"
+                      data-testid="btn-banking-pdc-edit"
+                      onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.id })}
+                    >
+                      Edit
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      <BouncedRegister />
+
+      {bounceFor && (
+        <BounceModal
+          row={bounceFor}
+          onClose={() => setBounceFor(null)}
+          onDone={() => {
+            setBounceFor(null)
+            void refreshAfterBounce()
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+/**
+ * Recording a returned cheque (#138).
+ *
+ * The charge is asked for on the same form as the bounce because it happened in the same event:
+ * a return fee entered later as a separate payment is a fee nobody can tie back to the cheque
+ * that caused it, which is exactly the trail this feature exists to leave.
+ */
+function BounceModal({
+  row,
+  onDone,
+  onClose
+}: {
+  row: PdcRow
+  onDone: () => void
+  onClose: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const [bounceDate, setBounceDate] = useState(todayISO())
+  const [reason, setReason] = useState('')
+  const [chargeAmount, setChargeAmount] = useState<number | null>(null)
+  const [chargeLedgerId, setChargeLedgerId] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const save = async (): Promise<void> => {
+    if ((chargeAmount ?? 0) > 0 && chargeLedgerId == null) {
+      return void toast.push('error', 'A return charge needs a ledger to post it to')
+    }
+    setSaving(true)
+    try {
+      await api.bounce.create({
+        voucherId: row.id,
+        bounceDate,
+        reason: reason.trim() || null,
+        chargeAmount: chargeAmount ?? 0,
+        chargeLedgerId: (chargeAmount ?? 0) > 0 ? chargeLedgerId : null
+      })
+      toast.push('success', `${row.number} recorded as returned unpaid, and reversed`)
+      onDone()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title={`Cheque returned — ${row.number}`} onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <p className="text-detail text-muted">
+          {row.partyName ?? 'This voucher'}
+          {row.instrumentNo ? ` · cheque ${row.instrumentNo}` : ''} ·{' '}
+          <span className="num">{formatPaise(row.amount)}</span>. Recording the return posts a journal reversing every
+          line of {row.number} and re-opens the bills it settled.
+        </p>
+        <Field label="Returned on" hint="Shorthand works: 7, 7/4, t (today), y (yesterday)">
+          <DateInput value={bounceDate} context={row.date} onChange={setBounceDate} testId="input-bounce-date" className="w-40" />
+        </Field>
+        <Field label="Reason" hint="What the return memo said — “Funds insufficient”, “Signature differs”">
+          <TextInput
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Funds insufficient"
+            data-testid="input-bounce-reason"
+          />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Bank's return charge" hint="Leave blank when the bank charged nothing">
+            <AmountInput paise={chargeAmount} onPaise={setChargeAmount} testId="input-bounce-charge" className="w-40" />
+          </Field>
+          <Field label="Charge posted to">
+            <LedgerPicker value={chargeLedgerId} onPick={setChargeLedgerId} testId="picker-bounce-charge-ledger" />
+          </Field>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-line pt-4">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="danger" disabled={saving} data-testid="btn-bounce-save" onClick={() => void save()}>
+            Record the return
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/** Every cheque that came back, with the reversal it posted — and a way to undo one recorded
+ *  against the wrong voucher (#138). */
+function BouncedRegister(): React.JSX.Element {
+  const nav = useNav()
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data: bounces, isLoading } = useQuery({ queryKey: ['bounces'], queryFn: () => api.bounce.list() })
+
+  const undo = async (id: number, number: string): Promise<void> => {
+    const proceed = await confirmDialog({
+      title: 'Undo bounce',
+      message: `Remove the bounce recorded against ${number}? Its reversal journal goes to the bin and the receipt stands again.`,
+      confirmLabel: 'Undo bounce'
+    })
+    if (!proceed) return
+    try {
+      await api.bounce.remove(id)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bounces'] }),
+        queryClient.invalidateQueries({ queryKey: ['pdc'] }),
+        queryClient.invalidateQueries({ queryKey: ['bankRecon'] }),
+        queryClient.invalidateQueries({ queryKey: ['brs'] })
+      ])
+      toast.push('success', `Bounce on ${number} undone`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <Panel className="mt-3">
+      <div className="border-b border-line px-4 py-2.5">
+        <p className="text-label font-semibold tracking-[0.08em] text-muted uppercase">
+          Bounced cheques · {bounces?.length ?? 0}
+        </p>
+      </div>
       {isLoading ? (
         <div className="flex items-center justify-center py-10">
           <Spinner />
         </div>
-      ) : !rows?.length ? (
+      ) : !bounces?.length ? (
         <EmptyState
-          title="No post-dated vouchers"
-          hint="Tick “Post-dated” on a payment or receipt to keep it out of the books until its date arrives"
+          title="No bounced cheques"
+          hint="Mark a receipt as returned from the register above — the reversal and the party's record are posted together"
         />
       ) : (
-        <table className="ledger-table">
-          <thead>
-            <tr>
-              <th scope="col" className="w-24">Matures</th>
-              <th scope="col" className="w-24">Number</th>
-              <th scope="col" className="w-28">Type</th>
-              <th scope="col">Party</th>
-              <th scope="col" className="w-28">Instrument</th>
-              <th scope="col" className="r w-32">Amount</th>
-              <th scope="col" className="w-36"></th>
-            </tr>
-          </thead>
-          <tbody data-testid="rows-banking-pdc">
-            {rows.map((r) => (
-              <tr key={r.id} data-row-id={r.id} className="hover:bg-panel2">
-                <td className="num text-muted">{toDisplayDate(r.date)}</td>
-                <td className="num">{r.number}</td>
-                <td className="text-muted">{r.voucherTypeName}</td>
-                <td className="max-w-52 truncate">{r.partyName ?? ''}</td>
-                <td className="num text-muted">{r.instrumentNo ?? ''}</td>
-                <td className="r"><Money paise={r.amount} /></td>
-                <td className="r">
-                  <button
-                    className="mr-3 text-small text-blue hover:underline"
-                    data-testid="btn-banking-pdc-mature"
-                    onClick={() => void mature(r.id, r.number)}
-                  >
-                    Mature now
-                  </button>
-                  <button
-                    className="text-small text-muted hover:text-ink"
-                    data-testid="btn-banking-pdc-edit"
-                    onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.id })}
-                  >
-                    Edit
-                  </button>
-                </td>
+        <ScrollList maxH="32vh">
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th scope="col" className="w-24">Returned</th>
+                <th scope="col" className="w-24">Voucher</th>
+                <th scope="col">Party</th>
+                <th scope="col" className="w-28">Instrument</th>
+                <th scope="col">Reason</th>
+                <th scope="col" className="r w-32">Amount</th>
+                <th scope="col" className="r w-28">Charge</th>
+                <th scope="col" className="w-28">Reversal</th>
+                <th scope="col" className="w-24"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody data-testid="rows-banking-bounces">
+              {bounces.map((b) => (
+                <tr key={b.id} data-row-id={b.voucherId} className="group hover:bg-panel2">
+                  <td className="num text-muted">{toDisplayDate(b.bounceDate)}</td>
+                  <td className="num">{b.voucherNumber}</td>
+                  <td className="max-w-52 truncate">{b.partyName ?? ''}</td>
+                  <td className="num text-muted">{b.instrumentNo ?? ''}</td>
+                  <td className="max-w-52 truncate text-muted">{b.reason ?? ''}</td>
+                  <td className="r"><Money paise={b.amount} /></td>
+                  <td className="r"><Money paise={b.chargeAmount} /></td>
+                  <td className="num">
+                    {b.reversalVoucherId != null ? (
+                      <button
+                        className="text-small text-blue hover:underline"
+                        data-testid="btn-banking-bounce-reversal"
+                        onClick={() => nav.go({ name: 'voucher-entry', voucherId: b.reversalVoucherId! })}
+                      >
+                        {b.reversalNumber ?? 'Open'}
+                      </button>
+                    ) : (
+                      <span className="text-muted">–</span>
+                    )}
+                  </td>
+                  <td className="r">
+                    <button
+                      className="row-action text-small text-muted hover:text-ink"
+                      data-testid="btn-banking-bounce-undo"
+                      onClick={() => void undo(b.id, b.voucherNumber)}
+                    >
+                      Undo
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollList>
       )}
     </Panel>
   )

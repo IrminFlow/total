@@ -32,6 +32,7 @@ const GLOBAL_ROWS: ShortcutRow[] = [
   { keys: ['⌘D'], label: 'On a list: start a new voucher shaped like the selected one' },
   { keys: ['⌘⇧F'], label: 'Search, scoped to this screen' },
   { keys: ['⌘⇧L'], label: 'Lock the books immediately' },
+  { keys: ['⌘⇧P'], label: 'Change the working period — presets, arrows, ↵ to apply' },
   { keys: ['?'], label: 'Show this shortcut reference' }
 ]
 

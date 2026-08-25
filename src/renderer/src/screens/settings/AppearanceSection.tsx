@@ -10,7 +10,9 @@ import {
   type TextSize,
   type Theme
 } from '../../state/stores'
-import { Panel, SectionTitle } from '../../components/ui'
+import { Kbd, Panel, SectionTitle } from '../../components/ui'
+import { SCREENS } from '../../lib/screens'
+import { SCREEN_KEY_CLAIMS, shortcutConflicts } from '../../lib/shortcutConflicts'
 
 /**
  * Settings → Appearance.
@@ -95,6 +97,63 @@ export function AppearanceSection(): React.JSX.Element {
           ]}
           onChange={(v) => setVimKeys(v === 'on')}
         />
+      </Panel>
+      <ShortcutConflicts />
+    </div>
+  )
+}
+
+/**
+ * Settings → Appearance → "Shortcuts that change meaning" (#21).
+ *
+ * The layer stack already does the right thing: a screen's own letters sit above the navigation
+ * ones, so `C` starts a contra on voucher entry rather than jumping to Cost centres. The problem
+ * was never the behaviour, it was that the behaviour was undiscoverable — the sidebar greys the
+ * shadowed letter out only while the screen that took it is open, which explains it at exactly
+ * the moment nobody is looking at the sidebar.
+ *
+ * Read-only on purpose. Remapping was declined (#22) and the reason holds: every surface in the
+ * app renders the shortcut it binds from the binding, and `V` meaning voucher entry on every
+ * machine in the office is the thing a Tally user relies on. Naming the collisions is the part of
+ * that complaint worth fixing.
+ */
+function ShortcutConflicts(): React.JSX.Element {
+  const conflicts = shortcutConflicts(SCREENS, SCREEN_KEY_CLAIMS)
+
+  return (
+    <div>
+      <SectionTitle>Shortcuts that change meaning</SectionTitle>
+      <Panel>
+        <div className="px-5 py-3.5">
+          <p className="text-small text-muted">
+            A screen&rsquo;s own keys win while it is open, so a few navigation letters do something
+            different there. The sidebar greys them out at the time; this is the whole list.
+          </p>
+          {conflicts.length === 0 ? (
+            <p className="mt-3 text-body">No screen currently takes over a navigation letter.</p>
+          ) : (
+            <table className="ledger-table mt-3" data-testid="shortcut-conflicts">
+              <thead>
+                <tr>
+                  <th scope="col" className="w-16">Key</th>
+                  <th scope="col">On</th>
+                  <th scope="col">Does</th>
+                  <th scope="col">Instead of going to</th>
+                </tr>
+              </thead>
+              <tbody>
+                {conflicts.map((c) => (
+                  <tr key={`${c.screen}-${c.key}`}>
+                    <td><Kbd>{c.key}</Kbd></td>
+                    <td>{c.screenTitle}</td>
+                    <td>{c.action}</td>
+                    <td className="text-muted">{c.shadows}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </Panel>
     </div>
   )

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { VoucherBillRef, VoucherKind } from '@shared/domain'
 import type { OutstandingBill } from '@shared/reports'
@@ -13,13 +13,15 @@ import { roundToRupee, formatPaise, amountInWords } from '@shared/money'
 import { addDays, toDisplayDate } from '@shared/dates'
 import { api } from '../../lib/client'
 import { useNav, useSession, useToasts, type VoucherDraft } from '../../state/stores'
-import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, Select, TextInput, inputCls } from '../../components/ui'
+import { AmountInput, Button, DateInput, Field, isAnyModalOpen, LineTableScroller, Money, Panel, QtyInput, Select, TextInput, inputCls } from '../../components/ui'
 import { ItemPicker, LedgerPicker, useLedgers, useStockItems, useTaxLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
 import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { matchByName, parseItemPaste } from '@shared/gridPaste'
+import { parseQtyExpression } from '@shared/qtyExpr'
+import type { AltUnit } from '@shared/units'
 import { nextLineKey, NUMBER_LOADING, useVoucherNumberField } from './hooks'
 import { QuickItemModal, QuickLedgerModal, SaveAsRecurringModal } from './modals'
 
@@ -130,13 +132,48 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
   const fxRate = currencyCode && fxRateText.trim() ? Number(fxRateText) : null
   const fxActive = !!currencyCode && !!fxRate && Number.isFinite(fxRate) && fxRate > 0
 
+  // Declared ABOVE `computed`, which calls qtyMilliOf. A `const` arrow function is in the
+  // temporal dead zone until its own line runs, so having these below the memo threw
+  // "Cannot access 'qtyMilliOf' before initialization" on first render and took the whole
+  // invoice screen down — caught by scenario 21, which is why it asserts on a screen rendering
+  // at all before it asserts on anything in it.
+  const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
+  /**
+   * Everything the quantity cell needs to read what was typed: the base unit's symbol and
+   * precision, plus the item's alternate unit when it has one (#34).
+   *
+   * Resolved here rather than inside QtyInput because the units list is already loaded on this
+   * screen, and a component that fetched it per row would issue one query per line.
+   */
+  const unitInfoOf = (itemId: number | null): { symbol: string; decimals: number; alt: AltUnit | null } => {
+    const item = itemId ? itemMap.get(itemId) : null
+    const base = units?.find((u) => u.id === item?.unitId)
+    const altUnit = item?.altUnitId != null ? units?.find((u) => u.id === item.altUnitId) : undefined
+    const alt: AltUnit | null =
+      altUnit && item?.altConversionMilli != null
+        ? { symbol: altUnit.symbol, conversionMilli: item.altConversionMilli }
+        : null
+    return { symbol: base?.symbol ?? '', decimals: base?.decimals ?? 3, alt }
+  }
+
+  /**
+   * Base thousandths for a row, reading the alternate unit and any arithmetic in the cell.
+   *
+   * The single place qtyText becomes a number — the totals below and the payload sent to the
+   * books both come through here, so a box can never be twelve pieces in one and one in the
+   * other.
+   */
+  const qtyMilliOf = (itemId: number | null, qtyText: string): number | null => {
+    const { symbol, alt } = unitInfoOf(itemId)
+    return parseQtyExpression(qtyText, symbol, alt)?.baseQtyMilli ?? null
+  }
+
   const computed = useMemo(() => {
-    const itemMap = new Map(items.map((i) => [i.id, i]))
     const detail = rows
       .map((r) => {
         const item = r.itemId ? itemMap.get(r.itemId) : null
-        const qtyMilli = Math.round(parseFloat(r.qtyText || '0') * 1000)
-        if (!item || !Number.isFinite(qtyMilli) || qtyMilli <= 0 || r.rate == null) return null
+        const qtyMilli = qtyMilliOf(r.itemId, r.qtyText)
+        if (!item || qtyMilli == null || qtyMilli <= 0 || r.rate == null) return null
         // Rates (and discounts) are typed in the invoice currency; books stay in ₹.
         const baseRate = fxActive ? Math.round(r.rate * fxRate!) : r.rate
         const gross = Math.round((qtyMilli * baseRate) / 1000)
@@ -477,11 +514,30 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
     toast.push(unmatched || skipped.length ? 'warning' : 'success', parts.join(' · '))
   }
 
-  const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
-  const unitOf = (itemId: number | null): string => {
-    if (!itemId || !units) return ''
-    const item = itemMap.get(itemId)
-    return units.find((u) => u.id === item?.unitId)?.symbol ?? ''
+  /**
+   * Barcode scan lands the cursor on the quantity (#47).
+   *
+   * Keyed by the row's stable key rather than its index: the trailing blank row is inserted as
+   * lines are filled, and an index-keyed map would hand back the ref of whichever row happened
+   * to slide into that position. Refs are created on demand and never cleared — a handful of
+   * detached nodes per voucher is not worth a cleanup pass that could drop a live one.
+   */
+  const qtyRefs = useRef(new Map<number, React.RefObject<HTMLInputElement | null>>())
+  const qtyRef = (key: number): React.RefObject<HTMLInputElement | null> => {
+    const existing = qtyRefs.current.get(key)
+    if (existing) return existing
+    const created: React.RefObject<HTMLInputElement | null> = { current: null }
+    qtyRefs.current.set(key, created)
+    return created
+  }
+  const focusQty = (key: number): void => {
+    // After the render the pick triggers, not during it — the input does not exist yet on the
+    // row that has only just been given an item.
+    requestAnimationFrame(() => {
+      const input = qtyRefs.current.get(key)?.current
+      input?.focus()
+      input?.select()
+    })
   }
 
   return (
@@ -506,6 +562,11 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
               onPick={setPartyId}
               placeholder="Party ledger"
               onCreateRequest={(name) => setQuickLedger({ name, forParty: true })}
+              // #30: the party on a sales invoice is a debtor and the party on a purchase is a
+              // creditor. There is nothing to ask, so it is created here with an undo on the
+              // toast rather than behind a form. Every other ledger still goes through the form,
+              // because "which group" is a real question everywhere else.
+              inlineGroup={isSalesSide ? 'Sundry Debtors' : 'Sundry Creditors'}
               className="flex-1"
               testId="picker-party"
             />
@@ -531,6 +592,8 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
               return false
             }}
             onCreateRequest={(name) => setQuickLedger({ name, forParty: false })}
+            // The revenue/cost account of an invoice is likewise not in doubt.
+            inlineGroup={isSalesSide ? 'Sales Accounts' : 'Purchase Accounts'}
           />
         </Field>
       </div>
@@ -646,9 +709,15 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
         <tbody data-testid="rows-invoice-lines">
           {rows.map((r, i) => {
             const item = r.itemId ? itemMap.get(r.itemId) : null
-            const qty = parseFloat(r.qtyText || '0')
+            const qtyMilli = qtyMilliOf(r.itemId, r.qtyText)
+            // Integer thousandths times paise, divided by a thousand — never `qty * rate` on a
+            // float. `1.1 * 3` in floats is 3.3000000000000003, and the line amount ends up a
+            // paisa away from what `computed` (which does the integer version) sends to the books.
             const amount =
-              item && qty > 0 && r.rate != null ? Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0)) : 0
+              item && qtyMilli != null && qtyMilli > 0 && r.rate != null
+                ? Math.max(0, Math.round((qtyMilli * r.rate) / 1000) - (r.discount ?? 0))
+                : 0
+            const unit = unitInfoOf(r.itemId)
             return (
               <tr key={r.key}>
                 <td>
@@ -673,20 +742,19 @@ export function InvoiceEntry({ typeId, kind, draft }: { typeId: number; kind: Vo
                           .catch(() => {}) // a missing rate just leaves the cell for the user
                       }
                     }}
+                    onScanned={() => focusQty(r.key)}
                     onCreateRequest={(name) => setQuickItem({ name, row: i })}
                   />
                 </td>
                 <td className="r">
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      className={`${inputCls} num text-right`}
-                      value={r.qtyText}
-                      inputMode="decimal"
-                      placeholder="0"
-                      onChange={(e) => setRow(i, { qtyText: e.target.value })}
-                    />
-                    <span className="w-8 text-caption text-muted">{unitOf(r.itemId)}</span>
-                  </div>
+                  <QtyInput
+                    text={r.qtyText}
+                    onText={(text) => setRow(i, { qtyText: text })}
+                    baseSymbol={unit.symbol}
+                    alt={unit.alt}
+                    decimals={unit.decimals}
+                    inputRef={qtyRef(r.key)}
+                  />
                 </td>
                 <td className="r">
                   <AmountInput paise={r.rate} onPaise={(p) => setRow(i, { rate: p })} />

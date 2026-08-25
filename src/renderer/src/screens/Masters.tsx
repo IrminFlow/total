@@ -562,14 +562,29 @@ function ItemsTab(): React.JSX.Element {
 function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () => void }): React.JSX.Element {
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list })
   const allItems = useStockItems()
-  const { data: bom } = useQuery({
-    queryKey: ['bom', item?.id],
-    queryFn: () => api.bom.get(item!.id),
+  const { data: bomDetail } = useQuery({
+    queryKey: ['bom', item?.id, 'detail'],
+    queryFn: () => api.bom.detail(item!.id),
     enabled: !!item
   })
-  const [bomRows, setBomRows] = useState<{ componentId: number | ''; qtyText: string }[] | null>(null)
+  const { data: bomItems } = useQuery({ queryKey: ['bom', 'items'], queryFn: api.bom.items })
+  const madeItems = new Set((bomItems ?? []).map((b) => b.itemId))
+  const bom = bomDetail?.lines
+  const [bomRows, setBomRows] = useState<{ componentId: number | ''; qtyText: string; scrapText: string }[] | null>(null)
   const effectiveBomRows =
-    bomRows ?? (bom ? bom.map((b) => ({ componentId: b.componentId as number | '', qtyText: String(b.qtyMilliPerUnit / 1000) })) : [])
+    bomRows ??
+    (bom
+      ? bom.map((b) => ({
+          componentId: b.componentId as number | '',
+          qtyText: String(b.qtyMilliPerUnit / 1000),
+          // Shown as a percent because that is how a shop floor talks about wastage; stored as
+          // hundredths of a percent so 2.5 survives the round trip without a float.
+          scrapText: b.scrapBp ? String(b.scrapBp / 100) : ''
+        }))
+      : [])
+  // null until touched, so an item whose yield was never set saves the value it already has.
+  const [yieldText, setYieldText] = useState<string | null>(null)
+  const effectiveYieldText = yieldText ?? (bomDetail ? String(bomDetail.bomYieldBp / 100) : '100')
   const toast = useToasts()
   const queryClient = useQueryClient()
   const [name, setName] = useState(item?.name ?? '')
@@ -623,12 +638,21 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
       }
       if (item) await api.stockItems.update(item.id, data)
       else await api.stockItems.create(data)
-      if (item && bomRows) {
+      if (item && (bomRows || yieldText != null)) {
+        const yieldBp = Math.round(Number(effectiveYieldText || '100') * 100)
+        if (!(yieldBp > 0 && yieldBp <= 10000)) {
+          return void toast.push('error', 'Yield is a percentage above 0 and at most 100')
+        }
         await api.bom.set({
           itemId: item.id,
-          lines: bomRows
+          bomYieldBp: yieldBp,
+          lines: effectiveBomRows
             .filter((r) => r.componentId !== '' && Number(r.qtyText) > 0)
-            .map((r) => ({ componentId: r.componentId as number, qtyMilliPerUnit: Math.round(Number(r.qtyText) * 1000) }))
+            .map((r) => ({
+              componentId: r.componentId as number,
+              qtyMilliPerUnit: Math.round(Number(r.qtyText) * 1000),
+              scrapBp: Math.min(9999, Math.max(0, Math.round(Number(r.scrapText || '0') * 100)))
+            }))
         })
       }
       await queryClient.invalidateQueries()
@@ -775,7 +799,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
             <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">
               Bill of materials — components per 1 unit
             </span>
-            {[...effectiveBomRows, { componentId: '' as const, qtyText: '' }].map((row, i) => (
+            {[...effectiveBomRows, { componentId: '' as const, qtyText: '', scrapText: '' }].map((row, i) => (
               <div key={i} className="mb-1.5 flex gap-2">
                 <Select
                   value={row.componentId}
@@ -783,7 +807,7 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
                     const next = [...effectiveBomRows]
                     const value = e.target.value ? Number(e.target.value) : ('' as const)
                     if (i < next.length) next[i] = { ...next[i]!, componentId: value }
-                    else next.push({ componentId: value, qtyText: '1' })
+                    else next.push({ componentId: value, qtyText: '1', scrapText: '' })
                     setBomRows(next.filter((r) => r.componentId !== ''))
                   }}
                   className="flex-1"
@@ -794,24 +818,59 @@ function ItemFormModal({ item, onClose }: { item: StockItem | null; onClose: () 
                     .map((si) => (
                       <option key={si.id} value={si.id}>
                         {si.name}
+                        {/* Naming it here is what stops someone adding a sub-assembly's raw
+                            materials a second time, alongside the sub-assembly itself. */}
+                        {madeItems.has(si.id) ? ' — sub-assembly' : ''}
                       </option>
                     ))}
                 </Select>
                 {i < effectiveBomRows.length && (
-                  <TextInput
-                    value={row.qtyText}
-                    onChange={(e) => {
-                      const next = [...effectiveBomRows]
-                      next[i] = { ...next[i]!, qtyText: e.target.value }
-                      setBomRows(next)
-                    }}
-                    className="num w-24 text-right"
-                    placeholder="Qty"
-                  />
+                  <>
+                    <TextInput
+                      value={row.qtyText}
+                      onChange={(e) => {
+                        const next = [...effectiveBomRows]
+                        next[i] = { ...next[i]!, qtyText: e.target.value }
+                        setBomRows(next)
+                      }}
+                      className="num w-24 text-right"
+                      placeholder="Qty"
+                    />
+                    <TextInput
+                      data-testid={`input-bom-scrap-${i}`}
+                      value={row.scrapText}
+                      onChange={(e) => {
+                        const next = [...effectiveBomRows]
+                        next[i] = { ...next[i]!, scrapText: e.target.value }
+                        setBomRows(next)
+                      }}
+                      className="num w-24 text-right"
+                      inputMode="decimal"
+                      placeholder="Scrap %"
+                      title="Wastage on this component alone — cutting cloth wastes cloth, not buttons"
+                    />
+                  </>
                 )}
               </div>
             ))}
-            <span className="text-caption text-muted">Used by the Manufacture voucher to consume inputs automatically.</span>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <Field
+                label="Yield %"
+                hint="Good units per 100 started. It inflates every component — scrap inflates only its own."
+              >
+                <TextInput
+                  data-testid="input-bom-yield"
+                  value={effectiveYieldText}
+                  onChange={(e) => setYieldText(e.target.value)}
+                  className="num text-right"
+                  inputMode="decimal"
+                  placeholder="100"
+                />
+              </Field>
+            </div>
+            <span className="text-caption text-muted">
+              Used by the Manufacture voucher, which explodes sub-assemblies down to raw materials.
+            </span>
           </div>
         )}
         <div className="flex justify-between">

@@ -270,6 +270,135 @@ await scenario('11-keyboard', async (h) => {
   )
   await h.page.keyboard.press('Escape')
 
+  // ---- ⌘⇧P: the working-period picker, driven entirely from the keyboard (A13) ----
+  await home()
+  const periodPill = () => h.page.textContent('[data-testid="btn-period"]')
+  const openPicker = async () => {
+    await h.page.keyboard.press('Control+Shift+p')
+    await h.page.waitForSelector('[data-testid="preset-this-fy"]', { timeout: 10000 })
+  }
+  const closePicker = async () => {
+    await h.page.keyboard.press('Escape')
+    await h.page.waitForSelector('[data-testid="preset-this-fy"]', { state: 'detached', timeout: 10000 })
+  }
+  // Waits for the highlight rather than reading it once: a keypress lands a render later.
+  const waitSelected = (id) =>
+    h.page.waitForFunction(
+      (t) => document.querySelector(`[data-testid="${t}"]`)?.getAttribute('aria-selected') === 'true',
+      `preset-${id}`,
+      { timeout: 10000 }
+    )
+  const pillBefore = await periodPill()
+
+  await openPicker()
+  await h.shot('10-period-picker')
+
+  // A single letter picks a preset; ↑↓ walks from there.
+  await h.page.keyboard.press('l') // Last month
+  await waitSelected('last-month')
+  await h.page.keyboard.press('ArrowDown')
+  await waitSelected('this-quarter')
+
+  // Escape cancels: nothing about the books changes.
+  await closePicker()
+  assert((await periodPill()) === pillBefore, 'Escape left the working period alone')
+
+  // Reopen, pick this quarter, commit with Enter — the period really moves.
+  await openPicker()
+  await h.page.keyboard.press('q')
+  await waitSelected('this-quarter')
+  await h.page.keyboard.press('Enter')
+  await h.page.waitForSelector('[data-testid="preset-this-fy"]', { state: 'detached', timeout: 10000 })
+
+  const pillAfter = await periodPill()
+  assert(pillAfter !== pillBefore, `the header period changed ("${pillBefore}" → "${pillAfter}")`)
+
+  // The property, not the pixels: reopened, the dialog reads the session back and finds it is
+  // exactly this quarter. The date fields of a freshly mounted dialog are the committed period.
+  await openPicker()
+  await waitSelected('this-quarter')
+  const committedTo = await h.page.inputValue('[data-testid="input-period-to"]')
+  assert(
+    pillAfter?.trim().endsWith(committedTo),
+    `the header agrees with the committed period (pill "${pillAfter}", to "${committedTo}")`
+  )
+  await closePicker()
+
+  // And a report is really being run for it: the trial balance states its own as-on date.
+  await home()
+  await h.page.keyboard.press('t')
+  await h.waitScreen('trial-balance', 20000)
+  const asOn = await h.page.textContent('[data-screen="trial-balance"]')
+  assert(
+    (asOn ?? '').includes(`as on ${committedTo}`),
+    `the trial balance is computed for the new period (looking for "as on ${committedTo}")`
+  )
+
+  // ---- Space folds a tree row (A17) ----
+  // A table report first: the selected row's aria-expanded is the property, not the caret glyph.
+  const foldable = []
+  for (const target of ['stock-summary', 'outstandings']) {
+    await home()
+    const accel = accels.find((a) => a.screen === target)
+    if (!accel) continue
+    await h.page.keyboard.press(accel.accel.toLowerCase())
+    await h.waitScreen(target, 20000)
+    const expandedOfActive = () =>
+      h.page.evaluate(() => {
+        const rows = document.querySelectorAll('.kbar-row[data-active="true"][aria-expanded]')
+        const el = rows[rows.length - 1]
+        return el ? el.getAttribute('aria-expanded') : null
+      })
+    if ((await expandedOfActive()) == null) continue
+    foldable.push(target)
+
+    assert((await expandedOfActive()) === 'false', `${target}: the selected row starts folded`)
+    await h.page.keyboard.press('Space')
+    await h.page.waitForFunction(
+      () => {
+        const rows = document.querySelectorAll('.kbar-row[data-active="true"][aria-expanded]')
+        return rows[rows.length - 1]?.getAttribute('aria-expanded') === 'true'
+      },
+      null,
+      { timeout: 10000 }
+    )
+    await h.page.keyboard.press('Space')
+    await h.page.waitForFunction(
+      () => {
+        const rows = document.querySelectorAll('.kbar-row[data-active="true"][aria-expanded]')
+        return rows[rows.length - 1]?.getAttribute('aria-expanded') === 'false'
+      },
+      null,
+      { timeout: 10000 }
+    )
+  }
+  assert(foldable.length > 0, `at least one report exercised Space-to-fold (${foldable.join(', ')})`)
+  await h.shot('11-space-folds-a-row')
+
+  // And the statement trees, whose rows are buttons: Space folds the focused one.
+  await home()
+  await h.page.keyboard.press('b')
+  await h.waitScreen('balance-sheet', 20000)
+  const focusedTree = await h.page.evaluate(() => {
+    const el = document.querySelector('[data-tree-row][aria-expanded="true"]')
+    if (!el) return null
+    el.focus()
+    return el.getAttribute('data-tree-row')
+  })
+  assert(focusedTree != null, 'the balance sheet renders an expanded tree row to fold')
+  await h.page.keyboard.press('Space')
+  await h.page.waitForFunction(
+    (name) => document.querySelector(`[data-tree-row="${name}"]`)?.getAttribute('aria-expanded') === 'false',
+    focusedTree,
+    { timeout: 10000 }
+  )
+  await h.page.keyboard.press('Space')
+  await h.page.waitForFunction(
+    (name) => document.querySelector(`[data-tree-row="${name}"]`)?.getAttribute('aria-expanded') === 'true',
+    focusedTree,
+    { timeout: 10000 }
+  )
+
   // ---- the voucher grid: paste a table, move a line, delete one, round off ----
   await home()
   await h.page.keyboard.press('v')

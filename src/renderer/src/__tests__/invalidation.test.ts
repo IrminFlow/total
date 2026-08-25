@@ -35,6 +35,10 @@ const NOT_NAVIGATION_SCOPED = new Set([
   'auth-users',
   // Audit trails shown inside a record's own modal.
   'employeeAudit', 'voucherAudit',
+  // Voucher templates (#27) exist only inside the picker modal on the entry screen: the list is
+  // fetched when it opens and thrown away when it closes, so arriving at a screen has nothing to
+  // refresh. Saving or deleting one invalidates the family directly.
+  'vtemplates',
   // Keyed on what the user is entering right now, so a stale key is a different key.
   'creditCheck', 'settlement', 'search', 'latestOfType', 'ledgerBalances'
 ])

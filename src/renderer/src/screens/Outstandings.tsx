@@ -84,10 +84,13 @@ export function OutstandingsScreen(): React.JSX.Element {
     enabled: openParty != null
   })
   const parties = data ?? []
-  // Enter expands the party's bill breakdown, matching the click.
+  // Enter and Space (A17) expand the party's bill breakdown, matching the click.
+  const toggleParty = (p: { ledgerId: number }): void =>
+    setOpenParty((cur) => (cur === p.ledgerId ? null : p.ledgerId))
   const table = useTableNav(parties, {
     rowId: (p) => p.ledgerId,
-    onEnter: (p) => setOpenParty((cur) => (cur === p.ledgerId ? null : p.ledgerId))
+    onEnter: toggleParty,
+    onToggle: toggleParty
   })
   const total = parties.reduce((s, p) => s + p.pending, 0)
   const bucketTotals = [0, 1, 2, 3].map((i) => parties.reduce((s, p) => s + p.buckets[i as 0 | 1 | 2 | 3], 0))
@@ -181,7 +184,7 @@ export function OutstandingsScreen(): React.JSX.Element {
             <tbody data-testid="rows-outstandings">
               {parties.map((p, i) => (
                 <Fragment key={p.ledgerId}>
-                  <tr {...table.rowProps(i, p)}>
+                  <tr {...table.rowProps(i, p)} aria-expanded={openParty === p.ledgerId}>
                     <td>
                       <span className="mr-1.5 inline-block w-3 text-label text-muted">{openParty === p.ledgerId ? '▾' : '▸'}</span>
                       {p.name}

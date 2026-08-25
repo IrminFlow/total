@@ -3,6 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CostCentre, Ledger } from '@shared/domain'
 import type { VoucherInputParsed } from '@shared/schemas'
 import { formatPaise } from '@shared/money'
+import {
+  allocationComplete, bpsOfAmount, formatBps, FULL_BPS, parsePercent, splitByPercent, totalBps
+} from '@shared/costSplit'
 import { todayISO } from '@shared/dates'
 import { nextDueAfter } from '@shared/recurring'
 import { api } from '../../lib/client'
@@ -134,6 +137,169 @@ export function SaveAsRecurringModal({
   )
 }
 
+// ---------- named voucher templates (#27) ----------
+
+/**
+ * "Save as template…" — the same shape, without a schedule.
+ *
+ * Sits beside "Save as recurring…" and shares its serialiser (`buildPayload`, the helper the
+ * Save button itself uses), so a template can only ever hold a voucher the entry screen would
+ * have accepted. The difference from recurring is the whole point: this one never posts. It waits
+ * until somebody reaches for it.
+ */
+export function SaveAsTemplateModal({
+  voucherTypeId,
+  buildPayload,
+  onClose
+}: {
+  voucherTypeId: number
+  buildPayload: () => VoucherInputParsed | null | Promise<VoucherInputParsed | null>
+  onClose: () => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const [name, setName] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const save = async (): Promise<void> => {
+    if (!name.trim()) return void toast.push('error', 'Name is required')
+    setSaving(true)
+    try {
+      const payload = await buildPayload()
+      if (!payload) {
+        toast.push('error', 'Finish the voucher (balanced lines / party & items) before saving it as a template')
+        return
+      }
+      await api.vtemplates.save({ name: name.trim(), voucherTypeId, voucherJson: JSON.stringify(payload) })
+      await queryClient.invalidateQueries({ queryKey: ['vtemplates'] })
+      toast.push('success', `Template "${name.trim()}" saved`)
+      onClose()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title="Save as template…" onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <Field label="Name" hint="e.g. “Branch expense journal”">
+          <TextInput autoFocus value={name} data-testid="input-template-name" onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <p className="text-small text-muted">
+          The lines, party and narration are kept. The date and the voucher number are not — both are
+          decided when you actually post it.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={saving} data-testid="btn-save-template" onClick={() => void save()}>
+            Save template
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * Pick a template to load into the form.
+ *
+ * Ordered most-used first by the service, which is the ordering that matters for something typed
+ * daily. A template broken by a later deletion still lists, greyed and unusable, with the reason
+ * on the row — hiding it would leave the user with no way to delete it, and no idea why the one
+ * they remember has gone.
+ */
+export function TemplatePickerModal({
+  voucherTypeId,
+  date,
+  onClose,
+  onPick
+}: {
+  voucherTypeId: number
+  /** The date the loaded voucher should carry — the form's current date, not today. */
+  date: string
+  onClose: () => void
+  onPick: (shape: VoucherInputParsed) => void
+}): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data: templates, isLoading } = useQuery({
+    queryKey: ['vtemplates', voucherTypeId],
+    queryFn: () => api.vtemplates.list(voucherTypeId)
+  })
+
+  const apply = async (id: number): Promise<void> => {
+    try {
+      const { shape } = await api.vtemplates.use(id, date)
+      await queryClient.invalidateQueries({ queryKey: ['vtemplates'] })
+      onPick(shape)
+      onClose()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  const remove = async (id: number, name: string): Promise<void> => {
+    try {
+      await api.vtemplates.remove(id)
+      await queryClient.invalidateQueries({ queryKey: ['vtemplates'] })
+      toast.push('success', `Template "${name}" deleted`)
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+
+  return (
+    <Modal title="Templates" onClose={onClose}>
+      <div className="flex flex-col gap-2" data-testid="template-list">
+        {isLoading ? (
+          <p className="text-small text-muted">Loading…</p>
+        ) : (templates ?? []).length === 0 ? (
+          <p className="text-small text-muted">
+            No templates for this voucher type yet. Fill a voucher in and use “Save as template…”.
+          </p>
+        ) : (
+          (templates ?? []).map((t) => (
+            <div key={t.id} className="flex items-center gap-2 rounded-md border border-hair px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-body-sm">{t.name}</div>
+                <div className="text-caption text-muted">
+                  {t.lineCount} line{t.lineCount === 1 ? '' : 's'} · {formatPaise(t.total)}
+                  {t.usedCount > 0 ? ` · used ${t.usedCount}×` : ''}
+                </div>
+                {t.problem && (
+                  <div className="text-caption text-cr" data-testid="template-problem">
+                    Cannot be used: {t.problem}
+                  </div>
+                )}
+              </div>
+              <Button
+                variant="primary"
+                disabled={t.problem != null}
+                data-testid="btn-use-template"
+                onClick={() => void apply(t.id)}
+              >
+                Use
+              </Button>
+              <button
+                className="text-small text-cr"
+                aria-label={`Delete template ${t.name}`}
+                onClick={() => void remove(t.id, t.name)}
+              >
+                ×
+              </button>
+            </div>
+          ))
+        )}
+        <div className="flex justify-end">
+          <Button onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ---------- per-line cost-centre allocation modal ----------
 
 export function CostAllocModal({
@@ -153,6 +319,18 @@ export function CostAllocModal({
     initial.length ? initial.map((a) => ({ costCentreId: a.costCentreId, amount: a.amount })) : [{ costCentreId: null, amount: null }]
   )
 
+  /**
+   * Percentage mode (#41). "Rent is 40% Mumbai, 35% Pune" is how the split is decided; the
+   * amounts are derived from it every time the rent changes, and deriving them by hand is where
+   * a paisa goes missing and the voucher stops saving.
+   *
+   * The two modes hold DIFFERENT state rather than one being computed from the other on every
+   * keystroke: percentages that had to survive a round trip through amounts could not express
+   * 33.33% of an odd line at all, and would drift each time the modal was reopened.
+   */
+  const [mode, setMode] = useState<'amount' | 'percent'>('amount')
+  const [pctText, setPctText] = useState<string[]>([])
+
   const setRow = (i: number, patch: Partial<{ costCentreId: number | null; amount: number | null }>): void => {
     setRows((rs) => {
       const next = rs.map((r, j) => (j === i ? { ...r, ...patch } : r))
@@ -161,14 +339,66 @@ export function CostAllocModal({
       return next
     })
   }
-  const removeRow = (i: number): void => setRows((rs) => rs.filter((_, j) => j !== i))
+  const removeRow = (i: number): void => {
+    setRows((rs) => rs.filter((_, j) => j !== i))
+    setPctText((ps) => ps.filter((_, j) => j !== i))
+  }
 
-  const allocated = rows.reduce((s, r) => s + (r.amount ?? 0), 0)
+  const setPct = (i: number, text: string): void => {
+    setPctText((ps) => {
+      const next = [...ps]
+      next[i] = text
+      return next
+    })
+    // Keep the trailing blank row appearing as rows fill up, exactly as amount mode does.
+    setRows((rs) => {
+      const last = rs[rs.length - 1]!
+      return last.costCentreId != null ? [...rs, { costCentreId: null, amount: null }] : rs
+    })
+  }
+
+  // Basis points per row, 0 for a row that is blank or unparseable — an unreadable cell is worth
+  // nothing rather than silently keeping its last good value.
+  const bps = rows.map((_, i) => parsePercent(pctText[i] ?? '') ?? 0)
+  // Split ONCE over the whole line by largest remainder, so the parts sum to the line exactly.
+  const pctAmounts = splitByPercent(lineAmount, bps)
+
+  const effective = rows.map((r, i) => ({
+    costCentreId: r.costCentreId,
+    amount: mode === 'percent' ? (pctAmounts[i] ?? 0) : (r.amount ?? 0)
+  }))
+  const allocated = effective.reduce((s, r) => s + r.amount, 0)
   const remaining = lineAmount - allocated
+  const pctTotal = totalBps(bps)
+
+  /** Switching modes carries the allocation across rather than clearing it. */
+  const switchMode = (next: 'amount' | 'percent'): void => {
+    if (next === mode) return
+    if (next === 'percent') {
+      setPctText(rows.map((r) => (r.amount ? formatBps(bpsOfAmount(r.amount, lineAmount)).replace('%', '') : '')))
+    } else {
+      setRows((rs) => rs.map((r, i) => ({ ...r, amount: pctAmounts[i] ?? r.amount })))
+    }
+    setMode(next)
+  }
+
+  const tabCls = (active: boolean): string =>
+    `rounded px-2 py-0.5 text-caption ${active ? 'bg-accent text-onaccent' : 'text-muted hover:text-body'}`
 
   return (
     <Modal title="Cost centre allocation" onClose={onClose}>
       <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-1" role="group" aria-label="Allocate by">
+          <span className="mr-1 text-caption text-muted">Allocate by</span>
+          <button type="button" className={tabCls(mode === 'amount')} data-testid="btn-alloc-amount"
+            aria-pressed={mode === 'amount'} onClick={() => switchMode('amount')}>
+            Amount
+          </button>
+          <button type="button" className={tabCls(mode === 'percent')} data-testid="btn-alloc-percent"
+            aria-pressed={mode === 'percent'} onClick={() => switchMode('percent')}>
+            Percentage
+          </button>
+        </div>
         {rows.map((r, i) => (
           <div key={i} className="flex items-center gap-2">
             <Select
@@ -183,9 +413,31 @@ export function CostAllocModal({
                 </option>
               ))}
             </Select>
-            <AmountInput paise={r.amount} onPaise={(p) => setRow(i, { amount: p })} className="w-32" />
+            {mode === 'amount' ? (
+              <AmountInput paise={r.amount} onPaise={(p) => setRow(i, { amount: p })} className="w-32" />
+            ) : (
+              <span className="flex w-32 items-center gap-1">
+                <TextInput
+                  value={pctText[i] ?? ''}
+                  onChange={(e) => setPct(i, e.target.value)}
+                  placeholder="0"
+                  inputMode="decimal"
+                  aria-label="Share of the line, per cent"
+                  data-testid="input-alloc-percent"
+                  className="num text-right"
+                />
+                <span className="text-caption text-muted">%</span>
+              </span>
+            )}
+            {mode === 'percent' && (
+              // What the percentage is worth, stated rather than left to be worked out — the
+              // whole reason to allocate by percentage is not having to do this arithmetic.
+              <span className="num w-28 shrink-0 text-right text-caption text-muted" data-testid="alloc-percent-amount">
+                {r.costCentreId != null ? formatPaise(pctAmounts[i] ?? 0) : ''}
+              </span>
+            )}
             {i < rows.length - 1 && (
-              <button className="text-small text-cr" onClick={() => removeRow(i)}>
+              <button className="text-small text-cr" onClick={() => removeRow(i)} aria-label="Remove allocation">
                 ×
               </button>
             )}
@@ -194,16 +446,22 @@ export function CostAllocModal({
         <p className={`text-small ${remaining === 0 ? 'text-muted' : remaining < 0 ? 'text-cr' : 'text-accent'}`}>
           Allocated {formatPaise(allocated)} of {formatPaise(lineAmount)}
           {remaining !== 0 ? ` — ${formatPaise(Math.abs(remaining))} ${remaining > 0 ? 'remaining' : 'over'}` : ''}
+          {mode === 'percent' && pctTotal !== FULL_BPS ? ` (${formatBps(pctTotal)} of 100%)` : ''}
         </p>
+        {mode === 'percent' && allocationComplete(bps) && (
+          <p className="text-caption text-muted">
+            The shares add to the line exactly — the odd paise go to whichever share came closest to earning them.
+          </p>
+        )}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button
             variant="primary"
             onClick={() => {
               onSave(
-                rows
-                  .filter((r): r is { costCentreId: number; amount: number } => r.costCentreId != null && (r.amount ?? 0) > 0)
-                  .map((r) => ({ costCentreId: r.costCentreId, amount: r.amount! }))
+                effective
+                  .filter((r): r is { costCentreId: number; amount: number } => r.costCentreId != null && r.amount > 0)
+                  .map((r) => ({ costCentreId: r.costCentreId, amount: r.amount }))
               )
               onClose()
             }}

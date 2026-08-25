@@ -30,7 +30,16 @@ Ordering within a section is roughly by value.
     the other screen, holding `⌘` walks the last eight (`⇧` the other way). The ring is frozen
     for the length of a cycle, so committing a jump cannot shuffle the entries under the
     highlight while they are being read.
-13. Keyboard-driven date-range picker on the period pill (S)
+13. ✓ Keyboard-driven date-range picker on the period pill (S) — `⌘⇧P` from anywhere, and the
+    pill itself says so. `⌘P` is Print in the application menu and the bare `P` is Profit & Loss,
+    so the shift chord was the only form left that does not take something away.
+    Inside: one key per quick-pick, arrows to walk them, Enter to commit, Esc to cancel, and the
+    two date fields keep DateInput's Tally shorthand. The presets are pure and tested
+    (`src/shared/periodPresets.ts`) rather than computed inline, because "last month" and "this
+    quarter" are year arithmetic and year arithmetic in a component is year arithmetic nobody
+    tests — a quarter here is the statutory one (Q1 = Apr–Jun), deferred to `periodBounds` rather
+    than restated. Year to date ends TODAY rather than at the year end, which is the whole point
+    of it.
 14. ✓ `Alt+↑/↓` moves a voucher line up or down in the grid (S) — `⌥` rather than `⌘`,
     because `⌘↑/↓` is top-and-bottom-of-document everywhere else on macOS. Which line moves is
     read off the DOM rather than tracked in state: focus already arrives by six different
@@ -41,7 +50,14 @@ Ordering within a section is roughly by value.
     confirm, and a modal between the key and the deletion turns a keyboard action back into a
     mouse one. The ticked-rows bulk delete keeps its dialog, because "did you mean all nine" is
     a question no undo answers as clearly.
-17. Space toggles the expand/collapse state of a tree row (S)
+17. ✓ Space toggles the expand/collapse state of a tree row (S) — on the row the list layer has
+    selected, on every report that has sub-rows.
+    The interesting part is where it deliberately does NOT fire. The Balance Sheet and P&L trees
+    are made of real `<button>` rows, and a focused button is already activated by Space by the
+    browser — binding it again in the list layer would fold the row twice, which reads as it not
+    working at all. So the layer checks what focus is actually on and stands down for the
+    elements the browser already handles. It also stands down inside a text field, and it
+    preventDefaults what it consumes, because Space is page-down everywhere else.
 18. ✓ `⌘⇧F` opens global search scoped to the current screen (S) — the same palette with the
     commands dropped and the results narrowed to what the screen is about (vouchers on the Day
     Book, ledgers and items in Masters). A screen that narrows nothing gets ⌘K's behaviour
@@ -51,7 +67,20 @@ Ordering within a section is roughly by value.
     layer, so binding `G` shadows the Gateway on every screen with a list. The preference says
     so in as many words, and ⌘1 still goes home.
 20. A visible focus-ring audit: every interactive control reachable by Tab (M)
-21. Shortcut conflicts surfaced in Settings when a screen shadows a nav letter (S)
+21. ✓ Shortcut conflicts surfaced in Settings when a screen shadows a nav letter (S) — the layer
+    stack already did the right thing: a screen's letters sit above the navigation ones, so `C`
+    starts a contra on voucher entry rather than jumping to Cost centres. That was never the
+    complaint. The complaint is that it was undiscoverable — the sidebar greys the shadowed
+    letter out only while the screen that took it is open, which explains it at exactly the
+    moment nobody is looking at the sidebar.
+    Settings → Appearance now lists every collision: the key, the screen, what it does there and
+    where it would otherwise have gone. Read-only, because #22 declined remapping and that reason
+    holds; naming the collisions is the part of the complaint worth fixing.
+    The list is DERIVED from the same array the screen binds (`lib/voucherTypeKeys.ts`, lifted
+    out of the screen component for exactly this) rather than hand-maintained beside it — a
+    second list is how the `?` overlay drifted from the behaviour before the registry existed,
+    quietly and for months. A claimed letter that no screen navigates to is not reported: `J` is
+    a journal and nothing else anywhere, and listing it would bury the five that matter.
 22. ✗ Per-user shortcut remapping stored in the company meta (M) — declined. The uniqueness
     guard in `__tests__/accel.test.ts` can be kept honest (it would only ever check the
     defaults), so that is not the reason. The reason is that every surface in this app renders
@@ -77,10 +106,31 @@ Ordering within a section is roughly by value.
 ## B. Data entry speed
 
 26. ✓ Undo for voucher delete, offered on the toast (M)
-27. Voucher templates beyond recurring: save any voucher as a named template (M)
+27. ✓ Voucher templates beyond recurring: save any voucher as a named template (M) — a separate
+    table, not a reuse of `recurring_templates`. That table's cadence and `next_due` are NOT
+    NULL, because it is a schedule that happens to carry a shape; squeezing a template into one
+    means inventing a cadence, and an invented cadence posts entries nobody asked for.
+    A template never posts. Applying one loads the entry form and the user saves it like any
+    other voucher. The date is normalised to an obviously-unreal placeholder rather than dropped
+    (the schema requires one, and a stored shape that no longer validates is a template that can
+    never be applied) and every apply replaces it; the number is dropped outright, because
+    numbers are allocated against the series for the voucher's own financial year at save time.
+    Stored shapes are re-validated on the way OUT as well as in, so a template whose ledger was
+    deleted last March says which ledger instead of failing inside a foreign key — and it still
+    lists, greyed, because otherwise there would be no way to delete it.
 28. ✓ Copy the previous voucher of the same type with one key (S)
 29. ✓ Auto-fill the narration from the party and item names (S)
-30. Inline ledger creation without leaving the picker (already partly there) (S)
+30. ✓ Inline ledger creation without leaving the picker (already partly there) (S) — the
+    "Create X" row already existed; it opened a form. The form is only earning its place when
+    the group is a real question, and in the two commonest cases it is not: the party on a sales
+    invoice is a debtor, the party on a purchase is a creditor, and the account side is Sales or
+    Purchase Accounts. Those four now create and select in one keystroke, with the destination
+    named on the create row BEFORE it is used and an undo on the toast afterwards.
+    Everywhere else still opens the form. A guessed group is worse than a modal: a ledger under
+    the wrong group lands in the wrong half of the balance sheet and nothing about the entry
+    looks wrong afterwards. The undo is what makes the confident cases safe without a
+    confirmation — the answer to a mistyped name is a way back, not a dialog on the ninety-nine
+    that were right.
 31. ✓ Paste a table of lines from a spreadsheet directly into the voucher grid (M) — both
     grids. Reads tab-separated (what a spreadsheet puts on the clipboard) or CSV, and the three
     layouts a bookkeeper's sheet actually uses: name+amount, name+Dr/Cr+amount, and the classic
@@ -92,15 +142,47 @@ Ordering within a section is roughly by value.
     balance.
 32. ✓ Amount field accepts arithmetic: `1200*3` yields 3,600 (S)
 33. ✓ Amount field accepts `k`, `L` and `cr` suffixes (S)
-34. Quantity field accepts a unit-conversion expression (`2 box` → 24 pcs) (M)
+34. ✓ Quantity field accepts a unit-conversion expression (`2 box` → 24 pcs) (M) — and
+    arithmetic with it: `2 box + 3`, `12*8` off a delivery note that only totals by carton,
+    `144/2` for half a gross. The amount box has read expressions for a while and the quantity
+    box had not, which was the wrong way round — the amount is usually one figure off an
+    invoice, and the quantity is where the mental arithmetic actually happens.
+    Same restricted evaluator as the amount box, deliberately: left to right, four operators, no
+    precedence. A quantity box that silently applies precedence to `2+3*4` is worse than one
+    that refuses, because the resulting stock figure looks perfectly reasonable and nothing
+    downstream can tell it was not meant. Integer thousandths throughout, and the operand of `*`
+    and `/` is read as a count rather than a quantity — `2 box * 3` is three lots of two boxes.
+    This also removed a live float: the invoice grid was computing its displayed line amount as
+    `parseFloat(qty) * rate`, which is a different number from the integer one it sent to the
+    books.
 35. ✓ Remember the last-used voucher type, across sessions rather than just within one (S)
 36. ✓ Warn before saving a voucher dated outside the open period (S)
 37. ✓ Duplicate-number detection extended to duplicate amount+party+date (S) — already
     shipped: `findDuplicates` matches type + party + total within a ±3-day window, pre-save.
 38. ✓ A "post and new" button that keeps the party and date (S)
-39. Bulk edit: change the narration or cost centre on many vouchers at once (M)
+39. ✓ Bulk edit: change the narration or cost centre on many vouchers at once (M) — the two
+    fields that are routinely wrong in bulk and never wrong individually: a month keyed with no
+    narration, or a quarter of branch expenses never allocated because the cost centre was added
+    to the chart in April. Amounts, ledgers, dates and bill references are never touched, and
+    "change it on all of them" is never the right way to say any of those.
+    All or nothing. A voucher inside the locked period or in the bin aborts the run before
+    anything is written — a bulk edit that did 91 of 100 and mentioned it in a toast is one
+    nobody can reconcile afterwards. The cost-centre change REPLACES what is allocated, at each
+    line's full amount, and leaves out the party line and the cash/bank line: a cost centre
+    answers which part of the business a cost belonged to, and money leaving the bank belongs to
+    all of them. One narrow audit row per voucher, so a later reader can see this was a sweep
+    rather than a re-keying.
 40. ✓ Bulk delete to the bin from the Day Book with a confirm (S)
-41. Split a voucher line across cost centres by percentage rather than amount (S)
+41. ✓ Split a voucher line across cost centres by percentage rather than amount (S) — "rent is
+    40% Mumbai, 35% Pune, 25% head office" is how the split is decided; the amounts are derived
+    from it every time the rent changes, and deriving them by hand is where the paisa goes
+    missing and the voucher stops saving. 40% of ₹1,00,000.33 is thirteen and a fifth paise;
+    round each share on its own and the three no longer add to the line.
+    So the split is done once over the whole line by largest remainder: every share gets its
+    floor and the leftover paise go one each to the shares with the largest discarded fraction.
+    Sums to the line by construction, and deterministic — reopening the modal cannot reshuffle
+    which share got the odd paisa. Percentages are integer basis points; a percentage stored as a
+    float would reintroduce one layer up exactly the imprecision this avoids.
 42. ✓ Round-off line added automatically when a line is a paisa out (S) — offered rather than
     added, on a button beside the totals and on `⌥O`. Below 99 paise the difference is
     arithmetic (rupee rounding under section 170, a percentage split landing on a third of a
@@ -121,7 +203,15 @@ Ordering within a section is roughly by value.
     the form rather than restored over whatever is on screen. New vouchers only: an alteration's
     fields come from a voucher already on the books, and that is the truth.
 46. A scratchpad ledger for entries the user has not decided how to classify (S)
-47. Barcode scan jumps straight to quantity on the matched item line (S)
+47. ✓ Barcode scan jumps straight to quantity on the matched item line (S) — the scan detector
+    already distinguished a scanner's fast burst from a person typing (`@shared/barcode`) and
+    already jumped to the matched item. The cursor then sat in the item cell, on the one field
+    the scan had just answered. It now moves to the quantity.
+    Only on a scan. Typing a name does NOT move focus: someone reading down a list is still
+    choosing, and yanking the cursor out of the cell they are working in would be worse than
+    leaving it. The row is tracked by its stable key rather than its index, because the trailing
+    blank row is inserted as lines fill and an index would hand back whichever row slid into that
+    position.
 48. ✓ Repeat-last-line key for entering many similar lines (S) — `⌥R` copies the whole last
     filled line, side and amount included: on the twenty-branch expense journal the amount is
     the field most likely to be right already, and it is one keystroke to change when it is not.
@@ -256,8 +346,26 @@ Ordering within a section is roughly by value.
 124. ✓ Stock valuation method per item, not per company (M) — already shipped: stock_items
      .valuation_method is per item and the valuation engine honours it (weighted average or
      FIFO) when pricing every outward movement.
-125. Bill of materials with scrap and yield percentages (M)
-126. Sub-assembly BOMs, nested (L)
+125. ✓ Bill of materials with scrap and yield percentages (M) — two numbers, and they are not the
+     same number. Scrap is PER COMPONENT: cutting a hundred shirts wastes cloth, and the wastage
+     belongs to the cloth line, not to the buttons. Yield is PER FINISHED ITEM: of a hundred
+     units started, ninety-seven pass inspection, and that inflates every component equally. A
+     single "wastage %" would have to be one or the other and would be wrong for the other.
+     Both are hundredths of a percent as integers, defaulting to 0 and 100.00%, so every BOM that
+     existed before this keeps producing exactly the numbers it produced yesterday — proven by a
+     test that saves through the schema with neither field present. The ratio is evaluated in
+     BigInt (qtyMilli × qtyMilli overflows a double's safe integers) and rounded once at the end,
+     so scrap and yield cannot each round the same way and compound.
+126. ✓ Sub-assembly BOMs, nested (L) — a component that has its own BOM explodes into ITS
+     components, compounding scrap and yield down the tree. Rounded once per LEVEL rather than
+     once at the leaves, because the intermediate is a real quantity: it is what the shop floor
+     actually makes, it is the number on the screen, and the materials under it have to be the
+     materials for that number.
+     `wouldCreateBomCycle` already refused to save a cycle; explosion is separately cycle-safe at
+     runtime, because a database that predates that guard should give an error naming the chain
+     rather than a stack overflow. Depth is bounded at twenty with an honest message. The
+     manufacture voucher consumes the raw-material LEAVES — a sub-assembly is made on the way
+     past, and consuming it as well as its own materials would double-count every one of them.
 127. Job-work stock sent out and received back (L)
 128. Price list versioning with effective dates (M)
 129. ✓ Item groups with inherited GST rate and HSN (S)
@@ -266,21 +374,92 @@ Ordering within a section is roughly by value.
 ## F. Banking and reconciliation
 
 131. ✓ Per-bank statement import profiles: HDFC, ICICI, SBI, Axis, Kotak (M)
-132. PDF bank statement table extraction for the top banks (L)
+132. ✗ PDF bank statement table extraction for the top banks (L) — declined, and this is the
+     one item where refusing is the feature. There is no PDF text-extraction library in this
+     app and adding one is not a small decision: the app writes PDFs through Chromium's
+     `printToPDF`, which cannot read them, so extraction means a real dependency (pdf.js is
+     ~1 MB of parser plus a worker) shipped into an offline desktop build.
+     The dependency is not the reason to decline. The reason is that a bank statement PDF has
+     no table in it. It has glyphs at coordinates, and "which column is this number in" is a
+     clustering guess that a two-column layout, a wrapped narration or a rotated page gets
+     wrong silently — the number lands under Deposit instead of Withdrawal and the row still
+     looks perfectly reasonable. Every bank changes that layout without telling anyone, and
+     there is no header row to detect the change from, which is exactly what makes the CSV
+     profiles in #131 safe.
+     A bank import that quietly gets one number wrong is worse than one that refuses the file.
+     Every bank in India offers CSV or XLS from the same download screen as the PDF, and #131
+     reads all five plus anything a user maps by hand. That is the honest path, and it is the
+     one the app points at.
 133. ✓ Auto-match on narration keywords, learned from past matches (M)
 134. ✓ Bulk-accept all high-confidence matches (S)
-135. Bank charges and interest auto-posted from matched lines (M)
-136. Cheque printing with configurable layouts per bank (M)
-137. Post-dated cheque calendar view (S)
-138. Bounced-cheque handling with the reversal entry (M)
+135. ✓ Bank charges and interest auto-posted from matched lines (M) — the rows that never
+     match anything, because no voucher was ever written for them: the quarterly fee, the GST
+     on the fee, interest credited, OD interest debited. They sit in the unmatched list forever
+     and get keyed by hand off a printout at year end.
+     Recognised from the narration by whole WORD, not by substring, and that is the whole
+     design: `matchRules` matches a plain substring, and "CHARGE" is inside "RECHARGE", so a
+     shipped rule saying CHARGE would post every mobile top-up to Bank Charges — real money,
+     wrong account, and it looks right afterwards. The direction is part of the test too: a
+     deposit whose narration says CHARGES is a refund of one, and posting that as an expense is
+     backwards. The four ledgers are created on an explicit action rather than by opening a
+     file, and the GST line goes to Duties & Taxes rather than the P&L, because it is
+     recoverable input tax and burying it loses the credit. A user's own rule still wins.
+136. ✓ Cheque printing with configurable layouts per bank (M) — already shipped: the layout is
+     stored per bank ledger (`meta.cheque.<ledgerId>`), every field position is in millimetres,
+     and there is a 5 mm-gridded calibration sheet to print onto the real stationery before
+     printing onto a real cheque. Per bank rather than per company because the CTS-2010 field
+     positions differ by issuer, and one shared layout would be wrong for every account but one.
+137. ✓ Post-dated cheque calendar view (S) — the register was already a list sorted by date,
+     which answers "what is next". The question the register is actually opened for is "how much
+     clears in the week of the 15th, and is there enough in the account by then", and that one
+     needs the month arranged the way a month is arranged, with the empty days visible. Six rows
+     always, so paging through months does not make the panel jump.
+138. ✓ Bounced-cheque handling with the reversal entry (M) — two facts, and only one of them is
+     accounting. The reversal flips EVERY line of the original (a receipt with a TDS or discount
+     line reverses wrongly if only the party and the bank are undone), re-raises each `against`
+     bill reference as a `new` one under the SAME bill name so the invoice re-opens instead of
+     the money landing on account, and carries the ORIGINAL due date forward — ageing that
+     restarted on the bounce date would reward the customer for the cheque failing, which is the
+     opposite of what recording a bounce is for. The bank's return charge goes on the same
+     journal.
+     The other fact is about the customer, and no voucher carries it: a journal reversing a
+     receipt is indistinguishable from a journal correcting a keying error, so "this party's
+     cheques bounce" is unrecoverable from the books alone. Hence a `cheque_bounces` row and a
+     count per party, which is the number a credit decision actually wants.
 139. ✓ Bank balance as-per-books versus as-per-statement, per account (S) — on Banking's All
      accounts tab rather than the Gateway, where it sits beside the reconciliation state that
      explains the difference.
 140. Multi-currency bank accounts with revaluation (L)
-141. UPI transaction import from a CSV (M)
-142. Reconciliation freeze: lock reconciled periods (M)
+141. ✓ UPI transaction import from a CSV (M) — a UPI statement is structurally an ordinary
+     statement, so #131's profiles and the column mapper already read the file. What UPI needed
+     was the narration, which is not prose but a fixed set of slash-separated fields every bank
+     writes differently.
+     Two things follow, and both are the value. The twelve-digit UTR is what the payer quoted
+     when they messaged to say they had paid, so it is usually already in the receipt's
+     reference field — matched on FIRST now, ahead of the ±5-day amount proximity test, because
+     a shared reference is much stronger evidence than a near date. The amount must still agree
+     exactly: a part payment quoting the same UTR is not the same transaction.
+     That same UTR also poisoned narration learning — a token that occurs exactly once and never
+     again makes every UPI narration look unlike every other one. Stripping it leaves the
+     counterparty, which is the part that repeats and the part worth remembering.
+142. ✓ Reconciliation freeze: lock reconciled periods (M) — the company-wide books lock stops
+     vouchers moving and says nothing about bank dates, so a signed-off reconciliation could be
+     silently undone: clearing one `bank_date` in a closed quarter changes last year's BRS and
+     nothing anywhere records it.
+     Per bank account, not company-wide: accounts are reconciled on their own schedules, and one
+     shared date would either lock an account nobody has reconciled or leave the reconciled one
+     open. Both ends are checked — moving a date OUT of the frozen window changes the frozen BRS
+     exactly as much as moving one in. An import or a bulk accept that would cross the line is
+     refused before it writes anything, because a half-applied import is worse than a refused
+     one.
 143. ✓ Unreconciled-items ageing report (S)
-144. Split a single bank line across several vouchers (M)
+144. ✓ Split a single bank line across several vouchers (M) — one deposit of ₹1,00,000 settling
+     three separate receipts. The engine could already find the combination (`findSumCombos`),
+     and `matchSuggestions` had been returning those groups through IPC for a while — but no
+     screen called it, so the whole feature was unreachable, which is the same class of bug as a
+     hover-only affordance. It is now in the reconciliation flow, showing the constituent
+     vouchers and their sum before anything is accepted: a combination that adds up by
+     coincidence is a real risk and the user is the only one who can rule it out.
 145. ✓ Import the same statement twice without duplicating (S) — already shipped: a line that
      already carries a bank date is reported as alreadyReconciled, never re-matched.
 146. ✓ Statement import preview showing what will change, before it changes (S) — already

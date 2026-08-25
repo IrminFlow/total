@@ -4,7 +4,15 @@ import type { ComparedNode } from '@shared/statementCompare'
 import { useNav } from '../state/stores'
 import { Money } from './ui'
 
-/** Drill-down tree used by P&L and Balance Sheet: groups expand, ledgers open their statement. */
+/**
+ * Drill-down tree used by P&L and Balance Sheet: groups expand, ledgers open their statement.
+ *
+ * Each row is a real `<button>`, which is what makes A17 ("Space folds a tree row") true here
+ * without a line of key handling: the browser already activates a focused button on Space and
+ * on Enter, and already swallows the page-scroll that Space would otherwise cause. Binding it
+ * again in the list layer would fold the row twice — see `SPACE_ACTIVATES` in components/ui.tsx,
+ * which is the guard that stops the two paths overlapping.
+ */
 export function StatementTree({
   nodes,
   depth = 0,
@@ -56,6 +64,8 @@ function StatementRow({
       <button
         className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left hover:bg-panel2"
         style={{ paddingLeft: `${8 + depth * 18}px` }}
+        data-tree-row={node.name}
+        aria-expanded={node.children.length > 0 ? open : undefined}
         onClick={() => {
           if (isLeafLedger) nav.go({ name: 'ledger-statement', ledgerId: node.id })
           else if (node.children.length) setOpen((v) => !v)
@@ -113,6 +123,8 @@ function ComparedRow({ node, depth }: { node: ComparedNode; depth: number }): Re
       <button
         className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left hover:bg-panel2"
         style={{ paddingLeft: `${8 + depth * 18}px` }}
+        data-tree-row={node.name}
+        aria-expanded={node.children.length > 0 ? open : undefined}
         onClick={() => {
           if (isLeafLedger) nav.go({ name: 'ledger-statement', ledgerId: node.id })
           else if (node.children.length) setOpen((v) => !v)

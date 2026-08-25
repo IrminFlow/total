@@ -1,6 +1,8 @@
 import { forwardRef, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { formatPaise, parseRupees } from '@shared/money'
 import { isExpression, parseAmountExpression } from '@shared/amountExpr'
+import { conversionHint, isQtyExpression, parseQtyExpression } from '@shared/qtyExpr'
+import type { AltUnit } from '@shared/units'
 import { parseSmartDate, toDisplayDate } from '@shared/dates'
 import { useAnnouncer, useKeyPrefs, useToasts } from '../state/stores'
 import { isBlocked, isPlainKey, isTypingTarget, topLayer, useKeyLayer } from '../lib/keyboard'
@@ -360,6 +362,79 @@ export function AmountInput({
       {preview && (
         <span className="mt-0.5 block text-right text-micro text-muted" data-testid={`${testId}-preview`}>
           = {preview}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/**
+ * Quantity input: arithmetic and alternate units, the same way AmountInput handles money (#34).
+ *
+ * Holds TEXT, not a number, and hands the caller the parsed thousandths alongside it. The text
+ * has to survive round-trips because `2 box` and `24` are the same quantity and only one of them
+ * is what the user typed — resolving the box away on every keystroke would make the field
+ * impossible to correct halfway through.
+ *
+ * The unit symbol sits inside the control rather than beside it so the two cannot drift apart in
+ * a narrow grid cell, and the conversion caption appears only when there is a conversion to
+ * state (see conversionHint).
+ */
+export function QtyInput({
+  text,
+  onText,
+  baseSymbol,
+  alt,
+  decimals = 3,
+  onEnter,
+  inputRef,
+  className,
+  testId = 'input-qty'
+}: {
+  text: string
+  /** Raw text plus what it parsed to, in base thousandths — null when it does not parse. */
+  onText: (text: string, baseQtyMilli: number | null) => void
+  baseSymbol: string
+  /** The item's alternate unit, or null when it has none. */
+  alt: AltUnit | null
+  /** Display precision of the base unit, from the unit master. */
+  decimals?: number
+  onEnter?: () => void
+  inputRef?: React.RefObject<HTMLInputElement | null>
+  className?: string
+  testId?: string
+}): React.JSX.Element {
+  const parsed = text.trim() === '' ? null : parseQtyExpression(text, baseSymbol, alt)
+  const invalid = text.trim() !== '' && parsed == null
+  const hint = parsed ? conversionHint(parsed, baseSymbol, alt, decimals) : null
+  // Only worth previewing what a plain number parser would have refused; echoing '24' back as
+  // '24' is noise in a row of eight cells.
+  const preview = parsed && !hint && isQtyExpression(text) ? (parsed.baseQtyMilli / 1000).toFixed(decimals) : null
+
+  return (
+    <span className={`block min-w-0 ${className ?? ''}`}>
+      <span className="flex items-center gap-1.5">
+        <input
+          ref={inputRef}
+          className={`${inputCls} num text-right ${invalid ? 'border-cr/70' : ''}`}
+          data-testid={testId}
+          value={text}
+          inputMode="decimal"
+          placeholder="0"
+          aria-invalid={invalid || undefined}
+          onChange={(e) =>
+            onText(e.target.value, parseQtyExpression(e.target.value, baseSymbol, alt)?.baseQtyMilli ?? null)
+          }
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && onEnter) onEnter()
+          }}
+        />
+        <span className="w-8 shrink-0 text-caption text-muted">{baseSymbol}</span>
+      </span>
+      {invalid && <span className="mt-0.5 block text-micro text-cr">Not a quantity</span>}
+      {(hint ?? preview) && (
+        <span className="mt-0.5 block text-right text-micro text-muted" data-testid={`${testId}-preview`}>
+          {hint ?? `= ${preview} ${baseSymbol}`}
         </span>
       )}
     </span>
@@ -833,6 +908,7 @@ export const LIST_SHORTCUTS: { keys: string[]; label: string }[] = [
   { keys: ['Home', 'End'], label: 'Jump to the first or last row' },
   { keys: ['PgUp', 'PgDn'], label: 'Move ten rows at a time' },
   { keys: ['⌘⌫'], label: 'Delete the selected row, with an undo on the toast' },
+  { keys: ['Space'], label: 'Expand or collapse the selected row, on a report that has sub-rows' },
   // Advertised whether or not the preference is on: a shortcut nobody can find out about is a
   // shortcut nobody uses, and the row says where to turn it on.
   { keys: ['gg', 'G'], label: 'First / last row — vim keys, off until Settings → Appearance' }
@@ -845,7 +921,28 @@ const PAGE_JUMP = 10
 /** How long a lone `g` waits for its partner before it stops meaning anything (vim keys). */
 const G_CHORD_MS = 800
 
-export function useKeyNav(count: number, onEnter: (index: number) => void, enabled = true): {
+/**
+ * Elements the browser already activates with Space, so the row bar must keep its hands off it.
+ *
+ * The statement trees on the Balance Sheet and P&L are nested `<button>`s: Space on a focused
+ * button fires that button's click, and if this layer also toggled the selected table row the
+ * one keypress would fold two different things. Chromium does not set `defaultPrevented` for a
+ * button's own Space, so there is nothing else to read this off.
+ */
+const SPACE_ACTIVATES = 'button, a[href], summary, [role="button"], [role="option"]'
+
+function spaceBelongsToFocus(): boolean {
+  const el = typeof document === 'undefined' ? null : document.activeElement
+  return !!el && typeof el.closest === 'function' && el.closest(SPACE_ACTIVATES) !== null
+}
+
+export function useKeyNav(
+  count: number,
+  onEnter: (index: number) => void,
+  enabled = true,
+  /** Space on the selected row — expand or collapse it (roadmap A17). */
+  onToggle?: (index: number) => void
+): {
   active: number
   setActive: (i: number) => void
 } {
@@ -856,6 +953,8 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
   activeRef.current = active
   const onEnterRef = useRef(onEnter)
   onEnterRef.current = onEnter
+  const onToggleRef = useRef(onToggle)
+  onToggleRef.current = onToggle
   // Whether the last move came from the keyboard. Only those are announced: a pointer user
   // sweeping down a table moves the selection dozens of times a second, and a live region fed
   // from that is a stuck record. Screen-reader users are on the keyboard by definition.
@@ -935,6 +1034,16 @@ export function useKeyNav(count: number, onEnter: (index: number) => void, enabl
         if (countRef.current > 0) onEnterRef.current(activeRef.current)
         return true
       }
+      // Space folds the selected row (A17). `e.code` as well as `e.key` because a Space that
+      // arrives with a dead-key or IME state set reports an empty `key` on some layouts.
+      if (e.key === ' ' || e.code === 'Space') {
+        if (!onToggleRef.current || !isPlainKey(e) || spaceBelongsToFocus()) return false
+        // Unconditionally: Space is page-scroll otherwise, and a report that jumps a screenful
+        // every time a row folds is worse than one that does not fold at all.
+        e.preventDefault()
+        if (countRef.current > 0) onToggleRef.current(activeRef.current)
+        return true
+      }
       return false
     },
     { enabled, topOfKind: true }
@@ -978,6 +1087,8 @@ export function useTableNav<T>(
   rows: T[],
   opts: {
     onEnter?: (row: T, index: number) => void
+    /** Space on the selected row — expand or collapse it, matching the click on the ▸ row. */
+    onToggle?: (row: T, index: number) => void
     rowId?: (row: T, index: number) => string | number
     enabled?: boolean
   } = {}
@@ -992,9 +1103,11 @@ export function useTableNav<T>(
     onClick?: (e: React.MouseEvent) => void
   }
 } {
-  const { onEnter, rowId, enabled = true } = opts
+  const { onEnter, onToggle, rowId, enabled = true } = opts
   const onEnterRef = useRef(onEnter)
   onEnterRef.current = onEnter
+  const onToggleRef = useRef(onToggle)
+  onToggleRef.current = onToggle
   const rowsRef = useRef(rows)
   rowsRef.current = rows
 
@@ -1004,7 +1117,15 @@ export function useTableNav<T>(
       const row = rowsRef.current[index]
       if (row !== undefined) onEnterRef.current?.(row, index)
     },
-    enabled
+    enabled,
+    // Passed only when the caller wants it: without a handler the layer declines Space, so a
+    // list with nothing to fold leaves the key to whatever is underneath.
+    onToggle
+      ? (index) => {
+          const row = rowsRef.current[index]
+          if (row !== undefined) onToggleRef.current?.(row, index)
+        }
+      : undefined
   )
 
   return {

@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { Button, EmptyState, Money, Panel, SectionTitle, useTableNav } from '../components/ui'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { addDays, toDisplayDate, todayISO } from '@shared/dates'
@@ -200,6 +200,11 @@ function ForecastTab(): React.JSX.Element {
     queryFn: () => api.reports.cashForecast(today, to)
   })
   const [openWeek, setOpenWeek] = useState<string | null>(null)
+  // The weeks fold open to show what is due in them. ↑↓ picks a week, Enter and Space (A17)
+  // open it — the same thing the click does.
+  const buckets = data?.buckets ?? []
+  const toggleWeek = (b: { from: string }): void => setOpenWeek((cur) => (cur === b.from ? null : b.from))
+  const weeks = useTableNav(buckets, { rowId: (b) => b.from, onEnter: toggleWeek, onToggle: toggleWeek })
 
   const columns: PdfColumn[] = [
     { label: 'Week', align: 'l' },
@@ -275,12 +280,12 @@ function ForecastTab(): React.JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {data.buckets.map((b) => (
+              {buckets.map((b, i) => (
                 <Fragment key={b.from}>
                   <tr
-                    className="kbar-row cursor-pointer"
+                    {...weeks.rowProps(i, b)}
+                    aria-expanded={openWeek === b.from}
                     data-testid={`forecast-week-${b.from}`}
-                    onClick={() => setOpenWeek(openWeek === b.from ? null : b.from)}
                   >
                     <td>
                       <span className="mr-1.5 inline-block w-3 text-muted">{openWeek === b.from ? '▾' : '▸'}</span>

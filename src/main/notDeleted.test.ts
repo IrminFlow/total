@@ -85,6 +85,12 @@ const ALLOWED: { file: string; contains: string; why: string }[] = [
     why: 'GSTR-1 Table 13 reports binned vouchers as cancelled documents, so it must see them'
   },
   {
+    file: 'src/main/services/vouchers.ts',
+    contains: 'SELECT party_ledger_id AS p FROM vouchers WHERE id = ?',
+    // allocatableLines is called with a voucher the caller is already holding, mid-save.
+    why: 'a by-id lookup for the voucher being posted'
+  },
+  {
     file: 'src/main/services/rcm.ts',
     contains: 'SELECT DISTINCT siv.voucher_id AS id',
     // The join exists to read the voucher's date; the question is "which purchases already carry
