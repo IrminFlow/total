@@ -7,7 +7,6 @@ describe("AI and MCP proposal review summary", () => {
       {
         voucherTypeId: 1,
         date: "2026-08-25",
-        number: null,
         reference: null,
         narration: "",
         partyLedgerId: null,
@@ -35,7 +34,6 @@ describe("AI and MCP proposal review summary", () => {
       {
         voucherTypeId: 1,
         date: "2026-08-25",
-        number: null,
         reference: "BANK-12",
         narration: "Bank receipt",
         partyLedgerId: null,

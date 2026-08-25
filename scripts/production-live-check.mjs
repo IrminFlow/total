@@ -1,8 +1,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { connect as tlsConnect } from "node:tls";
 import {
   boundedWaitMs,
+  canonicalRedirectProbeOk,
   releaseAssetProbeOk,
+  tlsProbeOk,
 } from "./lib/production-live-probes.mjs";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
@@ -18,6 +21,8 @@ const expectedSiteRevision =
   "";
 const requireSynthetic =
   intakeEvidence || process.env.TOTAL_REQUIRE_SYNTHETIC === "1";
+const requireCanonicalRedirect =
+  process.env.TOTAL_REQUIRE_CANONICAL_REDIRECT === "1";
 const deploymentWaitMs = boundedWaitMs(
   process.env.TOTAL_DEPLOYMENT_WAIT_MS,
   "TOTAL_DEPLOYMENT_WAIT_MS",
@@ -56,6 +61,68 @@ async function requestJson(path, init = {}) {
 
 const delay = (milliseconds) =>
   new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+
+async function inspectTransport() {
+  const canonical = new URL(origin);
+  let tls = { ok: canonical.protocol !== "https:", hostname: canonical.hostname };
+  if (canonical.protocol === "https:") {
+    tls = await new Promise((resolveTls) => {
+      const socket = tlsConnect({
+        host: canonical.hostname,
+        port: Number(canonical.port || 443),
+        servername: canonical.hostname,
+        rejectUnauthorized: true,
+        timeout: 15_000,
+      });
+      socket.once("secureConnect", () => {
+        const certificate = socket.getPeerCertificate();
+        const result = {
+          authorized: socket.authorized,
+          authorizationError: socket.authorizationError ?? null,
+          hostname: canonical.hostname,
+          protocol: socket.getProtocol(),
+          issuer: certificate.issuer?.O ?? certificate.issuer?.CN ?? null,
+          validFrom: certificate.valid_from ?? null,
+          validTo: certificate.valid_to ?? null,
+          fingerprint256: certificate.fingerprint256 ?? null,
+        };
+        resolveTls({ ...result, ok: tlsProbeOk(result) });
+        socket.end();
+      });
+      socket.once("timeout", () => socket.destroy(new Error("TLS connection timed out")));
+      socket.once("error", (error) =>
+        resolveTls({ ok: false, hostname: canonical.hostname, error: error.message }),
+      );
+    });
+  }
+  let canonicalRedirect = { ok: false, status: null, location: null };
+  if (canonical.protocol === "https:") {
+    try {
+      const response = await fetch(
+        `http://${canonical.hostname}${canonical.port ? `:${canonical.port}` : ""}/`,
+        { redirect: "manual", signal: AbortSignal.timeout(15_000) },
+      );
+      const location = response.headers.get("location");
+      canonicalRedirect = {
+        ok: canonicalRedirectProbeOk({
+          status: response.status,
+          location,
+          canonicalOrigin: canonical.origin,
+        }),
+        status: response.status,
+        location,
+      };
+    } catch (error) {
+      canonicalRedirect = {
+        ok: false,
+        status: null,
+        location: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  return { tls, canonicalRedirect };
+}
 
 if (intakeEvidence && !/^[0-9a-f]{40}$/i.test(expectedSiteRevision))
   throw new Error(
@@ -209,6 +276,7 @@ async function inspectPublishedRelease() {
 }
 
 let { release, downloads } = await inspectPublishedRelease();
+const transport = await inspectTransport();
 const releaseDeadline = Date.now() + releaseWaitMs;
 while (
   (!release.ok || !Object.values(downloads).every((download) => download.ok)) &&
@@ -501,9 +569,16 @@ const publicChecksOk =
   routeResults.every((row) => row.ok) &&
   release.ok &&
   Object.values(downloads).every((download) => download.ok) &&
-  securityHeadersOk;
+  securityHeadersOk &&
+  transport.tls.ok &&
+  (!requireCanonicalRedirect || transport.canonicalRedirect.ok);
 const serviceChecksOk =
-  deployment.ok && securityHeadersOk && synthetic.enabled && synthetic.ok;
+  deployment.ok &&
+  securityHeadersOk &&
+  transport.tls.ok &&
+  (!requireCanonicalRedirect || transport.canonicalRedirect.ok) &&
+  synthetic.enabled &&
+  synthetic.ok;
 const output = {
   schema: 3,
   kind: intakeEvidence
@@ -522,6 +597,7 @@ const output = {
   routes: routeResults,
   release,
   downloads,
+  transport,
   securityHeadersOk,
   synthetic,
 };

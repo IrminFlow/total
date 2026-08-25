@@ -12,11 +12,28 @@ const filesBelow = (dir) => !existsSync(dir) ? [] : readdirSync(dir).flatMap((na
   return statSync(file).isDirectory() ? filesBelow(file) : [file];
 });
 const revision = process.env.RELEASE_REVISION ?? process.env.GITHUB_SHA ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+const actualRevision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+const sourceStatus = execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).trim();
+if (revision !== actualRevision) throw new Error(`Evidence revision ${revision} does not match checked-out commit ${actualRevision}`);
+if (process.env.GITHUB_ACTIONS === "true" && sourceStatus)
+  throw new Error("Release evidence cannot be recorded from a dirty hosted-runner source tree");
+const trackedTree = execFileSync("git", ["ls-files", "-s"], { cwd: root, encoding: "utf8" });
 const evidence = {
   schema: 1,
   generatedAt: new Date().toISOString(),
   revision,
-  sourceDirty: execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).trim().length > 0,
+  sourceDirty: sourceStatus.length > 0,
+  trackedTreeSha256: createHash("sha256").update(trackedTree).digest("hex"),
+  sourceCommitTime: execFileSync("git", ["show", "-s", "--format=%cI", revision], { cwd: root, encoding: "utf8" }).trim(),
+  workflow: process.env.GITHUB_ACTIONS === "true" ? {
+    repository: process.env.GITHUB_REPOSITORY ?? null,
+    workflow: process.env.GITHUB_WORKFLOW ?? null,
+    runId: process.env.GITHUB_RUN_ID ?? null,
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+    job: process.env.GITHUB_JOB ?? null,
+    runnerOS: process.env.RUNNER_OS ?? null,
+    runnerArch: process.env.RUNNER_ARCH ?? null,
+  } : null,
   packageVersion: JSON.parse(readFileSync(`${root}/package.json`, "utf8")).version,
   lockSha256: sha256(`${root}/package-lock.json`),
   toolchain: { node: process.version, platform: process.platform, arch: process.arch, electron: JSON.parse(readFileSync(`${root}/node_modules/electron/package.json`, "utf8")).version },

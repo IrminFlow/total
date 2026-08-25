@@ -65,14 +65,17 @@ export function validateReleaseCandidateEvidence(options) {
     const upgradeName = `upgrade-evidence-${platform}.json`;
     const installName = `install-evidence-${platform}.json`;
     const buildName = `build-evidence-${platform}.json`;
+    const packageName = `package-contract-${platform}.json`;
     const scorecardName = `release-scorecard-${platform}.json`;
     const upgradePath = files.get(upgradeName);
     const installPath = files.get(installName);
     const buildPath = files.get(buildName);
+    const packagePath = files.get(packageName);
     const scorecardPath = files.get(scorecardName);
     const upgrade = json(upgradePath ?? join(root, upgradeName), `${platform} upgrade evidence`);
     const install = json(installPath ?? join(root, installName), `${platform} hosted-runner install evidence`);
     const build = json(buildPath ?? join(root, buildName), `${platform} build evidence`);
+    const packageContract = json(packagePath ?? join(root, packageName), `${platform} package contract`);
     const scorecard = json(scorecardPath ?? join(root, scorecardName), `${platform} scorecard`);
 
     assert(upgrade.schema === 3 && upgrade.ok === true && upgrade.executed === true, `${platform} upgrade evidence was not executed successfully`);
@@ -110,6 +113,14 @@ export function validateReleaseCandidateEvidence(options) {
 
     assert(build.schema === 1 && build.revision === revision && build.packageVersion === version, `${platform} build evidence is not tied to this release commit`);
     assert(build.sourceDirty === false, `${platform} build evidence came from a dirty worktree`);
+    assert(/^[0-9a-f]{64}$/.test(build.trackedTreeSha256 ?? ""), `${platform} build evidence has no tracked source-tree identity`);
+    assert(packageContract.schema === 1 && packageContract.platform === platform && packageContract.version === version, `${platform} package contract is not tied to this release`);
+    assert(packageContract.sourceRevision === revision, `${platform} package contract revision does not match the release commit`);
+    for (const check of ["requiredResources", "updaterMetadata", "installerPresence"])
+      assert(packageContract.checks?.[check] === "passed", `${platform} package contract check ${check} did not pass`);
+    assert(Array.isArray(packageContract.packagedResources) && packageContract.packagedResources.some((row) => row.path.endsWith("app.asar")) && packageContract.packagedResources.some((row) => row.path.endsWith("total-mcp.mjs")) && packageContract.packagedResources.some((row) => row.path.endsWith("voucher.schema.json")), `${platform} package contract does not prove the required packaged resources`);
+    if (platform === "mac") assert(packageContract.checks?.permissions === "passed" && packageContract.checks?.bundleMetadata === "passed", "mac package contract did not validate permissions and bundle metadata");
+    else assert(packageContract.checks?.peHeader === "passed", "win package contract did not validate the executable header");
     if (platform === "mac") {
       assert(build.signing?.macIdentityConfigured === true, "mac build evidence does not confirm the signing identity");
       assert(build.signing?.appleNotarizationConfigured === true, "mac build evidence does not confirm notarization credentials");
@@ -118,7 +129,7 @@ export function validateReleaseCandidateEvidence(options) {
     }
     assert(scorecard.schema === 1 && scorecard.ok === true, `${platform} release scorecard did not pass`);
     const recorded = new Map((build.artifacts ?? []).map((artifact) => [artifact.name, artifact]));
-    for (const name of [upgradeName, scorecardName]) {
+    for (const name of [upgradeName, scorecardName, packageName]) {
       const actual = files.get(name);
       const expected = recorded.get(name);
       assert(expected, `${platform} build evidence does not include ${name}`);

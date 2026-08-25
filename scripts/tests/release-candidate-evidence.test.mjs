@@ -24,6 +24,7 @@ function fixture() {
     const upgradeName = `upgrade-evidence-${platform}.json`;
     const installName = `install-evidence-${platform}.json`;
     const scorecardName = `release-scorecard-${platform}.json`;
+    const packageName = `package-contract-${platform}.json`;
     const upgrade = {
       schema: 3, ok: true, executed: true, platform, sourceRevision: revision,
       transition: `0.4.0 -> ${version}`,
@@ -73,10 +74,29 @@ function fixture() {
       },
     });
     const scorecardArtifact = write(join(root, scorecardName), { schema: 1, ok: true });
+    const packageArtifact = write(join(root, packageName), {
+      schema: 1,
+      platform,
+      version,
+      sourceRevision: revision,
+      checks: {
+        requiredResources: "passed",
+        updaterMetadata: "passed",
+        installerPresence: "passed",
+        ...(platform === "mac"
+          ? { permissions: "passed", bundleMetadata: "passed" }
+          : { peHeader: "passed" }),
+      },
+      packagedResources: [
+        { path: "resources/app.asar", bytes: 1, sha256: "1".repeat(64) },
+        { path: "resources/total-mcp.mjs", bytes: 1, sha256: "2".repeat(64) },
+        { path: "resources/voucher.schema.json", bytes: 1, sha256: "3".repeat(64) },
+      ],
+    });
     write(join(root, `build-evidence-${platform}.json`), {
-      schema: 1, revision, packageVersion: version, sourceDirty: false,
+      schema: 1, revision, packageVersion: version, sourceDirty: false, trackedTreeSha256: "9".repeat(64),
       signing: { macIdentityConfigured: platform === "mac", appleNotarizationConfigured: platform === "mac", windowsIdentityConfigured: platform === "win" },
-      artifacts: [...candidates, upgradeArtifact, installArtifact, scorecardArtifact],
+      artifacts: [...candidates, upgradeArtifact, installArtifact, scorecardArtifact, packageArtifact],
     });
   }
   return root;

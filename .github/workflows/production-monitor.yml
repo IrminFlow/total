@@ -31,6 +31,7 @@ jobs:
           TOTAL_SYNTHETIC_EMAIL: synthetic-production-monitor@irminflow.invalid
           TOTAL_EXPECTED_SITE_REVISION: ${{ github.sha }}
           TOTAL_REQUIRE_SYNTHETIC: "1"
+          TOTAL_REQUIRE_CANONICAL_REDIRECT: "1"
           TOTAL_DEPLOYMENT_WAIT_MS: 600000
           TOTAL_RELEASE_WAIT_MS: 600000
 

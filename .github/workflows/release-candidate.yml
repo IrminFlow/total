@@ -89,6 +89,7 @@ jobs:
           TOTAL_EXPECTED_SITE_REVISION: ${{ inputs.source_revision }}
           TOTAL_DEPLOYMENT_WAIT_MS: 600000
           TOTAL_SYNTHETIC_EMAIL: synthetic-release-gate@irminflow.invalid
+          TOTAL_REQUIRE_CANONICAL_REDIRECT: "1"
           INTAKE_ADMIN_SECRET: ${{ secrets.INTAKE_ADMIN_SECRET }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
@@ -201,6 +202,11 @@ jobs:
       - name: Verify signature, notarization, archives and packaged launch
         run: npm run release:artifact -- mac
 
+      - name: Verify package contents, permissions, icon and updater metadata
+        run: npm run release:package-contract -- mac
+        env:
+          PACKAGE_CONTRACT_EVIDENCE: ${{ github.workspace }}/dist/package-contract-mac.json
+
       - name: Install from DMG, post, backup, restore and uninstall
         run: npm run release:install-smoke -- mac
         env:
@@ -249,6 +255,7 @@ jobs:
             dist/*.zip.blockmap
             dist/latest-mac.yml
             dist/build-evidence-mac.json
+            dist/package-contract-mac.json
             dist/install-evidence-mac.json
             dist/release-scorecard-mac.json
             dist/upgrade-evidence-mac.json
@@ -301,6 +308,11 @@ jobs:
 
       - name: Verify packaged launch
         run: npm run release:artifact -- win
+
+      - name: Verify package contents, icon and updater metadata
+        run: npm run release:package-contract -- win
+        env:
+          PACKAGE_CONTRACT_EVIDENCE: ${{ github.workspace }}\dist\package-contract-win.json
 
       - name: Install NSIS, post, backup, restore and uninstall
         run: npm run release:install-smoke -- win
@@ -355,6 +367,7 @@ jobs:
             dist/*.exe.blockmap
             dist/latest.yml
             dist/build-evidence-win.json
+            dist/package-contract-win.json
             dist/install-evidence-win.json
             dist/release-scorecard-win.json
             dist/upgrade-evidence-win.json

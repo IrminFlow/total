@@ -1,0 +1,3 @@
+Voucher Group,Date,Voucher Type,Ledger,Debit,Credit,Narration,Reference
+SHEET-4001,2026-08-27,Journal,Cash,450.75,,Common spreadsheet fixture,SHEET-REF-1
+SHEET-4001,2026-08-27,Journal,Sales Account,,450.75,Common spreadsheet fixture,SHEET-REF-1

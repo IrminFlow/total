@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   boundedWaitMs,
+  canonicalRedirectProbeOk,
   releaseAssetProbeOk,
+  tlsProbeOk,
 } from "../lib/production-live-probes.mjs";
 
 test("accepts only bounded deployment and release waits", () => {
@@ -75,6 +77,63 @@ test("rejects a release page, wrong version, tiny body, or HTML response", () =>
   assert.equal(releaseAssetProbeOk({ ...base, size: 42 }), false);
   assert.equal(
     releaseAssetProbeOk({ ...base, contentType: "text/html" }),
+    false,
+  );
+});
+
+test("requires an authorized modern TLS certificate with renewal headroom", () => {
+  assert.equal(
+    tlsProbeOk({
+      authorized: true,
+      protocol: "TLSv1.3",
+      validTo: "Jan 01 00:00:00 2030 GMT",
+      hostname: "devjindal.tech",
+    }),
+    true,
+  );
+  assert.equal(
+    tlsProbeOk({
+      authorized: false,
+      protocol: "TLSv1.3",
+      validTo: "Jan 01 00:00:00 2030 GMT",
+      hostname: "devjindal.tech",
+    }),
+    false,
+  );
+  assert.equal(
+    tlsProbeOk({
+      authorized: true,
+      protocol: "TLSv1.1",
+      validTo: "Jan 01 00:00:00 2030 GMT",
+      hostname: "devjindal.tech",
+    }),
+    false,
+  );
+});
+
+test("accepts only redirects to the canonical HTTPS origin", () => {
+  assert.equal(
+    canonicalRedirectProbeOk({
+      status: 308,
+      location: "https://devjindal.tech/",
+      canonicalOrigin: "https://devjindal.tech",
+    }),
+    true,
+  );
+  assert.equal(
+    canonicalRedirectProbeOk({
+      status: 200,
+      location: null,
+      canonicalOrigin: "https://devjindal.tech",
+    }),
+    false,
+  );
+  assert.equal(
+    canonicalRedirectProbeOk({
+      status: 302,
+      location: "https://lookalike.example/",
+      canonicalOrigin: "https://devjindal.tech",
+    }),
     false,
   );
 });

@@ -56,3 +56,30 @@ export function releaseAssetProbeOk({
     !String(contentType).toLowerCase().includes("text/html")
   );
 }
+
+export function tlsProbeOk({ authorized, protocol, validTo, hostname }) {
+  const expiresAt = Date.parse(validTo ?? "");
+  return (
+    authorized === true &&
+    typeof hostname === "string" &&
+    hostname.length > 0 &&
+    ["TLSv1.2", "TLSv1.3"].includes(protocol) &&
+    Number.isFinite(expiresAt) &&
+    expiresAt - Date.now() >= 14 * 24 * 60 * 60_000
+  );
+}
+
+export function canonicalRedirectProbeOk({ status, location, canonicalOrigin }) {
+  if (![301, 302, 307, 308].includes(status) || !location) return false;
+  try {
+    const target = new URL(location, canonicalOrigin);
+    const canonical = new URL(canonicalOrigin);
+    return (
+      target.protocol === "https:" &&
+      target.hostname === canonical.hostname &&
+      target.port === canonical.port
+    );
+  } catch {
+    return false;
+  }
+}
