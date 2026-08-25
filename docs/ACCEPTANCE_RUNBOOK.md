@@ -78,6 +78,10 @@ scenario. Final readiness recalculates all three files, so macOS-only testing ca
 UAT or a differently signed build. Record completion, errors and blockers. Any
 unresolved P0 data-loss/correctness issue or P1 blocked core workflow is a no-go.
 
+Use `docs/acceptance/HUMAN_SESSION_KIT.md` for the role-specific tasks, expected results, facilitator
+rules and pass criteria. Copy `docs/acceptance/human-session.observation.template.json` for each
+scenario, then carry only its sanitized evidence hash and result into `human.template.json`.
+
 ## Optional phone companion
 
 Phone capture is a convenience workflow on the website, not a native mobile application. It is not

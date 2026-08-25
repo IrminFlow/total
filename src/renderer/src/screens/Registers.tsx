@@ -14,6 +14,8 @@ import {
 } from '../components/ui'
 import { TabBar } from '../components/TabBar'
 import { ReportToolbar } from '../components/ReportToolbar'
+import { SavedReportViews } from '../components/SavedReportViews'
+import { useSavedReportViews } from '../lib/reportConfig'
 import { csvReport, printReport } from '../lib/reportExport'
 import type {
   ReportColumn as PdfColumn,
@@ -46,6 +48,13 @@ function fmtQty(qtyMilli: number, decimals: number): string {
 
 type Tab = 'sales' | 'purchase' | 'items'
 
+interface RegisterView {
+  tab: Tab
+  granularity: RegisterGranularity
+  from: string
+  to: string
+}
+
 const TAB_LABELS: Record<Tab, string> = {
   sales: 'Sales',
   purchase: 'Purchase',
@@ -53,10 +62,11 @@ const TAB_LABELS: Record<Tab, string> = {
 }
 
 export function RegistersScreen(): React.JSX.Element {
-  const { from, to } = useSession()
+  const { from, to, setPeriod } = useSession()
   const toast = useToasts()
   const [tab, setTab] = useState<Tab>('sales')
   const [granularity, setGranularity] = useState<RegisterGranularity>('month')
+  const savedViews = useSavedReportViews<RegisterView>('registers')
   const [busy, setBusy] = useState<'caPack' | 'tallyXml' | null>(null)
   const kind = tab === 'items' ? 'sales' : tab
   const { data, isLoading, isError, refetch } = useQuery({
@@ -154,6 +164,17 @@ export function RegistersScreen(): React.JSX.Element {
               />
             </div>
           )}
+          <SavedReportViews
+            views={savedViews.views}
+            current={{ tab, granularity, from, to }}
+            onSave={savedViews.save}
+            onRemove={savedViews.remove}
+            onApply={(view) => {
+              setTab(view.tab)
+              setGranularity(view.granularity)
+              setPeriod(view.from, view.to)
+            }}
+          />
           <details className="relative shrink-0">
             <summary className="flex min-h-8 cursor-pointer list-none items-center rounded-md border border-line bg-panel px-3 py-1.5 text-detail font-medium text-ink panel-shadow hover:border-amber/60">
               Export

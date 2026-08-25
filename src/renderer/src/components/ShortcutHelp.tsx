@@ -17,6 +17,10 @@ import {
   type CommandDefinition,
   type ShortcutBinding,
 } from "../lib/commands";
+import {
+  completeShortcutGuide,
+  readShortcutGuide,
+} from "../lib/shortcutOnboarding";
 
 interface ShortcutGroup {
   title: string;
@@ -50,6 +54,24 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }): React.JSX.El
   const [query, setQuery] = useState("");
   const [customizing, setCustomizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [guideStep, setGuideStep] = useState<number | null>(
+    () => (readShortcutGuide(localStorage).completed ? null : 0),
+  );
+
+  const guide = [
+    {
+      title: "Read the red letter",
+      detail: "On Home, press the red mnemonic by itself. V opens Voucher entry immediately.",
+    },
+    {
+      title: "Use Alt from any screen",
+      detail: "Navigation uses Alt plus its letter. Voucher type letters also have Alt variants while an editor is active.",
+    },
+    {
+      title: "Make the map yours",
+      detail: "Choose Customize to change navigation bindings. Total blocks collisions before saving them.",
+    },
+  ];
 
   const groups = useMemo<ShortcutGroup[]>(() => {
     const visible = (commands: CommandDefinition[]) =>
@@ -98,6 +120,35 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }): React.JSX.El
 
       {error && <p role="alert" className="mb-3 rounded-md bg-danger/10 px-3 py-2 text-[12px] text-danger">{error}</p>}
 
+      {guideStep !== null && (
+        <section data-testid="shortcut-guide" className="mb-4 rounded-md border border-amber/40 bg-amber/5 p-4" aria-labelledby="shortcut-guide-title">
+          <div className="flex items-start justify-between gap-5">
+            <div>
+              <p className="text-[10px] font-semibold text-amber">Keyboard setup {guideStep + 1} of {guide.length}</p>
+              <h3 id="shortcut-guide-title" className="mt-1 text-[14px] font-semibold text-ink">{guide[guideStep]!.title}</h3>
+              <p className="mt-1 max-w-[62ch] text-[12px] leading-5 text-muted">{guide[guideStep]!.detail}</p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              {guideStep > 0 && <button type="button" className="rounded-md px-3 py-2 text-[12px] text-muted hover:bg-panel2 hover:text-ink" onClick={() => setGuideStep(guideStep - 1)}>Back</button>}
+              <button
+                type="button"
+                className="rounded-md bg-ink px-3 py-2 text-[12px] font-medium text-bg"
+                onClick={() => {
+                  if (guideStep < guide.length - 1) setGuideStep(guideStep + 1);
+                  else {
+                    completeShortcutGuide(localStorage);
+                    setGuideStep(null);
+                    setCustomizing(true);
+                  }
+                }}
+              >
+                {guideStep < guide.length - 1 ? "Next" : "Customize shortcuts"}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       <div className="grid grid-cols-2 gap-x-8 gap-y-6">
         {filteredGroups.map((group) => (
           <section key={group.title} aria-labelledby={`shortcut-${group.title}`}>
@@ -144,6 +195,7 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }): React.JSX.El
       {filteredGroups.length === 0 && <p className="py-10 text-center text-[13px] text-muted">No shortcuts match “{query}”.</p>}
       <p className="mt-5 border-t border-line pt-3 text-[11px] leading-relaxed text-muted">
         Shortcuts pause while you type. Voucher letters work before entry begins; Alt variants remain available throughout voucher entry.
+        {guideStep === null && <button type="button" className="ml-2 font-medium text-blue hover:underline" onClick={() => setGuideStep(0)}>Run keyboard setup again</button>}
       </p>
     </Modal>
   );
