@@ -49,6 +49,7 @@ import * as disclosure from './services/disclosure'
 import * as counter from './services/counter'
 import * as salesDocs from './services/salesDocs'
 import * as borrowing from './services/borrowing'
+import * as cma from './services/cma'
 import * as commission from './services/commission'
 import * as rawPrint from './services/rawPrint'
 import { DEFAULT_MARGINS } from '@shared/drawingPower'
@@ -2180,6 +2181,86 @@ export function registerIpc(): void {
 
   handle('bank:unfileStatement', (p) => {
     borrowing.unfileStockStatement(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  // ---------- CMA data for a working-capital application (roadmap #371) ----------
+
+  const cmaColumnKey = z.enum(['a2', 'a1', 'e', 'p1', 'p2'])
+
+  handle('cma:packs', () => cma.listCmaPacks(requireCompany().db), 'viewer')
+
+  handle('cma:pack', (p) => {
+    const c = requireCompany()
+    return cma.cmaPackView(c.db, idSchema.parse(p).id, c.info)
+  }, 'viewer')
+
+  handle('cma:savePack', (p) => {
+    const { data, id } = z
+      .object({
+        data: z.object({
+          name: z.string().trim().min(1).max(120),
+          // Wide enough to cover any year a business could plausibly be applying for, narrow
+          // enough that a typo in the box does not send the pack somewhere nonsensical.
+          estimateFyStartYear: z.number().int().min(1990).max(2200),
+          notes: z.string().trim().max(1000).nullable().default(null)
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return cma.saveCmaPack(requireCompany().db, data, id)
+  })
+
+  handle('cma:deletePack', (p) => {
+    cma.deleteCmaPack(requireCompany().db, idSchema.parse(p).id)
+    return null
+  })
+
+  handle('cma:setInput', (p) => {
+    const { packId, columnKey, lineKey, value } = z
+      .object({
+        packId: z.number().int().positive(),
+        columnKey: cmaColumnKey,
+        lineKey: z.string().trim().min(1).max(60),
+        // null clears the cell, which is not the same as storing zero: a cleared cell has no row
+        // and the column can go back to reading blank rather than as an asserted nil.
+        value: z.number().int().nullable()
+      })
+      .parse(p)
+    cma.setCmaInput(requireCompany().db, packId, columnKey, lineKey, value)
+    return null
+  })
+
+  handle('cma:prefill', (p) => {
+    const { packId, fromKey, toKey } = z
+      .object({ packId: z.number().int().positive(), fromKey: cmaColumnKey, toKey: cmaColumnKey })
+      .parse(p)
+    const c = requireCompany()
+    return cma.prefillCmaColumn(c.db, packId, fromKey, toKey, c.info)
+  })
+
+  handle('cma:saveFacility', (p) => {
+    const { packId, data, id } = z
+      .object({
+        packId: z.number().int().positive(),
+        data: z.object({
+          facility: z.string().trim().min(1).max(120),
+          existingLimitPaise: z.number().int().min(0),
+          proposedLimitPaise: z.number().int().min(0),
+          outstandingPaise: z.number().int().min(0).nullable().default(null),
+          ledgerId: z.number().int().positive().nullable().default(null),
+          security: z.string().trim().max(500).nullable().default(null),
+          notes: z.string().trim().max(500).nullable().default(null),
+          seq: z.number().int().min(0).max(999).default(0)
+        }),
+        id: z.number().int().positive().optional()
+      })
+      .parse(p)
+    return cma.saveCmaFacility(requireCompany().db, packId, data, id)
+  })
+
+  handle('cma:deleteFacility', (p) => {
+    cma.deleteCmaFacility(requireCompany().db, idSchema.parse(p).id)
     return null
   })
 

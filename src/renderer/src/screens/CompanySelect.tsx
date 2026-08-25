@@ -32,6 +32,12 @@ export function CompanySelect(): React.JSX.Element {
   const open = async (slug: string): Promise<void> => {
     try {
       const r = await api.company.open(slug)
+      // Every cached answer belongs to the company that is being left. Query keys are not
+      // company-scoped (['features'], ['ledgers'], …), so without this the next company is
+      // shown the last one's data until something happens to invalidate it — and 'features'
+      // never was, so a company opened after the services sample kept ITS sidebar, stock
+      // screens and all, hidden. Nobody saw it while every company had identical F11 defaults.
+      queryClient.clear()
       // Somebody else has these books open right now, or left them open when their machine died
       // (roadmap #259). Said out loud and not enforced: the lock file is evidence about another
       // machine, and the user is the only one who can tell a live session from a stale claim.

@@ -1,6 +1,7 @@
 /** Core domain types shared by main (SQL) and renderer (UI). */
 
 import type { TurnoverBand } from './gst/turnover'
+import type { PayCycle } from './payCycle'
 
 export type Nature = 'asset' | 'liability' | 'income' | 'expense'
 export type DrCr = 'dr' | 'cr'
@@ -497,6 +498,9 @@ export interface Employee {
   declaredDeductions: number | null
   /** TDS taken by a previous system this financial year, so the spread does not re-deduct it. */
   openingTds: number | null
+  /** How often this person is paid. The floor can be weekly while the office is monthly, so it
+   *  is a property of the employee and not of the company (roadmap #179). */
+  payCycle: PayCycle
   active: boolean
 }
 
@@ -541,7 +545,14 @@ export interface PayrollLine {
 
 export interface PayrollRun {
   id: number
+  /** The STATUTORY month the run accrues to, 'YYYY-MM'. For a weekly or fortnightly run this is
+   *  the month the period's last day falls in, which is not always the month it started in. */
   month: string
+  cycle: PayCycle
+  periodStart: string
+  periodEnd: string
+  /** 'June 2026', or '29 Jan – 04 Feb 2026'. */
+  periodLabel: string
   voucherId: number | null
   createdAt: string
   lines: PayrollLine[]

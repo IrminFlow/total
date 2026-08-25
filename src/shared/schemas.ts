@@ -4,6 +4,7 @@ import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
 import { isUqc } from './gst/uqc'
 import { PT_STATES } from './payroll'
+import { PAY_CYCLES } from './payCycle'
 import { CAPABILITIES } from './permissions'
 import { EXTERNAL_BACKUP_HOURS, EXTERNAL_KEEP_MIN, EXTERNAL_KEEP_MAX } from './backupSchedule'
 
@@ -345,6 +346,9 @@ export const employeeInputSchema = z.object({
   declaredDeductions: paise.min(0).nullable().optional(),
   /** TDS a previous system already took this financial year. */
   openingTds: paise.min(0).nullable().optional(),
+  /** How often this person is paid. Defaults to monthly, which is what every existing employee
+   *  is and what the column's migration default says. */
+  payCycle: z.enum(PAY_CYCLES).default('monthly'),
   active: z.boolean().default(true)
 })
 export type EmployeeInput = z.infer<typeof employeeInputSchema>

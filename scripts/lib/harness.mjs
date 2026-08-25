@@ -211,10 +211,17 @@ export class Harness {
     await this.waitScreen('gateway', timeout)
   }
 
-  /** From company-select: build the Demo Traders sample company and land on the Gateway. */
-  async createDemoCompany(timeout = 60000) {
+  /**
+   * From company-select: build a sample company and land on the Gateway. The row now opens a
+   * three-way choice of trade (roadmap #293) instead of building the books straight away, so
+   * this clicks through it; 'trading' is the original Demo Traders books, which is what every
+   * scenario that says nothing means.
+   * @param {'trading'|'manufacturing'|'services'} [trade]
+   */
+  async createDemoCompany(trade = 'trading', timeout = 60000) {
     await this.waitScreen('company-select')
-    await this.clickText('Explore with sample data')
+    await this.click('btn-company-demo')
+    await this.click(`btn-demo-trade-${trade}`)
     await this.waitScreen('gateway', timeout)
   }
 
