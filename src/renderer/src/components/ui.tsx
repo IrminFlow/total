@@ -241,7 +241,8 @@ export function RowAction({
  * `RowAction` stays out of the way until the row is hovered or active, which is right for a verb —
  * Edit, Remind, PDF — and wrong for a voucher number, because the number IS the cell's content and
  * the row would read as empty until the cursor found it. Same colour and same underline, always
- * visible. Also the "show 500 more" foot of a paged table, which is not a row action either.
+ * visible. Also the "show 500 more" foot of a paged table, which is not a row action either, and
+ * the remove on a line in a grid that is being typed into rather than read.
  */
 export function RowLink({
   tone = 'link',
