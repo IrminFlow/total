@@ -1,6 +1,6 @@
 /** DB-layer tests for the roadmap section C report additions (C57–C72). */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync } from 'fs'
+import { mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { DB } from '../db/connection'
@@ -552,7 +552,14 @@ describe('report schedules (C59)', () => {
     const db = seededDb()
     const s = saveSchedule(db, { ...input, report: 'trialBalance' })
     // A folder that cannot be created is the realistic failure: an unplugged network share.
-    const broken = { ...s, folder: '/dev/null/not-a-folder' }
+    //
+    // Expressed as "a directory inside a regular file", because that is impossible on every OS.
+    // This used to be '/dev/null/not-a-folder', which is unwritable on POSIX and a perfectly
+    // ordinary relative path on Windows — mkdir -p created it happily, no error was recorded, and
+    // the test failed on Windows CI while passing everywhere it was ever run by hand.
+    const blocker = join(mkdtempSync(join(tmpdir(), 'total-sched-')), 'i-am-a-file')
+    writeFileSync(blocker, 'not a directory')
+    const broken = { ...s, folder: join(blocker, 'nested') }
     const result = await runSchedule(db, { ...TEST_COMPANY }, 'test-co', broken, '2025-05-17')
     expect(result.error).not.toBeNull()
     expect(listSchedules(db)[0]!.nextRun).toBe('2025-06-01')

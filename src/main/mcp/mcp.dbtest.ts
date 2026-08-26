@@ -58,11 +58,23 @@ const method = (schema: { shape: { method: { value: string } } }): { method: str
   method: schema.shape.method.value
 })
 
+/**
+ * Building a company means running every migration and seeding a chart of accounts, and doing it
+ * per test is what makes this hook expensive. On a Linux or macOS runner it is well under a
+ * second; on a Windows CI runner, where a virus scanner sees every file write, it measured 11 to
+ * 18 seconds and blew vitest's default 10-second hook timeout — which reports as four assertion
+ * failures in tests whose assertions never ran.
+ *
+ * The timeout is raised rather than the setup shared, because these tests write: one posts
+ * vouchers until the rate limiter trips, and a shared database would make them order-dependent.
+ * A slow hook is worth paying for; a test that passes or fails depending on which one ran first
+ * is not.
+ */
 beforeEach(() => {
   scratch = mkdtempSync(join(tmpdir(), 'total-mcp-'))
   process.env.TOTAL_DATA_DIR = scratch
   makeCompany()
-})
+}, 60_000)
 
 afterEach(() => {
   rmSync(scratch, { recursive: true, force: true })

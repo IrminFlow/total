@@ -8,6 +8,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Run the whole thing, E2E included, against any branch on request.
+  #
+  # The E2E jobs below are push-to-main only, because they are the slow ones and a PR normally
+  # gets enough from the smoke test. That trade is wrong for a branch that has been running for a
+  # while: it means the suite which drives the real built app fifty-three times has never seen the
+  # change until after it is merged, and on Windows it had never run at all. This is the escape
+  # hatch — `gh workflow run ci.yml --ref <branch>` — for the branch where that matters.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -83,7 +91,7 @@ jobs:
   # Full UI E2E suite (scripts/e2e/*.mjs via npm run e2e) against the built app. Push-to-main
   # only — it's the slowest job, and PRs already get the smoke-mac coverage above.
   e2e-mac:
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -164,7 +172,7 @@ jobs:
 
   # Same rationale as e2e-mac: slowest job, push-to-main only.
   e2e-win:
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
