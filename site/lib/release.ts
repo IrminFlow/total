@@ -30,29 +30,46 @@ export interface ReleaseInfo {
   assets: Partial<Record<Platform, AssetRef>>
 }
 
+export type ReleaseChannel = 'stable' | 'beta' | 'internal'
+
+interface GitHubRelease {
+  tag_name?: string
+  html_url?: string
+  draft?: boolean
+  prerelease?: boolean
+  assets?: { id: number; name: string; browser_download_url: string }[]
+}
+
+function mapRelease(data: GitHubRelease): ReleaseInfo | null {
+  if (!data.tag_name) return null
+  const find = (suffix: string): AssetRef | undefined => {
+    const asset = data.assets?.find((item) => item.name.endsWith(suffix))
+    return asset ? { id: asset.id, publicUrl: asset.browser_download_url } : undefined
+  }
+  return {
+    version: data.tag_name.replace(/^v/, ''),
+    htmlUrl: data.html_url ?? RELEASES_PAGE,
+    assets: { mac: find('.dmg'), win: find('.exe') },
+  }
+}
+
 /** Latest release, or null when the repo has no releases yet / token is missing on a private repo. */
-export async function latestRelease(): Promise<ReleaseInfo | null> {
+export async function latestRelease(channel: ReleaseChannel = 'stable'): Promise<ReleaseInfo | null> {
   try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+    const endpoint = channel === 'stable' ? 'releases/latest' : 'releases?per_page=30'
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/${endpoint}`, {
       headers: githubHeaders(),
       next: { revalidate: 300 }
     })
     if (!res.ok) return null
-    const data = (await res.json()) as {
-      tag_name?: string
-      html_url?: string
-      assets?: { id: number; name: string; browser_download_url: string }[]
-    }
-    if (!data.tag_name) return null
-    const find = (suffix: string): AssetRef | undefined => {
-      const asset = data.assets?.find((a) => a.name.endsWith(suffix))
-      return asset ? { id: asset.id, publicUrl: asset.browser_download_url } : undefined
-    }
-    return {
-      version: data.tag_name.replace(/^v/, ''),
-      htmlUrl: data.html_url ?? RELEASES_PAGE,
-      assets: { mac: find('.dmg'), win: find('.exe') }
-    }
+    const payload = (await res.json()) as GitHubRelease | GitHubRelease[]
+    if (!Array.isArray(payload)) return mapRelease(payload)
+    const release = payload.find((item) => {
+      if (item.draft || !item.prerelease) return false
+      if (channel === 'beta') return true
+      return /(?:internal|nightly|alpha)/i.test(item.tag_name ?? '')
+    })
+    return release ? mapRelease(release) : null
   } catch {
     return null
   }

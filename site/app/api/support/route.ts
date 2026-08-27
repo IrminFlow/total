@@ -302,8 +302,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await completeIntake(protection).catch(() => undefined);
   }
 
+  const supabaseWebhook = process.env.SUPABASE_SUPPORT_URL;
   const webhook =
-    process.env.CONVEX_SUPPORT_URL || process.env.SUPPORT_WEBHOOK_URL;
+    supabaseWebhook ||
+    process.env.CONVEX_SUPPORT_URL ||
+    process.env.SUPPORT_WEBHOOK_URL;
   if (!webhook) {
     if (intakeStoreConfigured())
       return NextResponse.json({
@@ -334,7 +337,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ...(protection.idempotencyKey
           ? { "idempotency-key": protection.idempotencyKey }
           : {}),
-        ...providerAuthorization(process.env.SUPPORT_PROVIDER_SECRET),
+        ...providerAuthorization(
+          supabaseWebhook
+            ? process.env.SUPABASE_INTAKE_SECRET
+            : process.env.SUPPORT_PROVIDER_SECRET,
+        ),
       },
       body: JSON.stringify(storedCase),
       signal: AbortSignal.timeout(10_000),

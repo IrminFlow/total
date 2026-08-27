@@ -100,6 +100,9 @@ function installBlobStore(
 
 beforeEach(() => {
   process.env = { ...originalEnv };
+  delete process.env.SUPABASE_SUPPORT_URL;
+  delete process.env.SUPABASE_FEEDBACK_URL;
+  delete process.env.SUPABASE_INTAKE_SECRET;
   delete process.env.CONVEX_SUPPORT_URL;
   delete process.env.SUPPORT_WEBHOOK_URL;
   delete process.env.CONVEX_FEEDBACK_URL;
@@ -149,11 +152,82 @@ describe("deployment identity", () => {
   });
 });
 
+describe("desktop update feed", () => {
+  it("publishes channel, cohort and kill-switch controls with the installer URL", async () => {
+    process.env.UPDATE_ROLLOUT_PERCENTAGE_BETA = "25";
+    process.env.UPDATE_ROLLOUT_SALT_BETA = "beta-wave-2026";
+    process.env.UPDATE_AUTO_DOWNLOAD = "false";
+    const releaseModule = await import("@/lib/release");
+    vi.mocked(releaseModule.latestRelease).mockResolvedValue({
+      version: "0.6.0-beta.2",
+      htmlUrl: "https://github.com/IrminFlow/total/releases/tag/v0.6.0-beta.2",
+      assets: {},
+    });
+    const { GET } = await import("./latest/route");
+    const response = await GET(new NextRequest("https://total.example/api/latest?channel=beta"));
+
+    expect(releaseModule.latestRelease).toHaveBeenCalledWith("beta");
+    expect(await response.json()).toEqual({
+      version: "0.6.0-beta.2",
+      downloadUrl: "https://total.example/api/download?channel=beta",
+      channel: "beta",
+      rollout: { percentage: 25, salt: "beta-wave-2026" },
+      killSwitches: { updates: true, autoDownload: false, manualDownload: true },
+    });
+  });
+});
+
 afterEach(() => {
   process.env = { ...originalEnv };
 });
 
 describe("support intake", () => {
+  it("prefers Supabase and never exposes its relay secret to the client", async () => {
+    process.env.SUPABASE_SUPPORT_URL =
+      "https://project.supabase.co/functions/v1/total-intake/support";
+    process.env.CONVEX_SUPPORT_URL = "https://convex.example/support";
+    process.env.SUPPORT_WEBHOOK_URL = "https://webhook.example/support";
+    process.env.SUPABASE_INTAKE_SECRET =
+      "supabase-relay-secret-for-test-only-0001";
+    process.env.SUPPORT_PROVIDER_SECRET = "other-provider-secret";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("./support/route");
+
+    const response = await POST(
+      post("/api/support", {
+        category: "question",
+        email: "owner@example.com",
+        message: "Please help me verify yesterday's closing balances.",
+      }),
+    );
+    const responseText = await response.text();
+    const requestInit = fetchMock.mock.calls[0]![1]!;
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL(
+        "https://project.supabase.co/functions/v1/total-intake/support",
+      ),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization:
+            "Bearer supabase-relay-secret-for-test-only-0001",
+        }),
+      }),
+    );
+    expect(String(requestInit.body)).not.toContain(
+      "supabase-relay-secret-for-test-only-0001",
+    );
+    expect(responseText).not.toContain(
+      "supabase-relay-secret-for-test-only-0001",
+    );
+    expect(responseText).not.toContain("other-provider-secret");
+  });
+
   it("forwards a bounded case to the configured HTTPS service", async () => {
     process.env.SUPPORT_WEBHOOK_URL = "https://support.example/intake";
     process.env.SUPPORT_PROVIDER_SECRET = "test-secret";
@@ -623,6 +697,50 @@ describe("support intake", () => {
 });
 
 describe("feedback board", () => {
+  it("prefers Supabase and never exposes its relay secret to the client", async () => {
+    process.env.SUPABASE_FEEDBACK_URL =
+      "https://project.supabase.co/functions/v1/total-intake/feedback";
+    process.env.CONVEX_FEEDBACK_URL = "https://convex.example/feedback";
+    process.env.SUPABASE_INTAKE_SECRET =
+      "supabase-relay-secret-for-test-only-0002";
+    process.env.FEEDBACK_PROVIDER_SECRET = "other-feedback-secret";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(Response.json({ ok: true, votes: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("./feedback/route");
+
+    const response = await POST(
+      post("/api/feedback", {
+        action: "vote",
+        ideaId: "mobile-companion",
+      }),
+    );
+    const responseText = await response.text();
+    const requestInit = fetchMock.mock.calls[0]![1]!;
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL(
+        "https://project.supabase.co/functions/v1/total-intake/feedback",
+      ),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization:
+            "Bearer supabase-relay-secret-for-test-only-0002",
+        }),
+      }),
+    );
+    expect(String(requestInit.body)).not.toContain(
+      "supabase-relay-secret-for-test-only-0002",
+    );
+    expect(responseText).not.toContain(
+      "supabase-relay-secret-for-test-only-0002",
+    );
+    expect(responseText).not.toContain("other-feedback-secret");
+  });
+
   it("keeps unreleased roadmap work planned until its public version exists", async () => {
     const releaseModule = await import("@/lib/release");
     vi.mocked(releaseModule.latestRelease).mockResolvedValue({

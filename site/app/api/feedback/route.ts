@@ -89,13 +89,20 @@ async function publicIdeas() {
 
 function endpoint(): URL | null {
   try {
-    const raw = process.env.CONVEX_FEEDBACK_URL;
+    const raw =
+      process.env.SUPABASE_FEEDBACK_URL || process.env.CONVEX_FEEDBACK_URL;
     if (!raw) return null;
     const url = new URL(raw);
     return url.protocol === "https:" ? url : null;
   } catch {
     return null;
   }
+}
+
+function providerSecret(): string | undefined {
+  return process.env.SUPABASE_FEEDBACK_URL
+    ? process.env.SUPABASE_INTAKE_SECRET
+    : process.env.FEEDBACK_PROVIDER_SECRET;
 }
 
 function authorized(request: NextRequest): boolean {
@@ -119,7 +126,7 @@ export async function GET(): Promise<NextResponse> {
   if (!target) return NextResponse.json({ storage: "static", ideas });
   try {
     const response = await fetch(target, {
-      headers: providerAuthorization(process.env.FEEDBACK_PROVIDER_SECRET),
+      headers: providerAuthorization(providerSecret()),
       signal: AbortSignal.timeout(8_000),
       cache: "no-store",
     });
@@ -270,7 +277,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ...(protection.idempotencyKey
           ? { "idempotency-key": protection.idempotencyKey }
           : {}),
-        ...providerAuthorization(process.env.FEEDBACK_PROVIDER_SECRET),
+        ...providerAuthorization(providerSecret()),
       },
       body: JSON.stringify(acceptedEvent),
       signal: AbortSignal.timeout(8_000),

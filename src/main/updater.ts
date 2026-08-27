@@ -11,13 +11,21 @@
  */
 import { app, dialog, shell } from 'electron'
 import electronUpdater from 'electron-updater'
+import { randomUUID } from 'node:crypto'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { log } from './log'
-import { GITHUB_REPO, SITE_URL } from '@shared/product'
-import { parseUpdateFeed } from '@shared/updateFeed'
+import { SITE_URL } from '@shared/product'
+import {
+  isUpdateEligible,
+  parseUpdateFeed,
+  UpdateChannelSchema,
+  type UpdateChannel,
+  type UpdateFeed
+} from '@shared/updateFeed'
 
 const { autoUpdater } = electronUpdater
 
-const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases/latest`
 /** The marketing site proxies release info for the private repo (see site/app/api/latest). */
 const SITE_LATEST_URL = `${SITE_URL}/api/latest`
 
@@ -35,32 +43,47 @@ function isNewer(remote: string, local: string): boolean {
 interface LatestInfo {
   version: string
   downloadUrl: string
+  feed: UpdateFeed
 }
 
-/** The site's /api/latest works even while the repo is private; GitHub's API is the public-repo fallback. */
-async function fetchLatest(): Promise<LatestInfo | null> {
+function updateChannel(): UpdateChannel {
+  const configured = UpdateChannelSchema.safeParse(process.env.TOTAL_UPDATE_CHANNEL)
+  if (configured.success) return configured.data
+  return app.getVersion().includes('-') ? 'beta' : 'stable'
+}
+
+/** A device-local random identifier used only for cohort calculation. It is never sent to the
+ * update service, included in logs or stored beside company data. */
+function updateInstallationId(): string {
+  const directory = app.getPath('userData')
+  const path = join(directory, 'update-installation.json')
   try {
-    const res = await fetch(SITE_LATEST_URL)
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { id?: unknown }
+    if (typeof parsed.id === 'string' && /^[0-9a-f-]{36}$/i.test(parsed.id)) return parsed.id
+  } catch {
+    // First run or a damaged optional cohort file: replace it with a fresh identifier.
+  }
+  const id = randomUUID()
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(path, `${JSON.stringify({ version: 1, id })}\n`, { encoding: 'utf8', mode: 0o600 })
+  return id
+}
+
+/** The site is authoritative for rollout controls. Falling back to GitHub here would bypass a
+ * percentage gate or emergency stop, so feed failure safely means no update check this run. */
+async function fetchLatest(channel = updateChannel()): Promise<LatestInfo | null> {
+  try {
+    const url = new URL(SITE_LATEST_URL)
+    url.searchParams.set('channel', channel)
+    const res = await fetch(url)
     if (res.ok) {
       const data = parseUpdateFeed(await res.json())
-      if (data) return data
+      if (data) return { version: data.version, downloadUrl: data.downloadUrl, feed: data }
     }
   } catch (err) {
-    // Site unreachable — try GitHub directly.
     log('warn', 'updater', { error: String(err) })
   }
-  try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { Accept: 'application/vnd.github+json' }
-    })
-    if (!res.ok) return null
-    const release = (await res.json()) as { tag_name?: string; html_url?: string }
-    if (!release.tag_name) return null
-    return { version: release.tag_name, downloadUrl: release.html_url ?? RELEASES_URL }
-  } catch (err) {
-    log('warn', 'updater', { error: String(err) })
-    return null
-  }
+  return null
 }
 
 export interface UpdateCheckResult {
@@ -74,9 +97,16 @@ export interface UpdateCheckResult {
 async function checkAndOffer(): Promise<UpdateCheckResult> {
   const current = app.getVersion()
   try {
-    const latest = await fetchLatest()
+    const channel = updateChannel()
+    const latest = await fetchLatest(channel)
     if (!latest) return { status: 'error', current }
     if (!isNewer(latest.version, current)) return { status: 'up-to-date', current }
+    if (!isUpdateEligible(latest.feed, updateInstallationId(), channel)) {
+      return { status: 'up-to-date', current }
+    }
+    if (latest.feed.killSwitches?.manualDownload === false) {
+      return { status: 'up-to-date', current }
+    }
     const choice = await dialog.showMessageBox({
       type: 'info',
       message: `Total ${latest.version.replace(/^v/, '')} is available`,
@@ -114,7 +144,6 @@ export async function checkForUpdatesInteractive(): Promise<UpdateCheckResult> {
 export function initUpdater(): void {
   if (!app.isPackaged) return
 
-  autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('update-downloaded', (info) => {
@@ -140,6 +169,19 @@ export function initUpdater(): void {
 
   // Give the window a moment to appear; updates are never the first thing on screen.
   setTimeout(() => {
-    autoUpdater.checkForUpdates().catch(() => void manualCheck())
+    void (async () => {
+      const channel = updateChannel()
+      const latest = await fetchLatest(channel)
+      if (!latest || !isNewer(latest.version, app.getVersion())) return
+      if (!isUpdateEligible(latest.feed, updateInstallationId(), channel)) return
+
+      autoUpdater.allowPrerelease = channel !== 'stable'
+      autoUpdater.autoDownload = latest.feed.killSwitches?.autoDownload !== false
+      if (!autoUpdater.autoDownload) {
+        if (latest.feed.killSwitches?.manualDownload !== false) await manualCheck()
+        return
+      }
+      await autoUpdater.checkForUpdates().catch(() => void manualCheck())
+    })()
   }, 5_000)
 }

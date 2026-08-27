@@ -7,6 +7,7 @@ const privilegedSecretNames = [
 ] as const;
 
 const providerSecretNames = [
+  "SUPABASE_INTAKE_SECRET",
   "SUPPORT_PROVIDER_SECRET",
   "FEEDBACK_PROVIDER_SECRET",
   "COHORT_PROVIDER_SECRET",

@@ -1,0 +1,112 @@
+name: v5 cloud-agent-sync branch packages
+
+on:
+  push:
+    branches: [v5-cloud-agent-sync]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Artifact update channel (never published by this workflow)
+        required: true
+        default: internal
+        type: choice
+        options: [internal, beta, stable]
+      rollout_percentage:
+        description: Rollout percentage recorded in the test manifest
+        required: true
+        default: '100'
+        type: choice
+        options: ['0', '10', '25', '50', '100']
+
+concurrency:
+  group: v5-cloud-agent-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+# Deliberately read-only: this workflow cannot create tags, releases or publish packages.
+permissions:
+  contents: read
+
+env:
+  STAGED_CHANNEL: ${{ inputs.channel || 'internal' }}
+  STAGED_ROLLOUT: ${{ inputs.rollout_percentage || '100' }}
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install application dependencies
+        run: npm ci
+      - name: Typecheck and test application
+        run: npm run typecheck && npm test && npm run test:release
+      - name: Test database layer
+        run: npm run test:db
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Build and test website
+        working-directory: site
+        run: npm ci && npm test && npm run build
+
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+            command: npx electron-builder --mac --arm64 --publish never --config.forceCodeSigning=false --config.mac.notarize=false
+          - os: windows-latest
+            platform: win
+            command: npx electron-builder --win --publish never --config.forceCodeSigning=false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build application
+        run: npm run build
+      - name: Build unsigned, non-publishing package
+        run: ${{ matrix.command }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify package contract
+        run: npm run release:package-contract -- ${{ matrix.platform }}
+        env:
+          PACKAGE_CONTRACT_EVIDENCE: dist/package-contract-${{ matrix.platform }}.json
+      - name: Create content-addressed staged manifest
+        shell: bash
+        run: >-
+          node scripts/staged-release-manifest.mjs
+          --artifacts dist
+          --output dist/staged-release-manifest-${{ matrix.platform }}.json
+          --channel "$STAGED_CHANNEL"
+          --rollout "$STAGED_ROLLOUT"
+          --revision "${{ github.sha }}"
+          --platform "${{ matrix.platform }}"
+      - name: Upload test packages and evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: v5-cloud-agent-sync-${{ matrix.platform }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+            dist/*.blockmap
+            dist/*.yml
+            dist/package-contract-${{ matrix.platform }}.json
+            dist/staged-release-manifest-${{ matrix.platform }}.json
