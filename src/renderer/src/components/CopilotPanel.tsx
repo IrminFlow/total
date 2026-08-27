@@ -6,6 +6,7 @@ import { Button, Modal, Skeleton } from './ui'
 import type { AiCitation, AiContextFieldId, AiUsage } from '@shared/ai'
 import { CaretDown, CaretRight, LinkSimple, ShieldCheck, Trash } from '@phosphor-icons/react'
 import { useDeviceSafetyControls } from '../lib/useDeviceSafety'
+import { confirmDialog } from '../lib/dialogs'
 
 interface Message { role: 'user' | 'assistant'; text: string; citations?: AiCitation[]; usage?: AiUsage | null; status?: 'completed' | 'cancelled' | 'failed' }
 
@@ -114,7 +115,14 @@ export function CopilotPanel({ onClose }: { onClose: () => void }): React.JSX.El
   }
 
   const removeConversation = async (): Promise<void> => {
-    if (!conversationId || !window.confirm('Delete this local Copilot conversation?')) return
+    if (!conversationId) return
+    const confirmed = await confirmDialog({
+      title: 'Delete conversation',
+      message: 'Delete this local Copilot conversation? This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!confirmed) return
     try {
       await api.ai.deleteConversation(conversationId)
       setConversationId(null)
@@ -126,7 +134,13 @@ export function CopilotPanel({ onClose }: { onClose: () => void }): React.JSX.El
   }
 
   const clearHistory = async (): Promise<void> => {
-    if (!window.confirm('Delete all local Copilot conversations for this company?')) return
+    const confirmed = await confirmDialog({
+      title: 'Clear Copilot history',
+      message: 'Delete every local Copilot conversation for this company? This cannot be undone.',
+      confirmLabel: 'Clear history',
+      danger: true
+    })
+    if (!confirmed) return
     try {
       const result = await api.ai.deleteAllConversations()
       setConversationId(null)
@@ -185,7 +199,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }): React.JSX.El
               {conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversation.title}</option>)}
             </select>
             <Button disabled={!conversationId || busy} onClick={() => { setConversationId(null); setMessages([]); setError(null) }}>New</Button>
-            <button aria-label="Delete conversation" title="Delete this local conversation" disabled={!conversationId || busy} className="rounded-md border border-line p-2 text-muted hover:text-cr disabled:opacity-40" onClick={() => void removeConversation()}><Trash size={15} /></button>
+            <Button variant="ghost" aria-label="Delete conversation" title="Delete this local conversation" disabled={!conversationId || busy} className="px-2" onClick={() => void removeConversation()}><Trash size={15} /></Button>
             {user?.role === 'owner' && conversations.length > 1 && <button disabled={busy} className="text-[10.5px] text-muted hover:text-cr disabled:opacity-40" onClick={() => void clearHistory()}>Clear all</button>}
           </div>
           <div className="mb-3 rounded-md border border-line bg-panel2">

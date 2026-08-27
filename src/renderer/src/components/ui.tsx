@@ -2,18 +2,20 @@ import {
   forwardRef,
   useCallback,
   useEffect,
-  useId,
   useRef,
   useState,
   type HTMLAttributes,
   type ReactNode,
   type TableHTMLAttributes,
 } from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { X } from "@phosphor-icons/react";
 import { formatPaise, parseRupees } from "@shared/money";
 import { parseSmartDate, toDisplayDate } from "@shared/dates";
 import { useToasts } from "../state/stores";
 import { inputCls } from "./inputStyles";
-import { isTopModal, registerModal, unregisterModal } from "./modalRegistry";
+import { registerModal, unregisterModal } from "./modalRegistry";
 
 // ---------- shared text + labels ----------
 
@@ -145,9 +147,40 @@ export function Select(
   );
 }
 
+/** Accessible, portal-rendered help text for compact workstation controls. The trigger remains
+ * visually unchanged and can be focused from the keyboard. */
+export function Tooltip({
+  content,
+  children,
+  side = "top",
+}: {
+  content: ReactNode;
+  children: React.JSX.Element;
+  side?: "top" | "right" | "bottom" | "left";
+}): React.JSX.Element {
+  return (
+    <TooltipPrimitive.Provider delayDuration={350} skipDelayDuration={100}>
+      <TooltipPrimitive.Root>
+        <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Portal>
+          <TooltipPrimitive.Content
+            side={side}
+            sideOffset={6}
+            className="z-[70] max-w-72 rounded-md border border-line bg-ink px-2.5 py-1.5 text-[11px] leading-4 text-canvas shadow-lg select-none"
+          >
+            {content}
+            <TooltipPrimitive.Arrow className="fill-ink" />
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+    </TooltipPrimitive.Provider>
+  );
+}
+
 export function Button({
   variant = "default",
   disabledTitle,
+  title,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "default" | "primary" | "danger" | "ghost";
@@ -168,17 +201,21 @@ export function Button({
     <button
       type="button"
       {...props}
+      title={title}
+      aria-label={props["aria-label"] ?? title}
       className={`min-h-8 rounded-md px-3 py-1.5 text-detail transition-colors disabled:opacity-40 disabled:pointer-events-none ${styles} ${props.className ?? ""}`}
     />
   );
   if (props.disabled && disabledTitle) {
     return (
-      <span title={disabledTitle} className="inline-block cursor-not-allowed">
-        {button}
-      </span>
+      <Tooltip content={disabledTitle}>
+        <span tabIndex={0} className="inline-block cursor-not-allowed">
+          {button}
+        </span>
+      </Tooltip>
     );
   }
-  return button;
+  return title ? <Tooltip content={title}>{button}</Tooltip> : button;
 }
 
 /** Rupee amount input that thinks in integer paise. Shows an inline error while the text
@@ -444,9 +481,6 @@ export function LineTableScroller({
   );
 }
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 export function Modal({
   title,
   onClose,
@@ -461,10 +495,10 @@ export function Modal({
   /** When true, dismissing (Esc / overlay / ✕) first asks to discard unsaved changes. */
   dirty?: boolean;
 }): React.JSX.Element {
-  const titleId = useId();
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const overlayMouseDown = useRef(false);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const confirmRef = useRef(confirmDiscard);
@@ -481,132 +515,85 @@ export function Modal({
     onCloseRef.current();
   }, []);
 
-  // Focus trap: move focus in on mount (unless a child autoFocus already took it), restore on close.
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    const dialog = dialogRef.current;
-    if (dialog && !dialog.contains(document.activeElement)) {
-      const first = dialog.querySelector<HTMLElement>(FOCUSABLE);
-      (first ?? dialog).focus();
-    }
+    const id = registerModal();
     return () => {
-      previous?.focus?.();
+      unregisterModal(id);
+      // The parent removes a controlled dialog immediately after onClose. Restore after Radix's
+      // own teardown so toolbar and table-row triggers keep their keyboard position.
+      const previous = previousFocusRef.current;
+      queueMicrotask(() => previous?.focus());
     };
   }, []);
 
-  useEffect(() => {
-    const id = registerModal();
-    const isTop = (): boolean => isTopModal(id);
-    const onKey = (e: KeyboardEvent): void => {
-      if (!isTop()) return;
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        if (confirmRef.current) {
-          setConfirmDiscard(false); // Esc on the discard prompt = keep editing
-          return;
-        }
-        requestClose();
-      } else if (e.key === "Tab") {
-        const dialog = dialogRef.current;
-        if (!dialog) return;
-        const focusables = Array.from(
-          dialog.querySelectorAll<HTMLElement>(FOCUSABLE),
-        ).filter(
-          (el) => el.offsetParent !== null || el === document.activeElement,
-        );
-        if (focusables.length === 0) {
-          e.preventDefault();
-          return;
-        }
-        const first = focusables[0]!;
-        const last = focusables[focusables.length - 1]!;
-        const inside = dialog.contains(document.activeElement);
-        if (e.shiftKey && (document.activeElement === first || !inside)) {
-          e.preventDefault();
-          last.focus();
-        } else if (
-          !e.shiftKey &&
-          (document.activeElement === last || !inside)
-        ) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("keydown", onKey, true);
-      unregisterModal(id);
-    };
-  }, [requestClose]);
-
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 pt-[10vh]"
-      onMouseDown={(e) => {
-        overlayMouseDown.current = e.target === e.currentTarget;
-      }}
-      onMouseUp={(e) => {
-        // Dismiss only on a clean click that both starts AND ends on the overlay — a drag that
-        // starts in a field and drifts outside must not nuke the modal.
-        const outside =
-          overlayMouseDown.current && e.target === e.currentTarget;
-        overlayMouseDown.current = false;
-        if (outside) requestClose();
+    <DialogPrimitive.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) requestClose();
       }}
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        data-modal={title}
-        tabIndex={-1}
-        className={`max-h-[75vh] w-full ${wide ? "max-w-3xl" : "max-w-lg"} overflow-auto rounded-xl border border-line bg-panel shadow-2xl outline-none`}
-      >
-        <div className="flex items-center justify-between border-b border-line px-5 py-3">
-          <h3
-            id={titleId}
-            className="text-title font-semibold tracking-[-0.01em]"
-          >
-            {title}
-          </h3>
-          <div className="flex items-center gap-2">
-            <Kbd>Esc</Kbd>
-            <button
-              type="button"
-              aria-label="Close"
-              data-testid="modal-close"
-              onClick={requestClose}
-              className="rounded-md border border-transparent px-1.5 py-0.5 text-[15px] leading-none text-muted transition-colors hover:border-line hover:text-ink"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-        <div className="p-5">{children}</div>
-        {confirmDiscard && (
-          <div className="flex items-center justify-between gap-3 border-t border-amber/60 bg-amber/10 px-5 py-3">
-            <p className="text-detail text-ink">Discard unsaved changes?</p>
-            <div className="flex shrink-0 gap-2">
-              <Button
-                data-testid="modal-keep-editing"
-                onClick={() => setConfirmDiscard(false)}
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/50" />
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          data-modal={title}
+          onEscapeKeyDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (confirmRef.current) setConfirmDiscard(false);
+            else requestClose();
+          }}
+          onPointerDownOutside={(event) => {
+            event.preventDefault();
+            requestClose();
+          }}
+          className={`fixed left-1/2 top-[10vh] z-40 max-h-[75vh] w-[calc(100%-2rem)] -translate-x-1/2 ${wide ? "max-w-3xl" : "max-w-lg"} overflow-auto rounded-xl border border-line bg-panel shadow-2xl outline-none`}
+        >
+          <div className="flex items-center justify-between border-b border-line px-5 py-3">
+            <DialogPrimitive.Title className="text-title font-semibold tracking-[-0.01em]">
+              {title}
+            </DialogPrimitive.Title>
+            <div className="flex items-center gap-2">
+              <Kbd>Esc</Kbd>
+              <DialogPrimitive.Close
+                type="button"
+                aria-label="Close"
+                data-testid="modal-close"
+                onClick={(event) => {
+                  event.preventDefault();
+                  requestClose();
+                }}
+                className="rounded-md border border-transparent px-1.5 py-0.5 text-[15px] leading-none text-muted transition-colors hover:border-line hover:text-ink"
               >
-                Keep editing
-              </Button>
-              <Button
-                variant="danger"
-                data-testid="modal-discard"
-                onClick={() => onCloseRef.current()}
-              >
-                Discard
-              </Button>
+                <X size={15} weight="bold" />
+              </DialogPrimitive.Close>
             </div>
           </div>
-        )}
-      </div>
-    </div>
+          <div className="p-5">{children}</div>
+          {confirmDiscard && (
+            <div className="flex items-center justify-between gap-3 border-t border-amber/60 bg-amber/10 px-5 py-3">
+              <p className="text-detail text-ink">Discard unsaved changes?</p>
+              <div className="flex shrink-0 gap-2">
+                <Button
+                  data-testid="modal-keep-editing"
+                  onClick={() => setConfirmDiscard(false)}
+                >
+                  Keep editing
+                </Button>
+                <Button
+                  variant="danger"
+                  data-testid="modal-discard"
+                  onClick={() => onCloseRef.current()}
+                >
+                  Discard
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 

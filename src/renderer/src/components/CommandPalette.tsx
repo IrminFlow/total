@@ -1,5 +1,6 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { useNav, useSession, useToasts, type Screen } from "../state/stores";
 import { api } from "../lib/client";
 import { useKeyNav } from "./useKeyNav";
@@ -18,6 +19,7 @@ import { financialQuarterOf, fyOf, todayISO } from "@shared/dates";
 import { readRecentRecords, rememberRecentRecord } from "../lib/recentRecords";
 import { useAccessibilityPreferences } from "../lib/accessibilityPrefs";
 import { localizedLabel } from "../lib/localization";
+import { registerModal, unregisterModal } from "./modalRegistry";
 
 interface Command {
   label: string;
@@ -52,11 +54,22 @@ export function CommandPalette({
   const shortcutOverrides = useShortcutOverrides();
   const language = useAccessibilityPreferences((state) => state.language);
   const [query, setQuery] = useState("");
+  const previousFocusRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   const listboxId = useId();
   const [recentRecords, setRecentRecords] = useState(() =>
     readRecentRecords(slug),
   );
   useEffect(() => setRecentRecords(readRecentRecords(slug)), [slug]);
+  useEffect(() => {
+    const id = registerModal();
+    return () => {
+      unregisterModal(id);
+      const previous = previousFocusRef.current;
+      queueMicrotask(() => previous?.focus());
+    };
+  }, []);
 
   const commands = useMemo<Command[]>(() => {
     const go = (screen: Screen) => () => nav.go(screen);
@@ -120,7 +133,7 @@ export function CommandPalette({
       keywords,
       run: () => {
         setPeriod(period.from, period.to);
-        toast.push("success", `${label.replace("Set period — ", "")} selected`);
+        toast.push("success", `${label.replace("Set period: ", "")} selected`);
       },
     });
     return [
@@ -142,17 +155,17 @@ export function CommandPalette({
         label: "New receipt",
         run: go({ name: "voucher-entry", kindHint: "receipt" }),
       },
-      periodCommand("Set period — this month", currentMonth, [
+      periodCommand("Set period: this month", currentMonth, [
         "date",
         "month",
         "change period",
       ]),
-      periodCommand("Set period — previous month", previousMonth, [
+      periodCommand("Set period: previous month", previousMonth, [
         "date",
         "last month",
         "change period",
       ]),
-      periodCommand("Set period — current quarter", financialQuarterOf(today), [
+      periodCommand("Set period: current quarter", financialQuarterOf(today), [
         "date",
         "quarter",
         "q1",
@@ -160,7 +173,7 @@ export function CommandPalette({
         "q3",
         "q4",
       ]),
-      periodCommand("Set period — current financial year", fyOf(today), [
+      periodCommand("Set period: current financial year", fyOf(today), [
         "date",
         "fy",
         "financial year",
@@ -304,50 +317,58 @@ export function CommandPalette({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 pt-[14vh]"
-      onMouseDown={onClose}
+    <DialogPrimitive.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Search books and commands"
-        className="w-full max-w-xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <input
-          autoFocus
-          role="combobox"
-          aria-autocomplete="list"
-          aria-expanded="true"
-          aria-controls={listboxId}
-          aria-activedescendant={
-            navItems[active] ? `${listboxId}-option-${active}` : undefined
-          }
-          data-testid="input-palette"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setActive(0);
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/50" />
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          onEscapeKeyDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
           }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") onClose();
-            else if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setActive(Math.min(navItems.length - 1, active + 1));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setActive(Math.max(0, active - 1));
-            } else if (e.key === "Enter") runItem(navItems[active]);
-          }}
-          placeholder="Type a command — voucher, report, GST…"
-          className="w-full border-b border-line bg-transparent px-5 py-3.5 text-[14px] outline-none placeholder:text-muted/60"
-        />
-        <div
-          id={listboxId}
-          role="listbox"
-          className="max-h-80 overflow-auto py-1"
+          className="fixed left-1/2 top-[14vh] z-40 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-xl border border-line bg-panel shadow-2xl outline-none"
         >
+          <DialogPrimitive.Title className="sr-only">
+            Search books and commands
+          </DialogPrimitive.Title>
+          <input
+            autoFocus
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="true"
+            aria-controls={listboxId}
+            aria-activedescendant={
+              navItems[active] ? `${listboxId}-option-${active}` : undefined
+            }
+            data-testid="input-palette"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setActive(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setActive(Math.min(navItems.length - 1, active + 1));
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setActive(Math.max(0, active - 1));
+              } else if (e.key === "Enter") runItem(navItems[active]);
+            }}
+            placeholder="Type a command: voucher, report, GST…"
+            className="w-full border-b border-line bg-transparent px-5 py-3.5 text-[14px] outline-none placeholder:text-muted/60"
+          />
+          <div
+            id={listboxId}
+            role="listbox"
+            className="max-h-80 overflow-auto py-1"
+          >
           {visibleHits.length > 0 && (
             <p className="px-5 pb-1 pt-2 text-[10.5px] font-medium uppercase tracking-wide text-muted">
               {searchEnabled ? "In your books" : "Recent records"}
@@ -402,8 +423,9 @@ export function CommandPalette({
               No commands or matches
             </p>
           )}
-        </div>
-      </div>
-    </div>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

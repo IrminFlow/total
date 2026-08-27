@@ -12,6 +12,7 @@ import {
 import { ArrowClockwise, Camera, CursorClick, Eye, ShieldCheck, Trash } from "@phosphor-icons/react";
 import { focusContextFor, type FocusContext } from "../lib/supportContext";
 import { useDeviceSafetyControls } from "../lib/useDeviceSafety";
+import { confirmDialog } from "../lib/dialogs";
 
 export const SUPPORT_EMAIL = "total@irminflow.com";
 
@@ -551,8 +552,12 @@ function SupportModal({
                       data-testid={`btn-retry-support-${item.id}`}
                       disabled={item.hasAttachment && !uploadsEnabled}
                       disabledTitle={item.hasAttachment && !uploadsEnabled ? "Enable support attachments in Settings > Features before retrying this upload" : undefined}
-                      onClick={() => {
-                        const approved = !item.hasAttachment || window.confirm("Retry this submission with its previously reviewed screenshot?");
+                      onClick={async () => {
+                        const approved = !item.hasAttachment || await confirmDialog({
+                          title: "Retry support case",
+                          message: "Retry this submission with its previously reviewed screenshot?",
+                          confirmLabel: "Retry"
+                        });
                         if (!approved) return;
                         setError("");
                         void api.support.retryQueued(item.id, item.hasAttachment).then(() => {
@@ -568,8 +573,14 @@ function SupportModal({
                     </Button>
                     <Button
                       data-testid={`btn-discard-support-${item.id}`}
-                      onClick={() => {
-                        if (!window.confirm("Delete this encrypted queued submission from this device?")) return;
+                      onClick={async () => {
+                        const confirmed = await confirmDialog({
+                          title: "Delete queued submission",
+                          message: "Delete this encrypted queued submission from this device?",
+                          confirmLabel: "Delete",
+                          danger: true
+                        });
+                        if (!confirmed) return;
                         void api.support.discardQueued(item.id).then(refreshCases).catch((err) => setError((err as Error).message));
                       }}
                     >
