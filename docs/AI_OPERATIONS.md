@@ -1,5 +1,7 @@
 # AI operations and release policy
 
+Last updated: 28 August 2026.
+
 Total’s accounting engine does not depend on AI. AI may extract, classify, search, explain and
 prepare proposals; it cannot post vouchers, change report calculations or bypass approval.
 
@@ -15,6 +17,32 @@ prepare proposals; it cannot post vouchers, change report calculations or bypass
 
 Before sharing context, the app shows the exact categories selected. No-context questions must
 return no book citations. Contextual claims must cite only resources present in that request.
+
+## Codex and ChatGPT device authentication
+
+The “Sign in with ChatGPT” control starts the installed Codex CLI's official device-auth flow.
+Codex owns the credential. Total reads only bounded process output and `codex login status`; it does
+not read, copy, persist, refresh or include the ChatGPT credential in diagnostics. If Codex CLI is
+not installed, ordinary provider-key configuration and every non-AI workflow remain available.
+
+## AI Operator boundary
+
+Operator is disabled by default. An owner must enable it and select specific workspace directories.
+The filesystem root, home directory, Total data root, symlinks, binary files and text files over 2 MB
+are rejected. The current action allowlist is navigation, bounded book search, voucher proposal,
+text-file read and text-file write. It provides no shell, arbitrary process, credential, SQL or
+unrestricted network tool.
+
+The user sees the generated plan before running actions. File changes either require approval for
+every change or follow the owner-selected approved-folder policy. Accounting always creates a
+proposal and always requires review inside Total, regardless of file approval mode.
+
+## Offline OCR
+
+The document inbox can use bundled Tesseract English data without an AI provider. OCR output is
+parsed into a review record and never posts a voucher. Low-confidence, missing or unreadable fields
+remain visible warnings. Additional language claims require a reviewed language-specific corpus and
+recorded accuracy evidence.
 
 ## Release evaluation
 

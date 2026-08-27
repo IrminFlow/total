@@ -1,7 +1,8 @@
 # Roadmap implementation status
 
-Last updated: 24 August 2026. The source of truth for the full opportunity set remains
-[BACKLOG_300.md](BACKLOG_300.md).
+Last updated: 28 August 2026. This is the historical implementation map for the opportunity set in
+[BACKLOG_300.md](BACKLOG_300.md). Root [ROADMAP.md](../ROADMAP.md) is the current product and release
+status source of truth.
 
 ## Wave A — implemented
 
@@ -298,7 +299,12 @@ credentials must never exist in the repository.
 
 ## Current build direction
 
-Wave B is underway: the core workspace, continuity, focus/history controls, Day Book batch controls, explicit reversals, collections, supplier priorities, reviewed payment runs, procurement, banking/treasury, daily GST/TDS control rooms, inventory/production control plane, payroll/workforce controls, the sales document chain, the collaboration/control room, migration workbench, human-controlled Assist workspace, scoped MCP v1 access layer and declarative integration platform are shipped.
-The 300-item roadmap is implemented. Public-release work now follows the fail-closed platform
-scorecards and evidence bundles; no later feature may weaken balanced-book, recovery, accessibility,
-security, performance, packaging or permanent-export guarantees.
+The numbered 300-item implementation programme is code-complete on the v5 branch. Later additions
+include encrypted Supabase review collaboration, distinct-user invitations, Supabase support intake,
+AI Operator actions, Codex device authentication, bundled offline OCR, Radix interaction primitives
+and staged update channels.
+
+Code-complete does not mean configured, accepted, signed or publicly released. Current production
+status is tracked in root [ROADMAP.md](../ROADMAP.md), agent work in [TASKS.md](../TASKS.md), and
+external actions in [HUMAN.md](../HUMAN.md). No later feature may weaken balanced-book, recovery,
+accessibility, security, performance, packaging or permanent-export guarantees.

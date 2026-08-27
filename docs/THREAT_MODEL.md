@@ -1,13 +1,15 @@
 # Total desktop threat model
 
-Last reviewed for release: 0.5.0 · 24 August 2026
+Last reviewed for release: 0.5.0, 28 August 2026
 
 ## Assets and trust boundaries
 
 The primary assets are company SQLite databases, document attachments, local PIN hashes, provider
 credentials, NIC credentials, webhook secrets, MCP tokens, signing identities, backups and exported
-reports. The renderer is untrusted relative to the Electron main process. Imported files, MCP
-clients, AI providers, bank feeds, webhook receivers, integration manifests and opened URLs are
+reports. Optional collaboration adds user access tokens, recovery keys, device signing keys,
+invitations and encrypted envelopes. The renderer is untrusted relative to the Electron main
+process. Imported files, MCP clients, AI providers, AI-generated action plans, Codex subprocess
+output, bank feeds, Supabase functions, webhook receivers, integration manifests and opened URLs are
 external inputs. A signed-in user is still constrained by role, department and export policies.
 
 ## Required release controls
@@ -29,6 +31,15 @@ external inputs. A signed-in user is still constrained by role, department and e
 - Providers and outbound network: AI and bank provider endpoints require HTTPS except loopback,
   credentials are platform encrypted, responses have time/size limits, webhook payloads are visible
   and HMAC signed, and all optional network surfaces are summarized in the Privacy centre.
+- AI Operator: disabled by default, bounded to an action schema, and restricted to explicit
+  owner-approved directories. Root, home, Total data, symlink, binary and oversized file access is
+  denied. Accounting actions remain proposals even when approved-folder file writes are enabled.
+- Collaboration: ciphertext envelopes are authenticated and signed, workspace membership is checked
+  server-side, invitations are hashed/expiring/revocable/single-use, and recovery material is never
+  sent to the service. Incoming records update only the review CRDT lane, never posted books.
+- Hosted intake: Blob remains the website's durable support record. Supabase receives only the
+  intended second support copy and feedback rows through a dedicated bearer boundary. Provider
+  delivery failure cannot erase the canonical case.
 - Recovery: automatic backups are opened read-only and verified, destination copies are verified
   again, encrypted portable backups have authenticated encryption, and recovery drills retain
   evidence without overwriting live books.
@@ -54,6 +65,11 @@ replace endpoint security, disk encryption or tested off-device backups.
 | A backup, portable package or JSON mirror is truncated or tampered with | Integrity, schema, path, count and digest checks run before live company data is replaced or adjacent files are read. | backup, complete-backup, migration-tools and agent-mirror DB tests |
 | A spreadsheet, image, XML file or plugin manifest is hostile | Size, container, nesting, schema and path bounds reject unsafe input. Parsed text remains inert. | XLSX safety, boundary fuzz and integration manifest tests |
 | A credential is committed to the repository | CI scans tracked text for private-key blocks and common provider token formats. Environment files with literal secret assignments are rejected. | `npm run security:audit` |
+| An AI plan requests arbitrary filesystem or shell access | The discriminated action schema rejects unknown tools. Approved-root containment, symlink, file-type and byte limits apply before a read or write; no shell tool exists. | AI Operator schema, service and IPC tests |
+| A document or provider response contains prompt-injection instructions | Retrieved content remains untrusted data, tools stay allowlisted, and accounting mutations remain reviewable proposals. | AI boundary and provider mock tests |
+| A collaboration envelope is modified, replayed or belongs to another workspace | Signature, authenticated encryption, workspace identity, envelope ID and sequence checks reject it; accepted envelopes are idempotent. | collaboration crypto, merge and handler tests |
+| An invitation is guessed, reused or used after revocation | Codes contain 256 bits of randomness, only hashes are stored, acceptance is authenticated and transactional, and expiry/revocation/single-use state is enforced. | invitation schema, handler and backend contract tests |
+| Support delivery to Supabase or Resend fails | Blob retains the case and lifecycle. The route records provider failure without claiming delivery or losing tracking. | website route and production synthetic tests |
 
 ## Evidence and incident handling
 

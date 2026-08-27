@@ -1,23 +1,36 @@
-# Agent instructions — Total
+# Agent instructions for Total
 
-**Read `CLAUDE.md` for the full project guide** (architecture, conventions, gotchas, release and deploy steps). This file is the tool-agnostic summary; if the two ever disagree, CLAUDE.md wins.
+Read [CLAUDE.md](CLAUDE.md) completely before changing code. It is the authoritative engineering and release guide. Read [TASKS.md](TASKS.md) for current work and [docs/README.md](docs/README.md) for topic-specific guides.
 
-## What this is
+## Product boundary
 
-Fully offline accounting app for macOS (Electron + React + TS + better-sqlite3) for Indian businesses — double-entry books, GST returns + e-invoice/e-way exports, invoice PDFs, inventory/BOM manufacturing, banking reconciliation, payroll, multi-currency, Tally XML import. User data: one SQLite DB per company under `~/Documents/total/`. Marketing site: `site/` (Next.js 16, Vercel, root directory `site`). Private repo `IrminFlow/total`.
+Total is a local-first Electron accounting application for macOS and Windows. SQLite is authoritative. Optional AI, MCP, Supabase collaboration, support delivery, and update services must not weaken offline accounting or approval controls. NIC live filing and online GST portal APIs are excluded from v0.5.
 
-## Working here
+## Required invariants
 
-- Layers: `src/shared/` = pure engine (all tests), `src/main/` = SQLite + services + Zod-validated IPC, `src/renderer/` = React UI calling `window.total.invoke` via `src/renderer/src/lib/client.ts` only.
-- Money = integer paise; quantity = integer thousandths. No floats on amounts, ever.
-- Reports are always computed from `voucher_lines`; never store derived balances.
-- New DB schema = append a migration in `src/main/db/migrations.ts`.
-- Tests (`npm test`) run under system Node: never import better-sqlite3 from a test (it's compiled for Electron's ABI). If the app itself hits `NODE_MODULE_VERSION` errors: `npx @electron/rebuild -f -w better-sqlite3`.
-- Verify UI changes by building (`npm run build`) and running a `scripts/drive*.mjs` Playwright driver against the built app.
-- Before claiming done: `npm test` and `npm run typecheck` must pass.
+- Money uses integer paise; quantity uses integer thousandths.
+- Reports derive from `voucher_lines`; never store derived balances.
+- `src/shared/` remains pure TypeScript.
+- Append migrations; never rewrite migration history.
+- Zod-validate IPC inputs.
+- Renderer access goes through the typed client only.
+- Filter soft-deleted vouchers from ordinary queries.
+- Secrets never enter books, mirrors, backups, renderer state, logs, support payloads, or commits.
+- AI may propose accounting work but cannot post it directly.
+- Sync may replicate review work but not the company database or posted books.
+- Automated tests use an isolated `TOTAL_DATA_DIR`.
 
-## Ship
+## Completion gates
 
-- Release: tag the reviewed `main` commit with the version already in `package.json`, then `git push origin main --follow-tags`; GitHub Actions builds and publishes DMG/ZIP. Use `npm version patch` only when preparing a new patch version. Releases must publish directly (never drafts — the update feed reads `releases/latest`).
-- App updates: installed apps poll the site's `/api/latest` (private-repo path); electron-updater goes silent only once builds are signed and releases public.
-- Site: Vercel auto-deploys `site/` on push to `main`; needs `GITHUB_TOKEN` (read-only PAT) env while the repo is private.
+Every change requires:
+
+```bash
+npm run typecheck
+npm test
+```
+
+Database changes also require `npm run test:db`. Renderer changes require `npm run test:renderer`, `npm run build`, and relevant E2E or visual scenarios. Website changes require `cd site && npm test && npm run build`. Release or security changes require the corresponding release-contract and security gates.
+
+## Current branch protocol
+
+Work on `v5-cloud-agent-sync` and draft PR [#4](https://github.com/IrminFlow/total/pull/4) unless the owner changes direction. Do not start the final merge review until the owner explicitly asks for it. Do not create a release tag manually.

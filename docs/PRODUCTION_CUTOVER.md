@@ -32,20 +32,27 @@ Vercel (`site` as root directory):
 - `INTAKE_ADMIN_SECRET`: at least 32 random characters; authenticates case status changes, exact
   deletion, and legal/security hold administration. It is never sent to an external provider.
 - `CRON_SECRET`: at least 32 random characters; authenticates the scheduled retention-maintenance route.
-- `CONVEX_SUPPORT_URL` / `SUPPORT_WEBHOOK_URL`: optional support-notification destination. It does
-  not replace Blob storage or the case-tracking system of record.
-- `CONVEX_FEEDBACK_URL`: do not configure for v0.5 unless the provider implements authenticated
-  exact-event deletion and its cleanup contract is added to the release gate. Blob is the supported
-  v0.5 feedback backend.
+- `SUPABASE_SUPPORT_URL`: recommended second support copy through the deployed `total-intake`
+  function. It does not replace Blob as the website's durable case and retention system of record.
+- `SUPABASE_FEEDBACK_URL`: recommended hosted feedback provider through the same intake function.
+- `SUPABASE_INTAKE_SECRET`: dedicated bearer value shared only with Supabase
+  `TOTAL_INTAKE_SECRET`. It must remain distinct from storage, administration, cron, HMAC, provider,
+  signing and AI credentials.
+- `CONVEX_SUPPORT_URL` / `SUPPORT_WEBHOOK_URL`: optional alternative support-notification destination
+  when Supabase support intake is not configured.
+- `CONVEX_FEEDBACK_URL`: optional alternative feedback provider when Supabase feedback is not configured.
 - `SUPPORT_PROVIDER_SECRET`: optional bearer credential sent only to the support-notification provider.
 - `FEEDBACK_PROVIDER_SECRET`: optional bearer credential sent only to the feedback provider.
 - `COHORT_PROVIDER_SECRET`: optional bearer credential sent only to the aggregate cohort provider.
 
-Every configured administration, cron, intake-HMAC and provider credential must have a unique value.
-The API fails closed when privileged credentials are too short or any of these boundaries collide.
+Every configured administration, cron, intake-HMAC and provider credential must have a unique value,
+except that Vercel `SUPABASE_INTAKE_SECRET` intentionally equals Supabase `TOTAL_INTAKE_SECRET` for
+that single server-to-server boundary. The API fails closed when privileged credentials are too
+short or separate trust boundaries collide.
 
-Submit a synthetic support case and feedback idea after deployment. Verify private-store receipt, case ID,
-rate limiting, fallback behavior and that no book data appears unless explicitly selected.
+Submit a synthetic support case and feedback idea after deployment. Verify private Blob receipt,
+the intended Supabase rows, case ID, rate limiting, provider-failure fallback, exact deletion and
+that no book data appears unless explicitly selected.
 The release workflow repeats the destructive-safe synthetic lifecycle and cleanup on the exact tagged
 site deployment. Vercel must expose `VERCEL_GIT_COMMIT_SHA` and `VERCEL_DEPLOYMENT_ID`; if system
 variables are disabled, configure equivalent `TOTAL_SITE_REVISION` and `TOTAL_DEPLOYMENT_ID` values.

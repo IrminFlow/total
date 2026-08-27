@@ -1,8 +1,9 @@
 # Total v0.5 completion roadmap
 
-Last updated: 24 August 2026. This records the path from implemented product to public release. The
-numbered source of truth is [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md), covering all 300
-items in [BACKLOG_300.md](BACKLOG_300.md).
+Last updated: 28 August 2026. This preserves the detailed v0.5 completion narrative. Root
+[ROADMAP.md](../ROADMAP.md) is the current product and release status source of truth. The historical
+numbered implementation map is [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md), covering all
+300 items in [BACKLOG_300.md](BACKLOG_300.md).
 
 ## Product scope implemented
 
@@ -53,8 +54,9 @@ items in [BACKLOG_300.md](BACKLOG_300.md).
 - For the free public beta, record explicit product-owner acceptance of the unreviewed legal risk or
   obtain qualified review. Qualified review remains mandatory before direct sales or significant paid
   marketing.
-- Tag only after the final commit is clean and green, then verify installers and updater metadata from
-  the public release. See [PRODUCTION_CUTOVER.md](PRODUCTION_CUTOVER.md).
+- Merge only after the final commit is clean, reviewed and green. The protected candidate and
+  promotion workflows own tag creation; never tag manually. See
+  [PRODUCTION_CUTOVER.md](PRODUCTION_CUTOVER.md).
 
 `npm run release:readiness` generates the machine-readable state. Missing credentials are external
 blockers and must never be replaced with unsigned-production exceptions.
