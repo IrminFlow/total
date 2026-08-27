@@ -54,11 +54,16 @@
     "@fontsource/ibm-plex-serif": "^5.3.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@radix-ui/react-dialog": "^1.1.23",
+    "@radix-ui/react-popover": "^1.1.23",
+    "@radix-ui/react-tooltip": "^1.2.16",
+    "@tesseract.js-data/eng": "^1.0.0",
     "better-sqlite3": "^13.0.3",
     "electron-updater": "^6.8.9",
     "exceljs": "^4.4.0",
     "openai": "^7.5.0",
     "qrcode-generator": "^2.0.4",
+    "tesseract.js": "^7.0.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
@@ -112,6 +117,10 @@
       {
         "from": "agent-skill/voucher.schema.json",
         "to": "voucher.schema.json"
+      },
+      {
+        "from": "node_modules/@tesseract.js-data/eng/4.0.0",
+        "to": "offline-ocr"
       }
     ],
     "mac": {

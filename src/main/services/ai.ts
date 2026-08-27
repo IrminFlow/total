@@ -27,6 +27,7 @@ import { voucherInputSchema } from "@shared/schemas";
 import { createProposal, type AgentProposal } from "./agentBridge";
 import { atomicWriteFile } from "../atomicFile";
 import type { ExtractedDocument } from "@shared/assistiveAutomation";
+import { aiOperatorPlanSchema, type AiOperatorPlan } from "@shared/aiOperator";
 
 type ProviderKind = "openai" | "compatible";
 interface ProviderProfile {
@@ -576,6 +577,56 @@ export async function ask(
     citations,
     usage,
   };
+}
+
+/** Build a typed, bounded action plan. Execution is kept separate so the renderer can show every
+ * action and the main process can enforce workspace roots and approval policy. */
+export async function planOperator(prompt: string, operatorContext: string): Promise<AiOperatorPlan> {
+  const stored = readStored();
+  if (!stored.enabled) throw new Error("AI is turned off in Settings");
+  const instructions = [
+    "You are Total Operator, a controlled assistant for the Total desktop accounting app.",
+    "Create the smallest useful action plan. Never claim an action already happened.",
+    "Allowed action kinds are navigate, search_books, draft_voucher, read_file and write_file.",
+    "For navigation use a Total screen name. For files use only absolute paths inside an approved workspace root.",
+    "Never request shell access, credentials, browser secrets, arbitrary network access, deletion, or direct database writes.",
+    "Accounting changes must use draft_voucher and will become reviewable proposals, never direct postings.",
+    `Current operator policy: ${operatorContext}`,
+  ].join("\n\n");
+  const sdk = client(stored);
+  if (stored.provider === "openai" && stored.apiMode === "responses") {
+    const response = await sdk.responses.parse({
+      model: stored.model,
+      instructions,
+      input: prompt,
+      text: { format: zodTextFormat(aiOperatorPlanSchema, "total_operator_plan") },
+    });
+    return aiOperatorPlanSchema.parse(response.output_parsed);
+  }
+  let raw = "";
+  if (stored.apiMode === "chat_completions") {
+    const response = await sdk.chat.completions.create({
+      model: stored.model,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: `${instructions}\nReturn one JSON object matching {summary,actions}.` },
+        { role: "user", content: prompt },
+      ],
+    });
+    raw = response.choices[0]?.message.content ?? "";
+  } else {
+    const response = await sdk.responses.create({
+      model: stored.model,
+      instructions: `${instructions}\nReturn one JSON object matching {summary,actions}.`,
+      input: prompt,
+    });
+    raw = response.output_text;
+  }
+  try {
+    return aiOperatorPlanSchema.parse(JSON.parse(raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")));
+  } catch {
+    throw new Error("The provider returned an invalid operator plan");
+  }
 }
 
 export function selectedContext(

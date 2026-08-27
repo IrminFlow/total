@@ -15,7 +15,9 @@ import {
 } from "@phosphor-icons/react";
 import { formatPaise } from "@shared/money";
 import type { AiTaskRoute } from "@shared/assistiveAutomation";
+import type { AiOperatorAction, AiOperatorActionResult, AiOperatorPlan } from "@shared/aiOperator";
 import { api } from "../lib/client";
+import { SCREENS } from "../lib/screens";
 import { useNav, useSession, useToasts } from "../state/stores";
 import {
   Button,
@@ -29,9 +31,10 @@ import {
 } from "../components/ui";
 import { inputCls } from "../components/inputStyles";
 
-type Tab = "documents" | "ledgers" | "search" | "writing" | "routing";
+type Tab = "operator" | "documents" | "ledgers" | "search" | "writing" | "routing";
 
 const tabs: { id: Tab; label: string; eyebrow: string }[] = [
+  { id: "operator", label: "Operator", eyebrow: "Act" },
   { id: "documents", label: "Document inbox", eyebrow: "Capture" },
   { id: "ledgers", label: "Ledger suggestions", eyebrow: "Classify" },
   { id: "search", label: "Book search", eyebrow: "Find" },
@@ -85,7 +88,7 @@ export function AssistScreen(): React.JSX.Element {
         </Panel>
       </div>
 
-      <div className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line md:grid-cols-5">
+      <div className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line md:grid-cols-6">
         {tabs.map((item) => (
           <button
             key={item.id}
@@ -108,11 +111,75 @@ export function AssistScreen(): React.JSX.Element {
         ))}
       </div>
 
+      {tab === "operator" && <OperatorWorkspace />}
       {tab === "documents" && <DocumentInbox />}
       {tab === "ledgers" && <LedgerSuggestions />}
       {tab === "search" && <BookSearch />}
       {tab === "writing" && <WritingWorkspace />}
       {tab === "routing" && <TaskRouting />}
+    </div>
+  );
+}
+
+function OperatorWorkspace(): React.JSX.Element {
+  const nav = useNav();
+  const toast = useToasts();
+  const [prompt, setPrompt] = useState("");
+  const [plan, setPlan] = useState<AiOperatorPlan | null>(null);
+  const [results, setResults] = useState<Record<number, AiOperatorActionResult>>({});
+  const config = useQuery({ queryKey: ["aiOperatorConfig"], queryFn: api.ai.operatorConfig });
+  const planMutation = useMutation({
+    mutationFn: api.ai.operatorPlan,
+    onSuccess: (next) => { setPlan(next); setResults({}); },
+    onError: (error) => toast.push("error", error instanceof Error ? error.message : String(error)),
+  });
+  const execute = async (action: AiOperatorAction, index: number, approved = false): Promise<void> => {
+    try {
+      const result = await api.ai.operatorExecute(action, approved);
+      setResults((current) => ({ ...current, [index]: result }));
+      if (action.kind === "navigate" && result.status === "completed") {
+        const query = action.screen.toLowerCase().replace(/\s+/g, "-");
+        const target = SCREENS.find((screen) => screen.name === query || screen.title.toLowerCase() === action.screen.toLowerCase())?.screen;
+        if (target) nav.go(target);
+        else toast.push("warning", `No screen named ${action.screen} was found`);
+      }
+      if (result.status === "proposal_created") toast.push("success", "Proposal added to Agent access for review");
+    } catch (error) {
+      toast.push("error", error instanceof Error ? error.message : String(error));
+    }
+  };
+  if (!config.data?.enabled) return (
+    <Panel className="p-6"><EmptyState title="AI Operator is off" hint="Enable it in Settings → AI. The rest of Total remains fully available without AI." /></Panel>
+  );
+  return (
+    <div className="grid gap-3 lg:grid-cols-[0.7fr_1.3fr]">
+      <Panel className="p-4">
+        <p className="text-[12.5px] font-semibold">Give Total a job</p>
+        <p className="mt-1 text-[10.5px] leading-4 text-muted">It can navigate, search, prepare voucher proposals and work inside approved folders. You see the plan before anything runs.</p>
+        <textarea className={`${inputCls} mt-4 min-h-36 resize-y`} value={prompt} onChange={(event) => setPrompt(event.target.value)}
+          placeholder="Find last month's overdue customers, prepare a receipt draft, or update a file in my approved workspace…" />
+        <Button className="mt-3 w-full" variant="primary" disabled={!prompt.trim() || planMutation.isPending}
+          onClick={() => planMutation.mutate(prompt)}>{planMutation.isPending ? "Planning…" : "Build action plan"}</Button>
+        <div className="mt-4 rounded-md border border-line bg-panel2 p-3 text-[10px] text-muted">
+          {config.data.approvalMode === "every_change" ? "Every file change asks first." : "Approved-folder file changes may run directly."} Accounting always produces a reviewable proposal.
+        </div>
+      </Panel>
+      <Panel className="overflow-hidden">
+        <div className="border-b border-line px-4 py-3"><p className="text-[12.5px] font-semibold">Action plan</p><p className="mt-0.5 text-[10px] text-muted">{plan?.summary ?? "Nothing planned yet."}</p></div>
+        {!plan?.actions.length ? <div className="p-6"><EmptyState title="No actions" hint="Describe an outcome and review the generated plan here." /></div> : (
+          <div className="divide-y divide-line">
+            {plan.actions.map((action, index) => {
+              const result = results[index];
+              return <div key={`${action.kind}-${index}`} className="flex items-start gap-3 px-4 py-3">
+                <span className="mt-0.5 rounded bg-amberbar/15 px-2 py-0.5 text-[9px] font-semibold uppercase text-ink">{action.kind.replace("_", " ")}</span>
+                <div className="min-w-0 flex-1"><p className="text-[11.5px] text-ink">{action.reason}</p>{"path" in action && <code className="mt-1 block truncate text-[9.5px] text-muted">{action.path}</code>}{result && <p className={`mt-1 text-[10px] ${result.status === "approval_required" ? "text-amber" : "text-dr"}`}>{result.message}</p>}</div>
+                {result?.status === "approval_required" ? <Button variant="primary" onClick={() => void execute(action, index, true)}>Approve</Button>
+                  : !result && <Button onClick={() => void execute(action, index)}>Run</Button>}
+              </div>;
+            })}
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }
@@ -245,7 +312,7 @@ function DocumentInbox(): React.JSX.Element {
                       Total{" "}
                       <strong className="num font-medium text-ink">
                         {row.extracted.total == null
-                          ? "—"
+                          ? "Not available"
                           : `₹${formatPaise(row.extracted.total)}`}
                       </strong>
                     </span>
@@ -831,6 +898,7 @@ function RouteRow({
           <option value="default">Default</option>
           <option value="openai">OpenAI</option>
           <option value="compatible">Compatible</option>
+          {route.taskKind === "ocr" && <option value="offline">Bundled offline OCR</option>}
         </Select>
       </Field>
       <Field label="Model override">

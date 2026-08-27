@@ -174,6 +174,10 @@ const EXPECTED_TABLES = [
   "backup_destinations",
   "backup_recovery_drills",
   "backup_rotation_policy",
+  "sync_records",
+  "sync_envelopes",
+  "sync_conflicts",
+  "sync_state",
   "migrations",
 ];
 

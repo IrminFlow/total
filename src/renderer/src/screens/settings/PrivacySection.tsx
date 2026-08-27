@@ -54,6 +54,13 @@ export function PrivacySection(): React.JSX.Element {
             ? "Drop-folder automation enabled"
             : "Drop-folder automation off",
         },
+        {
+          name: "Encrypted collaboration",
+          state: data.network.collaboration.enabled ? "Enabled" : "Off",
+          detail: data.network.collaboration.enabled
+            ? `${data.network.collaboration.endpoint} · encrypted drafts and review work only`
+            : "No collaboration data is sent",
+        },
       ]
     : [];
 
@@ -71,10 +78,10 @@ export function PrivacySection(): React.JSX.Element {
       <Panel className="relative mb-5 overflow-hidden !bg-ink px-6 py-5 text-panel">
         <div className="absolute -right-10 -top-20 size-52 rounded-full border border-panel/10" />
         <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-panel/45">
-          One control room
+          Privacy controls
         </p>
         <h3 className="mt-3 font-serif text-[25px] font-semibold tracking-[-0.02em]">
-          Know exactly what can leave this device.
+          Review what can leave this device.
         </h3>
         <p className="mt-2 max-w-2xl text-[11px] leading-5 text-panel/55">
           Provider endpoints, scoped automation, diagnostics, evidence retention
@@ -255,7 +262,7 @@ export function PrivacySection(): React.JSX.Element {
             </p>
             <p className="mt-1 text-[9px] text-muted">
               The exact automatic payload is version, platform and
-              architecture—no books, paths, keys or attachments.
+              architecture. No books, paths, keys or attachments.
             </p>
           </div>
           <pre className="rounded border border-line bg-panel2 px-3 py-2 text-[8.5px] text-muted">

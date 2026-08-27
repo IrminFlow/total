@@ -34,6 +34,10 @@ await scenario('33-procurement', async (h) => {
 
   await h.goto('voucher-entry')
   await h.click('tab-voucher-entry-purchase')
+  // Keep the acceptance fixture deterministic instead of inheriting the machine's
+  // working date (which may fall after this fixed August 2026 test period).
+  await h.page.getByTestId('input-date').fill('24-08-2026')
+  await h.page.getByTestId('input-date').press('Enter')
   await h.page.getByTestId('select-invoice-grn').selectOption(String(receipt.id))
   await h.page.getByTestId('picker-ledger').fill('Raw Material Purchases')
   await h.page.getByTestId('picker-ledger').press('Enter')

@@ -491,6 +491,8 @@ export function setTaskRoute(
   },
   actor: string,
 ): AiTaskRoute[] {
+  if (input.provider === "offline" && input.taskKind !== "ocr")
+    throw new Error("The bundled offline engine is available only for OCR");
   const before = listTaskRoutes(db);
   db.prepare(
     `UPDATE ai_task_routes SET provider=?,model=?,updated_by=?,updated_at=datetime('now') WHERE task_kind=?`,

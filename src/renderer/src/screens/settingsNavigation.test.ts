@@ -9,6 +9,7 @@ const EXPECTED_DESTINATIONS = [
   "audit",
   "backups",
   "bin",
+  "collaboration",
   "community",
   "controls",
   "email",

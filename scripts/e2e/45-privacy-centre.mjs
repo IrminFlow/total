@@ -7,7 +7,7 @@ await scenario("45-privacy-centre", async (h) => {
   await h.page.getByRole("button", { name: "Privacy centre", exact: true }).click();
   await h.page.locator('[data-testid="privacy-settings"]').waitFor();
   await h.page
-    .getByText("Know exactly what can leave this device.", { exact: true })
+    .getByText("Review what can leave this device.", { exact: true })
     .waitFor();
   await h.shot("01-privacy-centre");
 

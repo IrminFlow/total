@@ -158,6 +158,7 @@ export type Screen =
         | "invoice"
         | "ai"
         | "agents"
+        | "collaboration"
         | "integrations"
         | "email"
         | "privacy"

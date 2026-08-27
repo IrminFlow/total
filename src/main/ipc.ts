@@ -207,6 +207,8 @@ import { registerOutstandingBillsHandlers } from "./ipc/outstandingBillsHandlers
 import { registerComplianceHandlers } from "./ipc/complianceHandlers";
 import { registerExtrasHandlers } from "./ipc/extrasHandlers";
 import { registerCommunicationsHandlers } from "./ipc/communicationsHandlers";
+import { registerCollaborationHandlers } from "./ipc/collaborationHandlers";
+import * as collaborationSync from "./services/collaborationSync";
 import { recoverInterruptedDeliveries } from "./services/communications";
 import type { IpcHandler, OpenCompany } from "./ipc/types";
 import * as caPack from "./services/caPack";
@@ -240,6 +242,8 @@ let current: OpenCompany | null = null;
 let sessionUser: { id: number; name: string; role: Role } | null = null;
 let sessionToken: string | null = null;
 let sensitiveClipboardTimer: NodeJS.Timeout | null = null;
+let collaborationPollerStarted = false;
+let collaborationSyncInFlight = false;
 
 function requireCompany(): OpenCompany {
   if (!current) throw new Error("No company is open");
@@ -453,6 +457,19 @@ const auditExport = (
 ): void => writeAudit(db, "export", 0, "export", null, { kind, ...detail });
 
 export function registerIpc(): void {
+  if (!collaborationPollerStarted) {
+    collaborationPollerStarted = true;
+    const timer = setInterval(() => {
+      if (!current || collaborationSyncInFlight) return;
+      const status = collaborationSync.getCollaborationSyncStatus(current.db, current.slug);
+      if (!status.enabled) return;
+      collaborationSyncInFlight = true;
+      void collaborationSync.runCollaborationSync(current.db, current.slug)
+        .catch(() => log("warn", "encrypted-collaboration-sync-failed", { retry: "automatic" }))
+        .finally(() => { collaborationSyncInFlight = false; });
+    }, 60_000);
+    timer.unref();
+  }
   setAuditContext({
     appVersion: app.getVersion(),
     getUserName: () => sessionUser?.name ?? null,
@@ -6952,6 +6969,10 @@ export function registerIpc(): void {
               (row) => !row.revokedAt && Date.parse(row.expiresAt) > Date.now(),
             ).length,
           dropFolderEnabled: configSvc.getAgentBridgeEnabled(company.db),
+          collaboration: (() => {
+            const status = collaborationSync.getCollaborationSyncStatus(company.db, company.slug);
+            return { enabled: status.enabled, endpoint: status.endpoint };
+          })(),
         },
         retention: internalControls.listRetentionPolicies(company.db),
         diagnostics: {
@@ -7025,6 +7046,7 @@ export function registerIpc(): void {
     actor: () => sessionUser?.name ?? "Local user",
   });
   registerCommunityHandlers(handle);
+  registerCollaborationHandlers({ handle, requireCompany });
 
   // ---------- compliance-deadline notifications ----------
   // The renderer computes *which* deadlines to notify about (pure `src/shared/compliance.ts`,

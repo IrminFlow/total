@@ -12,6 +12,10 @@ import * as assistiveAutomation from "../services/assistiveAutomation";
 import * as attachmentVault from "../services/attachmentVault";
 import * as aiConversations from "../services/aiConversations";
 import { requireDeviceSafetyControl } from "../services/deviceSafety";
+import { extractDocumentOffline } from "../services/offlineOcr";
+import * as aiOperator from "../services/aiOperator";
+import { aiOperatorActionSchema } from "@shared/aiOperator";
+import * as codexAuth from "../services/codexAuth";
 
 const activeAiRequests = new Map<string, { controller: AbortController; companySlug: string }>();
 
@@ -34,6 +38,45 @@ export function registerAiHandlers({ handle, requireCompany, actor }: AiHandlerC
     requireAi();
     return ai.testConnection();
   }, "owner");
+  handle("ai:operator:getConfig", () => aiOperator.getOperatorConfig(), "viewer");
+  handle("ai:codex:status", () => codexAuth.codexLoginStatus(), "viewer");
+  handle("ai:codex:startLogin", () => codexAuth.startCodexDeviceLogin(), "owner");
+  handle("ai:codex:loginSession", (payload) => {
+    const { sessionId } = z.object({ sessionId: z.string().uuid() }).parse(payload);
+    return codexAuth.codexLoginSession(sessionId);
+  }, "owner");
+  handle("ai:codex:cancelLogin", (payload) => {
+    const { sessionId } = z.object({ sessionId: z.string().uuid() }).parse(payload);
+    codexAuth.cancelCodexLogin(sessionId);
+    return null;
+  }, "owner");
+  handle("ai:operator:setConfig", (payload) => aiOperator.setOperatorConfig(z.object({
+    enabled: z.boolean(),
+    approvalMode: z.enum(["every_change", "accounting_only"]),
+    workspaceRoots: z.array(z.string()).max(20),
+  }).parse(payload)), "owner");
+  handle("ai:operator:addWorkspace", async () => {
+    const selected = await dialog.showOpenDialog({
+      title: "Choose a folder Total Operator may access",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (selected.canceled || !selected.filePaths[0]) return aiOperator.getOperatorConfig();
+    const config = aiOperator.getOperatorConfig();
+    return aiOperator.setOperatorConfig({ ...config, workspaceRoots: [...config.workspaceRoots, selected.filePaths[0]] });
+  }, "owner");
+  handle("ai:operator:plan", async (payload) => {
+    requireAi();
+    const { prompt } = z.object({ prompt: z.string().trim().min(1).max(8_000) }).parse(payload);
+    const config = aiOperator.getOperatorConfig();
+    if (!config.enabled) throw new Error("Enable AI Operator in Settings first");
+    return ai.planOperator(prompt, aiOperator.operatorContext(config));
+  }, "accountant");
+  handle("ai:operator:execute", async (payload) => {
+    requireAi();
+    const input = z.object({ action: aiOperatorActionSchema, approved: z.boolean().default(false) }).parse(payload);
+    const company = requireCompany();
+    return aiOperator.executeOperatorAction(company.db, company.slug, company.info, input.action, input.approved);
+  }, "accountant");
   handle("ai:contextPreview", (payload) => {
     requireAi();
     const { from, to, fields } = periodSchema.extend({
@@ -144,7 +187,9 @@ export function registerAiHandlers({ handle, requireCompany, actor }: AiHandlerC
     if (picked.canceled || !picked.filePaths[0]) return null;
     const company = requireCompany();
     const route = assistiveAutomation.listTaskRoutes(company.db).find((row) => row.taskKind === "ocr");
-    const extracted = await ai.extractDocumentImage(picked.filePaths[0], kind, route?.model, route?.provider);
+    const extracted = route?.provider === "offline"
+      ? await extractDocumentOffline(picked.filePaths[0])
+      : await ai.extractDocumentImage(picked.filePaths[0], kind, route?.model, route?.provider);
     const documentDir = join(companyDir(company.slug), "attachments", "assist");
     mkdirSync(documentDir, { recursive: true });
     const storedPath = join(documentDir, `${kind}-${randomUUID()}${extname(picked.filePaths[0]).toLowerCase()}`);
@@ -221,10 +266,10 @@ export function registerAiHandlers({ handle, requireCompany, actor }: AiHandlerC
   handle("ai:routes:set", (payload) => {
     const input = z.object({
       taskKind: z.enum(["ocr", "classification", "analysis", "writing"]),
-      provider: z.enum(["default", "openai", "compatible"]),
+      provider: z.enum(["default", "openai", "compatible", "offline"]),
       model: z.string().trim().max(120).nullable(),
     }).parse(payload);
-    if (input.provider !== "default") ai.taskProviderConfig(input.provider);
+    if (input.provider !== "default" && input.provider !== "offline") ai.taskProviderConfig(input.provider);
     return assistiveAutomation.setTaskRoute(requireCompany().db, input, actor());
   }, "owner");
   handle("ai:evaluation:record", (payload) => {

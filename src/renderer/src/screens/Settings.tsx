@@ -12,6 +12,7 @@ const NicSection = lazy(async () => ({ default: (await import("./settings/NicSec
 const FeaturesSection = lazy(async () => ({ default: (await import("./settings/FeaturesSection")).FeaturesSection }));
 const InvoiceConfigSection = lazy(async () => ({ default: (await import("./settings/InvoiceConfigSection")).InvoiceConfigSection }));
 const AgentBridgeSection = lazy(async () => ({ default: (await import("./settings/AgentBridgeSection")).AgentBridgeSection }));
+const CollaborationSection = lazy(async () => ({ default: (await import("./settings/CollaborationSection")).CollaborationSection }));
 const AiSection = lazy(async () => ({ default: (await import("./settings/AiSection")).AiSection }));
 const AboutSection = lazy(async () => ({ default: (await import("./settings/AboutSection")).AboutSection }));
 const ControlsSection = lazy(async () => ({ default: (await import("./settings/ControlsSection")).ControlsSection }));
@@ -72,6 +73,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     items: [
       { id: "ai", label: "AI copilot", description: "Provider, model and optional AI access", keywords: "openai compatible key model" },
       { id: "agents", label: "Agent access", description: "Local MCP and agent permission controls", keywords: "mcp claude tools sdk" },
+      { id: "collaboration", label: "Encrypted collaboration", description: "Optional multi-device drafts, tasks and review work", keywords: "sync supabase encrypted team conflict" },
     ],
   },
   {
@@ -257,6 +259,7 @@ export function Settings({ tab }: { tab?: SettingsTab }): React.JSX.Element {
           {active === "invoice" && <InvoiceConfigSection />}
           {active === "ai" && <AiSection />}
           {active === "agents" && <AgentBridgeSection />}
+          {active === "collaboration" && <CollaborationSection />}
           {active === "integrations" && <IntegrationsSection />}
           {active === "email" && <EmailDeliverySection />}
           {active === "privacy" && <PrivacySection />}

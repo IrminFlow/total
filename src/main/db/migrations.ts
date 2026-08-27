@@ -2672,4 +2672,61 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_ai_draft_actions_status ON ai_draft_actions(status,updated_at DESC,id);
   CREATE UNIQUE INDEX idx_ai_draft_actions_proposal ON ai_draft_actions(proposal_id);
   `,
+  // 063 - optional end-to-end encrypted collaboration transport. Only proposals, drafts,
+  // comments and tasks enter this lane; posted books and the live SQLite file never do.
+  // Envelopes/events are append-only evidence while sync_records is a rebuildable CRDT view.
+  `
+  CREATE TABLE sync_records (
+    entity_kind TEXT NOT NULL CHECK (entity_kind IN ('proposal','draft','comment','task')),
+    entity_id TEXT NOT NULL,
+    document_json TEXT NOT NULL CHECK (json_valid(document_json) AND json_type(document_json)='object'),
+    document_hash TEXT NOT NULL CHECK (length(document_hash)=64),
+    updated_at TEXT NOT NULL,
+    updated_by_device TEXT NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0,1)),
+    PRIMARY KEY(entity_kind,entity_id)
+  );
+  CREATE INDEX idx_sync_records_updated ON sync_records(updated_at DESC,entity_kind,entity_id);
+
+  CREATE TABLE sync_envelopes (
+    envelope_id TEXT PRIMARY KEY,
+    direction TEXT NOT NULL CHECK (direction IN ('outgoing','incoming')),
+    device_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL CHECK (sequence > 0),
+    entity_kind TEXT NOT NULL CHECK (entity_kind IN ('proposal','draft','comment','task')),
+    entity_id TEXT NOT NULL,
+    envelope_json TEXT NOT NULL CHECK (json_valid(envelope_json) AND json_type(envelope_json)='object'),
+    content_hash TEXT NOT NULL CHECK (length(content_hash)=64),
+    state TEXT NOT NULL CHECK (state IN ('pending','acknowledged','applied','rejected')),
+    error TEXT,
+    created_at TEXT NOT NULL,
+    processed_at TEXT,
+    UNIQUE(device_id,sequence)
+  );
+  CREATE INDEX idx_sync_envelopes_outbox ON sync_envelopes(direction,state,sequence);
+  CREATE TRIGGER sync_envelopes_no_update_payload
+    BEFORE UPDATE OF envelope_id,direction,device_id,sequence,entity_kind,entity_id,envelope_json,content_hash,created_at
+    ON sync_envelopes BEGIN SELECT RAISE(ABORT,'sync envelope payloads are append-only'); END;
+  CREATE TRIGGER sync_envelopes_no_delete
+    BEFORE DELETE ON sync_envelopes BEGIN SELECT RAISE(ABORT,'sync envelopes are append-only'); END;
+
+  CREATE TABLE sync_conflicts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    envelope_id TEXT NOT NULL REFERENCES sync_envelopes(envelope_id) ON DELETE RESTRICT,
+    entity_kind TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    field_name TEXT NOT NULL,
+    kept_device_id TEXT NOT NULL,
+    other_device_id TEXT NOT NULL,
+    resolved INTEGER NOT NULL DEFAULT 0 CHECK (resolved IN (0,1)),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at TEXT
+  );
+  CREATE INDEX idx_sync_conflicts_unresolved ON sync_conflicts(resolved,created_at DESC,id);
+
+  CREATE TABLE sync_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
 ];

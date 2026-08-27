@@ -68,6 +68,7 @@ import type {
   DocumentInboxRow,
   EvidenceSuggestion,
 } from "@shared/assistiveAutomation";
+import type { AiOperatorAction, AiOperatorActionResult, AiOperatorConfig, AiOperatorPlan } from "@shared/aiOperator";
 import type {
   McpAuditEvent,
   McpMirrorStatus,
@@ -134,6 +135,14 @@ import type {
 } from "@shared/schemas";
 import type { CompanyFeatures } from "@shared/features";
 import type { DeviceSafetyControls } from "@shared/deviceSafety";
+import type {
+  CollaborationPublishInput,
+  CollaborativeDocument,
+  InvitationAcceptInput,
+  SyncConfigureInput,
+  SyncStatus,
+  TeamInvitation,
+} from "@shared/collaborationSync";
 import type { SearchHit } from "@shared/search";
 import type { InvoiceConfig } from "@shared/invoiceConfig";
 import type { CloseLedgerRow } from "@shared/yearEnd";
@@ -1334,6 +1343,30 @@ export interface SmartLedgerDefaults {
 }
 
 export const api = {
+  collaboration: {
+    status: () => call<SyncStatus>("collaboration:status"),
+    configure: (input: SyncConfigureInput) =>
+      call<{ createdRecoveryKey: string | null; status: SyncStatus }>("collaboration:configure", input),
+    setEnabled: (enabled: boolean) =>
+      call<SyncStatus>("collaboration:setEnabled", { enabled }),
+    disconnect: () => call<SyncStatus>("collaboration:disconnect"),
+    recoveryKey: () => call<{ recoveryKey: string }>("collaboration:recoveryKey"),
+    sync: () => call<SyncStatus>("collaboration:sync"),
+    records: (includeDeleted = false) =>
+      call<CollaborativeDocument[]>("collaboration:records", { includeDeleted }),
+    publish: (input: CollaborationPublishInput) =>
+      call<CollaborativeDocument>("collaboration:publish", input),
+    invitations: {
+      list: () => call<TeamInvitation[]>("collaboration:invitations:list"),
+      create: (expiresInHours: number) => call<{ invitation: TeamInvitation; invitationCode: string }>(
+        "collaboration:invitations:create",
+        { expiresInHours },
+      ),
+      revoke: (id: string) => call<TeamInvitation>("collaboration:invitations:revoke", { id }),
+      accept: (input: InvitationAcceptInput) =>
+        call<SyncStatus>("collaboration:invitations:accept", input),
+    },
+  },
   deviceSafety: {
     get: () => call<DeviceSafetyControls>("device-safety:get"),
     set: (controls: DeviceSafetyControls) =>
@@ -3452,6 +3485,7 @@ export const api = {
           }>;
           mcpTokens: number;
           dropFolderEnabled: boolean;
+          collaboration: { enabled: boolean; endpoint: string | null };
         };
         retention: RetentionPolicy[];
         diagnostics: { version: string; platform: string; arch: string };
@@ -3481,6 +3515,16 @@ export const api = {
       call<AiProviderConfig>("ai:setConfig", input),
     testConnection: () =>
       call<{ ok: true; model: string }>("ai:testConnection"),
+    operatorConfig: () => call<AiOperatorConfig>("ai:operator:getConfig"),
+    codexStatus: () => call<{ available: boolean; authenticated: boolean; detail: string }>("ai:codex:status"),
+    codexStartLogin: () => call<{ sessionId: string }>("ai:codex:startLogin"),
+    codexLoginSession: (sessionId: string) => call<{ output: string; status: "running" | "completed" | "failed" | "cancelled"; exitCode: number | null }>("ai:codex:loginSession", { sessionId }),
+    codexCancelLogin: (sessionId: string) => call<null>("ai:codex:cancelLogin", { sessionId }),
+    operatorSetConfig: (input: AiOperatorConfig) => call<AiOperatorConfig>("ai:operator:setConfig", input),
+    operatorAddWorkspace: () => call<AiOperatorConfig>("ai:operator:addWorkspace"),
+    operatorPlan: (prompt: string) => call<AiOperatorPlan>("ai:operator:plan", { prompt }),
+    operatorExecute: (action: AiOperatorAction, approved = false) =>
+      call<AiOperatorActionResult>("ai:operator:execute", { action, approved }),
     contextPreview: (from: string, to: string, fields?: AiContextFieldId[]) =>
       call<AiContextPreview>("ai:contextPreview", { from, to, fields }),
     ask: (

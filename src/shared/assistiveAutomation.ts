@@ -48,7 +48,7 @@ export interface ConstrainedSearchResult {
 }
 export interface AiTaskRoute {
   taskKind: "ocr" | "classification" | "analysis" | "writing";
-  provider: "default" | "openai" | "compatible";
+  provider: "default" | "openai" | "compatible" | "offline";
   model: string | null;
   updatedBy: string;
   updatedAt: string;
