@@ -125,4 +125,36 @@ describe('collections queue and promises', () => {
     const forecast = customerWorkspace(db, party, '2026-12-31').forecast.find((row) => row.label === activeBill)
     expect(forecast).toMatchObject({ source: 'behavior', date: '2026-01-11' })
   })
+
+  it('links disputes and reminders only to active customer sales documents', () => {
+    const db = seededDb()
+    const customer = createSale(db, 'Guarded Customer', 100_000, '2026-01-01')
+    const otherCustomer = createSale(db, 'Other Customer', 100_000, '2026-01-02')
+    const activeSale = (db.prepare('SELECT id FROM vouchers WHERE party_ledger_id=? ORDER BY id LIMIT 1').get(customer) as { id: number }).id
+    const otherSale = (db.prepare('SELECT id FROM vouchers WHERE party_ledger_id=? ORDER BY id LIMIT 1').get(otherCustomer) as { id: number }).id
+    const receipt = postReceipt(db, customer, `INV-${customer}`, 1_000, '2026-01-03')
+    const deletedSale = postSaleForParty(db, customer, 'DELETED-SALE', 1_000, {})
+    const optionalSale = postSaleForParty(db, customer, 'OPTIONAL-SALE', 1_000, { isOptional: true })
+    const postDatedSale = postSaleForParty(db, customer, 'PDC-SALE', 1_000, { postDated: true })
+    const creditNoteType = (db.prepare("SELECT id FROM voucher_types WHERE kind='credit_note'").get() as { id: number }).id
+    const salesLedger = (db.prepare("SELECT id FROM ledgers WHERE name='Guarded Customer Sales'").get() as { id: number }).id
+    const creditNote = saveVoucher(db, {
+      voucherTypeId: creditNoteType, date: '2026-01-04', partyLedgerId: customer, narration: 'Customer credit note', reference: null,
+      instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null,
+      currencyCode: null, exchangeRate: null,
+      lines: [{ ledgerId: salesLedger, drCr: 'dr', amount: 1_000, costAllocations: [] }, { ledgerId: customer, drCr: 'cr', amount: 1_000, costAllocations: [] }],
+      inventory: [], billRefs: [], tds: null
+    }).id
+    deleteVoucher(db, deletedSale)
+
+    expect(() => openDispute(db, customer, otherSale, 'Wrong customer', 'Owner')).toThrow('does not belong')
+    expect(() => draftReminder(db, customer, receipt, 'email', 'Receipt is not an invoice', '2026-02-01', 'Owner')).toThrow('not valid')
+    expect(() => openDispute(db, customer, deletedSale, 'Deleted invoice', 'Owner')).toThrow('not active')
+    expect(() => draftReminder(db, customer, optionalSale, 'email', 'Optional invoice', '2026-02-01', 'Owner')).toThrow('not active')
+    expect(() => openDispute(db, customer, postDatedSale, 'Post-dated invoice', 'Owner')).toThrow('not active')
+
+    expect(() => openDispute(db, customer, activeSale, 'Valid invoice dispute', 'Owner')).not.toThrow()
+    expect(() => draftReminder(db, customer, activeSale, 'email', 'Valid invoice reminder', '2026-02-01', 'Owner')).not.toThrow()
+    expect(() => openDispute(db, customer, creditNote, 'Valid credit note dispute', 'Owner')).not.toThrow()
+  })
 })

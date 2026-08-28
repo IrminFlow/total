@@ -14,7 +14,6 @@ import * as aiConversations from "../services/aiConversations";
 import { requireDeviceSafetyControl } from "../services/deviceSafety";
 import { extractDocumentOffline } from "../services/offlineOcr";
 import * as aiOperator from "../services/aiOperator";
-import { aiOperatorActionSchema } from "@shared/aiOperator";
 import * as codexAuth from "../services/codexAuth";
 
 const activeAiRequests = new Map<string, { controller: AbortController; companySlug: string }>();
@@ -69,13 +68,19 @@ export function registerAiHandlers({ handle, requireCompany, actor }: AiHandlerC
     const { prompt } = z.object({ prompt: z.string().trim().min(1).max(8_000) }).parse(payload);
     const config = aiOperator.getOperatorConfig();
     if (!config.enabled) throw new Error("Enable AI Operator in Settings first");
-    return ai.planOperator(prompt, aiOperator.operatorContext(config));
+    const company = requireCompany();
+    const plan = await ai.planOperator(prompt, aiOperator.operatorContext(config));
+    return aiOperator.retainOperatorPlan(company.slug, actor(), plan);
   }, "accountant");
   handle("ai:operator:execute", async (payload) => {
     requireAi();
-    const input = z.object({ action: aiOperatorActionSchema, approved: z.boolean().default(false) }).parse(payload);
+    const input = z.object({
+      planId: z.string().uuid(),
+      actionIndex: z.number().int().min(0).max(19),
+      approvalToken: z.string().min(32).max(128).optional(),
+    }).parse(payload);
     const company = requireCompany();
-    return aiOperator.executeOperatorAction(company.db, company.slug, company.info, input.action, input.approved);
+    return aiOperator.executeRetainedOperatorAction(company.db, company.slug, actor(), company.info, input);
   }, "accountant");
   handle("ai:contextPreview", (payload) => {
     requireAi();

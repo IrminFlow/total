@@ -3,7 +3,7 @@ import type { CollectionCustomerSettings, CollectionCustomerWorkspace, Collectio
 import { outstandings } from './analysis'
 import { writeAudit } from './audit'
 import { descendantIdsByName } from './masters'
-import { inBooksPredicate } from './vouchers'
+import { inBooksPredicate, requireInBooksVoucher } from './vouchers'
 
 interface PromiseRow {
   id: number; ledger_id: number; amount: number; promised_date: string; owner: string; note: string | null
@@ -65,6 +65,11 @@ function party(db: DB, ledgerId: number): { id: number; name: string } {
   const row = db.prepare('SELECT id,name,group_id AS groupId FROM ledgers WHERE id=?').get(ledgerId) as { id: number; name: string; groupId: number } | undefined
   if (!row || !descendantIdsByName(db, ['Sundry Debtors']).has(row.groupId)) throw new Error('Customer ledger not found')
   return row
+}
+
+function requireCustomerDocument(db: DB, ledgerId: number, voucherId: number): void {
+  const voucher = requireInBooksVoucher(db, voucherId, ['sales', 'credit_note'])
+  if (voucher.partyLedgerId !== ledgerId) throw new Error('Customer voucher does not belong to this customer')
 }
 
 export function customerSettings(db: DB, ledgerId: number): CollectionCustomerSettings {
@@ -170,13 +175,13 @@ export function customerWorkspace(db: DB, ledgerId: number, asOn: string): Colle
 }
 
 export function openDispute(db: DB, ledgerId: number, voucherId: number, reason: string, owner: string): void {
-  party(db, ledgerId); if (!db.prepare('SELECT 1 FROM vouchers WHERE id=? AND party_ledger_id=?').get(voucherId, ledgerId)) throw new Error('Customer invoice was not found')
+  party(db, ledgerId); requireCustomerDocument(db, ledgerId, voucherId)
   const result = db.prepare('INSERT INTO collection_disputes(voucher_id,ledger_id,reason,owner) VALUES(?,?,?,?)').run(voucherId, ledgerId, reason.trim(), owner.trim())
   writeAudit(db, 'collection_dispute', Number(result.lastInsertRowid), 'create', null, { voucherId, ledgerId, reason, owner })
 }
 export function resolveDispute(db: DB, id: number, resolution: string): void { const before = db.prepare('SELECT * FROM collection_disputes WHERE id=?').get(id); if (!before) throw new Error('Dispute not found'); db.prepare("UPDATE collection_disputes SET status='resolved',resolution=?,resolved_at=datetime('now') WHERE id=? AND status='open'").run(resolution.trim(), id); writeAudit(db, 'collection_dispute', id, 'update', before, { status: 'resolved', resolution }) }
 export function addCollectionNote(db: DB, ledgerId: number, body: string, actor: string): void { party(db, ledgerId); const result = db.prepare('INSERT INTO collection_notes(ledger_id,body,created_by) VALUES(?,?,?)').run(ledgerId, body.trim(), actor); writeAudit(db, 'collection_note', Number(result.lastInsertRowid), 'create', null, { ledgerId, body }) }
-export function draftReminder(db: DB, ledgerId: number, voucherId: number | null, channel: 'email' | 'whatsapp' | 'phone', body: string, dueDate: string, actor: string): void { party(db, ledgerId); const result = db.prepare('INSERT INTO collection_reminders(ledger_id,voucher_id,channel,body,due_date,created_by) VALUES(?,?,?,?,?,?)').run(ledgerId, voucherId, channel, body.trim(), dueDate, actor); writeAudit(db, 'collection_reminder', Number(result.lastInsertRowid), 'create', null, { ledgerId, voucherId, channel, dueDate }) }
+export function draftReminder(db: DB, ledgerId: number, voucherId: number | null, channel: 'email' | 'whatsapp' | 'phone', body: string, dueDate: string, actor: string): void { party(db, ledgerId); if (voucherId !== null) requireCustomerDocument(db, ledgerId, voucherId); const result = db.prepare('INSERT INTO collection_reminders(ledger_id,voucher_id,channel,body,due_date,created_by) VALUES(?,?,?,?,?,?)').run(ledgerId, voucherId, channel, body.trim(), dueDate, actor); writeAudit(db, 'collection_reminder', Number(result.lastInsertRowid), 'create', null, { ledgerId, voucherId, channel, dueDate }) }
 
 export function receiptSuggestions(db: DB, input: { amount: number; date: string; reference: string; payer: string }): ReceiptSuggestion[] {
   const reference = input.reference.trim().toLowerCase(), payer = input.payer.trim().toLowerCase()

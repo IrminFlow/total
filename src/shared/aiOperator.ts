@@ -16,6 +16,19 @@ export const aiOperatorPlanSchema = z.object({
 export type AiOperatorAction = z.infer<typeof aiOperatorActionSchema>;
 export type AiOperatorPlan = z.infer<typeof aiOperatorPlanSchema>;
 
+export interface AiOperatorBoundPlan extends AiOperatorPlan {
+  /** Main-process plan handle. The renderer never sends plan actions back for execution. */
+  planId: string;
+  expiresAt: string;
+}
+
+export interface AiOperatorExecuteInput {
+  planId: string;
+  actionIndex: number;
+  /** One-use token issued only after the main process returns an approval preview. */
+  approvalToken?: string;
+}
+
 export interface AiOperatorConfig {
   enabled: boolean;
   approvalMode: "every_change" | "accounting_only";

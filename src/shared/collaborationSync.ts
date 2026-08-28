@@ -53,8 +53,13 @@ export const syncConfigureSchema = z.object({
   endpoint: z.string().url().max(2048),
   workspaceId: z.string().uuid(),
   apiToken: z.string().trim().min(1).max(4096),
+  refreshToken: z.string().trim().min(1).max(4096).optional(),
+  anonKey: z.string().trim().min(1).max(4096).optional(),
+  accessTokenExpiresAt: z.string().datetime().optional(),
   recoveryKey: z.string().trim().min(1).max(256).optional(),
   enabled: z.boolean().default(true),
+}).refine((value) => Boolean(value.refreshToken) === Boolean(value.anonKey), {
+  message: "Supabase refresh token and anon key must be provided together",
 });
 export type SyncConfigureInput = z.infer<typeof syncConfigureSchema>;
 
@@ -92,10 +97,12 @@ export interface SyncStatus {
   deviceId: string | null;
   pending: number;
   conflicts: number;
+  quarantined: number;
   cursor: string | null;
   lastAttemptedAt: string | null;
   lastSyncedAt: string | null;
   lastError: string | null;
+  lastSecurityError: string | null;
 }
 
 export function deriveSyncPhase(input: {
@@ -126,8 +133,13 @@ export type TeamInvitation = z.infer<typeof teamInvitationSchema>;
 export const invitationAcceptSchema = z.object({
   endpoint: z.string().url().max(2048),
   apiToken: z.string().trim().min(1).max(4096),
+  refreshToken: z.string().trim().min(1).max(4096).optional(),
+  anonKey: z.string().trim().min(1).max(4096).optional(),
+  accessTokenExpiresAt: z.string().datetime().optional(),
   invitationCode: z.string().trim().min(1).max(512),
   recoveryKey: z.string().trim().min(1).max(256),
+}).refine((value) => Boolean(value.refreshToken) === Boolean(value.anonKey), {
+  message: "Supabase refresh token and anon key must be provided together",
 });
 export type InvitationAcceptInput = z.infer<typeof invitationAcceptSchema>;
 

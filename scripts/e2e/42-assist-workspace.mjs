@@ -99,13 +99,16 @@ await scenario("42-assist-workspace", async (h) => {
   assert((await h.page.locator('[data-testid^="operator-action-"]').count()) === 2, "operator previews every action before execution");
 
   await h.click("operator-run-0");
-  await h.page.getByText(`Approve writing ${operatorOutput}`, { exact: true }).waitFor();
+  await h.page.getByText(`Approve replacing ${operatorOutput} with the exact content shown`, { exact: true }).waitFor();
   assert(!existsSync(operatorOutput), "every-change mode does not write before approval");
   await h.click("operator-approve-0");
   await h.page.getByText("Wrote 40 bytes", { exact: true }).waitFor();
   assert(readFileSync(operatorOutput, "utf8") === "Reviewed by the operator acceptance test", "approved file action writes the planned content");
 
   await h.click("operator-run-1");
+  await h.page.getByText("Approve sharing ledger and voucher-type names with the configured AI provider to create this proposal", { exact: true }).waitFor();
+  assert((await h.invoke("agent:listProposals")).length === 0, "voucher planning does not contact the provider or create a proposal before approval");
+  await h.click("operator-approve-1");
   await h.page.getByText("Voucher proposal created for review", { exact: true }).waitFor();
   const proposals = await h.invoke("agent:listProposals");
   assert(proposals.length === 1 && proposals[0].source === "ai", "accounting action hands off one AI proposal without posting");

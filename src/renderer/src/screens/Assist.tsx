@@ -15,7 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import { formatPaise } from "@shared/money";
 import type { AiTaskRoute } from "@shared/assistiveAutomation";
-import type { AiOperatorAction, AiOperatorActionResult, AiOperatorPlan } from "@shared/aiOperator";
+import type { AiOperatorAction, AiOperatorActionResult, AiOperatorBoundPlan } from "@shared/aiOperator";
 import { api } from "../lib/client";
 import { SCREENS } from "../lib/screens";
 import { useNav, useSession, useToasts } from "../state/stores";
@@ -125,7 +125,7 @@ function OperatorWorkspace(): React.JSX.Element {
   const nav = useNav();
   const toast = useToasts();
   const [prompt, setPrompt] = useState("");
-  const [plan, setPlan] = useState<AiOperatorPlan | null>(null);
+  const [plan, setPlan] = useState<AiOperatorBoundPlan | null>(null);
   const [results, setResults] = useState<Record<number, AiOperatorActionResult>>({});
   const config = useQuery({ queryKey: ["aiOperatorConfig"], queryFn: api.ai.operatorConfig });
   const planMutation = useMutation({
@@ -133,9 +133,10 @@ function OperatorWorkspace(): React.JSX.Element {
     onSuccess: (next) => { setPlan(next); setResults({}); },
     onError: (error) => toast.push("error", error instanceof Error ? error.message : String(error)),
   });
-  const execute = async (action: AiOperatorAction, index: number, approved = false): Promise<void> => {
+  const execute = async (action: AiOperatorAction, index: number, approvalToken?: string): Promise<void> => {
     try {
-      const result = await api.ai.operatorExecute(action, approved);
+      if (!plan) throw new Error("Build and review an action plan first");
+      const result = await api.ai.operatorExecute(plan.planId, index, approvalToken);
       setResults((current) => ({ ...current, [index]: result }));
       if (action.kind === "navigate" && result.status === "completed") {
         const query = action.screen.toLowerCase().replace(/\s+/g, "-");
@@ -172,8 +173,14 @@ function OperatorWorkspace(): React.JSX.Element {
               const result = results[index];
               return <div key={`${action.kind}-${index}`} data-testid={`operator-action-${index}`} className="flex items-start gap-3 px-4 py-3">
                 <span className="mt-0.5 rounded bg-amberbar/15 px-2 py-0.5 text-[9px] font-semibold uppercase text-ink">{action.kind.replace("_", " ")}</span>
-                <div className="min-w-0 flex-1"><p className="text-[11.5px] text-ink">{action.reason}</p>{"path" in action && <code className="mt-1 block truncate text-[9.5px] text-muted">{action.path}</code>}{result && <p className={`mt-1 text-[10px] ${result.status === "approval_required" ? "text-amber" : "text-dr"}`}>{result.message}</p>}</div>
-                {result?.status === "approval_required" ? <Button data-testid={`operator-approve-${index}`} variant="primary" onClick={() => void execute(action, index, true)}>Approve</Button>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11.5px] text-ink">{action.reason}</p>
+                  {"path" in action && <code className="mt-1 block break-all text-[9.5px] text-muted">{action.path}</code>}
+                  {action.kind === "write_file" && <div className="mt-2 rounded border border-line bg-panel2 p-2"><p className="mb-1 text-[9px] font-semibold uppercase tracking-[.08em] text-muted">Exact replacement content</p><pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-[10px] text-ink">{action.content || "(empty file)"}</pre></div>}
+                  {action.kind === "draft_voucher" && <div className="mt-2 rounded border border-amber/30 bg-amber/5 p-2 text-[10px] text-muted"><p className="font-medium text-ink">Provider context requires approval</p><p className="mt-1">This sends the instruction plus ledger and voucher-type names to your configured AI provider. It can only create a proposal; it cannot post.</p><p className="mt-1 whitespace-pre-wrap text-ink">{action.instruction}</p></div>}
+                  {result && <p className={`mt-1 text-[10px] ${result.status === "approval_required" ? "text-amber" : "text-dr"}`}>{result.message}</p>}
+                </div>
+                {result?.status === "approval_required" ? <Button data-testid={`operator-approve-${index}`} variant="primary" onClick={() => void execute(action, index, (result.data as { approvalToken?: string } | undefined)?.approvalToken)}>Approve</Button>
                   : !result && <Button data-testid={`operator-run-${index}`} onClick={() => void execute(action, index)}>Run</Button>}
               </div>;
             })}

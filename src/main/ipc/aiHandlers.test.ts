@@ -44,16 +44,22 @@ describe("AI IPC validation and request ownership", () => {
     expect(roles.get("ai:setConfig")).toBe("owner");
     expect(roles.get("ai:testConnection")).toBe("owner");
     expect(roles.get("ai:ask")).toBe("accountant");
+    expect(roles.get("ai:operator:plan")).toBe("accountant");
+    expect(roles.get("ai:operator:execute")).toBe("accountant");
     expect(roles.get("ai:cancel")).toBe("accountant");
     expect(roles.get("ai:conversations:deleteAll")).toBe("owner");
   });
 
-  it("rejects malformed identifiers and status values before company state is read", () => {
+  it("rejects malformed identifiers and status values before company state is read", async () => {
     const state = setup();
     expect(() => state.byChannel.get("ai:cancel")!({ requestId: "not-a-uuid" })).toThrow();
     expect(() => state.byChannel.get("ai:conversations:create")!({ title: "" })).toThrow();
     expect(() => state.byChannel.get("ai:documents:review")!({ id: -1, status: "posted" })).toThrow();
     expect(() => state.byChannel.get("search:natural")!({ query: "" })).toThrow();
+    await expect(state.byChannel.get("ai:operator:execute")!({
+      action: { kind: "navigate", screen: "gateway", reason: "Unbound renderer action" },
+      approved: true,
+    })).rejects.toThrow();
     expect(state.companyReads()).toBe(0);
   });
 

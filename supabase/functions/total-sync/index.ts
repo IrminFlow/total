@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { verifyRelayEnvelope } from "./envelope.ts";
 
 const cors = {
   "access-control-allow-origin": "*",
@@ -140,17 +141,34 @@ Deno.serve(async (request) => {
 
     let rows: Record<string, unknown>[];
     try {
-      rows = body.envelopes.map((value) => {
-        if (!value || typeof value !== "object") throw new Error("Invalid envelope");
-        const envelope = value as Record<string, unknown>;
-        if (envelope.protocol !== "total-sync/v1" || envelope.workspaceId !== workspaceId)
-          throw new Error("Envelope workspace mismatch");
-        if (!['proposal','draft','comment','task'].includes(String(envelope.entityKind)))
-          throw new Error("Unsupported collaboration entity");
-        if (typeof envelope.envelopeId !== "string" || typeof envelope.deviceId !== "string" ||
-            !Number.isSafeInteger(envelope.sequence) || Number(envelope.sequence) < 1 ||
-            typeof envelope.entityId !== "string" || envelope.entityId.length > 180)
-          throw new Error("Invalid envelope routing metadata");
+      const verified = await Promise.all(body.envelopes.map((value) => verifyRelayEnvelope(value, workspaceId)));
+      const registered = new Map<string, string>();
+      for (const envelope of verified) {
+        const deviceId = String(envelope.deviceId);
+        const signingPublicKey = String(envelope.signingPublicKey);
+        const priorKey = registered.get(deviceId);
+        if (priorKey && priorKey !== signingPublicKey) throw new Error("A device changed signing keys inside one request");
+        registered.set(deviceId, signingPublicKey);
+      }
+      for (const [deviceId, signingPublicKey] of registered) {
+        const { data: existingDevice, error: deviceReadError } = await supabase.from("total_sync_devices")
+          .select("user_id,signing_public_key")
+          .eq("workspace_id", workspaceId).eq("device_id", deviceId).maybeSingle();
+        if (deviceReadError) throw new Error("Registered device could not be verified");
+        if (existingDevice) {
+          if (existingDevice.user_id !== user.id || existingDevice.signing_public_key !== signingPublicKey)
+            throw new Error("Envelope device ownership or signing key does not match");
+        } else {
+          const createdDevice = await supabase.from("total_sync_devices").insert({
+            workspace_id: workspaceId,
+            device_id: deviceId,
+            user_id: user.id,
+            signing_public_key: signingPublicKey,
+          });
+          if (createdDevice.error) throw new Error("Envelope device could not be registered to this member");
+        }
+      }
+      rows = verified.map((envelope) => {
         return {
           workspace_id: workspaceId,
           envelope_id: envelope.envelopeId,

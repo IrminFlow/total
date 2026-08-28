@@ -13,6 +13,9 @@ const storedWorkspaceSchema = z.object({
   endpoint: z.string().url(),
   workspaceId: z.string().uuid(),
   apiToken: z.string().min(1),
+  refreshToken: z.string().min(1).optional(),
+  anonKey: z.string().min(1).optional(),
+  accessTokenExpiresAt: z.string().datetime().optional(),
   encryptionKey: z.string().min(1),
 });
 const credentialStoreSchema = z.object({
@@ -29,6 +32,9 @@ export interface CollaborationCredentials {
   endpoint: string;
   workspaceId: string;
   apiToken: string;
+  refreshToken?: string;
+  anonKey?: string;
+  accessTokenExpiresAt?: string;
   deviceId: string;
   keys: CollaborationKeyMaterial;
 }
@@ -115,6 +121,9 @@ export function configureCollaborationCredentials(
     endpoint: normalizedCollaborationEndpoint(parsed.endpoint),
     workspaceId: parsed.workspaceId,
     apiToken: parsed.apiToken,
+    ...(parsed.refreshToken ? { refreshToken: parsed.refreshToken } : {}),
+    ...(parsed.anonKey ? { anonKey: parsed.anonKey } : {}),
+    ...(parsed.accessTokenExpiresAt ? { accessTokenExpiresAt: parsed.accessTokenExpiresAt } : {}),
     encryptionKey: encryptionKey.toString("base64"),
   };
   writeStore(store);
@@ -138,6 +147,22 @@ function credentialsFromStore(store: CredentialStore, companySlug: string): Coll
 export function readCollaborationCredentials(companySlug: string): CollaborationCredentials | null {
   const store = readStore();
   return store ? credentialsFromStore(store, companySlug) : null;
+}
+
+/** Atomically persists a Supabase token rotation inside the encrypted OS credential store. */
+export function updateCollaborationSession(companySlug: string, session: {
+  apiToken: string;
+  refreshToken?: string;
+  accessTokenExpiresAt: string;
+}): CollaborationCredentials {
+  const store = readStore();
+  const workspace = store?.workspaces[companySlug];
+  if (!store || !workspace) throw new Error("Encrypted collaboration is not configured");
+  workspace.apiToken = session.apiToken;
+  workspace.accessTokenExpiresAt = session.accessTokenExpiresAt;
+  if (session.refreshToken) workspace.refreshToken = session.refreshToken;
+  writeStore(store);
+  return credentialsFromStore(store, companySlug)!;
 }
 
 export function setCollaborationEnabled(companySlug: string, enabled: boolean): void {

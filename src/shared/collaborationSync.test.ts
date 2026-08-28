@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   collaborationPublishSchema,
+  syncConfigureSchema,
   compareVectorClocks,
   deriveSyncPhase,
   mergeCollaborativeDocuments,
@@ -116,5 +117,12 @@ describe("encrypted collaboration merge", () => {
     );
     expect(parsed.workspaceId).toBe("11111111-1111-4111-8111-111111111111");
     expect(() => parseTeamInvitationCode("invite me")).toThrow("invalid");
+  });
+
+  it("requires Supabase refresh credentials as a pair while preserving static bearer configuration", () => {
+    const base = { endpoint: "https://sync.example/v1", workspaceId: DEVICE_A, apiToken: "access", enabled: true };
+    expect(syncConfigureSchema.parse(base)).toMatchObject(base);
+    expect(() => syncConfigureSchema.parse({ ...base, refreshToken: "refresh" })).toThrow("provided together");
+    expect(syncConfigureSchema.parse({ ...base, refreshToken: "refresh", anonKey: "anon" })).toMatchObject({ refreshToken: "refresh", anonKey: "anon" });
   });
 });

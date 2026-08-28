@@ -21,7 +21,15 @@ vi.mock("electron", () => ({ app: { getPath: () => "/unused" } }));
 vi.mock("./ai", () => ({ draftVoucher: mocks.draftVoucher }));
 vi.mock("./assistiveAutomation", () => ({ constrainedNaturalSearch: mocks.search }));
 
-import { executeOperatorAction, getOperatorConfig, operatorContext, setOperatorConfig } from "./aiOperator";
+import {
+  clearRetainedOperatorPlans,
+  executeOperatorAction,
+  executeRetainedOperatorAction,
+  getOperatorConfig,
+  operatorContext,
+  retainOperatorPlan,
+  setOperatorConfig,
+} from "./aiOperator";
 
 let dataDir = "";
 let workspace = "";
@@ -38,6 +46,7 @@ beforeEach(() => {
   process.env.TOTAL_DATA_DIR = dataDir;
   mocks.draftVoucher.mockClear();
   mocks.search.mockClear();
+  clearRetainedOperatorPlans();
 });
 
 afterEach(() => {
@@ -45,6 +54,7 @@ afterEach(() => {
   rmSync(dataDir, { recursive: true, force: true });
   rmSync(workspace, { recursive: true, force: true });
   rmSync(outside, { recursive: true, force: true });
+  clearRetainedOperatorPlans();
 });
 
 function enable(approvalMode: "every_change" | "accounting_only" = "every_change") {
@@ -136,5 +146,58 @@ describe("AI Operator service boundary", () => {
 
   it("blocks every action when the operator is disabled", async () => {
     await expect(executeOperatorAction(db, "books", info, action({ kind: "navigate", screen: "gateway" }), false)).rejects.toThrow(/disabled/);
+  });
+
+  it("executes only a retained plan action and binds it to company, actor, index, and one use", async () => {
+    enable();
+    const target = join(workspace, "bound.txt");
+    const plan = retainOperatorPlan("books", "Asha", {
+      summary: "Write the reviewed file",
+      actions: [action({ kind: "write_file", path: target, content: "reviewed exact content" })],
+    });
+
+    await expect(executeRetainedOperatorAction(db, "other-books", "Asha", info, { planId: plan.planId, actionIndex: 0 })).rejects.toThrow(/different company or user/);
+    await expect(executeRetainedOperatorAction(db, "books", "Ravi", info, { planId: plan.planId, actionIndex: 0 })).rejects.toThrow(/different company or user/);
+    await expect(executeRetainedOperatorAction(db, "books", "Asha", info, { planId: plan.planId, actionIndex: 1 })).rejects.toThrow(/does not exist/);
+
+    const preview = await executeRetainedOperatorAction(db, "books", "Asha", info, { planId: plan.planId, actionIndex: 0 });
+    expect(preview).toMatchObject({ status: "approval_required", data: { approvalToken: expect.any(String) } });
+    expect(() => readFileSync(target)).toThrow();
+    await expect(executeRetainedOperatorAction(db, "books", "Asha", info, {
+      planId: plan.planId,
+      actionIndex: 0,
+      approvalToken: "x".repeat(43),
+    })).rejects.toThrow(/invalid or expired/);
+    const approvalToken = (preview.data as { approvalToken: string }).approvalToken;
+    await expect(executeRetainedOperatorAction(db, "books", "Asha", info, { planId: plan.planId, actionIndex: 0, approvalToken })).resolves.toMatchObject({ status: "completed" });
+    expect(readFileSync(target, "utf8")).toBe("reviewed exact content");
+    await expect(executeRetainedOperatorAction(db, "books", "Asha", info, { planId: plan.planId, actionIndex: 0, approvalToken })).rejects.toThrow(/expired|not created|already run/);
+  });
+
+  it("does not disclose master names to the AI provider before explicit proposal approval", async () => {
+    enable("accounting_only");
+    const plan = retainOperatorPlan("books", "Asha", {
+      summary: "Prepare a voucher proposal",
+      actions: [action({ kind: "draft_voucher", instruction: "Record a cash receipt from Asha for invoice 42" })],
+    });
+    const preview = await executeRetainedOperatorAction(db, "books", "Asha", info, { planId: plan.planId, actionIndex: 0 });
+    expect(preview).toMatchObject({ status: "approval_required" });
+    expect(mocks.draftVoucher).not.toHaveBeenCalled();
+    const approvalToken = (preview.data as { approvalToken: string }).approvalToken;
+    await expect(executeRetainedOperatorAction(db, "books", "Asha", info, { planId: plan.planId, actionIndex: 0, approvalToken })).resolves.toMatchObject({ status: "proposal_created" });
+    expect(mocks.draftVoucher).toHaveBeenCalledWith(db, "books", expect.any(String), true);
+  });
+
+  it("rejects expired retained plans", async () => {
+    enable();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    const plan = retainOperatorPlan("books", "Asha", {
+      summary: "Open a screen",
+      actions: [action({ kind: "navigate", screen: "gateway" })],
+    });
+    clock.mockReturnValue(now + 11 * 60 * 1_000);
+    await expect(executeRetainedOperatorAction(db, "books", "Asha", info, { planId: plan.planId, actionIndex: 0 })).rejects.toThrow(/expired|not created/);
+    clock.mockRestore();
   });
 });

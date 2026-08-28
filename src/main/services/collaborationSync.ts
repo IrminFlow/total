@@ -27,6 +27,7 @@ import {
   normalizedCollaborationEndpoint,
   type CollaborationCredentials,
 } from "./collaborationCredentials";
+import { collaborationFetch } from "./collaborationSession";
 
 const MAX_ENVELOPES_PER_REQUEST = 100;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -167,6 +168,24 @@ function applyIncoming(db: DB, envelope: EncryptedSyncEnvelope, credentials: Col
   })();
 }
 
+function quarantineIncoming(db: DB, raw: unknown, error: unknown): void {
+  const envelopeJson = JSON.stringify({ relayPayload: raw });
+  const hash = sha256(envelopeJson);
+  const message = (error instanceof Error ? error.message : "Invalid encrypted collaboration envelope").slice(0, 500);
+  db.prepare(`INSERT INTO sync_envelopes(
+      envelope_id,direction,device_id,sequence,entity_kind,entity_id,envelope_json,content_hash,state,error,created_at,processed_at
+    ) VALUES(?,'incoming',?,?,?,?,?,?,'rejected',?,datetime('now'),datetime('now'))`).run(
+    randomUUID(),
+    randomUUID(),
+    1,
+    "task",
+    `quarantine:${hash.slice(0, 32)}`,
+    envelopeJson,
+    hash,
+    message,
+  );
+}
+
 async function boundedJson(response: Response): Promise<unknown> {
   const size = Number(response.headers.get("content-length") ?? 0);
   if (size > MAX_RESPONSE_BYTES) throw new Error("Sync response exceeded the 2 MB limit");
@@ -199,13 +218,25 @@ async function collaborationRequest(
   }
 }
 
+async function storedCollaborationRequest(
+  companySlug: string,
+  url: string,
+  init: RequestInit,
+  fetchImpl: typeof fetch = fetch,
+): Promise<unknown> {
+  return boundedJson(await collaborationFetch(companySlug, url, {
+    ...init,
+    headers: { ...(init.body ? { "content-type": "application/json" } : {}), ...(init.headers ?? {}) },
+  }, fetchImpl));
+}
+
 export async function listTeamInvitations(companySlug: string): Promise<TeamInvitation[]> {
   const credentials = readCollaborationCredentials(companySlug);
   if (!credentials?.enabled) throw new Error("Encrypted collaboration is not enabled");
   const result = z.object({ invitations: z.array(teamInvitationSchema).max(100) }).parse(
-    await collaborationRequest(
+    await storedCollaborationRequest(
+      companySlug,
       `${credentials.endpoint}/v1/workspaces/${credentials.workspaceId}/invitations`,
-      credentials.apiToken,
       { method: "GET" },
     ),
   );
@@ -221,9 +252,9 @@ export async function createTeamInvitation(
   return z.object({
     invitation: teamInvitationSchema,
     invitationCode: z.string().min(1).max(512),
-  }).parse(await collaborationRequest(
+  }).parse(await storedCollaborationRequest(
+    companySlug,
     `${credentials.endpoint}/v1/workspaces/${credentials.workspaceId}/invitations`,
-    credentials.apiToken,
     { method: "POST", body: JSON.stringify({ expiresInHours }) },
   ));
 }
@@ -234,9 +265,9 @@ export async function revokeTeamInvitation(
 ): Promise<TeamInvitation> {
   const credentials = readCollaborationCredentials(companySlug);
   if (!credentials?.enabled) throw new Error("Encrypted collaboration is not enabled");
-  const result = z.object({ invitation: teamInvitationSchema }).parse(await collaborationRequest(
+  const result = z.object({ invitation: teamInvitationSchema }).parse(await storedCollaborationRequest(
+    companySlug,
     `${credentials.endpoint}/v1/workspaces/${credentials.workspaceId}/invitations/${invitationId}`,
-    credentials.apiToken,
     { method: "DELETE" },
   ));
   return result.invitation;
@@ -245,7 +276,7 @@ export async function revokeTeamInvitation(
 /** Accepts backend membership before the caller stores the separately shared E2E recovery key. */
 export async function acceptTeamInvitation(
   input: InvitationAcceptInput,
-): Promise<{ workspaceId: string; endpoint: string; apiToken: string; recoveryKey: string }> {
+): Promise<{ workspaceId: string; endpoint: string; apiToken: string; refreshToken?: string; anonKey?: string; accessTokenExpiresAt?: string; recoveryKey: string }> {
   const parsed = invitationAcceptSchema.parse(input);
   const invitation = parseTeamInvitationCode(parsed.invitationCode);
   const endpoint = normalizedCollaborationEndpoint(parsed.endpoint);
@@ -260,6 +291,9 @@ export async function acceptTeamInvitation(
     workspaceId: result.workspaceId,
     endpoint,
     apiToken: parsed.apiToken,
+    ...(parsed.refreshToken ? { refreshToken: parsed.refreshToken } : {}),
+    ...(parsed.anonKey ? { anonKey: parsed.anonKey } : {}),
+    ...(parsed.accessTokenExpiresAt ? { accessTokenExpiresAt: parsed.accessTokenExpiresAt } : {}),
     recoveryKey: parsed.recoveryKey,
   };
 }
@@ -279,30 +313,49 @@ export async function runCollaborationSync(db: DB, companySlug: string, fetchImp
     const pendingRows = db.prepare("SELECT envelope_json FROM sync_envelopes WHERE direction='outgoing' AND state='pending' ORDER BY sequence LIMIT ?").all(MAX_ENVELOPES_PER_REQUEST) as { envelope_json: string }[];
     if (pendingRows.length) {
       const envelopes = pendingRows.map((row) => encryptedSyncEnvelopeSchema.parse(JSON.parse(row.envelope_json)));
-      const result = z.object({ accepted: z.array(z.string().uuid()).max(MAX_ENVELOPES_PER_REQUEST) }).parse(await boundedJson(await fetchImpl(base, {
+      const result = z.object({ accepted: z.array(z.string().uuid()).max(MAX_ENVELOPES_PER_REQUEST) }).parse(await boundedJson(await collaborationFetch(companySlug, base, {
         method: "POST",
-        headers: { authorization: `Bearer ${credentials.apiToken}`, "content-type": "application/json" },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ envelopes }),
         signal: controller.signal,
-      })));
+      }, fetchImpl)));
       const acknowledge = db.prepare("UPDATE sync_envelopes SET state='acknowledged',processed_at=datetime('now') WHERE envelope_id=? AND direction='outgoing'");
       db.transaction(() => result.accepted.forEach((id) => acknowledge.run(id)))();
     }
     const cursor = state(db, "cursor");
     const pullUrl = `${base}?limit=${MAX_ENVELOPES_PER_REQUEST}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
     const pull = z.object({
-      envelopes: z.array(encryptedSyncEnvelopeSchema).max(MAX_ENVELOPES_PER_REQUEST),
+      // Parse envelopes one at a time below. One hostile/corrupt relay row must not hold the
+      // cursor hostage and prevent every later valid collaboration change from arriving.
+      envelopes: z.array(z.unknown()).max(MAX_ENVELOPES_PER_REQUEST),
       cursor: z.string().max(1024).nullable(),
-    }).parse(await boundedJson(await fetchImpl(pullUrl, {
-      headers: { authorization: `Bearer ${credentials.apiToken}` },
+    }).parse(await boundedJson(await collaborationFetch(companySlug, pullUrl, {
       signal: controller.signal,
-    })));
-    for (const envelope of pull.envelopes) applyIncoming(db, envelope, credentials);
+    }, fetchImpl)));
+    const quarantined: string[] = [];
+    for (const rawEnvelope of pull.envelopes) {
+      const parsed = encryptedSyncEnvelopeSchema.safeParse(rawEnvelope);
+      if (!parsed.success) {
+        const message = "Relay returned an envelope with invalid structure";
+        quarantineIncoming(db, rawEnvelope, message);
+        quarantined.push(message);
+        continue;
+      }
+      try {
+        applyIncoming(db, parsed.data, credentials);
+      } catch (error) {
+        quarantineIncoming(db, rawEnvelope, error);
+        quarantined.push(error instanceof Error ? error.message : "Envelope verification failed");
+      }
+    }
     const syncedAt = new Date().toISOString();
     db.transaction(() => {
       if (pull.cursor) setState(db, "cursor", pull.cursor);
       setState(db, "last_synced_at", syncedAt);
       setState(db, "last_error", "");
+      if (quarantined.length) {
+        setState(db, "last_security_error", `${quarantined.length} collaboration item${quarantined.length === 1 ? "" : "s"} quarantined: ${quarantined[0]!.slice(0, 300)}`);
+      }
       setState(db, "sync_phase", "idle");
     })();
     return getCollaborationSyncStatus(db, companySlug);
@@ -323,6 +376,7 @@ export function getCollaborationSyncStatus(db: DB, companySlug: string): SyncSta
   try { credentials = readCollaborationCredentials(companySlug); } catch { /* status remains usable */ }
   const pending = (db.prepare("SELECT COUNT(*) value FROM sync_envelopes WHERE direction='outgoing' AND state='pending'").get() as { value: number }).value;
   const conflicts = (db.prepare("SELECT COUNT(*) value FROM sync_conflicts WHERE resolved=0").get() as { value: number }).value;
+  const quarantined = (db.prepare("SELECT COUNT(*) value FROM sync_envelopes WHERE direction='incoming' AND state='rejected'").get() as { value: number }).value;
   const configured = credentials !== null;
   const enabled = credentials?.enabled ?? false;
   const lastError = state(db, "last_error") || null;
@@ -341,9 +395,11 @@ export function getCollaborationSyncStatus(db: DB, companySlug: string): SyncSta
     deviceId: credentials?.deviceId ?? null,
     pending,
     conflicts,
+    quarantined,
     cursor: state(db, "cursor"),
     lastAttemptedAt: state(db, "last_attempted_at"),
     lastSyncedAt: state(db, "last_synced_at"),
     lastError,
+    lastSecurityError: state(db, "last_security_error"),
   };
 }

@@ -32,6 +32,8 @@ export function CollaborationSection(): React.JSX.Element {
   const [endpoint, setEndpoint] = useState("");
   const [workspaceId, setWorkspaceId] = useState("");
   const [apiToken, setApiToken] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
+  const [anonKey, setAnonKey] = useState("");
   const [recoveryKey, setRecoveryKey] = useState("");
   const [shownKey, setShownKey] = useState<string | null>(null);
   const [invitationCode, setInvitationCode] = useState("");
@@ -57,10 +59,14 @@ export function CollaborationSection(): React.JSX.Element {
         endpoint: endpoint.trim(),
         workspaceId: workspaceId.trim(),
         apiToken: apiToken.trim(),
+        refreshToken: refreshToken.trim() || undefined,
+        anonKey: anonKey.trim() || undefined,
         recoveryKey: recoveryKey.trim() || undefined,
         enabled: true,
       });
       setApiToken("");
+      setRefreshToken("");
+      setAnonKey("");
       setRecoveryKey("");
       setShownKey(result.createdRecoveryKey);
       await refresh();
@@ -136,6 +142,8 @@ export function CollaborationSection(): React.JSX.Element {
       await api.collaboration.disconnect();
       setShownKey(null);
       setApiToken("");
+      setRefreshToken("");
+      setAnonKey("");
       setRecoveryKey("");
       await refresh();
       toast.push("success", "This device was disconnected");
@@ -183,10 +191,14 @@ export function CollaborationSection(): React.JSX.Element {
       await api.collaboration.invitations.accept({
         endpoint: endpoint.trim(),
         apiToken: apiToken.trim(),
+        refreshToken: refreshToken.trim() || undefined,
+        anonKey: anonKey.trim() || undefined,
         invitationCode: invitationCode.trim(),
         recoveryKey: recoveryKey.trim(),
       });
       setApiToken("");
+      setRefreshToken("");
+      setAnonKey("");
       setInvitationCode("");
       setRecoveryKey("");
       await refresh();
@@ -228,13 +240,14 @@ export function CollaborationSection(): React.JSX.Element {
                   <p className="text-[13.5px] font-semibold text-ink">{status.enabled ? "Connected on this device" : "Paused on this device"}</p>
                   <p className="mt-1 text-[11.5px] text-muted num">{status.endpoint}</p>
                   <p className="mt-2 text-[11.5px] text-muted">
-                    Local state: <span className="font-medium text-ink">{syncPhaseLabel[status.phase]}</span> · {status.pending} pending · {status.conflicts} conflicts
+                    Local state: <span className="font-medium text-ink">{syncPhaseLabel[status.phase]}</span> · {status.pending} pending · {status.conflicts} conflicts · {status.quarantined} quarantined
                   </p>
                   <p className="mt-1 text-[11.5px] text-muted">
                     {status.lastAttemptedAt ? `Last attempt ${new Date(status.lastAttemptedAt).toLocaleString()}` : "No sync attempt yet"}
                     {status.lastSyncedAt ? ` · Last success ${new Date(status.lastSyncedAt).toLocaleString()}` : " · No successful sync yet"}
                   </p>
                   {status.lastError && <p className="mt-2 text-[11.5px] text-cr">Last error: {status.lastError}</p>}
+                  {status.lastSecurityError && <p className="mt-2 text-[11.5px] text-amber">Security review: {status.lastSecurityError}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button disabled={!canEdit || busy !== null || !status.enabled} onClick={() => void syncNow()}>
@@ -302,6 +315,12 @@ export function CollaborationSection(): React.JSX.Element {
               </Field>
               <Field label="Access token" hint={status.configured ? "Enter only to replace the stored token." : "Use a signed-in user token; never use a service-role key."}>
                 <TextInput type="password" className="num" value={apiToken} disabled={!canEdit} placeholder="Stored in the operating-system credential store" onChange={(event) => setApiToken(event.target.value)} />
+              </Field>
+              <Field label="Supabase refresh token (optional)" hint="Enables automatic short-lived session renewal. Leave blank for compatible bearer-token services.">
+                <TextInput type="password" className="num" value={refreshToken} disabled={!canEdit} placeholder="Stored only in the operating-system credential store" onChange={(event) => setRefreshToken(event.target.value)} />
+              </Field>
+              <Field label="Supabase anon key (optional)" hint="Required with a refresh token. Use only the project's publishable anon key, never a service-role key.">
+                <TextInput type="password" className="num" value={anonKey} disabled={!canEdit} placeholder="Project anon key" onChange={(event) => setAnonKey(event.target.value)} />
               </Field>
               <div className="col-span-2">
                 <Field label="Recovery key from another device (optional)" hint="Leave blank to create a new encrypted workspace key. The server never receives this key.">

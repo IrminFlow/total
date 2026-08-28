@@ -154,7 +154,7 @@ describe("encrypted collaboration service against the local relay", () => {
     expect(listCollaborationRecords(dbB)[0]?.fields.title?.value).toBe("Review sales and purchases");
   });
 
-  it("rejects corrupt signatures without advancing the cursor", async () => {
+  it("quarantines corrupt signatures, advances past poison rows, and still applies later valid work", async () => {
     const relay = new LocalCollaborationRelay();
     const tokenA = relay.registerUser(USER_A);
     const sharedKey = generateCollaborationKeyMaterial().encryptionKey;
@@ -180,9 +180,22 @@ describe("encrypted collaboration service against the local relay", () => {
     const changed = corrupt.signature[5] === "A" ? "B" : "A";
     corrupt.signature = `${corrupt.signature.slice(0, 5)}${changed}${corrupt.signature.slice(6)}`;
     relay.injectEnvelope(WORKSPACE, corrupt);
-    await expect(runCollaborationSync(dbA, "device-a", relay.fetch)).rejects.toThrow("signature");
-    expect(getCollaborationSyncStatus(dbA, "device-a").cursor).toBe("1");
+    const later = encryptCollaborationDocument({
+      workspaceId: WORKSPACE, envelopeId: randomUUID(), deviceId: deviceB, sequence: 2,
+      createdAt: "2026-08-28T08:01:00.000Z",
+      document: {
+        entityKind: "comment", entityId: "later-safe", fields: {
+          body: { value: "arrived after poison row", clock: { [deviceB]: 2 }, updatedAt: "2026-08-28T08:01:00.000Z", deviceId: deviceB },
+        }, clock: { [deviceB]: 2 }, deleted: false,
+      },
+      keys: keysB,
+    });
+    relay.injectEnvelope(WORKSPACE, later);
+    await runCollaborationSync(dbA, "device-a", relay.fetch);
+    expect(getCollaborationSyncStatus(dbA, "device-a")).toMatchObject({ cursor: "3", quarantined: 1 });
+    expect(getCollaborationSyncStatus(dbA, "device-a").lastSecurityError).toMatch(/signature/i);
     expect(listCollaborationRecords(dbA).some((record) => record.entityId === "hostile")).toBe(false);
+    expect(listCollaborationRecords(dbA).some((record) => record.entityId === "later-safe")).toBe(true);
   });
 
   it("rejects oversized declared and streamed responses", async () => {

@@ -82,6 +82,9 @@ export function registerCollaborationHandlers({
       endpoint: accepted.endpoint,
       workspaceId: accepted.workspaceId,
       apiToken: accepted.apiToken,
+      refreshToken: accepted.refreshToken,
+      anonKey: accepted.anonKey,
+      accessTokenExpiresAt: accepted.accessTokenExpiresAt,
       recoveryKey: accepted.recoveryKey,
       enabled: true,
     });

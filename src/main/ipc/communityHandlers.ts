@@ -2,6 +2,7 @@ import { app } from "electron";
 import { z } from "zod";
 import type { IpcHandle } from "./types";
 import { feedbackReceiptIdeaId } from "@shared/community";
+import { desktopServiceUrl } from "@shared/desktopBuildProfile";
 
 const feedbackActionSchema = z.discriminatedUnion("action", [
   z.object({
@@ -23,7 +24,7 @@ const feedbackActionSchema = z.discriminatedUnion("action", [
 
 export function registerCommunityHandlers(handle: IpcHandle): void {
   handle("community:feedback:list", async () => {
-    const response = await fetch("https://devjindal.tech/api/feedback", {
+    const response = await fetch(desktopServiceUrl("/api/feedback"), {
       headers: { "user-agent": `Total/${app.getVersion()}` },
       signal: AbortSignal.timeout(10_000),
     });
@@ -43,7 +44,7 @@ export function registerCommunityHandlers(handle: IpcHandle): void {
 
   handle("community:feedback:action", async (payload) => {
     const input = feedbackActionSchema.parse(payload);
-    const response = await fetch("https://devjindal.tech/api/feedback", {
+    const response = await fetch(desktopServiceUrl("/api/feedback"), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -71,7 +72,7 @@ export function registerCommunityHandlers(handle: IpcHandle): void {
         lastAt: z.string().datetime(),
       })).max(6),
     }).strict().parse(payload);
-    const response = await fetch("https://devjindal.tech/api/cohort", {
+    const response = await fetch(desktopServiceUrl("/api/cohort"), {
       method: "POST",
       headers: {
         "content-type": "application/json",
