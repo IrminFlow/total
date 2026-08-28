@@ -4,6 +4,7 @@ import { connect as tlsConnect } from "node:tls";
 import {
   boundedWaitMs,
   canonicalRedirectProbeOk,
+  privacySafeProbeError,
   releaseAssetProbeOk,
   tlsProbeOk,
 } from "./lib/production-live-probes.mjs";
@@ -91,7 +92,7 @@ async function inspectTransport() {
       });
       socket.once("timeout", () => socket.destroy(new Error("TLS connection timed out")));
       socket.once("error", (error) =>
-        resolveTls({ ok: false, hostname: canonical.hostname, error: error.message }),
+        resolveTls({ ok: false, hostname: canonical.hostname, error: privacySafeProbeError(error) }),
       );
     });
   }
@@ -117,7 +118,7 @@ async function inspectTransport() {
         ok: false,
         status: null,
         location: null,
-        error: error instanceof Error ? error.message : String(error),
+        error: privacySafeProbeError(error),
       };
     }
   }
@@ -158,7 +159,7 @@ do {
   } catch (error) {
     deployment = {
       ...deployment,
-      error: error instanceof Error ? error.message : String(error),
+      error: privacySafeProbeError(error),
     };
   }
   if (deployment.ok || Date.now() >= deploymentDeadline) break;
@@ -186,7 +187,7 @@ const routeResults = await Promise.all(
         path,
         ok: false,
         status: null,
-        error: error instanceof Error ? error.message : String(error),
+        error: privacySafeProbeError(error),
       };
     }
   }),
@@ -236,7 +237,7 @@ async function inspectDownload(platform, version) {
     return {
       ok: false,
       status: null,
-      error: error instanceof Error ? error.message : String(error),
+      error: privacySafeProbeError(error),
     };
   }
 }
@@ -265,7 +266,7 @@ async function inspectPublishedRelease() {
   } catch (error) {
     release = {
       ...release,
-      error: error instanceof Error ? error.message : String(error),
+      error: privacySafeProbeError(error),
     };
   }
   const downloads = {};
@@ -396,7 +397,6 @@ if (synthetic.enabled) {
             Date.parse(resolved.body?.updatedAt ?? "") -
             expectedRetentionMs,
         ) < 1_000,
-      caseId,
       created: created.body?.status ?? null,
       final: trackedResolved.body?.status ?? null,
       notification: created.body?.notification ?? "missing",
@@ -449,7 +449,7 @@ if (synthetic.enabled) {
           `Synthetic ${retained.entity} retention hold could not be released`,
         );
       activeHolds.pop();
-      holdChecks.push({ ...retained, held: true, released: true });
+      holdChecks.push({ entity: retained.entity, held: true, released: true });
     }
     synthetic.checks.retentionIndexes = {
       ok: holdChecks.length === retainedObjects.length,
@@ -475,7 +475,7 @@ if (synthetic.enabled) {
         "Retention maintenance authentication or execution failed",
       );
   } catch (error) {
-    synthetic.error = error instanceof Error ? error.message : String(error);
+    synthetic.error = privacySafeProbeError(error);
   } finally {
     const cleanupErrors = [];
     const holdResults = await Promise.allSettled(
@@ -491,7 +491,7 @@ if (synthetic.enabled) {
     for (const result of holdResults) {
       if (result.status === "rejected")
         cleanupErrors.push(
-          `retention hold: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
+          `retention hold: ${privacySafeProbeError(result.reason)}`,
         );
       else if (!result.value.response.ok)
         cleanupErrors.push(
@@ -517,7 +517,7 @@ if (synthetic.enabled) {
       } catch (error) {
         synthetic.cleanup.support = { ok: false };
         cleanupErrors.push(
-          `support: ${error instanceof Error ? error.message : String(error)}`,
+          `support: ${privacySafeProbeError(error)}`,
         );
       }
     }
@@ -543,7 +543,7 @@ if (synthetic.enabled) {
       } catch (error) {
         synthetic.cleanup.feedback = { ok: false };
         cleanupErrors.push(
-          `feedback: ${error instanceof Error ? error.message : String(error)}`,
+          `feedback: ${privacySafeProbeError(error)}`,
         );
       }
     }

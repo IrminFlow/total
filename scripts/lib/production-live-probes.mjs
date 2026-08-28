@@ -9,6 +9,16 @@ export function boundedWaitMs(value, name) {
   return Math.floor(milliseconds);
 }
 
+export function privacySafeProbeError(error) {
+  const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
+  return message
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
+    .replace(/\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b/gi, "[redacted-gstin]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[redacted-id]")
+    .replace(/\b(?:Bearer\s+|total-(?:invite|sync-key)-v1:)[A-Za-z0-9._:-]+/gi, "[redacted-secret]")
+    .replace(/([?&](?:token|secret|key|email|caseId)=)[^&\s]+/gi, "$1[redacted]");
+}
+
 export function releaseAssetProbeOk({
   assetStatus,
   contentType,

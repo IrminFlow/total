@@ -9,6 +9,9 @@ GST portal connectivity are excluded. Offline GST calculations and reviewed expo
    the two-platform public-v0.4 upgrade as external until packaged-candidate evidence exists; it does
    not infer readiness from the presence of the smoke script.
    After deployment, run `npm run release:live` and review `dist/production-live-readiness.json`.
+   The probe verifies the allowlisted support, feedback, update-manifest, TLS and installer-redirect
+   surfaces. Its persisted evidence contains statuses and counters, not synthetic email addresses,
+   case/event IDs, tokens, GSTINs or submitted content.
 2. Run `npm run release:scorecard` on a clean checkout. Do not waive a failed category.
 3. Test a representative Tally, Busy, Marg, Zoho Books and spreadsheet migration. Reconcile opening
    debits/credits, voucher counts, tax totals, receivables, payables and stock value. Keep the signed

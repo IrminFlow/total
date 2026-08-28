@@ -3,9 +3,22 @@ import assert from "node:assert/strict";
 import {
   boundedWaitMs,
   canonicalRedirectProbeOk,
+  privacySafeProbeError,
   releaseAssetProbeOk,
   tlsProbeOk,
 } from "../lib/production-live-probes.mjs";
+
+test("redacts identifiers and credentials from production probe errors", () => {
+  const safe = privacySafeProbeError(new Error(
+    "support user@example.com 27ABCDE1234F1Z5 case 11111111-1111-4111-8111-111111111111 Bearer abc.def token?token=secret-value",
+  ));
+  assert.equal(safe.includes("user@example.com"), false);
+  assert.equal(safe.includes("27ABCDE1234F1Z5"), false);
+  assert.equal(safe.includes("11111111-1111-4111-8111-111111111111"), false);
+  assert.equal(safe.includes("abc.def"), false);
+  assert.equal(safe.includes("secret-value"), false);
+  assert.match(safe, /redacted-email/);
+});
 
 test("accepts only bounded deployment and release waits", () => {
   assert.equal(boundedWaitMs("600000", "WAIT"), 600000);
