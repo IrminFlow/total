@@ -24,8 +24,10 @@ function packagedBuildProfile(root, archive, expectedProfile) {
   let metadataBytes;
   let mainBundleBytes;
   try {
-    metadataBytes = extractFile(archive, "out/desktop-build-profile.json");
-    mainBundleBytes = extractFile(archive, "out/main/index.js");
+    // @electron/asar resolves entry names with the host platform's separator.
+    // Literal POSIX paths work on macOS/Linux but miss the same entries on Windows.
+    metadataBytes = extractFile(archive, join("out", "desktop-build-profile.json"));
+    mainBundleBytes = extractFile(archive, join("out", "main", "index.js"));
   } catch (error) {
     throw new Error(`Packaged desktop build profile or main bundle is missing: ${error instanceof Error ? error.message : String(error)}`);
   }

@@ -13,6 +13,13 @@ test("package-contract entrypoint resolves file URLs portably on Windows", () =>
   assert.doesNotMatch(source, /import\.meta\.url\)\.pathname/);
 });
 
+test("package-contract resolves ASAR entries with host-native separators", () => {
+  const source = readFileSync(new URL("../lib/package-contract.mjs", import.meta.url), "utf8");
+  assert.match(source, /extractFile\(archive, join\("out", "desktop-build-profile\.json"\)\)/);
+  assert.match(source, /extractFile\(archive, join\("out", "main", "index\.js"\)\)/);
+  assert.doesNotMatch(source, /extractFile\(archive, "out\//);
+});
+
 test("Windows installer uses one updater-safe artifact name", () => {
   const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
   assert.equal(pkg.build.win.artifactName, "${productName}-Setup-${version}.${ext}");
