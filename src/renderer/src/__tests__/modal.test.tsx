@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Button, Modal } from "../components/ui";
 import { isAnyModalOpen } from "../components/modalRegistry";
+import { commandPaletteShortcutAllowed } from "../App";
 
 afterEach(cleanup);
 
@@ -44,5 +45,19 @@ describe("Modal", () => {
 
     fireEvent.click(screen.getByTestId("modal-discard"));
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("suppresses the command palette shortcut while a modal is open", () => {
+    expect(commandPaletteShortcutAllowed(null)).toBe(true);
+    const view = render(
+      <Modal title="Confirm posting" onClose={() => undefined}>
+        <Button>Continue</Button>
+      </Modal>,
+    );
+
+    expect(commandPaletteShortcutAllowed(null)).toBe(false);
+    view.unmount();
+    expect(commandPaletteShortcutAllowed(null)).toBe(true);
+    expect(commandPaletteShortcutAllowed({ title: "Integrity warning" })).toBe(false);
   });
 });

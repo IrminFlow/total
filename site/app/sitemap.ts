@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { isStagingSite } from "@/lib/stagingIndexing";
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL ?? "https://devjindal.tech"
@@ -24,6 +25,7 @@ const ROUTES = [
 ] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {
+  if (isStagingSite()) return [];
   return ROUTES.map(([path, changeFrequency, priority]) => ({
     url: `${SITE_URL}${path}`,
     changeFrequency,

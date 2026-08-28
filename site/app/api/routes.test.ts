@@ -241,7 +241,7 @@ describe("support intake", () => {
 
     const response = await POST(
       post("/api/support", {
-        category: "bug",
+        category: "privacy",
         email: "books@example.com",
         message: "The trial balance screen does not open for this company.",
       }),
@@ -370,7 +370,7 @@ describe("support intake", () => {
         message: "Please help me reconcile this opening balance.",
       }),
     );
-    expect(missingEmail.status).toBe(400);
+    expect(missingEmail.status).toBe(202);
     const fakeAnonymousCrash = await POST(
       post("/api/support", {
         message: "Anonymous crash report",
@@ -380,23 +380,32 @@ describe("support intake", () => {
     expect(fakeAnonymousCrash.status).toBe(400);
   });
 
-  it("persists a private case and allows email-bound status tracking", async () => {
+  it("persists a private case and allows token or email-bound status tracking", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
     const { POST, GET } = await import("./support/route");
     const response = await POST(
       post("/api/support", {
         category: "bug",
+        severity: "critical",
         email: "owner@example.com",
         message:
           "The imported opening balance needs review before month close.",
+        diagnostics: {
+          version: "5.0.0",
+          platform: "darwin",
+          arch: "arm64",
+          installationId: "11111111-1111-4111-8111-111111111111",
+        },
       }),
     );
     const receipt = (await response.json()) as {
       caseId: string;
       status: string;
+      trackingToken: string;
     };
     expect(response.status).toBe(200);
     expect(receipt.status).toBe("submitted");
+    expect(receipt.trackingToken).toMatch(/^[A-Za-z0-9_-]{32,128}$/);
     expect(blobMocks.put).toHaveBeenCalledWith(
       expect.stringMatching(new RegExp(`${receipt.caseId}\\.json$`)),
       expect.any(String),
@@ -404,6 +413,11 @@ describe("support intake", () => {
     );
     const pathname = blobMocks.put.mock.calls.at(-1)![0] as string;
     const stored = JSON.parse(blobMocks.put.mock.calls.at(-1)![1] as string);
+    expect(stored).toMatchObject({
+      category: "bug",
+      severity: "critical",
+      diagnostics: { installationId: "11111111-1111-4111-8111-111111111111" },
+    });
     blobMocks.list.mockImplementation(
       async ({ prefix }: { prefix: string }) => ({
         blobs:
@@ -428,6 +442,18 @@ describe("support intake", () => {
       caseId: receipt.caseId,
       status: "submitted",
     });
+    const anonymouslyTracked = await GET(
+      new NextRequest(
+        `https://total.example/api/support?caseId=${receipt.caseId}&token=${receipt.trackingToken}`,
+      ),
+    );
+    expect(anonymouslyTracked.status).toBe(200);
+    const badToken = await GET(
+      new NextRequest(
+        `https://total.example/api/support?caseId=${receipt.caseId}&token=${"a".repeat(64)}`,
+      ),
+    );
+    expect(badToken.status).toBe(404);
     const hidden = await GET(
       new NextRequest(
         `https://total.example/api/support?caseId=${receipt.caseId}&email=wrong%40example.com`,

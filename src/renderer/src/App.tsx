@@ -4,6 +4,7 @@ import { useNav, useScreen, useSession } from "./state/stores";
 import { Button, Modal, Toasts } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DialogHost } from "./components/dialogs";
+import { isAnyModalOpen } from "./components/modalRegistry";
 import { invalidationFamilies } from "./lib/screens";
 import { rememberRecentRecord } from "./lib/recentRecords";
 import { coreApi } from "./lib/coreClient";
@@ -22,6 +23,11 @@ const Shell = lazy(async () => ({
 const LockScreen = lazy(async () => ({
   default: (await import("./components/LockScreen")).LockScreen,
 }));
+
+/** Global overlays must never bypass a blocking integrity decision or mounted modal. */
+export function commandPaletteShortcutAllowed(integrityWarning: unknown): boolean {
+  return !integrityWarning && !isAnyModalOpen();
+}
 
 const Gateway = lazy(async () => ({
   default: (await import("./screens/Gateway")).Gateway,
@@ -221,9 +227,9 @@ export default function App(): React.JSX.Element {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        // A blocking integrity warning must be resolved (or dismissed) before anything else is
-        // reachable — opening the palette over it would let the user navigate around it.
-        if (integrityWarning) return;
+        // Modal work has priority over global navigation. In particular, never stack the command
+        // palette over a confirmation or a dirty form and let it navigate around that decision.
+        if (!commandPaletteShortcutAllowed(integrityWarning)) return;
         setPaletteOpen((v) => !v);
         return;
       }

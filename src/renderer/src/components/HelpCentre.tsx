@@ -129,6 +129,8 @@ export function HelpCentre({
             ? `Version ${(update.latest ?? "").replace(/^v/, "")} is available; current is ${update.current}.`
             : update.status === "up-to-date"
               ? `Version ${update.current} is current and the update feed responded.`
+              : update.status === "disabled"
+                ? "Update checks are disabled for this isolated test build."
               : update.status === "dev"
                 ? "This is a source build; packaged update checks are intentionally inactive."
                 : "The update feed could not be reached. Accounting work is unaffected.",

@@ -17,8 +17,10 @@ import * as configSvc from "../services/config";
 import * as crashReports from "../services/crashReports";
 import * as supportCases from "../services/supportCases";
 import * as supportOutbox from "../services/supportOutbox";
+import { supportInstallationId } from "../services/supportInstallation";
 import { requireDeviceSafetyControl } from "../services/deviceSafety";
 import type { IpcHandle, OpenCompany } from "./types";
+import { desktopServiceUrl } from "@shared/desktopBuildProfile";
 
 interface SupportHandlerDependencies {
   getCurrentCompany: () => OpenCompany | null;
@@ -47,7 +49,8 @@ const supportFocusSchema = z
 
 const supportPayloadSchema = z.object({
   caseId: z.string().regex(/^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/),
-  category: z.enum(["question", "bug", "idea", "accessibility"]),
+  category: z.enum(["question", "bug", "idea", "accessibility", "privacy"]),
+  severity: z.enum(["low", "normal", "high", "critical"]).default("normal"),
   email: z.string().trim().email().max(200).or(z.literal("")),
   message: z.string().trim().min(10).max(5000),
   includeMessage: z.boolean(),
@@ -67,11 +70,13 @@ function safeSupportDiagnostics(): {
   version: string;
   platform: NodeJS.Platform;
   arch: string;
+  installationId: string;
 } {
   return {
     version: app.getVersion(),
     platform: process.platform,
     arch: process.arch,
+    installationId: supportInstallationId(),
   };
 }
 
@@ -86,13 +91,61 @@ function supportOutboxPath(): string {
 const queuedDeliverySchema = z
   .object({
     caseId: z.string().regex(/^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/),
-    category: z.enum(["question", "bug", "idea", "accessibility"]),
+    category: z.enum(["question", "bug", "idea", "accessibility", "privacy"]),
     source: z.literal("app"),
   })
   .passthrough();
 
-async function deliverSupportPayload(body: Record<string, unknown>): Promise<void> {
-  const response = await fetch("https://devjindal.tech/api/support", {
+const SUPPORT_RESPONSE_LIMIT_BYTES = 16 * 1024;
+const supportDeliveryResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    caseId: z.string().regex(/^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/),
+    trackingToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/).optional(),
+  })
+  .passthrough();
+
+const supportRemoteStatusSchema = z.object({
+  caseId: z.string().regex(/^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/),
+  status: z.enum(["submitted", "in_review", "waiting_for_customer", "resolved"]),
+  receivedAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+async function readBoundedSupportResponse(response: Response): Promise<unknown> {
+  const declaredLength = Number(response.headers.get("content-length") ?? "");
+  if (Number.isFinite(declaredLength) && declaredLength > SUPPORT_RESPONSE_LIMIT_BYTES) {
+    throw new Error("Support service returned an oversized response");
+  }
+
+  if (!response.body) throw new Error("Support service returned an empty response");
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let received = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > SUPPORT_RESPONSE_LIMIT_BYTES) {
+        await reader.cancel();
+        throw new Error("Support service returned an oversized response");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  try {
+    return JSON.parse(Buffer.concat(chunks, received).toString("utf8")) as unknown;
+  } catch {
+    throw new Error("Support service returned an invalid response");
+  }
+}
+
+async function deliverSupportPayload(body: Record<string, unknown>): Promise<z.infer<typeof supportDeliveryResponseSchema>> {
+  const response = await fetch(desktopServiceUrl("/api/support"), {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -102,6 +155,23 @@ async function deliverSupportPayload(body: Record<string, unknown>): Promise<voi
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error("Support service unavailable");
+  const receipt = supportDeliveryResponseSchema.safeParse(
+    await readBoundedSupportResponse(response),
+  );
+  if (!receipt.success) throw new Error("Support service did not accept the case");
+  if (receipt.data.caseId !== body.caseId)
+    throw new Error("Support service returned a mismatched case receipt");
+  return receipt.data;
+}
+
+async function fetchSupportStatus(caseId: string, trackingToken: string): Promise<z.infer<typeof supportRemoteStatusSchema>> {
+  const query = new URLSearchParams({ caseId, token: trackingToken });
+  const response = await fetch(`${desktopServiceUrl("/api/support")}?${query.toString()}`, {
+    headers: { "user-agent": `Total/${app.getVersion()}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error("Support case status is unavailable");
+  return supportRemoteStatusSchema.parse(await readBoundedSupportResponse(response));
 }
 
 function safeSupportContext(current: OpenCompany | null): {
@@ -198,6 +268,7 @@ export function registerSupportHandlers(
     if (!record) throw new Error("Support case not found");
     supportCases.assertSupportCaseConsent(record, {
       category: input.category,
+      severity: input.severity,
       message: input.includeMessage,
       diagnostics: input.includeDiagnostics,
       logs: input.includeLogs,
@@ -238,6 +309,7 @@ export function registerSupportHandlers(
     if (!envelope) throw new Error("Crash envelope not found");
     const supportCase = supportCases.createSupportCase(supportCasePath(), {
       category: "bug",
+      severity: "high",
       consent: {
         message: true,
         diagnostics: true,
@@ -251,26 +323,19 @@ export function registerSupportHandlers(
       status: "sending",
     });
     try {
-      const response = await fetch("https://devjindal.tech/api/support", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "user-agent": `Total/${app.getVersion()}`,
-        },
-        body: JSON.stringify({
-          caseId: supportCase.id,
-          category: "bug",
-          email: "",
-          message: `Opt-in crash envelope ${envelope.id}`,
-          source: "app",
-          diagnostics: safeSupportDiagnostics(),
-          crashEnvelope: envelope,
-        }),
-        signal: AbortSignal.timeout(15_000),
+      const receipt = await deliverSupportPayload({
+        caseId: supportCase.id,
+        category: "bug",
+        severity: "high",
+        email: "",
+        message: `Opt-in crash envelope ${envelope.id}`,
+        source: "app",
+        diagnostics: safeSupportDiagnostics(),
+        crashEnvelope: envelope,
       });
-      if (!response.ok) throw new Error("Support service unavailable");
       supportCases.updateSupportCase(supportCasePath(), supportCase.id, {
         status: "submitted",
+        trackingToken: receipt.trackingToken ?? null,
       });
       return { ok: true, caseId: supportCase.id };
     } catch {
@@ -282,6 +347,18 @@ export function registerSupportHandlers(
     }
   }, "viewer");
   handle("support:case:list", () => supportCases.readSupportCases(supportCasePath()));
+  handle("support:case:status", async (payload) => {
+    const { caseId } = z.object({
+      caseId: z.string().regex(/^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/),
+    }).parse(payload);
+    const record = supportCases.readSupportCases(supportCasePath()).find((candidate) => candidate.id === caseId);
+    if (!record?.trackingToken) throw new Error("This case has no private tracking token on this device");
+    const remote = await fetchSupportStatus(caseId, record.trackingToken);
+    return supportCases.updateSupportCase(supportCasePath(), caseId, {
+      status: remote.status,
+      lastError: null,
+    });
+  });
   handle("support:outbox:list", () =>
     supportOutbox.summarizeSupportOutbox(
       supportOutbox.readSupportOutbox(supportOutboxPath()),
@@ -290,7 +367,8 @@ export function registerSupportHandlers(
   handle("support:case:create", (payload) => {
     const input = z
       .object({
-        category: z.enum(["question", "bug", "idea", "accessibility"]),
+        category: z.enum(["question", "bug", "idea", "accessibility", "privacy"]),
+        severity: z.enum(["low", "normal", "high", "critical"]).default("normal"),
         consent: supportConsentSchema,
       })
       .parse(payload);
@@ -335,6 +413,7 @@ export function registerSupportHandlers(
     const delivery = {
       caseId: input.caseId,
       category: input.category,
+      severity: input.severity,
       email: input.email,
       message: input.message,
       source: "app" as const,
@@ -345,10 +424,11 @@ export function registerSupportHandlers(
       screenshotDataUrl: input.screenshotDataUrl,
     };
     try {
-      await deliverSupportPayload(delivery);
+      const receipt = await deliverSupportPayload(delivery);
       const record = supportCases.updateSupportCase(supportCasePath(), input.caseId, {
         status: "submitted",
         lastError: null,
+        trackingToken: receipt.trackingToken ?? null,
       });
       log("info", "support-case-submitted", { caseId: input.caseId });
       return { ok: true, queued: false, caseId: input.caseId, status: record.status };
@@ -410,11 +490,12 @@ export function registerSupportHandlers(
     try {
       const plaintext = safeStorage.decryptString(Buffer.from(item.encryptedPayload, "base64"));
       const delivery = queuedDeliverySchema.parse(JSON.parse(plaintext));
-      await deliverSupportPayload(delivery);
+      const receipt = await deliverSupportPayload(delivery);
       supportOutbox.removeSupportOutboxItem(supportOutboxPath(), input.id);
       const record = supportCases.updateSupportCase(supportCasePath(), item.caseId, {
         status: "submitted",
         lastError: null,
+        trackingToken: receipt.trackingToken ?? null,
       });
       log("info", "support-case-retry-submitted", { caseId: item.caseId });
       return { ok: true, caseId: item.caseId, status: record.status };
@@ -466,6 +547,7 @@ export function registerSupportHandlers(
         data: Buffer.from(JSON.stringify({
           caseId: input.caseId,
           category: input.category,
+          severity: input.severity,
           email: input.email,
           createdAt: new Date().toISOString(),
           consent,

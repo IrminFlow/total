@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
+import { extractFile } from "@electron/asar";
 
 export const sha256File = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -17,6 +18,49 @@ function requiredFile(path, label) {
   if (!existsSync(path) || !statSync(path).isFile() || statSync(path).size === 0)
     throw new Error(`${label} is missing or empty: ${path}`);
   return path;
+}
+
+function packagedBuildProfile(root, archive, expectedProfile) {
+  let metadataBytes;
+  let mainBundleBytes;
+  try {
+    metadataBytes = extractFile(archive, "out/desktop-build-profile.json");
+    mainBundleBytes = extractFile(archive, "out/main/index.js");
+  } catch (error) {
+    throw new Error(`Packaged desktop build profile or main bundle is missing: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (metadataBytes.length > 16 * 1024) throw new Error("Packaged desktop build profile is oversized");
+  let profile;
+  try {
+    profile = JSON.parse(metadataBytes.toString("utf8"));
+  } catch {
+    throw new Error("Packaged desktop build profile is invalid JSON");
+  }
+  const catalog = JSON.parse(readFileSync(join(root, "build", "desktop-build-profiles.json"), "utf8"));
+  const expected = catalog?.schema === 1 ? catalog.profiles?.[expectedProfile] : null;
+  if (!expected) throw new Error(`Unknown expected desktop build profile: ${expectedProfile}`);
+  if (JSON.stringify(profile) !== JSON.stringify(expected))
+    throw new Error(`Packaged desktop build profile does not match ${expectedProfile}`);
+
+  const mainBundle = mainBundleBytes.toString("utf8");
+  if (!mainBundle.includes(expected.siteOrigin) || !mainBundle.includes(expected.servicesOrigin))
+    throw new Error(`Packaged main bundle does not contain the ${expectedProfile} service origin`);
+  for (const route of ["/api/support", "/api/feedback", "/api/cohort"])
+    if (!mainBundle.includes(route)) throw new Error(`Packaged main bundle is missing ${route}`);
+
+  const production = catalog.profiles.production;
+  if (expectedProfile === "staging") {
+    if (profile.siteOrigin !== "https://total-v5-staging.vercel.app" || profile.servicesOrigin !== "https://total-v5-staging.vercel.app")
+      throw new Error("Staging desktop package must use only the isolated staging origin");
+    if (profile.updatesEnabled !== false) throw new Error("Staging desktop package must disable updater checks");
+    if (mainBundle.includes(production.siteOrigin) || mainBundle.includes(production.servicesOrigin))
+      throw new Error("Staging desktop package contains a production origin");
+  }
+  return {
+    ...profile,
+    metadataSha256: createHash("sha256").update(metadataBytes).digest("hex"),
+    mainBundleSha256: createHash("sha256").update(mainBundleBytes).digest("hex"),
+  };
 }
 
 function updaterManifest(dist, platform, version) {
@@ -48,7 +92,7 @@ function updaterManifest(dist, platform, version) {
   };
 }
 
-export function validatePackageContract({ root, dist, platform, version }) {
+export function validatePackageContract({ root, dist, platform, version, expectedProfile = "production" }) {
   if (platform !== "mac" && platform !== "win")
     throw new Error("Package platform must be mac or win");
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
@@ -85,11 +129,13 @@ export function validatePackageContract({ root, dist, platform, version }) {
       throw new Error("Windows executable has no PE MZ header");
     checks.peHeader = "passed";
   }
+  const appArchive = requiredFile(join(resources, "app.asar"), "Packaged application archive");
   const packagedFiles = [
-    requiredFile(join(resources, "app.asar"), "Packaged application archive"),
+    appArchive,
     requiredFile(join(resources, "total-mcp.mjs"), "Packaged MCP server"),
     requiredFile(join(resources, "voucher.schema.json"), "Packaged voucher schema"),
   ];
+  const buildProfile = packagedBuildProfile(root, appArchive, expectedProfile);
   const updater = updaterManifest(dist, platform, version);
   const artifacts = files
     .filter((file) =>
@@ -106,8 +152,9 @@ export function validatePackageContract({ root, dist, platform, version }) {
     executable: { path: relative(dist, executable), bytes: statSync(executable).size, sha256: sha256File(executable) },
     configuredIcon: { path: relative(root, configuredIcon), bytes: statSync(configuredIcon).size, sha256: sha256File(configuredIcon) },
     packagedResources: packagedFiles.map((file) => ({ path: relative(packageRoot, file), bytes: statSync(file).size, sha256: sha256File(file) })),
+    buildProfile,
     updater,
     artifacts,
-    checks: { ...checks, requiredResources: "passed", updaterMetadata: "passed", installerPresence: "passed" },
+    checks: { ...checks, requiredResources: "passed", buildProfile: "passed", updaterMetadata: "passed", installerPresence: "passed" },
   };
 }

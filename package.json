@@ -8,7 +8,7 @@
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build && node scripts/build-mcp.mjs",
+    "build": "electron-vite build && node scripts/write-desktop-build-profile.mjs && node scripts/build-mcp.mjs",
     "preview": "electron-vite preview",
     "test": "vitest run",
     "test:release": "node --test scripts/tests/*.test.mjs",
@@ -19,6 +19,7 @@
     "test:chaos": "node scripts/chaos-suite.mjs",
     "test:soak": "node scripts/soak-ci.mjs",
     "test:visual": "node scripts/visual-regression-gate.mjs",
+    "test:site:visual": "node scripts/site-visual-capture.mjs",
     "cli": "node scripts/total-cli.mjs",
     "mcp": "node scripts/total-mcp.mjs",
     "integration:validate": "node scripts/integration-kit.mjs",

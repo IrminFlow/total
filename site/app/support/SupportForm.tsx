@@ -11,6 +11,28 @@ interface SupportResponse {
   notification?: string;
   mailto?: string;
   error?: string;
+  trackingToken?: string;
+}
+
+function TrackingReceipt({ caseId, trackingToken }: { caseId: string; trackingToken: string }): React.JSX.Element | null {
+  const [notice, setNotice] = useState("");
+  if (!caseId) return null;
+  const copy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(`Case ${caseId}\nTracking token ${trackingToken}`);
+      setNotice("Tracking details copied.");
+    } catch {
+      setNotice("Select the case number and token above to copy them.");
+    }
+  };
+  return (
+    <div className="support-receipt">
+      <p className="support-case-id">Case {caseId}</p>
+      {trackingToken && <p className="support-case-id">Tracking token {trackingToken}</p>}
+      {trackingToken && <button type="button" className="support-copy-link" onClick={() => void copy()}>Copy tracking details</button>}
+      {notice && <p className="form-notice" role="status">{notice}</p>}
+    </div>
+  );
 }
 
 export default function SupportForm(): React.JSX.Element {
@@ -18,6 +40,7 @@ export default function SupportForm(): React.JSX.Element {
   const [caseId, setCaseId] = useState("");
   const [mailto, setMailto] = useState("mailto:total@irminflow.com");
   const [error, setError] = useState("");
+  const [trackingToken, setTrackingToken] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -39,6 +62,7 @@ export default function SupportForm(): React.JSX.Element {
         );
       const nextCaseId = result.caseId ?? "";
       setCaseId(nextCaseId);
+      setTrackingToken(result.trackingToken ?? "");
       if (result.status === "fallback") {
         setMailto(result.mailto ?? "mailto:total@irminflow.com");
         setState("fallback");
@@ -69,7 +93,7 @@ export default function SupportForm(): React.JSX.Element {
       <div className="support-success" role="status">
         <h2 className="serif">Your case is in the queue.</h2>
         <p>Keep the case number below so you can check its status.</p>
-        {caseId && <p className="support-case-id">Case {caseId}</p>}
+        <TrackingReceipt caseId={caseId} trackingToken={trackingToken} />
       </div>
     );
   }
@@ -81,7 +105,7 @@ export default function SupportForm(): React.JSX.Element {
           The notification to the support team is delayed. Send the follow-up
           email to make sure it is seen promptly.
         </p>
-        {caseId && <p className="support-case-id">Case {caseId}</p>}
+        <TrackingReceipt caseId={caseId} trackingToken={trackingToken} />
         <a className="btn" href={mailto}>
           Send follow-up email
         </a>
@@ -96,7 +120,7 @@ export default function SupportForm(): React.JSX.Element {
           The support queue could not confirm delivery. Send the prepared email
           so the case is not lost.
         </p>
-        {caseId && <p className="support-case-id">Case {caseId}</p>}
+        <TrackingReceipt caseId={caseId} trackingToken={trackingToken} />
         <a className="btn" href={mailto}>
           Open prepared email
         </a>
@@ -124,15 +148,24 @@ export default function SupportForm(): React.JSX.Element {
             <option value="question">Question</option>
             <option value="bug">Something is broken</option>
             <option value="accessibility">Accessibility issue</option>
+            <option value="privacy">Privacy or deletion request</option>
             <option value="idea">Product idea</option>
           </select>
         </label>
         <label>
-          Email
+          Severity
+          <select name="severity" defaultValue="normal">
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">Work blocked</option>
+            <option value="critical">Data or security risk</option>
+          </select>
+        </label>
+        <label>
+          Email (optional)
           <input
             name="email"
             type="email"
-            required
             placeholder="you@business.com"
             autoComplete="email"
           />
@@ -143,7 +176,7 @@ export default function SupportForm(): React.JSX.Element {
         <textarea name="message" required minLength={10} maxLength={5000} />
       </label>
       <p className="support-privacy">
-        Your email lets you track the case and receive a reply. Do not send
+        If you provide an email, support can reply to you. Your private tracking token lets you check the case without an account. Do not send
         passwords, API keys, bank credentials or full accounting exports.
       </p>
       {state === "error" && (

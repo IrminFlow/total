@@ -26,7 +26,7 @@ const PLATFORM_LABELS: Record<string, string> = {
 };
 
 function statusToast(r: {
-  status: "dev" | "available" | "up-to-date" | "error";
+  status: "dev" | "disabled" | "available" | "up-to-date" | "error";
   current: string;
   latest?: string;
 }): {
@@ -38,6 +38,11 @@ function statusToast(r: {
       return {
         kind: "info",
         text: "Running from source — update checks only apply to packaged builds",
+      };
+    case "disabled":
+      return {
+        kind: "info",
+        text: "Update checks are disabled for this test build",
       };
     case "up-to-date":
       return {

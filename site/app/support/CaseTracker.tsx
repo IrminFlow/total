@@ -30,11 +30,19 @@ export default function CaseTracker(): React.JSX.Element {
     setNotice("");
     setResult(null);
     const form = new FormData(event.currentTarget);
+    const token = String(form.get("token") ?? "").trim();
+    const email = String(form.get("email") ?? "").trim();
+    if (!token && !email) {
+      setError("Enter the private tracking token or the reply email used for the case.");
+      setBusy(false);
+      return;
+    }
     const query = new URLSearchParams({
       caseId: String(form.get("caseId") ?? "")
         .trim()
         .toUpperCase(),
-      email: String(form.get("email") ?? "").trim(),
+      ...(token ? { token } : {}),
+      ...(email ? { email } : {}),
     });
     try {
       const response = await fetch(`/api/support?${query}`);
@@ -71,7 +79,7 @@ export default function CaseTracker(): React.JSX.Element {
         Track a case
       </h2>
       <p className="support-privacy">
-        Use the case number and email from your submission. The message and
+        Use the case number with its private tracking token, or the reply email from your submission. The message and
         diagnostics are never returned here.
       </p>
       <form onSubmit={(event) => void lookup(event)} aria-busy={busy}>
@@ -87,8 +95,12 @@ export default function CaseTracker(): React.JSX.Element {
             />
           </label>
           <label>
-            Email
-            <input name="email" type="email" required autoComplete="email" />
+            Private tracking token
+            <input name="token" autoComplete="off" />
+          </label>
+          <label>
+            Reply email (alternative)
+            <input name="email" type="email" autoComplete="email" />
           </label>
         </div>
         <button className="btn" disabled={busy}>

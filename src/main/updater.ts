@@ -16,6 +16,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { log } from './log'
 import { SITE_URL } from '@shared/product'
+import { DESKTOP_BUILD_PROFILE } from '@shared/desktopBuildProfile'
 import {
   isUpdateEligible,
   parseUpdateFeed,
@@ -87,7 +88,7 @@ async function fetchLatest(channel = updateChannel()): Promise<LatestInfo | null
 }
 
 export interface UpdateCheckResult {
-  status: 'dev' | 'available' | 'up-to-date' | 'error'
+  status: 'dev' | 'disabled' | 'available' | 'up-to-date' | 'error'
   current: string
   latest?: string
 }
@@ -136,13 +137,14 @@ async function manualCheck(): Promise<void> {
  *  afterward too, so a later autoUpdater 'error' event can still trigger its own one-shot
  *  manual fallback rather than finding the guard already tripped. */
 export async function checkForUpdatesInteractive(): Promise<UpdateCheckResult> {
+  if (!DESKTOP_BUILD_PROFILE.updatesEnabled) return { status: 'disabled', current: app.getVersion() }
   if (!app.isPackaged) return { status: 'dev', current: app.getVersion() }
   fallbackDone = false
   return checkAndOffer()
 }
 
 export function initUpdater(): void {
-  if (!app.isPackaged) return
+  if (!app.isPackaged || !DESKTOP_BUILD_PROFILE.updatesEnabled) return
 
   autoUpdater.autoInstallOnAppQuit = true
 

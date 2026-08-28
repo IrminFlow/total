@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Sans, IBM_Plex_Serif, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import SiteFooter from "@/components/SiteFooter";
+import { isStagingSite, stagingRobotsMetadata } from "@/lib/stagingIndexing";
 
 const sans = IBM_Plex_Sans({
   subsets: ["latin"],
@@ -53,6 +54,7 @@ export const metadata: Metadata = {
   },
   applicationName: "Total",
   category: "business",
+  robots: stagingRobotsMetadata(),
 };
 
 const softwareApplication = {
@@ -76,7 +78,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }): React.JSX.Element {
-  const staging = process.env.TOTAL_STAGING_MODE === "1";
+  const staging = isStagingSite();
   const revision = (
     process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.TOTAL_SITE_REVISION ?? "unknown"
   ).slice(0, 8);

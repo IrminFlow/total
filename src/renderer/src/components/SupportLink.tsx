@@ -7,6 +7,7 @@ import {
   type SupportConsent,
   type SupportContextPreview,
   type SupportPayload,
+  type SupportSeverity,
   type SupportOutboxSummary,
 } from "../lib/client";
 import { ArrowClockwise, Camera, CursorClick, Eye, ShieldCheck, Trash } from "@phosphor-icons/react";
@@ -71,6 +72,7 @@ function SupportModal({
   const deviceSafety = useDeviceSafetyControls();
   const uploadsEnabled = deviceSafety.supportUploads;
   const [category, setCategory] = useState<SupportCategory>("question");
+  const [severity, setSeverity] = useState<SupportSeverity>("normal");
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [includeMessage, setIncludeMessage] = useState(false);
@@ -100,6 +102,7 @@ function SupportModal({
     version: string;
     platform: string;
     arch: string;
+    installationId: string;
   } | null>(null);
 
   useEffect(() => {
@@ -125,6 +128,7 @@ function SupportModal({
     setBundlePath("");
   }, [
     category,
+    severity,
     includeCompanyMetadata,
     includeDiagnostics,
     includeFocusContext,
@@ -160,6 +164,7 @@ function SupportModal({
   const payload = (id: string): SupportPayload => ({
     caseId: id,
     category,
+    severity,
     email,
     message,
     includeMessage,
@@ -169,7 +174,7 @@ function SupportModal({
     focusContext: includeFocusContext ? initialFocusContext : null,
     screenshotDataUrl: includeScreenshot ? (screenshot?.dataUrl ?? null) : null,
   });
-  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const validEmail = email.trim() === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   const refreshCases = (): void => {
     void api.support.cases().then(setRecentCases).catch(() => undefined);
@@ -182,7 +187,7 @@ function SupportModal({
     try {
       const supportCase =
         caseRecord ??
-        (await api.support.createCase({ category, consent: consent() }));
+        (await api.support.createCase({ category, severity, consent: consent() }));
       setCaseRecord(supportCase);
       const result = await api.support.submit(payload(supportCase.id));
       setState(result.queued ? "queued" : "sent");
@@ -220,6 +225,9 @@ function SupportModal({
       sending: "Sending",
       queued: "Queued securely",
       submitted: "Submitted",
+      in_review: "In review",
+      waiting_for_customer: "Waiting for reply",
+      resolved: "Resolved",
       failed: "Delivery failed",
       saved_offline: "Saved offline",
     })[record.status];
@@ -235,7 +243,9 @@ function SupportModal({
             <p className="mt-1 text-[12px] text-muted">
               {state === "queued"
                 ? "Support is offline. Open this panel when you are connected and retry the encrypted submission."
-                : "Thank you. We’ll follow up at the email you provided."}
+                : email.trim()
+                  ? "Thank you. We’ll follow up at the email you provided."
+                  : "Thank you. This device retained the private token needed to check the case."}
             </p>
             {caseRecord && (
               <p
@@ -248,7 +258,7 @@ function SupportModal({
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <label className="text-[11.5px] text-muted">
                 Type
                 <select
@@ -261,15 +271,28 @@ function SupportModal({
                   <option value="question">Question</option>
                   <option value="bug">Something is broken</option>
                   <option value="accessibility">Accessibility issue</option>
+                  <option value="privacy">Privacy or deletion request</option>
                   <option value="idea">Product idea</option>
                 </select>
               </label>
               <label className="text-[11.5px] text-muted">
-                Email
+                Severity
+                <select
+                  className="mt-1 w-full rounded border border-line bg-panel px-2.5 py-2 text-[13px] text-ink"
+                  value={severity}
+                  onChange={(event) => setSeverity(event.target.value as SupportSeverity)}
+                >
+                  <option value="low">Low</option>
+                  <option value="normal">Normal</option>
+                  <option value="high">Work blocked</option>
+                  <option value="critical">Data or security risk</option>
+                </select>
+              </label>
+              <label className="text-[11.5px] text-muted">
+                Email (optional)
                 <input
                   className="mt-1 w-full rounded border border-line bg-panel px-2.5 py-2 text-[13px] text-ink"
                   type="email"
-                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@business.com"
@@ -322,8 +345,7 @@ function SupportModal({
                       {JSON.stringify(diagnostics, null, 2)}
                     </pre>
                     <div className="flex items-center gap-1.5 border-t border-line px-3 py-2 text-[10.5px] text-dr">
-                      <ShieldCheck size={14} weight="fill" /> No company name,
-                      books, file paths, logs, credentials, or identifiers.
+                      <ShieldCheck size={14} weight="fill" /> The installation reference contains no company or user identity. No books, file paths, logs or credentials are included.
                     </div>
                   </div>
                 )}
@@ -607,14 +629,27 @@ function SupportModal({
                     {item.id}
                   </p>
                   <p className="mt-0.5 text-[10px] text-muted">
-                    {statusLabel(item)} · {item.category}
+                    {statusLabel(item)} · {item.category} · {item.severity}
                   </p>
+                  {item.trackingToken && (
+                    <Button
+                      className="mt-1.5"
+                      data-testid={`btn-check-support-${item.id}`}
+                      onClick={() => {
+                        setError("");
+                        void api.support.caseStatus(item.id).then(() => {
+                          refreshCases();
+                        }).catch((err) => setError((err as Error).message));
+                      }}
+                    >
+                      <ArrowClockwise size={12} /> Check status
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
             <p className="mt-1.5 text-[9.5px] text-muted">
-              Only case status and consent choices are retained locally—not
-              message or email text.
+              Case status, consent choices and private tracking tokens are retained locally—not message or email text.
             </p>
           </div>
         )}

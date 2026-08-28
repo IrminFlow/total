@@ -21,6 +21,11 @@ await scenario("48-support-cases", async (h) => {
   await h.createDemoCompany();
   await h.click("link-support");
   const modal = h.page.getByRole("dialog");
+  assert(
+    (await modal.getByRole("option", { name: "Privacy or deletion request" }).count()) === 1,
+    "support exposes a privacy and deletion request route",
+  );
+  await h.shot("00-support-form");
   await modal.getByLabel("How can we help?").fill("The register filter needs help.");
   await modal.getByText("Send this message.", { exact: false }).click();
   await modal
@@ -74,7 +79,7 @@ await scenario("48-support-cases", async (h) => {
   await h.click("link-support");
   const caseId = modal.getByText(supportCase.id, { exact: true });
   await caseId.waitFor();
-  await modal.getByText("Saved offline · bug", { exact: true }).waitFor();
+  await modal.getByText("Saved offline · bug · normal", { exact: true }).waitFor();
   await caseId.scrollIntoViewIfNeeded();
   await h.shot("02-local-case-history");
 });

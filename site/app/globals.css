@@ -562,7 +562,9 @@ footer { padding: 60px 0 48px; color: var(--muted); font-size: 13px; display: fl
 .support-success { max-width: 680px; margin-top: 42px; padding: 36px; border: 1px solid var(--dr); border-radius: 14px; background: var(--card); }
 .support-success h2 { font-size: 30px; }
 .support-success .btn { margin-top: 20px; }
-.support-case-id { margin-top: 14px; font: 650 13px/1.2 var(--font-mono), ui-monospace, monospace; letter-spacing: .05em; color: var(--amber-deep); }
+.support-case-id { margin-top: 14px; overflow-wrap: anywhere; font: 650 13px/1.2 var(--font-mono), ui-monospace, monospace; letter-spacing: .05em; color: var(--amber-deep); }
+.support-copy-link { margin-top: 12px; border: 0; border-bottom: 1px solid currentColor; background: transparent; color: var(--ink); font: 650 13px/1.2 var(--font-sans), sans-serif; cursor: pointer; }
+.support-copy-link:hover { color: var(--amber-deep); }
 .support-privacy { margin: -4px 0 0; max-width: 62ch; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .form-error { color: var(--cr); font-size: 13px; }
 .form-error a { color: inherit; font-weight: 600; }

@@ -40,6 +40,7 @@ const TRACKING_MAX_REFERENCE_REQUESTS = 30;
 interface StoredCase {
   caseId: string;
   category: string;
+  severity: "low" | "normal" | "high" | "critical";
   email: string;
   message: string;
   source: "app" | "website";
@@ -53,6 +54,7 @@ interface StoredCase {
   crashEnvelope: unknown;
   focusContext: unknown;
   screenshotDataUrl: string | null;
+  trackingTokenHash: string;
 }
 
 interface CaseStatusEvent {
@@ -79,6 +81,13 @@ function emailMatches(expected: string, supplied: string): boolean {
   const digest = (value: string) =>
     createHash("sha256").update(value.trim().toLowerCase()).digest();
   return timingSafeEqual(digest(expected), digest(supplied));
+}
+
+function trackingTokenMatches(expectedHash: string, supplied: string): boolean {
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(supplied)) return false;
+  const actual = createHash("sha256").update(supplied).digest();
+  const expected = Buffer.from(expectedHash, "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 function fallback(
@@ -120,11 +129,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (body.website) return NextResponse.json({ ok: true }); // honeypot
   const message = typeof body.message === "string" ? body.message.trim() : "";
   const email = typeof body.email === "string" ? body.email.trim() : "";
-  const category = ["question", "bug", "idea", "accessibility"].includes(
+  const category = ["question", "bug", "idea", "accessibility", "privacy"].includes(
     String(body.category),
   )
     ? String(body.category)
     : "question";
+  const severity = ["low", "normal", "high", "critical"].includes(String(body.severity))
+    ? String(body.severity) as StoredCase["severity"]
+    : "normal";
   const generatedCaseId = `TOT-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${randomUUID().replaceAll("-", "").slice(0, CASE_ID_SUFFIX_LENGTH).toUpperCase()}`;
   const caseId = CASE_ID_PATTERN.test(String(body.caseId))
     ? String(body.caseId)
@@ -159,6 +171,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         version: bounded(rawDiagnostics.version, 30) ?? "",
         platform: bounded(rawDiagnostics.platform, 30) ?? "",
         arch: bounded(rawDiagnostics.arch, 30) ?? "",
+        installationId: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(rawDiagnostics.installationId))
+          ? String(rawDiagnostics.installationId)
+          : "",
       }
     : null;
   const logs = Array.isArray(body.logs)
@@ -229,13 +244,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     message.length < 10 ||
     message.length > 5000 ||
     email.length > 200 ||
+    (body.crashEnvelope !== undefined && !(crashEnvelope?.id && crashEnvelope.fingerprint)) ||
     (!(crashEnvelope?.id && crashEnvelope.fingerprint) &&
+      email !== "" &&
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
   ) {
     return NextResponse.json(
       {
         error:
-          "Enter a valid email and a message between 10 and 5,000 characters",
+          "Enter an optional valid email and a message between 10 and 5,000 characters",
       },
       { status: 400 },
     );
@@ -246,6 +263,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     scope: "support",
     dedupeMaterial: JSON.stringify({
       category,
+      severity,
       email: email.toLowerCase(),
       message,
       source: body.source === "app" ? "app" : "website",
@@ -276,9 +294,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   const acceptedCaseId = protection.receipt?.id ?? caseId;
   const acceptedAt = protection.receipt?.receivedAt ?? receivedAt;
+  const trackingToken = randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", "");
   const storedCase: StoredCase = {
     caseId: acceptedCaseId,
     category,
+    severity,
     email,
     message,
     source: body.source === "app" ? "app" : "website",
@@ -292,6 +312,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     crashEnvelope,
     focusContext,
     screenshotDataUrl,
+    trackingTokenHash: createHash("sha256").update(trackingToken).digest("hex"),
   };
   let finalizeLocalReceipt: Promise<void> | null = null;
   if (intakeStoreConfigured()) {
@@ -318,6 +339,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         caseId: acceptedCaseId,
         status: "submitted",
         notification: "not_configured",
+        trackingToken,
       });
     await releaseIntake(protection);
     return fallback(acceptedCaseId, category, email, message);
@@ -362,6 +384,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             caseId: acceptedCaseId,
             status: "submitted",
             notification: "failed",
+            trackingToken,
           })
         : fallback(acceptedCaseId, category, email, message);
     }
@@ -372,6 +395,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       caseId: acceptedCaseId,
       status: "submitted",
       notification: "delivered",
+      trackingToken,
     });
   } catch {
     if (!intakeStoreConfigured()) await releaseIntake(protection);
@@ -381,6 +405,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           caseId: acceptedCaseId,
           status: "submitted",
           notification: "failed",
+          trackingToken,
         })
       : fallback(acceptedCaseId, category, email, message);
   }
@@ -389,7 +414,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const caseId = request.nextUrl.searchParams.get("caseId") ?? "";
   const email = request.nextUrl.searchParams.get("email") ?? "";
-  if (!CASE_ID_PATTERN.test(caseId) || !email)
+  const trackingToken = request.nextUrl.searchParams.get("token") ?? "";
+  if (!CASE_ID_PATTERN.test(caseId) || (!email && !trackingToken))
     return NextResponse.json({ error: "Case not found" }, { status: 404 });
   if (!intakeStoreConfigured())
     return NextResponse.json(
@@ -398,7 +424,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   const allowed = await allowProtectedLookup({
     request,
-    keyMaterial: `${caseId}\n${email.trim().toLowerCase()}`,
+    keyMaterial: `${caseId}\n${trackingToken || email.trim().toLowerCase()}`,
     maxActorRequests: TRACKING_MAX_ACTOR_REQUESTS,
     maxKeyRequests: TRACKING_MAX_REFERENCE_REQUESTS,
     windowMs: TRACKING_WINDOW_MS,
@@ -409,7 +435,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!(await jsonExists(pathname)))
     return NextResponse.json({ error: "Case not found" }, { status: 404 });
   const row = await readJson<StoredCase>(pathname);
-  if (!row || !emailMatches(row.email, email))
+  if (
+    !row ||
+    !(
+      (trackingToken && trackingTokenMatches(row.trackingTokenHash ?? "", trackingToken)) ||
+      (email && row.email && emailMatches(row.email, email))
+    )
+  )
     return NextResponse.json({ error: "Case not found" }, { status: 404 });
   const statusEvents = await listJson<CaseStatusEvent>(
     caseStatusPrefix(caseId),
@@ -420,6 +452,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   return NextResponse.json({
     caseId: row.caseId,
     category: row.category,
+    severity: row.severity ?? "normal",
     status: latest?.status ?? row.status,
     receivedAt: row.receivedAt,
     updatedAt: latest?.updatedAt ?? row.updatedAt,

@@ -61,6 +61,7 @@ Deno.serve(async (request) => {
     const caseId = String(body.caseId ?? "").slice(0, 100);
     const message = String(body.message ?? "").slice(0, 10_000);
     const category = String(body.category ?? "general").slice(0, 80);
+    const severity = ["low", "normal", "high", "critical"].includes(String(body.severity)) ? String(body.severity) : "normal";
     if (!caseId || !message) return json({ error: "Missing support fields" }, 400);
     const safeMetadata = {
       diagnostics: body.diagnostics ?? null,
@@ -71,6 +72,7 @@ Deno.serve(async (request) => {
     const { data, error } = await supabase.from("total_support_tickets").upsert({
       external_case_id: caseId,
       category,
+      severity,
       reply_email: typeof body.email === "string" ? body.email.slice(0, 320) : null,
       source: safeMetadata.source,
       message,

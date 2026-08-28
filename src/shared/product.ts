@@ -5,8 +5,10 @@
  * (its own tsconfig has no path into src/shared; it reads GITHUB_REPO / NEXT_PUBLIC_SITE_URL).
  */
 
-/** Canonical marketing/download site. Update here (and the Vercel domain + env) if it ever moves. */
-export const SITE_URL = 'https://devjindal.tech'
+import { DESKTOP_BUILD_PROFILE } from './desktopBuildProfile'
+
+/** Canonical marketing/download site for this immutable desktop build profile. */
+export const SITE_URL = DESKTOP_BUILD_PROFILE.siteOrigin
 
 /** owner/repo on GitHub — where releases are published. */
 export const GITHUB_REPO = 'IrminFlow/total'

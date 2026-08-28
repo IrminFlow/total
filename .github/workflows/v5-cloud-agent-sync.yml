@@ -56,6 +56,10 @@ jobs:
         run: npm ci && npm test && npm run build
 
   package:
+    env:
+      # This profile is compiled into the main process and copied into app.asar. The package
+      # contract below rejects any production origin or enabled updater in these test artifacts.
+      TOTAL_DESKTOP_BUILD_PROFILE: staging
     strategy:
       fail-fast: false
       matrix:

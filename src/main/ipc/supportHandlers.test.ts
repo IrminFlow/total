@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { IpcHandle, IpcHandler } from "./types";
 import { enqueueSupportPayload, readSupportOutbox } from "../services/supportOutbox";
+import { readSupportCases } from "../services/supportCases";
 
 const electron = vi.hoisted(() => ({
   decryptString: vi.fn((value: Buffer) => value.toString("utf8")),
@@ -69,6 +70,141 @@ function queuedCase(hasAttachment: boolean): { caseId: string; outboxId: string 
   });
   return { caseId: created.id, outboxId: queued.id };
 }
+
+function createCaseForSubmission(): string {
+  const created = handlers.get("support:case:create")!({
+    category: "bug",
+    consent: {
+      message: true,
+      diagnostics: true,
+      logs: false,
+      companyMetadata: false,
+      focusContext: false,
+      screenshot: false,
+    },
+  }) as { id: string };
+  return created.id;
+}
+
+function submitCase(caseId: string): Promise<unknown> {
+  return handlers.get("support:submit")!({
+    caseId,
+    category: "bug",
+    email: "tester@example.com",
+    message: "A focused support delivery contract test.",
+    includeMessage: true,
+    includeDiagnostics: true,
+    includeLogs: false,
+    includeCompanyMetadata: false,
+    focusContext: null,
+    screenshotDataUrl: null,
+  }) as Promise<unknown>;
+}
+
+describe("support delivery response contract", () => {
+  it("stores a bounded private tracking token and refreshes case status", async () => {
+    const trackingToken = "t".repeat(64);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") {
+        const body = JSON.parse(String(init?.body)) as { caseId: string };
+        return new Response(JSON.stringify({ ok: true, caseId: body.caseId, trackingToken }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const url = String(input);
+      expect(url).toContain(`token=${trackingToken}`);
+      const caseId = new URL(url).searchParams.get("caseId");
+      return new Response(JSON.stringify({
+        caseId,
+        status: "in_review",
+        receivedAt: "2026-08-28T10:00:00.000Z",
+        updatedAt: "2026-08-28T10:01:00.000Z",
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    const caseId = createCaseForSubmission();
+
+    await expect(submitCase(caseId)).resolves.toMatchObject({ queued: false, caseId });
+    expect(readSupportCases(join(root, "support-cases.json"))[0]).toMatchObject({
+      id: caseId,
+      status: "submitted",
+      trackingToken,
+    });
+    await expect(handlers.get("support:case:status")!({ caseId })).resolves.toMatchObject({
+      id: caseId,
+      status: "in_review",
+      trackingToken,
+    });
+  });
+
+  it("queues a normal submission when the service returns its HTTP 202 fallback", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      ok: false,
+      status: "fallback",
+      mailto: "mailto:total@example.com",
+    }), {
+      status: 202,
+      headers: { "content-type": "application/json" },
+    })));
+    const caseId = createCaseForSubmission();
+
+    await expect(submitCase(caseId)).resolves.toMatchObject({
+      ok: true,
+      queued: true,
+      caseId,
+      status: "queued",
+    });
+    expect(readSupportOutbox(join(root, "support-outbox.json"))).toHaveLength(1);
+    expect(readSupportCases(join(root, "support-cases.json"))[0]).toMatchObject({
+      id: caseId,
+      status: "queued",
+    });
+  });
+
+  it("rejects a crash submission on HTTP 202 and keeps the crash stored", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      ok: false,
+      status: "fallback",
+      mailto: "mailto:total@example.com",
+    }), {
+      status: 202,
+      headers: { "content-type": "application/json" },
+    })));
+    const envelope = handlers.get("crash:record")!({
+      message: "Renderer crashed while opening a report",
+      screen: "reports",
+    }) as { id: string };
+
+    await expect(handlers.get("crash:submit")!({ id: envelope.id })).rejects.toThrow(
+      `Crash envelope ${envelope.id} remains safely stored on this device.`,
+    );
+    expect(handlers.get("crash:list")!(undefined)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: envelope.id })]),
+    );
+    expect(readSupportCases(join(root, "support-cases.json"))[0]).toMatchObject({
+      status: "failed",
+      lastError: "Crash delivery failed",
+    });
+  });
+
+  it("queues a normal submission when a successful response exceeds the receipt limit", async () => {
+    const oversized = JSON.stringify({ ok: true, padding: "x".repeat(20_000) });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(oversized, {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(Buffer.byteLength(oversized)),
+      },
+    })));
+    const caseId = createCaseForSubmission();
+
+    await expect(submitCase(caseId)).resolves.toMatchObject({
+      queued: true,
+      caseId,
+      status: "queued",
+    });
+  });
+});
 
 describe("support outbox retry IPC", () => {
   it("requires fresh attachment consent before changing retry state", async () => {

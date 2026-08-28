@@ -25,7 +25,7 @@ describe("support case ledger", () => {
     const path = join(root, "support-cases.json");
     const created = createSupportCase(
       path,
-      { category: "bug", consent },
+      { category: "bug", severity: "high", consent },
       new Date("2026-08-24T10:00:00.000Z"),
     );
     expect(created.id).toMatch(/^TOT-20260824-[A-F0-9]{12}$/);
@@ -37,6 +37,7 @@ describe("support case ledger", () => {
     );
     expect(readSupportCases(path)[0]).toMatchObject({
       id: created.id,
+      severity: "high",
       status: "submitted",
       submittedAt: "2026-08-24T10:01:00.000Z",
     });
@@ -50,11 +51,13 @@ describe("support case ledger", () => {
     const root = mkdtempSync(join(tmpdir(), "total-support-consent-"));
     const record = createSupportCase(join(root, "support-cases.json"), {
       category: "bug",
+      severity: "normal",
       consent,
     });
     expect(() =>
       assertSupportCaseConsent(record, {
         category: "question",
+        severity: "normal",
         message: true,
         diagnostics: true,
         logs: false,
@@ -66,6 +69,7 @@ describe("support case ledger", () => {
     expect(() =>
       assertSupportCaseConsent(record, {
         category: "bug",
+        severity: "normal",
         message: true,
         diagnostics: true,
         logs: true,

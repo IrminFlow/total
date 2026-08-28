@@ -8,12 +8,16 @@ export type SupportCaseStatus =
   | "sending"
   | "queued"
   | "submitted"
+  | "in_review"
+  | "waiting_for_customer"
+  | "resolved"
   | "failed"
   | "saved_offline";
 
 export interface SupportCaseRecord {
   id: string;
-  category: "question" | "bug" | "idea" | "accessibility";
+  category: "question" | "bug" | "idea" | "accessibility" | "privacy";
+  severity: "low" | "normal" | "high" | "critical";
   status: SupportCaseStatus;
   createdAt: string;
   updatedAt: string;
@@ -27,10 +31,12 @@ export interface SupportCaseRecord {
     screenshot: boolean;
   };
   lastError: string | null;
+  trackingToken: string | null;
 }
 
 export interface SupportPayloadSelection {
   category: SupportCaseRecord["category"];
+  severity: SupportCaseRecord["severity"];
   message: boolean;
   diagnostics: boolean;
   logs: boolean;
@@ -45,6 +51,8 @@ export function assertSupportCaseConsent(
 ): void {
   if (record.category !== selection.category)
     throw new Error("Support category does not match the saved case");
+  if (record.severity !== selection.severity)
+    throw new Error("Support severity does not match the saved case");
   for (const field of [
     "message",
     "diagnostics",
@@ -71,10 +79,11 @@ function validCase(value: unknown): value is SupportCaseRecord {
   return (
     typeof item.id === "string" &&
     /^TOT-\d{8}-(?:[A-F0-9]{6}|[A-F0-9]{12})$/.test(item.id) &&
-    ["question", "bug", "idea", "accessibility"].includes(
+    ["question", "bug", "idea", "accessibility", "privacy"].includes(
       String(item.category),
     ) &&
-    ["draft", "sending", "queued", "submitted", "failed", "saved_offline"].includes(
+    (item.severity === undefined || ["low", "normal", "high", "critical"].includes(String(item.severity))) &&
+    ["draft", "sending", "queued", "submitted", "in_review", "waiting_for_customer", "resolved", "failed", "saved_offline"].includes(
       String(item.status),
     ) &&
     typeof item.createdAt === "string" &&
@@ -86,7 +95,11 @@ export function readSupportCases(path: string): SupportCaseRecord[] {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<SupportCaseFile>;
     return parsed.version === 1 && Array.isArray(parsed.cases)
-      ? parsed.cases.filter(validCase).slice(0, 100)
+      ? parsed.cases.filter(validCase).slice(0, 100).map((record) => ({
+          ...record,
+          severity: record.severity ?? "normal",
+          trackingToken: record.trackingToken ?? null,
+        }))
       : [];
   } catch {
     return [];
@@ -108,19 +121,21 @@ export function newSupportCaseId(now = new Date()): string {
 
 export function createSupportCase(
   path: string,
-  input: Pick<SupportCaseRecord, "category" | "consent">,
+  input: Pick<SupportCaseRecord, "category" | "severity" | "consent">,
   now = new Date(),
 ): SupportCaseRecord {
   const timestamp = now.toISOString();
   const record: SupportCaseRecord = {
     id: newSupportCaseId(now),
     category: input.category,
+    severity: input.severity,
     status: "draft",
     createdAt: timestamp,
     updatedAt: timestamp,
     submittedAt: null,
     consent: input.consent,
     lastError: null,
+    trackingToken: null,
   };
   writeCases(path, [record, ...readSupportCases(path)]);
   return record;
@@ -129,7 +144,10 @@ export function createSupportCase(
 export function updateSupportCase(
   path: string,
   id: string,
-  patch: Pick<SupportCaseRecord, "status"> & { lastError?: string | null },
+  patch: Pick<SupportCaseRecord, "status"> & {
+    lastError?: string | null;
+    trackingToken?: string | null;
+  },
   now = new Date(),
 ): SupportCaseRecord {
   const cases = readSupportCases(path);
@@ -144,6 +162,10 @@ export function updateSupportCase(
       patch.status === "submitted" ? now.toISOString() : previous.submittedAt,
     lastError:
       patch.lastError === undefined ? previous.lastError : patch.lastError,
+    trackingToken:
+      patch.trackingToken === undefined
+        ? (previous.trackingToken ?? null)
+        : patch.trackingToken,
   };
   cases[index] = next;
   writeCases(path, cases);

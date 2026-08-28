@@ -68,7 +68,7 @@ import type {
   DocumentInboxRow,
   EvidenceSuggestion,
 } from "@shared/assistiveAutomation";
-import type { AiOperatorAction, AiOperatorActionResult, AiOperatorConfig, AiOperatorPlan } from "@shared/aiOperator";
+import type { AiOperatorActionResult, AiOperatorBoundPlan, AiOperatorConfig } from "@shared/aiOperator";
 import type {
   McpAuditEvent,
   McpMirrorStatus,
@@ -1188,9 +1188,10 @@ export interface PdcRow {
   amount: number;
 }
 
-export type SupportCategory = "question" | "bug" | "idea" | "accessibility";
+export type SupportCategory = "question" | "bug" | "idea" | "accessibility" | "privacy";
+export type SupportSeverity = "low" | "normal" | "high" | "critical";
 export type SupportCaseStatus =
-  "draft" | "sending" | "queued" | "submitted" | "failed" | "saved_offline";
+  "draft" | "sending" | "queued" | "submitted" | "in_review" | "waiting_for_customer" | "resolved" | "failed" | "saved_offline";
 export interface SupportConsent {
   message: boolean;
   diagnostics: boolean;
@@ -1202,12 +1203,14 @@ export interface SupportConsent {
 export interface SupportCaseRecord {
   id: string;
   category: SupportCategory;
+  severity: SupportSeverity;
   status: SupportCaseStatus;
   createdAt: string;
   updatedAt: string;
   submittedAt: string | null;
   consent: SupportConsent;
   lastError: string | null;
+  trackingToken: string | null;
 }
 export interface SupportFocusContext {
   tag: string;
@@ -1230,6 +1233,7 @@ export interface SupportContextPreview {
 export interface SupportPayload {
   caseId: string;
   category: SupportCategory;
+  severity: SupportSeverity;
   email: string;
   message: string;
   includeMessage: boolean;
@@ -3522,9 +3526,9 @@ export const api = {
     codexCancelLogin: (sessionId: string) => call<null>("ai:codex:cancelLogin", { sessionId }),
     operatorSetConfig: (input: AiOperatorConfig) => call<AiOperatorConfig>("ai:operator:setConfig", input),
     operatorAddWorkspace: () => call<AiOperatorConfig>("ai:operator:addWorkspace"),
-    operatorPlan: (prompt: string) => call<AiOperatorPlan>("ai:operator:plan", { prompt }),
-    operatorExecute: (action: AiOperatorAction, approved = false) =>
-      call<AiOperatorActionResult>("ai:operator:execute", { action, approved }),
+    operatorPlan: (prompt: string) => call<AiOperatorBoundPlan>("ai:operator:plan", { prompt }),
+    operatorExecute: (planId: string, actionIndex: number, approvalToken?: string) =>
+      call<AiOperatorActionResult>("ai:operator:execute", { planId, actionIndex, approvalToken }),
     contextPreview: (from: string, to: string, fields?: AiContextFieldId[]) =>
       call<AiContextPreview>("ai:contextPreview", { from, to, fields }),
     ask: (
@@ -3628,7 +3632,7 @@ export const api = {
   },
   support: {
     diagnostics: () =>
-      call<{ version: string; platform: string; arch: string }>(
+      call<{ version: string; platform: string; arch: string; installationId: string }>(
         "support:diagnostics",
       ),
     captureScreenshot: () =>
@@ -3636,9 +3640,12 @@ export const api = {
         "support:captureScreenshot",
       ),
     cases: () => call<SupportCaseRecord[]>("support:case:list"),
+    caseStatus: (caseId: string) =>
+      call<SupportCaseRecord>("support:case:status", { caseId }),
     outbox: () => call<SupportOutboxSummary[]>("support:outbox:list"),
     createCase: (input: {
       category: SupportCategory;
+      severity: SupportSeverity;
       consent: SupportConsent;
     }) => call<SupportCaseRecord>("support:case:create", input),
     contextPreview: () => call<SupportContextPreview>("support:contextPreview"),
@@ -3701,7 +3708,7 @@ export const api = {
     info: () => call<{ version: string; platform: string }>("app:info"),
     checkUpdates: () =>
       call<{
-        status: "dev" | "available" | "up-to-date" | "error";
+        status: "dev" | "disabled" | "available" | "up-to-date" | "error";
         current: string;
         latest?: string;
       }>("app:checkUpdates"),
