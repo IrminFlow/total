@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   collaborationPublishSchema,
   collaborativeDocumentSchema,
+  compareVectorClocks,
+  deriveSyncPhase,
   encryptedSyncEnvelopeSchema,
   invitationAcceptSchema,
   mergeCollaborativeDocuments,
@@ -117,6 +119,10 @@ export function publishCollaborationChange(
         sha256(envelopeJson),
         envelope.createdAt,
       );
+    const resolve = db.prepare(`UPDATE sync_conflicts SET resolved=1,resolved_at=datetime('now')
+      WHERE resolved=0 AND entity_kind=? AND entity_id=? AND field_name=?`);
+    for (const field of Object.keys(input.patch))
+      resolve.run(input.entityKind, input.entityId, field);
   })();
   return document;
 }
@@ -130,7 +136,12 @@ function applyIncoming(db: DB, envelope: EncryptedSyncEnvelope, credentials: Col
   if (envelope.workspaceId !== credentials.workspaceId) throw new Error("Envelope belongs to another workspace");
   if (db.prepare("SELECT 1 FROM sync_envelopes WHERE envelope_id=?").get(envelope.envelopeId)) return;
   const document = decryptCollaborationEnvelope(envelope, credentials.keys.encryptionKey);
-  const merged = mergeCollaborativeDocuments(localDocument(db, document.entityKind, document.entityId), document);
+  const local = localDocument(db, document.entityKind, document.entityId);
+  const merged = mergeCollaborativeDocuments(local, document);
+  const resolvedFields = Object.entries(document.fields).flatMap(([field, incoming]) => {
+    const existing = local?.fields[field];
+    return existing && compareVectorClocks(existing.clock, incoming.clock) === "before" ? [field] : [];
+  });
   const json = JSON.stringify(envelope);
   db.transaction(() => {
     db.prepare(`INSERT INTO sync_envelopes(envelope_id,direction,device_id,sequence,entity_kind,entity_id,envelope_json,content_hash,state,created_at,processed_at)
@@ -145,6 +156,10 @@ function applyIncoming(db: DB, envelope: EncryptedSyncEnvelope, credentials: Col
         envelope.createdAt,
       );
     if (merged.changed) saveDocument(db, merged.document);
+    const resolve = db.prepare(`UPDATE sync_conflicts SET resolved=1,resolved_at=datetime('now')
+      WHERE resolved=0 AND entity_kind=? AND entity_id=? AND field_name=?`);
+    for (const field of resolvedFields)
+      resolve.run(envelope.entityKind, envelope.entityId, field);
     const insert = db.prepare(`INSERT INTO sync_conflicts(envelope_id,entity_kind,entity_id,field_name,kept_device_id,other_device_id)
       VALUES(?,?,?,?,?,?)`);
     for (const conflict of merged.conflicts)
@@ -252,6 +267,11 @@ export async function acceptTeamInvitation(
 export async function runCollaborationSync(db: DB, companySlug: string, fetchImpl: typeof fetch = fetch): Promise<SyncStatus> {
   const credentials = readCollaborationCredentials(companySlug);
   if (!credentials?.enabled) throw new Error("Encrypted collaboration is not enabled");
+  const attemptedAt = new Date().toISOString();
+  db.transaction(() => {
+    setState(db, "last_attempted_at", attemptedAt);
+    setState(db, "sync_phase", "syncing");
+  })();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -283,11 +303,15 @@ export async function runCollaborationSync(db: DB, companySlug: string, fetchImp
       if (pull.cursor) setState(db, "cursor", pull.cursor);
       setState(db, "last_synced_at", syncedAt);
       setState(db, "last_error", "");
+      setState(db, "sync_phase", "idle");
     })();
     return getCollaborationSyncStatus(db, companySlug);
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 500) : "Sync failed";
-    setState(db, "last_error", message);
+    db.transaction(() => {
+      setState(db, "last_error", message);
+      setState(db, "sync_phase", "error");
+    })();
     throw new Error(message);
   } finally {
     clearTimeout(timer);
@@ -299,16 +323,27 @@ export function getCollaborationSyncStatus(db: DB, companySlug: string): SyncSta
   try { credentials = readCollaborationCredentials(companySlug); } catch { /* status remains usable */ }
   const pending = (db.prepare("SELECT COUNT(*) value FROM sync_envelopes WHERE direction='outgoing' AND state='pending'").get() as { value: number }).value;
   const conflicts = (db.prepare("SELECT COUNT(*) value FROM sync_conflicts WHERE resolved=0").get() as { value: number }).value;
+  const configured = credentials !== null;
+  const enabled = credentials?.enabled ?? false;
+  const lastError = state(db, "last_error") || null;
   return {
-    configured: credentials !== null,
-    enabled: credentials?.enabled ?? false,
+    phase: deriveSyncPhase({
+      configured,
+      enabled,
+      pending,
+      persistedPhase: state(db, "sync_phase"),
+      lastError,
+    }),
+    configured,
+    enabled,
     endpoint: credentials?.endpoint ?? null,
     workspaceId: credentials?.workspaceId ?? null,
     deviceId: credentials?.deviceId ?? null,
     pending,
     conflicts,
     cursor: state(db, "cursor"),
+    lastAttemptedAt: state(db, "last_attempted_at"),
     lastSyncedAt: state(db, "last_synced_at"),
-    lastError: state(db, "last_error") || null,
+    lastError,
   };
 }

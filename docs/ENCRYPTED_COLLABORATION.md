@@ -33,6 +33,14 @@ Any Convex, Cloudflare Worker, Fly.io or self-hosted implementation can provide 
 The backend must authenticate membership, preserve envelope bytes, provide a stable forward cursor,
 and never log authorization headers or envelope bodies.
 
+## Local diagnostics
+
+**Settings → Encrypted collaboration** reports the local phase (`not configured`, `paused`, `up
+to date`, `waiting to sync`, `syncing now` or `needs attention`), pending-envelope and conflict
+counts, the last attempt, the last successful sync and a bounded last error. These diagnostics stay
+on the device. They do not contain envelope bodies, recovery material, access tokens, accounting
+amounts, names, GSTINs or vouchers.
+
 ## Collaboration boundaries
 
 Sync records are a separate CRDT materialized view. Product surfaces must explicitly publish a

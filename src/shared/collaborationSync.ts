@@ -84,6 +84,7 @@ export const collaborationPublishSchema = z.object({
 export type CollaborationPublishInput = z.infer<typeof collaborationPublishSchema>;
 
 export interface SyncStatus {
+  phase: "not_configured" | "paused" | "idle" | "pending" | "syncing" | "error";
   configured: boolean;
   enabled: boolean;
   endpoint: string | null;
@@ -92,8 +93,24 @@ export interface SyncStatus {
   pending: number;
   conflicts: number;
   cursor: string | null;
+  lastAttemptedAt: string | null;
   lastSyncedAt: string | null;
   lastError: string | null;
+}
+
+export function deriveSyncPhase(input: {
+  configured: boolean;
+  enabled: boolean;
+  pending: number;
+  persistedPhase: string | null;
+  lastError: string | null;
+}): SyncStatus["phase"] {
+  if (!input.configured) return "not_configured";
+  if (!input.enabled) return "paused";
+  if (input.persistedPhase === "syncing") return "syncing";
+  if (input.lastError) return "error";
+  if (input.pending > 0) return "pending";
+  return "idle";
 }
 
 export const teamInvitationSchema = z.object({

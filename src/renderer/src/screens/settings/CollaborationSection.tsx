@@ -6,6 +6,15 @@ import { confirmDialog } from "../../lib/dialogs";
 import { useSession, useToasts } from "../../state/stores";
 import { Button, Field, Panel, SectionTitle, SkeletonRows, TextInput } from "../../components/ui";
 
+const syncPhaseLabel = {
+  not_configured: "Not configured",
+  paused: "Paused",
+  idle: "Up to date",
+  pending: "Waiting to sync",
+  syncing: "Syncing now",
+  error: "Needs attention",
+} as const;
+
 export function CollaborationSection(): React.JSX.Element {
   const toast = useToasts();
   const queryClient = useQueryClient();
@@ -219,9 +228,13 @@ export function CollaborationSection(): React.JSX.Element {
                   <p className="text-[13.5px] font-semibold text-ink">{status.enabled ? "Connected on this device" : "Paused on this device"}</p>
                   <p className="mt-1 text-[11.5px] text-muted num">{status.endpoint}</p>
                   <p className="mt-2 text-[11.5px] text-muted">
-                    {status.pending} pending · {status.conflicts} conflicts · {status.lastSyncedAt ? `last synced ${new Date(status.lastSyncedAt).toLocaleString()}` : "not synced yet"}
+                    Local state: <span className="font-medium text-ink">{syncPhaseLabel[status.phase]}</span> · {status.pending} pending · {status.conflicts} conflicts
                   </p>
-                  {status.lastError && <p className="mt-2 text-[11.5px] text-cr">{status.lastError}</p>}
+                  <p className="mt-1 text-[11.5px] text-muted">
+                    {status.lastAttemptedAt ? `Last attempt ${new Date(status.lastAttemptedAt).toLocaleString()}` : "No sync attempt yet"}
+                    {status.lastSyncedAt ? ` · Last success ${new Date(status.lastSyncedAt).toLocaleString()}` : " · No successful sync yet"}
+                  </p>
+                  {status.lastError && <p className="mt-2 text-[11.5px] text-cr">Last error: {status.lastError}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button disabled={!canEdit || busy !== null || !status.enabled} onClick={() => void syncNow()}>

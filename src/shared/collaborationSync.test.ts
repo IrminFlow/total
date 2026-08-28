@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   collaborationPublishSchema,
   compareVectorClocks,
+  deriveSyncPhase,
   mergeCollaborativeDocuments,
   parseTeamInvitationCode,
   type CollaborativeDocument,
@@ -23,6 +24,15 @@ function document(deviceId: string, value: string, clock: Record<string, number>
 }
 
 describe("encrypted collaboration merge", () => {
+  it("derives an explicit privacy-safe local sync phase", () => {
+    expect(deriveSyncPhase({ configured: false, enabled: false, pending: 0, persistedPhase: null, lastError: null })).toBe("not_configured");
+    expect(deriveSyncPhase({ configured: true, enabled: false, pending: 2, persistedPhase: null, lastError: "offline" })).toBe("paused");
+    expect(deriveSyncPhase({ configured: true, enabled: true, pending: 2, persistedPhase: "syncing", lastError: "earlier failure" })).toBe("syncing");
+    expect(deriveSyncPhase({ configured: true, enabled: true, pending: 2, persistedPhase: "idle", lastError: "offline" })).toBe("error");
+    expect(deriveSyncPhase({ configured: true, enabled: true, pending: 2, persistedPhase: "idle", lastError: null })).toBe("pending");
+    expect(deriveSyncPhase({ configured: true, enabled: true, pending: 0, persistedPhase: "idle", lastError: null })).toBe("idle");
+  });
+
   it("orders vector clocks without relying on wall-clock time", () => {
     expect(compareVectorClocks({ [DEVICE_A]: 1 }, { [DEVICE_A]: 2 })).toBe("before");
     expect(compareVectorClocks({ [DEVICE_A]: 2 }, { [DEVICE_A]: 1 })).toBe("after");
@@ -46,6 +56,43 @@ describe("encrypted collaboration merge", () => {
     const merged = mergeCollaborativeDocuments(before, after);
     expect(merged.document.fields.title?.value).toBe("Ready");
     expect(merged.conflicts).toEqual([]);
+  });
+
+  it("converges after deterministic offline edits to different fields", () => {
+    const base = document(DEVICE_A, "Review April", { [DEVICE_A]: 1 }, "2026-08-27T10:00:00.000Z");
+    const offlineA: CollaborativeDocument = {
+      ...base,
+      fields: {
+        ...base.fields,
+        assignee: { value: "Asha", clock: { [DEVICE_A]: 2 }, updatedAt: "2026-08-27T10:01:00.000Z", deviceId: DEVICE_A },
+      },
+      clock: { [DEVICE_A]: 2 },
+    };
+    const offlineB: CollaborativeDocument = {
+      ...base,
+      fields: {
+        ...base.fields,
+        due: { value: "2026-08-31", clock: { [DEVICE_A]: 1, [DEVICE_B]: 1 }, updatedAt: "2026-08-27T10:02:00.000Z", deviceId: DEVICE_B },
+      },
+      clock: { [DEVICE_A]: 1, [DEVICE_B]: 1 },
+    };
+    const ab = mergeCollaborativeDocuments(offlineA, offlineB);
+    const ba = mergeCollaborativeDocuments(offlineB, offlineA);
+    expect(ab.document).toEqual(ba.document);
+    expect(ab.document.fields.assignee?.value).toBe("Asha");
+    expect(ab.document.fields.due?.value).toBe("2026-08-31");
+    expect(ab.conflicts).toEqual([]);
+  });
+
+  it("reports each concurrently changed field while preserving unaffected fields", () => {
+    const a = document(DEVICE_A, "Review sales", { [DEVICE_A]: 2 }, "2026-08-27T10:00:00.000Z");
+    a.fields.note = { value: "Owner note", clock: { [DEVICE_A]: 2 }, updatedAt: "2026-08-27T10:00:00.000Z", deviceId: DEVICE_A };
+    const b = document(DEVICE_B, "Review purchases", { [DEVICE_B]: 2 }, "2026-08-27T10:00:00.000Z");
+    b.fields.note = { value: "Member note", clock: { [DEVICE_B]: 2 }, updatedAt: "2026-08-27T10:00:00.000Z", deviceId: DEVICE_B };
+    b.fields.status = { value: "open", clock: { [DEVICE_B]: 2 }, updatedAt: "2026-08-27T10:00:00.000Z", deviceId: DEVICE_B };
+    const merged = mergeCollaborativeDocuments(a, b);
+    expect(merged.conflicts.map((conflict) => conflict.field).sort()).toEqual(["note", "title"]);
+    expect(merged.document.fields.status?.value).toBe("open");
   });
 
   it("bounds collaboration payloads and rejects prototype fields", () => {
