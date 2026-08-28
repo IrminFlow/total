@@ -98,6 +98,13 @@ for (const file of files) results.push(await runOne(file))
 
 const summary = { startedAt, totalMs: Date.now() - t0, passed: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length, results }
 fs.writeFileSync(path.join(outRoot, 'results.json'), JSON.stringify(summary, null, 2))
+const captures = results.flatMap((result) => {
+  const manifestPath = path.join(outRoot, result.scenario, 'manifest.json')
+  if (!fs.existsSync(manifestPath)) return []
+  try { return JSON.parse(fs.readFileSync(manifestPath, 'utf8')).captures ?? [] }
+  catch { return [] }
+})
+fs.writeFileSync(path.join(outRoot, 'screenshots-manifest.json'), JSON.stringify({ schemaVersion: 1, captures }, null, 2))
 
 console.log('\n================ e2e summary ================')
 for (const r of results) {

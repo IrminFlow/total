@@ -21,6 +21,7 @@ import { createRequire } from 'node:module'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
+import { execFileSync } from 'node:child_process'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron')
@@ -35,7 +36,7 @@ const CONSOLE_IGNORE = [
 ]
 
 export class Harness {
-  /** @param {{ dataDir?: string, outDir?: string, appDir?: string }} [opts] */
+  /** @param {{ dataDir?: string, outDir?: string, appDir?: string, scenario?: string }} [opts] */
   constructor(opts = {}) {
     this.appDir = opts.appDir ?? process.cwd()
     this.dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'total-e2e-'))
@@ -49,6 +50,12 @@ export class Harness {
     /** @type {string[]} */
     this.keyWarnings = []
     this._shotSeq = 0
+    this.scenario = opts.scenario ?? path.basename(this.outDir)
+    this.captureCommit = process.env.TOTAL_CAPTURE_COMMIT ?? (() => {
+      try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: this.appDir, encoding: 'utf8' }).trim() }
+      catch { return 'unknown' }
+    })()
+    this.captureManifest = []
   }
 
   /** Launch the built app (one retry on a slow first boot). */
@@ -247,10 +254,50 @@ export class Harness {
     await this.page.waitForSelector('[data-testid="card-voucher-entry"]', { state: 'visible', timeout })
   }
 
-  /** Screenshot into the out dir; auto-numbered unless a name is given. */
-  async shot(name) {
+  /** Wait for fonts, images, lazy routes and layout to settle before a visual capture. */
+  async waitForScreenshotReady(timeout = 20000) {
+    await this.page.waitForFunction(async () => {
+      await document.fonts?.ready
+      const images = [...document.images]
+      await Promise.all(images.map((img) => img.complete ? undefined : new Promise((resolve) => {
+        img.addEventListener('load', resolve, { once: true })
+        img.addEventListener('error', resolve, { once: true })
+      })))
+      const loadingWorkspace = [...document.querySelectorAll('[role="status"]')]
+        .some((node) => /Loading (workspace|settings)/i.test(node.textContent ?? ''))
+      const active = [...document.querySelectorAll('[data-screen]')].find((node) => {
+        const style = getComputedStyle(node)
+        return style.display !== 'none' && style.visibility !== 'hidden'
+      })
+      return !loadingWorkspace && (!active || active.getAttribute('data-loading') !== 'true')
+    }, null, { timeout })
+    await this.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  }
+
+  /** Screenshot into the out dir and append deterministic review metadata. */
+  async shot(name, metadata = {}) {
     const file = path.join(this.outDir, `${name ?? `shot-${String(++this._shotSeq).padStart(2, '0')}`}.png`)
+    await this.waitForScreenshotReady()
     await this.page.screenshot({ path: file })
+    const discovered = await this.page.evaluate(() => ({
+      theme: document.documentElement.dataset.theme ?? 'light',
+      screen: document.querySelector('[data-screen]')?.getAttribute('data-screen') ?? undefined
+    }))
+    const viewport = this.page.viewportSize()
+    this.captureManifest.push({
+      schemaVersion: 1,
+      capturedAt: new Date().toISOString(),
+      commit: this.captureCommit,
+      scenario: this.scenario,
+      file: path.basename(file),
+      theme: metadata.theme ?? discovered.theme,
+      viewport,
+      ...(metadata.route ? { route: metadata.route } : {}),
+      ...(metadata.screen ?? discovered.screen ? { screen: metadata.screen ?? discovered.screen } : {}),
+      fixture: metadata.fixture ?? 'isolated-e2e-company',
+      state: metadata.state ?? 'ready'
+    })
+    fs.writeFileSync(path.join(this.outDir, 'manifest.json'), JSON.stringify({ schemaVersion: 1, captures: this.captureManifest }, null, 2))
     return file
   }
 
@@ -319,7 +366,7 @@ export function assertEq(actual, expected, label) {
  */
 export async function scenario(name, fn, opts = {}) {
   const outRoot = process.env.SMOKE_OUT ?? path.join(os.tmpdir(), 'total-e2e-out')
-  const h = new Harness({ outDir: path.join(outRoot, name), ...opts.harness })
+  const h = new Harness({ outDir: path.join(outRoot, name), scenario: name, ...opts.harness })
   const started = Date.now()
   let ok = false
   let error

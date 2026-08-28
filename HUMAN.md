@@ -23,39 +23,34 @@ The unsigned packages attached to the `v5-cloud-agent-sync` branch are for testi
   - Record explicit owner acceptance of the unreviewed legal risk using the repository’s legal-risk evidence flow.
   - Can defer: paid pricing can be deferred; the release model cannot remain ambiguous at publication time.
 
-## Supabase setup
+## Supabase production decision
 
-- [ ] Create a Supabase project for Total.
-  - Location: Supabase dashboard, in an organization you control.
-  - Choose the production region deliberately and record the project reference outside the repository.
-  - Enable the authentication method you want for collaborators. Email authentication is sufficient for the first test.
-  - Success evidence: project reference and project URL exist; do not copy service-role credentials into this repository.
+Staging setup is complete. The isolated project `cewz…qmlx` exists; all migrations through
+`202608280002_collaboration_devices.sql` are applied; `total-sync` v9 and `total-intake` v10 are
+active; and unauthenticated `total-sync` access returns HTTP 401. No production Supabase project was
+created or changed.
 
-- [ ] Authenticate the Supabase CLI on this computer.
-  - Run `supabase login` yourself in a terminal.
-  - Tell the coding agent only that login is complete. Do not send the token.
-  - Can defer: no, if you want the agent to deploy the included migrations and functions.
+- [ ] Decide whether to create a separate production Supabase project.
+  - Do not reuse the staging project for production books or identities.
+  - Choose the production region and authentication method deliberately.
+  - Record the project reference outside the repository. Never copy a service-role credential into
+    source, documentation, issues, screenshots, or chat.
 
-- [ ] Apply the database migrations and deploy both Edge Functions.
-  - The agent can do this after your CLI session is authenticated.
-  - Required assets:
-    - `supabase/migrations/202608270001_encrypted_collaboration.sql`
-    - `supabase/migrations/202608270002_support_feedback.sql`
-    - `supabase/functions/total-sync`
-    - `supabase/functions/total-intake`
+- [ ] When production deployment is approved, authenticate the Supabase CLI and ask the agent to
+  apply all four migrations and deploy both Edge Functions.
   - `total-sync` must verify Supabase JWTs.
-  - `total-intake` uses the dedicated server-to-server intake secret and is deployed with `--no-verify-jwt` because it performs its own bearer check.
-  - Success evidence: both function endpoints answer their expected authenticated health or request paths, and RLS prevents direct client access to intake tables.
-
-- [ ] Create the Supabase intake secrets.
-  - Required: `TOTAL_INTAKE_SECRET`, at least 32 random bytes.
-  - Optional notification values: `RESEND_API_KEY`, `TOTAL_SUPPORT_EMAIL`, and a verified `TOTAL_SUPPORT_FROM` address.
-  - Keep `TOTAL_INTAKE_SECRET` distinct from every admin, cron, storage, HMAC, signing, OpenAI, and Supabase service-role credential.
-  - Success evidence: `supabase secrets list` shows the names, not their values.
+  - `total-intake` must use a dedicated `TOTAL_INTAKE_SECRET` and perform its own bearer check.
+  - The production intake secret must be distinct from every administration, cron, storage, HMAC,
+    signing, OpenAI, and Supabase service-role credential.
 
 ## Vercel and website setup
 
-- [ ] Authenticate Vercel on this computer or open the Total site project in the Vercel dashboard.
+The isolated staging site already has support and feedback configured. Synthetic support
+create/private-token tracking and feedback idea/vote/follow checks passed. Production remains
+untouched.
+
+- [ ] When production configuration is approved, authenticate Vercel on this computer or open the
+  production Total site project in the Vercel dashboard.
   - Project root must be `site`.
   - Tell the agent when the session is ready. Do not share the login token.
 
@@ -82,9 +77,15 @@ The unsigned packages attached to the `v5-cloud-agent-sync` branch are for testi
   - Sync a harmless proposal, comment, and task in both directions.
   - Confirm that posted vouchers, masters, company databases, provider keys, and recovery keys do not appear in Supabase.
   - Revoke a second invitation and confirm it cannot be accepted.
+  - Let one access token expire and confirm refresh succeeds; then revoke a session and confirm the
+    client requires reconnection.
+  - Confirm an unknown device or modified signature is rejected and quarantined without blocking a
+    later valid envelope.
   - Success evidence: redacted timestamps, workspace ID, invitation state, and local sync result. Do not capture tokens or ciphertext bodies.
 
 - [ ] Test support and feedback in production.
+  - The equivalent staging create/private-token tracking and idea/vote/follow checks have passed;
+    they do not count as production acceptance.
   - Create a synthetic support case.
   - Confirm the case can be tracked, resolved, reopened, and exactly deleted.
   - Confirm a provider-delivery failure does not lose the stored case.
@@ -113,7 +114,7 @@ Do not place certificate files or encoded certificate values in the repository, 
 
 ## Acceptance material only you can provide
 
-- [ ] Supply synthetic or consented migration exports for Tally, Busy, Marg, Zoho Books, and common spreadsheets.
+- [ ] Supply representative consented customer exports for Tally, Busy, Marg, Zoho Books, and common spreadsheets.
   - Never commit customer data.
   - Expected reconciliation: opening balances, voucher counts, receivables, payables, stock, tax totals, and attachment lineage.
   - Can defer: individual formats can defer only if the release stops claiming that migration path is accepted.

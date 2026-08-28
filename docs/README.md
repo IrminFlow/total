@@ -16,6 +16,15 @@ Use this index instead of guessing which similarly named roadmap or runbook is c
 
 If two documents conflict, follow the higher source in this list and update the lower document in the same change.
 
+## Current service boundary
+
+The isolated Supabase staging project `cewz…qmlx` and staging site are configured. Migrations through
+`collaboration_devices` are applied, `total-sync` v9 and `total-intake` v10 are active,
+unauthenticated sync returns HTTP 401, and staging support/private-token tracking plus feedback
+idea/vote/follow checks passed. Production is untouched and pending. Real two-user collaboration,
+representative customer migration exports, signing and human acceptance remain pending; final review
+and release have not started.
+
 ## Product and design
 
 - [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md): detailed v5 completion history and the older numbered rollout narrative. Use root [ROADMAP.md](../ROADMAP.md) for current status.
@@ -28,10 +37,12 @@ If two documents conflict, follow the higher source in this list and update the 
 
 ## AI, agents, and integrations
 
-- [AI_OPERATIONS.md](AI_OPERATIONS.md): provider, context, evaluation, proposal, and AI release rules.
+- [AI_OPERATIONS.md](AI_OPERATIONS.md): provider, context, retained-plan approval binding,
+  evaluation, proposal, and AI release rules.
 - [MCP_CONTRACT_V1.md](MCP_CONTRACT_V1.md): local MCP tools, resources, permissions, and no-write guarantees.
 - [INTEGRATION_SDK_V1.md](INTEGRATION_SDK_V1.md): partner adapter and plugin contract.
-- [ENCRYPTED_COLLABORATION.md](ENCRYPTED_COLLABORATION.md): Supabase encrypted-sync protocol, deployment, and invitation model.
+- [ENCRYPTED_COLLABORATION.md](ENCRYPTED_COLLABORATION.md): Supabase encrypted-sync protocol,
+  device signatures, quarantine, session refresh, deployment, and invitation model.
 - [PORTABLE_FORMAT.md](PORTABLE_FORMAT.md): versioned portable company and agent-readable JSON format.
 
 ## Security and privacy
@@ -43,7 +54,8 @@ If two documents conflict, follow the higher source in this list and update the 
 ## Support and service operations
 
 - [SUPPORT_OPERATIONS.md](SUPPORT_OPERATIONS.md): support triage, response, diagnostics, retention, and deletion operations.
-- [../site/INTAKE_OPERATIONS.md](../site/INTAKE_OPERATIONS.md): exact Vercel Blob, Supabase intake, Resend, secret, retention, and synthetic-test deployment procedure.
+- [../site/INTAKE_OPERATIONS.md](../site/INTAKE_OPERATIONS.md): exact Vercel Blob, private support
+  tracking, Supabase intake, Resend, secret, retention, and synthetic-test deployment procedure.
 - [STAGED_UPDATES.md](STAGED_UPDATES.md): update channels, deterministic cohorts, kill switches, and branch test artifacts.
 
 ## Acceptance and release

@@ -33,9 +33,16 @@ are rejected. The current action allowlist is navigation, bounded book search, v
 text-file read and text-file write. It provides no shell, arbitrary process, credential, SQL or
 unrestricted network tool.
 
-The user sees the generated plan before running actions. File changes either require approval for
-every change or follow the owner-selected approved-folder policy. Accounting always creates a
-proposal and always requires review inside Total, regardless of file approval mode.
+The user sees the generated plan before running actions. Total retains that exact plan in
+main-process memory for ten minutes. Execution identifies only the retained plan and action index;
+it does not accept replacement action JSON from the renderer. The retained action is bound to the
+active company and user and checked against its original hash. It can run only once.
+
+File changes either require approval for every change or follow the owner-selected approved-folder
+policy. A file write that requires approval and every voucher proposal first return a random
+single-use approval token for the reviewed action. A missing, changed, expired or replayed token
+fails closed. Accounting always creates a proposal and always requires review inside Total,
+regardless of file approval mode.
 
 ## Offline OCR
 
@@ -73,3 +80,7 @@ lower a threshold to make a release pass; inspect the failed fixtures, prompt, p
   scores and reviewer. Do not record API keys or unredacted customer documents.
 - Roll back a model route independently if extraction or evidence quality regresses; core books and
   reports remain available while AI is disabled.
+
+Real provider evaluation and installed-app Operator acceptance remain pending. The retained-plan
+tests prove action and approval binding; they do not prove model quality or authorize autonomous
+posting.

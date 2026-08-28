@@ -6,6 +6,17 @@ exact deletion. The recommended Supabase intake function receives a second suppo
 hosted feedback provider. Request controls persist keyed HMAC digests, timestamps, route names, and
 opaque receipt IDs. They do not store client IP addresses or user-agent strings.
 
+## Current staging status
+
+The isolated site is deployed at `https://total-v5-staging.vercel.app`. Its support and feedback
+provider variables point to the isolated Supabase project `cewz…qmlx`, where all migrations through
+`202608280002_collaboration_devices.sql` are applied and `total-intake` v10 is active. `total-sync` v9
+is also active and returns HTTP 401 without a Supabase JWT.
+
+A staging synthetic run passed support creation, private-token status tracking, feedback idea
+submission, voting and following. This is staging evidence only. The production domain, production
+Vercel environment and production Supabase configuration remain untouched and pending.
+
 ## Required production configuration
 
 - `BLOB_READ_WRITE_TOKEN`: private Blob storage for cases, events, rate records, and retention indexes.
@@ -26,11 +37,12 @@ single `SUPABASE_INTAKE_SECRET` is intentionally shared only by the two paths of
 function. The API fails closed if privileged credentials are shorter than 32 characters or if any
 separate trust boundaries collide.
 
-## Deploy the Supabase intake backend
+## Deploy a separate production or replacement intake backend
 
-Create a Supabase project, install and authenticate the Supabase CLI, then run these commands from the
-repository root. The migrations create support and feedback tables with row-level security enabled and
-remove all direct `anon` and `authenticated` access. Only the Edge Function service role can write.
+For a separate production project or a replacement staging project, create the project, install and
+authenticate the Supabase CLI, then run these commands from the repository root. The migrations
+create support and feedback tables with row-level security enabled and remove all direct `anon` and
+`authenticated` access. Only the Edge Function service role can write.
 
 ```bash
 export TOTAL_SUPABASE_PROJECT_REF="your-project-ref"
@@ -87,6 +99,12 @@ Resolved support cases are indexed for deletion 90 days after resolution. Reopen
 
 ## Deletion and holds
 
+Support creation returns a random private tracking token. Blob stores only its SHA-256 hash with the
+case. Status lookup accepts that token or the matching reply email, applies keyed rate limits and
+returns the same not-found response for an invalid reference. The desktop stores its token only in
+the device-local `support-cases.json` status ledger and sends it only to the HTTPS status route. It
+must never enter app logs, diagnostics, mirrors or company backups.
+
 Authenticated support deletion uses `DELETE /api/support?caseId=…`. Feedback deletion uses `DELETE /api/feedback` with 1 to 20 exact `{ id, receivedAt }` references. Both use `Authorization: Bearer $INTAKE_ADMIN_SECRET` and reject active holds.
 
 Create a temporary hold with `PATCH /api/maintenance/intake` and `Authorization: Bearer $INTAKE_ADMIN_SECRET`, plus a JSON body containing `entity`, `id`, `reasonCode` (`legal` or `security`), and `holdUntil`. A hold may last up to two years and can be extended. Release it with `DELETE /api/maintenance/intake?entity=…&id=…`; the original deletion date is restored. Scheduled cleanup accepts only `CRON_SECRET`.
@@ -105,3 +123,5 @@ authenticated synthetic email. It must complete support create, track, resolve a
 feedback vote, follow, submit and exact cleanup. The resulting `dist/production-services.json` is
 valid for six hours and only for its exact source revision, deployment ID and product version.
 Configuration presence and the dated files in `docs/evidence/` are not production acceptance.
+The successful staging synthetic run is also not production acceptance and must not be reused as
+evidence for another deployment revision.

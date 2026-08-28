@@ -297,6 +297,33 @@ credentials must never exist in the repository.
 - Support website and in-app feedback with exact diagnostic preview
 - Universal Intel/Apple Silicon packaging and one-public-release orchestration
 
+## Post-program v5 hardening
+
+The current branch also includes these security and acceptance corrections:
+
+- AI Operator plans are retained in the main process for a bounded time and execution is bound to
+  the company, user, reviewed action index and action hash. Sensitive actions require a one-time
+  approval token; a completed or expired action cannot be replayed.
+- Collaboration envelopes carry Ed25519 device signatures. The relay checks the registered device
+  key, while the desktop quarantines invalid envelopes, records a bounded security error and
+  continues to later valid rows. Expiring Supabase sessions refresh only against the configured
+  Supabase origin and require reconnection after revocation.
+- Support receipts return a private tracking token. The site stores only its SHA-256 hash, and the
+  desktop retains the token in its device-local status ledger rather than sending an email address
+  for routine status checks.
+- Tally imports retain a semantic hash so formatting-only changes cannot bypass duplicate detection.
+  Migration attachments are accepted only from managed paths and link only after one unique active
+  voucher match; repeated linking is idempotent.
+- The v5 branch package job embeds an immutable staging profile in `app.asar`. Staging support,
+  feedback, cohort and site URLs resolve only to `total-v5-staging.vercel.app`, update checks are
+  disabled, and the package contract rejects a production origin in the compiled staging bundle.
+
+The isolated Supabase project `cewz…qmlx` is configured through
+`202608280002_collaboration_devices.sql`; `total-sync` v9 and `total-intake` v10 are active; and an
+unauthenticated sync request returns HTTP 401. The staging site has passed synthetic support
+create/private-token tracking and feedback idea/vote/follow checks. These checks do not configure or
+accept production.
+
 ## Current build direction
 
 The numbered 300-item implementation programme is code-complete on the v5 branch. Later additions
@@ -308,3 +335,7 @@ Code-complete does not mean configured, accepted, signed or publicly released. C
 status is tracked in root [ROADMAP.md](../ROADMAP.md), agent work in [TASKS.md](../TASKS.md), and
 external actions in [HUMAN.md](../HUMAN.md). No later feature may weaken balanced-book, recovery,
 accessibility, security, performance, packaging or permanent-export guarantees.
+
+Real two-user collaboration, representative customer migration exports, signed candidate
+verification and role-based human acceptance remain pending. Final review and release have not
+started.

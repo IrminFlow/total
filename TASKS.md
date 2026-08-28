@@ -19,6 +19,16 @@ Status vocabulary:
 - `DONE` GitHub application, database, renderer, E2E, visual, website, macOS, and Windows checks pass.
 - `DONE` Unsigned macOS and Windows test packages and content-addressed manifests were produced.
 - `DONE` Encrypted collaboration, distinct-user invitations, support intake, offline OCR, AI Operator, Codex device authentication, Radix primitives, and staged rollout code are implemented.
+- `DONE` The isolated Supabase staging project `cewz…qmlx` has all migrations through
+  `202608280002_collaboration_devices.sql`. `total-sync` v9 and `total-intake` v10 are active, and an
+  unauthenticated `total-sync` request returns HTTP 401.
+- `DONE` The isolated staging site has support and feedback delivery configured. Synthetic support
+  create/private-token tracking and feedback idea/vote/follow checks passed against staging.
+- `DONE` Desktop and website support intake expose severity and privacy/deletion requests. Desktop
+  diagnostics use a random device-scoped installation reference and exclude company/user identity,
+  books, file paths, logs and credentials unless the user separately opts into allowed context.
+- `DONE` Branch desktop packages compile the staging origin into `app.asar` and disable update
+  checks. The package contract rejects production origins in a staging artifact.
 - `DONE` NIC live filing and online GST portal APIs remain excluded.
 
 ## Ready now
@@ -39,50 +49,60 @@ Status vocabulary:
   - Rerun focused tests after every correction.
   - Keep PR #4 in draft until the owner requests final review.
 
-- `READY` Expand automated AI Operator coverage.
-  - Add pure schema tests for all action types and plan bounds.
-  - Add service tests for approved-root traversal, symlink rejection, size limits, binary rejection, and approval modes.
-  - Add mocked-provider tests for malformed plans, cancellation, and unsupported compatible-provider responses.
-  - Add E2E coverage for AI-disabled, plan preview, per-action execution, file approval, and accounting proposal handoff.
+- `DONE` Automated AI Operator coverage is complete for the v5 contract.
+  - `DONE` Pure schemas cover every action kind and plan/content bounds.
+  - `DONE` Service tests cover root containment, symlinks, file kinds and sizes, approval modes,
+    retained company/user/action binding, one-time approval tokens and expiry.
+  - `DONE` Mocked-provider tests cover malformed plans, cancellation, and unsupported
+    compatible-provider responses.
+  - `DONE` Installed-app E2E covers AI-disabled fallback, plan preview, per-action execution,
+    exact file approval, delayed provider context and accounting proposal handoff without posting.
 
-- `READY` Expand encrypted-collaboration protocol coverage.
-  - Add Edge Function contract tests for invitation expiry, revocation, reuse, wrong-user acceptance, and workspace ownership.
-  - Add deterministic offline/concurrent edit fixtures and visible conflict-resolution tests.
-  - Add retry, cursor replay, duplicate-envelope, corrupt-signature, oversized-response, and app-closed tests.
-  - Add a local Supabase-compatible test harness if it can remain hermetic in CI.
+- `DONE` Automated encrypted-collaboration protocol coverage is complete for the v5 contract.
+  - `DONE` Edge contracts cover invitation expiry, revocation, reuse, caller binding, ownership,
+    idempotent upload, cursors and request bounds.
+  - `DONE` Database and session tests cover offline retry, concurrent edits, duplicate envelopes,
+    signature quarantine, oversized responses, app-closed delivery and token refresh/revocation.
+  - `DONE` A hermetic local relay exercises conflict resolution, offline retry and app-closed
+    delivery in database tests.
+  - Real two-user acceptance remains separately `WAITING` below because it requires two identities.
 
-- `READY` Expand offline OCR acceptance.
-  - Add reviewed fixtures for clean scans, phone photos, rotations, low contrast, multiple tax rates, and unreadable fields.
-  - Record extraction accuracy separately from provider OCR.
-  - Add language packs only when a real acceptance corpus exists; do not claim unsupported languages.
+- `DONE` Offline OCR parser acceptance covers reviewed clean, phone-like, rotated, low-contrast,
+  multiple-tax-rate and unreadable recognition output, with accuracy recorded separately from any
+  provider route. Binary camera-image accuracy remains a human acceptance gate; unsupported
+  languages are not claimed.
 
-- `READY` Improve observability without collecting book content.
-  - Add explicit local sync state and last-error diagnostics.
-  - Add allowlisted production probes for support delivery, feedback delivery, update manifests, TLS, and download redirects.
+- `DONE` Privacy-safe observability and production probe code is implemented.
+  - `DONE` Settings shows local sync phase, pending/conflict/quarantine counts, last attempt, last
+    success and a bounded last security/error message without envelope or book content.
+  - `DONE` Allowlisted probes cover support delivery, feedback delivery, update manifests, TLS and
+    download redirects. Running them against production remains an external deployment gate.
   - Keep amounts, names, GSTINs, vouchers, document bodies, tokens, and recovery material out of telemetry.
 
-- `READY` Update incomplete security documentation.
-  - Add Supabase intake secret, user access token, recovery key, device signing key, Codex credential boundary, and OCR asset trust to [docs/SECURITY_SECRET_INVENTORY.md](docs/SECURITY_SECRET_INVENTORY.md).
-  - Update [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for collaboration invitations, encrypted envelopes, AI filesystem roots, device-auth subprocesses, and intake duplication.
-  - Update [docs/AI_OPERATIONS.md](docs/AI_OPERATIONS.md) for Operator actions, approval modes, Codex login, and offline OCR.
+- `DONE` Security and operating documentation covers collaboration credentials and refresh,
+  envelope signing and quarantine, AI retained-plan approvals, private support tracking tokens,
+  migration deduplication and attachment handling, and the isolated desktop staging profile.
 
-- `READY` Remove status ambiguity from legacy planning documents.
+- `DONE` Status ambiguity is removed from the planning documents.
   - Make [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) clearly distinguish code-complete, configured, accepted, and released.
   - Mark [docs/BACKLOG_300.md](docs/BACKLOG_300.md) as the historical opportunity catalogue rather than the current execution list.
   - Keep `ROADMAP.md` as the current product source of truth.
 
-## Waiting for authenticated services
+## Staging services complete; production remains pending
 
-- `WAITING` Deploy Supabase migrations and functions.
-  - Blocker: product owner must create the project and authenticate `supabase login`.
-  - Agent action after unblock: link the project, push migrations, deploy `total-sync` and `total-intake`, verify RLS and bounded request behavior, and record redacted evidence.
+- `DONE` Supabase staging deployment and unauthenticated-boundary probe.
+  - The staging project exists, the four current migrations are applied, both Edge Functions are at
+    v9, and `total-sync` rejects an unauthenticated request with HTTP 401.
+  - This does not configure or approve a production Supabase project.
 
 - `WAITING` Configure Vercel production environment and redeploy.
   - Blocker: product owner must authenticate Vercel or set values in the dashboard.
   - Agent action after unblock: validate required variable names, deploy, verify `/api/deployment`, support, feedback, download, headers, and update routes.
 
 - `WAITING` Run real two-user encrypted collaboration acceptance.
-  - Blocker: two authenticated Supabase test users and a deployed backend.
+  - Blocker: two authenticated Supabase test users on separate client sessions. The staging backend
+    is deployed; the real invitation, refresh, device-signature, quarantine and bidirectional-sync
+    exercise has not been completed.
   - Agent action after unblock: execute invitation, revoke, accept, bidirectional sync, offline retry, conflict, and no-posted-books checks.
 
 - `WAITING` Run production support and feedback acceptance.
@@ -94,7 +114,8 @@ Status vocabulary:
   - Agent action after unblock: dispatch candidate workflow, verify signatures/notarization, download exact artifacts, and bind evidence to their digests.
 
 - `WAITING` Reconcile real migration samples.
-  - Blocker: synthetic or consented Tally, Busy, Marg, Zoho, and spreadsheet exports.
+  - Blocker: representative consented customer exports for Tally, Busy, Marg, Zoho, and
+    spreadsheets. Repository fixtures test behavior but are not customer migration acceptance.
   - Agent action after unblock: run dry-run imports and compare openings, vouchers, receivables, payables, stock, tax, and attachments.
 
 ## Final review and merge

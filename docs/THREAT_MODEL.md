@@ -23,7 +23,9 @@ external inputs. A signed-in user is still constrained by role, department and e
   rollback, JSON configuration uses crash-safe atomic writes, and managed attachment/MCP paths use
   containment checks and byte limits.
 - Updates: production packages use the release contract, public non-draft releases, signature and
-  notarization gates, and a constrained update feed. The app never executes an update payload as a
+  notarization gates, and a constrained update feed. Branch packages embed an immutable staging
+  profile: app/site services use only `total-v5-staging.vercel.app`, update checks are disabled, and
+  the ASAR contract rejects a production origin. The app never executes an update payload as a
   plugin.
 - MCP and integrations: tokens are one-company/scope/expiry bound and hash-only at rest; proposals
   and refreshes require human approval. Plugin manifests are strict data-only declarations and
@@ -33,14 +35,24 @@ external inputs. A signed-in user is still constrained by role, department and e
   and HMAC signed, and all optional network surfaces are summarized in the Privacy centre.
 - AI Operator: disabled by default, bounded to an action schema, and restricted to explicit
   owner-approved directories. Root, home, Total data, symlink, binary and oversized file access is
-  denied. Accounting actions remain proposals even when approved-folder file writes are enabled.
-- Collaboration: ciphertext envelopes are authenticated and signed, workspace membership is checked
-  server-side, invitations are hashed/expiring/revocable/single-use, and recovery material is never
-  sent to the service. Incoming records update only the review CRDT lane, never posted books.
+  denied. Generated plans are retained briefly in main-process memory and bound to company, user,
+  action index and action hash. Sensitive actions require a single-use approval token. Accounting
+  actions remain proposals even when approved-folder file writes are enabled.
+- Collaboration: ciphertext envelopes are authenticated and signed, registered device keys and
+  workspace membership are checked server-side, invitations are hashed/expiring/revocable/single-use,
+  and recovery material is never sent to the service. Invalid incoming envelopes are quarantined so
+  one poison row cannot block later valid work. Access-token refresh is restricted to the configured
+  Supabase origin, persisted through OS-protected storage and retried once after HTTP 401. Incoming
+  records update only the review CRDT lane, never posted books.
 - Hosted intake: Blob remains the website's durable support and feedback record. Supabase receives
   only the intended second copies through a dedicated bearer boundary. Provider delivery failure
   cannot erase the canonical receipt, while provider-side lifecycle and deletion requests must
-  succeed before the matching canonical object is removed.
+  succeed before the matching canonical object is removed. Support status uses a random private
+  token; the site stores only its SHA-256 hash and returns status only after a rate-limited match.
+- Migration: source bytes and semantic content identities are retained separately. Equivalent Tally
+  exports cannot bypass replay protection through BOM, whitespace, wrapper or master-order changes.
+  Import attachments require one unique active-voucher match and managed contained storage before a
+  durable link is recorded.
 - Recovery: automatic backups are opened read-only and verified, destination copies are verified
   again, encrypted portable backups have authenticated encryption, and recovery drills retain
   evidence without overwriting live books.
@@ -67,10 +79,14 @@ replace endpoint security, disk encryption or tested off-device backups.
 | A spreadsheet, image, XML file or plugin manifest is hostile | Size, container, nesting, schema and path bounds reject unsafe input. Parsed text remains inert. | XLSX safety, boundary fuzz and integration manifest tests |
 | A credential is committed to the repository | CI scans tracked text for private-key blocks and common provider token formats. Environment files with literal secret assignments are rejected. | `npm run security:audit` |
 | An AI plan requests arbitrary filesystem or shell access | The discriminated action schema rejects unknown tools. Approved-root containment, symlink, file-type and byte limits apply before a read or write; no shell tool exists. | AI Operator schema, service and IPC tests |
+| A renderer changes an AI action after preview or replays an approval | Execution resolves the retained main-process plan by company, user and action index, verifies the action hash and expiry, and consumes a one-time approval token. Completed actions cannot run again. | `aiOperator.test.ts` and `aiHandlers.test.ts` |
 | A document or provider response contains prompt-injection instructions | Retrieved content remains untrusted data, tools stay allowlisted, and accounting mutations remain reviewable proposals. | AI boundary and provider mock tests |
-| A collaboration envelope is modified, replayed or belongs to another workspace | Signature, authenticated encryption, workspace identity, envelope ID and sequence checks reject it; accepted envelopes are idempotent. | collaboration crypto, merge and handler tests |
+| A collaboration envelope is modified, replayed, signed by an unknown device or belongs to another workspace | The relay checks the registered Ed25519 public key and workspace membership. The desktop verifies signature, authenticated encryption, workspace identity, envelope ID and sequence; invalid rows are quarantined and accepted rows remain idempotent. | collaboration crypto, relay-envelope and sync DB tests |
+| A collaboration access token expires or is revoked | The desktop refreshes only against the configured Supabase origin, serializes concurrent refreshes, persists rotated tokens atomically, retries one 401, then requires reconnection. | `collaborationSync.test.ts` and `collaborationSession.test.ts` |
 | An invitation is guessed, reused or used after revocation | Codes contain 256 bits of randomness, only hashes are stored, acceptance is authenticated and transactional, and expiry/revocation/single-use state is enforced. | invitation schema, handler and backend contract tests |
 | Support delivery to Supabase or Resend fails | Blob retains the case and lifecycle. The route records provider failure without claiming delivery or losing tracking. | website route and production synthetic tests |
+| A support case ID is guessed | Status requires the private tracking token or matching email, applies keyed rate limits, compares token hashes in constant time and returns the same not-found response for failed lookup. | website support-route tests and app support-handler tests |
+| A migration file is reformatted and resubmitted, or an attachment reference is ambiguous | Semantic import identity rejects equivalent Tally content. Attachments remain unlinked unless exactly one active voucher matches; managed-path, checksum and idempotency checks apply before persistence. | Tally import and migration-tools DB tests |
 
 ## Evidence and incident handling
 

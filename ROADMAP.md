@@ -10,6 +10,7 @@ This is the current product and delivery roadmap. [docs/BACKLOG_300.md](docs/BAC
 | --- | --- |
 | Implemented | Code, schema, and ordinary automated tests exist on the v5 branch. |
 | CI verified | The relevant automated branch gates pass on GitHub. |
+| Staging verified | The isolated staging service or artifact passed the stated live check; production is unchanged. |
 | Configuration pending | Code exists, but a production account, credential, or deployment is missing. |
 | Acceptance pending | The feature needs real service, migration, installer, or role-based acceptance. |
 | Release pending | Implementation is accepted but has not been published as a signed public release. |
@@ -166,8 +167,8 @@ A feature is not “production complete” merely because it is implemented. Pro
 
 | Feature | Explanation | Current state | Remaining work |
 | --- | --- | --- | --- |
-| Tally XML migration | Imports masters, openings, vouchers, stock, and tax data with warnings and pre-import recovery. | Implemented | Real representative reconciliation. |
-| Busy, Marg, Zoho, and spreadsheet workbenches | Maps exported source shapes into reviewed proposals and evidence. | Implemented | Source-specific acceptance samples. |
+| Tally XML migration | Imports masters, openings, vouchers, stock, and tax data with warnings and pre-import recovery. Semantically equivalent exports are rejected even when XML formatting or master order differs. | Implemented and deduplication-tested | Real representative reconciliation. |
+| Busy, Marg, Zoho, and spreadsheet workbenches | Maps exported source shapes into reviewed proposals and evidence. Attachments link only after one unique active-voucher match and use managed, checksummed storage. | Implemented and attachment-safety-tested | Source-specific customer acceptance samples. |
 | Dry run and rejected-row evidence | Shows exact mappings, validation failures, counts, and balances before apply. | Implemented | Human migration acceptance. |
 | JSON mirror and proposals | Gives agents and users stable, versioned, checksummed data without permitting direct book mutation. | Implemented | Round-trip and corruption fuzz expansion. |
 | Portable company packages | Supports complete export, reconstruction, verification, and exit. | Implemented | Clean candidate round-trip acceptance. |
@@ -181,7 +182,7 @@ A feature is not “production complete” merely because it is implemented. Pro
 | Codex/ChatGPT device login | Runs official Codex CLI device authentication without Total reading or storing ChatGPT credentials. | Implemented | Test on installed machines with Codex CLI. |
 | Context preview and cited answers | Shows selected local context, sends only approved categories, and requires citations for book claims. | Implemented and tested | Provider evaluation on accepted corpus. |
 | Voucher proposals | Converts natural language or documents into balanced reviewable drafts. | Implemented | Expanded malformed-response and approval E2E tests. |
-| AI Operator | Plans navigation, book search, voucher proposals, and approved-folder file work. | Implemented | Expanded path-safety, mocked-provider, and E2E tests. |
+| AI Operator | Plans navigation, book search, voucher proposals, and approved-folder file work. Plans are retained briefly in the main process and bound to company, user, action index, action hash, expiry, and one-time approval token. | Implemented and binding-tested | Installed-app and provider acceptance. |
 | Offline OCR | Uses bundled Tesseract English data when no provider is available. | Implemented and parser-tested | Reviewed image corpus and accuracy evidence. |
 | Document inbox | Stores checksummed attachments and reviewable extraction results. | Implemented | More formats, rotations, and language acceptance. |
 | MCP server | Exposes scoped read and proposal tools over stdio with local pairing and active-role enforcement. | Implemented and protocol-tested | Client setup acceptance for Claude and Codex. |
@@ -190,31 +191,32 @@ A feature is not “production complete” merely because it is implemented. Pro
 
 | Feature | Explanation | Current state | Remaining work |
 | --- | --- | --- | --- |
-| Encrypted envelopes | Encrypts review documents with AES-256-GCM and signs device envelopes with Ed25519. | Implemented and cryptography-tested | Deploy and run real two-device acceptance. |
+| Encrypted envelopes | Encrypts review documents with AES-256-GCM and signs device envelopes with Ed25519. The relay verifies registered device keys; the client quarantines invalid envelopes and continues past poison rows. | Implemented, cryptography-tested, and staging deployed | Run real two-device acceptance. |
 | Review-only lanes | Syncs proposals, drafts, comments, and tasks without syncing books or posting. | Implemented | Real no-write verification. |
 | Offline merge and conflicts | Uses vector clocks and deterministic field merges while retaining visible conflicts. | Implemented | Concurrent-edit acceptance. |
 | Team invitations | Provides owner-created, expiring, revocable, single-use hashed invitation codes. | Implemented | Real two-user acceptance. |
 | Separate recovery-key exchange | Keeps backend membership separate from decryption material. | Implemented | Human secure-sharing acceptance. |
-| Supabase backend | Stores ciphertext envelopes and routing metadata under membership RLS. | Configuration pending | Create project, deploy, configure auth, and validate. |
+| Session refresh | Refreshes expiring Supabase access tokens only against the configured Supabase origin, persists rotation in OS-protected storage, retries one 401, and requires reconnection after revocation. | Implemented and tested | Real expiry/revocation acceptance. |
+| Supabase backend | Stores ciphertext envelopes and routing metadata under membership RLS. The isolated `cewz…qmlx` staging project has migrations through `collaboration_devices`, `total-sync` v9 and `total-intake` v10; anonymous sync returns HTTP 401. | Staging verified | Real two-user acceptance and a separate production decision/deployment. |
 
 ### Support, feedback, and website
 
 | Feature | Explanation | Current state | Remaining work |
 | --- | --- | --- | --- |
-| Shared support form | Collects category, severity, message, reply details, explicit diagnostics consent, and safe installation metadata. | Implemented and site-tested | Production delivery acceptance. |
+| Shared support form | Collects category, severity, message, reply details, explicit diagnostics consent, and safe installation metadata. Case status uses a private receipt token whose hash is stored by the site. | Implemented, site-tested, and staging verified | Production delivery acceptance. |
 | Offline support outbox | Queues app submissions and preserves attachments until the user approves retry. | Implemented | Network-failure acceptance. |
 | Redacted diagnostics | Limits automatic diagnostics to allowlisted version, platform, schema, integrity, and redacted logs. | Implemented and security-tested | Final privacy acceptance. |
 | Vercel Blob case store | Keeps durable cases, tracking events, rate controls, retention indexes, holds, and exact deletion. | Implemented | Production Blob configuration and evidence. |
-| Supabase intake copy | Stores support and feedback rows behind service-role-only Edge Function access. | Implemented | Production deployment and deletion procedure. |
+| Supabase intake copy | Stores support and feedback rows behind service-role-only Edge Function access. | Staging deployed at `total-intake` v10 | Production deployment and deletion procedure. |
 | Resend notifications | Notifies support without becoming the system of record. | Implemented as optional | Verified domain and delivery acceptance. |
-| Feedback voting and following | Captures requests and engagement without exposing private book data. | Implemented and route-tested | Production acceptance. |
+| Feedback voting and following | Captures requests and engagement without exposing private book data. | Implemented, route-tested, and synthetic staging idea/vote/follow verified | Production acceptance. |
 | Privacy, security, AI-data, support, docs | Publishes the essential trust and help pages. | Implemented and Vercel-preview verified | Owner/legal-risk decision and production check. |
 
 ### Release and operations
 
 | Feature | Explanation | Current state | Remaining work |
 | --- | --- | --- | --- |
-| Branch test packages | Builds unsigned macOS and Windows installers with non-publishable manifests. | Implemented and CI verified | Use for testing only. |
+| Branch test packages | Builds unsigned macOS and Windows installers with non-publishable manifests. The compiled staging profile uses only `total-v5-staging.vercel.app` for app/site services and disables update checks; the ASAR contract rejects production-origin leakage. | Implemented and CI verified | Use for testing only. |
 | Protected candidate build | Builds signed candidates in protected GitHub environments without publishing. | Implemented | Signing credentials and candidate run. |
 | Immutable promotion | Publishes the accepted candidate bytes without rebuilding or manual tagging. | Implemented and contract-tested | Execute after acceptance. |
 | Clean-environment matrix | Uses hosted macOS and Windows runners for install, upgrade, backup/restore, uninstall, and data preservation. | Implemented in release workflow | Run against signed candidate. |
@@ -278,7 +280,7 @@ v5.0 is complete only when:
 2. all confirmed findings are corrected;
 3. full automated gates pass on the final commit;
 4. required Supabase and Vercel services are configured or explicitly excluded from launch claims;
-5. support and collaboration receive real synthetic acceptance;
+5. production support and real two-user collaboration receive their required acceptance;
 6. representative migrations reconcile or unsupported claims are removed;
 7. signed macOS and Windows candidates pass hosted install and upgrade acceptance;
 8. human acceptance is recorded honestly for available roles;
