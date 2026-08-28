@@ -112,7 +112,7 @@ function authorized(request: NextRequest): boolean {
 export async function GET(): Promise<NextResponse> {
   const target = endpoint();
   const ideas = await publicIdeas();
-  if (!target && intakeStoreConfigured()) {
+  if (intakeStoreConfigured()) {
     try {
       const votes = await feedbackVoteSummary();
       return NextResponse.json({
@@ -239,8 +239,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     id: protection.receipt?.id ?? event.id,
     receivedAt: protection.receipt?.receivedAt ?? event.receivedAt,
   };
-  if (!target && intakeStoreConfigured()) {
-    const objectPath = `feedback/events/${acceptedEvent.receivedAt.slice(0, 7)}/${acceptedEvent.id}.json`;
+  const objectPath = `feedback/events/${acceptedEvent.receivedAt.slice(0, 7)}/${acceptedEvent.id}.json`;
+  const storedLocally = intakeStoreConfigured();
+  if (storedLocally) {
     try {
       await recordFeedbackEvent(
         acceptedEvent,
@@ -254,6 +255,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 503 },
       );
     }
+  }
+  if (!target && storedLocally) {
     await completeIntake(protection).catch(() => undefined);
     return NextResponse.json({
       ok: true,
@@ -283,6 +286,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       signal: AbortSignal.timeout(8_000),
     });
     if (!response.ok) {
+      if (storedLocally) {
+        await completeIntake(protection).catch(() => undefined);
+        return NextResponse.json({
+          ok: true,
+          id: acceptedEvent.id,
+          receivedAt: acceptedEvent.receivedAt,
+          status: action === "submit" ? "awaiting_review" : "recorded",
+          providerDelivery: "failed",
+        });
+      }
       await releaseIntake(protection);
       return NextResponse.json(
         { error: "Feedback service unavailable" },
@@ -291,8 +304,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     const result = await response.json();
     await completeIntake(protection).catch(() => undefined);
-    return NextResponse.json(result);
+    return storedLocally
+      ? NextResponse.json({
+          ok: true,
+          id: acceptedEvent.id,
+          receivedAt: acceptedEvent.receivedAt,
+          status: action === "submit" ? "awaiting_review" : "recorded",
+          providerDelivery: "delivered",
+        })
+      : NextResponse.json(result);
   } catch {
+    if (storedLocally) {
+      await completeIntake(protection).catch(() => undefined);
+      return NextResponse.json({
+        ok: true,
+        id: acceptedEvent.id,
+        receivedAt: acceptedEvent.receivedAt,
+        status: action === "submit" ? "awaiting_review" : "recorded",
+        providerDelivery: "failed",
+      });
+    }
     await releaseIntake(protection);
     return NextResponse.json(
       { error: "Feedback service unavailable" },
@@ -304,12 +335,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
   if (!authorized(request))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (endpoint())
-    return NextResponse.json(
-      { error: "Feedback deletion is managed by the configured provider" },
-      { status: 503 },
-    );
-  if (!intakeStoreConfigured())
+  const target = endpoint();
+  if (!target && !intakeStoreConfigured())
     return NextResponse.json(
       { error: "Feedback storage is unavailable" },
       { status: 503 },
@@ -348,13 +375,15 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       { error: "Invalid feedback event reference" },
       { status: 400 },
     );
-  const held = (
-    await Promise.all(
-      events.map(async (event) =>
-        (await retentionHoldFor("feedback", event.id)) ? event.id : null,
-      ),
-    )
-  ).filter(Boolean);
+  const held = intakeStoreConfigured()
+    ? (
+        await Promise.all(
+          events.map(async (event) =>
+            (await retentionHoldFor("feedback", event.id)) ? event.id : null,
+          ),
+        )
+      ).filter(Boolean)
+    : [];
   if (held.length)
     return NextResponse.json(
       {
@@ -364,6 +393,31 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       },
       { status: 423 },
     );
+  if (target) {
+    try {
+      const response = await fetch(target, {
+        method: "DELETE",
+        headers: {
+          "content-type": "application/json",
+          ...providerAuthorization(providerSecret()),
+        },
+        body: JSON.stringify({ events }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!response.ok)
+        return NextResponse.json(
+          { error: "Feedback provider deletion failed" },
+          { status: 502 },
+        );
+    } catch {
+      return NextResponse.json(
+        { error: "Feedback provider deletion failed" },
+        { status: 502 },
+      );
+    }
+  }
+  if (!intakeStoreConfigured())
+    return NextResponse.json({ ok: true, deleted: events.length });
   for (const event of events)
     await deleteFeedbackEvent(
       event.id,

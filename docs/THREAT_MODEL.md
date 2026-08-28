@@ -37,9 +37,10 @@ external inputs. A signed-in user is still constrained by role, department and e
 - Collaboration: ciphertext envelopes are authenticated and signed, workspace membership is checked
   server-side, invitations are hashed/expiring/revocable/single-use, and recovery material is never
   sent to the service. Incoming records update only the review CRDT lane, never posted books.
-- Hosted intake: Blob remains the website's durable support record. Supabase receives only the
-  intended second support copy and feedback rows through a dedicated bearer boundary. Provider
-  delivery failure cannot erase the canonical case.
+- Hosted intake: Blob remains the website's durable support and feedback record. Supabase receives
+  only the intended second copies through a dedicated bearer boundary. Provider delivery failure
+  cannot erase the canonical receipt, while provider-side lifecycle and deletion requests must
+  succeed before the matching canonical object is removed.
 - Recovery: automatic backups are opened read-only and verified, destination copies are verified
   again, encrypted portable backups have authenticated encryption, and recovery drills retain
   evidence without overwriting live books.

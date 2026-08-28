@@ -443,6 +443,24 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   if (!stored)
     return NextResponse.json({ error: "Case not found" }, { status: 404 });
   const updatedAt = new Date().toISOString();
+  const provider = process.env.SUPABASE_SUPPORT_URL;
+  if (provider) {
+    try {
+      const response = await fetch(new URL(provider), {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          ...providerAuthorization(process.env.SUPABASE_INTAKE_SECRET),
+        },
+        body: JSON.stringify({ caseId: body.caseId, status: body.status, updatedAt }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!response.ok)
+        return NextResponse.json({ error: "Support provider update failed" }, { status: 502 });
+    } catch {
+      return NextResponse.json({ error: "Support provider update failed" }, { status: 502 });
+    }
+  }
   const event: CaseStatusEvent = {
     caseId: body.caseId,
     status: body.status!,
@@ -489,6 +507,24 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       { error: "This case is subject to a temporary legal or security hold" },
       { status: 423 },
     );
+  const provider = process.env.SUPABASE_SUPPORT_URL;
+  if (provider) {
+    try {
+      const response = await fetch(new URL(provider), {
+        method: "DELETE",
+        headers: {
+          "content-type": "application/json",
+          ...providerAuthorization(process.env.SUPABASE_INTAKE_SECRET),
+        },
+        body: JSON.stringify({ caseId }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!response.ok)
+        return NextResponse.json({ error: "Support provider deletion failed" }, { status: 502 });
+    } catch {
+      return NextResponse.json({ error: "Support provider deletion failed" }, { status: 502 });
+    }
+  }
   const pathname = casePath(caseId);
   const result = await deleteSupportCase(caseId, pathname);
   return NextResponse.json({

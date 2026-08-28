@@ -669,6 +669,31 @@ describe("support intake", () => {
     expect(objects.has(`retention-pointers/support/${caseId}.json`)).toBe(true);
   });
 
+  it("deletes the Supabase copy before removing the durable local case", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.INTAKE_ADMIN_SECRET = "support-admin-delete-secret-for-test-0001";
+    process.env.SUPABASE_INTAKE_SECRET = "support-provider-delete-secret-test-0001";
+    process.env.SUPABASE_SUPPORT_URL =
+      "https://project.supabase.co/functions/v1/total-intake/support";
+    const caseId = "TOT-20260824-ABCDEF";
+    const casePath = `support/2026/08/${caseId}.json`;
+    const objects = installBlobStore({ [casePath]: { caseId, status: "submitted" } });
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true, deleted: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { DELETE } = await import("./support/route");
+    const response = await DELETE(new NextRequest(`https://total.example/api/support?caseId=${caseId}`, {
+      method: "DELETE",
+      headers: { authorization: "Bearer support-admin-delete-secret-for-test-0001" },
+    }));
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL(process.env.SUPABASE_SUPPORT_URL),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(objects.has(casePath)).toBe(false);
+  });
+
   it("enforces the shared Blob-backed request limit", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
     process.env.INTAKE_SECURITY_SECRET = "a-separate-test-secret-with-32-bytes";
@@ -875,6 +900,23 @@ describe("feedback board", () => {
       expect.any(String),
       expect.objectContaining({ access: "private", addRandomSuffix: false }),
     );
+  });
+
+  it("keeps the Blob receipt when the optional feedback provider fails", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    process.env.SUPABASE_FEEDBACK_URL =
+      "https://project.supabase.co/functions/v1/total-intake/feedback";
+    process.env.SUPABASE_INTAKE_SECRET = "feedback-provider-failure-secret-test-0001";
+    const objects = installBlobStore();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 503 })));
+    const { POST } = await import("./feedback/route");
+    const response = await POST(
+      post("/api/feedback", { action: "vote", ideaId: "mobile-companion" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, providerDelivery: "failed" });
+    expect([...objects.keys()].some((key) => key.startsWith("feedback/events/"))).toBe(true);
   });
 
   it("lets authenticated production monitors rerun without reusing duplicate receipts", async () => {
