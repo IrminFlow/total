@@ -17,7 +17,10 @@ export async function storeJson(pathname: string, value: unknown, overwrite = fa
 }
 
 export async function readJson<T>(pathname: string): Promise<T | null> {
-  const result = await get(pathname, { access });
+  // Intake objects back locks, idempotency receipts, retention state, and the
+  // public feedback summary. Always read from the Blob origin so a write that
+  // just completed cannot be hidden by the CDN's previous value.
+  const result = await get(pathname, { access, useCache: false });
   if (!result || result.statusCode !== 200) return null;
   return await new Response(result.stream).json() as T;
 }

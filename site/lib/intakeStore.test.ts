@@ -9,7 +9,7 @@ const blob = vi.hoisted(() => ({
 
 vi.mock("@vercel/blob", () => blob);
 
-import { listJson, listJsonEntriesPage } from "./intakeStore";
+import { listJson, listJsonEntriesPage, readJson } from "./intakeStore";
 
 describe("intakeStore listJson", () => {
   beforeEach(() => {
@@ -18,6 +18,14 @@ describe("intakeStore listJson", () => {
       statusCode: 200,
       stream: new Response(JSON.stringify({ pathname })).body,
     }));
+  });
+
+  it("bypasses the CDN for consistency-sensitive intake reads", async () => {
+    await readJson("feedback/materialized/public-summary.json");
+    expect(blob.get).toHaveBeenCalledWith(
+      "feedback/materialized/public-summary.json",
+      { access: "private", useCache: false },
+    );
   });
 
   it("reads every cursor page instead of truncating public aggregates", async () => {
