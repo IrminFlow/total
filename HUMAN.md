@@ -7,6 +7,10 @@ agent cannot access. Engineering and verification work belongs in `TASKS.md`.
 Do not put ordinary coding, research, browser work, CI work, screenshots, recordings, or automated
 testing here merely because they are difficult. The agent owns those.
 
+Reconciled on 28 August 2026 after green macOS/Windows CI: every unchecked item below still needs
+a person's authority, private access, professional judgement, an external account, or physical
+hardware. There is no ordinary engineering or CI task hidden in this list.
+
 ## Start now — procurement lead times
 
 - [ ] **Apple Developer Program and Developer ID.** Enrol the person or company, pay the programme

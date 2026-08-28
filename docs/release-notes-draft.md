@@ -18,11 +18,15 @@ without recorded external validation.
 
 ## Verification
 
-On macOS, the release candidate passes 2,323 pure tests, 1,348 Electron/SQLite tests, 196 renderer
-tests, type checking, build, bundle budgets, smoke, a 33-route site build, 54/54 real-Electron E2E
-scenarios without retry, and a 72-screen light/dark visual comparison. Computer Use independently
-walked onboarding, demo creation, voucher/dirty-state recovery, reports, GST and Settings. Replace
-this paragraph with immutable-commit macOS and Windows CI links before publishing.
+The product/workflow commit `481ec56e535e80f983bbbd63bd4cb977037230c1` passed the complete
+[cross-platform GitHub Actions run](https://github.com/IrminFlow/total/actions/runs/33188585495):
+2,323 pure tests, 1,348 Electron/SQLite tests, 196 renderer tests, type checking, build and smoke;
+Windows also passed the full DB suite, unsigned directory packaging, and 54/54 real-Electron E2E
+in 273 seconds, while macOS passed 54/54 in 227 seconds. A retry-recovered scenario fails the E2E
+job, so both green jobs had no accepted flakes. Local verification additionally passed bundle
+budgets, a 33-route site build, 54/54 E2E without retry in 198 seconds, and a 72-screen light/dark
+visual comparison. Computer Use independently walked onboarding, demo creation,
+voucher/dirty-state recovery, reports, GST and Settings.
 
 ## Important statutory and platform limits
 

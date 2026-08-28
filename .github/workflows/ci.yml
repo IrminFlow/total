@@ -12,7 +12,7 @@ on:
   #
   # The E2E jobs below are push-to-main only, because they are the slow ones and a PR normally
   # gets enough from the smoke test. That trade is wrong for a branch that has been running for a
-  # while: it means the suite which drives the real built app fifty-three times has never seen the
+  # while: it means the suite which drives the real built app fifty-four times has never seen the
   # change until after it is merged, and on Windows it had never run at all. This is the escape
   # hatch — `gh workflow run ci.yml --ref <branch>` — for the branch where that matters.
   workflow_dispatch:

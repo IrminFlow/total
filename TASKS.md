@@ -184,7 +184,9 @@ A task is complete only when:
 - [x] `npm test` — 163 files / 2,323 pure tests green on macOS.
 - [x] `npm run test:db` — 109 files / 1,348 Electron/SQLite tests green on macOS, including
   migrations, 4,000-voucher scale and memory ceilings.
-- [ ] Repeat the full DB suite on Windows at the eventual immutable commit.
+- [x] Repeat the full DB suite on Windows at the immutable product/workflow commit. GitHub Actions
+  run [33188585495](https://github.com/IrminFlow/total/actions/runs/33188585495) passed the full
+  Windows DB layer on `481ec56e535e80f983bbbd63bd4cb977037230c1`.
 - [x] `npm run test:renderer` — 28 files / 196 renderer tests green.
 - [x] `npm run typecheck` — both node and web projects green.
 - [x] `npm run build`, `npm run bundle:budget`, and `npm run smoke` green. The closest budgets are
@@ -192,7 +194,9 @@ A task is complete only when:
 - [x] `site/npm run build` green across 33 routes with no workspace/config warning.
 - [x] All 54 E2E scenarios green without retries on macOS in 198 seconds of the 600-second budget
   on the exact staged release candidate.
-- [ ] Repeat all 54 E2E scenarios without retries on Windows at the same immutable commit.
+- [x] Repeat all 54 E2E scenarios without a retry-recovered result on Windows at the same immutable
+  commit. Run 33188585495 passed 54/54 in 273 seconds; the runner makes every retry-recovered flake
+  fail the job. The matching macOS job passed 54/54 in 227 seconds.
 - [x] Visual regression green for 72 light/dark screen captures with no drift. There were no new
   baselines to accept; representative changed surfaces were also inspected through Computer Use.
 - [x] Computer Use walkthrough of onboarding, demo company, voucher entry, reports, GST export,
@@ -230,12 +234,18 @@ A task is complete only when:
 
 ## Final release evidence
 
-- [ ] One immutable commit has green local verification and green macOS/Windows GitHub CI.
-- [ ] No E2E scenario is marked flaky and no release gate is skipped.
-- [x] All remaining open items are genuine `HUMAN.md` dependencies or immutable-commit/platform
-  follow-ups that cannot honestly run against this 110-path staged candidate. No known local
-  implementation or macOS verification task remains deferred.
+- [x] One immutable product/workflow commit has green local verification and green macOS/Windows
+  GitHub CI: `481ec56e535e80f983bbbd63bd4cb977037230c1`, run
+  [33188585495](https://github.com/IrminFlow/total/actions/runs/33188585495). A later
+  documentation-only evidence commit may sit above this baseline.
+- [x] No E2E scenario is marked flaky and no executable release gate was skipped. Both platform
+  jobs passed 54/54; the Windows job also passed typecheck, renderer, full DB, build, smoke, artifact
+  upload and an unsigned `electron-builder --win --dir` package.
+- [x] All remaining open items are genuine `HUMAN.md` dependencies. No known local implementation,
+  macOS verification, Windows CI, or unsigned packaging task remains deferred.
 - [x] `docs/release-notes-draft.md` states experimental/unverified statutory and platform paths
-  accurately; replace only the version/date and immutable macOS/Windows CI links before publishing.
-- [ ] Present the owner with current evidence and request explicit approval before publishing or
-  merging. Rewrite-PR integration remains a separate future goal.
+  accurately and now contains immutable macOS/Windows CI evidence. Replace only the version/date
+  after owner approval and before publishing.
+- [x] Present the owner with current evidence and request explicit approval before publishing or
+  merging. The final goal handoff provides that evidence; rewrite-PR integration remains a separate
+  future goal and was not inspected or acted on here.

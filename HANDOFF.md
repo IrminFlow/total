@@ -8,8 +8,12 @@ Use this file to continue the project in another chat without relying on the old
 **Branch:** `t3code/revamp-ledgers-shortcuts`  
 **Base branch:** `main`  
 **Pull request:** [#2 — Build out the roadmap: 382 of 392 settled](https://github.com/IrminFlow/total/pull/2)  
-**Current HEAD:** `5c1e8cb` — `ci: fix two Windows-only failures, and let the E2E suite run before a merge`  
-**Commits ahead of main:** 173
+**Verified product/workflow baseline:** `481ec56e535e80f983bbbd63bd4cb977037230c1` — `ci: migrate workflows to Node 24 actions`
+
+**Evidence:** [full cross-platform CI run 33188585495](https://github.com/IrminFlow/total/actions/runs/33188585495)
+
+**Local state:** a later documentation-only evidence commit may sit above the verified baseline;
+the pre-existing unstaged `.gitignore` modification remains deliberately preserved.
 
 ---
 
@@ -512,86 +516,64 @@ npx @electron/rebuild -f -w better-sqlite3
 
 ---
 
-## 9. Current CI and merge status — do not miss this
+## 9. Current CI status — executable gates are green
 
-The branch is pushed and Git reports it **mergeable**, but PR #2 is currently **BLOCKED because CI is red**.
+The stale failures from run 32921986284 were diagnosed and fixed without weakening the relevant
+assertions. The immutable product/workflow baseline is
+`481ec56e535e80f983bbbd63bd4cb977037230c1`.
 
-Latest manually-triggered full branch run:
+Latest manually triggered full branch run:
 
-- Run: <https://github.com/IrminFlow/total/actions/runs/32921986284>
-- Commit: `5c1e8cb`
-- `test`: success.
+- Run: <https://github.com/IrminFlow/total/actions/runs/33188585495>
+- `test` on Linux: success — typecheck, 2,323 pure tests, renderer coverage, 1,348 DB tests and
+  dependency-freshness reporting.
 - `smoke-mac`: success.
-- `build-win`: failure.
-- `e2e-mac`: failure.
-- `e2e-win`: failure.
+- `e2e-mac`: success — 54/54 in 227 seconds.
+- `build-win`: success — typecheck, 196 renderer tests, all 1,348 DB tests, build, smoke, artifact
+  upload and unsigned `electron-builder --win --dir` packaging.
+- `e2e-win`: success — 54/54 in 273 seconds.
 
-Known failures from that run:
+The E2E runner retries a first failure only to classify it, and a retry-recovered flake exits
+non-zero. Therefore the two green 54/54 jobs contain no accepted retry or flaky scenario. GitHub's
+Node 20 deprecation annotation was also resolved by moving `checkout`, `setup-node`, and
+`upload-artifact` to their official Node 24 `v7` lines in both CI and release workflows. The final
+run has no check annotations.
 
-### Windows DB job
-
-1. `src/main/mcp/mcp.dbtest.ts` — the per-test setup runs every migration and seeds a company. On Windows CI it takes 11–18 seconds and exceeds Vitest's default 10-second hook timeout. A local change has already been committed at HEAD to raise this hook to 60 seconds.
-2. `src/main/services/reportsAnalysis.dbtest.ts` — used `/dev/null/not-a-folder` as an impossible path. That is POSIX-specific and becomes an ordinary creatable relative path on Windows. HEAD now uses a directory inside a regular file, which is invalid on every OS.
-3. `memoryCeiling.dbtest.ts` — on Windows CI the streaming export reported ~26 MB heap growth against a 12 MB ceiling. This is unresolved. It may be Windows GC/allocator behaviour rather than the export retaining the whole payload. Do not simply raise the ceiling without reproducing or changing the assertion to a platform-independent property. The existing comments already explain why heap deltas are unstable around GC.
-4. MCP write-rate-limit test — after the slow setup issue, the final assertion still reported `expected undefined to be true` in the run. Re-run after the hook-timeout fix before assuming it is independent; setup timeouts can leave misleading downstream reports.
-
-### macOS E2E
-
-- `52-branch-transfer` failed: the Branch Transfers tab showed zero invoices after the scenario created one. This passed locally. Needs diagnosis against the CI artefact/log; likely time/date or query invalidation/scope, but do not guess.
-
-### Windows E2E
-
-1. `30-fonts` failed its assertion that IBM Plex Sans itself contains the rupee sign. The app may be using OS font fallback on Windows or Fontsource's `latin` subset may omit `₹`. This is unresolved and is either a packaging bug or an over-strong test. Determine which by checking the shipped woff2 coverage, not by deleting the assertion.
-2. `53-isd` timed out clicking “Create & open” on both attempts. The click reached the element and then stalled in/after its action. This may be Windows filesystem/virus-scanner slowness; the harness's `createCompanyUI` currently has a 10-second click timeout and a separate 30-second screen timeout. Diagnose before increasing it.
-
-A manual trigger was added so full E2E can run against a branch before merge:
-
-```bash
-gh workflow run ci.yml --ref t3code/revamp-ledgers-shortcuts
-```
-
-When CI is fixed, trigger again, wait for all five jobs, then inspect:
-
-```bash
-gh run list --branch t3code/revamp-ledgers-shortcuts --limit 3
-gh run view <run-id> --json status,conclusion,jobs
-gh pr view 2 --json mergeable,mergeStateStatus,statusCheckRollup
-```
-
-**Do not merge until this manual run is green**, including Windows E2E.
+This goal deliberately did not inspect, reconcile, update, or merge either excluded rewrite PR.
+Release publication, signing/notarization, real portal acceptance, and physical hardware checks
+remain owner/external gates in `HUMAN.md`.
 
 ---
 
 ## 10. Current working-tree note
 
-At the time this handoff was written:
+At the time final evidence was recorded:
 
 ```text
 branch: t3code/revamp-ledgers-shortcuts
-HEAD:   5c1e8cb
+verified product/workflow baseline: 481ec56e535e80f983bbbd63bd4cb977037230c1
 status: M .gitignore
 ```
 
 The modified `.gitignore` was pre-existing local work at the start of the long session and was not intentionally part of the roadmap implementation. Inspect it before deciding whether to commit or revert it; do not discard it blindly.
 
-No source-code modifications should be assumed from the previous chat beyond committed HEAD. Run `git status` at the start of the next session.
+All source/workflow changes are pushed. A documentation-only evidence commit may sit above the
+verified baseline. Run `git status` and `git log -3 --oneline` at the start of the next session.
 
 ---
 
-## 11. Immediate next actions for another agent
+## 11. Immediate next actions
 
-Do these in order:
+No known agent-executable implementation or verification defect remains in the current-app scope.
+Next actions require the owner or external systems:
 
-1. Read the files listed in section 1.
-2. Run `git status` and verify HEAD/branch.
-3. Inspect the `.gitignore` diff; preserve it unless you establish it is disposable.
-4. Diagnose/fix the unresolved CI failures in section 9. The two Windows-only fixes at HEAD are already committed; start with `memoryCeiling`, `30-fonts`, `52-branch-transfer`, and `53-isd`.
-5. Push fixes and trigger the full manual CI workflow again.
-6. Only after all jobs are green, update PR #2's title/body/checklist; it currently says “382 of 392 settled” and is stale. The actual roadmap state is 386 of 392 settled.
-7. Run a final high-effort code review. This is a 173-commit release branch; reviewing the whole raw diff as one blob is ineffective. Review the merge commits/dimensions separately: statutory correctness, accounting invariants, migrations, IPC/security, renderer UX, Windows portability, and release/site.
-8. Fix verified findings with failing tests first.
-9. Re-run the full local verification and full branch CI.
-10. Report “ready to merge” only after both local and branch CI evidence is current.
+1. Complete the signing, production configuration, physical hardware, language-review and portal
+   dependencies in `HUMAN.md`.
+2. Return the resulting artefacts/evidence to an agent for the documented signed installer/update,
+   production-site, hardware, Excel/portal and NIC verification passes.
+3. Give explicit approval before any release is published.
+4. Start rewrite-PR reconciliation as a separate goal when ready. This goal intentionally did not
+   inspect or modify those PRs.
 
 ---
 
@@ -636,7 +618,8 @@ Until prices and sinks are configured, the site behaves honestly: it shows “No
 - Do not alter an old migration.
 - Do not accept a visual-regression baseline without inspecting every emitted PNG.
 - Do not invent prices, testimonials, customers, credentials, statutory section numbers or portal file layouts.
-- Do not claim the branch is ready to merge while the full manual CI run is red.
+- Do not infer rewrite-branch merge readiness from the green current-app run; integration is a
+  separate future goal.
 
 ---
 
@@ -653,6 +636,8 @@ Key documents:
 Important recent commits:
 
 ```text
+481ec56 ci: migrate workflows to Node 24 actions
+6ffd300 feat: complete current-app release readiness
 5c1e8cb ci: fix two Windows-only failures, and let the E2E suite run before a merge
 9c69cad perf(renderer): get zod out of the renderer — entry chunk 1,453 → 1,320 KB
 113b3dc docs(human): the Electron debt, and why it was not paid
@@ -666,12 +651,12 @@ The commits are intentionally detailed. For a branch this large, the merge commi
 
 ---
 
-## 15. Definition of “ready to merge”
+## 15. Definition of current-app release readiness
 
 All of these must be true at the same commit:
 
 - Working tree clean except for deliberately preserved local changes.
-- Branch up to date with/predictably mergeable into `main`.
+- Rewrite-branch integration is explicitly excluded and must be assessed in its own future goal.
 - `npm run typecheck` green.
 - `npm test` green.
 - `npm run test:db` green.
@@ -683,9 +668,12 @@ All of these must be true at the same commit:
 - Full Windows build/smoke/E2E green in the manually-triggered branch workflow.
 - Visual regression reviewed and green.
 - No unresolved high-severity review findings.
-- PR title/body/status updated to the current roadmap count.
+- Owner/external gates are isolated in `HUMAN.md` and are not represented as completed.
 
-At handoff time, local evidence is strong, but this definition is **not met** because the full manual CI run is red.
+At handoff time, every agent-executable item in this definition is met at product/workflow baseline
+`481ec56e535e80f983bbbd63bd4cb977037230c1`. Publishing is still blocked by the explicit owner and
+external gates in `HUMAN.md`; merge readiness was not assessed because the two rewrite PRs are out
+of scope.
 
 ---
 
@@ -1399,85 +1387,13 @@ On a real low/mid-range 1366×768 Windows laptop at 125% scaling:
 - Check startup and memory subjectively.
 - Test an installed build, not only `electron-vite dev`.
 
-## B.2 Current engineering blockers before merge
+## B.2 Resolved cross-platform engineering blockers
 
-The last known full manual branch CI run is red. See section 9 above for details. These are the
-highest-priority engineering tasks for the next agent:
-
-### 1. Windows memory ceiling
-
-Current failure:
-
-```text
-memoryCeiling.dbtest.ts
-streaming CSV export heap growth about 26 MB
-ceiling 12 MB
-```
-
-Investigate whether:
-
-- the Windows allocator/GC retains buffers differently,
-- the test runs before a GC opportunity,
-- the result is proportional to export size,
-- an output buffer is genuinely retained,
-- the stream implementation holds source rows.
-
-A better assertion may be a platform-independent relationship rather than an absolute heap delta:
-streaming export should not grow linearly with period size, and a larger fixture should not add
-its entire encoded CSV size to retained heap. Do not simply raise the number without evidence.
-
-### 2. MCP write-rate-limit Windows test
-
-The setup hook timeout was fixed at HEAD. Re-run on Windows before treating the remaining
-`expected undefined to be true` as independent. If it survives:
-
-- inspect whether the token bucket uses wall clock/timer precision differently,
-- ensure each write really reaches the same limiter instance,
-- verify setup/migration failures are not returning an error shape before the burst is exhausted,
-- assert on the response's exact shape rather than only `isError` if the MCP SDK version wraps it.
-
-### 3. macOS branch-transfer E2E
-
-`52-branch-transfer` passes locally and failed on CI because the UI listed zero invoices after
-creation.
-
-Check:
-
-- registration/date filtering against the CI clock and FY,
-- query invalidation after the branch-transfer invoice is posted,
-- whether the screen opens a different registration/tab than the created transfer,
-- whether lazy-screen loading races the query,
-- database state at the point of UI assertion.
-
-Prefer an E2E diagnostic that logs the IPC list and current selected registration on failure.
-Do not weaken the assertion: the whole feature is that the invoice appears in its worklist.
-
-### 4. Windows font coverage
-
-`30-fonts` claims IBM Plex Sans itself contains `₹`; Windows CI says it does not.
-
-Determine whether:
-
-- Fontsource's Latin subset actually contains U+20B9,
-- macOS measured an OS fallback rather than the declared face,
-- Canvas/font measurement differs on Windows,
-- the app visually renders the symbol correctly through fallback even though IBM Plex does not
-  contain it.
-
-If the bundled font truly lacks it, import a subset that includes U+20B9 or use a targeted fallback
-font. If the app renders correctly and the assertion confuses fallback with coverage, rewrite the
-test to assert rendered availability without falsely attributing the glyph to IBM Plex.
-
-### 5. Windows company-creation click timeout
-
-`53-isd` times out while clicking `Create & open`.
-
-Check whether the click itself is stuck or Playwright waits for work triggered by the click. The
-log differs between attempts: one stalls performing the action, one completes the action and then
-waits for scheduled navigation. Profile migration/seed time on Windows. The harness currently
-uses a 10-second generic click timeout and a 30-second screen timeout; company creation may need a
-specific action that initiates the click without waiting for navigation, then waits on the target
-screen with the longer timeout.
+The former Windows memory-ceiling/MCP issues, macOS branch-transfer race, Windows rupee-font claim,
+and Windows company-creation click timeout are fixed with focused regression coverage. The same
+immutable baseline passed the full DB and 54-scenario E2E suites on both platforms in run
+33188585495. Treat the old investigation notes in git history as incident context, not as an open
+queue. No current engineering blocker is being deferred to the owner.
 
 ## B.3 Electron upgrade debt
 
@@ -1844,12 +1760,12 @@ These are not hypothetical. They happened in this branch.
 
 # Appendix F — suggested prompts for the next chat
 
-## F.1 Continue fixing CI
+## F.1 Analyse returned external evidence
 
-> Read `CLAUDE.md`, `HANDOFF.md` section 9, and the latest manual CI run. Fix the remaining Windows
-> and macOS branch-CI failures without weakening assertions. Run targeted tests first, then push and
-> trigger `ci.yml` manually against `t3code/revamp-ledgers-shortcuts`. Do not claim merge readiness
-> until test, smoke-mac, build-win, e2e-mac and e2e-win all pass at the same HEAD.
+> Read `CLAUDE.md`, `HUMAN.md`, `HANDOFF.md` section 9 and the applicable checklist. Inspect the
+> owner-provided signed installer/update, hardware, Excel/portal, language, site or NIC evidence;
+> record exact results and fix any reproducible product defect. Do not weaken assertions or claim
+> portal/hardware acceptance from CI substitutes.
 
 ## F.2 Review migrations
 
@@ -1873,5 +1789,6 @@ These are not hypothetical. They happened in this branch.
 ## F.5 Final release gate
 
 > Follow `HANDOFF.md` section 15. Verify the branch at current HEAD locally and through the manual
-> CI workflow. Update PR #2's stale title/body. Do not merge or cut a release unless every gate is
-> green and the signing limitations are stated accurately.
+> CI workflow. Do not merge or cut a release unless every in-scope gate is green, the signing and
+> external-validation limitations are stated accurately, and the owner explicitly approves it.
+> Treat rewrite-PR integration as a separate goal.
