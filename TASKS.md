@@ -44,8 +44,11 @@ A task is complete only when:
   verify all writes hit the same limiter instance.
 - [x] Inspect shipped WOFF2 coverage for U+20B9 and fix either the bundled font subset or the E2E
   claim so Windows and macOS both prove the rupee glyph actually renders.
-- [x] Make ISD's `Create & open` E2E action initiate the click without binding its timeout to slow
-  Windows seeding/navigation; wait for a durable destination state with diagnostics.
+- [x] Make ISD's `Create & open` E2E action initiate the real pointer click and durable gateway wait
+  concurrently under the explicit company-creation budget. A `noWaitAfter`-only first pass still
+  let Windows delay CDP click acknowledgement past the generic 10-second action timeout in final
+  run 33189506456; the corrected helper no longer misclassifies synchronous migration/seeding as a
+  click failure.
 - [x] Remove the Next.js multiple-lockfile/workspace-root warning by defining the correct site root
   or rationalizing the lockfile layout without breaking Vercel's `site/` root.
 - [x] Review the `Recurring.tsx` static/dynamic import warning and preserve real code splitting if

@@ -12,8 +12,8 @@ Use this file to continue the project in another chat without relying on the old
 
 **Evidence:** [full cross-platform CI run 33188585495](https://github.com/IrminFlow/total/actions/runs/33188585495)
 
-**Local state:** a later documentation-only evidence commit may sit above the verified baseline;
-the pre-existing unstaged `.gitignore` modification remains deliberately preserved.
+**Local state:** later verification/documentation-only commits may sit above the verified product
+baseline; the pre-existing unstaged `.gitignore` modification remains deliberately preserved.
 
 ---
 
@@ -557,8 +557,9 @@ status: M .gitignore
 
 The modified `.gitignore` was pre-existing local work at the start of the long session and was not intentionally part of the roadmap implementation. Inspect it before deciding whether to commit or revert it; do not discard it blindly.
 
-All source/workflow changes are pushed. A documentation-only evidence commit may sit above the
-verified baseline. Run `git status` and `git log -3 --oneline` at the start of the next session.
+All source/workflow changes are pushed. Verification/documentation-only commits may sit above the
+verified product baseline. Run `git status` and `git log -3 --oneline` at the start of the next
+session.
 
 ---
 

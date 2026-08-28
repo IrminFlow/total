@@ -209,12 +209,15 @@ export class Harness {
     await this.waitScreen('company-select')
     await this.click('btn-company-create')
     await this.fill('input-company-name', name)
-    // Creating a company runs every migration and seeds the chart before navigation settles. On a
-    // Windows runner Playwright otherwise couples the click's generic 10s action timeout to that
-    // scheduled navigation, even though the durable gateway wait below has the correct longer
-    // budget. Preserve a real pointer click, but let waitScreen own completion and diagnostics.
-    await this.click('btn-company-save', { noWaitAfter: true })
-    await this.waitScreen('gateway', timeout)
+    // Creating a company runs every migration and seeds the chart synchronously in Electron's
+    // main process. On Windows that can delay Playwright's acknowledgement of the already-issued
+    // pointer click beyond the generic 10s action timeout; noWaitAfter alone does not avoid that
+    // CDP delay. Start the real click and the durable destination wait together, and give both the
+    // explicit company-creation budget so a slow seed cannot be misclassified as a click failure.
+    await Promise.all([
+      this.click('btn-company-save', { noWaitAfter: true, timeout }),
+      this.waitScreen('gateway', timeout)
+    ])
   }
 
   /**
