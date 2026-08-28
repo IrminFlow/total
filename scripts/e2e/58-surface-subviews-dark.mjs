@@ -30,7 +30,8 @@ await scenario('58-surface-subviews-dark', async (h) => {
   for (const [screen, labels] of TEXT_TAB_GROUPS) {
     await h.goto(screen, 20000)
     for (const label of labels) {
-      const target = h.page.getByRole(screen === 'procurement' ? 'tab' : 'button', { name: label, exact: true }).first()
+      const role = screen === 'procurement' || screen === 'management-insights' ? 'tab' : 'button'
+      const target = h.page.getByRole(role, { name: label, exact: true }).first()
       assert((await target.count()) === 1, `${screen} exposes ${label} subview`)
       await target.click()
       await settle(h, screen)
