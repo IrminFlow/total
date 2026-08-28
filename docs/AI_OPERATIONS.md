@@ -44,6 +44,13 @@ parsed into a review record and never posts a voucher. Low-confidence, missing o
 remain visible warnings. Additional language claims require a reviewed language-specific corpus and
 recorded accuracy evidence.
 
+Offline OCR is evaluated separately from cloud/provider OCR. The hermetic
+`offline-ocr-reviewed-text-v1` corpus covers clean recognition output, phone-like whitespace,
+rotated recognition order, low contrast, mixed GST rates and unreadable fields. Its 42 reviewed
+parser fields currently pass exactly. This is a post-recognition parser baseline, not a claim about
+camera recognition accuracy: release acceptance still requires reviewed, synthetic or consented
+image samples run through the packaged Tesseract engine.
+
 ## Release evaluation
 
 The fixed evaluation harness scores three dimensions independently:

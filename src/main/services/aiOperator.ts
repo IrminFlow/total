@@ -28,8 +28,9 @@ export function getOperatorConfig(): AiOperatorConfig {
 }
 
 function unsafeRoot(path: string): boolean {
-  const normalized = resolve(path);
-  return normalized === resolve("/") || normalized === resolve(homedir()) || normalized === resolve(dataRoot());
+  const canonical = (candidate: string) => existsSync(candidate) ? realpathSync(candidate) : resolve(candidate);
+  const normalized = canonical(path);
+  return normalized === canonical("/") || normalized === canonical(homedir()) || normalized === canonical(dataRoot());
 }
 
 export function setOperatorConfig(input: AiOperatorConfig): AiOperatorConfig {

@@ -581,7 +581,11 @@ export async function ask(
 
 /** Build a typed, bounded action plan. Execution is kept separate so the renderer can show every
  * action and the main process can enforce workspace roots and approval policy. */
-export async function planOperator(prompt: string, operatorContext: string): Promise<AiOperatorPlan> {
+export async function planOperator(
+  prompt: string,
+  operatorContext: string,
+  signal?: AbortSignal,
+): Promise<AiOperatorPlan> {
   const stored = readStored();
   if (!stored.enabled) throw new Error("AI is turned off in Settings");
   const instructions = [
@@ -600,7 +604,7 @@ export async function planOperator(prompt: string, operatorContext: string): Pro
       instructions,
       input: prompt,
       text: { format: zodTextFormat(aiOperatorPlanSchema, "total_operator_plan") },
-    });
+    }, signal ? { signal } : undefined);
     return aiOperatorPlanSchema.parse(response.output_parsed);
   }
   let raw = "";
@@ -612,14 +616,14 @@ export async function planOperator(prompt: string, operatorContext: string): Pro
         { role: "system", content: `${instructions}\nReturn one JSON object matching {summary,actions}.` },
         { role: "user", content: prompt },
       ],
-    });
+    }, signal ? { signal } : undefined);
     raw = response.choices[0]?.message.content ?? "";
   } else {
     const response = await sdk.responses.create({
       model: stored.model,
       instructions: `${instructions}\nReturn one JSON object matching {summary,actions}.`,
       input: prompt,
-    });
+    }, signal ? { signal } : undefined);
     raw = response.output_text;
   }
   try {

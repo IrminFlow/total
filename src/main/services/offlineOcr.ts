@@ -17,7 +17,7 @@ interface EnglishModel {
 }
 
 function amountPaise(value: string): number | null {
-  const normalized = value.replace(/[₹,\s]/g, "").replace(/[^0-9.()-]/g, "");
+  const normalized = value.replace(/(?:₹|Rs\.?)/gi, "").replace(/[,\s]/g, "").replace(/[^0-9.()-]/g, "");
   if (!normalized || !/^-?\(?\d+(?:\.\d{1,2})?\)?$/.test(normalized)) return null;
   const negative = normalized.startsWith("-") || (normalized.startsWith("(") && normalized.endsWith(")"));
   const unsigned = normalized.replace(/[()-]/g, "");
@@ -49,6 +49,22 @@ function labelledAmount(lines: string[], labels: RegExp[]): number | null {
   return null;
 }
 
+function taxAmount(lines: string[]): number | null {
+  const explicitTotal = labelledAmount(lines, [
+    /\btotal\s+(?:gst|tax)\b/i,
+    /\b(?:gst|tax)\s+(?:total|amount)\b/i,
+  ]);
+  if (explicitTotal != null) return explicitTotal;
+
+  const components = lines.flatMap((line) => {
+    if (/\bgstin\b/i.test(line) || !/\b(?:igst|cgst|sgst|gst|cess)\b/i.test(line)) return [];
+    const candidates = line.match(/(?:₹|Rs\.?\s*)?\d[\d,]*(?:\.\d{1,2})?/gi) ?? [];
+    const amount = candidates.length ? amountPaise(candidates[candidates.length - 1]!) : null;
+    return amount == null || amount < 0 ? [] : [amount];
+  });
+  return components.length ? components.reduce((sum, amount) => sum + amount, 0) : null;
+}
+
 export function parseOfflineInvoiceText(text: string, confidence: number, fileName = "document"): ExtractedDocument {
   const lines = text.split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
   const gstin = text.toUpperCase().match(/\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b/)?.[0] ?? null;
@@ -57,14 +73,14 @@ export function parseOfflineInvoiceText(text: string, confidence: number, fileNa
   const numberLine = lines.find((line) => /(?:invoice|bill|receipt)\s*(?:no|number|#)/i.test(line));
   const documentNumber = numberLine?.match(/(?:no\.?|number|#)\s*[:\-]?\s*([A-Z0-9][A-Z0-9\/_\-.]{1,40})/i)?.[1] ?? null;
   const total = labelledAmount(lines, [/grand\s*total/i, /invoice\s*(?:value|total)/i, /amount\s*payable/i, /net\s*amount/i, /^total\b/i]);
-  const tax = labelledAmount(lines, [/\b(?:igst|cgst|sgst|gst|tax)\b/i]);
+  const tax = taxAmount(lines);
   const subtotal = labelledAmount(lines, [/sub\s*total/i, /taxable\s*(?:value|amount)/i]);
   const warnings = ["Extracted locally with bundled OCR. Compare every value with the source image."];
   if (!documentNumber) warnings.push("Document number was not detected.");
   if (!date) warnings.push("Document date was not detected.");
   if (total == null) warnings.push("Invoice total was not detected.");
   if (confidence < 70) warnings.push("OCR confidence is low; manual entry may be faster.");
-  const merchant = lines.find((line) => line.length >= 3 && line.length <= 100 && !/(invoice|receipt|tax|gstin|phone|email|date|original|duplicate)/i.test(line))
+  const merchant = lines.find((line) => line.length >= 3 && line.length <= 100 && !/(invoice|receipt|bill\s*(?:no|number|#)|tax|gst|cess|total|amount|value|phone|email|date|dated|original|duplicate)/i.test(line))
     ?? basename(fileName).replace(/\.[^.]+$/, "");
   return {
     supplierOrMerchant: merchant || null,

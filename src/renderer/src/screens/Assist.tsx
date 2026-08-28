@@ -156,9 +156,9 @@ function OperatorWorkspace(): React.JSX.Element {
       <Panel className="p-4">
         <p className="text-[12.5px] font-semibold">Give Total a job</p>
         <p className="mt-1 text-[10.5px] leading-4 text-muted">It can navigate, search, prepare voucher proposals and work inside approved folders. You see the plan before anything runs.</p>
-        <textarea className={`${inputCls} mt-4 min-h-36 resize-y`} value={prompt} onChange={(event) => setPrompt(event.target.value)}
+        <textarea data-testid="operator-prompt" className={`${inputCls} mt-4 min-h-36 resize-y`} value={prompt} onChange={(event) => setPrompt(event.target.value)}
           placeholder="Find last month's overdue customers, prepare a receipt draft, or update a file in my approved workspace…" />
-        <Button className="mt-3 w-full" variant="primary" disabled={!prompt.trim() || planMutation.isPending}
+        <Button data-testid="operator-build-plan" className="mt-3 w-full" variant="primary" disabled={!prompt.trim() || planMutation.isPending}
           onClick={() => planMutation.mutate(prompt)}>{planMutation.isPending ? "Planning…" : "Build action plan"}</Button>
         <div className="mt-4 rounded-md border border-line bg-panel2 p-3 text-[10px] text-muted">
           {config.data.approvalMode === "every_change" ? "Every file change asks first." : "Approved-folder file changes may run directly."} Accounting always produces a reviewable proposal.
@@ -170,11 +170,11 @@ function OperatorWorkspace(): React.JSX.Element {
           <div className="divide-y divide-line">
             {plan.actions.map((action, index) => {
               const result = results[index];
-              return <div key={`${action.kind}-${index}`} className="flex items-start gap-3 px-4 py-3">
+              return <div key={`${action.kind}-${index}`} data-testid={`operator-action-${index}`} className="flex items-start gap-3 px-4 py-3">
                 <span className="mt-0.5 rounded bg-amberbar/15 px-2 py-0.5 text-[9px] font-semibold uppercase text-ink">{action.kind.replace("_", " ")}</span>
                 <div className="min-w-0 flex-1"><p className="text-[11.5px] text-ink">{action.reason}</p>{"path" in action && <code className="mt-1 block truncate text-[9.5px] text-muted">{action.path}</code>}{result && <p className={`mt-1 text-[10px] ${result.status === "approval_required" ? "text-amber" : "text-dr"}`}>{result.message}</p>}</div>
-                {result?.status === "approval_required" ? <Button variant="primary" onClick={() => void execute(action, index, true)}>Approve</Button>
-                  : !result && <Button onClick={() => void execute(action, index)}>Run</Button>}
+                {result?.status === "approval_required" ? <Button data-testid={`operator-approve-${index}`} variant="primary" onClick={() => void execute(action, index, true)}>Approve</Button>
+                  : !result && <Button data-testid={`operator-run-${index}`} onClick={() => void execute(action, index)}>Run</Button>}
               </div>;
             })}
           </div>
