@@ -96,6 +96,74 @@ jobs:
           --rollout "$STAGED_ROLLOUT"
           --revision "${{ github.sha }}"
           --platform "${{ matrix.platform }}"
+      - name: Publish branch-only unsigned test download
+        shell: bash
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.V5_TEST_BLOB_READ_WRITE_TOKEN }}
+        run: |
+          if test -z "$BLOB_READ_WRITE_TOKEN"; then
+            echo "Branch test-download storage is not configured; skipping public test upload."
+            exit 0
+          fi
+
+          case "${{ matrix.platform }}" in
+            mac) extension='dmg' ;;
+            win) extension='exe' ;;
+            *) echo "Unsupported package platform" >&2; exit 1 ;;
+          esac
+
+          installer_count="$(find dist -maxdepth 1 -type f -name "*.${extension}" -print | wc -l | tr -d ' ')"
+          test "$installer_count" -eq 1 || {
+            echo "Expected exactly one .${extension} installer, found $installer_count." >&2
+            exit 1
+          }
+
+          npm ci --prefix site --ignore-scripts
+          installer="$(find dist -maxdepth 1 -type f -name "*.${extension}" -print)"
+          pathname="v5/${{ github.sha }}/$(basename "$installer")"
+          TOTAL_TEST_INSTALLER="$installer" TOTAL_TEST_PATHNAME="$pathname" \
+            node --input-type=module <<'NODE' > "dist/test-download-${{ matrix.platform }}.json"
+          import { createReadStream } from 'node:fs'
+          import { createHash } from 'node:crypto'
+          import { stat } from 'node:fs/promises'
+          import { put } from './site/node_modules/@vercel/blob/dist/index.js'
+
+          const file = process.env.TOTAL_TEST_INSTALLER
+          const pathname = process.env.TOTAL_TEST_PATHNAME
+          if (!file || !pathname) throw new Error('Test installer identity is missing')
+
+          const digest = createHash('sha256')
+          for await (const chunk of createReadStream(file)) digest.update(chunk)
+          const metadata = await stat(file)
+          const uploaded = await put(pathname, createReadStream(file), {
+            access: 'public',
+            addRandomSuffix: false,
+            allowOverwrite: true,
+            cacheControlMaxAge: 3600,
+            multipart: true,
+          })
+
+          process.stdout.write(JSON.stringify({
+            schema: 1,
+            channel: 'v5-unsigned-test',
+            sourceRevision: process.env.GITHUB_SHA,
+            platform: '${{ matrix.platform }}',
+            filename: file.split(/[\\/]/).at(-1),
+            bytes: metadata.size,
+            sha256: digest.digest('hex'),
+            url: uploaded.url,
+            signed: false,
+            publishableRelease: false,
+          }, null, 2))
+          NODE
+
+          node -e '
+            const row = require(`./dist/test-download-${{ matrix.platform }}.json`)
+            console.log(`### ${{ matrix.platform }} unsigned v5 test download`)
+            console.log(`- URL: ${row.url}`)
+            console.log(`- SHA-256: ${row.sha256}`)
+            console.log(`- Source: ${row.sourceRevision}`)
+          ' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test packages and evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -110,3 +178,4 @@ jobs:
             dist/*.yml
             dist/package-contract-${{ matrix.platform }}.json
             dist/staged-release-manifest-${{ matrix.platform }}.json
+            dist/test-download-${{ matrix.platform }}.json
