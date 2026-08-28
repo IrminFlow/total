@@ -23,6 +23,11 @@ Status vocabulary:
 
 ## Ready now
 
+- `READY` Complete the fail-closed [v5 staging readiness checklist](docs/STAGING_READINESS_CHECKLIST.md)
+  against one exact branch commit before admitting external testers. Keep staging services, data,
+  notifications, downloads and domains isolated from production; platform verification is a later
+  release gate and is not part of this admission checklist.
+
 - `READY` Keep root documentation and topic guides consistent.
   - Update `ROADMAP.md` when scope or status changes.
   - Update `HUMAN.md` when an external action is completed.

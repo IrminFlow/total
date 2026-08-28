@@ -48,6 +48,7 @@ If two documents conflict, follow the higher source in this list and update the 
 
 ## Acceptance and release
 
+- [STAGING_READINESS_CHECKLIST.md](STAGING_READINESS_CHECKLIST.md): fail-closed admission checklist for an isolated v5 staging environment; platform verification is deliberately outside its scope.
 - [ACCEPTANCE_RUNBOOK.md](ACCEPTANCE_RUNBOOK.md): application and role-based acceptance procedure.
 - [acceptance/HUMAN_SESSION_KIT.md](acceptance/HUMAN_SESSION_KIT.md): scripts and evidence template for real human sessions.
 - [RELEASE_RUNBOOK.md](RELEASE_RUNBOOK.md): signing secrets, candidate build, acceptance binding, and immutable promotion.

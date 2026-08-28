@@ -1,5 +1,10 @@
 # Staged desktop updates
 
+Before any branch candidate enters a shared staging environment, complete
+[the v5 staging readiness checklist](STAGING_READINESS_CHECKLIST.md). That checklist covers source,
+accounting, data, services, security, privacy, AI, collaboration, operations and rollback admission;
+platform verification remains part of the later release process.
+
 Total assigns each installation to a stable bucket from 0-99. The installation identifier stays in
 the Electron user-data directory and is never sent to the website. A release is offered only when
 the device's channel matches and its bucket is below the published percentage.
