@@ -76,6 +76,10 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }): React.JSX.Element {
+  const staging = process.env.TOTAL_STAGING_MODE === "1";
+  const revision = (
+    process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.TOTAL_SITE_REVISION ?? "unknown"
+  ).slice(0, 8);
   return (
     <html
       lang="en"
@@ -85,6 +89,13 @@ export default function RootLayout({
         <a className="skip-link" href="#main-content">
           Skip to main content
         </a>
+        {staging && (
+          <aside className="staging-banner" aria-label="Staging build notice">
+            <span><b>Test build</b> · Total v5.0.0 · <span className="num">{revision}</span></span>
+            <span>Use synthetic data only.</span>
+            <a href="/support">Report a staging issue</a>
+          </aside>
+        )}
         {children}
         <SiteFooter />
         <script

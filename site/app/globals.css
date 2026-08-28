@@ -57,6 +57,16 @@ body {
 
 .wrap { width: min(100%, 1180px); margin: 0 auto; padding-inline: 28px; }
 
+.staging-banner {
+  min-height: 38px; padding: 8px 28px; display: flex; align-items: center; justify-content: center;
+  gap: 18px; border-bottom: 1px solid #8a6500; background: #ffe7a4; color: #332400;
+  font-size: 12.5px; line-height: 1.35;
+}
+.staging-banner a { color: inherit; font-weight: 650; text-underline-offset: 3px; }
+@media (max-width: 680px) {
+  .staging-banner { align-items: flex-start; flex-direction: column; gap: 2px; padding-inline: 18px; }
+}
+
 /* ---------- top bar ---------- */
 .top { display: flex; align-items: baseline; gap: 14px; padding: 26px 0 0; }
 .wordmark { font-weight: 600; font-size: 21px; letter-spacing: -0.01em; text-decoration: none; color: var(--ink); }

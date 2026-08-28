@@ -19,9 +19,35 @@ export function githubHeaders(accept = 'application/vnd.github+json'): HeadersIn
 export type Platform = 'mac' | 'win'
 
 interface AssetRef {
-  id: number
+  id: number | null
   /** Direct asset URL — only downloadable without auth when the repo is public. */
   publicUrl: string
+}
+
+function stagingRelease(): ReleaseInfo | null {
+  if (process.env.TOTAL_STAGING_MODE !== '1') return null
+  const version = process.env.TOTAL_STAGING_VERSION?.trim() ?? ''
+  const mac = process.env.TOTAL_STAGING_MAC_URL?.trim() ?? ''
+  const win = process.env.TOTAL_STAGING_WIN_URL?.trim() ?? ''
+  if (!/^\d+\.\d+\.\d+$/.test(version)) return null
+  const asset = (value: string, suffix: string): AssetRef | undefined => {
+    try {
+      const url = new URL(value)
+      return url.protocol === 'https:' && url.pathname.endsWith(suffix)
+        ? { id: null, publicUrl: url.toString() }
+        : undefined
+    } catch {
+      return undefined
+    }
+  }
+  const macAsset = asset(mac, '.dmg')
+  const winAsset = asset(win, '.exe')
+  if (!macAsset || !winAsset) return null
+  return {
+    version,
+    htmlUrl: process.env.NEXT_PUBLIC_SITE_URL ?? RELEASES_PAGE,
+    assets: { mac: macAsset, win: winAsset },
+  }
 }
 
 export interface ReleaseInfo {
@@ -55,6 +81,7 @@ function mapRelease(data: GitHubRelease): ReleaseInfo | null {
 
 /** Latest release, or null when the repo has no releases yet / token is missing on a private repo. */
 export async function latestRelease(channel: ReleaseChannel = 'stable'): Promise<ReleaseInfo | null> {
+  if (process.env.TOTAL_STAGING_MODE === '1') return stagingRelease()
   try {
     const endpoint = channel === 'stable' ? 'releases/latest' : 'releases?per_page=30'
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/${endpoint}`, {
@@ -119,6 +146,7 @@ export async function listReleases(): Promise<ReleaseNote[]> {
 export async function resolveDownloadUrl(release: ReleaseInfo, platform: Platform): Promise<string> {
   const asset = release.assets[platform]
   if (!asset) return release.htmlUrl
+  if (asset.id === null) return asset.publicUrl
   if (!TOKEN) return asset.publicUrl
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${asset.id}`, {

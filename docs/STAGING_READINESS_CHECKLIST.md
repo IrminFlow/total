@@ -271,6 +271,8 @@ checklist or evidence.
       generated, and at least 32 random characters where required.
 - [ ] `SUPABASE_SUPPORT_URL` and `SUPABASE_FEEDBACK_URL` point only to staging functions.
 - [ ] `SUPABASE_INTAKE_SECRET` matches staging `TOTAL_INTAKE_SECRET` and no other secret.
+- [ ] `TOTAL_STAGING_MODE`, `TOTAL_STAGING_VERSION`, `TOTAL_STAGING_MAC_URL`, and
+      `TOTAL_STAGING_WIN_URL` bind the staging-only feed to isolated, immutable test assets.
 - [ ] Optional provider secrets are set only when their corresponding staging destination exists.
 - [ ] No server secret uses a `NEXT_PUBLIC_` prefix.
 - [ ] Administration, cron, HMAC, storage, provider, collaboration, AI, and test-download credentials
