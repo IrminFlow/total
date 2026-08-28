@@ -26,9 +26,11 @@ The unsigned packages attached to the `v5-cloud-agent-sync` branch are for testi
 ## Supabase production decision
 
 Staging setup is complete. The isolated project `cewz…qmlx` exists; all migrations through
-`202608280002_collaboration_devices.sql` are applied; `total-sync` v9 and `total-intake` v10 are
-active; and unauthenticated `total-sync` access returns HTTP 401. No production Supabase project was
-created or changed.
+`202608280004_collaboration_invitation_history.sql` are applied; `total-sync` v13 and
+`total-intake` v10 are active; and unauthenticated `total-sync` access returns HTTP 401. A live
+two-session staging exercise passed invitation single-use/revocation, owner/member access, signed
+bidirectional envelopes, replay, limits, session revocation, and exact workspace cleanup. No
+production Supabase project was created or changed.
 
 - [ ] Decide whether to create a separate production Supabase project.
   - Do not reuse the staging project for production books or identities.
@@ -37,7 +39,7 @@ created or changed.
     source, documentation, issues, screenshots, or chat.
 
 - [ ] When production deployment is approved, authenticate the Supabase CLI and ask the agent to
-  apply all four migrations and deploy both Edge Functions.
+  apply every migration in `supabase/migrations` and deploy both Edge Functions.
   - `total-sync` must verify Supabase JWTs.
   - `total-intake` must use a dedicated `TOTAL_INTAKE_SECRET` and perform its own bearer check.
   - The production intake secret must be distinct from every administration, cron, storage, HMAC,
@@ -70,7 +72,9 @@ untouched.
 
 ## Real service acceptance
 
-- [ ] Test collaboration with two different Supabase users.
+- [ ] Test collaboration from two installed Total sessions with two different Supabase users.
+  - The isolated staging relay has already passed the automated distinct-user service exercise;
+    this step validates the real desktop setup and the human recovery-key handoff.
   - User A creates an encrypted workspace and an expiring invitation.
   - User B accepts the single-use invitation using their own access token.
   - Send the recovery key through a separate trusted channel from the invitation code.

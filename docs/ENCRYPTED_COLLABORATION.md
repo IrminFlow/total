@@ -12,10 +12,14 @@ The isolated staging project `cewz…qmlx` exists. These migrations are applied:
 - `202608270002_support_feedback.sql`
 - `202608280001_intake_external_ids.sql`
 - `202608280002_collaboration_devices.sql`
+- `202608280003_collaboration_rls.sql`
+- `202608280004_collaboration_invitation_history.sql`
 
-`total-sync` v9 and `total-intake` v10 are active. A request to `total-sync` without a Supabase JWT
-returns HTTP 401. This proves the unauthenticated boundary on staging; it is not real two-user
-acceptance and does not configure production.
+`total-sync` v13 and `total-intake` v10 are active. A request to `total-sync` without a Supabase JWT
+returns HTTP 401. A live exercise with two temporary authenticated sessions passed owner bootstrap,
+invitation single-use and revocation, owner/member access, signed bidirectional envelopes,
+idempotent replay, corrupt-signature and request-limit rejection, revoked-session denial, and exact
+workspace cleanup. This does not configure or approve production.
 
 For a separate production project or a replacement staging project:
 
@@ -90,7 +94,8 @@ workspace recovery key through a different trusted channel. The joining company 
 service URL, their own access token, invitation code and recovery key in Total. Nobody should share
 Supabase access tokens or service-role keys.
 
-Real acceptance still requires two different authenticated users, separate client sessions,
-invitation and revocation checks, bidirectional/offline sync, token expiry and revocation, signature
-quarantine, conflict review, and confirmation that no posted books or recovery material reached
-Supabase.
+Installed-device acceptance still requires two human-controlled Total sessions, recovery-key
+exchange through a separate trusted channel, reconnect UX, and visual conflict/quarantine review.
+The live relay exercise and hermetic database tests already cover distinct-user membership,
+invitation/revocation, signed bidirectional sync, replay, session revocation, offline retry,
+conflicts, quarantine, and the no-posted-books boundary.

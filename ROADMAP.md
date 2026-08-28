@@ -191,13 +191,13 @@ A feature is not “production complete” merely because it is implemented. Pro
 
 | Feature | Explanation | Current state | Remaining work |
 | --- | --- | --- | --- |
-| Encrypted envelopes | Encrypts review documents with AES-256-GCM and signs device envelopes with Ed25519. The relay verifies registered device keys; the client quarantines invalid envelopes and continues past poison rows. | Implemented, cryptography-tested, and staging deployed | Run real two-device acceptance. |
+| Encrypted envelopes | Encrypts review documents with AES-256-GCM and signs device envelopes with Ed25519. The relay verifies registered device keys; the client quarantines invalid envelopes and continues past poison rows. | Implemented, cryptography-tested, and live staging exercised | Installed-device acceptance. |
 | Review-only lanes | Syncs proposals, drafts, comments, and tasks without syncing books or posting. | Implemented | Real no-write verification. |
 | Offline merge and conflicts | Uses vector clocks and deterministic field merges while retaining visible conflicts. | Implemented | Concurrent-edit acceptance. |
-| Team invitations | Provides owner-created, expiring, revocable, single-use hashed invitation codes. | Implemented | Real two-user acceptance. |
+| Team invitations | Provides owner-created, expiring, revocable, single-use hashed invitation codes. | Implemented and distinct-user staging tested | Installed-device acceptance. |
 | Separate recovery-key exchange | Keeps backend membership separate from decryption material. | Implemented | Human secure-sharing acceptance. |
 | Session refresh | Refreshes expiring Supabase access tokens only against the configured Supabase origin, persists rotation in OS-protected storage, retries one 401, and requires reconnection after revocation. | Implemented and tested | Real expiry/revocation acceptance. |
-| Supabase backend | Stores ciphertext envelopes and routing metadata under membership RLS. The isolated `cewz…qmlx` staging project has migrations through `collaboration_devices`, `total-sync` v9 and `total-intake` v10; anonymous sync returns HTTP 401. | Staging verified | Real two-user acceptance and a separate production decision/deployment. |
+| Supabase backend | Stores ciphertext envelopes and routing metadata under non-recursive membership RLS. The isolated `cewz…qmlx` staging project has migrations through `collaboration_invitation_history`, `total-sync` v13 and `total-intake` v10; anonymous sync returns HTTP 401. | Staging verified with two authenticated sessions and exact cleanup | Separate production decision/deployment and installed-device acceptance. |
 
 ### Support, feedback, and website
 
@@ -280,7 +280,7 @@ v5.0 is complete only when:
 2. all confirmed findings are corrected;
 3. full automated gates pass on the final commit;
 4. required Supabase and Vercel services are configured or explicitly excluded from launch claims;
-5. production support and real two-user collaboration receive their required acceptance;
+5. production support and installed-device collaboration receive their required acceptance;
 6. representative migrations reconcile or unsupported claims are removed;
 7. signed macOS and Windows candidates pass hosted install and upgrade acceptance;
 8. human acceptance is recorded honestly for available roles;

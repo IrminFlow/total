@@ -31,13 +31,24 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response(null, { headers: cors });
   const authorization = request.headers.get("authorization") ?? "";
   if (!authorization.startsWith("Bearer ")) return json({ error: "Authentication required" }, 401);
+  const accessToken = authorization.slice("Bearer ".length).trim();
+  if (!accessToken) return json({ error: "Authentication required" }, 401);
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const authClient = createClient(
+    supabaseUrl,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+  // Edge Functions do not have a persisted Supabase Auth session. Validate the exact bearer
+  // credential supplied by this request against Auth; the service credential never leaves the
+  // function and is not used for any workspace query.
+  const { data: { user } } = await authClient.auth.getUser(accessToken);
+  if (!user) return json({ error: "Invalid or expired access token" }, 401);
   const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
+    supabaseUrl,
     Deno.env.get("SUPABASE_ANON_KEY")!,
     { global: { headers: { authorization } } },
   );
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return json({ error: "Invalid or expired access token" }, 401);
 
   const pathname = new URL(request.url).pathname;
   if (request.method === "POST" && /\/v1\/invitations\/accept$/i.test(pathname)) {
@@ -61,6 +72,11 @@ Deno.serve(async (request) => {
     const workspaceId = invitationMatch[1]!;
     const invitationId = invitationMatch[2];
     if (request.method === "GET" && !invitationId) {
+      // A denied SELECT is represented by PostgREST as an empty result, not an error. Verify
+      // ownership explicitly so members cannot mistake an empty 200 response for permission.
+      const { data: ownedWorkspace } = await supabase.from("total_sync_workspaces")
+        .select("id").eq("id", workspaceId).eq("owner_id", user.id).maybeSingle();
+      if (!ownedWorkspace) return json({ error: "Workspace owner access required" }, 403);
       const { data, error } = await supabase.from("total_sync_invitations")
         .select("id,workspace_id,expires_at,created_at,accepted_at,revoked_at")
         .eq("workspace_id", workspaceId)
@@ -191,6 +207,9 @@ Deno.serve(async (request) => {
   }
 
   if (request.method === "GET") {
+    const { data: membership } = await supabase.from("total_sync_members")
+      .select("workspace_id").eq("workspace_id", workspaceId).eq("user_id", user.id).maybeSingle();
+    if (!membership) return json({ error: "Workspace access denied" }, 403);
     const url = new URL(request.url);
     const cursor = Math.max(0, Number.parseInt(url.searchParams.get("cursor") ?? "0", 10) || 0);
     const limit = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "100", 10) || 100));

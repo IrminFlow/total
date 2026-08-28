@@ -19,11 +19,12 @@ If two documents conflict, follow the higher source in this list and update the 
 ## Current service boundary
 
 The isolated Supabase staging project `cewz…qmlx` and staging site are configured. Migrations through
-`collaboration_devices` are applied, `total-sync` v9 and `total-intake` v10 are active,
-unauthenticated sync returns HTTP 401, and staging support/private-token tracking plus feedback
-idea/vote/follow checks passed. Production is untouched and pending. Real two-user collaboration,
-representative customer migration exports, signing and human acceptance remain pending; final review
-and release have not started.
+`collaboration_invitation_history` are applied, `total-sync` v13 and `total-intake` v10 are active,
+unauthenticated sync returns HTTP 401, a distinct-user signed relay exercise passed with exact
+cleanup, and staging support/private-token tracking plus feedback idea/vote/follow checks passed.
+Production is untouched and pending. Installed-device collaboration, representative customer
+migration exports, signing and human acceptance remain pending; final review and release have not
+started.
 
 ## Product and design
 

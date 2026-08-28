@@ -20,8 +20,8 @@ Status vocabulary:
 - `DONE` Unsigned macOS and Windows test packages and content-addressed manifests were produced.
 - `DONE` Encrypted collaboration, distinct-user invitations, support intake, offline OCR, AI Operator, Codex device authentication, Radix primitives, and staged rollout code are implemented.
 - `DONE` The isolated Supabase staging project `cewz…qmlx` has all migrations through
-  `202608280002_collaboration_devices.sql`. `total-sync` v9 and `total-intake` v10 are active, and an
-  unauthenticated `total-sync` request returns HTTP 401.
+  `202608280004_collaboration_invitation_history.sql`. `total-sync` v13 and `total-intake` v10 are
+  active, and an unauthenticated `total-sync` request returns HTTP 401.
 - `DONE` The isolated staging site has support and feedback delivery configured. Synthetic support
   create/private-token tracking and feedback idea/vote/follow checks passed against staging.
 - `DONE` Desktop and website support intake expose severity and privacy/deletion requests. Desktop
@@ -65,7 +65,8 @@ Status vocabulary:
     signature quarantine, oversized responses, app-closed delivery and token refresh/revocation.
   - `DONE` A hermetic local relay exercises conflict resolution, offline retry and app-closed
     delivery in database tests.
-  - Real two-user acceptance remains separately `WAITING` below because it requires two identities.
+  - A live isolated-backend exercise with two temporary authenticated sessions passed and cleaned
+    up its users and workspace; installed-device recovery-key handling remains human acceptance.
 
 - `DONE` Offline OCR parser acceptance covers reviewed clean, phone-like, rotated, low-contrast,
   multiple-tax-rate and unreadable recognition output, with accuracy recorded separately from any
@@ -91,19 +92,26 @@ Status vocabulary:
 ## Staging services complete; production remains pending
 
 - `DONE` Supabase staging deployment and unauthenticated-boundary probe.
-  - The staging project exists, the four current migrations are applied, both Edge Functions are at
-    v9, and `total-sync` rejects an unauthenticated request with HTTP 401.
+  - The staging project exists, all six current migrations are applied, `total-sync` v13 and
+    `total-intake` v10 are active, and `total-sync` rejects an unauthenticated request with HTTP 401.
   - This does not configure or approve a production Supabase project.
 
 - `WAITING` Configure Vercel production environment and redeploy.
   - Blocker: product owner must authenticate Vercel or set values in the dashboard.
   - Agent action after unblock: validate required variable names, deploy, verify `/api/deployment`, support, feedback, download, headers, and update routes.
 
-- `WAITING` Run real two-user encrypted collaboration acceptance.
-  - Blocker: two authenticated Supabase test users on separate client sessions. The staging backend
-    is deployed; the real invitation, refresh, device-signature, quarantine and bidirectional-sync
-    exercise has not been completed.
-  - Agent action after unblock: execute invitation, revoke, accept, bidirectional sync, offline retry, conflict, and no-posted-books checks.
+- `DONE` Run distinct-user encrypted collaboration service acceptance.
+  - Two temporary authenticated sessions exercised owner bootstrap, invitation single-use and
+    revocation, owner/member boundaries, signed bidirectional envelopes, idempotent replay, corrupt
+    signatures, request limits, foreign workspace denial and revoked-session denial.
+  - The exact synthetic workspace and users were deleted; the service reported zero remaining
+    workspaces. Local database tests separately cover offline retry, conflicts, quarantine and the
+    no-posted-books boundary.
+
+- `WAITING` Run installed-device collaboration acceptance.
+  - Blocker: two human-controlled Total sessions and a separate trusted recovery-key handoff.
+  - Agent action after unblock: verify the real desktop configuration, reconnect UX, device
+    quarantine display and recovery-key procedure without capturing credentials or ciphertext.
 
 - `WAITING` Run production support and feedback acceptance.
   - Blocker: deployed Vercel, Blob, Supabase, and optional Resend configuration.

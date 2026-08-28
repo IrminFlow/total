@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { LocalCollaborationRelay } from "./testing/localCollaborationRelay";
 
 const OWNER = "11111111-1111-4111-8111-111111111111";
@@ -26,6 +28,38 @@ async function createInvitation(relay: LocalCollaborationRelay, ownerToken: stri
 }
 
 describe("Supabase-compatible collaboration relay contract", () => {
+  it("validates the request bearer token without relying on an Edge Function auth session", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "supabase/functions/total-sync/index.ts"),
+      "utf8",
+    );
+    expect(source).toMatch(/const accessToken = authorization\.slice\([^\n]+\.trim\(\)/);
+    expect(source).toMatch(/authClient\.auth\.getUser\(accessToken\)/);
+    expect(source).not.toMatch(/\.auth\.getUser\(\)/);
+    expect(source).toMatch(/\.eq\("owner_id", user\.id\)\.maybeSingle\(\)/);
+    expect(source).toMatch(/\.eq\("workspace_id", workspaceId\)\.eq\("user_id", user\.id\)\.maybeSingle\(\)/);
+  });
+
+  it("keeps deployed workspace RLS checks non-recursive", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/202608280003_collaboration_rls.sql"),
+      "utf8",
+    );
+    expect(migration).toMatch(/security definer set search_path = public/);
+    expect(migration).toMatch(/total_sync_is_workspace_owner\(workspace_id, auth\.uid\(\)\)/);
+    expect(migration).toMatch(/total_sync_is_workspace_member\(workspace_id, auth\.uid\(\)\)/);
+    expect(migration).not.toMatch(/exists \(\s*select 1 from public\.total_sync_(?:members|workspaces) [mw]\s+where [\s\S]{0,160}create policy/);
+  });
+
+  it("allows accepted-user deletion without erasing invitation history", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/202608280004_collaboration_invitation_history.sql"),
+      "utf8",
+    );
+    expect(migration).toMatch(/drop constraint if exists total_sync_invitations_check/);
+    expect(migration).toMatch(/accepted_by is null or accepted_at is not null/);
+  });
+
   it("rejects expired invitations without creating membership", async () => {
     const relay = new LocalCollaborationRelay();
     const ownerToken = relay.registerUser(OWNER);

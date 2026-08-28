@@ -319,10 +319,11 @@ The current branch also includes these security and acceptance corrections:
   disabled, and the package contract rejects a production origin in the compiled staging bundle.
 
 The isolated Supabase project `cewz…qmlx` is configured through
-`202608280002_collaboration_devices.sql`; `total-sync` v9 and `total-intake` v10 are active; and an
-unauthenticated sync request returns HTTP 401. The staging site has passed synthetic support
-create/private-token tracking and feedback idea/vote/follow checks. These checks do not configure or
-accept production.
+`202608280004_collaboration_invitation_history.sql`; `total-sync` v13 and `total-intake` v10 are
+active; and an unauthenticated sync request returns HTTP 401. A live distinct-user relay exercise
+passed with exact synthetic cleanup. The staging site has passed synthetic support
+create/private-token tracking and feedback idea/vote/follow checks. These checks do not configure
+or accept production.
 
 ## Current build direction
 
@@ -336,6 +337,6 @@ status is tracked in root [ROADMAP.md](../ROADMAP.md), agent work in [TASKS.md](
 external actions in [HUMAN.md](../HUMAN.md). No later feature may weaken balanced-book, recovery,
 accessibility, security, performance, packaging or permanent-export guarantees.
 
-Real two-user collaboration, representative customer migration exports, signed candidate
+Installed-device collaboration, representative customer migration exports, signed candidate
 verification and role-based human acceptance remain pending. Final review and release have not
 started.
