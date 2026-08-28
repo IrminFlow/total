@@ -5,6 +5,7 @@ import {
   canonicalRedirectProbeOk,
   privacySafeProbeError,
   releaseAssetProbeOk,
+  releaseAssetSize,
   tlsProbeOk,
 } from "../lib/production-live-probes.mjs";
 
@@ -42,6 +43,52 @@ test("accepts a real versioned installer response", () => {
       version: "0.5.0",
     }),
     true,
+  );
+});
+
+test("accepts immutable staging assets from Vercel Blob", () => {
+  assert.equal(
+    releaseAssetProbeOk({
+      assetStatus: 206,
+      contentType: "application/octet-stream",
+      disposition: 'attachment; filename="Total-5.0.0-arm64.dmg"',
+      location:
+        "https://example.public.blob.vercel-storage.com/v5/sha/Total-5.0.0-arm64.dmg",
+      platform: "mac",
+      size: 196_338_942,
+      version: "5.0.0",
+    }),
+    true,
+  );
+  assert.equal(
+    releaseAssetProbeOk({
+      assetStatus: 206,
+      contentType: "application/octet-stream",
+      disposition: 'attachment; filename="Total-5.0.0-arm64.dmg"',
+      location: "https://example.vercel-storage.com/Total-5.0.0-arm64.dmg",
+      platform: "mac",
+      size: 196_338_942,
+      version: "5.0.0",
+    }),
+    false,
+  );
+});
+
+test("derives the full asset size from a one-byte range response", () => {
+  assert.equal(
+    releaseAssetSize({
+      contentLength: "1",
+      contentRange: "bytes 0-0/196338942",
+    }),
+    196_338_942,
+  );
+  assert.equal(
+    releaseAssetSize({ contentLength: "168488412", contentRange: null }),
+    168_488_412,
+  );
+  assert.equal(
+    releaseAssetSize({ contentLength: "NaN", contentRange: "invalid" }),
+    0,
   );
 });
 

@@ -6,6 +6,7 @@ import {
   canonicalRedirectProbeOk,
   privacySafeProbeError,
   releaseAssetProbeOk,
+  releaseAssetSize,
   tlsProbeOk,
 } from "./lib/production-live-probes.mjs";
 
@@ -212,12 +213,33 @@ async function inspectDownload(platform, version) {
       redirect: "follow",
       signal: AbortSignal.timeout(30_000),
     });
-    const disposition = asset.headers.get("content-disposition") ?? "";
-    const contentType = asset.headers.get("content-type") ?? "";
-    const size = Number(asset.headers.get("content-length") ?? 0);
+    let assetStatus = asset.status;
+    let disposition = asset.headers.get("content-disposition") ?? "";
+    let contentType = asset.headers.get("content-type") ?? "";
+    let size = releaseAssetSize({
+      contentLength: asset.headers.get("content-length"),
+      contentRange: asset.headers.get("content-range"),
+    });
+    let finalUrl = asset.url;
+    if (size < 1_000_000) {
+      const ranged = await fetch(locationUrl, {
+        headers: { range: "bytes=0-0" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(30_000),
+      });
+      assetStatus = ranged.status;
+      disposition = ranged.headers.get("content-disposition") ?? disposition;
+      contentType = ranged.headers.get("content-type") ?? contentType;
+      size = releaseAssetSize({
+        contentLength: ranged.headers.get("content-length"),
+        contentRange: ranged.headers.get("content-range"),
+      });
+      finalUrl = ranged.url;
+      await ranged.body?.cancel().catch(() => undefined);
+    }
     return {
       ok: releaseAssetProbeOk({
-        assetStatus: asset.status,
+        assetStatus,
         contentType,
         disposition,
         location: locationUrl.toString(),
@@ -226,9 +248,9 @@ async function inspectDownload(platform, version) {
         version,
       }),
       status: response.status,
-      assetStatus: asset.status,
+      assetStatus,
       location: locationUrl.origin,
-      finalOrigin: new URL(asset.url).origin,
+      finalOrigin: new URL(finalUrl).origin,
       contentType,
       size,
       disposition: disposition.slice(0, 200),

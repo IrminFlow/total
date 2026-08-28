@@ -43,6 +43,7 @@ export function releaseAssetProbeOk({
     trustedAssetLocation =
       url.protocol === "https:" &&
       (url.hostname.endsWith(".githubusercontent.com") ||
+        url.hostname.endsWith(".public.blob.vercel-storage.com") ||
         (url.hostname === "github.com" &&
           url.pathname.includes("/releases/download/")));
     identity = decodeURIComponent(disposition).toLowerCase();
@@ -65,6 +66,12 @@ export function releaseAssetProbeOk({
     size >= 1_000_000 &&
     !String(contentType).toLowerCase().includes("text/html")
   );
+}
+
+export function releaseAssetSize({ contentLength, contentRange }) {
+  const rangedTotal = /\/([0-9]+)\s*$/.exec(String(contentRange ?? ""))?.[1];
+  const value = Number(rangedTotal ?? contentLength ?? 0);
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 export function tlsProbeOk({ authorized, protocol, validTo, hostname }) {
