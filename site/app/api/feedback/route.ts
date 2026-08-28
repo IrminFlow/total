@@ -8,7 +8,7 @@ import {
 } from "@/lib/intakeProtection";
 import { feedbackDeleteAfter, retentionHoldFor } from "@/lib/intakeRetention";
 import {
-  deleteFeedbackEvent,
+  deleteFeedbackEvents,
   feedbackVoteSummary,
   recordFeedbackEvent,
   TRACKED_FEEDBACK_IDEA_IDS,
@@ -22,6 +22,7 @@ import {
 } from "@/lib/serverSecrets";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 const WINDOW_MS = 10 * 60_000;
 const MAX_REQUESTS = 20;
@@ -418,10 +419,11 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   }
   if (!intakeStoreConfigured())
     return NextResponse.json({ ok: true, deleted: events.length });
-  for (const event of events)
-    await deleteFeedbackEvent(
-      event.id,
-      `feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`,
-    );
+  await deleteFeedbackEvents(
+    events.map((event) => ({
+      id: event.id,
+      objectPath: `feedback/events/${event.receivedAt.slice(0, 7)}/${event.id}.json`,
+    })),
+  );
   return NextResponse.json({ ok: true, deleted: events.length });
 }

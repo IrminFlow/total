@@ -14,6 +14,7 @@ import { bearerFrom, privilegedSecretMatches } from "@/lib/serverSecrets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 function cronAuthorized(request: NextRequest): boolean {
   return privilegedSecretMatches("CRON_SECRET", bearerFrom(request));

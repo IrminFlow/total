@@ -27,6 +27,7 @@ import {
 } from "@/lib/serverSecrets";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 const WINDOW_MS = 10 * 60_000;
 const MAX_REQUESTS = 8;
@@ -292,6 +293,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     focusContext,
     screenshotDataUrl,
   };
+  let finalizeLocalReceipt: Promise<void> | null = null;
   if (intakeStoreConfigured()) {
     try {
       await storeJson(casePath(acceptedCaseId), storedCase);
@@ -299,7 +301,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await releaseIntake(protection);
       return fallback(acceptedCaseId, category, email, message);
     }
-    await completeIntake(protection).catch(() => undefined);
+    finalizeLocalReceipt = completeIntake(protection).catch(() => undefined);
   }
 
   const supabaseWebhook = process.env.SUPABASE_SUPPORT_URL;
@@ -308,6 +310,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     process.env.CONVEX_SUPPORT_URL ||
     process.env.SUPPORT_WEBHOOK_URL;
   if (!webhook) {
+    if (intakeStoreConfigured())
+      await finalizeLocalReceipt;
     if (intakeStoreConfigured())
       return NextResponse.json({
         ok: true,
@@ -330,7 +334,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return fallback(acceptedCaseId, category, email, message);
   }
   try {
-    const response = await fetch(target, {
+    const providerRequest = fetch(target, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -346,6 +350,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       body: JSON.stringify(storedCase),
       signal: AbortSignal.timeout(10_000),
     });
+    const [response] = await Promise.all([
+      providerRequest,
+      finalizeLocalReceipt ?? Promise.resolve(),
+    ]);
     if (!response.ok) {
       if (!intakeStoreConfigured()) await releaseIntake(protection);
       return intakeStoreConfigured()

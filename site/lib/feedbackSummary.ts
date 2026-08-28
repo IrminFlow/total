@@ -131,20 +131,29 @@ export async function recordFeedbackEvent(
 }
 
 export async function deleteFeedbackEvent(id: string, objectPath: string): Promise<void> {
-  const event = await readJson<StoredFeedbackEvent>(objectPath);
-  const remove = async () => {
-    await deleteJson(objectPath);
-    await removeRetentionIndex("feedback", id);
-    await deleteJson(holdPath("feedback", id)).catch(() => undefined);
-  };
-  if (event?.action !== "vote" || !event.ideaId || !trackedIdeas.has(event.ideaId)) {
-    await remove();
-    return;
-  }
+  await deleteFeedbackEvents([{ id, objectPath }]);
+}
+
+export async function deleteFeedbackEvents(
+  entries: Array<{ id: string; objectPath: string }>,
+): Promise<void> {
+  if (!entries.length) return;
   await withSummaryLock(async () => {
     const summary = await summaryUnlocked();
-    await remove();
-    summary.votes[event.ideaId!] = Math.max(0, summary.votes[event.ideaId!] - 1);
+    const events = await Promise.all(
+      entries.map((entry) => readJson<StoredFeedbackEvent>(entry.objectPath)),
+    );
+    await Promise.all(
+      entries.flatMap((entry) => [
+        deleteJson(entry.objectPath),
+        removeRetentionIndex("feedback", entry.id),
+        deleteJson(holdPath("feedback", entry.id)).catch(() => undefined),
+      ]),
+    );
+    for (const event of events) {
+      if (event?.action === "vote" && event.ideaId && trackedIdeas.has(event.ideaId))
+        summary.votes[event.ideaId] = Math.max(0, summary.votes[event.ideaId] - 1);
+    }
     summary.updatedAt = new Date().toISOString();
     try {
       await storeJson(SUMMARY_PATH, summary, true);
