@@ -25,6 +25,7 @@ import {
   privilegedSecretMatches,
   providerAuthorization,
 } from "@/lib/serverSecrets";
+import { hasForeignOrigin } from "@/lib/requestSecurity";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -114,6 +115,8 @@ function fallback(
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (hasForeignOrigin(request))
+    return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > 850_000)
     return NextResponse.json(

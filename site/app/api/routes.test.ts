@@ -182,6 +182,27 @@ afterEach(() => {
 });
 
 describe("support intake", () => {
+  it("rejects an explicit foreign origin before storing a support case", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    installBlobStore();
+    const { POST } = await import("./support/route");
+    const response = await POST(
+      new NextRequest("https://total.example/api/support", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://foreign.example",
+        },
+        body: JSON.stringify({
+          category: "question",
+          message: "This foreign-origin request must not create a support case.",
+        }),
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(blobMocks.put).not.toHaveBeenCalled();
+  });
+
   it("prefers Supabase and never exposes its relay secret to the client", async () => {
     process.env.SUPABASE_SUPPORT_URL =
       "https://project.supabase.co/functions/v1/total-intake/support";
@@ -748,6 +769,24 @@ describe("support intake", () => {
 });
 
 describe("feedback board", () => {
+  it("rejects an explicit foreign origin before storing feedback", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "blob-test-token";
+    installBlobStore();
+    const { POST } = await import("./feedback/route");
+    const response = await POST(
+      new NextRequest("https://total.example/api/feedback", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://foreign.example",
+        },
+        body: JSON.stringify({ action: "vote", ideaId: "mobile-companion" }),
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(blobMocks.put).not.toHaveBeenCalled();
+  });
+
   it("prefers Supabase and never exposes its relay secret to the client", async () => {
     process.env.SUPABASE_FEEDBACK_URL =
       "https://project.supabase.co/functions/v1/total-intake/feedback";

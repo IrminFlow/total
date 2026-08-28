@@ -20,6 +20,7 @@ import {
   privilegedSecretMatches,
   providerAuthorization,
 } from "@/lib/serverSecrets";
+import { hasForeignOrigin } from "@/lib/requestSecurity";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -143,6 +144,8 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (hasForeignOrigin(request))
+    return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   const target = endpoint();
   const body = (await request.json().catch(() => null)) as Record<
     string,
