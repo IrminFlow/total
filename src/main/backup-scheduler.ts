@@ -3,7 +3,7 @@
 import { join } from 'path'
 import type { DB } from './db/connection'
 import { backupCompany } from './db/connection'
-import { backupStamp, snapshotSync } from './db/backup'
+import { backupFileName, snapshotSync } from './db/backup'
 import { companyBackupsDir } from './paths'
 import { log } from './log'
 import { applyRotationPolicy, replicateBackup } from './services/resilience'
@@ -42,7 +42,7 @@ export function backupOnQuit(getCurrent: () => CurrentCompanyLike | null): void 
   try {
     const current = getCurrent()
     if (!current) return
-    const dest = join(companyBackupsDir(current.slug), `${backupStamp()}-quit.db`)
+    const dest = join(companyBackupsDir(current.slug), backupFileName('quit'))
     snapshotSync(current.db, dest)
     log('info', 'backup-quit', { slug: current.slug })
   } catch (err) {

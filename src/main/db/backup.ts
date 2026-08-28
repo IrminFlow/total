@@ -1,6 +1,7 @@
 // Path-parameterized, Electron-free backup primitives (dbtest-able; better-sqlite3 objects are
 // passed in from callers that already opened them with the Electron ABI).
 import Database from 'better-sqlite3'
+import { randomUUID } from 'crypto'
 import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync } from 'fs'
 import { join, basename } from 'path'
 import type { DB } from './connection'
@@ -34,13 +35,30 @@ export function backupStamp(now = new Date()): string {
 }
 
 /**
+ * Collision-safe filename for a database restore point. `backupStamp` intentionally stays
+ * human-readable and second-granular, so a random suffix is required when two manual backups,
+ * quit hooks, or restores happen during the same second. The double hyphen lets `tagOf` remove
+ * the suffix while remaining compatible with every legacy `<stamp>-<tag>.db` file.
+ */
+export function backupFileName(
+  tag: string,
+  now = new Date(),
+  nonce = randomUUID(),
+): string {
+  return `${backupStamp(now)}-${tag}--${nonce}.db`
+}
+
+/**
  * Tag encoded in a backup filename `<stamp>-<tag>.db`. The stamp is a fixed-width ISO
  * timestamp (itself full of hyphens), so the tag is everything after it — not just the
  * segment after the last '-', since tags like 'pre-tally-import' contain hyphens too.
  */
 export function tagOf(file: string): string {
   const stem = file.endsWith('.db') ? file.slice(0, -3) : file
-  if (stem.length > STAMP_LEN + 1 && stem[STAMP_LEN] === '-') return stem.slice(STAMP_LEN + 1)
+  if (stem.length > STAMP_LEN + 1 && stem[STAMP_LEN] === '-') {
+    const encodedTag = stem.slice(STAMP_LEN + 1)
+    return encodedTag.replace(/--[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, '')
+  }
   // Fallback for anything that doesn't match the expected shape.
   const idx = stem.lastIndexOf('-')
   return idx === -1 ? stem : stem.slice(idx + 1)
@@ -282,7 +300,7 @@ export function restoreCompanyDb(db: DB, dbPath: string, backupPath: string, bac
   assertValidCompanyDb(backupPath)
 
   db.pragma('wal_checkpoint(TRUNCATE)')
-  const preRestoreSnapshotPath = join(backupsDir, `${backupStamp()}-pre-restore.db`)
+  const preRestoreSnapshotPath = join(backupsDir, backupFileName('pre-restore'))
   snapshotSync(db, preRestoreSnapshotPath)
 
   // Windows: the rename in swapInPlace EPERMs while any handle holds dbPath open.

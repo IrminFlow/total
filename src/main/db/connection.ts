@@ -3,7 +3,7 @@ import { rmSync } from 'fs'
 import { join } from 'path'
 import { companyBackupsDir, companyDbPath, ensureCompanyTree, existingCompanyPaths } from '../paths'
 import { migrate } from './migrate'
-import { backupStamp, quickCheckOk, rollbackRestore, snapshotSync, snapshotTo } from './backup'
+import { backupFileName, backupStamp, quickCheckOk, rollbackRestore, snapshotSync, snapshotTo } from './backup'
 import { MIGRATIONS } from './migrations'
 
 export type DB = Database.Database
@@ -113,7 +113,7 @@ export function closeCompanyDb(db: DB): void {
  * historic daily/weekly/monthly restore points before the tiered policy can select them.
  */
 export async function backupCompany(db: DB, slug: string, tag = 'auto'): Promise<string> {
-  const dest = join(companyBackupsDir(slug), `${backupStamp()}-${tag}.db`)
+  const dest = join(companyBackupsDir(slug), backupFileName(tag))
   await snapshotTo(db, dest)
   // Post-write verification (task Q3 #99): a backup that doesn't pass quick_check is worse than
   // no backup — it silently displaces a good one in the pruning window. Remove it and fail loudly
