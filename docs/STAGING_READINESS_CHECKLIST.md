@@ -412,10 +412,10 @@ The gate owner checks each statement only after reviewing the evidence from this
 - [ ] The product owner approves the named tester cohort and staging duration.
 - [ ] The gate owner records `GO` or `NO-GO` below.
 
-Decision: `________________`  
-Source SHA: `________________________________________`  
-Staging deployment ID: `________________________________________`  
-Decided by: `________________________________________`  
+- Decision: `________________`
+- Source SHA: `________________________________________`
+- Staging deployment ID: `________________________________________`
+- Decided by: `________________________________________`
 UTC timestamp: `________________________________________`
 
 ## Automatic no-go conditions
