@@ -18,6 +18,7 @@ import {
   TextInput,
 } from "../components/ui";
 import { useLedgers } from "../components/pickerHooks";
+import { ReportToolbar } from "../components/ReportToolbar";
 import { fyOf, fyFromStartYear, toDisplayDate, todayISO } from "@shared/dates";
 import { tdsQuarterOf } from "@shared/tds";
 
@@ -95,10 +96,22 @@ export function TdsScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
+      <SectionTitle>TDS</SectionTitle>
+      <ReportToolbar
+        ariaLabel="TDS report controls"
+        className="mb-3"
+        status={<span className="num">{qLabel}</span>}
+        period={
+          <div
+            className="flex items-center gap-2"
+            role="group"
+            aria-label="TDS financial year"
+          >
+            <span className="text-small font-medium text-muted">
+              Financial year
+            </span>
             <Select
+              aria-label="TDS financial year"
               value={fyStartYear}
               onChange={(e) => setFyStartYear(Number(e.target.value))}
               className="w-36"
@@ -109,6 +122,34 @@ export function TdsScreen(): React.JSX.Element {
                 </option>
               ))}
             </Select>
+          </div>
+        }
+        granularity={
+          <div
+            className="flex items-center gap-1"
+            role="group"
+            aria-label="TDS quarter"
+          >
+            {QUARTERS.map((q) => (
+              <button
+                key={q}
+                type="button"
+                data-testid={`tab-tds-q${q}`}
+                aria-pressed={quarter === q}
+                onClick={() => setQuarter(q)}
+                className={`rounded-md px-3 py-1 text-[12.5px] ${
+                  quarter === q
+                    ? "bg-amberbar/25 font-medium text-ink"
+                    : "text-muted hover:bg-panel2"
+                }`}
+              >
+                Q{q}
+              </button>
+            ))}
+          </div>
+        }
+        actions={
+          <div className="flex items-center gap-2">
             <Button
               data-testid="btn-tds-sections"
               onClick={() => setSectionsOpen(true)}
@@ -124,26 +165,7 @@ export function TdsScreen(): React.JSX.Element {
             </Button>
           </div>
         }
-      >
-        TDS
-      </SectionTitle>
-
-      <div className="mb-3 flex gap-1">
-        {QUARTERS.map((q) => (
-          <button
-            key={q}
-            data-testid={`tab-tds-q${q}`}
-            onClick={() => setQuarter(q)}
-            className={`rounded-md px-3 py-1 text-[12.5px] ${
-              quarter === q
-                ? "bg-amberbar/25 font-medium text-ink"
-                : "text-muted hover:bg-panel2"
-            }`}
-          >
-            Q{q}
-          </button>
-        ))}
-      </div>
+      />
 
       <div className="mb-3 grid grid-cols-4 gap-2">
         <Panel className="px-4 py-3">

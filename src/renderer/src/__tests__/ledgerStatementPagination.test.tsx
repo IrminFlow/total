@@ -61,11 +61,11 @@ describe("ledger statement pagination", () => {
     });
     renderScreen();
 
-    expect(await screen.findByText("1–200 of 450 entries")).toBeTruthy();
+    expect(await screen.findByText("1-200 of 450 entries")).toBeTruthy();
     expect(screen.getAllByText("Sales Account")).toHaveLength(200);
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    expect(await screen.findByText("201–400 of 450 entries")).toBeTruthy();
+    expect(await screen.findByText("201-400 of 450 entries")).toBeTruthy();
     expect(screen.getAllByText("Sales Account")).toHaveLength(200);
     await waitFor(() => {
       const pageCalls = invoke.mock.calls.filter(([channel]) => channel === "report:ledgerPage");

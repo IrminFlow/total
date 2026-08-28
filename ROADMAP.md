@@ -87,7 +87,7 @@ A feature is not “production complete” merely because it is implemented. Pro
 | --- | --- | --- | --- |
 | Monthly and quarterly registers | Shows Sales and Purchase activity by month or Indian FY quarter: Q1 Apr-Jun, Q2 Jul-Sep, Q3 Oct-Dec, Q4 Jan-Mar. | Implemented, export-tested, and E2E verified | Human report acceptance. |
 | Quarterly drill-through | Opens Day Book with the exact quarter dates and voucher kind. | Implemented and tested | None beyond regression. |
-| Shared report toolbar | Standardizes periods, comparison, saved views, columns, export, and print. | Implemented | Continue migration of remaining reports. |
+| Shared report toolbar | Standardizes views, periods, grouping, filters, comparison, saved views, columns, export, and print across primary financial, statutory, management, inventory, ageing, cash-flow, and register screens. | Implemented and E2E verified | Extend the same contract when a new report surface is added. |
 | Core statements | Provides Day Book, Ledger, Trial Balance, Profit and Loss, Balance Sheet, Stock Summary, and outstandings. | Implemented | Migration reconciliation and accountant acceptance. |
 | Comparisons and annotations | Supports prior periods, custom comparisons, explanatory notes, and voucher drill-down. | Implemented | Human management-report acceptance. |
 | Budgets and cost centres | Compares actuals with budgets across ledger and operating dimensions. | Implemented | Business-owner acceptance. |

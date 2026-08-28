@@ -134,7 +134,7 @@ await scenario('54-surface-catalog-light', async (h) => {
   for (const [screen, labels] of TEXT_TAB_GROUPS) {
     await h.goto(screen, 20000)
     for (const label of labels) {
-      const role = screen === 'procurement' ? 'tab' : 'button'
+      const role = screen === 'procurement' || screen === 'management-insights' ? 'tab' : 'button'
       const target = h.page.getByRole(role, { name: label, exact: true }).first()
       assert((await target.count()) === 1, `${screen} exposes ${label} subview`)
       await target.click()

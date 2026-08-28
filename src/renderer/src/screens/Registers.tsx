@@ -134,36 +134,37 @@ export function RegistersScreen(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl">
       <SectionTitle>{title}</SectionTitle>
-      <ReportToolbar className="mb-3">
-        <TabBar
-          screen="registers"
-          tabs={(['sales', 'purchase', 'items'] as const).map((k) => ({
-            id: k,
-            label: TAB_LABELS[k],
-          }))}
-          active={tab}
-          onSelect={setTab}
-        />
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-          {tab !== 'items' && (
-            <div
-              className="flex items-center gap-2"
-              aria-label="Register grouping"
-            >
-              <span className="text-small font-medium text-muted">
-                Group by
-              </span>
-              <TabBar
-                screen="register-granularity"
-                tabs={[
-                  { id: 'month', label: 'Month' },
-                  { id: 'quarter', label: 'Quarter' },
-                ]}
-                active={granularity}
-                onSelect={(id) => setGranularity(id as RegisterGranularity)}
-              />
-            </div>
-          )}
+      <ReportToolbar
+        ariaLabel="Register controls"
+        className="mb-3"
+        view={
+          <TabBar
+            screen="registers"
+            tabs={(['sales', 'purchase', 'items'] as const).map((k) => ({
+              id: k,
+              label: TAB_LABELS[k],
+            }))}
+            active={tab}
+            onSelect={setTab}
+          />
+        }
+        granularity={tab !== 'items' ? (
+          <>
+            <span className="text-small font-medium text-muted">
+              Group by
+            </span>
+            <TabBar
+              screen="register-granularity"
+              tabs={[
+                { id: 'month', label: 'Month' },
+                { id: 'quarter', label: 'Quarter' },
+              ]}
+              active={granularity}
+              onSelect={(id) => setGranularity(id as RegisterGranularity)}
+            />
+          </>
+        ) : undefined}
+        savedView={
           <SavedReportViews
             views={savedViews.views}
             current={{ tab, granularity, from, to }}
@@ -175,6 +176,8 @@ export function RegistersScreen(): React.JSX.Element {
               setPeriod(view.from, view.to)
             }}
           />
+        }
+        actions={
           <details className="relative shrink-0">
             <summary className="flex min-h-8 cursor-pointer list-none items-center rounded-md border border-line bg-panel px-3 py-1.5 text-detail font-medium text-ink panel-shadow hover:border-amber/60">
               Export
@@ -253,8 +256,8 @@ export function RegistersScreen(): React.JSX.Element {
               </button>
             </div>
           </details>
-        </div>
-      </ReportToolbar>
+        }
+      />
       {tab === 'items' ? (
         <ItemProfitPanel from={from} to={to} periodLabel={periodLabel} />
       ) : (

@@ -483,61 +483,74 @@ export function DayBook({
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <ReportToolbar compact>
-            <TextInput
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Type to filter…"
-              className="w-56"
-            />
-            <Select
-              data-testid="input-daybook-scope"
-              value={scope}
-              onChange={(e) => setScope(e.target.value as Scope)}
-              className="w-40"
-              aria-label="Voucher scope"
-            >
-              {SCOPE_LABELS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
-            <ReportConfigButton
-              columns={COLUMNS}
-              visible={visible}
-              toggle={toggle}
-            />
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void printReport(
-                  {
-                    title: "Day book",
-                    periodLabel,
-                    columns: exportColumns,
-                    rows: exportRows,
-                  },
-                  toast,
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(
-                  exportColumns.map((c) => c.label),
-                  exportRows.map((r) => r.cells),
-                  "day-book",
-                  toast,
-                )
-              }
-            >
-              CSV
-            </Button>
-          </ReportToolbar>
+          <ReportToolbar
+            compact
+            ariaLabel="Day book report controls"
+            filters={
+              <>
+                <TextInput
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="Type to filter…"
+                  className="w-56"
+                  aria-label="Filter vouchers"
+                />
+                <Select
+                  data-testid="input-daybook-scope"
+                  value={scope}
+                  onChange={(e) => setScope(e.target.value as Scope)}
+                  className="w-40"
+                  aria-label="Voucher scope"
+                >
+                  {SCOPE_LABELS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </Select>
+              </>
+            }
+            columns={
+              <ReportConfigButton
+                columns={COLUMNS}
+                visible={visible}
+                toggle={toggle}
+              />
+            }
+            actions={
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    void printReport(
+                      {
+                        title: "Day book",
+                        periodLabel,
+                        columns: exportColumns,
+                        rows: exportRows,
+                      },
+                      toast,
+                    )
+                  }
+                >
+                  PDF
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    void csvReport(
+                      exportColumns.map((c) => c.label),
+                      exportRows.map((r) => r.cells),
+                      "day-book",
+                      toast,
+                    )
+                  }
+                >
+                  CSV
+                </Button>
+              </>
+            }
+          />
         }
       >
         Day book

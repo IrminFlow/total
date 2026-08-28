@@ -11,6 +11,7 @@ import {
   SkeletonRows,
 } from "../components/ui";
 import { ReportConfigButton } from "../components/ReportConfigButton";
+import { ReportToolbar } from "../components/ReportToolbar";
 import { useReportConfig, type ReportColumn } from "../lib/reportConfig";
 import { csvReport, printReport } from "../lib/reportExport";
 import type {
@@ -115,17 +116,31 @@ export function StockSummaryScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <span className="num text-[12px] text-muted">
-              as on {toDisplayDate(to)}
-            </span>
-            <ReportConfigButton
-              columns={COLUMNS}
-              visible={visible}
-              toggle={toggle}
-            />
+      <SectionTitle>Stock summary</SectionTitle>
+      <ReportToolbar
+        ariaLabel="Stock summary controls"
+        className="mb-3"
+        status={
+          <span aria-live="polite">
+            {isLoading
+              ? "Loading stock..."
+              : `${rows.length.toLocaleString()} item${rows.length === 1 ? "" : "s"} - closing value ${formatPaise(rows.reduce((sum, row) => sum + row.closingValue, 0))}`}
+          </span>
+        }
+        period={
+          <span className="num text-[12px] text-muted">
+            as on {toDisplayDate(to)}
+          </span>
+        }
+        columns={
+          <ReportConfigButton
+            columns={COLUMNS}
+            visible={visible}
+            toggle={toggle}
+          />
+        }
+        actions={
+          <>
             <Button
               variant="ghost"
               onClick={() =>
@@ -155,11 +170,9 @@ export function StockSummaryScreen(): React.JSX.Element {
             >
               CSV
             </Button>
-          </div>
+          </>
         }
-      >
-        Stock summary
-      </SectionTitle>
+      />
       <Panel>
         {isLoading ? (
           <SkeletonRows />
@@ -201,7 +214,7 @@ export function StockSummaryScreen(): React.JSX.Element {
                       {r.name}
                       {r.closingQtyMilli < 0 && (
                         <span className="ml-2 text-[11px]">
-                          — negative stock, check entries
+                          - negative stock, check entries
                         </span>
                       )}
                     </td>
@@ -414,7 +427,7 @@ function ItemDetail({
                         movement.batchName,
                       ]
                         .filter(Boolean)
-                        .join(" · ") || "—"}
+                        .join(" / ") || "-"}
                     </td>
                     <td
                       className={`r num ${movement.direction === "out" && !movement.isAbsolute ? "text-cr" : "text-dr"}`}
@@ -507,15 +520,15 @@ function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
   return (
     <Panel className="mt-4">
       <p className="mb-2 px-1 text-[13.5px] font-medium">
-        Stock analysis — ageing &amp; reorder
+        Stock analysis - ageing &amp; reorder
       </p>
       <table className="ledger-table" data-testid="stock-ageing-table">
         <thead>
           <tr>
             <th>Item</th>
-            <th className="r w-24">0–30 d</th>
-            <th className="r w-24">31–60 d</th>
-            <th className="r w-24">61–90 d</th>
+            <th className="r w-24">0-30 d</th>
+            <th className="r w-24">31-60 d</th>
+            <th className="r w-24">61-90 d</th>
             <th className="r w-24">90+ d</th>
             <th className="w-44">Flags</th>
           </tr>
@@ -526,7 +539,7 @@ function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
               <td>{r.name}</td>
               {r.buckets.map((b, i) => (
                 <td key={i} className="r num">
-                  {b === 0 ? "–" : `${fmtQty(b, r.decimals)} ${r.unitSymbol}`}
+                  {b === 0 ? "-" : `${fmtQty(b, r.decimals)} ${r.unitSymbol}`}
                 </td>
               ))}
               <td>

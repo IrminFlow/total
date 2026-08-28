@@ -20,6 +20,8 @@ import {
   SkeletonRows,
   TextInput,
 } from "../components/ui";
+import { ReportToolbar } from "../components/ReportToolbar";
+import { TabBar } from "../components/TabBar";
 import { todayISO, toDisplayDate } from "@shared/dates";
 
 type Tab = "overview" | "drivers" | "scenarios" | "schedule" | "notes";
@@ -142,32 +144,29 @@ export function ManagementInsightsScreen(): React.JSX.Element {
       setPackBusy(false);
     }
   };
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "overview", label: "Overview" },
-    { key: "drivers", label: "Variance drivers" },
-    { key: "scenarios", label: "Scenarios" },
-    { key: "schedule", label: "Schedule III" },
-    { key: "notes", label: "Notes & pack" },
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "overview", label: "Overview" },
+    { id: "drivers", label: "Variance drivers" },
+    { id: "scenarios", label: "Scenarios" },
+    { id: "schedule", label: "Schedule III" },
+    { id: "notes", label: "Notes & pack" },
   ];
   return (
     <div className="mx-auto max-w-6xl">
-      <SectionTitle
-        right={
-          <div className="flex rounded-md border border-line bg-panel p-0.5">
-            {tabs.map((item) => (
-              <button
-                key={item.key}
-                onClick={() => setTab(item.key)}
-                className={`rounded px-3 py-1.5 text-[11px] ${tab === item.key ? "bg-ink font-semibold text-canvas" : "text-muted hover:text-ink"}`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+      <SectionTitle>Management insights</SectionTitle>
+      <ReportToolbar
+        compact
+        ariaLabel="Management insights views"
+        className="mb-3"
+        view={
+          <TabBar
+            screen="management-insights"
+            tabs={tabs}
+            active={tab}
+            onSelect={setTab}
+          />
         }
-      >
-        Management insights
-      </SectionTitle>
+      />
       {tab === "overview" && (
         <Overview
           data={dashboard.data}

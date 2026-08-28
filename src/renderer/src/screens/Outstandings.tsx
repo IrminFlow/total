@@ -4,6 +4,7 @@ import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type ToastState } from '../state/stores'
 import { Button, EmptyState, Money, Panel, SectionTitle, SkeletonRows } from '../components/ui'
 import { TabBar } from '../components/TabBar'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
 import { toDisplayDate } from '@shared/dates'
@@ -14,9 +15,9 @@ import { useLedgers } from '../components/pickerHooks'
 
 const EXPORT_COLUMNS: PdfColumn[] = [
   { label: 'Party', align: 'l' },
-  { label: '0–30 d', align: 'r' },
-  { label: '31–60 d', align: 'r' },
-  { label: '61–90 d', align: 'r' },
+  { label: '0 to 30 d', align: 'r' },
+  { label: '31 to 60 d', align: 'r' },
+  { label: '61 to 90 d', align: 'r' },
   { label: '90+ d', align: 'r' },
   { label: 'Pending', align: 'r' }
 ]
@@ -27,7 +28,7 @@ async function remind(companyName: string, party: { name: string; email: string 
   try {
     await api.privacy.copySensitive(reminder.body)
   } catch {
-    // Clipboard access can fail in some sandboxes — the mailto still opens with the body.
+    // Clipboard access can fail in some sandboxes. The mailto still opens with the body.
     copied = false
   }
   if (channel === 'whatsapp') {
@@ -35,8 +36,8 @@ async function remind(companyName: string, party: { name: string; email: string 
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(reminder.body)}`)
   } else window.open(reminder.mailto)
   const destination = channel === 'whatsapp' ? 'WhatsApp' : 'email'
-  if (copied) toast.push('success', `Reminder copied — ${destination} draft opened`)
-  else toast.push('warning', `Couldn't copy to the clipboard — the ${destination} draft still has the full text`)
+  if (copied) toast.push('success', `Reminder copied; ${destination} draft opened`)
+  else toast.push('warning', `Couldn't copy to the clipboard. The ${destination} draft still has the full text`)
 }
 
 export function OutstandingsScreen(): React.JSX.Element {
@@ -82,18 +83,24 @@ export function OutstandingsScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <TabBar
-              screen="outstandings"
-              tabs={[
-                { id: 'receivable', label: 'Receivables' },
-                { id: 'payable', label: 'Payables' }
-              ]}
-              active={side}
-              onSelect={setSide}
-            />
+      <SectionTitle>{side === 'receivable' ? 'Receivables' : 'Payables'} · ageing</SectionTitle>
+      <ReportToolbar
+        ariaLabel="Outstanding report controls"
+        className="mb-3"
+        period={<span className="num text-[12px] text-muted">{periodLabel}</span>}
+        view={
+          <TabBar
+            screen="outstandings"
+            tabs={[
+              { id: 'receivable', label: 'Receivables' },
+              { id: 'payable', label: 'Payables' }
+            ]}
+            active={side}
+            onSelect={setSide}
+          />
+        }
+        actions={
+          <>
             <Button
               variant="ghost"
               onClick={() =>
@@ -113,11 +120,9 @@ export function OutstandingsScreen(): React.JSX.Element {
             >
               CSV
             </Button>
-          </div>
+          </>
         }
-      >
-        {side === 'receivable' ? 'Receivables' : 'Payables'} · ageing
-      </SectionTitle>
+      />
       <Panel scroll={{ maxH: '70vh' }}>
         {isLoading ? (
           <SkeletonRows />
@@ -130,9 +135,9 @@ export function OutstandingsScreen(): React.JSX.Element {
               <tr>
                 <th>Party</th>
                 <th className="w-32">Due date</th>
-                <th className="r w-32">0–30 d</th>
-                <th className="r w-32">31–60 d</th>
-                <th className="r w-32">61–90 d</th>
+                <th className="r w-32">0 to 30 d</th>
+                <th className="r w-32">31 to 60 d</th>
+                <th className="r w-32">61 to 90 d</th>
                 <th className="r w-32">90+ d</th>
                 <th className="r w-36">Pending</th>
                 <th className="w-36"></th>

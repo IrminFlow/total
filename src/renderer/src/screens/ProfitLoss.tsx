@@ -72,34 +72,42 @@ export function ProfitLossScreen(): React.JSX.Element {
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <ReportToolbar compact>
-            {isPlaceholderData && (
-              <span data-testid="pnl-refreshing" className="text-[11px] text-muted" aria-live="polite">
-                Updating…
-              </span>
-            )}
-            <DateInput value={from} context={from} onChange={setFrom} className="w-28" testId="input-pnl-from" />
-            <span className="text-[12px] text-muted">→</span>
-            <DateInput value={to} context={to} onChange={setTo} className="w-28" testId="input-pnl-to" />
-            <Button variant={comparePrior ? 'primary' : 'default'} data-testid="btn-pnl-compare" onClick={() => setComparePrior((v) => !v)}>
-              Prior year
-            </Button>
-            <SavedReportViews views={savedViews.views} current={{ from, to, comparePrior }} onSave={savedViews.save} onRemove={savedViews.remove} onApply={(view) => { setFrom(view.from); setTo(view.to); setComparePrior(view.comparePrior) }} />
-            <Button
-              variant="ghost"
-              onClick={() => void printReport({ title: 'Profit & Loss', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'profit-loss', toast)
-              }
-            >
-              CSV
-            </Button>
-          </ReportToolbar>
+          <ReportToolbar
+            compact
+            ariaLabel="Profit and loss controls"
+            period={<>
+              {isPlaceholderData && (
+                <span data-testid="pnl-refreshing" className="text-[11px] text-muted" aria-live="polite">
+                  Updating…
+                </span>
+              )}
+              <DateInput value={from} context={from} onChange={setFrom} className="w-28" testId="input-pnl-from" />
+              <span className="text-[12px] text-muted">→</span>
+              <DateInput value={to} context={to} onChange={setTo} className="w-28" testId="input-pnl-to" />
+            </>}
+            comparison={
+              <Button variant={comparePrior ? 'primary' : 'default'} data-testid="btn-pnl-compare" onClick={() => setComparePrior((v) => !v)}>
+                Prior year
+              </Button>
+            }
+            savedView={<SavedReportViews views={savedViews.views} current={{ from, to, comparePrior }} onSave={savedViews.save} onRemove={savedViews.remove} onApply={(view) => { setFrom(view.from); setTo(view.to); setComparePrior(view.comparePrior) }} />}
+            actions={<>
+              <Button
+                variant="ghost"
+                onClick={() => void printReport({ title: 'Profit & Loss', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
+              >
+                PDF
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'profit-loss', toast)
+                }
+              >
+                CSV
+              </Button>
+            </>}
+          />
         }
       >
         Profit &amp; Loss

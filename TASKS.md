@@ -29,6 +29,10 @@ Status vocabulary:
   books, file paths, logs and credentials unless the user separately opts into allowed context.
 - `DONE` Branch desktop packages compile the staging origin into `app.asar` and disable update
   checks. The package contract rejects production origins in a staging artifact.
+- `DONE` Primary financial, statutory, management, inventory, ageing, cash-flow, and register
+  screens use the shared accessible report toolbar. Its view, period, grouping, filters,
+  comparison, saved-view, column, and action regions have one keyboard-safe order; focused E2E,
+  full light/dark surface catalogues, visual contracts, and bundle budgets pass.
 - `DONE` NIC live filing and online GST portal APIs remain excluded.
 
 ## Ready now

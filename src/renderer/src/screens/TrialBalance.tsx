@@ -82,29 +82,35 @@ export function TrialBalanceScreen(): React.JSX.Element {
     <div className="mx-auto max-w-4xl">
       <SectionTitle
         right={
-          <ReportToolbar compact>
-            <span className="num text-[12px] text-muted">as on {toDisplayDate(to)}</span>
-            <ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void printReport(
-                  { title: 'Trial balance', periodLabel: `as on ${toDisplayDate(to)}`, columns: exportColumns, rows: exportRows },
-                  toast
-                )
-              }
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'trial-balance', toast)
-              }
-            >
-              CSV
-            </Button>
-          </ReportToolbar>
+          <ReportToolbar
+            compact
+            ariaLabel="Trial balance report controls"
+            period={<span className="num text-[12px] text-muted">as on {toDisplayDate(to)}</span>}
+            columns={<ReportConfigButton columns={COLUMNS} visible={visible} toggle={toggle} />}
+            actions={
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    void printReport(
+                      { title: 'Trial balance', periodLabel: `as on ${toDisplayDate(to)}`, columns: exportColumns, rows: exportRows },
+                      toast
+                    )
+                  }
+                >
+                  PDF
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    void csvReport(exportColumns.map((c) => c.label), exportRows.map((r) => r.cells), 'trial-balance', toast)
+                  }
+                >
+                  CSV
+                </Button>
+              </>
+            }
+          />
         }
       >
         Trial balance

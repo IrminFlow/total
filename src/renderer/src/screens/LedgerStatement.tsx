@@ -12,6 +12,7 @@ import {
   SkeletonRows,
 } from "../components/ui";
 import { useKeyNav } from "../components/useKeyNav";
+import { ReportToolbar } from "../components/ReportToolbar";
 import { csvReport, printReport, slugFilename } from "../lib/reportExport";
 import type {
   ReportColumn as PdfColumn,
@@ -222,7 +223,7 @@ export function LedgerStatementScreen({
 
   const exportReport = async (format: "pdf" | "csv"): Promise<void> => {
     if (format === "pdf" && mode === "detail" && data.page.totalRows > 5_000) {
-      toast.push("error", "Too many rows for a PDF — narrow the period and try again");
+      toast.push("error", "Too many rows for a PDF - narrow the period and try again");
       return;
     }
     setExporting(format);
@@ -259,21 +260,38 @@ export function LedgerStatementScreen({
 
   return (
     <div className="mx-auto max-w-5xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
-            <div className="flex gap-1">
-              {(["detail", "monthly"] as const).map((m) => (
-                <button
-                  key={m}
-                  data-testid={`tab-ledger-statement-${m}`}
-                  onClick={() => setMode(m)}
-                  className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${mode === m ? "bg-amberbar/25 font-medium text-ink" : "text-muted hover:bg-panel2"}`}
-                >
-                  {m === "detail" ? "Vouchers" : "Monthly"}
-                </button>
-              ))}
-            </div>
+      <SectionTitle>{data.ledgerName}</SectionTitle>
+      <ReportToolbar
+        ariaLabel="Ledger statement controls"
+        className="mb-3"
+        status={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1" aria-live="polite">
+            <span>Opening <Money paise={data.opening} signed /></span>
+            <span>Closing <Money paise={data.closing} signed /></span>
+            {isFetching ? <span>Updating...</span> : null}
+          </span>
+        }
+        period={
+          <span className="num text-[12px] text-muted" aria-label={`Period ${toDisplayDate(from)} to ${toDisplayDate(to)}`}>
+            {toDisplayDate(from)} to {toDisplayDate(to)}
+          </span>
+        }
+        granularity={
+          <div className="flex gap-1">
+            {(["detail", "monthly"] as const).map((m) => (
+              <button
+                key={m}
+                data-testid={`tab-ledger-statement-${m}`}
+                onClick={() => setMode(m)}
+                className={`rounded-md px-3 py-1 text-[12.5px] capitalize ${mode === m ? "bg-amberbar/25 font-medium text-ink" : "text-muted hover:bg-panel2"}`}
+              >
+                {m === "detail" ? "Vouchers" : "Monthly"}
+              </button>
+            ))}
+          </div>
+        }
+        actions={
+          <>
             <Button
               variant="ghost"
               disabled={exporting !== null}
@@ -288,21 +306,10 @@ export function LedgerStatementScreen({
             >
               {exporting === "csv" ? "Preparing…" : "CSV"}
             </Button>
-            <Money paise={data.closing} signed className="text-[15px]" />
-          </div>
+          </>
         }
-      >
-        {data.ledgerName}
-      </SectionTitle>
+      />
       <Panel>
-        <div className="flex justify-between border-b border-line px-4 py-2 text-[12px] text-muted">
-          <span>
-            Opening balance · <Money paise={data.opening} signed />
-          </span>
-          <span>
-            {toDisplayDate(from)} → {toDisplayDate(to)}
-          </span>
-        </div>
         {isLoading ? (
           <SkeletonRows />
         ) : mode === "monthly" ? (
@@ -397,7 +404,7 @@ export function LedgerStatementScreen({
                         Previous
                       </Button>
                       <span className="text-[11px] text-muted" aria-live="polite">
-                        {data.page.offset + 1}–{data.page.offset + rows.length} of{" "}
+                        {data.page.offset + 1}-{data.page.offset + rows.length} of{" "}
                         {data.page.totalRows.toLocaleString()} entries
                         {isFetching ? " · Loading…" : ""}
                       </span>

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ItcActionRow } from '../lib/client'
 import { useNav, useToasts, nextDraftId } from '../state/stores'
 import { Button, DateInput, EmptyState, Field, Modal, Money, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import type { Recon2bBucket, Recon2bPair } from '@shared/gst/recon2b'
 import { MonthBar, NoMonths, useMonth } from './GstReturns'
@@ -190,10 +191,14 @@ export function Gstr2bScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <SectionTitle
-        right={
+      <SectionTitle>GSTR-2B · Reconciliation</SectionTitle>
+      <ReportToolbar
+        ariaLabel="GSTR-2B reconciliation controls"
+        className="mb-3"
+        status={<span className="num">{month.label}</span>}
+        period={<MonthBar months={months} value={monthKey} onChange={setMonthKey} />}
+        actions={
           <div className="flex items-center gap-2">
-            <MonthBar months={months} value={monthKey} onChange={setMonthKey} />
             <Button data-testid="btn-2b-pick" onClick={() => void doPick()}>Pick 2B JSON…</Button>
             <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
               Paste JSON…
@@ -201,9 +206,7 @@ export function Gstr2bScreen(): React.JSX.Element {
             {imported && <Button variant="primary" disabled={saving} onClick={() => void persist()}>{saving?'Saving…':'Retain evidence'}</Button>}
           </div>
         }
-      >
-        GSTR-2B · Reconciliation
-      </SectionTitle>
+      />
 
       {pasteOpen && (
         <PasteModal

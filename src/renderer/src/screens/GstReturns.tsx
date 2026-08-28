@@ -4,6 +4,7 @@ import { api, type GstRegistration } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { AmountInput, Button, EmptyState, Field, Money, Panel, SectionTitle, Select, SkeletonRows, Spinner, TextInput } from '../components/ui'
 import { inputCls } from '../components/inputStyles'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { posLabel } from '@shared/gst/states'
@@ -59,7 +60,7 @@ export function MonthBar({
   testId?: string
 }): React.JSX.Element {
   return (
-    <Select value={value} onChange={(e) => onChange(e.target.value)} className="w-48" data-testid={testId}>
+    <Select aria-label="Return month" value={value} onChange={(e) => onChange(e.target.value)} className="w-48" data-testid={testId}>
       {months.map((m) => (
         <option key={m.key} value={m.key}>
           {m.label}
@@ -79,7 +80,7 @@ export function useDefaultMonth(months: MonthChoice[]): [string, (k: string) => 
 function RegistrationSelect({ registrations, value, onChange }: { registrations: GstRegistration[]; value: number | null; onChange: (id: number | null) => void }): React.JSX.Element | null {
   const active = registrations.filter((row) => row.active)
   if (!active.length) return null
-  return <Select data-testid="input-gst-registration" value={value ?? ''} onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)} className="max-w-64">
+  return <Select aria-label="GST registration" data-testid="input-gst-registration" value={value ?? ''} onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)} className="max-w-64">
     <option value="">Company / legacy GSTIN</option>
     {active.map((row) => <option key={row.id} value={row.id}>{row.gstin} · {row.stateCode}</option>)}
   </Select>
@@ -286,25 +287,33 @@ export function Gstr1Screen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
+      <SectionTitle>GSTR-1 · Outward supplies</SectionTitle>
+      <ReportToolbar
+        ariaLabel="GSTR-1 report controls"
+        className="mb-3"
+        status={<span className="num">{month.label}</span>}
+        period={
+          <div
+            className="flex items-center gap-2"
+            role="group"
+            aria-label="GSTR-1 return scope"
+          >
             <RegistrationSelect registrations={registrations.data ?? []} value={registrationId} onChange={setRegistrationId} />
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr1-month" />
-            <Button
-              variant="primary"
-              data-testid="btn-gstr1-export"
-              onClick={() => void doExport()}
-              disabled={!!exportBlockedReason || validating}
-              title={exportBlockedReason ?? undefined}
-            >
-              Export portal JSON
-            </Button>
           </div>
         }
-      >
-        GSTR-1 · Outward supplies
-      </SectionTitle>
+        actions={
+          <Button
+            variant="primary"
+            data-testid="btn-gstr1-export"
+            onClick={() => void doExport()}
+            disabled={!!exportBlockedReason || validating}
+            title={exportBlockedReason ?? undefined}
+          >
+            Export portal JSON
+          </Button>
+        }
+      />
 
       {exportBlockedReason && (
         <p className={`mb-3 text-[12.5px] ${blocking.length ? 'text-cr' : 'text-amber'}`}>{exportBlockedReason}</p>
@@ -584,19 +593,27 @@ export function Gstr3bScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-2">
+      <SectionTitle>GSTR-3B · Summary return</SectionTitle>
+      <ReportToolbar
+        ariaLabel="GSTR-3B report controls"
+        className="mb-3"
+        status={<span className="num">{month.label}</span>}
+        period={
+          <div
+            className="flex items-center gap-2"
+            role="group"
+            aria-label="GSTR-3B return scope"
+          >
             <RegistrationSelect registrations={registrations.data ?? []} value={registrationId} onChange={setRegistrationId} />
             <MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr3b-month" />
-            <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!effectiveGstin || blocking.length > 0 || validating}>
-              Export JSON
-            </Button>
           </div>
         }
-      >
-        GSTR-3B · Summary return
-      </SectionTitle>
+        actions={
+          <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!effectiveGstin || blocking.length > 0 || validating}>
+            Export JSON
+          </Button>
+        }
+      />
 
       {!effectiveGstin && (
         <p className="mb-3 text-[12.5px] text-amber">Add the company GSTIN under Company details to enable export.</p>

@@ -53,33 +53,41 @@ export function BalanceSheetScreen(): React.JSX.Element {
     <div className="mx-auto max-w-5xl">
       <SectionTitle
         right={
-          <ReportToolbar compact>
-            {isPlaceholderData && (
-              <span data-testid="bs-refreshing" className="text-[11px] text-muted" aria-live="polite">
-                Updating…
-              </span>
-            )}
-            <span className="text-[12px] text-muted">as on</span>
-            <DateInput value={asOn} context={asOn} onChange={setAsOn} className="w-28" testId="input-bs-ason" />
-            <Button variant={comparePrior ? 'primary' : 'default'} data-testid="btn-bs-compare" onClick={() => setComparePrior((v) => !v)}>
-              Prior year
-            </Button>
-            <SavedReportViews views={savedViews.views} current={{ asOn, comparePrior }} onSave={savedViews.save} onRemove={savedViews.remove} onApply={(view) => { setAsOn(view.asOn); setComparePrior(view.comparePrior) }} />
-            <Button
-              variant="ghost"
-              onClick={() => void printReport({ title: 'Balance sheet', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'balance-sheet', toast)
-              }
-            >
-              CSV
-            </Button>
-          </ReportToolbar>
+          <ReportToolbar
+            compact
+            ariaLabel="Balance sheet controls"
+            period={<>
+              {isPlaceholderData && (
+                <span data-testid="bs-refreshing" className="text-[11px] text-muted" aria-live="polite">
+                  Updating…
+                </span>
+              )}
+              <span className="text-[12px] text-muted">as on</span>
+              <DateInput value={asOn} context={asOn} onChange={setAsOn} className="w-28" testId="input-bs-ason" />
+            </>}
+            comparison={
+              <Button variant={comparePrior ? 'primary' : 'default'} data-testid="btn-bs-compare" onClick={() => setComparePrior((v) => !v)}>
+                Prior year
+              </Button>
+            }
+            savedView={<SavedReportViews views={savedViews.views} current={{ asOn, comparePrior }} onSave={savedViews.save} onRemove={savedViews.remove} onApply={(view) => { setAsOn(view.asOn); setComparePrior(view.comparePrior) }} />}
+            actions={<>
+              <Button
+                variant="ghost"
+                onClick={() => void printReport({ title: 'Balance sheet', periodLabel, columns: EXPORT_COLUMNS, rows: exportRows }, toast)}
+              >
+                PDF
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  void csvReport(EXPORT_COLUMNS.map((c) => c.label), exportRows.map((r) => r.cells), 'balance-sheet', toast)
+                }
+              >
+                CSV
+              </Button>
+            </>}
+          />
         }
       >
         Balance sheet

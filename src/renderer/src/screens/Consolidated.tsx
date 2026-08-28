@@ -6,6 +6,8 @@ import { Button, EmptyState, Field, Money, Panel, ScrollList, SectionTitle, Skel
 import { csvReport } from '../lib/reportExport'
 import { toDisplayDate } from '@shared/dates'
 import { plainRupees } from '@shared/money'
+import { ReportToolbar } from '../components/ReportToolbar'
+import { TabBar } from '../components/TabBar'
 
 type Kind = 'tb' | 'pnl'
 
@@ -65,37 +67,35 @@ export function ConsolidatedScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <SectionTitle
-        right={
-          <div className="flex items-center gap-3">
-            <div className="flex overflow-hidden rounded-md border border-line">
-              <button
-                data-testid="tab-consolidated-tb"
-                className={`px-3 py-1 text-[12px] transition-colors ${
-                  kind === 'tb' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
-                }`}
-                onClick={() => setKind('tb')}
-              >
-                Trial balance
-              </button>
-              <button
-                data-testid="tab-consolidated-pnl"
-                className={`border-l border-line px-3 py-1 text-[12px] transition-colors ${
-                  kind === 'pnl' ? 'bg-amberbar/20 font-medium text-ink' : 'text-muted hover:text-ink'
-                }`}
-                onClick={() => setKind('pnl')}
-              >
-                Profit &amp; loss
-              </button>
-            </div>
-            <span className="num text-[12px] text-muted">
-              {toDisplayDate(from)} → {toDisplayDate(to)}
-            </span>
-          </div>
+      <SectionTitle>Consolidated reports</SectionTitle>
+      <ReportToolbar
+        ariaLabel="Consolidated report controls"
+        className="mb-4"
+        status={`${slugs.length} ${slugs.length === 1 ? 'company' : 'companies'} selected`}
+        period={
+          <span className="num text-[12px] text-muted">
+            {toDisplayDate(from)} to {toDisplayDate(to)}
+          </span>
         }
-      >
-        Consolidated reports
-      </SectionTitle>
+        view={
+          <TabBar
+            screen="consolidated"
+            tabs={[
+              { id: 'tb', label: 'Trial balance' },
+              { id: 'pnl', label: 'Profit & loss' },
+            ]}
+            active={kind}
+            onSelect={setKind}
+          />
+        }
+        actions={
+          data ? (
+            <Button data-testid="btn-consolidated-csv" onClick={() => void exportCsv()}>
+              Export CSV
+            </Button>
+          ) : null
+        }
+      />
 
       <Panel className="mb-4">
         {companies.length === 0 ? (
@@ -121,11 +121,6 @@ export function ConsolidatedScreen(): React.JSX.Element {
           <Button data-testid="btn-consolidated-run" variant="primary" onClick={() => void run()} disabled={isFetching}>
             {isFetching ? 'Running…' : 'Run'}
           </Button>
-          {data && (
-            <Button data-testid="btn-consolidated-csv" onClick={() => void exportCsv()}>
-              Export CSV
-            </Button>
-          )}
         </div>
       </Panel>
 
@@ -176,7 +171,7 @@ export function ConsolidatedScreen(): React.JSX.Element {
                       <td className="text-muted">{r.group}</td>
                       {r.perCompany.map((v, i) => (
                         <td key={data.columns[i]} className="r">
-                          {v == null ? <span className="text-muted">—</span> : <Money paise={v} signed />}
+                          {v == null ? <span className="text-muted">-</span> : <Money paise={v} signed />}
                         </td>
                       ))}
                       <td className="r">

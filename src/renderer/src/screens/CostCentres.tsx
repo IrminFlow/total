@@ -6,6 +6,7 @@ import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, EmptyState, Field, InteractiveReportRow, Modal, Money, Panel, SectionTitle, Select, Skeleton, SkeletonRows, TextInput } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import { confirmDialog } from '../lib/dialogs'
+import { ReportToolbar } from '../components/ReportToolbar'
 
 export function CostCentresScreen(): React.JSX.Element {
   const { from, to } = useSession()
@@ -84,9 +85,21 @@ export function CostCentresScreen(): React.JSX.Element {
         )}
       </Panel>
 
-      <SectionTitle>
-        P&amp;L by centre · {toDisplayDate(from)} → {toDisplayDate(to)}
-      </SectionTitle>
+      <SectionTitle>P&amp;L by centre</SectionTitle>
+      <ReportToolbar
+        ariaLabel="Cost centre report controls"
+        className="mb-3"
+        status={
+          reportLoading
+            ? 'Loading centres...'
+            : `${report?.length ?? 0} ${(report?.length ?? 0) === 1 ? 'centre' : 'centres'}`
+        }
+        period={
+          <span className="num text-[12px] text-muted">
+            {toDisplayDate(from)} to {toDisplayDate(to)}
+          </span>
+        }
+      />
       <Panel>
         {reportLoading ? (
           <SkeletonRows rows={4} />

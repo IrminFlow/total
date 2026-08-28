@@ -10,6 +10,7 @@ import { AmountInput, Button, EmptyState, Field, Modal, Money, Panel, ScrollList
 import { LedgerPicker } from '../components/pickers'
 import { useGroups } from '../components/pickerHooks'
 import { confirmDialog } from '../lib/dialogs'
+import { ReportToolbar } from '../components/ReportToolbar'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -296,19 +297,24 @@ export function BudgetsScreen(): React.JSX.Element {
             </div>
           </Panel>
 
-          <SectionTitle
-            right={
-              <Select className="max-w-[10rem]" value={upToMonth} onChange={(e) => setUpToMonth(e.target.value)}>
+          <SectionTitle>Budget variance</SectionTitle>
+          <ReportToolbar
+            ariaLabel="Budget variance controls"
+            className="mb-3"
+            status={selected.name}
+            period={
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] font-medium text-muted">Through</span>
+              <Select aria-label="Budget variance through month" className="max-w-[10rem]" value={upToMonth} onChange={(e) => setUpToMonth(e.target.value)}>
                 {months.map((m) => (
                   <option key={m} value={m}>
                     {monthLabel(m)}
                   </option>
                 ))}
               </Select>
+              </div>
             }
-          >
-            Variance · through {monthLabel(upToMonth)}
-          </SectionTitle>
+          />
           <Panel>
             {varianceLoading ? (
               <SkeletonRows rows={4} />
