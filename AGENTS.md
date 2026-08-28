@@ -4,7 +4,7 @@ Read [CLAUDE.md](CLAUDE.md) completely before changing code. It is the authorita
 
 ## Product boundary
 
-Total is a local-first Electron accounting application for macOS and Windows. SQLite is authoritative. Optional AI, MCP, Supabase collaboration, support delivery, and update services must not weaken offline accounting or approval controls. NIC live filing and online GST portal APIs are excluded from v0.5.
+Total is a local-first Electron accounting application for macOS and Windows. SQLite is authoritative. Optional AI, MCP, Supabase collaboration, support delivery, and update services must not weaken offline accounting or approval controls. NIC live filing and online GST portal APIs are excluded from v5.
 
 ## Required invariants
 

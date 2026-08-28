@@ -1,6 +1,6 @@
 {
   "name": "total",
-  "version": "0.5.0",
+  "version": "5.0.0",
   "description": "Total — private, offline-first accounting for macOS and Windows.",
   "main": "out/main/index.js",
   "author": "Irmin Labs",

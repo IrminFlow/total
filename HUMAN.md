@@ -139,7 +139,7 @@ Do not place certificate files or encoded certificate values in the repository, 
 
 - [ ] Approve the final reviewed PR only when checks are green and remaining limitations are written plainly.
 
-- [ ] After merge, dispatch the protected release-candidate workflow with the exact `main` commit SHA and version `0.5.0`.
+- [ ] After merge, dispatch the protected release-candidate workflow with the exact `main` commit SHA and version `5.0.0`.
   - Never create the tag manually.
   - Test and accept the exact signed candidate artifacts.
   - Promote that candidate without rebuilding it.
@@ -151,6 +151,6 @@ Do not place certificate files or encoded certificate values in the repository, 
 - You do not need a lawyer to run an internal or free beta if you explicitly accept the documented owner risk. Do not begin direct sales or significant paid marketing without qualified review.
 - You do not need an OpenAI key for offline accounting or offline OCR.
 - You do not need Supabase for a single-device offline user.
-- You do not need NIC sandbox or GST portal API credentials for v0.5.
+- You do not need NIC sandbox or GST portal API credentials for v5.
 
 Detailed deployment instructions: [docs/ENCRYPTED_COLLABORATION.md](docs/ENCRYPTED_COLLABORATION.md), [site/INTAKE_OPERATIONS.md](site/INTAKE_OPERATIONS.md), and [docs/RELEASE_RUNBOOK.md](docs/RELEASE_RUNBOOK.md).

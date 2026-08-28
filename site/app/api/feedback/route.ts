@@ -79,10 +79,10 @@ function versionAtLeast(version: string | undefined, target: string): boolean {
 
 async function publicIdeas() {
   const published = await latestRelease();
-  const quarterlyReleased = versionAtLeast(published?.version, "0.5.0");
+  const quarterlyReleased = versionAtLeast(published?.version, "5.0.0");
   return SHIPPED_IDEAS.map((idea) =>
     idea.id === "quarter-registers" && quarterlyReleased
-      ? { ...idea, status: "released" as const, releaseVersion: "0.5.0" }
+      ? { ...idea, status: "released" as const, releaseVersion: "5.0.0" }
       : idea,
   );
 }

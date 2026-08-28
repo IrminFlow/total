@@ -1,6 +1,6 @@
 # Total desktop threat model
 
-Last reviewed for release: 0.5.0, 28 August 2026
+Last reviewed for release: 5.0.0, 28 August 2026
 
 ## Assets and trust boundaries
 

@@ -6,7 +6,7 @@ The accounting engine never needs an account or an internet connection. Each com
 
 ## Current release state
 
-- Version: `0.5.0`
+- Version: `5.0.0`
 - Active integration branch: `v5-cloud-agent-sync`
 - Draft pull request: [#4](https://github.com/IrminFlow/total/pull/4)
 - CI: application tests, database tests, renderer tests, macOS E2E, Windows build, visual contracts, website build, and unsigned macOS/Windows packages pass on the branch

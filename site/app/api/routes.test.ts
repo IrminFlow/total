@@ -142,7 +142,7 @@ describe("deployment identity", () => {
       schema: 1,
       sourceRevision: "a".repeat(40),
       deploymentId: "dpl_current123",
-      productVersion: "0.5.0",
+      productVersion: "5.0.0",
     });
   });
 
@@ -769,8 +769,8 @@ describe("feedback board", () => {
   it("marks roadmap work released only when its public version exists", async () => {
     const releaseModule = await import("@/lib/release");
     vi.mocked(releaseModule.latestRelease).mockResolvedValue({
-      version: "0.5.0",
-      htmlUrl: "https://github.com/IrminFlow/total/releases/tag/v0.5.0",
+      version: "5.0.0",
+      htmlUrl: "https://github.com/IrminFlow/total/releases/tag/v5.0.0",
       assets: {},
     });
     const { GET } = await import("./feedback/route");
@@ -785,7 +785,7 @@ describe("feedback board", () => {
       result.ideas.find((idea) => idea.id === "quarter-registers"),
     ).toMatchObject({
       status: "released",
-      releaseVersion: "0.5.0",
+      releaseVersion: "5.0.0",
     });
   });
 

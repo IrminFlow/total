@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { validateProductionServiceEvidence } from "../lib/production-service-evidence.mjs";
 
 const revision = "a".repeat(40);
-const version = "0.5.0";
+const version = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
 const now = new Date("2026-08-24T18:00:00.000Z");
 
 function fixture() {

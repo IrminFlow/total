@@ -1,6 +1,6 @@
 # Production cutover runbook
 
-Scope: Total v0.5 desktop app, website, downloads, support and feedback. NIC live filing and online
+Scope: Total v5 desktop app, website, downloads, support and feedback. NIC live filing and online
 GST portal connectivity are excluded. Offline GST calculations and reviewed exports remain supported.
 
 ## 1. Internal acceptance

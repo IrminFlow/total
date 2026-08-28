@@ -195,7 +195,7 @@ jobs:
           created_release="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
             --raw-field "tag_name=$RELEASE_TAG" \
             --raw-field "target_commitish=$RELEASE_REVISION" \
-            --raw-field "name=Total $RELEASE_VERSION" \
+            --raw-field "name=Total v$RELEASE_VERSION" \
             --field draft=false \
             --field prerelease=true \
             --field generate_release_notes=true)"

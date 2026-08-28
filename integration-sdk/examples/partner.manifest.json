@@ -7,7 +7,7 @@
   "runtime": "declarative-v1",
   "compatibility": {
     "contractVersion": 1,
-    "minAppVersion": "0.5.0"
+    "minAppVersion": "5.0.0"
   },
   "permissions": ["imports:preview", "reports:read"],
   "networkHosts": [],

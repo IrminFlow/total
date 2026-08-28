@@ -1,4 +1,4 @@
-# Total v0.5 design system
+# Total v5 design system
 
 ## Design read
 

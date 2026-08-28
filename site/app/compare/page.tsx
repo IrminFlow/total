@@ -104,7 +104,7 @@ export default function ComparePage(): React.JSX.Element {
           </div>
 
           <p className="compare-note">
-            This comparison describes Total v0.5. Competitor pricing and
+            This comparison describes Total v5. Competitor pricing and
             capabilities can change, so verify current TallyPrime terms before
             purchasing.
           </p>

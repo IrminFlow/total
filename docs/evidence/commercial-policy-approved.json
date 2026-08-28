@@ -2,14 +2,14 @@
   "schema": 1,
   "kind": "commercial",
   "status": "approved",
-  "productVersion": "0.5.0",
-  "approvedAt": "2026-08-24T11:44:42.000Z",
-  "authority": "Product-owner instruction to decide and publish the commercial model in the v0.5 completion goal",
+  "productVersion": "5.0.0",
+  "approvedAt": "2026-08-28T05:38:24.000Z",
+  "authority": "Product-owner instruction that the current branch release is Total v5; existing approved commercial terms carry forward unchanged",
   "approvers": [
     { "name": "Total product owner", "role": "Product owner", "decision": "approved" }
   ],
   "policyDate": "2026-08-24",
-  "policySha256": "0adf97154f07ad1f21205dcd8cf40f6fd5694c6911f22b5ce9c4b8be624670ba",
+  "policySha256": "190301318a80867d56f8865fa589276e3f8156c8c0a49808b0adc806695a657c",
   "model": "perpetual-major-version",
   "betaPricePaise": 0,
   "businessPricePaise": 990000,

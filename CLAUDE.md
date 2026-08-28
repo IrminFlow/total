@@ -8,7 +8,7 @@ Total is a local-first Electron accounting application for macOS and Windows. It
 
 SQLite remains the transactional source of truth, with one database per company. JSON mirrors, portable packages, MCP resources, and agent proposals are integration formats only. Optional Supabase collaboration syncs encrypted drafts and review work, not the live database or posted books.
 
-NIC live filing and online GST portal APIs are excluded from the v0.5 completion scope. Offline GST calculation, review, evidence, and export remain supported.
+NIC live filing and online GST portal APIs are excluded from the v5 completion scope. Offline GST calculation, review, evidence, and export remain supported.
 
 ## Read before changing code
 

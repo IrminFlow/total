@@ -25,7 +25,7 @@ const PRODUCT_VERSION =
   process.env.TOTAL_APP_VERSION ||
   (typeof __TOTAL_APP_VERSION__ !== "undefined"
     ? __TOTAL_APP_VERSION__
-    : "0.5.0");
+    : "5.0.0");
 const root = resolve(
   process.env.TOTAL_DATA_DIR || join(homedir(), "Documents", "total"),
 );

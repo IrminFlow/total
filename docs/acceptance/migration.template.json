@@ -2,7 +2,7 @@
   "schema": 1,
   "kind": "migration",
   "status": "pending",
-  "productVersion": "0.5.0",
+  "productVersion": "5.0.0",
   "testedRevision": "",
   "testedAt": "",
   "testedArtifact": { "name": "", "bytes": 0, "sha256": "" },

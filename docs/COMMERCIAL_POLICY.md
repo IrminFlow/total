@@ -4,7 +4,7 @@ Effective policy date: 24 August 2026. Paid sales are not open yet.
 
 ## Public beta
 
-Total v0.5 is free during the public beta. No card is collected and no beta installation is
+Total v5 is free during the public beta. No card is collected and no beta installation is
 automatically converted to a paid plan. Paid sales start only after at least 60 days' notice.
 
 ## Perpetual licences after beta

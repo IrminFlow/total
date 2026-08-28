@@ -2,7 +2,7 @@
   "schema": 1,
   "kind": "clean-machine",
   "status": "pending",
-  "productVersion": "0.5.0",
+  "productVersion": "5.0.0",
   "testedRevision": "",
   "testedAt": "",
   "approvedAt": "",

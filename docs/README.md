@@ -18,7 +18,7 @@ If two documents conflict, follow the higher source in this list and update the 
 
 ## Product and design
 
-- [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md): detailed v0.5 completion history and the older numbered rollout narrative. Use root [ROADMAP.md](../ROADMAP.md) for current status.
+- [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md): detailed v5 completion history and the older numbered rollout narrative. Use root [ROADMAP.md](../ROADMAP.md) for current status.
 - [BACKLOG_300.md](BACKLOG_300.md): exhaustive catalogue of 300 product and technical opportunities. It is a catalogue, not the active sprint board.
 - [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md): historical mapping of implemented backlog items and remaining acceptance work.
 - [DESIGN_SYSTEM_V05.md](DESIGN_SYSTEM_V05.md): visual tokens, density, typography, color, states, and interaction patterns.

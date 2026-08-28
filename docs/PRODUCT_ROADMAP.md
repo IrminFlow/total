@@ -1,6 +1,6 @@
-# Total v0.5 completion roadmap
+# Total v5 completion roadmap
 
-Last updated: 28 August 2026. This preserves the detailed v0.5 completion narrative. Root
+Last updated: 28 August 2026. This preserves the detailed v5 completion narrative. Root
 [ROADMAP.md](../ROADMAP.md) is the current product and release status source of truth. The historical
 numbered implementation map is [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md), covering all
 300 items in [BACKLOG_300.md](BACKLOG_300.md).

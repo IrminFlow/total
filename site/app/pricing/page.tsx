@@ -22,7 +22,7 @@ export default function PricingPage(): React.JSX.Element {
   return <><FunnelBeacon event="pricing_view" /><SiteNav /><main className="wrap pricing-page">
     <p className="eyebrow">Founding commercial policy · 24 August 2026</p>
     <h1 className="serif">Own the software. Always own the books.</h1>
-    <p className="lede">Total v0.5 is ₹0 during the public beta. When paid licences open, they will be one-time major-version licences, not a subscription required to read or export your accounting data.</p>
+    <p className="lede">Total v5 is ₹0 during the public beta. When paid licences open, they will be one-time major-version licences, not a subscription required to read or export your accounting data.</p>
     <div className="hero-ctas"><a className="btn" href="/api/download">Download the free beta</a><Link className="text-link" href="/compare">Compare with TallyPrime</Link></div>
 
     <section className="pricing-ledger" aria-labelledby="plans-heading">

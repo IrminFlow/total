@@ -1,6 +1,6 @@
 # Total: 300 product and technical improvements
 
-This is the long-form opportunity backlog for Total after v0.5. Items are deliberately concrete,
+This is the long-form opportunity backlog for Total after v5. Items are deliberately concrete,
 customer-visible where possible, and ordered into domains rather than pretending all 300 should be
 built at once. Priority markers: **P0** protects correctness or unlocks release, **P1** materially
 improves daily use or revenue, and **P2** expands depth, reach, or long-term leverage.
@@ -367,7 +367,7 @@ improves daily use or revenue, and **P2** expands depth, reach, or long-term lev
 
 ## Recommended build sequence
 
-### Wave A — public v0.5 release gate
+### Wave A — public v5 release gate
 
 Build items 31, 35, 91–94, 106–108, 121–123, 166–169, 181–184, 196–199,
 226–230, 241–244, 256–259 and 286–291. This wave prioritizes accounting correctness,

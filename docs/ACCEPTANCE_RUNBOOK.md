@@ -1,4 +1,4 @@
-# v0.5 acceptance runbook
+# v5 acceptance runbook
 
 This runbook produces the human and real-data evidence that automation cannot honestly invent. NIC
 live filing and online GST connectivity are excluded. Do not place customer exports, names, GSTINs,
@@ -57,11 +57,11 @@ self-hosted, modified or failed evidence.
 ## Optional physical-machine matrix
 
 Physical Apple Silicon macOS, supported Intel macOS and Windows 11 devices or fresh VMs provide
-useful supplementary coverage but do not block v0.5 when they are unavailable. Record OS
+useful supplementary coverage but do not block v5 when they are unavailable. Record OS
 build, architecture and installer SHA-256. Test fresh install, first launch, a posted voucher, verified
 backup/restore, uninstall and preservation of `Documents/total`. Test public v0.4 upgrade on Apple
 Silicon and Windows. Intel marks that one check `not_applicable` because v0.4 had no public Intel build;
-the v0.5 clean install should still pass when hardware becomes available. Record the exact installer
+the v5 clean install should still pass when hardware becomes available. Record the exact installer
 filename, byte size and SHA-256 for each platform. Never mark this optional matrix complete from
 hosted-runner results or assumptions.
 
@@ -104,7 +104,7 @@ qualification, document decision, date and the SHA-256 supplied in the review pa
 privileged advice in the repository. The gate recomputes each source digest, so a later policy edit
 requires a new legal approval rather than silently inheriting the old decision.
 
-For the free v0.5 public beta only, qualified review is recommended rather than mandatory. The product
+For the free v5 public beta only, qualified review is recommended rather than mandatory. The product
 owner may instead complete `docs/acceptance/legal-risk.template.json`, acknowledging the exact document
 digests and explicitly accepting the risk of publishing without qualified review. This evidence is an
 owner decision, not legal advice and not a claim that the documents were legally approved. It cannot

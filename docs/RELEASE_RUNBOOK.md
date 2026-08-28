@@ -40,7 +40,7 @@ must remain limited to the `main` branch and require release-owner approval.
 5. Dispatch **Promote release candidate** with the recorded candidate identity, source revision and
    version. Promotion re-downloads and verifies every candidate byte, then creates the tag and release.
 6. Confirm the public release contains DMG, ZIP, EXE, blockmaps, `latest-mac.yml`, and `latest.yml`, and
-   confirm the website's `/api/latest` and `/api/download` serve v0.5 correctly.
+   confirm the website's `/api/latest` and `/api/download` serve v5 correctly.
 
 Do not create or push the release tag manually. The promotion workflow owns tag creation and refuses
 to overwrite an existing tag or release because partial or mixed-version assets would break updates.

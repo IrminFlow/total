@@ -1,12 +1,12 @@
 # Commercial launch decision
 
-The approved v0.5 position is a free public beta followed by perpetual major-version licences. The
+The approved v5 position is a free public beta followed by perpetual major-version licences. The
 binding prices, refund window and support targets are in `COMMERCIAL_POLICY.md` and its digest-bound
 owner approval is in `docs/evidence/commercial-policy-approved.json`.
 
 ## Recommended launch path
 
-1. Ship v0.5 as a free beta with no card and no automatic paid conversion.
+1. Ship v5 as a free beta with no card and no automatic paid conversion.
 2. Measure activation using only the opt-in allowlisted events already implemented in the app.
 3. Give at least 60 days' notice before the first paid release.
 4. Offer Business at ₹9,900 plus applicable taxes and Practice at ₹29,900 plus applicable taxes.
@@ -18,7 +18,7 @@ owner approval is in `docs/evidence/commercial-policy-approved.json`.
 - A perpetual major version matches the expectations of offline accounting buyers.
 - Optional Care creates predictable support and update funding without holding company books hostage.
 - A free beta removes refund and billing migration risk while real workflows are still being accepted.
-- Practice pricing reflects multi-company value without charging per bookkeeper seat in v0.5.
+- Practice pricing reflects multi-company value without charging per bookkeeper seat in v5.
 
 ## Decisions that remain owner-controlled
 

@@ -1,6 +1,6 @@
 # Human acceptance session kit
 
-This kit turns v0.5 acceptance into repeatable work. It prepares the session but does not replace a
+This kit turns v5 acceptance into repeatable work. It prepares the session but does not replace a
 real participant. Use the exact release-candidate installers recorded in `human.template.json`.
 
 ## Session rules

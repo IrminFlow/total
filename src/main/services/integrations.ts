@@ -23,7 +23,7 @@ import { exportCaPack } from "./caPack";
 import { writeAudit } from "./audit";
 import { applyRotationPolicy, replicateBackup } from "./resilience";
 
-const APP_VERSION_FALLBACK = "0.5.0";
+const APP_VERSION_FALLBACK = "5.0.0";
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 const MAX_IMPORT_ROWS = 50_000;

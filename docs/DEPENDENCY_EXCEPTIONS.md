@@ -14,7 +14,7 @@ untrusted input without Total's own validation and size limits.
 | `lodash.isequal` | electron-updater 6.8.9 and exceljs -> fast-csv | Both direct owners are already at their current registry releases. |
 | `rimraf` 2 | ExcelJS -> unzipper -> fstream and Windows packaging | Await upstream archive/packaging upgrades; never called by app data-deletion flows. |
 
-`better-sqlite3` was upgraded from 12.11.1 to 13.0.3 for v0.5. This removed deprecated
+`better-sqlite3` was upgraded from 12.11.1 to 13.0.3 for v5. This removed deprecated
 `prebuild-install` and its obsolete helper chain while retaining the reviewed native-runtime
 allow-list, Electron smoke coverage, backup/restore soak coverage and the complete DB suite.
 

@@ -1,6 +1,6 @@
 # Support and feedback operations
 
-Total v0.5 stores website support cases and feedback events as private objects in the Vercel Blob
+Total v5 stores website support cases and feedback events as private objects in the Vercel Blob
 store connected to the `total-site` project. The store is located in Mumbai (`bom1`). Public Blob
 URLs cannot read these objects; operators need project access. A configured webhook is an optional
 notification path, not the system of record.

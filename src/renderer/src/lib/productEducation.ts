@@ -7,7 +7,7 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: "0.5.0",
+    version: "5.0.0",
     title: "A calmer, faster accounting workspace",
     released: "August 2026",
     changes: [
