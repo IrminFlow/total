@@ -1,17 +1,13 @@
 import { chromium } from 'playwright-core'
-import { createRequire } from 'node:module'
 import { execFileSync, spawn } from 'node:child_process'
 import { createServer } from 'node:net'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const require = createRequire(import.meta.url)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const site = join(root, 'site')
 const out = resolve(process.env.SITE_VISUAL_OUT ?? join(root, 'smoke-out', 'site-routes'))
-const profile = mkdtempSync(join(tmpdir(), 'total-site-capture-'))
 const routes = [
   '/', '/capture', '/changelog', '/compare', '/docs', '/docs/ai-data', '/docs/backups',
   '/docs/coming-from-tally', '/docs/faq', '/docs/gst-returns', '/feedback', '/pricing',
@@ -44,7 +40,6 @@ async function reservePort() {
   })
 }
 const port = await reservePort()
-const automationPort = await reservePort()
 const baseUrl = `http://127.0.0.1:${port}`
 const server = spawn('npm', ['run', 'start', '--', '--hostname', '127.0.0.1', '--port', String(port)], {
   cwd: site, stdio: ['ignore', 'pipe', 'pipe']
@@ -78,33 +73,18 @@ async function ready(page) {
 }
 
 let browser
-let shellProcess
 const captures = []
 try {
   await waitForServer()
-  const { ELECTRON_RUN_AS_NODE: _ignored, ...env } = process.env
-  shellProcess = spawn(require('electron'), [
-    `--remote-debugging-port=${automationPort}`,
-    `--user-data-dir=${profile}`,
-    join(root, 'scripts', 'lib', 'site-capture-shell.cjs'),
-    baseUrl,
-  ], { env, stdio: ['ignore', 'pipe', 'pipe'] })
-  let shellLog = ''
-  for (const stream of [shellProcess.stdout, shellProcess.stderr]) {
-    stream.on('data', (chunk) => { shellLog = (shellLog + chunk).slice(-12000) })
+  try {
+    browser = await chromium.launch({ headless: true })
+  } catch (error) {
+    throw new Error(
+      `The isolated Chromium visual runtime is unavailable. Run \`npx playwright-core install chromium\` once. ${error instanceof Error ? error.message : String(error)}`,
+    )
   }
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${automationPort}/json/version`)).ok) break
-    } catch { /* Electron is still starting */ }
-    if (attempt === 119) throw new Error(`site capture shell did not become ready\n${shellLog}`)
-    await new Promise((resolveWait) => setTimeout(resolveWait, 250))
-  }
-  browser = await chromium.connectOverCDP(`http://127.0.0.1:${automationPort}`)
-  const context = browser.contexts()[0]
-  if (!context) throw new Error('site capture shell has no browser context')
-  const page = context.pages()[0] ?? await context.waitForEvent('page', { timeout: 30000 })
-  await page.waitForLoadState('domcontentloaded')
+  const context = await browser.newContext({ viewport: viewports[0] })
+  const page = await context.newPage()
   await page.route('**/api/feedback', (route) => route.fulfill({
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ ideas: [{ id: 'capture-fixture', title: 'Keyboard workflow improvements', detail: 'Deterministic visual fixture.', status: 'planned', votes: 12, releaseVersion: 'v5.1' }] })
@@ -130,7 +110,5 @@ try {
   console.log(JSON.stringify({ ok: true, routes: routes.length, captures: captures.length, out }))
 } finally {
   await browser?.close().catch(() => {})
-  shellProcess?.kill('SIGTERM')
   server.kill('SIGTERM')
-  rmSync(profile, { recursive: true, force: true })
 }
