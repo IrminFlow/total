@@ -237,12 +237,36 @@ await scenario('27-payroll-desk', async (h) => {
     assert(decodeURIComponent(withPhone.whatsapp).includes('Net pay'), 'the message carries the figure')
   }
 
+  // ---- leaving date: persisted, prorated once, and excluded afterwards ----
+  const leaver = await h.invoke('payroll:employees:save', {
+    data: {
+      name: 'Leela Shah', code: 'E004', designation: 'Supervisor', joined: '2024-01-01',
+      leftOn: '2027-02-20', pan: null, uan: null, esicNo: null,
+      basic: 3000000, hra: 1200000, special: 600000,
+      pfEnabled: true, esiEnabled: false, ptEnabled: true, active: false
+    }
+  })
+  assert(leaver.leftOn === '2027-02-20', 'the employee record keeps the inclusive last working day')
+  const finalMonth = await h.invoke('payroll:preview', { month: '2027-02', days: [] })
+  const finalLine = finalMonth.find((l) => l.employeeId === leaver.id)
+  assert(finalLine.payableDays === 20, `the final monthly run is capped once (${finalLine.payableDays} days)`)
+  const afterLeaving = await h.invoke('payroll:preview', { month: '2027-03', days: [] })
+  assert(!afterLeaving.some((l) => l.employeeId === leaver.id), 'a later run excludes the leaver')
+
   // ---- the screen ----
   await h.page.keyboard.press('Escape')
   await h.goto('payroll')
   await h.page.waitForSelector('[data-testid="statutory-footnote"]', { timeout: 15000 })
   const footnote = await h.page.textContent('[data-testid="statutory-footnote"]')
   assert(footnote.includes('effective'), 'the footnote states which rate set is in force, and from when')
+  const leaverRow = h.page.locator('[data-testid="rows-payroll-employees"] tr').filter({ hasText: 'Leela Shah' })
+  await leaverRow.locator('[data-testid="btn-payroll-edit-employee"]').click()
+  await h.page.waitForSelector('[data-testid="input-employee-left-on"]')
+  assert(
+    (await h.page.inputValue('[data-testid="input-employee-left-on"]')) === '2027-02-20',
+    'the employee form shows the saved last working day'
+  )
+  await h.page.keyboard.press('Escape')
   await h.shot('01-employees')
 
   await h.clickText('Attendance')

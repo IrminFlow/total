@@ -25,7 +25,7 @@ interface LedgerRow {
   id: number; name: string; group_id: number; opening_balance: number
   gstin: string | null; state_code: string | null; address: string | null
   tax_type: Ledger['taxType']; gst_rate: number | null; hsn: string | null; is_system: number
-  tds_section_id: number | null; pan: string | null; credit_days: number | null; export_type: Ledger['exportType']
+  tds_section_id: number | null; pan: string | null; tan: string | null; credit_days: number | null; export_type: Ledger['exportType']
   rcm: number; itc_eligibility: Ledger['itcEligibility'] | null
   price_level_id: number | null; credit_limit: number | null; default_cost_centre_id: number | null
   interest_rate_bp: number | null; interest_grace_days: number | null
@@ -40,7 +40,7 @@ const mapLedger = (r: LedgerRow): Ledger => ({
   id: r.id, name: r.name, groupId: r.group_id, openingBalance: r.opening_balance,
   gstin: r.gstin, stateCode: r.state_code, address: r.address,
   taxType: r.tax_type, gstRate: r.gst_rate, hsn: r.hsn, isSystem: !!r.is_system,
-  tdsSectionId: r.tds_section_id, pan: r.pan, creditDays: r.credit_days, exportType: r.export_type,
+  tdsSectionId: r.tds_section_id, pan: r.pan, tan: r.tan, creditDays: r.credit_days, exportType: r.export_type,
   rcm: !!r.rcm, itcEligibility: r.itc_eligibility ?? 'eligible',
   priceLevelId: r.price_level_id, creditLimit: r.credit_limit,
   defaultCostCentreId: r.default_cost_centre_id,
@@ -174,14 +174,14 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
   const res = db
     .prepare(
       `INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, address, tax_type, gst_rate, hsn,
-        tds_section_id, pan, credit_days, export_type, rcm, itc_eligibility, price_level_id, credit_limit,
+        tds_section_id, pan, tan, credit_days, export_type, rcm, itc_eligibility, price_level_id, credit_limit,
         interest_rate_bp, interest_grace_days, msme_status, udyam_number, related_party, relationship,
         salesperson, territory, phone, email, default_cost_centre_id,
         bank_account, bank_ifsc, bank_holder, bank_shared_ok, currency_code, is_system)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+      input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.tan, input.creditDays, input.exportType,
       input.rcm ? 1 : 0, input.itcEligibility,
       input.priceLevelId ?? null, input.creditLimit ?? null,
       input.interestRateBp ?? null, input.interestGraceDays ?? null,
@@ -202,7 +202,7 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
   if (!existing) throw new Error('Ledger not found')
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
-     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,
+     address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, tan = ?, credit_days = ?, export_type = ?,
      rcm = ?, itc_eligibility = ?, price_level_id = ?, credit_limit = ?,
      interest_rate_bp = ?, interest_grace_days = ?, msme_status = ?, udyam_number = ?,
      related_party = ?, relationship = ?, salesperson = ?, territory = ?, phone = ?, email = ?,
@@ -210,7 +210,7 @@ export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
      currency_code = ?
      WHERE id = ?`
   ).run(input.name, input.groupId, input.openingBalance, input.gstin, input.stateCode, input.address,
-    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.creditDays, input.exportType,
+    input.taxType, input.gstRate, input.hsn, input.tdsSectionId, input.pan, input.tan, input.creditDays, input.exportType,
     input.rcm ? 1 : 0, input.itcEligibility,
     input.priceLevelId === undefined ? existing.priceLevelId : input.priceLevelId,
     input.creditLimit === undefined ? existing.creditLimit : input.creditLimit,

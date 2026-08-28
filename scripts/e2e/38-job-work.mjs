@@ -15,6 +15,11 @@ function daysAgo(days) {
   return d.toISOString().slice(0, 10)
 }
 
+async function dismissToasts(page) {
+  const buttons = page.locator('[role="status"] > div > button:first-child')
+  while (await buttons.count()) await buttons.first().click()
+}
+
 await scenario('38-job-work', async (h) => {
   await h.createDemoCompany()
 
@@ -99,15 +104,18 @@ await scenario('38-job-work', async (h) => {
   assertEq(mouldRow.overdue, false, 'and are never a deemed supply, five years out or not')
 
   // ---- a recent challan, so this period's table 4 has something in it ----
-  await h.invoke('jobWork:save', {
+  const chain = await h.invoke('jobWork:save', {
     data: {
       date: recentOn,
+      jobWorkerLedgerId: jobWorker.id,
+      jobWorkerIsSez: true,
       goodsType: 'input',
       description: 'Steel blanks',
       qtyMilli: 20_000,
       uqc: 'PCS',
       taxablePaise: 2_00_000,
-      gstRate: 18
+      gstRate: 18,
+      cessPaise: 1_234
     }
   })
 
@@ -118,9 +126,15 @@ await scenario('38-job-work', async (h) => {
   assert(working.obligation.rule.note.length > 0, 'and the rule that decided it')
 
   const nil = await h.invoke('jobWork:itc04', { fyStartYear: 2009 })
-  assertEq(nil.form.nil, true, 'a year with nothing in it is a nil return')
+  assertEq(nil.form.nil, true, 'a year with nothing in it is an empty working')
   assertEq(nil.form.table4.length, 0, 'with an empty table 4')
-  assert(nil.form.period.dueDate.length === 10, 'and a due date all the same — it still has to be filed')
+  assertEq(nil.form.portalFile.ready, false, 'and no portal-file claim')
+  assert(
+    nil.form.portalFile.blockers.some((b) => b.includes('cannot generate a nil JSON')),
+    'because GSTN explicitly refuses a nil offline JSON'
+  )
+  assertEq(working.form.portalFile.offlineToolVersionShown, 'v2.15', 'the audited utility version is current')
+  assertEq(working.form.portalFile.utilitySha256.length, 64, 'the official utility download is hash-pinned')
 
   // ---- the screen ----
   await h.page.keyboard.press('Escape')
@@ -137,22 +151,69 @@ await scenario('38-job-work', async (h) => {
   )
   assert(callout.includes('section 50(1)'), 'including that interest has been running')
   assert(
-    callout.includes('not a departmental clarification'),
-    'and the anniversary-boundary reading is surfaced where a user would rely on it'
+    callout.includes('General Clauses Act'),
+    'and the anniversary boundary names its statutory construction source'
   )
   await h.shot('01-register')
+
+  // ---- the full worker chain through the real UI ----
+  const destination = ledgers.find((l) => l.id !== jobWorker.id)
+  assert(destination, 'the demo company has a second ledger for the onward destination')
+  await h.click(`btn-jobwork-receive-${chain.id}`)
+  await h.page.getByTestId('select-jwreturn-disposition').selectOption('sent_to_other_job_worker')
+  await h.page.getByTestId('select-jwreturn-destination-worker').selectOption(String(destination.id))
+  await h.page.getByTestId('select-jwreturn-provenance').selectOption('fresh')
+  await h.fill('input-jwreturn-number', 'ONWARD-UI-1')
+  await h.fill('input-jwreturn-qty', '11')
+  await h.fill('input-jwreturn-notes', 'Cutting and finishing')
+  await h.shot('02-chain-modal')
+  await h.click('btn-jwreturn-save')
+  await h.page.waitForSelector(`[data-testid="btn-jobwork-receive-${chain.id}"]`, { timeout: 15000 })
+
+  let chained = await h.invoke('jobWork:get', { id: chain.id })
+  assertEq(chained.balanceMilli, 20_000, 'moving goods onward does not clear or restart the first clock')
+  assertEq(chained.returns[0].destinationJobWorkerLedgerId, destination.id, 'the destination identity is durable')
+  assertEq(chained.returns[0].onwardChallanProvenance, 'fresh', 'fresh-challan provenance is durable')
+  assertEq(chained.returns[0].lossWasteQtyMilli, 0, 'an onward despatch does not invent a notified loss row')
+
+  await h.click(`btn-jobwork-receive-${chain.id}`)
+  await h.page.getByTestId('select-jwreturn-source-worker').selectOption(String(destination.id))
+  await h.fill('input-jwreturn-number', 'BACK-UI-2')
+  await h.fill('input-jwreturn-qty', '10')
+  await h.fill('input-jwreturn-loss-qty', '1')
+  await h.fill('input-jwreturn-loss-uqc', 'PCS')
+  await h.fill('input-jwreturn-notes', 'Finished goods returned')
+  await h.click('btn-jwreturn-save')
+  chained = await h.invoke('jobWork:get', { id: chain.id })
+  assertEq(chained.balanceMilli, 9_000, 'the destination worker can return only what the onward move gave him')
+  const chainWorking = await h.invoke('jobWork:itc04', {})
+  const differentWorker = chainWorking.form.table5B.find((r) => r.receiptChallanNumber === 'BACK-UI-2')
+  assert(differentWorker, 'the actual different-worker return reaches Table 5B')
+  assertEq(differentWorker.lossWasteQtyMilli, 1_000, 'the Table 5B row preserves its own loss/waste quantity')
+  assertEq(
+    differentWorker.jobWorkerGstin,
+    chained.returns.find((r) => r.number === 'BACK-UI-2').sourceJobWorkerGstin,
+    'Table 5B carries the durable returning-worker identity, not the first worker'
+  )
+  await dismissToasts(h.page)
+  await h.shot('03-chain-register')
 
   await h.click('tab-jobwork-itc04')
   await h.page.waitForSelector('[data-testid="panel-itc04-obligation"]', { timeout: 15000 })
   await h.page.waitForSelector('[data-testid="rows-itc04-4"] tr', { timeout: 15000 })
   const periodicity = await h.page.textContent('[data-screen="job-work"]')
   assert(
-    periodicity.includes('written from memory, not read from the gazette'),
-    'the periodicity citation says how confident it is'
+    periodicity.includes('Notification 35/2021-Central Tax'),
+    'the periodicity citation is pinned to the gazette notification'
   )
   assert(
-    periodicity.includes('Table 5B'),
-    'and table 5B names itself, caveat and all'
+    periodicity.includes('Table 5B — received back from a different job worker'),
+    'and table 5B uses GSTN’s actual receipt heading'
   )
-  await h.shot('02-itc04')
+  assert(periodicity.includes('Portal JSON is disabled'), 'the screen does not claim an upload file')
+  assert(periodicity.includes('cannot generate a nil JSON'), 'the nil limitation is visible')
+  assert(periodicity.includes('v2.15'), 'the screen states the audited current utility version')
+  assert(periodicity.includes('contradicts itself'), 'the official Table 5B contradiction is exposed')
+  await dismissToasts(h.page)
+  await h.shot('04-itc04')
 })

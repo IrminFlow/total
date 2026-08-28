@@ -152,9 +152,13 @@ function assertReconOpen(db: DB, ledgerId: number, dates: (string | null)[]): vo
 export function setBankDate(db: DB, lineId: number, bankDate: string | null): void {
   if (bankDate !== null && !isValidISODate(bankDate)) throw new Error('Invalid bank date')
   const before = db
-    .prepare('SELECT bank_date AS bankDate, ledger_id AS ledgerId FROM voucher_lines WHERE id = ?')
+    .prepare(
+      `SELECT vl.bank_date AS bankDate, vl.ledger_id AS ledgerId
+       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+       WHERE vl.id = ? AND ${IN_BOOKS}`
+    )
     .get(lineId) as { bankDate: string | null; ledgerId: number } | undefined
-  if (!before) throw new Error('Entry not found')
+  if (!before) throw new Error('Entry not found in the books')
   assertReconOpen(db, before.ledgerId, [before.bankDate, bankDate])
   const res = db.prepare('UPDATE voucher_lines SET bank_date = ? WHERE id = ?').run(bankDate, lineId)
   if (res.changes === 0) throw new Error('Entry not found')

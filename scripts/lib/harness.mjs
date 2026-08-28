@@ -24,7 +24,9 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 
 const require = createRequire(import.meta.url)
-const electronPath = require('electron')
+// The override is used by the Electron/CDP compatibility matrix. It lets that audit launch a
+// separately installed Electron without rewriting package.json or package-lock.json.
+const electronPath = process.env.TOTAL_ELECTRON_PATH || require('electron')
 
 /** Console noise that is not the app's fault — never fails a scenario. */
 const CONSOLE_IGNORE = [
@@ -207,7 +209,11 @@ export class Harness {
     await this.waitScreen('company-select')
     await this.click('btn-company-create')
     await this.fill('input-company-name', name)
-    await this.click('btn-company-save')
+    // Creating a company runs every migration and seeds the chart before navigation settles. On a
+    // Windows runner Playwright otherwise couples the click's generic 10s action timeout to that
+    // scheduled navigation, even though the durable gateway wait below has the correct longer
+    // budget. Preserve a real pointer click, but let waitScreen own completion and diagnostics.
+    await this.click('btn-company-save', { noWaitAfter: true })
     await this.waitScreen('gateway', timeout)
   }
 

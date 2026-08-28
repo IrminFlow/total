@@ -43,6 +43,7 @@ const stripComments = (src: string): string =>
 const STRING_RE = /`(?:[^`\\]|\\.)*`|'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"/g
 const IS_SQL = /\b(SELECT|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+TABLE)\b/
 const READS_VOUCHERS = /\b(?:FROM|JOIN)\s+vouchers\b/i
+const READS_VOUCHER_LINES = /\b(?:FROM|JOIN)\s+voucher_lines\b/i
 const SCOPED = /\b(IN_BOOKS|NOT_DELETED|deleted_at)\b/
 
 /**
@@ -62,6 +63,16 @@ const IS_WRITE = /^\s*(INSERT|UPDATE|DELETE)\b/i
  * about what belongs in the books.
  */
 const ALLOWED: { file: string; contains: string; why: string }[] = [
+  {
+    file: 'src/main/db/integrity.ts',
+    contains: 'SELECT voucher_id AS id',
+    why: 'integrity checking deliberately verifies that live and binned voucher rows both balance'
+  },
+  {
+    file: 'src/main/services/masters.ts',
+    contains: 'SELECT COUNT(*) AS n FROM voucher_lines WHERE ledger_id = ?',
+    why: 'a binned voucher can be restored, so its ledger remains referenced and cannot be deleted'
+  },
   {
     file: 'src/main/services/vouchers.ts',
     contains: 'SELECT * FROM vouchers WHERE id = ?',
@@ -115,6 +126,21 @@ const ALLOWED: { file: string; contains: string; why: string }[] = [
     // the voucher behind it was later binned, and that combination is exactly what an auditor is
     // looking for. It cannot widen `pending` either — that is rcmSupplies (IN_BOOKS) minus this.
     why: 'an issued self-invoice outlives the voucher it documents, and the auditor asks for that case'
+  },
+  {
+    file: 'src/main/services/rcm.ts',
+    contains: 'SELECT DISTINCT r.* FROM rcm_self_invoices r',
+    why: 'the issued-document audit includes a document whose supporting voucher was later binned'
+  },
+  {
+    file: 'src/main/services/reports.ts',
+    contains: 'SELECT vl.voucher_id AS voucherId, vl.id AS lineId',
+    why: 'the preceding scoped voucher query supplies this bounded id list in the same synchronous function'
+  },
+  {
+    file: 'src/main/services/reports.ts',
+    contains: 'SELECT vl2.voucher_id AS voucherId, vl2.dr_cr AS drCr, l2.name',
+    why: 'statement rows are already IN_BOOKS-scoped and supply this exact bounded voucher-id list'
   },
   {
     file: 'src/main/services/rcm.ts',
@@ -216,11 +242,20 @@ function scan(): { files: number; sqlStrings: number; voucherReads: number; find
       const asFragment = [...consts].find(([, value]) => value === body)?.[0]
       if (asFragment && new RegExp(`\\$\\{\\s*${asFragment}\\b`).test(code)) continue
 
-      if (!READS_VOUCHERS.test(expanded)) continue
+      if (!READS_VOUCHERS.test(expanded) && !READS_VOUCHER_LINES.test(expanded)) continue
       voucherReads++
 
       if (IS_WRITE.test(expanded.trim())) continue
       if (SCOPED.test(expanded)) continue
+
+      // A line query for one already-selected voucher is scoped by its caller. Aggregate line
+      // queries that start from some other table are not: they must rejoin vouchers and state
+      // whether a binned parent belongs. The latter shape caused deleted counter sales to remain
+      // in till totals, which the older vouchers-only scan could not see.
+      if (
+        !READS_VOUCHERS.test(expanded) &&
+        /\b(?:[a-z_]\w*\.)?voucher_id\s*=\s*(?:\?|v\.id)(?:\b|\s|$)/i.test(expanded)
+      ) continue
 
       // The scope may be held in a variable that is interpolated in — check what it was set to.
       const viaVariable = [...expanded.matchAll(/\$\{([^}]*)\}/g)].some((m) =>
@@ -258,6 +293,7 @@ describe('every voucher query says what it thinks about the bin', () => {
     expect(SCOPED.test('SELECT 1 FROM vouchers v WHERE v.date > ?')).toBe(false)
     expect(READS_VOUCHERS.test('JOIN vouchers v ON v.id = vl.voucher_id')).toBe(true)
     expect(READS_VOUCHERS.test('FROM voucher_lines vl')).toBe(false)
+    expect(READS_VOUCHER_LINES.test('FROM voucher_lines vl')).toBe(true)
   })
 
   it('finds no unscoped read of vouchers in src/main', () => {

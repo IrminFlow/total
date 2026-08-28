@@ -10,7 +10,7 @@ import {
   getEmployeeHeads, setEmployeeHeads, previewRun, commitRun, getRun, deleteRun,
   ecrForRun, esiForRun, ptSummaryForRun, form16, payrollTrend, listRuns,
   previewPeriod, commitPeriod, cyclePeriods, periodFor, monthlyLines,
-  cycleAnchor, setCycleAnchor, DEFAULT_CYCLE_ANCHOR
+  cycleAnchor, setCycleAnchor, DEFAULT_CYCLE_ANCHOR, tdsForMonth
 } from './payroll'
 
 const emp = (over: Partial<EmployeeInput> = {}): EmployeeInput => ({
@@ -406,6 +406,88 @@ describe('a week somebody was not there for', () => {
     saveEmployee(db, emp({ payCycle: 'weekly' }))
     const stray = periodFor(db, 'weekly', '2026-09-15')
     expect(() => previewPeriod(db, { ...stray, statutoryMonth: JUNE }, [])).toThrow(/pay periods/)
+  })
+})
+
+describe('an employee who leaves during a pay period', () => {
+  it('persists the last working day and rejects a date before joining', () => {
+    const db = seededDb()
+    const saved = saveEmployee(db, {
+      ...emp({ joined: '2024-01-15' }),
+      leftOn: '2026-06-10'
+    } as EmployeeInput & { leftOn: string })
+    expect((saved as typeof saved & { leftOn: string | null }).leftOn).toBe('2026-06-10')
+
+    expect(() => saveEmployee(db, {
+      ...emp({ joined: '2026-06-11' }),
+      leftOn: '2026-06-10'
+    } as EmployeeInput & { leftOn: string })).toThrow(/last working day.*joining date/i)
+  })
+
+  it('clips weekly earnings and statutory deductions to the last working day', () => {
+    const db = seededDb()
+    const e = saveEmployee(db, {
+      ...emp({ payCycle: 'weekly' }),
+      leftOn: '2026-06-10'
+    } as EmployeeInput & { leftOn: string })
+
+    const first = commitPeriod(db, weeks(db)[0]!, []).lines.find((l) => l.employeeId === e.id)!
+    const final = commitPeriod(db, weeks(db)[1]!, []).lines.find((l) => l.employeeId === e.id)!
+    expect(first.payableDays).toBe(7.5)
+    // 8–10 June are three of the period's seven days: 3/7 of its 7.5-day month share, rounded
+    // to the attendance register's half-day granularity.
+    expect(final.payableDays).toBe(3)
+    expect(final.gross).toBe(3_200_00)
+
+    // The final paid cycle carries the complete month-to-date statutory amount. Later cycles no
+    // longer contain this employee and therefore cannot withhold deductions after employment.
+    expect(final.pfEmp).toBe(840_00 - first.pfEmp)
+    expect(previewPeriod(db, weeks(db)[2]!, [])).toEqual([])
+  })
+
+  it('caps a monthly run at employment days without double-prorating attendance', () => {
+    const db = seededDb()
+    const e = saveEmployee(db, {
+      ...emp(),
+      leftOn: '2026-06-20'
+    } as EmployeeInput & { leftOn: string })
+    const fullAttendance = previewRun(db, JUNE, []).find((l) => l.employeeId === e.id)!
+    expect(fullAttendance.payableDays).toBe(20)
+    expect(fullAttendance.gross).toBe(21_333_33)
+
+    // Fifteen payable attendance days are already below the twenty employed calendar days, so
+    // the leaving-date cap must not multiply them by 20/30 a second time.
+    const attendance = previewRun(db, JUNE, [{ employeeId: e.id, payableDays: 15 }]).find((l) => l.employeeId === e.id)!
+    expect(attendance.payableDays).toBe(15)
+    expect(attendance.gross).toBe(16_000_00)
+  })
+
+  it('still includes an inactive leaver in their final period, then excludes later periods', () => {
+    const db = seededDb()
+    const e = saveEmployee(db, {
+      ...emp({ payCycle: 'weekly', active: false }),
+      leftOn: '2026-06-10'
+    } as EmployeeInput & { leftOn: string })
+    expect(previewPeriod(db, weeks(db)[1]!, []).map((l) => l.employeeId)).toContain(e.id)
+    expect(previewPeriod(db, weeks(db)[2]!, []).map((l) => l.employeeId)).not.toContain(e.id)
+  })
+
+  it('projects section 192 only through the leaving date and withholds it in the final period', () => {
+    const db = seededDb()
+    const e = saveEmployee(db, {
+      ...emp({
+        basic: 600_000_00, hra: 200_000_00, special: 200_000_00,
+        payCycle: 'weekly', active: false
+      }),
+      leftOn: '2026-06-10'
+    } as EmployeeInput & { leftOn: string })
+
+    const tax = tdsForMonth(db, JUNE).get(e.id)!
+    expect(tax.monthsRemaining).toBe(1)
+    expect(tax.annualGross).toBeLessThan(1_000_000_00 * 3)
+    expect(tax.thisMonth).toBeGreaterThan(0)
+    expect(previewPeriod(db, weeks(db)[1]!, []).find((l) => l.employeeId === e.id)!.tds).toBe(tax.thisMonth)
+    expect(tdsForMonth(db, '2026-07').has(e.id)).toBe(false)
   })
 })
 

@@ -5,12 +5,10 @@
  * the part that has to talk to the books: which purchases are reverse-charge, what tax they carry
  * at master rates, which of them already have a document, and where the next serial comes from.
  *
- * THE SET OF SUPPLIES IS THE SAME SET GSTR-3B USES. `rcmInwardSummary` in gst.ts computes the
- * 3.1(d) liability from purchases and purchase-return debit notes against parties flagged `rcm`,
- * at master rates, because a reverse-charge purchase books no input-tax lines of its own. This
- * file walks the same vouchers with the same rates. That is deliberate and load-bearing: if the
- * self-invoices covered a different set from the liability, the documents would not add up to the
- * return, and reconciling them would be the user's problem forever.
+ * GSTR-3B and document scope are intentionally different. `rcmInwardSummary` includes every
+ * flagged 9(3) liability, including a registered supplier. Section 31(3)(f), however, tells the
+ * recipient to self-invoice only when that supplier is unregistered; a registered supplier's own
+ * RCM invoice is the supporting document. Both paths use the same rates and registration scope.
  */
 
 import type { DB } from '../db/connection'
@@ -18,7 +16,6 @@ import type { CompanyInfo } from '@shared/domain'
 import { computeGst, supplyTypeFor } from '@shared/gst/calc'
 import {
   buildSelfInvoice,
-  consolidateMonthly,
   selfInvoiceNumber,
   type SelfInvoiceDoc,
   type SelfInvoiceLine,
@@ -31,6 +28,7 @@ import { descendantIdsByName } from './masters'
 import { IN_BOOKS } from './vouchers'
 import { writeAudit } from './audit'
 import { writeExportPdf } from './pdf'
+import { regScope, type GstScope } from './registrations'
 
 const PURCHASE_GROUPS = ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses']
 
@@ -48,12 +46,16 @@ interface RcmVoucherRow {
 /**
  * Every inward reverse-charge supply in a period, with its tax computed at master rates.
  *
+ * Only UNREGISTERED suppliers appear. Section 31(3)(f) requires a recipient self-invoice for a
+ * 9(3)/9(4) supply received from "a supplier who is not registered". A registered 9(3) supplier's
+ * own RCM invoice remains the document; its liability still belongs in GSTR-3B.
+ *
  * Purchase-return debit notes are excluded here even though they reduce the 3B liability: a
  * self-invoice documents a supply received, and a return is not one. The credit note against a
  * self-invoice is a separate document the user raises if they need it, and inventing a negative
  * self-invoice would put a document on the file that section 31 does not contemplate.
  */
-export function rcmSupplies(db: DB, company: CompanyInfo, from: string, to: string): SelfInvoiceSupply[] {
+export function rcmSupplies(db: DB, company: GstScope, from: string, to: string): SelfInvoiceSupply[] {
   const vouchers = db
     .prepare(
       `SELECT v.id, v.date, v.number, v.party_ledger_id AS partyLedgerId,
@@ -61,7 +63,8 @@ export function rcmSupplies(db: DB, company: CompanyInfo, from: string, to: stri
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind = 'purchase' AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE vt.kind = 'purchase' AND p.rcm = 1 AND p.gstin IS NULL
+         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(company)}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as RcmVoucherRow[]
@@ -118,9 +121,11 @@ export function rcmSupplies(db: DB, company: CompanyInfo, from: string, to: stri
       supplierGstin: v.partyGstin,
       supplierStateCode: v.partyState,
       supplierAddress: v.partyAddress,
-      // Section 9(4) is the supply from an unregistered supplier; anything else on a flagged
-      // party is a notified 9(3) supply. The GSTIN is the only fact the books hold about it.
-      basis: v.partyGstin ? 'notified' : 'unregistered',
+      // A blank GSTIN does NOT make this section 9(4). Since 1 February 2019 that subsection is
+      // confined to notified classes/categories (currently the promoter regime). The ordinary
+      // party RCM flag represents a notified 9(3) category; the unsupported 9(4) promoter model
+      // is not guessed into existence.
+      basis: 'notified',
       lines
     })
   }
@@ -191,7 +196,7 @@ export interface RcmRegister {
 }
 
 /** The month's reverse-charge desk: what needs a document, what has one, and what to look at. */
-export function rcmRegister(db: DB, company: CompanyInfo, from: string, to: string): RcmRegister {
+export function rcmRegister(db: DB, company: GstScope, from: string, to: string): RcmRegister {
   const supplies = rcmSupplies(db, company, from, to)
   // Deliberately NOT filtered by IN_BOOKS. The join is here to read the voucher's date, and the
   // question being asked is "which purchases already carry a document" — a self-invoice issued to
@@ -205,7 +210,7 @@ export function rcmRegister(db: DB, company: CompanyInfo, from: string, to: stri
           `SELECT DISTINCT siv.voucher_id AS id
            FROM rcm_self_invoice_vouchers siv
            JOIN vouchers v ON v.id = siv.voucher_id
-           WHERE v.date BETWEEN ? AND ?`
+           WHERE v.date BETWEEN ? AND ?${regScope(company)}`
         )
         .all(from, to) as { id: number }[]
     ).map((r) => r.id)
@@ -226,15 +231,21 @@ export function rcmRegister(db: DB, company: CompanyInfo, from: string, to: stri
 
   const issued = (
     db
-      .prepare('SELECT * FROM rcm_self_invoices WHERE doc_date BETWEEN ? AND ? ORDER BY doc_date, id')
+      .prepare(
+        `SELECT DISTINCT r.* FROM rcm_self_invoices r
+         JOIN rcm_self_invoice_vouchers siv ON siv.self_invoice_id = r.id
+         JOIN vouchers v ON v.id = siv.voucher_id
+         WHERE r.doc_date BETWEEN ? AND ?${regScope(company)}
+         ORDER BY r.doc_date, r.id`
+      )
       .all(from, to) as SelfInvoiceRow[]
   ).map((r) => mapRecord(db, r))
 
-  return { from, to, pending, issued, unflagged: unflaggedAdvice(db, from, to) }
+  return { from, to, pending, issued, unflagged: unflaggedAdvice(db, from, to, company) }
 }
 
 /** Purchases whose SAC matches a notified category on a party nobody has flagged. See `unflagged`. */
-function unflaggedAdvice(db: DB, from: string, to: string): RcmRegister['unflagged'] {
+function unflaggedAdvice(db: DB, from: string, to: string, company: GstScope): RcmRegister['unflagged'] {
   const rows = db
     .prepare(
       `SELECT v.id AS voucherId, v.date, v.number AS voucherNumber, p.name AS partyName,
@@ -247,7 +258,7 @@ function unflaggedAdvice(db: DB, from: string, to: string): RcmRegister['unflagg
        LEFT JOIN inventory_lines il ON il.voucher_id = v.id
        LEFT JOIN stock_items si ON si.id = il.stock_item_id
        WHERE vt.kind = 'purchase' AND COALESCE(p.rcm, 0) = 0
-         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+         AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(company)}`
     )
     .all(from, to) as { voucherId: number; date: string; voucherNumber: string; partyName: string | null; partyGstin: string | null; sac: string | null }[]
 
@@ -328,11 +339,16 @@ export interface IssueSelfInvoicesResult {
  */
 export function issueSelfInvoices(
   db: DB,
-  company: CompanyInfo,
+  company: GstScope,
   from: string,
   to: string,
   opts: { consolidate: boolean; voucherIds?: number[]; by?: string | null }
 ): IssueSelfInvoicesResult {
+  if (opts.consolidate) {
+    throw new Error(
+      'Consolidated section 9(4) self-invoices are unavailable: the books do not model the notified promoter regime or the Rule 46 daily threshold. Issue one document per supply.'
+    )
+  }
   const all = rcmSupplies(db, company, from, to)
   const wanted = opts.voucherIds ? all.filter((s) => opts.voucherIds!.includes(s.voucherId)) : all
 
@@ -350,34 +366,6 @@ export function issueSelfInvoices(
 
   const run = db.transaction((): SelfInvoiceRecord[] => {
     const out: SelfInvoiceRecord[] = []
-    if (opts.consolidate) {
-      // The consolidated form covers 9(4) supplies only (see the shared module). Anything else in
-      // the selection still gets its own document, so nothing is silently dropped.
-      // Serials are handed out from a single running counter for the batch. Asking the table for
-      // "the next number" once per document would give every document in the batch the same
-      // serial, because nothing has been written yet.
-      const fyLabel = fyOf(to).label
-      let next = Number(nextSelfInvoiceNumber(db, to).split('/').pop())
-      const docs = consolidateMonthly(todo, {
-        date: to,
-        numberFor: () => selfInvoiceNumber(fyLabel, next++),
-        recipientStateCode: company.stateCode,
-        recipientGstin: company.gstin
-      })
-      const consolidated = new Set(docs.flatMap((d) => d.voucherIds))
-      for (const doc of docs) out.push(persist(db, doc, partyOf(doc.voucherIds[0] as number), opts.by ?? null))
-      for (const s of todo) {
-        if (consolidated.has(s.voucherId)) continue
-        const doc = buildSelfInvoice({
-          supply: s,
-          number: nextSelfInvoiceNumber(db, s.date),
-          recipientStateCode: company.stateCode,
-          recipientGstin: company.gstin
-        })
-        out.push(persist(db, doc, partyOf(s.voucherId), opts.by ?? null))
-      }
-      return out
-    }
     for (const s of todo) {
       const doc = buildSelfInvoice({
         supply: s,
@@ -411,6 +399,7 @@ const esc = (s: string | null): string => (s ?? '').replace(/&/g, '&amp;').repla
  */
 export async function selfInvoicePdf(db: DB, company: CompanyInfo, slug: string, id: number): Promise<string> {
   const doc = getSelfInvoice(db, id)
+  const recipientGstin = doc.recipientGstin ?? company.gstin
   const money = (p: number): string => formatPaise(p)
 
   const rows = doc.lines
@@ -464,7 +453,7 @@ export async function selfInvoicePdf(db: DB, company: CompanyInfo, slug: string,
   </style></head><body>
     <div class="head">
       <div><h1>${esc(company.name)}</h1><div class="sub">${esc(company.address)}</div>
-        <div class="sub">${company.gstin ? 'GSTIN ' + esc(company.gstin) : 'No GSTIN on record'}</div></div>
+        <div class="sub">${recipientGstin ? 'GSTIN ' + esc(recipientGstin) : 'No GSTIN on record'}</div></div>
       <div class="tag"><b>Self-invoice</b>
         <div class="sub">Tax invoice under section 31(3)(f)</div>
         <div class="sub">${esc(doc.number)} · ${toDisplayDate(doc.date)}</div></div>

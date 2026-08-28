@@ -1,5 +1,5 @@
 import type { DB } from '../db/connection'
-import type { GstScope } from './registrations'
+import { regScope, type GstScope } from './registrations'
 import { primaryRegistrationId } from './registrationId'
 import { filingSchedule } from '@shared/compliance'
 import { lateCharge } from '@shared/gst/lateFee'
@@ -7,7 +7,11 @@ import { periodBounds, periodKey, type Period } from '@shared/period'
 import type { FilingLiability, FilingRecord, FilingRow, FilingUpsert } from '@shared/gst/filings'
 import { IN_BOOKS } from './vouchers'
 import { cmp08, gstr3b } from './gst'
-import { dropGstr1Snapshot, snapshotGstr1, type Gstr1SnapshotResult } from './amendments'
+import {
+  dropOutwardSnapshot,
+  snapshotOutwardFiling,
+  type Gstr1SnapshotResult
+} from './amendments'
 import { writeAudit } from './audit'
 
 /**
@@ -41,12 +45,12 @@ export function filingPeriodBounds(period: string): { from: string; to: string }
  * make its quarter non-nil -- which is the right reading: a quarterly return covering one busy
  * month is not a nil return.
  */
-function periodsWithEntries(db: DB, from: string, to: string): Set<string> {
+function periodsWithEntries(db: DB, company: GstScope, from: string, to: string): Set<string> {
   const rows = db
     .prepare(
-      `SELECT DISTINCT substr(v.date, 1, 7) AS month
+       `SELECT DISTINCT substr(v.date, 1, 7) AS month
        FROM vouchers v
-       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}`
+       WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}${regScope(company)}`
     )
     .all(from, to) as { month: string }[]
 
@@ -107,7 +111,7 @@ export function filingRegister(
     [...new Set(schedule.map((d) => d.period))],
     company.registrationId ?? primaryRegistrationId(db)
   )
-  const active = periodsWithEntries(db, `${fyStartYear}-04-01`, `${fyStartYear + 1}-03-31`)
+  const active = periodsWithEntries(db, company, `${fyStartYear}-04-01`, `${fyStartYear + 1}-03-31`)
 
   return schedule.map((d) => {
     const record = records.get(`${d.form}/${d.period}`) ?? null
@@ -137,7 +141,7 @@ export function filingRegister(
 
 /** What a filing write did, including the GSTR-1 snapshot it took (or deliberately kept). */
 export interface FilingSaveResult extends FilingRecord {
-  /** Null for every form but GSTR-1, and for a GSTR-1 whose filing was cleared. */
+  /** Null except for a filed GSTR-1/IFF; clearing either filing drops its snapshot. */
   snapshot: Gstr1SnapshotResult | null
 }
 
@@ -148,8 +152,8 @@ export interface FilingSaveResult extends FilingRecord {
  * the caller: they are a function of (form, due date, filed date, tax), and storing a
  * hand-supplied figure alongside the inputs that contradict it is how a register starts lying.
  *
- * Marking a GSTR-1 filed is also the moment the return's documents are frozen
- * (`snapshotGstr1`), because that is the only moment the books still hold what was filed. From
+ * Marking a GSTR-1 or IFF filed is also the moment its documents are frozen, because that is the
+ * only moment the books still hold what was filed. From
  * the next correction onwards the original particulars exist nowhere else, and they are the
  * portal's match key for a Table 9A/9C amendment row. Without this call the whole amendment
  * feature is inert — it would diff today's books against nothing.
@@ -159,11 +163,10 @@ export interface FilingSaveResult extends FilingRecord {
  * disappear the moment somebody retyped an ARN. Clearing the filing drops the snapshot, because
  * a return that is not filed has nothing to amend against.
  *
- * // VERIFY: only GSTR-1 is snapshotted. IFF (the optional QRMP facility that pushes B2B
- * invoices to buyers in months 1 and 2 of a quarter) also puts documents on the portal, but the
- * quarterly GSTR-1 that follows restates them, and snapshotting both would key two snapshots to
- * the same portal tax period. Amendments to IFF-pushed invoices are handled through the
- * quarter's GSTR-1 snapshot.
+ * IFF is frozen separately under its M1/M2 portal period. Its extraction begins at the quarter
+ * start so a missed M1 registered invoice can legitimately be furnished in M2; documents already
+ * frozen by M1 are excluded. The quarter's GSTR-1 likewise excludes both IFF sets because GSTN's
+ * QRMP guidance says filed IFF records need not be furnished again.
  */
 export function recordFiling(db: DB, company: GstScope, input: FilingUpsert): FilingSaveResult {
   // Resolve to the primary rather than leaving NULL: `gst_filings` is UNIQUE on
@@ -214,11 +217,24 @@ export function recordFiling(db: DB, company: GstScope, input: FilingUpsert): Fi
   writeAudit(db, 'gst_filing', 0, before ? 'update' : 'create', before ?? null, after)
 
   let snapshot: Gstr1SnapshotResult | null = null
-  if (input.form === 'GSTR-1') {
-    const { from, to } = filingPeriodBounds(input.period)
+  if (input.form === 'GSTR-1' || input.form === 'IFF') {
+    const ownBounds = filingPeriodBounds(input.period)
+    const from = input.form === 'IFF'
+      ? filingPeriodBounds(periodKey(ownBounds.from, 'quarter')).from
+      : ownBounds.from
+    const to = ownBounds.to
     snapshot = input.filedAt
-      ? snapshotGstr1(db, company, to, from, to, input.filedAt)
-      : (dropGstr1Snapshot(db, to, registrationId), null)
+      ? snapshotOutwardFiling(
+          db,
+          company,
+          input.form,
+          input.period,
+          to,
+          from,
+          to,
+          input.filedAt
+        )
+      : (dropOutwardSnapshot(db, input.form, input.period, to, registrationId), null)
   }
 
   return { ...after, snapshot }

@@ -337,6 +337,9 @@ const EMPTY_CREDIT: IsdCreditInput = {
   invoiceNumber: '',
   description: null,
   taxable: 0,
+  invoiceValue: 0,
+  placeOfSupply: '',
+  items: [{ lineNumber: 1, rateBps: 1800, taxable: 0, heads: { igst: 0, cgst: 0, sgst: 0, cess: 0 } }],
   igst: 0,
   cgst: 0,
   sgst: 0,
@@ -361,6 +364,7 @@ export function IsdTab(): React.JSX.Element {
 
   const { data: regs } = useQuery({ queryKey: ['gstRegistrations'], queryFn: () => api.gstReg.list() })
   const { data, isLoading } = useQuery({ queryKey: ['isdDesk', month], queryFn: () => api.isd.desk(month) })
+  const { data: gstr6 } = useQuery({ queryKey: ['isdGstr6', month], queryFn: () => api.isd.gstr6(month) })
 
   const dueDate = useMemo(() => gstr6DueDate(month), [month])
   const recipients = data?.recipients ?? []
@@ -463,9 +467,18 @@ export function IsdTab(): React.JSX.Element {
           FORM GSTR-6 [See rule 65]. Cess is distributed as cess — the form’s distribution table has a CESS column and
           section 11 of the Compensation Act applies the credit provisions to it.
           <br />
-          <b className="text-ink">What is still not verified.</b> Nothing here writes a portal file: the offline
-          utility’s JSON schema is GSTN’s, not the Rules’, and has not been read. Check the apportionment against the
-          rule before you file.
+          <b className="text-ink">Portal-file audit.</b>{' '}
+          <span data-testid="text-isd-portal-status">
+            Disabled after an official-source check on {gstr6?.portalFile.auditedOn ?? '2026-08-28'}. GSTN’s latest
+            exposed GSTR-6 Save schema is {gstr6?.portalFile.schemaVersion ?? 'v1.0'}{' '}
+            {gstr6?.portalFile.schemaStatus ?? 'Draft'}, published{' '}
+            {gstr6?.portalFile.schemaPublishedOn ?? '2020-06-02'}; the offline-tool manual was last updated{' '}
+            {gstr6?.portalFile.offlineToolUpdatedOn ?? '2021-02-03'}.
+          </span>
+          <span className="mt-1 block" data-testid="list-isd-portal-blockers">
+            {(gstr6?.portalFile.blockers ?? []).join(' ')}
+          </span>
+          Use GSTN’s current utility and signed-in portal for filing; do not treat this working as an upload file.
           <br />
           <b className="text-ink">Nothing here posts.</b> Distribution moves credit between two of your own
           electronic credit ledgers. The trial balance does not move.
@@ -543,6 +556,9 @@ export function IsdTab(): React.JSX.Element {
                   <td>
                     {c.supplierName}
                     {c.description ? <div className="text-small text-muted">{c.description}</div> : null}
+                    <div className="text-small text-muted">
+                      Value {formatPaise(c.invoiceValue)} · POS {c.placeOfSupply || '—'} · {c.items.length} rate {c.items.length === 1 ? 'row' : 'rows'}
+                    </div>
                   </td>
                   <td className="num">{c.invoiceNumber}</td>
                   <td className="text-muted">{c.eligibility === 'eligible' ? 'Eligible' : 'Ineligible'}</td>
@@ -554,9 +570,29 @@ export function IsdTab(): React.JSX.Element {
                     {c.distributedMonth ? (
                       <span className="text-small text-muted">Distributed {c.distributedMonth}</span>
                     ) : (
-                      <RowAction onClick={() => void removeCredit(c.id)}>
-                        Remove
-                      </RowAction>
+                      <span className="flex gap-1">
+                        <RowAction onClick={() => setEditing({
+                          id: c.id,
+                          date: c.date,
+                          supplierName: c.supplierName,
+                          supplierGstin: c.supplierGstin,
+                          invoiceNumber: c.invoiceNumber,
+                          description: c.description,
+                          taxable: c.taxable,
+                          invoiceValue: c.invoiceValue,
+                          placeOfSupply: c.placeOfSupply,
+                          items: c.items,
+                          igst: c.heads.igst,
+                          cgst: c.heads.cgst,
+                          sgst: c.heads.sgst,
+                          cess: c.heads.cess,
+                          eligibility: c.eligibility,
+                          attribution: c.attribution,
+                          recipientRegistrationIds: c.recipientRegistrationIds,
+                          reverseCharge: c.reverseCharge
+                        })}>Edit</RowAction>
+                        <RowAction onClick={() => void removeCredit(c.id)}>Remove</RowAction>
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -710,21 +746,34 @@ function CreditModal({
   onSave: (input: IsdCreditInput) => Promise<void>
 }): React.JSX.Element {
   const [d, setD] = useState(draft)
-  const [amounts, setAmounts] = useState({
-    taxable: plainRupees(draft.taxable),
-    igst: plainRupees(draft.igst),
-    cgst: plainRupees(draft.cgst),
-    sgst: plainRupees(draft.sgst),
-    cess: plainRupees(draft.cess)
-  })
+  const [invoiceValue, setInvoiceValue] = useState(plainRupees(draft.invoiceValue))
+  const [itemRows, setItemRows] = useState(() => draft.items.map((item) => ({
+    rate: `${Math.floor(item.rateBps / 100)}${item.rateBps % 100 ? `.${String(item.rateBps % 100).padStart(2, '0')}` : ''}`,
+    taxable: plainRupees(item.taxable), igst: plainRupees(item.heads.igst),
+    cgst: plainRupees(item.heads.cgst), sgst: plainRupees(item.heads.sgst), cess: plainRupees(item.heads.cess)
+  })))
 
   const num = (v: string): number => parseRupees(v) ?? 0
-  const heads = { igst: num(amounts.igst), cgst: num(amounts.cgst), sgst: num(amounts.sgst), cess: num(amounts.cess) }
+  const rateBps = (value: string): number => {
+    const match = value.trim().match(/^(\d{1,2})(?:\.(\d{1,2}))?$/)
+    return match ? Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0')) : 0
+  }
+  const items = itemRows.map((row, index) => ({
+    lineNumber: index + 1, rateBps: rateBps(row.rate), taxable: num(row.taxable),
+    heads: { igst: num(row.igst), cgst: num(row.cgst), sgst: num(row.sgst), cess: num(row.cess) }
+  }))
+  const taxable = items.reduce((sum, item) => sum + item.taxable, 0)
+  const heads = items.reduce((sum, item) => ({
+    igst: sum.igst + item.heads.igst, cgst: sum.cgst + item.heads.cgst,
+    sgst: sum.sgst + item.heads.sgst, cess: sum.cess + item.heads.cess
+  }), { igst: 0, cgst: 0, sgst: 0, cess: 0 })
 
   const submit = (): void => {
     void onSave({
       ...d,
-      taxable: num(amounts.taxable),
+      invoiceValue: num(invoiceValue),
+      items,
+      taxable,
       igst: heads.igst,
       cgst: heads.cgst,
       sgst: heads.sgst,
@@ -766,25 +815,16 @@ function CreditModal({
             onChange={(e) => setD({ ...d, description: e.target.value || null })}
           />
         </Field>
-        <Field label="Taxable value (₹)">
+        <Field label="Total invoice value (₹)">
           <TextInput
-            data-testid="input-isd-taxable"
-            value={amounts.taxable}
-            onChange={(e) => setAmounts({ ...amounts, taxable: e.target.value })}
+            data-testid="input-isd-invoice-value"
+            value={invoiceValue}
+            onChange={(e) => setInvoiceValue(e.target.value)}
             inputMode="decimal"
           />
         </Field>
-        <Field label="IGST (₹)">
-          <TextInput value={amounts.igst} onChange={(e) => setAmounts({ ...amounts, igst: e.target.value })} inputMode="decimal" data-testid="input-isd-igst" />
-        </Field>
-        <Field label="Cess (₹)">
-          <TextInput value={amounts.cess} onChange={(e) => setAmounts({ ...amounts, cess: e.target.value })} inputMode="decimal" data-testid="input-isd-cess" />
-        </Field>
-        <Field label="CGST (₹)">
-          <TextInput value={amounts.cgst} onChange={(e) => setAmounts({ ...amounts, cgst: e.target.value })} inputMode="decimal" data-testid="input-isd-cgst" />
-        </Field>
-        <Field label="SGST (₹)">
-          <TextInput value={amounts.sgst} onChange={(e) => setAmounts({ ...amounts, sgst: e.target.value })} inputMode="decimal" data-testid="input-isd-sgst" />
+        <Field label="Place of supply" hint="Two-digit GST State/UT code used by Table 3.">
+          <TextInput data-testid="input-isd-pos" value={d.placeOfSupply} maxLength={2} placeholder="e.g. 27" onChange={(e) => setD({ ...d, placeOfSupply: e.target.value })} />
         </Field>
         <Field label="Eligibility" hint="Rule 39 distributes eligible and ineligible credit as separate amounts.">
           <Select
@@ -812,6 +852,28 @@ function CreditModal({
             <option value="one">One of them</option>
           </Select>
         </Field>
+      </div>
+
+      <div className="mt-3 border border-line" data-testid="group-isd-rate-items">
+        <div className="flex items-center justify-between border-b border-line px-3 py-2">
+          <b className="text-body-sm">Rate-wise tax items</b>
+          <Button data-testid="btn-isd-add-rate" onClick={() => setItemRows([...itemRows, { rate: '18', taxable: '0.00', igst: '0.00', cgst: '0.00', sgst: '0.00', cess: '0.00' }])}>Add rate</Button>
+        </div>
+        <div className="grid grid-cols-[5rem_repeat(5,minmax(6rem,1fr))_2rem] gap-2 px-3 py-2 text-small font-medium text-muted">
+          <span>Rate %</span><span>Taxable ₹</span><span>IGST ₹</span><span>CGST ₹</span><span>SGST ₹</span><span>Cess ₹</span><span></span>
+          {itemRows.map((row, index) => {
+            const set = (key: keyof typeof row, value: string): void => setItemRows(itemRows.map((item, i) => i === index ? { ...item, [key]: value } : item))
+            return <div key={index} className="contents">
+              <TextInput data-testid={`input-isd-rate-${index}`} value={row.rate} onChange={(e) => set('rate', e.target.value)} inputMode="decimal" />
+              <TextInput data-testid={`input-isd-item-taxable-${index}`} value={row.taxable} onChange={(e) => set('taxable', e.target.value)} inputMode="decimal" />
+              <TextInput data-testid={`input-isd-item-igst-${index}`} value={row.igst} onChange={(e) => set('igst', e.target.value)} inputMode="decimal" />
+              <TextInput data-testid={`input-isd-item-cgst-${index}`} value={row.cgst} onChange={(e) => set('cgst', e.target.value)} inputMode="decimal" />
+              <TextInput data-testid={`input-isd-item-sgst-${index}`} value={row.sgst} onChange={(e) => set('sgst', e.target.value)} inputMode="decimal" />
+              <TextInput data-testid={`input-isd-item-cess-${index}`} value={row.cess} onChange={(e) => set('cess', e.target.value)} inputMode="decimal" />
+              <RowAction disabled={itemRows.length === 1} onClick={() => setItemRows(itemRows.filter((_, i) => i !== index))}>×</RowAction>
+            </div>
+          })}
+        </div>
       </div>
 
       {d.attribution !== 'all' ? (

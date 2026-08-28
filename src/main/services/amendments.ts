@@ -21,10 +21,11 @@ import { companyExportsDir } from '../paths'
  * The rules live in src/shared/gst/amendments.ts. What can only happen here is remembering what
  * the return SAID. Once a filed invoice is corrected, the books hold the correction and nothing
  * else — the original particulars, which are the portal's match key for a 9A/9C row, are gone.
- * So the document set is snapshotted into `gstr1_filed_documents` at the moment a GSTR-1 is
- * marked filed, and every amendment is a diff of today's books against that snapshot.
+ * So the document set is snapshotted into `gstr1_filed_documents` at the moment a GSTR-1 or IFF
+ * is marked filed, and every amendment is a diff of today's books against that snapshot.
  *
- * Statutory basis, checked 2026-08-25 against the CGST Act and the GSTR-1 tables as published:
+ * Statutory basis, checked 2026-08-28 against the CGST Act, GSTN GSTR-1 Save API v5.0 and the
+ * current Returns Offline Tool manual:
  * section 37(3) permits rectification of a furnished return's particulars in a LATER return
  * (not by re-filing the earlier one), up to the 30 November following the end of the financial
  * year or the annual return, whichever is earlier. Tables 9A (amended B2B / B2CL / export
@@ -65,8 +66,19 @@ export interface Gstr1SnapshotResult {
   keptExisting: boolean
 }
 
+export type OutwardSnapshotForm = 'GSTR-1' | 'IFF'
+
+interface SnapshotHeaderRow {
+  form: OutwardSnapshotForm
+  filingPeriod: string
+  portalPeriod: string
+  from: string
+  to: string
+  filedAt: string
+}
+
 /**
- * Freeze the period's outward documents as the return that was filed.
+ * Freeze the period's outward documents as the GSTR-1/IFF that was filed.
  *
  * IDEMPOTENCE — the FIRST snapshot wins, and re-marking a period filed changes nothing.
  * The alternative (merge, or overwrite) is worse in both directions: overwriting makes every
@@ -78,9 +90,11 @@ export interface Gstr1SnapshotResult {
  * The way to legitimately re-take a snapshot is to clear the filing (which drops it — see
  * `dropGstr1Snapshot`) and mark it filed again, which is the same act on the portal too.
  */
-export function snapshotGstr1(
+export function snapshotOutwardFiling(
   db: DB,
   company: GstScope,
+  form: OutwardSnapshotForm,
+  filingPeriod: string,
   periodEndIso: string,
   from: string,
   to: string,
@@ -88,22 +102,76 @@ export function snapshotGstr1(
 ): Gstr1SnapshotResult {
   const period = portalPeriodOf(periodEndIso)
   const registrationId = company.registrationId ?? primaryRegistrationId(db)
-  // Scoped by registration: two registrations file two GSTR-1s for the same period, and the
-  // first-writer-wins rule below must not let one of them keep the other's snapshot.
-  const countStmt = db.prepare(
-    'SELECT COUNT(*) AS n FROM gstr1_filed_documents WHERE period = ? AND registration_id IS ?'
-  )
-  const existing = countStmt.get(period, registrationId) as { n: number }
-  if (existing.n > 0) return { period, written: 0, docs: existing.n, keptExisting: true }
+  const header = db.prepare(
+    `SELECT id FROM gst_outward_snapshot_headers
+     WHERE form = ? AND filing_period = ? AND registration_id IS ?`
+  ).get(form, filingPeriod, registrationId) as { id: number } | undefined
+  const exactCount = (): number => {
+    const row = db.prepare(
+      `SELECT COUNT(*) AS n FROM gstr1_filed_documents
+       WHERE source_form = ? AND filing_period = ? AND registration_id IS ?`
+    ).get(form, filingPeriod, registrationId) as { n: number }
+    return row.n
+  }
+  if (header) return { period, written: 0, docs: exactCount(), keptExisting: true }
 
-  const docs = extractOutwardDocs(db, company, from, to)
+  // Upgrade compatibility: snapshots written before migration 57 have no header/provenance.
+  // Adopt such a GSTR-1 snapshot instead of taking it again from today's (possibly corrected)
+  // books. This preserves the original first-writer-wins guarantee across an app upgrade.
+  if (form === 'GSTR-1') {
+    const legacy = db.prepare(
+      `SELECT COUNT(*) AS n FROM gstr1_filed_documents
+       WHERE period = ? AND registration_id IS ? AND filing_period IS NULL`
+    ).get(period, registrationId) as { n: number }
+    if (legacy.n > 0) {
+      db.prepare(
+        `INSERT INTO gst_outward_snapshot_headers
+           (form, filing_period, portal_period, from_date, to_date, registration_id, filed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(form, filingPeriod, period, from, to, registrationId, filedAt)
+      return { period, written: 0, docs: legacy.n, keptExisting: true }
+    }
+  }
+
+  let docs = extractOutwardDocs(db, company, from, to)
+  if (form === 'IFF') {
+    // Rule 59(2)'s facility is for registered-recipient records: B2B invoices and registered
+    // credit/debit notes. B2C records remain for the quarter's GSTR-1.
+    docs = docs.filter((d) => d.partyGstin != null)
+  }
+
+  // IFF records already furnished in an earlier month are not furnished again. The quarter's
+  // GSTR-1 follows the same rule. Restrict the lookup to IFF filings inside this snapshot's date
+  // range so an unrelated earlier quarter can never suppress a re-dated/current document.
+  const previouslyFurnished = new Set(
+    (db.prepare(
+      `SELECT DISTINCT d.voucher_id AS voucherId
+       FROM gstr1_filed_documents d
+       JOIN gst_outward_snapshot_headers h
+         ON h.form = d.source_form
+        AND h.filing_period = d.filing_period
+        AND h.registration_id IS d.registration_id
+       WHERE h.form = 'IFF'
+         AND h.registration_id IS ?
+         AND h.to_date BETWEEN ? AND ?
+         AND d.voucher_id IS NOT NULL`
+    ).all(registrationId, from, to) as { voucherId: number }[]).map((r) => r.voucherId)
+  )
+  docs = docs.filter((d) => !previouslyFurnished.has(d.voucherId))
+
   const stmt = db.prepare(
     `INSERT INTO gstr1_filed_documents
-       (period, voucher_id, doc_number, doc_date, doc_type, party_gstin, pos, payload, registration_id, filed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (period, voucher_id, doc_number, doc_date, doc_type, party_gstin, pos, payload,
+        registration_id, filed_at, source_form, filing_period)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (period, doc_number, doc_type, registration_id) DO NOTHING`
   )
   const write = db.transaction((list: GstDoc[]) => {
+    db.prepare(
+      `INSERT INTO gst_outward_snapshot_headers
+         (form, filing_period, portal_period, from_date, to_date, registration_id, filed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(form, filingPeriod, period, from, to, registrationId, filedAt)
     for (const d of list) {
       stmt.run(
         period,
@@ -115,14 +183,27 @@ export function snapshotGstr1(
         d.pos,
         JSON.stringify(d),
         registrationId,
-        filedAt
+        filedAt,
+        form,
+        filingPeriod
       )
     }
   })
   write(docs)
+  const after = exactCount()
+  return { period, written: after, docs: after, keptExisting: false }
+}
 
-  const after = countStmt.get(period, registrationId) as { n: number }
-  return { period, written: after.n, docs: after.n, keptExisting: false }
+/** Backwards-compatible direct GSTR-1 snapshot entry point used by tests and migrations. */
+export function snapshotGstr1(
+  db: DB,
+  company: GstScope,
+  periodEndIso: string,
+  from: string,
+  to: string,
+  filedAt: string
+): Gstr1SnapshotResult {
+  return snapshotOutwardFiling(db, company, 'GSTR-1', to.slice(0, 7), periodEndIso, from, to, filedAt)
 }
 
 /**
@@ -133,13 +214,55 @@ export function snapshotGstr1(
  */
 export function dropGstr1Snapshot(db: DB, periodEndIso: string, registrationId?: number | null): number {
   const period = portalPeriodOf(periodEndIso)
-  const r =
-    registrationId === undefined
+  const remove = db.transaction(() => {
+    const r = registrationId === undefined
       ? db.prepare('DELETE FROM gstr1_filed_documents WHERE period = ?').run(period)
       : db
           .prepare('DELETE FROM gstr1_filed_documents WHERE period = ? AND registration_id IS ?')
           .run(period, registrationId)
-  return r.changes
+    if (registrationId === undefined) {
+      db.prepare(
+        "DELETE FROM gst_outward_snapshot_headers WHERE form = 'GSTR-1' AND portal_period = ?"
+      ).run(period)
+    } else {
+      db.prepare(
+        `DELETE FROM gst_outward_snapshot_headers
+         WHERE form = 'GSTR-1' AND portal_period = ? AND registration_id IS ?`
+      ).run(period, registrationId)
+    }
+    return r.changes
+  })
+  return remove()
+}
+
+/** Drop exactly one filing's header and document set when that filing is cleared. */
+export function dropOutwardSnapshot(
+  db: DB,
+  form: OutwardSnapshotForm,
+  filingPeriod: string,
+  periodEndIso: string,
+  registrationId: number | null
+): number {
+  const period = portalPeriodOf(periodEndIso)
+  const remove = db.transaction(() => {
+    const exact = db.prepare(
+      `DELETE FROM gstr1_filed_documents
+       WHERE source_form = ? AND filing_period = ? AND registration_id IS ?`
+    ).run(form, filingPeriod, registrationId)
+    // A pre-migration GSTR-1 snapshot has no provenance but still belongs to this filing.
+    const legacy = form === 'GSTR-1'
+      ? db.prepare(
+          `DELETE FROM gstr1_filed_documents
+           WHERE period = ? AND filing_period IS NULL AND registration_id IS ?`
+        ).run(period, registrationId).changes
+      : 0
+    db.prepare(
+      `DELETE FROM gst_outward_snapshot_headers
+       WHERE form = ? AND filing_period = ? AND registration_id IS ?`
+    ).run(form, filingPeriod, registrationId)
+    return exact.changes + legacy
+  })
+  return remove()
 }
 
 interface SnapshotRow {
@@ -151,6 +274,8 @@ interface SnapshotRow {
   docType: string
   payload: string
   filedAt: string
+  sourceForm: OutwardSnapshotForm
+  filingPeriod: string | null
 }
 
 export interface FiledPeriodInfo {
@@ -233,24 +358,48 @@ export function gstr1Amendments(db: DB, company: GstScope, period: string): Amen
   const snapshots = db
     .prepare(
       `SELECT id, period, voucher_id AS voucherId, doc_number AS docNumber, doc_date AS docDate,
-              doc_type AS docType, payload, filed_at AS filedAt
+              doc_type AS docType, payload, filed_at AS filedAt,
+              source_form AS sourceForm, filing_period AS filingPeriod
        FROM gstr1_filed_documents
        WHERE ? IS NULL OR registration_id IS ? OR registration_id IS NULL
        ORDER BY period, id`
     )
     .all(registrationId, registrationId) as SnapshotRow[]
 
+  const headers = db.prepare(
+    `SELECT form, filing_period AS filingPeriod, portal_period AS portalPeriod,
+            from_date AS "from", to_date AS "to", filed_at AS filedAt
+     FROM gst_outward_snapshot_headers
+     WHERE ? IS NULL OR registration_id IS ? OR registration_id IS NULL
+     ORDER BY portal_period, id`
+  ).all(registrationId, registrationId) as SnapshotHeaderRow[]
+
   const byPeriod = new Map<string, SnapshotRow[]>()
   for (const row of snapshots) {
     byPeriod.set(row.period, [...(byPeriod.get(row.period) ?? []), row])
   }
-  const filedPeriods: FiledPeriodInfo[] = [...byPeriod.entries()]
-    .map(([p, rows]) => ({
-      period: p,
-      filedAt: rows[0]!.filedAt,
-      docs: rows.length,
-      earlier: periodOrder(p) < order
-    }))
+  const infoByPeriod = new Map<string, FiledPeriodInfo>()
+  for (const h of headers) {
+    infoByPeriod.set(h.portalPeriod, {
+      period: h.portalPeriod,
+      filedAt: h.filedAt,
+      docs: byPeriod.get(h.portalPeriod)?.length ?? 0,
+      earlier: periodOrder(h.portalPeriod) < order
+    })
+  }
+  // Legacy snapshots do not have headers. Preserve their visibility until they are adopted by
+  // the first post-upgrade recordFiling call.
+  for (const [p, rows] of byPeriod) {
+    if (!infoByPeriod.has(p)) {
+      infoByPeriod.set(p, {
+        period: p,
+        filedAt: rows[0]!.filedAt,
+        docs: rows.length,
+        earlier: periodOrder(p) < order
+      })
+    }
+  }
+  const filedPeriods = [...infoByPeriod.values()]
     .sort((a, b) => periodOrder(a.period) - periodOrder(b.period))
 
   const earlier = filedPeriods.filter((p) => p.earlier)
@@ -370,14 +519,21 @@ export function gstr1Amendments(db: DB, company: GstScope, period: string): Amen
     snapshots.filter((s) => s.voucherId != null).map((s) => s.voucherId as number)
   )
   const addedAfterFiling: AddedAfterFilingDoc[] = []
-  for (const p of earlier) {
+  const reportedMissing = new Set<number>()
+  // Latest filing first: when both an IFF and its quarter have been filed, a document absent
+  // from both is one missed document, not two warnings. The quarter is the latest opportunity.
+  for (const p of [...earlier].reverse()) {
+    const header = [...headers].reverse().find((h) => h.portalPeriod === p.period)
     const month = `${p.period.slice(2)}-${p.period.slice(0, 2)}`
+    const range = header ? { from: header.from, to: header.to } : {
+      from: `${month}-01`,
+      to: `${month}-31`
+    }
     for (const d of todayDocs) {
       if (snapshotVoucherIds.has(d.voucherId)) continue
-      // Monthly filers only: a quarterly snapshot covers three months and its period key names
-      // the last of them, so this test would call the first two months "added after filing".
-      // VERIFY: quarterly (QRMP) periods are deliberately not scanned for missed documents.
-      if (!d.date.startsWith(month)) continue
+      if (reportedMissing.has(d.voucherId)) continue
+      if (d.date < range.from || d.date > range.to) continue
+      reportedMissing.add(d.voucherId)
       addedAfterFiling.push({
         originalPeriod: p.period,
         number: d.number,
@@ -413,9 +569,10 @@ export function gstr1Amendments(db: DB, company: GstScope, period: string): Amen
  * shape the offline tool reads, and empty tables are omitted rather than sent as `[]` — the same
  * rule the ordinary GSTR-1 export follows.
  *
- * // VERIFY: whether the portal's offline utility accepts an amendment-only upload alongside a
- * separately uploaded ordinary GSTR-1 for the same period, or expects one merged file. Both have
- * worked at different schema versions; check before relying on the split.
+ * GSTN v5.0 requires only `gstin` and `fp` at the root; every table is optional. The current
+ * offline-tool manual explicitly permits more than one JSON file uploaded in multiple chunks.
+ * Consequently an amendment-only payload is a supported partial GSTR-1 upload, not a separate
+ * return. The portal still performs the final business validation after upload.
  */
 export function amendmentJson(
   gstin: string,

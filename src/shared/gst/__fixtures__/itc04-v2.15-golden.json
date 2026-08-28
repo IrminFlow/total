@@ -1,0 +1,81 @@
+{
+  "gstin": "27AAAPA1234A1ZT",
+  "fp": "172025",
+  "m2jw": [
+    {
+      "ctin": "27AAAPA1234A1Z5",
+      "chnum": "JW/001",
+      "chdt": "10-04-2025",
+      "flag": "N",
+      "itms": [
+        {
+          "goods_ty": "8b",
+          "desc": "Forged blanks",
+          "uqc": "PCS",
+          "qty": 100,
+          "txval": 100000,
+          "tx_i": 18,
+          "tx_c": 0,
+          "tx_s": 0,
+          "tx_cs": 123.45
+        }
+      ]
+    }
+  ],
+  "table5A": [
+    {
+      "ctin": "27AAAPA1234A1Z5",
+      "o_chnum": "JW/001",
+      "o_chdt": "10-04-2025",
+      "flag": "N",
+      "items": [
+        {
+          "jw2_chnum": "BACK/1",
+          "jw2_chdt": "15-06-2025",
+          "nat_jw": "Polishing",
+          "desc": "Forged blanks",
+          "uqc": "PCS",
+          "qty": 30,
+          "lwuqc": "PCS",
+          "lwqty": 2
+        }
+      ]
+    }
+  ],
+  "table5B": [
+    {
+      "ctin": "24AAACG1234A1ZK",
+      "o_chnum": "JW/001",
+      "o_chdt": "10-04-2025",
+      "flag": "N",
+      "items": [
+        {
+          "jw2_chnum": "BACK/2",
+          "jw2_chdt": "20-07-2025",
+          "nat_jw": "Heat treatment",
+          "desc": "Forged blanks",
+          "uqc": "PCS",
+          "qty": 10
+        }
+      ]
+    }
+  ],
+  "table5C": [
+    {
+      "ctin": "27AAAPA1234A1Z5",
+      "o_chnum": "JW/001",
+      "o_chdt": "10-04-2025",
+      "flag": "N",
+      "items": [
+        {
+          "inum": "INV/77",
+          "idt": "20-08-2025",
+          "nat_jw": "Finishing",
+          "desc": "Forged blanks",
+          "uqc": "PCS",
+          "qty": 5
+        }
+      ]
+    }
+  ]
+}

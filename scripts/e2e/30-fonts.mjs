@@ -1,9 +1,7 @@
 // Scenario 30 — the webfonts actually cover the characters this app prints.
 //
-// The renderer imports latin-only, woff2-only subsets. That took 76 font files down to 14 and
-// the bundle down by 640 KB, but a subset is a bet: any glyph the subset omits falls back to a
-// system font, and one character in a different typeface in the middle of an invoice total is
-// exactly the kind of thing nobody notices in review and everybody notices in print.
+// The renderer imports Latin Plex faces plus one currency-only WOFF2 fallback. That keeps the
+// bundle small without relying on a different OS font on Windows and macOS.
 //
 // The rupee sign is the one that matters — it is on every amount the app formats with a symbol,
 // and it sits at U+20B9, outside the range most "latin" subsets cover. This measures it rather
@@ -53,17 +51,32 @@ await scenario('30-fonts', async (h) => {
           ])
         }
       }
-      return out
+      // FontFaceSet.ready waits for faces already needed by the document; the currency-only face
+      // may not have appeared on the company-select screen yet, so request its one glyph before
+      // checking it.
+      await document.fonts.load("400 100px 'Total Currency'", '₹')
+      const currency = {
+        loaded: document.fonts.check("400 100px 'Total Currency'", '₹'),
+        widths: [measure('₹', "'Total Currency','NoFallbackXYZ'", 400), measure('₹', "'NoFallbackXYZ'", 400)]
+      }
+      return { faces: out, currency }
     },
     { faces, chars: REQUIRED.map(([c]) => c) }
   )
 
+  assert(result.currency.loaded, 'the bundled Total Currency face is loaded for U+20B9')
+  assert(
+    result.currency.widths[0] !== result.currency.widths[1],
+    'the bundled currency face, rather than an OS fallback, renders the rupee sign'
+  )
   for (const { family, weight } of faces) {
-    const r = result[family]
+    const r = result.faces[family]
     assert(r.control[0] !== r.control[1], `${family} ${weight} is loaded (control glyph differs from the fallback)`)
     for (const [char, withFace, fallback] of r.chars) {
       const why = REQUIRED.find(([c]) => c === char)[1]
-      assert(withFace !== fallback, `${family} has ${JSON.stringify(char)} — ${why}`)
+      // ₹ is deliberately supplied by Total Currency in the real stack and asserted above. A full
+      // grouped amount still proves that the declared face and currency fallback compose together.
+      if (char !== '₹') assert(withFace !== fallback, `${family} stack has ${JSON.stringify(char)} — ${why}`)
     }
   }
 

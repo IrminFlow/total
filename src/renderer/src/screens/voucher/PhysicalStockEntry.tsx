@@ -139,7 +139,8 @@ export function PhysicalStockEntry({ typeId }: { typeId: number }): React.JSX.El
         <div className="col-span-2 flex items-end">
           <p className="text-hint text-muted">
             Enter the counted closing quantity per item — the difference from book stock posts as an
-            adjustment at average cost.
+            adjustment at average cost. This is a company-wide count, so it replaces the prior
+            godown split rather than guessing where a shortage or surplus occurred.
           </p>
         </div>
       </div>

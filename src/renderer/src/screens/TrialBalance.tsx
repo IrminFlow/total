@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, DateInput, EmptyState, ExportGroup, Money, Panel, SectionTitle, Select, SkeletonRows, useKeyNav } from '../components/ui'
+import { Button, DateInput, EmptyState, ExportGroup, Money, Panel, RowLink, SectionTitle, Select, SkeletonRows, useKeyNav } from '../components/ui'
 import { ReportConfigButton } from '../components/ReportConfigButton'
 import { SavedViews } from '../components/SavedViews'
 import { TabBar } from '../components/TabBar'
@@ -657,12 +657,12 @@ function ChangesTab(): React.JSX.Element {
             </thead>
             <tbody data-testid="rows-what-changed">
               {rows.map((r) => (
-                <tr
-                  key={r.ledgerId}
-                  className="kbar-row cursor-pointer"
-                  onClick={() => nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })}
-                >
-                  <td>{r.ledgerName}</td>
+                <tr key={r.ledgerId}>
+                  <td>
+                    <RowLink onClick={() => nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })}>
+                      {r.ledgerName}
+                    </RowLink>
+                  </td>
                   <td className="text-muted">{r.groupName}</td>
                   <td className="r">
                     <Money paise={r.opening} signed />

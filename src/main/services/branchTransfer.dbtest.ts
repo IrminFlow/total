@@ -6,7 +6,7 @@ import { saveVoucher } from './vouchers'
 import { saveTransfer } from './inventoryTransfer'
 import { writeCompanyInfo } from '../db/seed'
 import { gstScope, listRegistrations, saveRegistration } from './registrations'
-import { gstr1, gstr3b, itcBreakdown } from './gst'
+import { extractDocSeries, gstr1, gstr3b, itcBreakdown } from './gst'
 import { profitAndLoss, stockValue, trialBalance } from './reports'
 import {
   branchTransferRegister,
@@ -280,6 +280,33 @@ describe('the register and the serial', () => {
     transfer(b, '2026-07-19')
     const r = issue(b)
     expect(r.issued.map((x) => x.number)).toEqual(['BT/27/2026-27/0001', 'BT/27/2026-27/0002'])
+  })
+
+  it('includes the sender’s branch-transfer series in GSTR-1 Table 13', () => {
+    const b = stockBook()
+    transfer(b, '2026-07-12')
+    transfer(b, '2026-07-19')
+    issue(b)
+    const scope = gstScope(b.db, { ...TEST_INFO, gstin: MH, stateCode: '27' }, b.mh)
+
+    const series = extractDocSeries(b.db, FROM, TO, scope)
+    const branch = series.find((s) => s.from.startsWith('BT/27/'))
+    expect(branch).toEqual({
+      category: 1,
+      from: 'BT/27/2026-27/0001',
+      to: 'BT/27/2026-27/0002',
+      totnum: 2,
+      cancel: 0
+    })
+    const table13 = (gstr1(b.db, scope, FROM, TO, '072026').json.doc_issue as {
+      doc_det: { doc_num: number; docs: { from: string; to: string; totnum: number }[] }[]
+    }).doc_det.find((d) => d.doc_num === 1)!
+    expect(table13.docs).toContainEqual(expect.objectContaining({
+      from: branch!.from, to: branch!.to, totnum: 2
+    }))
+
+    const receiver = gstScope(b.db, { ...TEST_INFO, gstin: GJ, stateCode: '24' }, b.gj)
+    expect(extractDocSeries(b.db, FROM, TO, receiver).some((s) => s.from.startsWith('BT/27/'))).toBe(false)
   })
 
   it('reprints the paper that was issued rather than recomputing it', () => {

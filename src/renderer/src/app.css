@@ -1,9 +1,11 @@
-/* Latin subsets only, and woff2 only.
+/* Latin subsets plus one currency fallback, and woff2 only.
    The unscoped entrypoints (`400.css` rather than `latin-400.css`) pull every subset fontsource
    ships — cyrillic, greek, vietnamese, latin-ext — for all seven faces, and each subset in both
    woff2 AND legacy woff. That was 76 font files and about 890 KB in a bundle for an app whose
-   entire interface is English and whose numbers are Latin digits. Chromium has supported woff2
-   since 2014, so the woff half was never once loaded.
+   entire interface is English and whose numbers are Latin digits. IBM Plex puts U+20B9 (₹) in
+   latin-ext, so one Sans woff2 is registered below as a currency-only fallback instead of shipping
+   seven full extended subsets. Chromium has supported woff2 since 2014, so the woff half is never
+   needed by that fallback.
    If the app is ever localised into a script outside Latin, add that subset here deliberately. */
 @import '@fontsource/ibm-plex-sans/latin-400.css';
 @import '@fontsource/ibm-plex-sans/latin-500.css';
@@ -13,6 +15,15 @@
 @import '@fontsource/ibm-plex-mono/latin-400.css';
 @import '@fontsource/ibm-plex-mono/latin-500.css';
 @import 'tailwindcss';
+
+@font-face {
+  font-family: 'Total Currency';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+20B9;
+}
 
 /* ---------- theme tokens: light (default) and dark ---------- */
 
@@ -188,9 +199,9 @@
   --color-warnsoft: var(--t-warn-soft);
   --color-warnline: var(--t-warn-line);
 
-  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
-  --font-serif: 'IBM Plex Serif', Georgia, serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-sans: 'IBM Plex Sans', 'Total Currency', system-ui, sans-serif;
+  --font-serif: 'IBM Plex Serif', 'Total Currency', Georgia, serif;
+  --font-mono: 'IBM Plex Mono', 'Total Currency', ui-monospace, monospace;
 
   /* ---- Type scale ----
      Seven steps, and each one is a different size on screen. The old scale had six steps inside

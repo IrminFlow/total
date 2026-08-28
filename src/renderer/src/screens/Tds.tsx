@@ -45,7 +45,7 @@ type TdsView = 'summary' | 'challans' | 'return' | 'certificates' | 'ldc' | '26a
 const VIEWS: { id: TdsView; label: string; hint: string }[] = [
   { id: 'summary', label: 'Deductions', hint: 'What was deducted, section by section' },
   { id: 'challans', label: 'Challans', hint: 'How the tax was paid — the BSR code, date and serial a statement needs' },
-  { id: 'return', label: '24Q / 26Q', hint: 'The quarterly statement, and everything standing between it and the FVU' },
+  { id: 'return', label: 'TDS return', hint: 'The date-selected quarterly statement, and everything standing between it and the FVU' },
   { id: 'certificates', label: 'Form 16A', hint: 'The deduction certificate for a vendor' },
   { id: 'ldc', label: 'Section 197', hint: 'Certificates telling us to deduct less, and how much of each ceiling is left' },
   { id: '26as', label: '26AS', hint: 'What we deducted against what the department says was credited' }

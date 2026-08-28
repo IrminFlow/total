@@ -9,7 +9,7 @@ import { buildReminder } from '@shared/outstanding'
 import type { RecurringTemplate } from '@shared/domain'
 import type { CashSparkPoint, TileSparkKey, TopLedgerRow } from '@shared/reports'
 import { Sparkline } from '../components/Sparkline'
-import { templateOpenTarget } from './Recurring'
+import { templateOpenTarget } from '../lib/recurringDraft'
 
 export function Gateway(): React.JSX.Element {
   const nav = useNav()

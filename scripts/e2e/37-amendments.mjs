@@ -86,12 +86,23 @@ await scenario('37-amendments', async (h) => {
   // ---- correct a filed invoice: its place of supply was wrong ----
   const target = b2b[0]
   const voucher = await h.invoke('voucher:get', { id: target.voucherId })
-  const newPos = voucher.posOverride === '29' ? '30' : '29'
+  // Compare with the EFFECTIVE POS. The worklist row does not expose POS, but this is a B2B
+  // document, so without an override it is the state prefix of the party GSTIN. Choosing 29 merely
+  // because the nullable override is null is a no-op when that GSTIN already starts with 29; that
+  // made the scenario depend on demo-document ordering.
+  const currentPos = voucher.posOverride ?? target.partyGstin.slice(0, 2)
+  const newPos = currentPos === '29' ? '30' : '29'
+  assert(newPos !== currentPos, `the correction changes effective POS ${currentPos} to ${newPos}`)
   await h.invoke('voucher:save', { id: target.voucherId, data: { ...voucher, posOverride: newPos } })
 
   const report = await h.invoke('amendments:report', { period: amending.period })
   const row = report.rows.find((r) => r.originalNumber === target.number)
-  assert(row, `the corrected invoice ${target.number} raises an amendment row`)
+  assert(
+    row,
+    `the corrected invoice ${target.number} raises an amendment row ` +
+      `(effective POS ${currentPos} -> ${newPos}; counts ${JSON.stringify(report.counts)}; ` +
+      `rejected ${JSON.stringify(report.tables.rejected)})`
+  )
   assert(
     row.changes.some((c) => c.field === 'pos'),
     `and the row says what changed (got ${JSON.stringify(row.changes.map((c) => c.field))})`
@@ -138,9 +149,11 @@ await scenario('37-amendments', async (h) => {
   assertEq(shown, report.rows.length, 'the panel shows every amendment row')
   const changedText = await h.page.textContent('[data-testid="rows-amendments"]')
   assert(/Place of supply/.test(changedText), 'and says what changed on each row, in words')
-  // The uncertainty is on screen where someone would rely on it, not only in the source.
+  // The validated contract and the remaining portal authority are on screen where someone relies
+  // on them, not only in source comments.
   const verify = await h.page.textContent('[data-testid="amendments-verify-note"]')
-  assert(/unverified against the current schema/.test(verify), 'the unverified field names are declared')
+  assert(/GSTR-1 Save API v5\.0/.test(verify), 'the validated GSTN schema version is declared')
+  assert(/Recipient GSTIN is explicitly non-amendable/.test(verify), 'the non-amendable correction is declared')
   assert(/37\(3\)/.test(verify), 'as is the rectification window this app does not enforce')
   await h.shot('01-amendments')
 

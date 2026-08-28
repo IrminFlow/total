@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildWorklist, imsKey, suggestAction } from './ims'
+import { allowedActionsFor, buildWorklist, imsKey, suggestAction } from './ims'
 import type { Recon2bPair, PortalInvoice, PurchaseDoc } from './recon2b'
 
 const portal = (over: Partial<PortalInvoice> = {}): PortalInvoice => ({
@@ -76,6 +76,21 @@ describe('imsKey', () => {
   })
 })
 
+describe('allowedActionsFor', () => {
+  it('keeps original credit notes to accept/reject before the October 2025 change', () => {
+    expect(allowedActionsFor('credit_note', '092025')).toEqual(['accept', 'reject'])
+  })
+
+  it('adds Pending to original credit notes prospectively from October 2025', () => {
+    expect(allowedActionsFor('credit_note', '102025')).toEqual(['accept', 'reject', 'pending'])
+    expect(allowedActionsFor('credit_note', '052026')).toEqual(['accept', 'reject', 'pending'])
+  })
+
+  it('offers no IMS action for a book-only row', () => {
+    expect(allowedActionsFor('book_only', '052026')).toEqual([])
+  })
+})
+
 describe('buildWorklist', () => {
   it('is empty and undecided-free for a period with no documents', () => {
     const w = buildWorklist([], '052026', new Map())
@@ -121,5 +136,13 @@ describe('buildWorklist', () => {
     const w = buildWorklist([pair({ bucket: 'missingInPortal', portal: null })], '052026', new Map())
     expect(w.rows[0]!.number).toBe('INV-1') // the supplier's reference from the voucher
     expect(w.rows[0]!.suggestion.reason).toContain('Chase the supplier')
+    expect(w.rows[0]!.allowedActions).toEqual([])
+    expect(w.undecided).toBe(0)
+  })
+
+  it('uses the portal note type and period to restrict a pre-change credit note', () => {
+    const credit = pair({ portal: portal({ kind: 'cdnr', noteType: 'C' }), book: book({ kind: 'debit_note' }) })
+    const w = buildWorklist([credit], '092025', new Map())
+    expect(w.rows[0]).toMatchObject({ documentKind: 'credit_note', allowedActions: ['accept', 'reject'] })
   })
 })

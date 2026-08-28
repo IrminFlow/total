@@ -144,6 +144,9 @@ export function startRun(opts: StartOptions): string {
     for (const [id, run] of runs) {
       if (Date.now() - run.startedAt > RUN_TIMEOUT_MS) abortRun(id)
     }
+    if (runs.size >= MAX_CONCURRENT) {
+      throw new Error(`The assistant already has ${MAX_CONCURRENT} questions running. Wait for one to finish or cancel it.`)
+    }
   }
   const runId = randomUUID()
   const controller = new AbortController()

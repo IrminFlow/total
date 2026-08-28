@@ -19,6 +19,7 @@ const EXPORT_TYPES: { value: NonNullable<Ledger['exportType']> | ''; label: stri
 ]
 
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
+const TAN_RE = /^[A-Z]{4}\d{5}[A-Z]$/
 
 export const PARTY_GROUPS = ['Sundry Debtors', 'Sundry Creditors']
 export const TAX_GROUPS = ['Duties & Taxes']
@@ -64,6 +65,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [hsn, setHsn] = useState(ledger?.hsn ?? '')
   const [tdsSectionId, setTdsSectionId] = useState<number | ''>(ledger?.tdsSectionId ?? '')
   const [pan, setPan] = useState(ledger?.pan ?? '')
+  const [tan, setTan] = useState(ledger?.tan ?? '')
   const [creditDays, setCreditDays] = useState(ledger?.creditDays?.toString() ?? '')
   const [creditLimit, setCreditLimit] = useState<number | null>(ledger?.creditLimit ?? null)
   // The currency this account is KEPT in (#140). Null is not "INR": it means the account has no
@@ -91,6 +93,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const [bankIfsc, setBankIfsc] = useState(ledger?.bankIfsc ?? '')
   const [bankHolder, setBankHolder] = useState(ledger?.bankHolder ?? '')
   const [bankSharedOk, setBankSharedOk] = useState(ledger?.bankSharedOk ?? false)
+  const [rcm, setRcm] = useState(ledger?.rcm ?? false)
 
   const ancestry = useMemo(() => groupAncestryNames(groupId, groups), [groupId, groups])
   const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
@@ -98,6 +101,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
   const isTradingLedger = !isParty && !isTaxLedger && ancestry.some((n) => TRADING_GROUPS.includes(n))
 
   const panError = isParty && pan.trim() && !PAN_RE.test(pan.trim()) ? 'Invalid PAN — format AAAAA9999A' : null
+  const tanError = isParty && tan.trim() && !TAN_RE.test(tan.trim()) ? 'Invalid TAN — format AAAA99999A' : null
 
   const gstinCheck = isParty && gstin.trim() ? validateGstin(gstin) : null
   const gstinError = gstinCheck && !gstinCheck.valid
@@ -110,6 +114,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
     try {
       if (gstinError) return void toast.push('error', gstinError)
       if (panError) return void toast.push('error', panError)
+      if (tanError) return void toast.push('error', tanError)
       const effectiveState = stateCode || (gstinCheck?.valid ? gstinCheck.stateCode : null)
       const data = {
         name: name.trim(),
@@ -123,6 +128,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         hsn: hsn.trim() || null,
         tdsSectionId: tdsSectionId === '' ? null : tdsSectionId,
         pan: pan.trim() ? pan.trim().toUpperCase() : null,
+        tan: tan.trim() ? tan.trim().toUpperCase() : null,
         creditDays: creditDays.trim() ? Number(creditDays) : null,
         creditLimit,
         currencyCode: currencyCode || null,
@@ -137,6 +143,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
         phone: phone.trim() || null,
         email: email.trim() || null,
         exportType: exportType || null,
+        rcm,
         defaultCostCentreId: defaultCostCentreId === '' ? null : defaultCostCentreId,
         // Sent only when they were typed. On an existing party the two-person rule (#388) reads
         // these, so passing them unchanged on every save would fill the queue with requests for
@@ -253,7 +260,7 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
                 </Select>
               </Field>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               <Field label="TDS section" hint="Flags this party for TDS deduction">
                 <Select value={tdsSectionId} onChange={(e) => setTdsSectionId(e.target.value ? Number(e.target.value) : '')}>
                   <option value="">None</option>
@@ -266,6 +273,15 @@ export function LedgerFormModal({ ledger, onClose }: { ledger: Ledger | null; on
               </Field>
               <Field label="PAN" error={panError}>
                 <TextInput value={pan} onChange={(e) => setPan(e.target.value.toUpperCase())} className="num" placeholder="AAAAA9999A" maxLength={10} />
+              </Field>
+              <Field label="Deductor TAN" hint="Customer's TAN from Form 16A / 26AS" error={tanError}>
+                <TextInput data-testid="input-ledger-tan" value={tan} onChange={(e) => setTan(e.target.value.toUpperCase())} className="num" placeholder="AAAA99999A" maxLength={10} />
+              </Field>
+              <Field label="Reverse charge" hint="Only a notified RCM category; an unregistered supplier alone is not section 9(4)">
+                <label className="flex items-center gap-2 text-body-sm">
+                  <input data-testid="input-ledger-rcm" type="checkbox" checked={rcm} onChange={(e) => setRcm(e.target.checked)} />
+                  Tax is payable by this business
+                </label>
               </Field>
               <Field label="Credit days" hint="Default due date for bills">
                 <TextInput value={creditDays} onChange={(e) => setCreditDays(e.target.value)} className="num text-right" placeholder="0" />

@@ -12,10 +12,10 @@
  * Pure, like the rest of src/shared: money is integer paise in, rupees only at the JSON edge;
  * dates are ISO 'YYYY-MM-DD' in, portal 'DD-MM-YYYY' only at the JSON edge.
  *
- * Field naming follows src/shared/gst/returns.ts wherever returns.ts has a precedent (inum/idt/
- * val/pos/rchrg/inv_typ/itms/itm_det, ntty/nt_num/nt_dt, ctin, sply_ty…). Fields that exist ONLY
- * on amendment tables have no precedent there; each is marked with a `VERIFY:` comment rather
- * than being presented as settled.
+ * Field naming is pinned to GSTN's GSTR-1 Save API v5.0 schema, published 23 February 2026, and
+ * the current Returns Offline Tool manual (rechecked 28 August 2026). In particular, B2BA uses
+ * group-level `ctin` plus `oinum`/`oidt`; the schema has NO `octin` property, and GSTN marks the
+ * recipient GSTIN non-amendable. CDNRA similarly uses `ctin` plus `ont_num`/`ont_dt`.
  */
 import { toPortalDate } from '../dates'
 import {
@@ -212,6 +212,7 @@ export type AmendmentRejectionCode =
   | 'original_period_not_earlier'
   | 'invalid_period'
   | 'duplicate_amendment'
+  | 'recipient_gstin_not_amendable'
   | 'b2cs_no_amendment_table'
   | 'no_rated_items'
 
@@ -222,16 +223,16 @@ export interface AmendmentRejection {
   /** Vouchers to drill into — original first, then revised (mirrors GstIssue.voucherIds). */
   voucherIds: number[]
   /** The portal match key this row would have used, for the message and for support. */
-  key: { octin: string | null; oinum: string; oidt: string }
+  key: { ctin: string | null; oinum: string; oidt: string }
   diff?: AmendmentDiff
 }
 
 export interface AmendmentTables {
-  /** Table 9A — amendments to B2B invoices, grouped by the REVISED counterparty GSTIN. */
+  /** Table 9A — amendments to B2B invoices, grouped by the non-amendable counterparty GSTIN. */
   b2ba: unknown[]
   /** Table 9A — amendments to B2C (large) invoices, grouped by the REVISED place of supply. */
   b2cla: unknown[]
-  /** Table 9C — amendments to credit/debit notes issued to registered persons. */
+  /** Table 9C — registered credit/debit-note amendments, grouped by the non-amendable GSTIN. */
   cdnra: unknown[]
   /** Table 9C — amendments to credit/debit notes issued to unregistered persons. */
   cdnura: unknown[]
@@ -240,8 +241,8 @@ export interface AmendmentTables {
   rejected: AmendmentRejection[]
 }
 
-const EMPTY_KEY = (d: GstDoc): { octin: string | null; oinum: string; oidt: string } => ({
-  octin: d.partyGstin,
+const EMPTY_KEY = (d: GstDoc): { ctin: string | null; oinum: string; oidt: string } => ({
+  ctin: d.partyGstin,
   oinum: d.number,
   oidt: d.date
 })
@@ -323,6 +324,20 @@ export function buildAmendmentTables(input: AmendmentInput): AmendmentTables {
       continue
     }
 
+    // GSTN's current offline-tool manual explicitly marks the B2BA recipient GSTIN/UIN as
+    // non-amendable, and the v5.0 JSON contract contains only one group-level `ctin` — there is
+    // no original/revised pair with which to express a change. The same structural fact applies
+    // to CDNRA. Never guess at a nil-and-rebook workflow: surface the correction for deliberate
+    // portal/professional handling instead of emitting a row that cannot represent it.
+    if (original.partyGstin !== revised.partyGstin) {
+      reject(
+        'recipient_gstin_not_amendable',
+        `${original.number} changes the recipient GSTIN from ${original.partyGstin ?? 'unregistered'} to ${revised.partyGstin ?? 'unregistered'}, but GSTN marks the B2BA recipient GSTIN/UIN non-amendable. Correct the recipient through the portal-prescribed reversal/new-document workflow; this app will not invent that filing.`,
+        diff
+      )
+      continue
+    }
+
     // RULE — a document cannot be amended twice into the same period.
     // WHY: the portal keys amendment rows on (original GSTIN, number, date). Two rows with the
     // same key in one return are a duplicate: the portal takes one and the other is rejected, and
@@ -367,12 +382,6 @@ export function buildAmendmentTables(input: AmendmentInput): AmendmentTables {
           invoiceValue: revised.invoiceValue
         })
       ) {
-        // A B2B invoice whose buyer turns out to be unregistered is amended INTO B2CLA when it
-        // is inter-state and above the threshold: the amendment tables are keyed by the original
-        // document, and the table is chosen by what the document now IS, not what it was.
-        // VERIFY: the handling of a registered → unregistered correction against the current
-        // GSTR-1 JSON schema. Some practitioners instead amend the B2BA row to nil and add the
-        // supply fresh to B2CL/B2CS; the portal has accepted both at different schema versions.
         place(b2claRows)
       } else {
         // RULE — a B2C invoice below the B2CL threshold has no amendment table of its own.
@@ -412,16 +421,11 @@ export function buildAmendmentTables(input: AmendmentInput): AmendmentTables {
     }
   }
 
-  // ---- 9A — b2ba, grouped by the REVISED counterparty GSTIN ----
-  const b2ba = groupBy(b2baRows, (r) => r.pair.revised.partyGstin!).map(([ctin, list]) => ({
+  // ---- 9A — b2ba, grouped by the non-amendable recipient GSTIN ----
+  const b2ba = groupBy(b2baRows, (r) => r.pair.original.partyGstin!).map(([ctin, list]) => ({
     ctin,
     inv: list.map((r) => ({
-      // VERIFY: `octin` (original counterparty GSTIN) against the current GSTR-1 JSON schema —
-      // returns.ts has no precedent for it. It is emitted always, not only when the GSTIN
-      // changed, because it is half of the portal's match key.
-      octin: r.pair.original.partyGstin,
-      // VERIFY: `oinum` / `oidt` (original document number and date, portal DD-MM-YYYY) against
-      // the current GSTR-1 JSON schema — no precedent in returns.ts.
+      // GSTN v5.0: original number/date live on the invoice; recipient GSTIN is the group `ctin`.
       oinum: r.pair.original.number,
       oidt: toPortalDate(r.pair.original.date),
       inum: r.pair.revised.number,
@@ -447,13 +451,11 @@ export function buildAmendmentTables(input: AmendmentInput): AmendmentTables {
     }))
   }))
 
-  // ---- 9C — cdnra, grouped by the REVISED counterparty GSTIN ----
-  const cdnra = groupBy(cdnraRows, (r) => r.pair.revised.partyGstin!).map(([ctin, list]) => ({
+  // ---- 9C — cdnra, grouped by the non-amendable recipient GSTIN ----
+  const cdnra = groupBy(cdnraRows, (r) => r.pair.original.partyGstin!).map(([ctin, list]) => ({
     ctin,
     nt: list.map((r) => ({
-      // VERIFY: `ont_num` / `ont_dt` (original note number and date) and `ntty` on the amendment
-      // row against the current GSTR-1 JSON schema — returns.ts gives ntty/nt_num/nt_dt for
-      // cdnr but no precedent for the o-prefixed originals.
+      // GSTN v5.0 calls these original-note keys `ont_num` / `ont_dt`.
       ont_num: r.pair.original.number,
       ont_dt: toPortalDate(r.pair.original.date),
       ntty: r.pair.revised.kind === 'credit_note' ? 'C' : 'D',

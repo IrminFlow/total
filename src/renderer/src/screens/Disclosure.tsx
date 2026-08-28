@@ -11,6 +11,7 @@ import {
   Money,
   Panel,
   RowAction,
+  RowLink,
   SectionTitle,
   SkeletonRows,
   TextInput,
@@ -198,13 +199,12 @@ function RelatedPartiesTab(): React.JSX.Element {
                   </tr>
                   {expanded === r.ledgerId &&
                     r.transactions.map((t) => (
-                      <tr
-                        key={t.voucherId}
-                        className="cursor-pointer text-small text-muted"
-                        onClick={() => nav.go({ name: 'voucher-entry', voucherId: t.voucherId })}
-                      >
+                      <tr key={t.voucherId} className="text-small text-muted">
                         <td className="pl-8">
-                          {t.number} · {toDisplayDate(t.date)}
+                          <RowLink onClick={() => nav.go({ name: 'voucher-entry', voucherId: t.voucherId })}>
+                            {t.number}
+                          </RowLink>{' '}
+                          · {toDisplayDate(t.date)}
                         </td>
                         <td className="capitalize">{t.kind.replace('_', ' ')}</td>
                         <td className="r">{t.amount > 0 ? <Money paise={t.amount} /> : ''}</td>
@@ -592,13 +592,13 @@ function EInvoiceWindowTab(): React.JSX.Element {
             </thead>
             <tbody data-testid="rows-irp-window">
               {data.rows.map((r) => (
-                <tr
-                  key={r.voucherId}
-                  className="cursor-pointer"
-                  onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
-                >
+                <tr key={r.voucherId}>
                   <td className="num text-muted">{toDisplayDate(r.date)}</td>
-                  <td className="num">{r.number}</td>
+                  <td className="num">
+                    <RowLink onClick={() => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}>
+                      {r.number}
+                    </RowLink>
+                  </td>
                   <td>{r.party}</td>
                   <td className="r"><Money paise={r.value} /></td>
                   <td className="num text-muted">{toDisplayDate(r.deadline)}</td>

@@ -379,15 +379,17 @@ function AdvanceModal({ onClose }: { onClose: () => void }): React.JSX.Element {
 export function SettlementModal({
   employeeId,
   employeeName,
+  defaultLastDay,
   onClose
 }: {
   employeeId: number
   employeeName: string
+  defaultLastDay?: string | null
   onClose: () => void
 }): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
-  const [lastDay, setLastDay] = useState(todayISO())
+  const [lastDay, setLastDay] = useState(defaultLastDay ?? todayISO())
   const [leaveDays, setLeaveDays] = useState('0')
   const [noticeDays, setNoticeDays] = useState('0')
   const [payBonus, setPayBonus] = useState(false)

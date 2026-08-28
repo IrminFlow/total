@@ -498,7 +498,8 @@ function aggregateAdvances(
 }
 
 /**
- * Table 13 — documents issued, one series per sales/credit-note/debit-note voucher type.
+ * Table 13 — documents issued, one series per sales/credit-note/debit-note voucher type, plus
+ * the separately numbered branch-transfer tax-invoice series for the sending registration.
  *
  * DELIBERATE EXCEPTION to the NOT_DELETED rule: this query reads soft-deleted (binned)
  * vouchers too — a deleted voucher consumed a number in the series, and Table 13 reports it
@@ -530,7 +531,30 @@ export function extractDocSeries(db: DB, from: string, to: string, scope?: GstSc
       cancel: rows.filter((r) => r.deletedAt).length
     })
   }
-  return result.sort((a, b) => a.category - b.category)
+  // Branch-transfer invoices are statutory outward-supply tax invoices but deliberately are not
+  // accounting vouchers (issuing one must not create revenue or change the trial balance). Their
+  // rule-46 series therefore has to be read from its own durable register. It belongs only to the
+  // sending GSTIN's category-1 documents; the receiving registration neither issued nor reports
+  // it. A bare/single-registration scope has no such documents.
+  if (scope?.registrationId != null) {
+    const branchRows = db
+      .prepare(
+        `SELECT number FROM branch_transfer_invoices
+         WHERE from_registration_id = ? AND doc_date BETWEEN ? AND ?
+         ORDER BY doc_date, id`
+      )
+      .all(scope.registrationId, from, to) as { number: string }[]
+    if (branchRows.length > 0) {
+      result.push({
+        category: 1,
+        from: branchRows[0]!.number,
+        to: branchRows[branchRows.length - 1]!.number,
+        totnum: branchRows.length,
+        cancel: 0
+      })
+    }
+  }
+  return result.sort((a, b) => a.category - b.category || a.from.localeCompare(b.from))
 }
 
 /**

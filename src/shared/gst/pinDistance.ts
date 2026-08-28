@@ -10,17 +10,19 @@
  * validity — and the consignment expires in transit — or lengthens it, which the department
  * reads as an inflated declaration. So a starting number is worth having.
  *
- * But Total is fully offline and ships no postal geocode database. There is no licence-clean,
- * small-enough dataset of all ~19,000 Indian PIN codes with coordinates that we can embed, and
- * no network call is permitted. What we can do honestly is resolve the PIN to the *postal
+ * Total is fully offline and does not call NIC's live distance service. India Post's official
+ * OGD directory is licence-clean, but its office coordinates still are not NIC's proprietary
+ * motorable-route calculation and embedding the full changing directory here would not make
+ * this an official distance. What we can do honestly is resolve the PIN to the *postal
  * sorting district* — the first three digits — and use an approximate coordinate for that
  * district's headquarters town. That is the whole of the claim being made here. It is not a
  * geocode of the address, it is a geocode of a sorting office's town, and the answer is wrong
  * by however far the actual pickup and drop points sit from those two towns.
  *
- * The NIC portal computes its own PIN-to-PIN distance when a bill is generated and accepts a
- * manually entered value within roughly ±10% of it. This module is a hint for the form, not a
- * substitute for that. `PIN_DISTANCE_DISCLAIMER` is written to be printed verbatim next to it.
+ * The NIC portal computes its own PIN-to-PIN distance. Its current documentation applies a 10%
+ * upper grace and makes the portal result authoritative; API documentation also accepts zero as
+ * a request to substitute NIC's stored distance. This module is only a pre-entry hint, never a
+ * substitute. `PIN_DISTANCE_DISCLAIMER` is printed verbatim next to every result.
  *
  * WHERE THE NUMBERS CAME FROM  — // VERIFY: the whole table below is approximate.
  * Three classes of coordinate, none of them surveyed:
@@ -28,16 +30,16 @@
  *      the state capitals and the larger industrial towns. Coordinates are the commonly cited
  *      city-centre latitude/longitude for that town (the kind of figure that agrees across
  *      general references to two decimal places, ~1 km). Rounded to 4 decimals.
- *   2. `CIRCLE_COORDS` — every allotted two-digit postal circle, used when the three-digit
+ *   2. `SUBREGION_COORDS` — every allotted two-digit postal sub-region, used when the three-digit
  *      district is not in class 1. The coordinate is a rough geographic middle of the towns
- *      that circle covers, eyeballed from the districts it contains, not computed from a
+ *      that sub-region covers, eyeballed from the districts it contains, not computed from a
  *      population-weighted centroid. Errors of 50-100 km inside a large circle are expected.
  *   3. Nothing else. An unallotted or malformed PIN returns null rather than a guess. There is
  *      no fallback to a state centroid and no fallback to "somewhere in India": a confidently
  *      wrong distance on a statutory document is worse than an absent one.
- * The allotment of the ranges themselves (first digit = postal region, first two = circle,
- * 11..85 allotted to civil circles, 90..99 reserved for the Army Postal Service) follows the
- * published India Post PIN structure.
+ * The ranges were checked on 2026-08-28 against the Department of Posts' OGD PIN directory
+ * (resource updated 2025-10-03): first digit is the postal region, first two the sub-region and
+ * first three the sorting district. 9x Army Postal Service PINs are deliberately not located.
  *
  * No money is involved anywhere in this module, so the integer-paise rule does not apply.
  * Distances are ordinary numbers of kilometres, and are rounded to whole kilometres only at
@@ -51,8 +53,8 @@ export interface PinPoint {
 }
 
 export interface PinLocation extends PinPoint {
-  /** 'district' = matched a three-digit sorting district; 'circle' = only the two-digit circle. */
-  precision: 'district' | 'circle'
+  /** 'district' = matched a three-digit sorting district; 'subregion' = only the first two digits. */
+  precision: 'district' | 'subregion'
 }
 
 export interface EwayDistanceEstimate {
@@ -75,17 +77,16 @@ export interface EwayDistanceEstimate {
 export const ROAD_CIRCUITY_FACTOR = 1.25
 
 /**
- * Floor for an estimate. The e-way bill portal rejects a distance of 0 km, and two consignments
- * moving within one sorting district resolve to the same coordinate here, which would otherwise
- * produce exactly that. 1 km is the smallest value the field accepts, and for a move inside a
- * single district it is also a defensible one.
+ * Floor for this estimate. Zero has a distinct API meaning: ask NIC to substitute its own stored
+ * distance. This offline suggestion never impersonates that live lookup, so two PINs resolving
+ * to one approximate point are shown as a conservative non-zero hint and must still be checked.
  */
 export const MIN_ESTIMATED_KM = 1
 
 /** Printed verbatim in the UI next to any distance this module produces. */
 export const PIN_DISTANCE_DISCLAIMER =
   'This distance is an estimate, not a measurement. It is the straight-line distance between ' +
-  'the head towns of the two PIN codes’ postal districts, increased by a fixed allowance ' +
+  'approximate reference points for the two PIN codes’ postal districts or sub-regions, increased by a fixed allowance ' +
   'for roads not running straight. It does not know your actual pickup or delivery address, ' +
   'the route, or the roads. Check it against the distance the e-way bill portal calculates ' +
   'before you file, and correct it if it differs — the transporter’s real route is ' +
@@ -93,14 +94,14 @@ export const PIN_DISTANCE_DISCLAIMER =
   'in transit.'
 
 /**
- * Two-digit postal circles. Key = first two digits of the PIN. Every allotted circle from 11 to
- * 85 appears; the gaps (00-10, 29, 35, 54, 55, 65, 66, 86-99) are deliberately absent because
- * India Post has not allotted them to civil circles — 90-99 is the Army Postal Service, whose
+ * Two-digit postal sub-regions. Key = first two digits of the PIN. Every civil prefix present in
+ * the Department of Posts OGD directory appears; gaps are deliberately absent. 90-99 is the
+ * Army Postal Service, whose
  * field post offices have no fixed location at all and must never be given one here.
  *
- * // VERIFY: rough geographic middles of the districts each circle covers. Class 2 above.
+ * // APPROXIMATE: rough geographic middles of the districts each sub-region covers. Class 2 above.
  */
-const CIRCLE_COORDS: Record<string, PinPoint> = {
+const SUBREGION_COORDS: Record<string, PinPoint> = {
   // Region 1 — Delhi, Haryana, Punjab, Himachal, J&K, Ladakh, Chandigarh
   '11': { lat: 28.63, lon: 77.22 }, // Delhi
   '12': { lat: 28.5, lon: 76.9 }, // Haryana south — Faridabad, Gurugram, Rohtak, Hisar
@@ -182,11 +183,11 @@ const CIRCLE_COORDS: Record<string, PinPoint> = {
 
 /**
  * Three-digit sorting districts we are confident about: metros, state capitals, and the larger
- * industrial towns. Anything not listed falls back to its circle, which is the honest thing to
+ * industrial towns. Anything not listed falls back to its sub-region, which is the honest thing to
  * do — a district we have not checked would otherwise be a made-up coordinate wearing the
  * 'district' precision label.
  *
- * // VERIFY: commonly cited city-centre coordinates for the district's head town. Class 1 above.
+ * // APPROXIMATE: commonly cited city-centre coordinates for the district's head town. Class 1 above.
  */
 const DISTRICT_COORDS: Record<string, PinPoint> = {
   // Delhi NCR and the north
@@ -328,7 +329,7 @@ const DISTRICT_COORDS: Record<string, PinPoint> = {
  * Coordinate for a PIN, or null when we do not have an honest one.
  *
  * Null covers three cases, all of which the caller should treat the same way — ask the user for
- * the distance instead: the PIN is not six digits, the PIN's circle was never allotted by India
+ * the distance instead: the PIN is not six digits, the PIN's sub-region was never allotted by India
  * Post (00-10, 29, 35, 54, 55, 65, 66), or it is a 9x Army Postal Service number, whose field
  * post offices move.
  */
@@ -341,8 +342,8 @@ export function pinCoordinates(pin: string): PinLocation | null {
   const exact = DISTRICT_COORDS[district]
   if (exact) return { lat: exact.lat, lon: exact.lon, precision: 'district' }
 
-  const circle = CIRCLE_COORDS[trimmed.slice(0, 2)]
-  if (circle) return { lat: circle.lat, lon: circle.lon, precision: 'circle' }
+  const subregion = SUBREGION_COORDS[trimmed.slice(0, 2)]
+  if (subregion) return { lat: subregion.lat, lon: subregion.lon, precision: 'subregion' }
 
   return null
 }
@@ -365,7 +366,7 @@ export function haversineKm(a: PinPoint, b: PinPoint): number {
 }
 
 const precisionWord = (p: PinLocation['precision']): string =>
-  p === 'district' ? 'postal district' : 'postal circle'
+  p === 'district' ? 'postal district' : 'postal sub-region'
 
 /**
  * Estimated road distance for an e-way bill, or null when either PIN cannot be resolved
@@ -385,12 +386,12 @@ export function estimateEwayDistanceKm(
   const km = Math.max(MIN_ESTIMATED_KM, Math.round(straight * ROAD_CIRCUITY_FACTOR))
 
   const worst: PinLocation['precision'] =
-    from.precision === 'circle' || to.precision === 'circle' ? 'circle' : 'district'
+    from.precision === 'subregion' || to.precision === 'subregion' ? 'subregion' : 'district'
   const sameDistrict = fromPin.trim().slice(0, 3) === toPin.trim().slice(0, 3)
 
   const basis = sameDistrict
     ? `Both PIN codes are in ${precisionWord(worst)} ${fromPin.trim().slice(0, 3)}; ` +
-      `shown as the ${MIN_ESTIMATED_KM} km minimum the portal accepts, not a measured distance`
+      `shown as a ${MIN_ESTIMATED_KM} km non-zero hint, not NIC's live distance or a measurement`
     : `Straight line between ${precisionWord(from.precision)} ${fromPin.trim().slice(0, 3)} and ` +
       `${precisionWord(to.precision)} ${toPin.trim().slice(0, 3)}, ` +
       `× ${ROAD_CIRCUITY_FACTOR} for road circuity`

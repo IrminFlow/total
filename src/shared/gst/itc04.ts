@@ -26,11 +26,9 @@
  * (`qtyMilli`), money is integer paise, and the pro-rata split goes through BigInt so a large
  * challan value multiplied by a large quantity cannot silently leave the safe-integer range.
  *
- * Sections were read against the bare CGST Act, 2017 as amended to date, on 2026-08-25.
- * // VERIFY (2026-08-25): section 143(3)/(4) text and the moulds-and-dies exclusion were recalled
- * // from the bare Act rather than re-read from a current CBIC copy. Confirm the wording — in
- * // particular that the capital-goods exclusion still sits inline in 143(4) — before relying on
- * // the exclusion to suppress a deemed supply for a customer.
+ * Official-source audit completed 2026-08-28: section 143(1), (3), (4) and (5) were checked in
+ * CBIC's consolidated Act; rule 45's current periodicity was checked in Notification 35/2021-CT;
+ * the table headings and fields were checked in GSTN's July 2024 ITC-04 Offline Utility manual.
  */
 import { daysBetween, fyFromStartYear, todayISO } from '../dates'
 import { computeGst, supplyTypeFor, type GstBreakup, type SupplyType } from './calc'
@@ -66,8 +64,12 @@ export interface JobWorkChallan {
    * is the one number this form exists to state.
    */
   jobWorkerGstin: string | null
+  /** Local identity distinguishes two unregistered workers in the same state; never exported. */
+  jobWorkerLedgerId?: number | null
   /** Two-digit state code of the job worker's place of business. Required either way. */
   jobWorkerStateCode: string
+  /** Table 4's Job Worker's Type: SEZ or non-SEZ, fixed as at despatch. */
+  jobWorkerIsSez?: boolean
   goodsType: JobWorkGoodsType
   description: string
   hsn: string
@@ -79,6 +81,8 @@ export interface JobWorkChallan {
   taxableValuePaise: number
   /** GST rate the goods would attract, whole or fractional percent (0, 0.25, 3, 5, 12, 18, 28). */
   gstRate: number
+  /** Compensation cess shown on the challan, integer paise. */
+  cessPaise?: number
   /**
    * Date the job worker actually received the goods, when they were sent DIRECTLY to him by the
    * principal's supplier. The Explanation to section 143 starts the clock from that receipt, not
@@ -132,6 +136,23 @@ export interface JobWorkReturn {
   /** Integer thousandths returned under this document. */
   qtyMilli: number
   disposition: JobWorkDisposition
+  /** Worker who actually issued this onward/return document or supplied the goods. */
+  sourceJobWorkerLedgerId?: number | null
+  sourceJobWorkerGstin?: string | null
+  sourceJobWorkerStateCode?: string | null
+  sourceJobWorkerIsSez?: boolean
+  /** Required for an onward move; never used to reset the original section 143 clock. */
+  destinationJobWorkerLedgerId?: number | null
+  destinationJobWorkerGstin?: string | null
+  destinationJobWorkerStateCode?: string | null
+  destinationJobWorkerIsSez?: boolean
+  onwardChallanProvenance?: 'endorsed_original' | 'fresh' | null
+  /** Loss/waste belongs to this form row, separately from the processed goods quantity. */
+  lossWasteUqc?: string | null
+  lossWasteQtyMilli?: number
+  /** Table 5C takes the principal's invoice, not a worker's receipt challan. */
+  principalInvoiceNumber?: string | null
+  principalInvoiceDate?: string | null
   /** Free text — the form asks for the nature of the job work done. */
   natureOfJobWork?: string | null
 }
@@ -202,6 +223,8 @@ export type Itc04IssueCode =
   | 'invalid-uqc'
   /** Challan quantity is zero or negative — nothing can be apportioned against it. */
   | 'invalid-quantity'
+  /** An onward despatch is real, but it is not the receipt described by Table 5B. */
+  | 'onward-movement-not-file-ready'
 
 export interface Itc04Issue {
   code: Itc04IssueCode
@@ -221,7 +244,7 @@ export interface DeemedSupplyRow {
   hsn: string
   uqc: string
   sentMilli: number
-  /** Everything accounted for: returned, moved on, supplied from the premises, waste. */
+  /** Everything that discharges the clock: returned, supplied from the premises, or waste. */
   accountedMilli: number
   /** Never negative. An over-return raises an issue and leaves this at zero. */
   balanceMilli: number
@@ -309,7 +332,14 @@ export function deemedSupplies(
         message: `Receipt ${r.receiptChallanNumber} is dated ${r.receiptChallanDate}, before the challan date ${challan.challanDate}.`
       })
     }
-    accounted.set(r.originalChallanNumber, (accounted.get(r.originalChallanNumber) ?? 0) + r.qtyMilli)
+    // Moving goods from one job worker to another does not bring them back or supply them under
+    // section 143(1)(a)/(b), so it cannot discharge the original one/three-year clock. Circular
+    // 38/12/2018-GST is explicit that the clock continues from the first job worker. The old
+    // implementation cleared the balance here and silently reset the statutory clock.
+    const discharged = r.disposition === 'waste_and_scrap'
+      ? (r.lossWasteQtyMilli ?? r.qtyMilli)
+      : (r.disposition === 'sent_to_other_job_worker' ? 0 : r.qtyMilli) + (r.lossWasteQtyMilli ?? 0)
+    accounted.set(r.originalChallanNumber, (accounted.get(r.originalChallanNumber) ?? 0) + discharged)
   }
 
   const rows: DeemedSupplyRow[] = challans.map((c) => {
@@ -346,11 +376,9 @@ export function deemedSupplies(
     const extended = !exemptFromClock && !!c.extendedDueBackBy
     const dueBackBy = exemptFromClock ? null : extended ? (c.extendedDueBackBy as string) : statutoryDue
 
-    // The due date itself is still in time: goods sent on 10 Apr 2025 are "within one year" up to
-    // and including 10 Apr 2026, and are late on the 11th.
-    // // VERIFY (2026-08-25): the boundary-day convention is a reading of "within one year", not a
-    // // departmental clarification. If CBIC treats the anniversary itself as late, the comparison
-    // // below becomes `asOn >= dueBackBy` and every anniversary-dated return flips.
+    // The due date itself is still in time: section 9 of the General Clauses Act excludes the
+    // first day in a period expressed from an event and includes the last. Goods sent 10 Apr 2025
+    // therefore remain within one year through 10 Apr 2026 and are late on the 11th.
     const overdue = dueBackBy !== null && balanceMilli > 0 && asOn > dueBackBy
     const daysOverdue = overdue ? daysBetween(dueBackBy as string, asOn) : 0
 
@@ -454,14 +482,9 @@ export const ITC04_PERIODICITY_HISTORY: Itc04PeriodicityRule[] = [
     thresholdPaise: 5 * CRORE,
     aboveThresholdFrequency: 'half-yearly',
     note:
-      'Rule 45(3) as substituted by Notification 35/2021-Central Tax dated 24 September 2021, w.e.f. 1 October 2021 and applicable from FY 2021-22: aggregate turnover above ₹5 crore in the preceding FY files half-yearly (Apr–Sep by 25 October, Oct–Mar by 25 April); ₹5 crore or below files annually by 25 April.'
+      'Rule 45(3) as amended by Notification 35/2021-Central Tax dated 24 September 2021, effective 1 October 2021: preceding-FY aggregate turnover above ₹5 crore files six-monthly; every other principal files for a financial year. FY 2021-22 is transitional: GSTN keeps quarterly periods through September and an Oct–Mar period.'
   }
 ]
-
-// // VERIFY (2026-08-25): notification number (35/2021-Central Tax, 24-09-2021) and its effective
-// // date were recalled, not read from the gazette. The ₹5 crore threshold, the half-yearly/annual
-// // split and the 25 October / 25 April due dates are confident; the citation is the weak part.
-// // Confirm before the number is printed anywhere a user might rely on it.
 
 /** The regime in force on `date`. */
 export function itc04PeriodicityOn(
@@ -526,6 +549,17 @@ export interface Itc04Period {
 export function itc04PeriodsForFy(fyStartYear: number, frequency: Itc04Frequency): Itc04Period[] {
   const fy = fyFromStartYear(fyStartYear)
   const y = fyStartYear
+  // Notification 35/2021-CT took effect on 1 October 2021. GSTN's current manual says quarterly
+  // periods ran through September 2021 and annual filing starts only in FY 2022-23. The transition
+  // year therefore cannot be rewritten as one Apr–Mar annual return or one Apr–Sep half-year:
+  // Q1 and Q2 were already separate periods, followed by one Oct–Mar transition period.
+  if (y === 2021) {
+    return [
+      { from: '2021-04-01', to: '2021-06-30', label: 'Q1 2021-22', dueDate: '2021-07-25' },
+      { from: '2021-07-01', to: '2021-09-30', label: 'Q2 2021-22', dueDate: '2021-10-25' },
+      { from: '2021-10-01', to: '2022-03-31', label: 'Oct–Mar 2021-22', dueDate: '2022-04-25' }
+    ]
+  }
   if (frequency === 'annual') {
     return [{ from: fy.from, to: fy.to, label: `FY ${fy.label}`, dueDate: `${y + 1}-04-25` }]
   }
@@ -550,16 +584,16 @@ export function itc04PeriodsForFy(fyStartYear: number, frequency: Itc04Frequency
 /**
  * Table 4 row — inputs/capital goods sent for job work in the period.
  *
- * // VERIFY (2026-08-25): the notified Table 4 also distinguishes a challan issued by the
- * // PRINCIPAL from one issued by a JOB WORKER (goods moving from one job worker to another are
- * // declared on the job worker's challan). This module models only the principal's challan, so
- * // that column is absent. Confirm against the current ITC-04 format before export.
+ * GSTN's July 2024 manual shows GSTIN/state, SEZ/non-SEZ job-worker type, challan, goods type,
+ * description, UQC, quantity, taxable value, supply type, tax rate and cess. This working has all
+ * except the job worker's SEZ status and cess; see `portalFile` below.
  */
 export interface Itc04SentRow {
   jobWorkerGstin: string | null
   jobWorkerStateCode: string
   /** The form takes the state in place of a GSTIN for an unregistered job worker. */
   unregisteredJobWorker: boolean
+  jobWorkerIsSez: boolean
   challanNumber: string
   challanDate: string
   goodsType: JobWorkGoodsType
@@ -569,6 +603,7 @@ export interface Itc04SentRow {
   qtyMilli: number
   taxableValuePaise: number
   gstRate: number
+  cessPaise: number
   supply: SupplyType
   /**
    * Rate columns, expressed as amounts for convenience.
@@ -589,23 +624,27 @@ export interface Itc04ReceivedRow {
   jobWorkerGstin: string | null
   jobWorkerStateCode: string
   unregisteredJobWorker: boolean
+  sourceJobWorkerIsSez: boolean
   goodsType: JobWorkGoodsType
   description: string
   hsn: string
   uqc: string
   qtyMilli: number
+  lossWasteUqc: string | null
+  lossWasteQtyMilli: number
   disposition: JobWorkDisposition
   natureOfJobWork: string | null
   /**
    * Pro-rata value of this quantity, integer paise.
    *
-   * // VERIFY (2026-08-25): 5A and 5B in the notified form carry quantity but (as recalled) no
-   * // taxable-value column; 5C does, because it is an actual outward supply. The value is
-   * // computed on every row anyway as information for the screen — do not export it into a 5A/5B
-   * // JSON payload without checking the current schema.
+   * The current official tool has no taxable-value column in 5A/5B/5C. This pro-rata value is
+   * information for the working only and is never claimed as an export field.
    */
   taxableValuePaise: number
   gstRate: number
+  /** Present only in Table 5C. */
+  principalInvoiceNumber: string | null
+  principalInvoiceDate: string | null
 }
 
 export interface Itc04Totals {
@@ -618,11 +657,35 @@ export interface Itc04Totals {
   wasteQtyMilli: number
 }
 
+export interface Itc04PortalSentItem {
+  goods_ty: '7b' | '8b'; desc: string; uqc: string; qty: number; txval: number
+  tx_i: number; tx_c: number; tx_s: number; tx_cs: number
+}
+export interface Itc04PortalSent {
+  ctin?: string; jw_stcd?: string; chnum: string; chdt: string; flag: 'N'; itms: Itc04PortalSentItem[]
+}
+export interface Itc04PortalReceiptItem {
+  jw2_chnum: string; jw2_chdt: string; nat_jw: string; desc: string; uqc: string; qty: number
+  lwuqc?: string; lwqty?: number
+}
+export interface Itc04PortalSupplyItem {
+  inum: string; idt: string; nat_jw: string; desc: string; uqc: string; qty: number
+  lwuqc?: string; lwqty?: number
+}
+export interface Itc04PortalPreview {
+  gstin: string
+  fp: string
+  m2jw: Itc04PortalSent[]
+  table5A: { ctin?: string; jw_stcd?: string; o_chnum: string; o_chdt: string; flag: 'N'; items: Itc04PortalReceiptItem[] }[]
+  table5B: { ctin?: string; jw_stcd?: string; o_chnum: string; o_chdt: string; flag: 'N'; items: Itc04PortalReceiptItem[] }[]
+  table5C: { ctin?: string; jw_stcd?: string; o_chnum: string; o_chdt: string; flag: 'N'; items: Itc04PortalSupplyItem[] }[]
+}
+
 export interface Itc04 {
   period: Itc04Period
   /**
-   * True when every table is empty. A nil ITC-04 is a real filing obligation, not an absence of
-   * one — the form still has to go in — so this is a flag on a valid form, never a null return.
+   * True when every table is empty. This means an empty working, not a filing claim: GSTN's
+   * current offline utility explicitly says it cannot generate a nil JSON.
    */
   nil: boolean
   /** Table 4 — inputs and capital goods sent for job work. */
@@ -636,14 +699,9 @@ export interface Itc04 {
    */
   table5A: Itc04ReceivedRow[]
   /**
-   * Table 5B — the other-job-worker limb.
-   *
-   * // VERIFY (2026-08-25): the notified 5B heading, as recalled, is "received back from a job
-   * // worker OTHER THAN the one the goods were originally sent to" — a receipt, whereas the
-   * // `sent_to_other_job_worker` disposition routed here is a despatch. Both describe the same
-   * // job-worker-to-job-worker movement seen from different ends, and there is a real chance the
-   * // current form wants that movement declared in Table 4 on the job worker's challan instead.
-   * // Confirm the heading and the intended limb before this table is filed or exported.
+   * Table 5B — goods RECEIVED BACK from a job worker other than the one they were originally sent
+   * to, plus losses/wastes. An onward despatch is not put here. The current stored return does not
+   * identify that other returning worker, so this table remains empty until the model is extended.
    */
   table5B: Itc04ReceivedRow[]
   /** Table 5C — supplied directly from the job worker's place of business (section 143(1)(b)). */
@@ -656,13 +714,125 @@ export interface Itc04 {
    */
   deemed: DeemedSupplyReport
   issues: Itc04Issue[]
+  /** Dated result of checking the current official tool. This is a working, not portal JSON. */
+  portalFile: {
+    ready: false
+    auditedOn: string
+    offlineToolManualCreatedOn: string
+    offlineToolVersionShown: string
+    utilityDownloadedOn: string
+    utilitySha256: string
+    blockers: string[]
+    preview: Itc04PortalPreview
+    validation: { valid: boolean; errors: string[] }
+  }
 }
 
 export interface Itc04Options {
   /** The principal's own state code, for the intra/inter split on Table 4. */
   principalStateCode: string
+  principalGstin?: string | null
   /** Date the clock is read on. Defaults to the period end. */
   asOn?: string
+}
+
+const portalDate = (iso: string): string => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`
+const portalQty = (milli: number): number => milli / 1000
+const portalMoney = (paise: number): number => Number(`${Math.trunc(paise / 100)}.${String(Math.abs(paise % 100)).padStart(2, '0')}`)
+
+function itc04Fp(period: Itc04Period): string {
+  const mm = `${period.from.slice(5, 7)}-${period.to.slice(5, 7)}`
+  const code = ({ '04-06': '13', '07-09': '14', '10-12': '15', '01-03': '16', '04-09': '17', '10-03': '18', '04-03': '19' } as Record<string, string>)[mm] ?? ''
+  return `${code}${period.from.slice(0, 4)}`
+}
+
+function workerKey(row: Itc04ReceivedRow): { ctin?: string; jw_stcd?: string } {
+  return row.jobWorkerGstin ? { ctin: row.jobWorkerGstin } : { jw_stcd: row.jobWorkerStateCode }
+}
+
+/** Current GSTN v2.15 workbook shape, reconstructed from its hidden row-6 field names and VBA. */
+export function buildItc04PortalPreview(
+  period: Itc04Period,
+  principalGstin: string | null | undefined,
+  table4: Itc04SentRow[],
+  table5A: Itc04ReceivedRow[],
+  table5B: Itc04ReceivedRow[],
+  table5C: Itc04ReceivedRow[]
+): Itc04PortalPreview {
+  const receipt = (row: Itc04ReceivedRow): Itc04PortalReceiptItem => ({
+    jw2_chnum: row.receiptChallanNumber, jw2_chdt: portalDate(row.receiptChallanDate),
+    nat_jw: row.natureOfJobWork ?? '', desc: row.description, uqc: row.uqc,
+    qty: portalQty(row.qtyMilli),
+    ...(row.lossWasteQtyMilli > 0 ? { lwuqc: row.lossWasteUqc ?? '', lwqty: portalQty(row.lossWasteQtyMilli) } : {})
+  })
+  const receiptOuter = (row: Itc04ReceivedRow) => ({
+    ...workerKey(row), o_chnum: row.originalChallanNumber, o_chdt: portalDate(row.originalChallanDate),
+    flag: 'N' as const, items: [receipt(row)]
+  })
+  return {
+    gstin: principalGstin ?? '', fp: itc04Fp(period),
+    m2jw: table4.map((row) => {
+      const integrated = row.supply === 'inter' || row.jobWorkerIsSez
+      return {
+        ...(row.jobWorkerGstin ? { ctin: row.jobWorkerGstin } : { jw_stcd: row.jobWorkerStateCode }),
+        chnum: row.challanNumber, chdt: portalDate(row.challanDate), flag: 'N' as const,
+        itms: [{
+          goods_ty: row.goodsType === 'capital_goods' ? '7b' as const : '8b' as const,
+          desc: row.description, uqc: row.uqc, qty: portalQty(row.qtyMilli),
+          txval: portalMoney(row.taxableValuePaise), tx_i: integrated ? row.gstRate : 0,
+          tx_c: integrated ? 0 : row.gstRate / 2, tx_s: integrated ? 0 : row.gstRate / 2,
+          tx_cs: portalMoney(row.cessPaise)
+        }]
+      }
+    }),
+    table5A: table5A.map(receiptOuter),
+    table5B: table5B.map(receiptOuter),
+    table5C: table5C.map((row) => ({
+      ...workerKey(row), o_chnum: row.originalChallanNumber, o_chdt: portalDate(row.originalChallanDate), flag: 'N' as const,
+      items: [{
+        inum: row.principalInvoiceNumber ?? '', idt: portalDate(row.principalInvoiceDate ?? ''),
+        nat_jw: row.natureOfJobWork ?? '', desc: row.description, uqc: row.uqc, qty: portalQty(row.qtyMilli),
+        ...(row.lossWasteQtyMilli > 0 ? { lwuqc: row.lossWasteUqc ?? '', lwqty: portalQty(row.lossWasteQtyMilli) } : {})
+      }]
+    }))
+  }
+}
+
+export function validateItc04PortalPreview(preview: Itc04PortalPreview): { valid: boolean; errors: string[] } {
+  const errors: string[] = []
+  const gstin = /^\d{2}[A-Z0-9]{13}$/
+  const doc = /^[A-Za-z0-9\-/]{1,16}$/
+  const date = /^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])-\d{4}$/
+  const identity = (row: { ctin?: string; jw_stcd?: string }, label: string): void => {
+    if (row.ctin ? !gstin.test(row.ctin) : !/^\d{2}$/.test(row.jw_stcd ?? '')) errors.push(`${label} has no valid job-worker GSTIN or state.`)
+  }
+  if (!gstin.test(preview.gstin)) errors.push('The principal GSTIN is missing or invalid.')
+  if (!/^(13|14|15|16|17|18|19)\d{4}$/.test(preview.fp)) errors.push('The ITC-04 filing period is invalid.')
+  for (const row of preview.m2jw) {
+    identity(row, `Table 4 challan ${row.chnum}`)
+    if (!doc.test(row.chnum) || !date.test(row.chdt)) errors.push(`Table 4 challan ${row.chnum} has an invalid number or date.`)
+    for (const item of row.itms) {
+      if (!isUqc(item.uqc) || !Number.isInteger(item.qty * 100) || item.qty <= 0) errors.push(`Table 4 challan ${row.chnum} has a quantity/UQC the v2.15 utility cannot represent.`)
+      if (!item.desc || item.desc.length > 70) errors.push(`Table 4 challan ${row.chnum} description must be 1–70 characters.`)
+    }
+  }
+  const validateReceipt = (rows: ({ ctin?: string; jw_stcd?: string; o_chnum: string; o_chdt: string; items: (Itc04PortalReceiptItem | Itc04PortalSupplyItem)[] }[]), table: string): void => {
+    for (const row of rows) {
+      identity(row, `${table} row ${row.o_chnum}`)
+      if (!doc.test(row.o_chnum) || !date.test(row.o_chdt)) errors.push(`${table} row has an invalid original challan.`)
+      for (const item of row.items) {
+        if (!item.nat_jw || item.nat_jw.length > 70 || !item.desc || item.desc.length > 70) errors.push(`${table} row ${row.o_chnum} has invalid nature/description text.`)
+        if (!isUqc(item.uqc) || !Number.isInteger(item.qty * 100) || item.qty < 0) errors.push(`${table} row ${row.o_chnum} has a quantity/UQC the v2.15 utility cannot represent.`)
+        if (item.lwqty !== undefined && (!item.lwuqc || !isUqc(item.lwuqc) || !Number.isInteger(item.lwqty * 100))) errors.push(`${table} row ${row.o_chnum} has invalid loss/waste quantity or UQC.`)
+        if ('jw2_chnum' in item && (!doc.test(item.jw2_chnum) || !date.test(item.jw2_chdt))) errors.push(`${table} row ${row.o_chnum} has an invalid worker challan.`)
+        if ('inum' in item && (!doc.test(item.inum) || !date.test(item.idt))) errors.push(`${table} row ${row.o_chnum} has an invalid principal invoice.`)
+      }
+    }
+  }
+  validateReceipt(preview.table5A, 'Table 5A')
+  validateReceipt(preview.table5B, 'Table 5B')
+  validateReceipt(preview.table5C, 'Table 5C')
+  return { valid: errors.length === 0, errors }
 }
 
 const inPeriod = (date: string, p: Itc04Period): boolean => date >= p.from && date <= p.to
@@ -696,6 +866,7 @@ export function buildItc04(
         jobWorkerGstin: c.jobWorkerGstin,
         jobWorkerStateCode: c.jobWorkerStateCode,
         unregisteredJobWorker: !c.jobWorkerGstin,
+        jobWorkerIsSez: c.jobWorkerIsSez ?? false,
         challanNumber: c.challanNumber,
         challanDate: c.challanDate,
         goodsType: c.goodsType,
@@ -705,6 +876,7 @@ export function buildItc04(
         qtyMilli: c.qtyMilli,
         taxableValuePaise: c.taxableValuePaise,
         gstRate: c.gstRate,
+        cessPaise: c.cessPaise ?? 0,
         supply,
         tax: computeGst(c.taxableValuePaise, c.gstRate, supply)
       }
@@ -713,35 +885,62 @@ export function buildItc04(
   const table5A: Itc04ReceivedRow[] = []
   const table5B: Itc04ReceivedRow[] = []
   const table5C: Itc04ReceivedRow[] = []
+  const formIssues: Itc04Issue[] = []
 
   for (const r of returns) {
-    if (!inPeriod(r.receiptChallanDate, period)) continue
+    const formDate = r.disposition === 'supplied_from_job_worker_premises'
+      ? (r.principalInvoiceDate ?? r.receiptChallanDate)
+      : r.receiptChallanDate
+    if (!inPeriod(formDate, period)) continue
     const c = byChallan.get(r.originalChallanNumber)
     // The unknown-challan issue is already raised by `deemedSupplies`; a row with no challan
     // behind it has no description, HSN or value to report, so it cannot go in a table.
     if (!c) continue
+    const sourceGstin = r.sourceJobWorkerGstin ?? c.jobWorkerGstin
+    const sourceState = r.sourceJobWorkerStateCode ?? c.jobWorkerStateCode
+    const sameWorker = r.sourceJobWorkerLedgerId && c.jobWorkerLedgerId
+      ? r.sourceJobWorkerLedgerId === c.jobWorkerLedgerId
+      : sourceGstin && c.jobWorkerGstin
+        ? sourceGstin === c.jobWorkerGstin
+        : sourceState === c.jobWorkerStateCode && !sourceGstin && !c.jobWorkerGstin
     const row: Itc04ReceivedRow = {
       originalChallanNumber: r.originalChallanNumber,
       originalChallanDate: r.originalChallanDate,
       receiptChallanNumber: r.receiptChallanNumber,
-      receiptChallanDate: r.receiptChallanDate,
-      jobWorkerGstin: c.jobWorkerGstin,
-      jobWorkerStateCode: c.jobWorkerStateCode,
-      unregisteredJobWorker: !c.jobWorkerGstin,
+      receiptChallanDate: formDate,
+      jobWorkerGstin: sourceGstin,
+      jobWorkerStateCode: sourceState,
+      unregisteredJobWorker: !sourceGstin,
+      sourceJobWorkerIsSez: r.sourceJobWorkerIsSez ?? c.jobWorkerIsSez ?? false,
       goodsType: c.goodsType,
       description: c.description,
       hsn: c.hsn,
       uqc: c.uqc,
-      qtyMilli: r.qtyMilli,
+      qtyMilli: r.disposition === 'waste_and_scrap' ? 0 : r.qtyMilli,
+      lossWasteUqc: r.lossWasteUqc ?? null,
+      lossWasteQtyMilli: r.disposition === 'waste_and_scrap' ? (r.lossWasteQtyMilli ?? r.qtyMilli) : (r.lossWasteQtyMilli ?? 0),
       disposition: r.disposition,
       natureOfJobWork: r.natureOfJobWork ?? null,
       taxableValuePaise:
         c.qtyMilli > 0 ? mulDivRound(c.taxableValuePaise, r.qtyMilli, c.qtyMilli) : 0,
-      gstRate: c.gstRate
+      gstRate: c.gstRate,
+      principalInvoiceNumber: r.principalInvoiceNumber ?? null,
+      principalInvoiceDate: r.principalInvoiceDate ?? null
     }
-    if (r.disposition === 'sent_to_other_job_worker') table5B.push(row)
-    else if (r.disposition === 'supplied_from_job_worker_premises') table5C.push(row)
-    else table5A.push(row) // 'returned' and 'waste_and_scrap' — 5A covers losses and wastes.
+    if (r.disposition === 'sent_to_other_job_worker') {
+      // GSTN Table 5B is a receipt from a DIFFERENT worker, not this onward despatch. We cannot
+      // safely manufacture its destination identity from the original worker, so retain the
+      // movement in the clock/register and state exactly why it is absent from a filing table.
+      if (!r.destinationJobWorkerGstin && !r.destinationJobWorkerStateCode) {
+        formIssues.push({
+          code: 'onward-movement-not-file-ready',
+          challanNumber: c.challanNumber,
+          message: `Onward movement ${r.receiptChallanNumber} has no destination job-worker identity.`
+        })
+      }
+    } else if (r.disposition === 'supplied_from_job_worker_premises') table5C.push(row)
+    else if (sameWorker) table5A.push(row)
+    else table5B.push(row)
   }
 
   const sumQty = (rows: Itc04ReceivedRow[], pred: (r: Itc04ReceivedRow) => boolean): number =>
@@ -751,11 +950,15 @@ export function buildItc04(
     challanCount: table4.length,
     sentQtyMilli: table4.reduce((s, r) => s + r.qtyMilli, 0),
     sentValuePaise: table4.reduce((s, r) => s + r.taxableValuePaise, 0),
-    receivedBackQtyMilli: sumQty(table5A, (r) => r.disposition === 'returned'),
-    sentOnwardQtyMilli: table5B.reduce((s, r) => s + r.qtyMilli, 0),
+    receivedBackQtyMilli: sumQty([...table5A, ...table5B], (r) => r.disposition === 'returned'),
+    sentOnwardQtyMilli: returns
+      .filter((r) => inPeriod(r.receiptChallanDate, period) && r.disposition === 'sent_to_other_job_worker')
+      .reduce((s, r) => s + r.qtyMilli, 0),
     suppliedOutQtyMilli: table5C.reduce((s, r) => s + r.qtyMilli, 0),
-    wasteQtyMilli: sumQty(table5A, (r) => r.disposition === 'waste_and_scrap')
+    wasteQtyMilli: [...table5A, ...table5B, ...table5C].reduce((s, r) => s + r.lossWasteQtyMilli, 0)
   }
+  const portalPreview = buildItc04PortalPreview(period, opts.principalGstin, table4, table5A, table5B, table5C)
+  const portalValidation = validateItc04PortalPreview(portalPreview)
 
   return {
     period,
@@ -767,6 +970,23 @@ export function buildItc04(
     table5C,
     totals,
     deemed,
-    issues: deemed.issues
+    issues: [...deemed.issues, ...formIssues],
+    portalFile: {
+      ready: false,
+      auditedOn: '2026-08-28',
+      offlineToolManualCreatedOn: '2024-07-03',
+      offlineToolVersionShown: 'v2.15',
+      utilityDownloadedOn: '2026-08-28',
+      utilitySha256: 'b7a953cd8de518608c3f0aab3361ad6f6da38022afbf3926760d8d299a49a40f',
+      blockers: [
+        ...(portalValidation.valid ? [] : ['The v2.15-shaped preview has validation errors that must be corrected before utility use.']),
+        'GSTN v2.15 contradicts itself: the Table 5B sheet heading says goods received from a different worker, while its Instruction Sheet says goods sent onward. Total follows the notified form heading and does not enable direct export on that conflict.',
+        'The official v2.15 workbook cannot execute on Excel for Mac: Computer Use reproduced “Compile error in hidden module: MainModule”. A Windows Excel utility pass is still required.',
+        'A generated file has not been accepted by the signed-in GST portal; portal business validation and authenticated filing remain authoritative.',
+        'The offline utility cannot generate a nil JSON.'
+      ],
+      preview: portalPreview,
+      validation: portalValidation
+    }
   }
 }

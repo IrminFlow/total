@@ -140,7 +140,7 @@ describe('IMS worklist', () => {
   it('remembers a decision across a fresh 2B download', () => {
     const b = books()
     const key = imsKey('27AAPFU0939F1ZV', 'RT-1')
-    recordImsDecision(b.db, { docKey: key, period: '052026', action: 'reject', note: 'Not our bill' }, 'anita')
+    recordImsDecision(b.db, { docKey: key, period: '052026', documentKind: 'invoice', action: 'reject', note: 'Not our bill' }, 'anita')
     const { worklist } = imsWorklist(b.db, twoBJson(), '2026-05-01', '2026-05-31')
     expect(worklist.rows[0]!.action).toBe('reject')
     expect(worklist.undecided).toBe(0)
@@ -150,17 +150,28 @@ describe('IMS worklist', () => {
   it('lets a decision be revised, keeping one row rather than a history nobody reads', () => {
     const b = books()
     const key = imsKey('27AAPFU0939F1ZV', 'RT-1')
-    recordImsDecision(b.db, { docKey: key, period: '052026', action: 'pending', note: null }, null)
-    recordImsDecision(b.db, { docKey: key, period: '052026', action: 'accept', note: null }, null)
+    recordImsDecision(b.db, { docKey: key, period: '052026', documentKind: 'invoice', action: 'pending', note: null }, null)
+    recordImsDecision(b.db, { docKey: key, period: '052026', documentKind: 'invoice', action: 'accept', note: null }, null)
     const { worklist } = imsWorklist(b.db, twoBJson(), '2026-05-01', '2026-05-31')
     expect(worklist.rows[0]!.action).toBe('accept')
     expect((b.db.prepare('SELECT COUNT(*) AS n FROM ims_actions').get() as { n: number }).n).toBe(1)
   })
 
+  it('refuses actions that the dated portal surface does not offer', () => {
+    const b = books()
+    const key = imsKey('27AAPFU0939F1ZV', 'CN-1')
+    expect(() => recordImsDecision(b.db, {
+      docKey: key, period: '092025', documentKind: 'credit_note', action: 'pending', note: null
+    }, null)).toThrow(/not available.*credit note.*092025/i)
+    expect(() => recordImsDecision(b.db, {
+      docKey: key, period: '052026', documentKind: 'book_only', action: 'reject', note: null
+    }, null)).toThrow(/no IMS record.*chase the supplier/i)
+  })
+
   it('puts a cleared decision back on the worklist', () => {
     const b = books()
     const key = imsKey('27AAPFU0939F1ZV', 'RT-1')
-    recordImsDecision(b.db, { docKey: key, period: '052026', action: 'accept', note: null }, null)
+    recordImsDecision(b.db, { docKey: key, period: '052026', documentKind: 'invoice', action: 'accept', note: null }, null)
     clearImsDecision(b.db, key)
     expect(imsWorklist(b.db, twoBJson(), '2026-05-01', '2026-05-31').worklist.undecided).toBe(1)
   })

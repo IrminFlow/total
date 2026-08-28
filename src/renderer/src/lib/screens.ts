@@ -412,7 +412,7 @@ export const SCREENS: ScreenDef[] = [
     // created, and a stock journal is posted. So the stock views and the day book have to be
     // refetched too, or the goods appear to be in two places until the screen is left.
     invalidates: [
-      'jobWorkChallans', 'jobWorkClock', 'jobWorkItc04',
+      'jobWorkChallans', 'jobWorkClock', 'jobWorkItc04', 'jobWorkSalesInvoices',
       'godowns', 'stockSummary', 'stockByGodown', 'daybook'
     ]
   },
@@ -459,7 +459,7 @@ export const SCREENS: ScreenDef[] = [
       'rcmRegister', 'form3cd', 'rateAdvisory', 'itemRates',
       // #108 and #355. `gstRegistrations` because marking a registration as the ISD edits it, and
       // `gstValidation` because raising a branch-transfer invoice retires a validation warning.
-      'branchTransferRegister', 'isdDesk', 'gstRegistrations'
+      'branchTransferRegister', 'isdDesk', 'isdGstr6', 'gstRegistrations'
     ]
   },
   {
@@ -495,8 +495,8 @@ export const SCREENS: ScreenDef[] = [
     feature: 'tds',
     keywords: ['tds', 'challan', '26q', '24q', 'form 16a', 'deduction certificate', 'traces', 'return',
       'section 197', 'lower deduction', '26as'],
-    invalidates: ['tdsSummary', 'tdsSections', 'tdsChallans', 'tdsReturn', 'form16aDeductees', 'form16a',
-      'tdsCertificates', 'tds26as']
+    invalidates: ['tdsSummary', 'tdsSections', 'tdsChallans', 'tdsReturn', 'tdsFilingConfig',
+      'form16aDeductees', 'form16a', 'tdsCertificates', 'tds26as']
   },
 
   {

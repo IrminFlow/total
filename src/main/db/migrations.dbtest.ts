@@ -47,7 +47,9 @@ const EXPECTED_TABLES = [
   'branch_transfer_invoices',
   'isd_credits',
   'isd_credit_recipients',
+  'isd_credit_items',
   'isd_invoices',
+  'isd_invoice_lineage',
   'asset_blocks',
   'attendance',
   'depreciation_lines',
@@ -97,6 +99,7 @@ const EXPECTED_TABLES = [
   'job_work_returns',
   'tds_lower_deduction_certificates',
   'gstr1_filed_documents',
+  'gst_outward_snapshot_headers',
   'serial_numbers',
   'serial_movements',
   'standard_costs',
@@ -146,6 +149,14 @@ describe('migrate', () => {
       expect(col, name).toBeDefined()
       expect(col!.notnull, name).toBe(0)
     }
+  })
+
+  it('adds nullable TAN to party ledgers for exact Form 26AS matching', () => {
+    const db = freshDb()
+    const cols = db.prepare('PRAGMA table_info(ledgers)').all() as { name: string; notnull: number }[]
+    const tan = cols.find((c) => c.name === 'tan')
+    expect(tan).toBeDefined()
+    expect(tan!.notnull).toBe(0)
   })
 
   it('creates the partial index backing the bin (deleted_at lookups)', () => {
@@ -642,6 +653,151 @@ describe('migration 18 — party contact', () => {
   })
 })
 
+describe('migration 56 — employee last working day', () => {
+  it('adds a nullable end date to an existing company without changing employee data', () => {
+    const migrationIndex = MIGRATIONS.findIndex((m) => m.includes('ADD COLUMN left_on'))
+    expect(migrationIndex).toBeGreaterThan(0)
+    const db = freshPartialDb(migrationIndex)
+    db.prepare(
+      `INSERT INTO employees (name, joined, basic, hra, special, active)
+       VALUES ('Legacy employee', '2020-04-01', 2000000, 800000, 400000, 1)`
+    ).run()
+
+    migrate(db)
+
+    const columns = (db.prepare('PRAGMA table_info(employees)').all() as { name: string }[]).map((c) => c.name)
+    expect(columns).toContain('left_on')
+    expect(db.prepare(
+      `SELECT name, joined, left_on, basic, hra, special, active
+       FROM employees WHERE name = 'Legacy employee'`
+    ).get()).toEqual({
+      name: 'Legacy employee', joined: '2020-04-01', left_on: null,
+      basic: 2000000, hra: 800000, special: 400000, active: 1
+    })
+    db.close()
+  })
+})
+
+describe('migration 58 — party TAN', () => {
+  it('adds a nullable TAN to an existing company without changing ledger facts', () => {
+    const migrationIndex = MIGRATIONS.findIndex((m) => m.includes('ALTER TABLE ledgers ADD COLUMN tan'))
+    expect(migrationIndex).toBeGreaterThan(0)
+    const db = freshPartialDb(migrationIndex)
+    const group = db.prepare(
+      "INSERT INTO groups (name, nature) VALUES ('Legacy debtors', 'asset')"
+    ).run()
+    const ledger = db.prepare(
+      `INSERT INTO ledgers (name, group_id, opening_balance, gstin, pan)
+       VALUES ('Legacy deductor', ?, 123456, '27AAPFU0939F1ZV', 'AAPFU0939F')`
+    ).run(group.lastInsertRowid)
+
+    migrate(db)
+
+    expect(db.prepare(
+      `SELECT name, opening_balance, gstin, pan, tan FROM ledgers WHERE id = ?`
+    ).get(ledger.lastInsertRowid)).toEqual({
+      name: 'Legacy deductor', opening_balance: 123456,
+      gstin: '27AAPFU0939F1ZV', pan: 'AAPFU0939F', tan: null
+    })
+    expect(db.pragma('foreign_key_check')).toEqual([])
+    expect(db.pragma('integrity_check', { simple: true })).toBe('ok')
+    db.close()
+  })
+})
+
+describe('migration 57 — outward filing snapshot provenance', () => {
+  it('preserves legacy GSTR-1 documents and adds a durable header table', () => {
+    const migrationIndex = MIGRATIONS.findIndex((m) => m.includes('gst_outward_snapshot_headers'))
+    expect(migrationIndex).toBeGreaterThan(0)
+    const db = freshPartialDb(migrationIndex)
+    db.prepare(
+      `INSERT INTO gstr1_filed_documents
+         (period, voucher_id, doc_number, doc_date, doc_type, party_gstin, pos, payload, registration_id, filed_at)
+       VALUES ('042026', NULL, 'LEGACY-1', '2026-04-05', 'INV', '27AAPFU0939F1ZV', '27', ?, NULL, '2026-05-10')`
+    ).run(JSON.stringify({ number: 'LEGACY-1', date: '2026-04-05' }))
+
+    migrate(db)
+
+    expect(db.prepare(
+      `SELECT period, doc_number AS number, source_form AS sourceForm, filing_period AS filingPeriod
+       FROM gstr1_filed_documents WHERE doc_number = 'LEGACY-1'`
+    ).get()).toEqual({
+      period: '042026', number: 'LEGACY-1', sourceForm: 'GSTR-1', filingPeriod: null
+    })
+    const headerColumns = (db.prepare('PRAGMA table_info(gst_outward_snapshot_headers)').all() as { name: string }[])
+      .map((c) => c.name)
+    expect(headerColumns).toEqual(expect.arrayContaining([
+      'form', 'filing_period', 'portal_period', 'from_date', 'to_date', 'registration_id', 'filed_at'
+    ]))
+    db.close()
+  })
+})
+
+
+describe('migration 59 — GSTR-6 invoice detail and lineage', () => {
+  it('backfills legacy aggregate ISD credits without changing their paise', () => {
+    const migrationIndex = MIGRATIONS.findIndex((m) => m.includes('CREATE TABLE isd_credit_items'))
+    expect(migrationIndex).toBeGreaterThan(0)
+    const db = freshPartialDb(migrationIndex)
+    const reg = db.prepare(
+      "INSERT INTO gst_registrations (gstin, state_code, trade_name, is_primary, is_isd) VALUES ('27AAAPA1234A1ZT', '27', 'Legacy ISD', 1, 1)"
+    ).run()
+    const credit = db.prepare(
+      `INSERT INTO isd_credits
+        (registration_id, doc_date, supplier_name, supplier_gstin, invoice_number, taxable, cgst, sgst, eligibility, attribution)
+       VALUES (?, '2026-05-02', 'Legacy Supplier', '27AAPFU0939F1ZX', 'OLD-1', 10000000, 900000, 900000, 'eligible', 'all')`
+    ).run(reg.lastInsertRowid)
+
+    migrate(db)
+
+    expect(db.prepare('SELECT invoice_value, place_of_supply FROM isd_credits WHERE id = ?').get(credit.lastInsertRowid)).toEqual({
+      invoice_value: 11800000, place_of_supply: '27'
+    })
+    expect(db.prepare(
+      'SELECT line_number, rate_bps, taxable, igst, cgst, sgst, cess FROM isd_credit_items WHERE isd_credit_id = ?'
+    ).get(credit.lastInsertRowid)).toEqual({
+      line_number: 1, rate_bps: 0, taxable: 10000000, igst: 0, cgst: 900000, sgst: 900000, cess: 0
+    })
+    db.close()
+  })
+})
+
+describe('migration 60 — complete ITC-04 worker chain', () => {
+  it('preserves the original worker as source and translates legacy waste into same-row fields', () => {
+    const migrationIndex = MIGRATIONS.findIndex((m) => m.includes('source_job_worker_ledger_id'))
+    expect(migrationIndex).toBeGreaterThan(0)
+    const db = freshPartialDb(migrationIndex)
+    const challan = db.prepare(
+      `INSERT INTO job_work_challans
+        (number, date, job_worker_gstin, job_worker_state_code, goods_type, description, qty_milli, uqc)
+       VALUES ('JW-LEGACY', '2025-04-10', '27AAAPA1234A1Z5', '27', 'input', 'Forged blanks', 100000, 'PCS')`
+    ).run()
+    const returned = db.prepare(
+      `INSERT INTO job_work_returns (challan_id, date, number, qty_milli, disposition)
+       VALUES (?, '2025-06-01', 'BACK-1', 90000, 'returned')`
+    ).run(challan.lastInsertRowid)
+    const waste = db.prepare(
+      `INSERT INTO job_work_returns (challan_id, date, number, qty_milli, disposition)
+       VALUES (?, '2025-06-01', 'WASTE-1', 10000, 'waste_and_scrap')`
+    ).run(challan.lastInsertRowid)
+
+    migrate(db)
+
+    expect(db.prepare(
+      `SELECT source_job_worker_gstin AS gstin, source_job_worker_state_code AS state,
+              loss_waste_uqc AS uqc, loss_waste_qty_milli AS qty
+       FROM job_work_returns WHERE id = ?`
+    ).get(returned.lastInsertRowid)).toEqual({ gstin: '27AAAPA1234A1Z5', state: '27', uqc: null, qty: 0 })
+    expect(db.prepare(
+      `SELECT source_job_worker_gstin AS gstin, source_job_worker_state_code AS state,
+              loss_waste_uqc AS uqc, loss_waste_qty_milli AS qty
+       FROM job_work_returns WHERE id = ?`
+    ).get(waste.lastInsertRowid)).toEqual({ gstin: '27AAAPA1234A1Z5', state: '27', uqc: 'PCS', qty: 10000 })
+    const challanColumns = (db.prepare('PRAGMA table_info(job_work_challans)').all() as { name: string }[]).map((c) => c.name)
+    expect(challanColumns).toEqual(expect.arrayContaining(['job_worker_is_sez', 'cess_paise']))
+    db.close()
+  })
+})
 
 /**
  * The order is pinned, because nothing at runtime checks it.

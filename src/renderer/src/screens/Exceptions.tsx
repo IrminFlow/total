@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession } from '../state/stores'
-import { EmptyState, Money, Panel, SectionTitle } from '../components/ui'
+import { EmptyState, Money, Panel, RowLink, SectionTitle } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import type { ExceptionSection } from '@shared/reports'
 import { ScratchpadPanel } from './ScratchpadPanel'
@@ -32,15 +32,19 @@ function SectionPanel({ section }: { section: ExceptionSection }): React.JSX.Ele
         <table className="ledger-table mt-2" data-testid={`exceptions-rows-${section.key}`}>
           <tbody>
             {section.rows.map((r, i) => (
-              <tr
-                key={i}
-                className={r.voucherId || r.ledgerId ? 'kbar-row cursor-pointer' : ''}
-                onClick={() => {
-                  if (r.voucherId) nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
-                  else if (r.ledgerId) nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })
-                }}
-              >
-                <td>{r.label}</td>
+              <tr key={i}>
+                <td>
+                  {r.voucherId || r.ledgerId ? (
+                    <RowLink
+                      onClick={() => {
+                        if (r.voucherId) nav.go({ name: 'voucher-entry', voucherId: r.voucherId })
+                        else if (r.ledgerId) nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })
+                      }}
+                    >
+                      {r.label}
+                    </RowLink>
+                  ) : r.label}
+                </td>
                 <td className="text-muted">{r.detail}</td>
                 <td className="r">{r.amount !== undefined && <Money paise={r.amount} />}</td>
               </tr>

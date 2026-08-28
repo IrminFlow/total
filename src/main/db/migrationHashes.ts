@@ -69,4 +69,9 @@ export const MIGRATION_HASHES: readonly string[] = [
   'db8e05a1dc675ae1', // 53: ALTER TABLE job_work_challans ADD COLUMN godown_id INTEGER REFER
   'bc44ef236a2544de', // 54: CREATE TABLE branch_transfer_invoices (
   '9ae2a8da8f20e6d9', // 55: ALTER TABLE gst_registrations ADD COLUMN is_isd INTEGER NOT NULL
+  '41104088ce261002', // 56: ALTER TABLE employees ADD COLUMN left_on TEXT;
+  '06cbae1d18767a4d', // 57: CREATE TABLE gst_outward_snapshot_headers (
+  '638c442baed94f53', // 58: ALTER TABLE ledgers ADD COLUMN tan TEXT;
+  '90104c7bec36e58c', // 59: ALTER TABLE isd_credits ADD COLUMN invoice_value INTEGER NOT NUL
+  '5c9e275f8be7d505', // 60: ALTER TABLE job_work_challans ADD COLUMN job_worker_is_sez INTEG
 ]

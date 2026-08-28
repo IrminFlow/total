@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   challanTotal,
   FILE_FORMAT,
+  FILE_FORMAT_2026,
+  FILE_FORMAT_2026_FIELD_COUNTS,
   FILE_FORMAT_FIELD_COUNTS,
   form16aDueDate,
   returnSectionCode,
@@ -35,6 +37,8 @@ const deduction = (over: Partial<TdsDeduction> = {}): TdsDeduction => ({
   pan: 'AAAPA0000A',
   deducteeCode: '02',
   sectionCode: '194C',
+  legacySectionCode: '194C',
+  statutoryRate: 1,
   sectionUnverified: false,
   paidOn: '2025-06-10',
   deductedOn: '2025-06-10',
@@ -49,6 +53,7 @@ const deduction = (over: Partial<TdsDeduction> = {}): TdsDeduction => ({
 
 const working = (over: Partial<TdsReturnWorking> = {}): TdsReturnWorking => ({
   form: '26Q',
+  filingForm: '26Q',
   // FY 2025-26: the last year the 24Q/26Q file format covers. FY 2026-27 is Form 138/140, and
   // `validateReturn` blocks it — see the test below.
   fyStartYear: 2025,
@@ -70,12 +75,27 @@ const header = (over: Partial<ReturnHeader> = {}): ReturnHeader => ({
   tan: 'PNET12345B',
   pan: 'AAAPA1111A',
   deductorName: 'Demo Traders',
-  deductorType: 'S',
+  deductorType: 'F',
   responsiblePerson: 'A. Kumar',
   responsibleDesignation: 'Partner',
   address: 'Pune',
   email: null,
-  phone: null,
+  phone: '9876543210',
+  gstin: null,
+  deductorStateCode: '19',
+  deductorPincode: '700001',
+  responsibleAddress: 'Pune',
+  responsibleStateCode: '19',
+  responsiblePincode: '700001',
+  responsibleEmail: 'responsible@example.com',
+  responsiblePhone: '9876543210',
+  responsiblePan: 'AAAPA2222A',
+  earlierStatementFiled: false,
+  previousTokenNumber: null,
+  governmentStateCode: null,
+  ministryCode: null,
+  ministryOther: null,
+  ain: null,
   ...over
 })
 
@@ -148,12 +168,10 @@ describe('validateReturn', () => {
     expect(issues.some((i) => i.message.includes('Income-tax Act 2025'))).toBe(true)
   })
 
-  it('blocks a quarter for a year the 24Q/26Q format does not cover', () => {
-    // Protean's own page: the 24Q/26Q formats apply up to FY 2025-26. From tax year 2026-27 the
-    // statements are Form Number 138 and Form Number 140.
+  it('date-selects Form 140 instead of blocking the first year of the new Act', () => {
     const issues = validateReturn(working({ fyStartYear: 2026 }), header())
-    const forms = issues.find((i) => i.message.includes('Form Number 140'))
-    expect(forms?.severity).toBe('blocking')
+    expect(issues.some((i) => i.message.includes('does not exist'))).toBe(false)
+    expect(issues.filter((i) => i.severity === 'blocking')).toEqual([])
   })
 
   it('blocks a 24Q for the fourth quarter, which needs Annexure II', () => {
@@ -313,10 +331,10 @@ describe('toFlatFile', () => {
   })
 
   it('names what it left blank instead of filling it in', () => {
-    const out = toFlatFile(working(), header(), '2026-07-20')
+    const out = toFlatFile(working(), header({ responsiblePan: null, responsiblePhone: null, deductorStateCode: null }), '2026-07-20')
     expect(out.unverifiedFormat).toBe(true)
     expect(out.blankMandatoryFields).toContain('PAN of Responsible Person')
-    expect(out.blankMandatoryFields).toContain('Mobile number')
+    expect(out.blankMandatoryFields).toContain('Responsible person contact number')
     // And it really is blank in the file, not filled with something plausible.
     const bh = rec(out.text, 'BH')!.split('^')
     expect(bh[FILE_FORMAT.batchHeader.indexOf('responsiblePan')]).toBe('')
@@ -363,17 +381,73 @@ describe('toFlatFile', () => {
     expect(rec(out.text, 'DD')).toBeUndefined()
   })
 
-  it('opens one challan record per section under a challan', () => {
+  it('writes one challan record even when its deductees span sections', () => {
     const out = toFlatFile(
       working({ deductions: [deduction(), deduction({ entryId: 2, sectionCode: '194H' })] }),
       header(),
       '2026-07-20'
     )
-    expect(out.text.split('\r\n').filter((l) => l.split('^')[1] === 'CD')).toHaveLength(2)
+    expect(out.text.split('\r\n').filter((l) => l.split('^')[1] === 'CD')).toHaveLength(1)
+    expect(out.text.split('\r\n').filter((l) => l.split('^')[1] === 'DD')).toHaveLength(2)
   })
 
   it('writes a header and batch even for an empty quarter', () => {
     const out = toFlatFile(working({ challans: [], deductions: [] }), header(), '2026-07-20')
     expect(out.lineCount).toBe(2)
+  })
+})
+
+describe('Form 138/140 v1.2 release format', () => {
+  const lines = (text: string) => text.split('\r\n').filter(Boolean).map((line) => line.split('^'))
+
+  it('matches the published 18/72/30/45 record counts and absolute fields', () => {
+    expect(FILE_FORMAT_2026.fileHeader).toHaveLength(FILE_FORMAT_2026_FIELD_COUNTS.fileHeader)
+    expect(FILE_FORMAT_2026.batchHeader).toHaveLength(FILE_FORMAT_2026_FIELD_COUNTS.batchHeader)
+    expect(FILE_FORMAT_2026.challan).toHaveLength(FILE_FORMAT_2026_FIELD_COUNTS.challan)
+    expect(FILE_FORMAT_2026.deductee).toHaveLength(FILE_FORMAT_2026_FIELD_COUNTS.deductee)
+    expect(FILE_FORMAT_2026.deductee138).toHaveLength(FILE_FORMAT_2026_FIELD_COUNTS.deductee)
+    expect(FILE_FORMAT_2026.batchHeader[4]).toBe('formNumber')
+    expect(FILE_FORMAT_2026.batchHeader[19]).toBe('deductorCountry')
+    expect(FILE_FORMAT_2026.batchHeader[58]).toBe('responsiblePan')
+    expect(FILE_FORMAT_2026.challan[12]).toBe('paymentMode')
+    expect(FILE_FORMAT_2026.deductee[14]).toBe('sectionCode')
+    expect(FILE_FORMAT_2026.deductee[27]).toBe('rate')
+    expect(FILE_FORMAT_2026.deductee138[28]).toBe('dateOfDeposit')
+  })
+
+  it('serialises FY 2026-27 non-salary as Form 140 with four-digit Annexure 2 codes', () => {
+    const out = toFlatFile(
+      working({ fyStartYear: 2026, filingForm: '140', deductions: [deduction({
+        paidOn: '2026-06-10', deductedOn: '2026-06-10', sectionCode: '393 Table 6',
+        legacySectionCode: '194C', statutoryRate: 2
+      })], challans: [challan({ paidOn: '2026-07-07' })] }),
+      header(),
+      '2026-07-20'
+    )
+    const [fh, bh, cd, dd] = lines(out.text)
+    expect(fh![2]).toBe('NS1')
+    expect(bh![4]).toBe('140')
+    expect(bh).toHaveLength(72)
+    expect(cd).toHaveLength(30)
+    expect(dd).toHaveLength(45)
+    expect(dd![14]).toBe('1024')
+    expect(dd![27]).toBe('1.0000')
+    expect(out.formatVersion).toContain('138/140')
+  })
+
+  it('serialises Q1-Q3 salary as Form 138 and writes the deposit date in field 29', () => {
+    const out = toFlatFile(
+      working({ form: '24Q', filingForm: '138', fyStartYear: 2026, deductions: [deduction({
+        paidOn: '2026-06-10', deductedOn: '2026-06-10', sectionCode: '392',
+        legacySectionCode: '192', statutoryRate: 10
+      })], challans: [challan({ paidOn: '2026-07-07' })] }),
+      header(),
+      '2026-07-20'
+    )
+    const [, bh, , dd] = lines(out.text)
+    expect(bh![4]).toBe('138')
+    expect(dd![14]).toBe('1002')
+    expect(dd![27]).toBe('')
+    expect(dd![28]).toBe('07072026')
   })
 })

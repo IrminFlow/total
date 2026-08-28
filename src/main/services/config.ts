@@ -402,24 +402,81 @@ export function setApprovalThreshold(db: DB, threshold: number | null): number |
 export interface TdsFilingConfig {
   responsiblePerson: string | null
   responsibleDesignation: string | null
-  /** 'A' company, 'S' other than company. The two codes that cover this app's users. */
-  deductorType: 'A' | 'S'
+  /** Protean Annexure 4 category code. Company is K and firm is F; A/S are governments. */
+  deductorType: 'A' | 'S' | 'D' | 'E' | 'G' | 'H' | 'L' | 'N' | 'K' | 'M' | 'P' | 'T' | 'J' | 'B' | 'Q' | 'F'
+  deductorStateCode: string | null
+  deductorPincode: string | null
+  responsibleAddress: string | null
+  responsibleStateCode: string | null
+  responsiblePincode: string | null
+  responsibleEmail: string | null
+  responsiblePhone: string | null
+  responsiblePan: string | null
+  earlierStatementFiled: boolean
+  /** Fifteen-digit token of the immediately preceding regular statement, required when above is true. */
+  previousTokenNumber: string | null
+  /** Annexure 5 state code, for State-government families only. */
+  governmentStateCode: string | null
+  /** Annexure 3 ministry code, for Central-government families only. */
+  ministryCode: string | null
+  ministryOther: string | null
+  /** Account Office Identification Number, required for government book-adjustment deposits. */
+  ain: string | null
 }
 
 export const DEFAULT_TDS_FILING: TdsFilingConfig = {
   responsiblePerson: null,
   responsibleDesignation: null,
-  deductorType: 'S'
+  deductorType: 'F',
+  deductorStateCode: null,
+  deductorPincode: null,
+  responsibleAddress: null,
+  responsibleStateCode: null,
+  responsiblePincode: null,
+  responsibleEmail: null,
+  responsiblePhone: null,
+  responsiblePan: null,
+  earlierStatementFiled: false,
+  previousTokenNumber: null,
+  governmentStateCode: null,
+  ministryCode: null,
+  ministryOther: null,
+  ain: null
 }
 
 export function getTdsFiling(db: DB): TdsFilingConfig {
   const raw = readMeta(db, 'tds.filing') as Partial<TdsFilingConfig> | null
   if (!raw || typeof raw !== 'object') return DEFAULT_TDS_FILING
   const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 120) : null)
+  const legacyCategorySemantics = !Object.prototype.hasOwnProperty.call(raw, 'deductorStateCode')
+  const category = (v: unknown): TdsFilingConfig['deductorType'] => {
+    // The old UI never exposed this value and the old implementation incorrectly documented A
+    // as company and S as "other". Translate those persisted defaults to their intended legal
+    // categories instead of silently turning an upgraded firm into State Government.
+    if (legacyCategorySemantics && v === 'A') return 'K'
+    if (legacyCategorySemantics && v === 'S') return 'F'
+    return ['A', 'S', 'D', 'E', 'G', 'H', 'L', 'N', 'K', 'M', 'P', 'T', 'J', 'B', 'Q', 'F'].includes(String(v))
+      ? (v as TdsFilingConfig['deductorType'])
+      : 'F'
+  }
   return {
     responsiblePerson: text(raw.responsiblePerson),
     responsibleDesignation: text(raw.responsibleDesignation),
-    deductorType: raw.deductorType === 'A' ? 'A' : 'S'
+    deductorType: category(raw.deductorType),
+    deductorStateCode: text(raw.deductorStateCode),
+    deductorPincode: text(raw.deductorPincode),
+    responsibleAddress: text(raw.responsibleAddress),
+    responsibleStateCode: text(raw.responsibleStateCode),
+    responsiblePincode: text(raw.responsiblePincode),
+    responsibleEmail: text(raw.responsibleEmail),
+    responsiblePhone: text(raw.responsiblePhone),
+    responsiblePan: text(raw.responsiblePan),
+    earlierStatementFiled: raw.earlierStatementFiled === true,
+    previousTokenNumber: text(raw.previousTokenNumber),
+    governmentStateCode: text(raw.governmentStateCode),
+    ministryCode: text(raw.ministryCode),
+    ministryOther: text(raw.ministryOther),
+    ain: text(raw.ain)
   }
 }
 

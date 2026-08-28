@@ -63,6 +63,13 @@ describe('AI service boundaries', () => {
     }
   })
 
+  it('imports only named read functions into the model tool module', () => {
+    const tools = readFileSync(join(AI_DIR, 'tools', 'index.ts'), 'utf8')
+    // A namespace import from vouchers/masters/etc. puts every writer exported by that service
+    // into the tool module's runtime scope even when today's code happens not to call it.
+    expect(tools).not.toMatch(/import\s+\*\s+as\s+\w+\s+from\s+['"]\.\.\/\.\.\//)
+  })
+
   /**
    * The audit trail (roadmap #217) is the first thing on an AI path that writes anything at all,
    * and the promise it must not weaken is "the assistant cannot change the books".

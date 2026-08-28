@@ -31,23 +31,15 @@
  * ---------------------------------------------------------------------------------------------
  * WHAT THE FLAT FILE IS AND IS NOT, NOW THAT THE LAYOUT IS RIGHT.
  *
- * The layout is checked. The FILE IS STILL NOT FILEABLE, and that is not the same thing. A regular
- * statement's Batch Header has mandatory fields these books have never held — the deductor's State
- * code and PIN, the responsible person's own PAN, address, State, PIN and mobile number, the
- * deductor category code, whether the address changed since the last return, whether a regular
- * statement was filed for an earlier period. `toFlatFile` writes them EMPTY rather than inventing
- * them, `blankMandatoryFields` names every one it left empty, and the export stays behind an
- * acknowledgement and keeps the `.unverified.txt` name. The FVU will reject the file until a person
- * fills those in. That is the correct behaviour: the alternative is a file that validates because
- * the app made something up.
+ * The layout is checked and the mandatory filing identity now has a dedicated editable profile.
+ * Missing facts block export rather than being invented; `blankMandatoryFields` is therefore empty
+ * for a complete ordinary-business profile. The acknowledgement and `.unverified.txt` suffix stay
+ * until an app-generated fixture passes the current FVU with the valid CSI file that FVU mandates.
  *
- * AND THE FORMS CHANGE ON 1 APRIL 2026. Protean's own download page says the 24Q/26Q formats apply
- * up to FY 2025-26; from tax year 2026-27 the salary statement becomes FORM NUMBER 138 and the
- * non-salary statement FORM NUMBER 140, with new formats (CD drops to 30 fields, DD to 45) and a
- * new FVU. `validateReturn` refuses a quarter from FY 2026-27 onwards rather than writing a 26Q for
- * it. The 138 Q4 format is not published yet — Protean's page says "Expected to be released soon" —
- * so the Q4 salary annexure for the new regime is genuinely unknown, and this file says so instead
- * of guessing.
+ * AND THE FORMS CHANGE ON 1 APRIL 2026. `filingFormFor` preserves historical 24Q/26Q and selects
+ * Form 138/140 from FY 2026-27. Protean's 22 July 2026 tables and official samples establish the new
+ * 18/72/30/45 envelope and four-digit Annexure 2 codes. Form 138 Q4 is still unpublished and remains
+ * blocked rather than receiving a guessed annual salary annexure.
  *
  *   - Section numbers on the return are dated: see itAct2025.ts. A return for a quarter beginning
  *     on or after 1 April 2026 carries Income-tax Act 2025 references, and this module asks for
@@ -62,6 +54,13 @@
  */
 
 export type TdsFormCode = '24Q' | '26Q'
+export type TdsFilingForm = TdsFormCode | '138' | '140'
+export type TdsDeductorType = 'A' | 'S' | 'D' | 'E' | 'G' | 'H' | 'L' | 'N' | 'K' | 'M' | 'P' | 'T' | 'J' | 'B' | 'Q' | 'F'
+
+/** The DB keeps the historical 24Q/26Q category key; the legal form number is date-selected. */
+export function filingFormFor(form: TdsFormCode, fyStartYear: number): TdsFilingForm {
+  return fyStartYear >= 2026 ? (form === '24Q' ? '138' : '140') : form
+}
 
 export interface TdsChallan {
   id: number
@@ -94,6 +93,10 @@ export interface TdsDeduction {
   deducteeCode: '01' | '02'
   /** Section reference to print, already resolved for the payment date (see itAct2025.ts). */
   sectionCode: string
+  /** The master code under the 1961 Act, retained because Form 138/140 Annexure 2 maps from it. */
+  legacySectionCode: string
+  /** Ordinary master rate, distinct from a lower-certificate/no-PAN rate actually applied. */
+  statutoryRate: number
   /** True when `sectionCode` is a proposed Income-tax Act 2025 reference nobody has verified. */
   sectionUnverified: boolean
   /** Date the amount was paid or credited. */
@@ -112,6 +115,7 @@ export interface TdsDeduction {
 
 export interface TdsReturnWorking {
   form: TdsFormCode
+  filingForm: TdsFilingForm
   fyStartYear: number
   quarter: 1 | 2 | 3 | 4
   /** 'Q1 FY2026-27'. */
@@ -178,13 +182,28 @@ export interface ReturnHeader {
   tan: string | null
   pan: string | null
   deductorName: string
-  /** 'A' company, 'S' other. Only two of the many codes matter to this app's users. */
-  deductorType: 'A' | 'S'
+  /** Protean Annexure 4 legal-category code. K is company; A/S are governments. */
+  deductorType: TdsDeductorType
   responsiblePerson: string | null
   responsibleDesignation: string | null
   address: string
   email: string | null
   phone: string | null
+  gstin: string | null
+  deductorStateCode: string | null
+  deductorPincode: string | null
+  responsibleAddress: string | null
+  responsibleStateCode: string | null
+  responsiblePincode: string | null
+  responsibleEmail: string | null
+  responsiblePhone: string | null
+  responsiblePan: string | null
+  earlierStatementFiled: boolean
+  previousTokenNumber: string | null
+  governmentStateCode: string | null
+  ministryCode: string | null
+  ministryOther: string | null
+  ain: string | null
 }
 
 /**
@@ -195,6 +214,7 @@ export interface ReturnHeader {
  */
 export function validateReturn(working: TdsReturnWorking, header: ReturnHeader): TdsReturnIssue[] {
   const issues: TdsReturnIssue[] = []
+  const filingForm = filingFormFor(working.form, working.fyStartYear)
 
   if (!header.tan || !TAN_RE.test(header.tan)) {
     issues.push({
@@ -207,6 +227,42 @@ export function validateReturn(working: TdsReturnWorking, header: ReturnHeader):
     issues.push({
       severity: 'blocking',
       message: 'No person responsible for deduction is named. The return requires their name and designation.',
+      entryIds: []
+    })
+  }
+  const validItState = /^(0[1-7]|0[9]|1\d|2\d|3[0-7])$/
+  const requiredHeader: [unknown, string][] = [
+    [header.pan && PAN_RE.test(header.pan), 'valid deductor PAN'],
+    [header.address, 'deductor address'],
+    [header.deductorStateCode && validItState.test(header.deductorStateCode), 'valid deductor Income Tax state code'],
+    [header.deductorPincode && /^\d{6}$/.test(header.deductorPincode), 'valid deductor PIN code'],
+    [digits(header.phone).length === 10, '10-digit deductor contact number'],
+    [header.responsibleDesignation, 'responsible person designation'],
+    [header.responsibleAddress, 'responsible person address'],
+    [header.responsibleStateCode && validItState.test(header.responsibleStateCode), 'valid responsible person Income Tax state code'],
+    [header.responsiblePincode && /^\d{6}$/.test(header.responsiblePincode), 'valid responsible person PIN code'],
+    [header.responsibleEmail ?? header.email, 'deductor or responsible person email'],
+    [digits(header.responsiblePhone).length === 10, '10-digit responsible person contact number'],
+    [header.responsiblePan && PAN_RE.test(header.responsiblePan), 'valid responsible person PAN']
+  ]
+  const missingHeader = requiredHeader.filter(([value]) => !value).map(([, name]) => name)
+  if (header.earlierStatementFiled && !/^\d{15}$/.test(header.previousTokenNumber ?? '')) {
+    missingHeader.push('15-digit previous regular-statement token')
+  }
+  if (['S', 'E', 'H', 'N'].includes(header.deductorType) && !/^\d{2}$/.test(header.governmentStateCode ?? '')) {
+    missingHeader.push('Annexure 5 government state code')
+  }
+  if (['A', 'D', 'G'].includes(header.deductorType) && !/^\d{2,3}$/.test(header.ministryCode ?? '')) {
+    missingHeader.push('Annexure 3 ministry code')
+  }
+  if (header.ministryCode === '99' && !header.ministryOther) missingHeader.push('ministry name for code 99')
+  if (working.challans.some((c) => c.bookEntry) && ['A', 'S'].includes(header.deductorType) && !/^\d{7}$/.test(header.ain ?? '')) {
+    missingHeader.push('7-digit AIN for government book adjustment')
+  }
+  if (missingHeader.length > 0) {
+    issues.push({
+      severity: 'blocking',
+      message: `Complete the TDS filing profile: missing ${missingHeader.join(', ')}. Protean marks these fields mandatory; Total will not invent them.`,
       entryIds: []
     })
   }
@@ -279,24 +335,6 @@ export function validateReturn(working: TdsReturnWorking, header: ReturnHeader):
     })
   }
 
-  // The forms themselves change on 1 April 2026, and this is the one issue that no amount of
-  // fixing the data will clear. Protean's download page states the 24Q/26Q formats apply up to
-  // FY 2025-26; from tax year 2026-27 the salary statement is FORM NUMBER 138 and the non-salary
-  // statement FORM NUMBER 140, with their own formats and their own FVU. Writing a 26Q for FY
-  // 2026-27 produces a file for a form that no longer exists.
-  if (working.fyStartYear > FILE_FORMAT.lastFyStartYear) {
-    issues.push({
-      severity: 'blocking',
-      message:
-        `Form ${working.form} does not exist for FY ${working.fyStartYear}-${String(working.fyStartYear + 1).slice(2)}. ` +
-        'From tax year 2026-27 the quarterly statements are Form Number 138 (salary, replacing 24Q) and Form Number ' +
-        '140 (non-salary, replacing 26Q), with a new file format and a new FVU. This build writes the 24Q/26Q ' +
-        'format, which Protean states applies up to FY 2025-26 only. The figures below are still the figures; the ' +
-        'file is not. (The Q4 format for Form 138 had not been published when this was written.)',
-      entryIds: []
-    })
-  }
-
   // 24Q Q4 carries Annexure II — the annual salary detail, an 88-field SD record with its own
   // section-16 and Chapter VI-A children. This app does not build it, and a 24Q Q4 without it is
   // not a statement, it is half of one.
@@ -304,9 +342,9 @@ export function validateReturn(working: TdsReturnWorking, header: ReturnHeader):
     issues.push({
       severity: 'blocking',
       message:
-        'A 24Q for the fourth quarter carries Annexure II, the annual salary statement for every employee. This ' +
-        'build does not produce Annexure II, so the file would be incomplete. Use the challan and deductee CSVs ' +
-        'with the Return Preparation Utility for this quarter.',
+        filingForm === '138'
+          ? 'Protean has published Form 138 only for Q1–Q3; its Q4 format and annual salary annexure are still marked “Expected soon”. Export working CSVs for this quarter until the prescribed format exists.'
+          : 'A 24Q for the fourth quarter carries Annexure II, the annual salary statement for every employee. This build does not produce Annexure II, so the file would be incomplete. Use the challan and deductee CSVs with the Return Preparation Utility for this quarter.',
       entryIds: []
     })
   }
@@ -314,16 +352,20 @@ export function validateReturn(working: TdsReturnWorking, header: ReturnHeader):
   // The section field of a Challan Detail and a Deductee Detail record takes the three-character
   // code of Annexure 2 — '94C', not '194C'. A code with no Annexure 2 entry cannot be written, and
   // guessing one reports the deduction under a provision it was not made under.
-  const unmapped = working.deductions.filter((d) => returnSectionCode(d.sectionCode) === null)
+  const unmapped = working.deductions.filter((d) =>
+    filingForm === '138' || filingForm === '140'
+      ? returnSectionCode2026(d, filingForm, header.deductorType) === null
+      : returnSectionCode(d.sectionCode) === null
+  )
   if (unmapped.length > 0) {
     const codes = [...new Set(unmapped.map((d) => d.sectionCode))].sort()
     issues.push({
       severity: 'blocking',
       message:
-        `The return has no section code for ${codes.join(', ')}. The statement carries the three-character code of ` +
-        "Annexure 2 of the file format ('94C' for 194C, '4JB' for 194J(b)), not the section number. Sections 194I " +
-        'and 194J have to say which limb they are — 194I(a) or 194I(b), 194J(a) or 194J(b) — because the return has ' +
-        'a separate code for each and the amount does not say which.',
+        `The ${filingForm} return has no unambiguous Annexure 2 section code for ${codes.join(', ')}. ` +
+        (working.fyStartYear >= 2026
+          ? 'Form 138/140 uses four-digit codes. Split ambiguous masters such as contractor/payee type or professional/technical services, or set the ordinary statutory rate so the published mapping is determinate.'
+          : "The statement carries a three-character code ('94C' for 194C, '4JB' for 194J(b)), not the section number."),
       entryIds: unmapped.map((d) => d.entryId)
     })
   }
@@ -430,6 +472,56 @@ export const FILE_FORMAT = {
 export const FILE_FORMAT_FIELD_COUNTS = { fileHeader: 18, batchHeader: 72, challan: 41, deductee: 54 } as const
 
 /**
+ * Form 138/140 regular-statement layout for Tax Year 2026-27 onwards.
+ * Protean's download page and filenames call the 22 July 2026 release v1.2; the title cell inside
+ * both workbooks still says v1.1. The record tables and official 138RQ1/140RQ1 samples agree on
+ * FH 18, BH 72, CD 30 and DD 45, and those tables are the authority used below.
+ */
+export const FILE_FORMAT_2026 = {
+  version: 'Form 138/140 v1.2 release (Protean, 22 Jul 2026; workbook title v1.1)',
+  source:
+    'Protean eGov regular-statement Form 138 Q1-Q3 and Form 140 Q1-Q4 workbooks and 138RQ1/140RQ1 samples, published 22 July 2026 for FVU/RPU 1.2.',
+  lineEnding: '\r\n',
+  fileHeader: FILE_FORMAT.fileHeader,
+  batchHeader: [
+    'lineNumber', 'recordType', 'batchNumber', 'challanCount', 'formNumber', '', '', '',
+    'previousTokenNumber', '', '', '', 'tan', '', 'deductorPan', 'assessmentYear', 'taxYear',
+    'period', 'deductorName', 'deductorCountry', 'deductorAddress1', 'deductorAddress2',
+    'deductorAddress3', 'deductorAddress4', 'deductorAddress5', 'deductorStateCode',
+    'deductorPincode', 'deductorEmail', 'deductorCountryCode', 'deductorPhone', '', 'deductorType',
+    'responsiblePerson', 'responsibleDesignation', 'responsibleAddress1', 'responsibleAddress2',
+    'responsibleAddress3', 'responsibleAddress4', 'responsibleAddress5', 'responsibleStateCode',
+    'responsiblePincode', 'responsibleEmail', 'responsibleCountry', 'responsibleCountryCode',
+    'responsiblePhone', '', 'batchTotalDeposit', '', '', '', '', 'earlierStatementFiled', '',
+    'governmentStateCode', '', '', 'ministryCode', 'ministryOther', 'responsiblePan', '', '', '',
+    '', '', '', '', '', 'ain', 'gstin', '', '', ''
+  ],
+  challan: [
+    'lineNumber', 'recordType', 'batchNumber', 'challanRecordNumber', 'deducteeCount',
+    'nilChallanIndicator', '', 'totalTaxDeducted', 'totalInterest', 'totalFee', 'totalPenalty',
+    'challanTotal', 'paymentMode', '', 'bsrCodeOr24gReceipt', '', 'bankChallanNo', '',
+    'challanDate', '', 'deducteeTotalDeposited', 'deducteeTotalTds', 'minorHead',
+    'interestAllocation', 'otherAllocation', '', '', '', '', ''
+  ],
+  deductee: [
+    'lineNumber', 'recordType', 'batchNumber', 'deducteeRecordNumber', 'challanRecordNumber', 'mode',
+    '', 'deducteePan', 'deducteeName', '', '', '', '', '', 'sectionCode', '', '',
+    'taxDepositedIndicator', 'paidOn', 'amountPaid', '', 'cashWithdrawal1', 'cashWithdrawal3',
+    'totalTds', 'totalDeposited', '', 'deductedOn', 'rate', '', '', 'form121Uin', 'remarks1',
+    'certificateNumber395', '', '', '', '', '', '', '', '', '', '', '', ''
+  ],
+  deductee138: [
+    'lineNumber', 'recordType', 'batchNumber', 'deducteeRecordNumber', 'challanRecordNumber', 'mode',
+    '', 'deducteePan', 'deducteeName', '', '', '', '', '', 'sectionCode', '', '',
+    'taxDepositedIndicator', 'paidOn', 'amountPaid', '', '', '', 'totalTds', 'totalDeposited', '',
+    'deductedOn', '', 'dateOfDeposit', '', '', 'remarks1', 'certificateNumber395', '', '', '', '',
+    '', '', '', '', '', '', '', ''
+  ]
+} as const
+
+export const FILE_FORMAT_2026_FIELD_COUNTS = { fileHeader: 18, batchHeader: 72, challan: 30, deductee: 45 } as const
+
+/**
  * Annexure 2 of the file format: "Section under which Tax has been deducted" against "Section code
  * to be used in the return".
  *
@@ -516,21 +608,46 @@ export function returnSectionCode(sectionCode: string): string | null {
   return RETURN_SECTION_CODES[key] ?? null
 }
 
+/** Form 138/140 Annexure 2 code. Nothing here is generated mechanically. */
+export function returnSectionCode2026(
+  d: Pick<TdsDeduction, 'legacySectionCode' | 'statutoryRate'>,
+  form: '138' | '140',
+  deductorType: TdsDeductorType = 'F'
+): string | null {
+  const key = normaliseForReturn(d.legacySectionCode)
+  if (form === '138') {
+    if (key === '194P') return '1032'
+    if (key !== '192') return null
+    if (['S', 'E', 'H', 'N'].includes(deductorType)) return '1001'
+    if (['A', 'D', 'G', 'L'].includes(deductorType)) return '1003'
+    return '1002'
+  }
+  const exact: Record<string, string> = {
+    '192A': '1004', '193': '1019', '194': '1029', '194A': '1022', '194H': '1006',
+    '194I(A)': '1008', '194I(B)': '1009', '194J(A)': '1026', '194J(B)': '1027', '194Q': '1031'
+  }
+  if (exact[key]) return exact[key]!
+  if (key === '194C') return d.statutoryRate <= 1 ? '1023' : d.statutoryRate >= 2 ? '1024' : null
+  if (key === '194I') return d.statutoryRate <= 2 ? '1008' : d.statutoryRate >= 10 ? '1009' : null
+  if (key === '194J') return d.statutoryRate <= 2 ? '1026' : d.statutoryRate >= 10 ? '1027' : null
+  return null
+}
+
 export interface FlatFileResult {
   text: string
   /**
    * True while the file must not be filed as it stands.
    *
-   * It no longer means "the layout is a guess" — the layout is `FILE_FORMAT.version`, read out of
-   * the published workbook. It means what `blankMandatoryFields` says: the file carries empty slots
-   * in fields the format marks mandatory, because these books do not hold them. It is permanently
-   * true while any of those fields exists, which is every file this app can currently write, and it
-   * is what keeps the export behind an acknowledgement and named `.unverified.txt`.
+   * The layouts are published and position-tested. This flag remains true because the current FVU
+   * mandates a TAN-specific CSI file and no app-generated fixture has completed that validation.
+   * `blankMandatoryFields` independently reports incomplete filing-profile values.
    */
   unverifiedFormat: boolean
   /** The mandatory fields left empty, named as the format names them. The list to hand a person. */
   blankMandatoryFields: string[]
   lineCount: number
+  filingForm: TdsFilingForm
+  formatVersion: string
 }
 
 /**
@@ -539,21 +656,6 @@ export interface FlatFileResult {
  * Named here rather than discovered at write time so the list is auditable against the workbook,
  * and so the UI can show it before a user spends an afternoon on the FVU.
  */
-const BATCH_HEADER_UNSUPPLIED = [
-  "Deductor's Branch/Division",
-  "Deductor's Address - State (Annexure 1 code)",
-  "Deductor's Address - Pincode",
-  'Change of Address of Deductor since last Return',
-  "Responsible Person's Address1",
-  "Responsible Person's State (Annexure 1 code)",
-  "Responsible Person's PIN",
-  "Responsible Person's Email ID -1",
-  'Mobile number',
-  'Change of Address of Responsible person since last Return',
-  'PAN of Responsible Person',
-  'Whether regular statement filed for earlier period'
-]
-
 /** Paise to the rupees-with-two-decimals string the file carries. Integer arithmetic throughout. */
 function rupees(paise: number): string {
   const sign = paise < 0 ? '-' : ''
@@ -566,6 +668,27 @@ function fileDate(iso: string): string {
   return `${iso.slice(8, 10)}${iso.slice(5, 7)}${iso.slice(0, 4)}`
 }
 
+function digits(value: string | null): string {
+  return (value ?? '').replace(/\D/g, '').slice(-10)
+}
+
+/** Split a free-text address into the five 25-character lines the Protean BH accepts. */
+function addressParts(value: string): string[] {
+  const clean = value.replace(/\^/g, ' ').replace(/\s+/g, ' ').trim()
+  const parts: string[] = []
+  let rest = clean
+  while (rest && parts.length < 5) {
+    let cut = Math.min(25, rest.length)
+    if (rest.length > 25) {
+      const boundary = Math.max(rest.lastIndexOf(',', 25), rest.lastIndexOf(' ', 25))
+      if (boundary >= 8) cut = boundary
+    }
+    parts.push(rest.slice(0, cut).replace(/,$/, '').trim())
+    rest = rest.slice(cut).replace(/^[,\s]+/, '')
+  }
+  return parts
+}
+
 /**
  * Serialise a quarter into the e-TDS text file.
  *
@@ -575,15 +698,19 @@ function fileDate(iso: string): string {
  * still there. That is the whole reason the layout is an array of names rather than a serialiser
  * with 72 arguments.
  *
- * Deductions are grouped under their challan and under the section within it, which is how the
- * return is structured: one Challan Detail record per (challan, section) pair, with its Deductee
- * Detail records under it. A deduction with no challan is DROPPED and reported by `validateReturn`
+ * Deductions are grouped under their actual challan: one Challan Detail record per challan, with
+ * every linked Deductee Detail beneath it even when sections differ. A deduction with no challan is
+ * DROPPED and reported by `validateReturn`
  * as blocking — writing it into the file under a made-up challan is how an unfileable return gets
  * filed.
  */
 export function toFlatFile(working: TdsReturnWorking, header: ReturnHeader, createdOn: string): FlatFileResult {
   const lines: string[] = []
   let lineNumber = 0
+  const modern = working.fyStartYear >= 2026
+  const filingForm = filingFormFor(working.form, working.fyStartYear)
+  const format = modern ? FILE_FORMAT_2026 : FILE_FORMAT
+  const deducteeLayout = modern && working.form === '24Q' ? FILE_FORMAT_2026.deductee138 : format.deductee
 
   const emit = (layout: readonly string[], values: Record<string, string | number>): void => {
     lineNumber += 1
@@ -599,8 +726,10 @@ export function toFlatFile(working: TdsReturnWorking, header: ReturnHeader, crea
   const fy = `${working.fyStartYear}${String(working.fyStartYear + 1).slice(2)}`
   const ay = `${working.fyStartYear + 1}${String(working.fyStartYear + 2).slice(2)}`
   const salary = working.form === '24Q'
+  const deductorAddress = addressParts(header.address)
+  const responsibleAddress = addressParts(header.responsibleAddress ?? '')
 
-  emit(FILE_FORMAT.fileHeader, {
+  emit(format.fileHeader, {
     recordType: 'FH',
     // Annexure-free constants, straight out of the FH table: "Value should be 'NS1'" / 'SL1',
     // "Value should be R", "Value should be D".
@@ -614,44 +743,81 @@ export function toFlatFile(working: TdsReturnWorking, header: ReturnHeader, crea
     returnPreparationUtility: 'Total'
   })
 
-  emit(FILE_FORMAT.batchHeader, {
+  emit(format.batchHeader, {
     recordType: 'BH',
     batchNumber: 1,
     challanCount: working.challans.length,
-    formNumber: working.form,
+    formNumber: filingForm,
+    previousTokenNumber: header.earlierStatementFiled ? (header.previousTokenNumber ?? '') : '',
     tan: header.tan ?? '',
     deductorPan: header.pan ?? '',
     assessmentYear: ay,
     financialYear: fy,
+    taxYear: fy,
     period: `Q${working.quarter}`,
     deductorName: header.deductorName,
-    deductorAddress1: header.address,
+    deductorCountry: modern ? 'INDIA' : '',
+    deductorAddress1: deductorAddress[0] ?? '',
+    deductorAddress2: deductorAddress[1] ?? '',
+    deductorAddress3: deductorAddress[2] ?? '',
+    deductorAddress4: deductorAddress[3] ?? '',
+    deductorAddress5: deductorAddress[4] ?? '',
+    deductorStateCode: header.deductorStateCode ?? '',
+    deductorPincode: header.deductorPincode ?? '',
     deductorEmail: header.email ?? '',
-    deductorPhone: header.phone ?? '',
+    deductorCountryCode: modern ? '91' : '',
+    deductorPhone: digits(header.phone),
     // Annexure 4 category code. 'A' Central Government and 'S' State Government are what
     // `ReturnHeader` carries; a company would be 'K'. Written through untouched — inventing a
     // category is inventing the deductor's legal form.
     deductorType: header.deductorType,
     responsiblePerson: header.responsiblePerson ?? '',
     responsibleDesignation: header.responsibleDesignation ?? '',
+    responsibleAddress1: responsibleAddress[0] ?? '',
+    responsibleAddress2: responsibleAddress[1] ?? '',
+    responsibleAddress3: responsibleAddress[2] ?? '',
+    responsibleAddress4: responsibleAddress[3] ?? '',
+    responsibleAddress5: responsibleAddress[4] ?? '',
+    responsibleStateCode: header.responsibleStateCode ?? '',
+    responsiblePincode: header.responsiblePincode ?? '',
+    responsibleEmail: header.responsibleEmail ?? '',
+    responsibleCountry: modern ? 'INDIA' : '',
+    responsibleCountryCode: modern ? '91' : '',
+    responsiblePhone: digits(header.responsiblePhone),
     batchTotalDeposit: rupees(working.challans.reduce((t, c) => t + challanTotal(c), 0)),
     // "Value should be 'N'" — the only permitted value in the AO Approval field.
-    aoApproval: 'N'
+    aoApproval: modern ? '' : 'N',
+    earlierStatementFiled: header.earlierStatementFiled ? 'Y' : 'N',
+    governmentStateCode: header.governmentStateCode ?? '',
+    ministryCode: header.ministryCode ?? '',
+    ministryOther: header.ministryOther ?? '',
+    responsiblePan: header.responsiblePan ?? '',
+    ain: header.ain ?? '',
+    gstin: header.gstin ?? ''
   })
 
   let challanRecordNumber = 0
+  let deducteeRecordNumber = 0
   for (const challan of working.challans) {
     const under = working.deductions.filter((d) => d.challanId === challan.id)
-    const sections = [...new Set(under.map((d) => d.sectionCode))].sort()
-    for (const section of sections) {
-      const forSection = under.filter((d) => d.sectionCode === section)
+    if (under.length > 0) {
+      const forSection = under
       challanRecordNumber += 1
-      const deducteeTax = forSection.reduce((t, d) => t + d.tds, 0)
-      const deducteeSurcharge = forSection.reduce((t, d) => t + d.surcharge, 0)
-      const deducteeCess = forSection.reduce((t, d) => t + d.cess, 0)
+      const deducteeTax = under.reduce((t, d) => t + d.tds, 0)
+      const deducteeSurcharge = under.reduce((t, d) => t + d.surcharge, 0)
+      const deducteeCess = under.reduce((t, d) => t + d.cess, 0)
       const deducteeTotal = deducteeTax + deducteeSurcharge + deducteeCess
 
-      emit(FILE_FORMAT.challan, {
+      emit(format.challan, modern ? {
+        recordType: 'CD', batchNumber: 1, challanRecordNumber, deducteeCount: under.length,
+        nilChallanIndicator: 'N', totalTaxDeducted: rupees(challan.tax + challan.surcharge + challan.cess),
+        totalInterest: rupees(challan.interest), totalFee: rupees(challan.fee), totalPenalty: rupees(0),
+        challanTotal: rupees(challanTotal(challan)), paymentMode: challan.bookEntry ? 'B' : 'C',
+        bsrCodeOr24gReceipt: challan.bsrCode, bankChallanNo: challan.serial,
+        challanDate: fileDate(challan.paidOn), deducteeTotalDeposited: rupees(deducteeTotal),
+        deducteeTotalTds: rupees(deducteeTotal), minorHead: '200',
+        interestAllocation: rupees(challan.interest), otherAllocation: rupees(0)
+      } : {
         recordType: 'CD',
         batchNumber: 1,
         challanRecordNumber,
@@ -683,13 +849,25 @@ export function toFlatFile(working: TdsReturnWorking, header: ReturnHeader, crea
         minorHead: '200'
       })
 
-      forSection.forEach((d, i) => {
+      forSection.forEach((d) => {
+        deducteeRecordNumber += 1
         const noPan = !d.pan || !PAN_RE.test(d.pan)
-        emit(FILE_FORMAT.deductee, {
+        emit(deducteeLayout, modern ? {
+          recordType: 'DD', batchNumber: 1, deducteeRecordNumber, challanRecordNumber, mode: 'O',
+          deducteePan: noPan ? 'PANNOTAVBL' : (d.pan as string), deducteeName: d.deducteeName,
+          sectionCode: returnSectionCode2026(d, filingForm as '138' | '140', header.deductorType) ?? '',
+          taxDepositedIndicator: 'Y', paidOn: fileDate(d.paidOn), amountPaid: rupees(d.amountPaid),
+          totalTds: rupees(d.tds + d.surcharge + d.cess),
+          totalDeposited: rupees(d.tds + d.surcharge + d.cess), deductedOn: fileDate(d.deductedOn),
+          rate: salary ? '' : d.rate.toFixed(4), dateOfDeposit: salary ? fileDate(challan.paidOn) : '',
+          remarks1: noPan ? 'C' : '',
+          // Form 138 requires the deposit date in DD field 29. Form 140 requires the rate at field 28.
+          form121Uin: '', certificateNumber395: '',
+        } : {
           recordType: 'DD',
           batchNumber: 1,
           challanRecordNumber,
-          deducteeRecordNumber: i + 1,
+          deducteeRecordNumber,
           // "Value should be O" — the Mode field of a regular statement.
           mode: 'O',
           // Field 8 is live in 26Q and Not-applicable in 24Q; field 26 (Rate) likewise.
@@ -719,12 +897,24 @@ export function toFlatFile(working: TdsReturnWorking, header: ReturnHeader, crea
     }
   }
 
-  const blankMandatoryFields = [...BATCH_HEADER_UNSUPPLIED]
+  const mandatory: [string, unknown][] = [
+    ['Deductor PAN', header.pan], ['Deductor State', header.deductorStateCode],
+    ['Deductor PIN', header.deductorPincode], ['Deductor contact number', digits(header.phone)],
+    ['Responsible person name', header.responsiblePerson], ['Responsible person designation', header.responsibleDesignation],
+    ['Responsible person address', header.responsibleAddress], ['Responsible person State', header.responsibleStateCode],
+    ['Responsible person PIN', header.responsiblePincode], ['Responsible person email', header.responsibleEmail ?? header.email],
+    ['Responsible person contact number', digits(header.responsiblePhone)], ['PAN of Responsible Person', header.responsiblePan]
+  ]
+  if (header.earlierStatementFiled) mandatory.push(['Previous regular-statement token', header.previousTokenNumber])
+  const blankMandatoryFields = mandatory.filter(([, value]) => !value).map(([name]) => name)
 
   return {
-    text: lines.length === 0 ? '' : lines.join(FILE_FORMAT.lineEnding) + FILE_FORMAT.lineEnding,
-    unverifiedFormat: blankMandatoryFields.length > 0,
+    text: lines.length === 0 ? '' : lines.join(format.lineEnding) + format.lineEnding,
+    // Remains true until a generated fixture passes the current FVU with a valid CSI file.
+    unverifiedFormat: true,
     blankMandatoryFields,
-    lineCount: lines.length
+    lineCount: lines.length,
+    filingForm,
+    formatVersion: format.version
   }
 }

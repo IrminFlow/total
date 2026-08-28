@@ -6,6 +6,7 @@ import { Button, EmptyState, ExportGroup, Field, Money, Panel, RowAction, Select
 import { useStockItems } from '../components/pickers'
 import { fyOf, toDisplayDate } from '@shared/dates'
 import { GSTR1A_RESTRICTIONS } from '@shared/gst/gstr1a'
+import { GstinPicker, usePrimaryRegistrationId } from '../components/GstinPicker'
 
 /**
  * The three statutory packs that belong on the Disclosure screen (roadmap #356, #358, #362).
@@ -29,15 +30,17 @@ export function RcmSelfInvoiceTab(): React.JSX.Element {
   const { from, to } = useSession()
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const [consolidate, setConsolidate] = useState(false)
+  const primaryRegistrationId = usePrimaryRegistrationId()
+  const [selectedRegistrationId, setSelectedRegistrationId] = useState<number | null>(null)
+  const registrationId = selectedRegistrationId ?? primaryRegistrationId
   const { data, isLoading } = useQuery({
-    queryKey: ['rcmRegister', from, to],
-    queryFn: () => api.rcm.register(from, to)
+    queryKey: ['rcmRegister', from, to, registrationId],
+    queryFn: () => api.rcm.register(from, to, registrationId)
   })
 
   const issue = async (): Promise<void> => {
     try {
-      const r = await api.rcm.issue(from, to, consolidate)
+      const r = await api.rcm.issue(from, to, false, undefined, registrationId)
       await queryClient.invalidateQueries({ queryKey: ['rcmRegister'] })
       toast.push(
         'success',
@@ -76,15 +79,11 @@ export function RcmSelfInvoiceTab(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-end gap-3">
-        <label className="flex items-center gap-2 text-body-sm text-muted">
-          <input
-            type="checkbox"
-            data-testid="check-rcm-consolidate"
-            checked={consolidate}
-            onChange={(e) => setConsolidate(e.target.checked)}
-          />
-          Consolidate the month for unregistered suppliers
-        </label>
+        <GstinPicker
+          value={registrationId}
+          onChange={setSelectedRegistrationId}
+          testId="select-rcm-gstin"
+        />
         <Button data-testid="btn-rcm-issue" variant="primary" disabled={pending.length === 0} onClick={() => void issue()}>
           Issue {pending.length > 0 ? pending.length : ''} self-invoice{pending.length === 1 ? '' : 's'}
         </Button>
@@ -97,7 +96,7 @@ export function RcmSelfInvoiceTab(): React.JSX.Element {
         ) : pending.length === 0 ? (
           <EmptyState
             title="Every reverse-charge purchase is documented"
-            hint="A registered buyer has to raise the invoice themselves under section 31(3)(f)."
+            hint="For a notified RCM supply from an unregistered supplier, the buyer raises one invoice per supply under section 31(3)(f). Registered suppliers' own RCM invoices do not appear here."
           />
         ) : (
           <table className="ledger-table">
@@ -778,9 +777,9 @@ export function ImsWorklistPanel({
     queryFn: () => api.ims.worklist(jsonText, from, to)
   })
 
-  const decide = async (docKey: string, period: string, action: 'accept' | 'reject' | 'pending'): Promise<void> => {
+  const decide = async (docKey: string, period: string, documentKind: 'invoice' | 'credit_note' | 'debit_note' | 'book_only', action: 'accept' | 'reject' | 'pending'): Promise<void> => {
     try {
-      await api.ims.decide(docKey, period, action, null)
+      await api.ims.decide(docKey, period, documentKind, action, null)
       await queryClient.invalidateQueries({ queryKey: ['imsWorklist'] })
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -791,7 +790,7 @@ export function ImsWorklistPanel({
     try {
       const r = await api.ims.acceptMatched(jsonText, from, to)
       await queryClient.invalidateQueries({ queryKey: ['imsWorklist'] })
-      toast.push('success', `${r.accepted} matched document${r.accepted === 1 ? '' : 's'} accepted`)
+      toast.push('success', `${r.accepted} matched document${r.accepted === 1 ? '' : 's'} marked accepted`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -806,7 +805,8 @@ export function ImsWorklistPanel({
         <div className="border-b border-line bg-warn/10 px-3 py-2 text-body-sm text-warn">
           IMS actions are taken on the GST portal. This is the worksheet and the record of what was decided — nothing
           here reaches the portal. A document nobody touches is <b>deemed accepted</b> when GSTR-2B generates, which is
-          why the undecided count is the number to drive to zero.
+          why the undecided count is the number to drive to zero. Actions follow GSTN's dated
+          availability; a book-only row has no portal action at all.
         </div>
         <div className="flex flex-wrap items-center gap-4 px-3 py-2 text-body-sm">
           <span data-testid="ims-undecided">
@@ -820,7 +820,7 @@ export function ImsWorklistPanel({
             <Money paise={w.atRisk.igst + w.atRisk.cgst + w.atRisk.sgst + w.atRisk.cess} />
           </span>
           <Button data-testid="btn-ims-accept-matched" variant="ghost" onClick={() => void acceptMatched()}>
-            Accept everything matched
+            Mark matched as accepted
           </Button>
         </div>
       </Panel>
@@ -829,7 +829,8 @@ export function ImsWorklistPanel({
         {w.rows.length === 0 ? (
           <EmptyState title="Nothing in this period’s IMS dashboard" />
         ) : (
-          <table className="ledger-table">
+          <div className="overflow-x-auto">
+          <table className="ledger-table table-fixed min-w-[72rem] w-full">
             <thead>
               <tr>
                 <th scope="col" className="w-28">Date</th>
@@ -857,11 +858,13 @@ export function ImsWorklistPanel({
                   </td>
                   <td>
                     <div className="flex gap-1">
-                      {(['accept', 'reject', 'pending'] as const).map((a) => (
+                      {r.allowedActions.length === 0 ? (
+                        <span className="text-hint text-muted">No portal record — chase supplier</span>
+                      ) : r.allowedActions.map((a) => (
                         <button
                           key={a}
                           data-testid={`btn-ims-${a}-${r.key}`}
-                          onClick={() => void decide(r.key, w.period, a)}
+                          onClick={() => void decide(r.key, w.period, r.documentKind, a)}
                           className={`rounded-md px-2 py-0.5 text-small ${
                             r.action === a ? 'bg-accentbar/25 font-medium text-ink' : 'text-muted hover:bg-panel2'
                           }`}
@@ -875,6 +878,7 @@ export function ImsWorklistPanel({
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Panel>
     </div>

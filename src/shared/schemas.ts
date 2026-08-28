@@ -95,6 +95,7 @@ export const ledgerInputSchema = z.object({
   hsn: z.string().trim().nullable().default(null),
   tdsSectionId: id.nullable().default(null),
   pan: panSchema,
+  tan: tanSchema,
   creditDays: z.number().int().min(0).max(365).nullable().default(null),
   exportType: z.enum(['sez_wp', 'sez_wop', 'exp_wp', 'exp_wop']).nullable().default(null),
   /** Reverse charge applies to this party's supplies (GSTR-1 rchrg / GSTR-3B 3.1(d)). */
@@ -400,6 +401,9 @@ export const employeeInputSchema = z.object({
   code: z.string().trim().max(30).nullable().default(null),
   designation: z.string().trim().max(80).nullable().default(null),
   joined: isoDate.nullable().default(null),
+  /** Inclusive last working day. Optional keeps older callers source-compatible; the service
+   *  persists absence as NULL. */
+  leftOn: isoDate.nullable().optional(),
   pan: z.string().trim().max(10).transform((s) => s.toUpperCase()).nullable().default(null),
   uan: z.string().trim().max(20).nullable().default(null),
   esicNo: z.string().trim().max(20).nullable().default(null),
@@ -630,7 +634,21 @@ export const tdsLinkSchema = z.object({
 export const tdsFilingConfigSchema = z.object({
   responsiblePerson: z.string().trim().max(120).nullable().default(null),
   responsibleDesignation: z.string().trim().max(120).nullable().default(null),
-  deductorType: z.enum(['A', 'S']).default('S')
+  deductorType: z.enum(['A', 'S', 'D', 'E', 'G', 'H', 'L', 'N', 'K', 'M', 'P', 'T', 'J', 'B', 'Q', 'F']).default('F'),
+  deductorStateCode: z.string().trim().regex(/^\d{2}$/).nullable().default(null),
+  deductorPincode: z.string().trim().regex(/^\d{6}$/).nullable().default(null),
+  responsibleAddress: z.string().trim().max(120).nullable().default(null),
+  responsibleStateCode: z.string().trim().regex(/^\d{2}$/).nullable().default(null),
+  responsiblePincode: z.string().trim().regex(/^\d{6}$/).nullable().default(null),
+  responsibleEmail: z.string().trim().email().nullable().default(null),
+  responsiblePhone: z.string().trim().regex(/^\d{10}$/).nullable().default(null),
+  responsiblePan: panSchema,
+  earlierStatementFiled: z.boolean().default(false),
+  previousTokenNumber: z.string().trim().regex(/^\d{15}$/).nullable().default(null),
+  governmentStateCode: z.string().trim().regex(/^\d{2}$/).nullable().default(null),
+  ministryCode: z.string().trim().regex(/^\d{2,3}$/).nullable().default(null),
+  ministryOther: z.string().trim().max(150).nullable().default(null),
+  ain: z.string().trim().regex(/^\d{7}$/).nullable().default(null)
 })
 export type TdsFilingConfigInput = z.infer<typeof tdsFilingConfigSchema>
 
@@ -644,7 +662,8 @@ export const rcmIssueSchema = z.object({
    *  is unverified (see src/shared/gst/selfInvoice.ts) and the per-supply form is always safe. */
   consolidate: z.boolean().default(false),
   /** Restrict to chosen purchases; absent means everything undocumented in the period. */
-  voucherIds: z.array(id).optional()
+  voucherIds: z.array(id).optional(),
+  registrationId: id.nullable().optional()
 })
 
 /** Raising branch-transfer invoices for a period (roadmap #108). */
@@ -673,6 +692,13 @@ export const isdMonthSchema = z.object({
 })
 
 /** An invoice received centrally by the ISD, whose credit is to be distributed (roadmap #355). */
+const isdCreditItemSchema = z.object({
+  lineNumber: z.number().int().positive(),
+  rateBps: z.number().int().min(0).max(4000),
+  taxable: paise,
+  heads: z.object({ igst: paise, cgst: paise, sgst: paise, cess: paise })
+})
+
 export const isdCreditSchema = z.object({
   id: id.nullish(),
   date: isoDate,
@@ -681,6 +707,9 @@ export const isdCreditSchema = z.object({
   invoiceNumber: z.string().trim().min(1).max(40),
   description: z.string().trim().max(200).nullable(),
   taxable: paise,
+  invoiceValue: paise,
+  placeOfSupply: z.string().regex(/^\d{2}$/, 'Place of supply must be a two-digit GST state code'),
+  items: z.array(isdCreditItemSchema).min(1).max(50),
   igst: paise,
   cgst: paise,
   sgst: paise,
@@ -695,6 +724,7 @@ export const isdCreditSchema = z.object({
 export const imsDecisionSchema = z.object({
   docKey: z.string().trim().min(1).max(80),
   period: z.string().trim().min(1).max(20),
+  documentKind: z.enum(['invoice', 'credit_note', 'debit_note', 'book_only']),
   action: z.enum(['accept', 'reject', 'pending']),
   note: z.string().trim().max(200).nullable().default(null)
 })

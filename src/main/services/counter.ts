@@ -258,6 +258,8 @@ export interface PriceCartInput {
   /** Null for a walk-in, which is the normal case (#381). */
   partyLedgerId?: number | null
   pricingMode?: PricingMode
+  /** Registration whose counter is making the supply. */
+  gstRegistrationId?: number | null
 }
 
 export function priceCounterCart(db: DB, info: CompanyInfo, input: PriceCartInput): CounterCart {
@@ -424,8 +426,10 @@ export function sessionSummary(db: DB, sessionId: number): SessionSummary {
   const tenders = db
     .prepare(
       `SELECT t.mode, cs.kind, SUM(t.amount) AS amount, SUM(cs.change_paise) AS change
-       FROM counter_tenders t JOIN counter_sales cs ON cs.id = t.counter_sale_id
-       WHERE cs.session_id = ? GROUP BY t.mode, cs.kind`
+       FROM counter_tenders t
+       JOIN counter_sales cs ON cs.id = t.counter_sale_id
+       JOIN vouchers v ON v.id = cs.voucher_id
+       WHERE cs.session_id = ? AND ${IN_BOOKS} GROUP BY t.mode, cs.kind`
     )
     .all(sessionId) as { mode: string; kind: string; amount: number; change: number }[]
 
@@ -437,14 +441,19 @@ export function sessionSummary(db: DB, sessionId: number): SessionSummary {
     .all(sessionId) as DrawerMovement[]
 
   const counts = db
-    .prepare("SELECT kind, COUNT(*) AS n FROM counter_sales WHERE session_id = ? GROUP BY kind")
+    .prepare(
+      `SELECT cs.kind, COUNT(*) AS n
+       FROM counter_sales cs JOIN vouchers v ON v.id = cs.voucher_id
+       WHERE cs.session_id = ? AND ${IN_BOOKS} GROUP BY cs.kind`
+    )
     .all(sessionId) as { kind: string; n: number }[]
 
   const turnover = db
     .prepare(
       `SELECT COALESCE(SUM(vl.amount), 0) AS total FROM counter_sales cs
        JOIN voucher_lines vl ON vl.voucher_id = cs.voucher_id
-       WHERE cs.session_id = ? AND cs.kind = 'sale' AND vl.dr_cr = 'dr'`
+       JOIN vouchers v ON v.id = cs.voucher_id
+       WHERE cs.session_id = ? AND cs.kind = 'sale' AND vl.dr_cr = 'dr' AND ${IN_BOOKS}`
     )
     .get(sessionId) as { total: number }
 
@@ -504,6 +513,8 @@ export interface CounterSaleInput {
   returnsVoucherId?: number | null
   /** 'sale' posts a sales voucher; 'return' posts a credit note. */
   kind?: 'sale' | 'return'
+  /** Registration whose counter made the supply. */
+  gstRegistrationId?: number | null
 }
 
 export interface CounterSaleResult {
@@ -546,7 +557,8 @@ export function saveCounterSale(db: DB, info: CompanyInfo, input: CounterSaleInp
     lines: input.lines,
     date,
     partyLedgerId: input.partyLedgerId,
-    pricingMode: input.pricingMode
+    pricingMode: input.pricingMode,
+    gstRegistrationId: input.gstRegistrationId
   })
   if (cart.lines.length === 0) throw new Error('There is nothing in the cart')
 
@@ -603,6 +615,7 @@ export function saveCounterSale(db: DB, info: CompanyInfo, input: CounterSaleInp
       transporterId: null,
       vehicleNo: null,
       transportDistanceKm: null,
+      gstRegistrationId: input.gstRegistrationId ?? null,
       currencyCode: null,
       exchangeRate: null,
       lines,
@@ -690,6 +703,7 @@ export interface ReturnableSale {
   date: string
   totalPaise: number
   customerName: string | null
+  gstRegistrationId: number | null
   lines: { stockItemId: number; name: string; qtyMilli: number; ratePaise: number }[]
 }
 
@@ -697,12 +711,14 @@ export interface ReturnableSale {
 export function findSaleForReturn(db: DB, numberOrPhone: string): ReturnableSale | null {
   const row = db
     .prepare(
-      `SELECT v.id, v.number, v.date, cs.customer_name
+      `SELECT v.id, v.number, v.date, v.gst_registration_id AS gstRegistrationId, cs.customer_name
        FROM counter_sales cs JOIN vouchers v ON v.id = cs.voucher_id
        WHERE cs.kind = 'sale' AND (v.number = ? COLLATE NOCASE OR cs.customer_phone = ?) AND ${IN_BOOKS}
        ORDER BY v.date DESC, v.id DESC LIMIT 1`
     )
-    .get(numberOrPhone, numberOrPhone) as { id: number; number: string; date: string; customer_name: string | null } | undefined
+    .get(numberOrPhone, numberOrPhone) as {
+      id: number; number: string; date: string; gstRegistrationId: number | null; customer_name: string | null
+    } | undefined
   if (!row) return null
 
   const lines = db
@@ -717,7 +733,10 @@ export function findSaleForReturn(db: DB, numberOrPhone: string): ReturnableSale
     .prepare("SELECT COALESCE(SUM(amount), 0) AS t FROM voucher_lines WHERE voucher_id = ? AND dr_cr = 'dr'")
     .get(row.id) as { t: number }
 
-  return { voucherId: row.id, number: row.number, date: row.date, totalPaise: total.t, customerName: row.customer_name, lines }
+  return {
+    voucherId: row.id, number: row.number, date: row.date, totalPaise: total.t,
+    customerName: row.customer_name, gstRegistrationId: row.gstRegistrationId, lines
+  }
 }
 
 // ---------- the day at the till ----------

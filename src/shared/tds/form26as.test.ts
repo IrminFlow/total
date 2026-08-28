@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   parse26asCsv,
   reconcile26as,
@@ -29,6 +31,7 @@ const stmt = (over: Partial<Statement26asRow> = {}): Statement26asRow => ({
   amountPaidPaise: 1_00_000_00,
   taxDeductedPaise: 1_000_00,
   taxDepositedPaise: 1_000_00,
+  taxDepositedKnown: true,
   ...over
 })
 
@@ -64,7 +67,7 @@ describe('parse26asCsv', () => {
   it('reports a preamble-only file instead of throwing', () => {
     const { rows, problems } = parse26asCsv(PREAMBLE)
     expect(rows).toEqual([])
-    expect(problems.join(' ')).toMatch(/no header row/i)
+    expect(problems.join(' ')).toMatch(/no deductor summary or transaction header/i)
   })
 
   it('tolerates header naming variation between TRACES and AIS exports', () => {
@@ -93,6 +96,29 @@ describe('parse26asCsv', () => {
     expect(problems).toHaveLength(2)
     expect(problems[0]).toMatch(/no deductor TAN/)
     expect(problems[1]).toMatch(/could not read an amount/)
+  })
+
+  it('parses the sanctioned TRACES caret-delimited grouped layout and inherits TAN into transactions', () => {
+    const text = readFileSync(join(__dirname, '__fixtures__/form26as-traces-part1-sanitized.txt'), 'utf8')
+    const { rows, problems } = parse26asCsv(text)
+    expect(problems).toEqual([])
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toMatchObject({
+      deductorName: 'Bright Media Pvt Ltd', deductorTan: 'MUMB12345A', section: '194J',
+      date: '2025-05-10', amountPaidPaise: 10000000, taxDeductedPaise: 1000000
+    })
+    expect(rows[1]).toMatchObject({
+      deductorTan: 'MUMB12345A', amountPaidPaise: -2000000,
+      taxDeductedPaise: -200000, taxDepositedPaise: -200000
+    })
+    expect(rows[2]).toMatchObject({ deductorName: 'Quiet Systems LLP', deductorTan: 'DELQ98765B', section: '194C' })
+  })
+
+  it('does not pretend the deposited amount is known when a flat export omits it', () => {
+    const shortHeader = 'Deductor Name,Deductor TAN,Section,Transaction Date,Amount Paid / Credited,Tax Deducted'
+    const { rows, problems } = parse26asCsv(`${shortHeader}\nAcme Ltd,MUMA99999B,194J,04-Jul-2025,50000.00,5000.00\n`)
+    expect(rows[0]!.taxDepositedKnown).toBe(false)
+    expect(problems.join(' ')).toMatch(/deposit availability was not independently checked/)
   })
 })
 
@@ -168,6 +194,27 @@ describe('reconcile26as', () => {
     expect(r.pairs[0]!.bucket).toBe('matched')
     expect(r.pairs[0]!.notes.join(' ')).toMatch(/less tax deposited than deducted/)
     expect(r.creditAtRiskPaise).toBe(600_00)
+  })
+
+  it('matches a negative reversal and never turns it into positive credit at risk', () => {
+    const r = reconcile26as(
+      [book({ tdsPaise: -200_00, amountPaise: -20_000_00 })],
+      [stmt({ taxDeductedPaise: -200_00, taxDepositedPaise: -200_00, amountPaidPaise: -20_000_00 })],
+      OPTS
+    )
+    expect(r.pairs[0]!.bucket).toBe('matched')
+    expect(r.creditAtRiskPaise).toBe(0)
+    expect(r.buckets.matched.tdsPaise).toBe(-200_00)
+  })
+
+  it('does not compare GST-inclusive book gross to the Form 26AS section base', () => {
+    const r = reconcile26as(
+      [book({ amountPaise: 1_18_000_00, amountComparable: false })],
+      [stmt({ amountPaidPaise: 1_00_000_00 })],
+      OPTS
+    )
+    expect(r.pairs[0]!.bucket).toBe('matched')
+    expect(r.pairs[0]!.notes.join(' ')).toMatch(/exclude separately stated GST/)
   })
 
   it('reconciles a parsed statement end to end, in paise throughout', () => {

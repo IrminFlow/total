@@ -217,7 +217,11 @@ describe('MCP tools', () => {
   it('rate limits writes once a burst is spent, and says how long to wait', async () => {
     const company = openForMcp('mcp-co', true)
     setAgentBridgeEnabled(company.db, true)
-    const server = buildServer(company)
+    // A real clock makes this boundary depend on machine speed: if thirty SQLite writes take over
+    // two seconds on a Windows runner, the bucket legitimately refills a token and write 31 is
+    // allowed. Freeze only the server's injected limiter clock; TokenBucket's refill behaviour has
+    // its own advancing-clock unit tests in shared/ai/agents.test.ts.
+    const server = buildServer(company, { now: () => 0 })
 
     const cash = company.db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }
     const group = company.db.prepare("SELECT id FROM groups WHERE name = 'Sales Accounts'").get() as { id: number }

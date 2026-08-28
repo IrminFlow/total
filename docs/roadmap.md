@@ -325,7 +325,13 @@ Ordering within a section is roughly by value.
 
 ## D. GST and statutory
 
-81. ✓ QRMP: quarterly GSTR-1/3B, monthly PMT-06, optional IFF, state-staggered 3B date (L)
+81. ✓ QRMP: quarterly GSTR-1/3B, monthly PMT-06, optional IFF, state-staggered 3B date (L) —
+    recording M1/M2 IFF now freezes the registered invoices and registered credit/debit notes the
+    portal first saw. M2 can pick up an M1 record left out of the first IFF; the quarterly snapshot
+    excludes records already furnished through either IFF, while missed M1/M2 and B2C records stay
+    ordinary quarter records. Nil IFFs have durable headers, so re-entering an ARN after adding a
+    late invoice cannot rewrite a zero-document filing. This follows GSTN's QRMP advisory and its
+    January–March 2021 functionality note (rechecked 28 August 2026).
 82. ✓ Composition scheme: CMP-08 and GSTR-4 rather than blocking export (M)
 83. ✓ GSTR-9 annual return working papers (L) — a books-against-returns reconciliation, not
     a filled-in form. GSTR-9 has no offline utility worth targeting, and a generated annual
@@ -344,23 +350,38 @@ Ordering within a section is roughly by value.
     the overdue callout says in words that the goods are treated as sold, rather than just
     colouring the row. Moulds, dies, jigs, fixtures and tools carry no clock (s.143(4)); a bug
     where that exclusion never reached the calculation, hidden by an `as` cast on a misspelled
-    field, was found and fixed by the tests. **Needs verification, all three surfaced in the UI:
-    whether Table 5B is a receipt limb rather than the despatch limb modelled here; the
-    periodicity notification number (35/2021-CT was recalled, not read); and whether the
-    anniversary day itself is still in time.**
+    field, was found and fixed by the tests. **Official-source audit completed 28 August 2026.**
+    GSTN&rsquo;s July 2024 manual confirms Table 5B is goods received back from a different job
+    worker, not an onward despatch; onward movement no longer clears the original section 143
+    clock or appears in 5B. Notification 35/2021-CT confirms the ₹5 crore split from 1 October
+    2021; FY 2021-22 is preserved as Q1, Q2, then Oct–Mar rather than retroactively combining
+    already-filed quarters. Section 9 of the General Clauses Act supports treating the anniversary
+    as the last in-time day. The same GSTN manual says the utility cannot generate nil JSON, so the
+    old “nil must be filed” claim was removed. Migration 60 now retains worker-chain source and
+    destination identities, endorsed/fresh onward provenance, SEZ/cess, exact 5B returning worker,
+    linked 5C principal invoice and same-row loss/waste UQC+quantity. A physical holder ledger
+    prevents two workers returning the same goods while the first-despatch clock stays intact.
+    The current v2.15 zip is hash-pinned and a checked-in preview golden matches its hidden fields
+    and extracted VBA validation rules. Portal export remains disabled: the official workbook
+    fails with a hidden-module compile error in Excel for Mac, its own Table 5B instructions
+    contradict its sheet heading, and Windows Excel plus authenticated portal acceptance remain
+    external validation gates.
 90. ✓ TCS on sale of goods, section 206C(1H) (M) — detection, not automatic collection: the
     section does not apply where the buyer deducts TDS under 194Q on the same transaction, which
     the seller cannot know from their own books.
 91. ✓ 26AS reconciliation against TDS entries (L) — paste or load a TRACES export and reconcile
     it against the credit the books expect, in the same buckets `recon2b` uses, with the total
     credit at risk called out. Both directions are reported: credit in the books but not in 26AS
-    is credit that will not arrive, credit in 26AS but not in the books is income possibly never
-    recorded. Nothing is persisted — a downloaded 26AS is a snapshot of the department's record,
-    and a stored stale copy invites reconciling against last month's. **Needs verification: the
-    parser was written to the published Part-A wording and has never seen a file from the live
-    portal; malformed lines surface as complaints rather than being dropped, so a layout surprise
-    is visible. Also flagged: `ledgers` has no TAN column, so matching borrows the TAN from the
-    statement by name.**
+    is credit that may not be granted; a credit row in 26AS without book TDS is investigated for
+    timing, corrections and reversals before anybody calls it omitted income. Nothing is persisted
+    — a downloaded statement is a dated snapshot. **Official-source audit completed 28 August
+    2026.** The current Income Tax/TRACES tutorial keeps Form 26AS distinct from AIS and uses Part I
+    from AY 2023-24 onward. The sanctioned large-file text export is caret-delimited, with one
+    deductor summary (name/TAN/totals) followed by nested transaction rows; a sanitized fixture
+    pins that hierarchy. Migration 58 stores party TAN. Parenthesised refunds/corrections and book
+    TDS-receivable credits remain negative. CBDT Circular 23/2017 excludes separately indicated
+    GST on services from the TDS base, so GST-inclusive book party gross is visible context but is
+    never treated as the Form 26AS base or used to manufacture an amount mismatch.
 92. ✓ GST rate-change handling: rate history per item with effective dates (L) — the bug this
     fixes is quiet and bad: an item carried ONE rate, so editing it when the Council moved a rate
     silently repriced every past invoice and every return already filed. A rate is now dated data
@@ -376,8 +397,9 @@ Ordering within a section is roughly by value.
 96. ✓ E-way bill distance auto-lookup from pin codes (M) — an **offer**, never a silent write:
     the figure appears beside the disclaimer with a separate button to accept it, because an
     understated distance expires a consignment in transit. An unplaceable PIN offers nothing at
-    all rather than a guess. **Needs verification, and says so on screen: the whole PIN table is
-    approximate** — three-digit district coordinates are city-centre figures, two-digit circle
+    all rather than a guess. **Verified 2026-08-28, and still says so on screen: the whole PIN table is
+    approximate** — the civil prefix set matches the Department of Posts OGD directory; three-digit
+    district coordinates are city-centre figures, while two-digit postal sub-region
     fallbacks are eyeballed middles with 50–100 km of expected error, and the 1.25 road-circuity
     factor is a planning convention, not a measurement. Also worth knowing: the delivery PIN is
     stored, the **despatch PIN is not** (the company address is one free-text column), so the user
@@ -393,12 +415,15 @@ Ordering within a section is roughly by value.
      erase the original. The panel separates three things a naive diff would conflate — genuine
      amendments, filed documents no longer in the books, and documents dated in a filed period
      that were never filed (a missed invoice is not an amendment; it belongs in the later period's
-     ordinary tables). Refused pairs show their reason rather than vanishing. **Needs verification,
-     carried onto the screen: the amendment-only field names (`octin`/`oinum`/`oidt`,
-     `ont_num`/`ont_dt`/`ntty`) have no precedent in the existing GSTR-1 builder and are unchecked
-     against a current schema; whether the portal accepts an amendment-only upload; and how a
-     registered → unregistered correction should be filed. The section 37(3) rectification window
-     is reported, not enforced.**
+     ordinary tables). Refused pairs show their reason rather than vanishing. The JSON contract was
+     rechecked on 28 August 2026 against GSTN's GSTR-1 Save API v5.0 and current Returns Offline
+     Tool manual: B2BA is group-level `ctin` plus `oinum`/`oidt` (there is no valid `octin`),
+     CDNRA uses `ont_num`/`ont_dt`, and a table-only partial GSTR-1 payload is supported. Recipient
+     GSTIN/UIN is non-amendable, so registered/unregistered and GSTIN-to-GSTIN corrections are
+     refused for deliberate portal handling rather than guessed into B2CLA/B2BA. The section 37(3)
+     rectification window is reported, not enforced. QRMP/IFF provenance is durable: an amendment retains the IFF
+     month in which the portal first saw the document, while an invoice first included in the
+     quarter is not misclassified as an amendment to its invoice month.
 102. ✓ Export invoices with and without payment of tax, split correctly (M) — already shipped
 103. ✓ SEZ supplies with and without payment, split correctly (M) — already shipped
 104. ✓ Advance receipt and adjustment tables (11A, 11B) (M) — already shipped
@@ -446,15 +471,15 @@ Ordering within a section is roughly by value.
      BOTH returns: it is appended to the sender's outward documents, so it lands in GSTR-1 B2B and
      GSTR-3B 3.1(a), and its tax is added to the receiver's 4(A)(5) — read off the stored document
      on both sides rather than recomputed, which is what makes the two registrations' returns tie
-     to the paise. Rule 28's five limbs are offered as dated data (`RULE28_HISTORY`, renumbered to
+     to the paise. Its separately numbered tax-invoice series is read directly from the durable
+     branch-transfer register into the sender's GSTR-1 Table 13 category 1; it is not inferred from
+     accounting vouchers because issuing the document deliberately does not move the books. Rule
+     28's five limbs are offered as dated data (`RULE28_HISTORY`, renumbered to
      rule 28(1) on 26 October 2023), and the app refuses to invent an open market value it does not
      hold: only the second proviso — where the recipient takes full ITC, the declared value IS the
      open market value — and 110%-of-cost can be computed, and the others require a number from the
      user. The validation warning now reports only what has NO invoice, so it retires as the work
-     is done. **Not covered:** the branch-transfer series is absent from GSTR-1 Table 13
-     (documents issued), which is computed from voucher numbering and these documents are not
-     vouchers — the serials are consecutive and printable from the register, but Table 13 must be
-     completed by hand for them.
+     is done.
 
      **It posts nothing, and that is the design, not a shortfall.** One business, one set of books:
      the transfer creates output tax in one return and input credit in the other, but no revenue,
@@ -470,10 +495,11 @@ Ordering within a section is roughly by value.
      invoice built on a guess about that is worse than the warning it would replace — those come
      back listed, with the reason.
 
-     **Still computed against the primary registration only:** the reverse-charge self-invoice
-     register (#356) and counter sales — both read the company's own state rather than the supplying
-     one, which is exact for every single-GSTIN book and approximate for a second registration's RCM
-     purchases or counter till.
+     Reverse-charge self-invoices and counter sales are registration-scoped too. Each RCM desk
+     covers only purchases stamped to its GSTIN, computes tax from that recipient state, stores the
+     recipient GSTIN on the issued document and reprints that stored identity. The counter's GSTIN
+     picker drives both place-of-supply pricing and the voucher's durable registration stamp; a
+     return restores the original sale's GSTIN. These pickers remain invisible in a one-GSTIN book.
 
      **Not built, and marked rather than half-built: the branch-transfer invoice.** Under Schedule
      I para 2 a supply between two registrations of the same person is a taxable supply even
@@ -825,10 +851,11 @@ Ordering within a section is roughly by value.
      lands exactly right — including as a refund, which is returned rather than clamped. Four
      weekly runs deduct, to the paisa, what one monthly run would have. ECR, the ESI file, the PT
      summary, Form 16 and the headcount trend all aggregate a month's runs rather than assuming
-     one. A cycle straddling a month end belongs to the month its last day falls in. **Deferred:**
-     leavers can only be clipped on the joining side — `employees` has no leaving-date column, so
-     a mid-cycle leaver is not prorated yet (the engine supports it and is tested; the column is
-     not there to read). Form 24Q was not touched because the app does not produce one.
+     one. A cycle straddling a month end belongs to the month its last day falls in. The employee
+     master now records an inclusive last working day: monthly runs cap attendance at employment
+     days, shorter cycles clip the final period, statutory deductions true up on that last paid
+     period, and subsequent periods exclude the leaver. Form 24Q was not touched because the app
+     does not produce one.
 180. ✓ Cost-centre allocation of salary expense (S)
 181. ✓ Headcount and cost trend report (S)
 
@@ -1546,9 +1573,14 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      so a decision survives re-downloading 2B, and so the rows with no voucher at all — the ones
      deemed accepted if nobody looks — can hold one. **The app cannot take the action**: IMS is a
      portal screen with no offline route, so this is the worked sheet and the record of what was
-     decided, and the screen says so. **Needs verification:** whether 'pending' is available on
-     every document type has changed more than once and has not been checked against the current
-     portal.
+     decided, and the screen says so. **Official-source audit completed 28 August 2026.** GSTN's
+     current manual retains Services → Returns → Invoice Management System and deemed acceptance
+     of no-action records. Its FAQ for changes from the October 2025 tax period adds Pending
+     prospectively to original credit notes and specified amendment cases. The GSTR-2B parser
+     currently models original invoices/debit notes/credit notes: invoices and debit notes expose
+     all three actions; original credit notes expose only Accept/Reject before October 2025 and
+     all three from that period. A book-only row has no IMS record, so the UI offers no action and
+     the service rejects one if called directly.
 353. ✓ GSTR-1A, the amendment return (M) — a snapshot of the outward documents taken when the
      GSTR-1 filing is recorded, and a diff of the books against it. Three states rather than one,
      because a period with no snapshot has to say so instead of reporting itself clean. A changed
@@ -1611,24 +1643,37 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      distribution table and s.11 of the GST (Compensation to States) Act applies the ITC provisions
      mutatis mutandis. The GSTR-6 TABLE NUMBERS are checked against FORM GSTR-6 [See rule 65] — Table 3
      inward, Table 4 (a)/(b)/(c) available, Table 5 with 5A eligible and 5B ineligible — and Notn.
-     12/2024 left that form untouched. **What is still not verified, sharpened:** CBIC's repository
+     12/2024 left that form untouched. **Portal-file audit, dated 28 August 2026:** GSTN's developer
+     portal exposes only GSTR-6 Save v1.0 **Draft**, published 2 June 2020, and the current official
+     offline-tool manual is dated 3 February 2021. The schema has now been read. Migration 59 and the
+     invoice screen capture its Table 3 invoice value, place of supply and rate-wise taxable/tax
+     items; issued documents persist the exact source-to-destination lineage fields (`iamti`,
+     `camti`, `samti`, etc.). A Draft-v1.0-shaped preview is built and its structure and accounting
+     tie are validated. Legacy aggregate credits migrate as rate 0 and are refused as portal-valid
+     until a user classifies their rate rows. Portal export nevertheless remains disabled because
+     the only published save schema is an old Draft and no generated file has passed GSTN's current
+     official utility and signed-in portal. **One separate date ambiguity remains:** CBIC's repository
      footnotes section 2(61) as "w.e.f. 01.04.2024" and section 20 as "w.e.f. 01.04.2025", which
      cannot both be right — one notification brought both into force, and the substituted 2(61)
      points at a section 20 that did not exist in April 2024. The 2025 date is taken on the strength
      of the section 20 and rule 39 footnotes; the gazette text of Notn. 16/2024-CT would settle it and
-     could not be read (the copy on gstcouncil.gov.in is a scan with no text layer). And nothing
-     writes a portal file because the offline utility's JSON SCHEMA is GSTN's, published with its
-     tool rather than in the Rules, and has not been read. The rules are dated data (`ISD_RULES_HISTORY`), so a
+     could not be read (the copy on gstcouncil.gov.in is a scan with no text layer). The rules are
+     dated data (`ISD_RULES_HISTORY`), so a
      month before April 2025 is told the mechanism was optional then rather than being judged by
      today's rule.
      — `src/shared/gst/isd.ts`, `src/main/services/isd.ts`, Disclosure › ISD.
 356. ✓ The reverse-charge self-invoice (M) — the document section 31(3)(f) makes the recipient
      raise, issued from its own Rule 46(b) serial series, with the Rule 46 particulars the books
-     cannot supply named on the face rather than invented. Built over exactly the supplies
-     GSTR-3B charges reverse-charge tax on, so the paper adds up to the return; idempotent per
-     voucher, because two invoices for one supply is a worse finding than none. **Needs
-     verification:** the proviso permitting a consolidated month-end invoice for section 9(4)
-     supplies is implemented and marked unverified — the per-supply form is the default.
+     cannot supply named on the face rather than invented; idempotent per voucher, because two
+     invoices for one supply is a worse finding than none. **Official-source audit completed 28
+     August 2026.** Rule 46's second proviso permits a month-end consolidation only for supplies
+     actually covered by section 9(4), with a ₹5,000 daily-aggregate condition. Section 9(4) was
+     narrowed from 1 February 2019 to notified classes/categories, and Notification 07/2019-CTR
+     covers the promoter/real-estate regime—not every unregistered vendor. Because the books do
+     not model promoter shortfall/cement/capital-goods eligibility or the multi-supplier schedule,
+     consolidation is removed from the UI and rejected by the service. The safe path issues one
+     section 31(3)(f) document per notified 9(3) supply from an unregistered supplier. Registered
+     9(3) supplies still feed GSTR-3B, but the supplier's own RCM invoice is their document.
 357. ✓ LUT tracking for exporters (S) — the undertaking is annual, expires on 31 March, and an
      expired one silently converts a zero-rated export into a taxable supply. A date and a
      reminder, worth far more than the effort.
@@ -1689,17 +1734,18 @@ what a CA asks for in the first meeting, and what a notice arrives about in the 
      three-character Annexure 2 code `94C`. That mapping is not mechanical: 192A is `2AA`, 194IA is
      `9IA`, and bare 194I and 194J have no code at all because the return wants `4IA`/`4IB` and
      `4JA`/`4JB` and the amount does not say which — so the app now BLOCKS rather than picking a limb.
-     Two more refusals fell out of reading the source: a 24Q Q4 needs Annexure II, which this build does
-     not produce; and **from tax year 2026-27 the statements are FORM NUMBER 138 (salary) and FORM
-     NUMBER 140 (non-salary)** — Protean states the 24Q/26Q formats apply up to FY 2025-26 — so a
-     quarter from FY 2026-27 onwards is blocked instead of being written into a superseded form.
-     **What is still not verified, sharpened:** the layout is right, the FILE IS STILL NOT FILEABLE.
-     A regular statement has mandatory Batch Header fields these books have never held — the
-     deductor's State code and PIN, the responsible person's own PAN, address, State, PIN and mobile.
-     They are written EMPTY rather than invented, `blankMandatoryFields` names all twelve, and the FVU
-     will reject the file until a person fills them in. The acknowledgement, the refusal on a blocking
-     issue and the `.unverified.txt` name all stay, and the acknowledgement text now says that rather
-     than "the layout is a guess". The file has never been through the FVU. Run it through the FVU.
+     A 24Q Q4 still blocks because it needs Annexure II. **From tax year 2026-27 the app date-selects
+     FORM NUMBER 138 (salary) and FORM NUMBER 140 (non-salary)** using Protean's 22 July 2026 release
+     and official 138RQ1/140RQ1 samples: 18/72/30/45 fields, four-digit Annexure 2 codes, and one CD
+     per actual challan. Form 138 Q4 alone remains blocked because Protean still marks that format
+     “Expected soon.” A dedicated profile now holds the mandatory legal category, Income Tax state
+     and PIN fields, responsible-person identity/contact/PAN, prior token and government fields;
+     missing facts block instead of being invented. The old unpublished A/S meanings were legally
+     wrong (A/S are Central/State Government, not company/other) and legacy-shaped metadata is
+     translated safely. **Still unverified:** FVU 1.2 requires a TAN-specific CSI downloaded by an
+     authenticated TAN holder. The agent invoked the official validator but cannot truthfully obtain
+     that identity-bound file, so the acknowledgement and `.unverified.txt` suffix remain until a
+     generated fixture produces real FVU pass evidence.
 361. ✓ Form 16A for vendors (M) — quarterly, per deductee, with the challan each deduction was
      paid under and the rule 31(3) due date. Refuses to produce a certificate for a quarter with
      no deduction, because that is not a nil certificate — it tells a vendor to look for credit

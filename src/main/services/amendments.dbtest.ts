@@ -360,3 +360,104 @@ describe('gstr1 amendments — what changed since the return was filed', () => {
     expect(r.filedPeriods[0]!.earlier).toBe(false)
   })
 })
+
+describe('QRMP IFF snapshots — what the portal first saw', () => {
+  const file = (
+    s: ReturnType<typeof setup>,
+    form: 'IFF' | 'GSTR-1',
+    period: string,
+    filedAt: string,
+    dueDate: string
+  ) => recordFiling(s.db, { ...INFO, gstFilingFrequency: 'quarterly' }, {
+    form,
+    period,
+    dueDate,
+    filedAt,
+    arn: `ARN-${form}-${period}`,
+    taxPaid: 0,
+    notes: null
+  })
+
+  it('freezes a nil IFF, so a late invoice cannot be rewritten into it', () => {
+    const s = setup()
+    const first = file(s, 'IFF', '2026-04', '2026-05-10', '2026-05-13')
+    expect(first.snapshot).toMatchObject({ period: '042026', docs: 0, keptExisting: false })
+
+    s.intraSale('2026-04-20', 50000, { number: 'APR-LATE' })
+    const again = file(s, 'IFF', '2026-04', '2026-05-11', '2026-05-13')
+    expect(again.snapshot).toMatchObject({ docs: 0, written: 0, keptExisting: true })
+
+    const may = gstr1Amendments(s.db, INFO, '052026')
+    expect(may.noSnapshots).toBe(false)
+    expect(may.filedPeriods).toEqual([
+      expect.objectContaining({ period: '042026', docs: 0, earlier: true })
+    ])
+    expect(may.addedAfterFiling.map((d) => d.number)).toEqual(['APR-LATE'])
+
+    // Clearing is the one deliberate way to discard that history. Filing again then captures
+    // the invoice because the app has been told the earlier filing record was wrong.
+    const cleared = recordFiling(s.db, INFO, {
+      form: 'IFF', period: '2026-04', dueDate: '2026-05-13', filedAt: null,
+      arn: null, taxPaid: 0, notes: 'recorded in error'
+    })
+    expect(cleared.snapshot).toBeNull()
+    expect((s.db.prepare('SELECT COUNT(*) AS n FROM gst_outward_snapshot_headers').get() as { n: number }).n).toBe(0)
+    expect(file(s, 'IFF', '2026-04', '2026-05-12', '2026-05-13').snapshot?.docs).toBe(1)
+  })
+
+  it('does not re-file IFF records in the quarter and treats missed M1/M2 invoices as ordinary', () => {
+    const s = setup()
+    const debtors = (s.db.prepare("SELECT id FROM groups WHERE name = 'Sundry Debtors'").get() as { id: number }).id
+    const consumer = createLedger(s.db, {
+      name: 'Consumer without GSTIN', groupId: debtors, stateCode: '27'
+    }).id
+
+    const aprFiled = s.intraSale('2026-04-05', 100000, { number: 'APR-IFF' })
+    s.creditNote('2026-04-08', 10000, { number: 'APR-CN' })
+    s.intraSale('2026-04-09', 20000, { number: 'APR-B2C', party: consumer })
+    const apr = file(s, 'IFF', '2026-04', '2026-05-10', '2026-05-13')
+    expect(apr.snapshot?.docs).toBe(2) // registered invoice + registered credit note; never B2C
+
+    s.intraSale('2026-05-05', 200000, { number: 'MAY-IFF' })
+    const may = file(s, 'IFF', '2026-05', '2026-06-10', '2026-06-13')
+    expect(may.snapshot?.docs).toBe(1) // April's two IFF records are not furnished twice
+
+    // Both invoices existed only after their IFF opportunity. The official QRMP path is to put
+    // them in the quarterly GSTR-1 ordinary tables, not manufacture B2BA rows for records the
+    // portal never saw.
+    s.intraSale('2026-04-25', 30000, { number: 'APR-MISSED' })
+    s.intraSale('2026-05-25', 40000, { number: 'MAY-MISSED' })
+    s.intraSale('2026-06-10', 50000, { number: 'JUN-QTR' })
+    const quarter = file(s, 'GSTR-1', '2026-Q1', '2026-07-10', '2026-07-13')
+    expect(quarter.snapshot?.docs).toBe(4) // two missed + June + April B2C
+
+    const rows = s.db.prepare(
+      `SELECT doc_number AS number, source_form AS form, filing_period AS filingPeriod
+       FROM gstr1_filed_documents ORDER BY id`
+    ).all() as { number: string; form: string; filingPeriod: string }[]
+    expect(rows).toEqual([
+      { number: 'APR-IFF', form: 'IFF', filingPeriod: '2026-04' },
+      { number: 'APR-CN', form: 'IFF', filingPeriod: '2026-04' },
+      { number: 'MAY-IFF', form: 'IFF', filingPeriod: '2026-05' },
+      { number: 'APR-B2C', form: 'GSTR-1', filingPeriod: '2026-Q1' },
+      { number: 'APR-MISSED', form: 'GSTR-1', filingPeriod: '2026-Q1' },
+      { number: 'MAY-MISSED', form: 'GSTR-1', filingPeriod: '2026-Q1' },
+      { number: 'JUN-QTR', form: 'GSTR-1', filingPeriod: '2026-Q1' }
+    ])
+
+    const july = gstr1Amendments(s.db, INFO, '072026')
+    expect(july.addedAfterFiling).toEqual([])
+    expect(july.rows).toEqual([])
+
+    // Correcting an IFF-filed invoice still points to the IFF month in which the portal first
+    // saw it, and appears once even though the quarter has since been filed.
+    s.intraSale('2026-04-05', 120000, { number: 'APR-IFF', existingId: aprFiled })
+    const corrected = gstr1Amendments(s.db, INFO, '072026')
+    expect(corrected.rows).toHaveLength(1)
+    expect(corrected.rows[0]).toMatchObject({
+      originalPeriod: '042026', originalNumber: 'APR-IFF', number: 'APR-IFF'
+    })
+    expect(corrected.rows[0]!.changes.map((c) => c.field)).toEqual(expect.arrayContaining(['value', 'tax']))
+    expect(corrected.addedAfterFiling).toEqual([])
+  })
+})

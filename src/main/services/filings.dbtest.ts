@@ -4,6 +4,7 @@ import { seededDb, TEST_INFO } from '../db/testdb'
 import type { CompanyInfo } from '@shared/domain'
 import { createLedger } from './masters'
 import { saveVoucher } from './vouchers'
+import { gstScope, saveRegistration } from './registrations'
 
 /**
  * The filing register.
@@ -228,6 +229,21 @@ describe('filing register — nil periods and what the books say is payable', ()
     const db = withOneSale()
     db.prepare("UPDATE vouchers SET deleted_at = '2026-06-01T00:00:00Z'").run()
     expect(filingRegister(db, MONTHLY, 2026, '2027-04-30').every((r) => !r.hasEntries)).toBe(true)
+  })
+
+  it('does not let one GST registration make another registration non-nil', () => {
+    const db = withOneSale()
+    const first = gstScope(db, MONTHLY)
+    const secondId = saveRegistration(db, {
+      gstin: '24AAPFU0939F1Z1', stateCode: '24', tradeName: 'Gujarat branch', address: 'Surat',
+      registeredOn: null, surrenderedOn: null
+    }).id
+    const second = gstScope(db, MONTHLY, secondId)
+
+    const firstMay = filingRegister(db, first, 2026, '2027-04-30').filter((r) => r.period === '2026-05')
+    const secondMay = filingRegister(db, second, 2026, '2027-04-30').filter((r) => r.period === '2026-05')
+    expect(firstMay.every((r) => r.hasEntries)).toBe(true)
+    expect(secondMay.every((r) => !r.hasEntries)).toBe(true)
   })
 
   it('reports what the books say is payable for a GSTR-3B month', () => {

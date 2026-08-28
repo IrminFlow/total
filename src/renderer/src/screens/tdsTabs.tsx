@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useToasts } from '../state/stores'
 import type { Recon26asBucket } from '@shared/tds/form26as'
+import type { TdsFilingConfigInput } from '@shared/schemas'
 import {
   AmountInput,
   Button,
@@ -222,6 +223,30 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
     queryKey: ['tdsChallans', fyStartYear],
     queryFn: () => api.tds.challans(fyStartYear)
   })
+  const { data: filingConfig } = useQuery({
+    queryKey: ['tdsFilingConfig'],
+    queryFn: () => api.tds.filingConfig()
+  })
+  const [filingDraft, setFilingDraft] = useState<TdsFilingConfigInput | null>(null)
+  useEffect(() => {
+    if (filingConfig) setFilingDraft(filingConfig)
+  }, [filingConfig])
+
+  const setFiling = <K extends keyof TdsFilingConfigInput>(key: K, value: TdsFilingConfigInput[K]): void => {
+    setFilingDraft((old) => old ? { ...old, [key]: value } : old)
+  }
+  const saveFiling = async (): Promise<void> => {
+    if (!filingDraft) return
+    try {
+      const saved = await api.tds.filingConfigSave(filingDraft)
+      setFilingDraft(saved)
+      await queryClient.invalidateQueries({ queryKey: ['tdsFilingConfig'] })
+      await queryClient.invalidateQueries({ queryKey: ['tdsReturn'] })
+      toast.push('success', 'TDS filing profile saved')
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
 
   const link = async (entryId: number, challanId: number | null): Promise<void> => {
     try {
@@ -255,6 +280,7 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
   }
 
   const blocking = (working?.issues ?? []).filter((i) => i.severity === 'blocking')
+  const currentForm = fyStartYear >= 2026 ? (form === '24Q' ? '138' : '140') : form
 
   return (
     <div className="flex flex-col gap-3">
@@ -265,8 +291,8 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
           onChange={(e) => setForm(e.target.value as '24Q' | '26Q')}
           className="w-56"
         >
-          <option value="26Q">26Q — other than salary</option>
-          <option value="24Q">24Q — salary</option>
+          <option value="26Q">{fyStartYear >= 2026 ? '140' : '26Q'} — other than salary</option>
+          <option value="24Q">{fyStartYear >= 2026 ? '138' : '24Q'} — salary</option>
         </Select>
         <Button data-testid="btn-tds-return-csv" onClick={() => void exportCsv()}>
           Export working CSVs
@@ -277,14 +303,53 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
         {working && <span className="text-hint text-muted">Due {toDisplayDate(working.dueDate)}</span>}
       </div>
 
+      {filingDraft && (
+        <Panel>
+          <div className="flex items-center justify-between border-b border-line px-3 py-2">
+            <div>
+              <b className="text-body-sm">TDS filing profile</b>
+              <span className="ml-2 text-hint text-muted">Required by the Protean batch header; Income Tax state codes are not GST state codes.</span>
+            </div>
+            <Button data-testid="btn-tds-filing-save" variant="primary" onClick={() => void saveFiling()}>Save profile</Button>
+          </div>
+          <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
+            <Field label="Legal category (Annexure 4)">
+              <Select data-testid="select-tds-deductor-type" value={filingDraft.deductorType} onChange={(e) => setFiling('deductorType', e.target.value as TdsFilingConfigInput['deductorType'])}>
+                <option value="F">F — Firm</option><option value="K">K — Company</option><option value="Q">Q — Individual / HUF</option>
+                <option value="P">P — Association of persons</option><option value="T">T — Trust</option><option value="B">B — Body of individuals</option>
+                <option value="J">J — Artificial juridical person</option><option value="M">M — Branch / division</option>
+                <option value="A">A — Central Government</option><option value="S">S — State Government</option>
+                <option value="D">D — Central statutory body</option><option value="E">E — State statutory body</option>
+                <option value="G">G — Central autonomous body</option><option value="H">H — State autonomous body</option>
+                <option value="L">L — Central local authority</option><option value="N">N — State local authority</option>
+              </Select>
+            </Field>
+            <Field label="Deductor IT state code"><TextInput data-testid="input-tds-deductor-state" value={filingDraft.deductorStateCode ?? ''} maxLength={2} placeholder="Annexure 1, e.g. 19" onChange={(e) => setFiling('deductorStateCode', e.target.value || null)} /></Field>
+            <Field label="Deductor PIN"><TextInput data-testid="input-tds-deductor-pin" value={filingDraft.deductorPincode ?? ''} maxLength={6} onChange={(e) => setFiling('deductorPincode', e.target.value || null)} /></Field>
+            <Field label="Responsible person"><TextInput data-testid="input-tds-responsible-name" value={filingDraft.responsiblePerson ?? ''} onChange={(e) => setFiling('responsiblePerson', e.target.value || null)} /></Field>
+            <Field label="Designation"><TextInput data-testid="input-tds-responsible-designation" value={filingDraft.responsibleDesignation ?? ''} maxLength={20} onChange={(e) => setFiling('responsibleDesignation', e.target.value || null)} /></Field>
+            <Field label="Responsible address"><TextInput data-testid="input-tds-responsible-address" value={filingDraft.responsibleAddress ?? ''} onChange={(e) => setFiling('responsibleAddress', e.target.value || null)} /></Field>
+            <Field label="Responsible IT state code"><TextInput data-testid="input-tds-responsible-state" value={filingDraft.responsibleStateCode ?? ''} maxLength={2} placeholder="Annexure 1" onChange={(e) => setFiling('responsibleStateCode', e.target.value || null)} /></Field>
+            <Field label="Responsible PIN"><TextInput data-testid="input-tds-responsible-pin" value={filingDraft.responsiblePincode ?? ''} maxLength={6} onChange={(e) => setFiling('responsiblePincode', e.target.value || null)} /></Field>
+            <Field label="Responsible email"><TextInput data-testid="input-tds-responsible-email" value={filingDraft.responsibleEmail ?? ''} onChange={(e) => setFiling('responsibleEmail', e.target.value || null)} /></Field>
+            <Field label="Responsible mobile (10 digits)"><TextInput data-testid="input-tds-responsible-phone" value={filingDraft.responsiblePhone ?? ''} maxLength={10} onChange={(e) => setFiling('responsiblePhone', e.target.value || null)} /></Field>
+            <Field label="Responsible PAN"><TextInput data-testid="input-tds-responsible-pan" value={filingDraft.responsiblePan ?? ''} maxLength={10} onChange={(e) => setFiling('responsiblePan', e.target.value.toUpperCase() || null)} /></Field>
+            <label className="flex items-center gap-2 self-end pb-2 text-body-sm"><input data-testid="check-tds-earlier-filed" type="checkbox" checked={filingDraft.earlierStatementFiled} onChange={(e) => setFiling('earlierStatementFiled', e.target.checked)} /> Earlier regular {currentForm} statement filed</label>
+            {filingDraft.earlierStatementFiled && <Field label="Previous token (15 digits)"><TextInput data-testid="input-tds-previous-token" value={filingDraft.previousTokenNumber ?? ''} maxLength={15} onChange={(e) => setFiling('previousTokenNumber', e.target.value || null)} /></Field>}
+            {['S', 'E', 'H', 'N'].includes(filingDraft.deductorType) && <Field label="Government state (Annexure 5)"><TextInput value={filingDraft.governmentStateCode ?? ''} maxLength={2} onChange={(e) => setFiling('governmentStateCode', e.target.value || null)} /></Field>}
+            {['A', 'D', 'G', 'L'].includes(filingDraft.deductorType) && <Field label="Ministry code (Annexure 3)"><TextInput value={filingDraft.ministryCode ?? ''} maxLength={3} onChange={(e) => setFiling('ministryCode', e.target.value || null)} /></Field>}
+            {filingDraft.ministryCode === '99' && <Field label="Ministry name"><TextInput value={filingDraft.ministryOther ?? ''} onChange={(e) => setFiling('ministryOther', e.target.value || null)} /></Field>}
+            {['A', 'S'].includes(filingDraft.deductorType) && <Field label="AIN for book adjustment"><TextInput data-testid="input-tds-ain" value={filingDraft.ain ?? ''} maxLength={7} onChange={(e) => setFiling('ain', e.target.value || null)} /></Field>}
+          </div>
+        </Panel>
+      )}
+
       <Panel>
         <div className="border-b border-line bg-warn/10 px-3 py-2 text-body-sm text-warn">
-          The e-TDS record layout is checked against the published Protean file format (26Q v7.8, 24Q v6.3, 27 May
-          2025). <b>The file is still not fileable.</b> A regular statement needs things these books have never held —
-          the deductor&rsquo;s State code and PIN, the responsible person&rsquo;s own PAN, address, State, PIN and
-          mobile number. Those slots are written <b>empty</b> rather than filled with something plausible, so the FVU
-          will reject the file until a person supplies them. The working CSVs are facts out of your books and are safe
-          to use.
+          The record layout is date-selected: historical 24Q/26Q through FY 2025-26, and Protean&rsquo;s 22 July 2026
+          Form 138/140 release from FY 2026-27. The exported file remains <b>.unverified.txt</b> until an app-generated
+          fixture passes the current FVU with its required CSI file. Complete the filing profile above; missing
+          statutory facts block export rather than being guessed. The working CSVs remain safe to use.
         </div>
         {isLoading ? (
           <div className="p-3 text-body-sm text-muted">Loading…</div>
@@ -304,7 +369,7 @@ export function ReturnTab({ fyStartYear, quarter }: { fyStartYear: number; quart
       <Panel>
         {(working?.deductions ?? []).length === 0 ? (
           <EmptyState
-            title={`No ${form} deductions in Q${quarter}`}
+            title={`No ${currentForm} deductions in Q${quarter}`}
             hint="A nil statement is not required, but a declaration on TRACES is — otherwise the quarter shows as pending."
           />
         ) : (
@@ -876,7 +941,7 @@ function Paste26asModal({
         rows={10}
         autoFocus
         data-testid="input-26as-paste"
-        placeholder="Paste the Part A table from the 26AS / AIS export, headers included…"
+        placeholder="Paste the Form 26AS Part I text/CSV export, headers included…"
         className="num w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-caption"
       />
       <div className="mt-3 flex justify-end gap-2">
@@ -904,7 +969,8 @@ function Paste26asModal({
  *
  * Both directions are findings, so both are shown: credit the books claim and 26AS does not
  * support is cash the taxpayer will not get (section 199 grants credit on the department's
- * record, not on ours), and a 26AS row with no book entry behind it is a receipt nobody recorded.
+ * record, not on ours). A 26AS row with no book TDS entry is an investigation item: timing,
+ * corrections and reversals must be checked before treating it as omitted income.
  *
  * The loaded statement lives in this component's state and nowhere else — see the note at the top
  * of src/main/services/form26as.ts on why a downloaded 26AS is never stored.
@@ -977,7 +1043,7 @@ export function Form26asTab({ fyStartYear }: { fyStartYear: number }): React.JSX
                 <Money paise={result.creditAtRiskPaise} />
               </p>
               <p className="mt-1 text-hint text-muted">
-                Claimed in the books, not deposited against this PAN — section 199 grants the credit on the deposit.
+                Positive book TDS not supported by the loaded statement, including any confirmed deposit shortfall.
               </p>
             </Panel>
             <Panel className="p-3">
@@ -986,7 +1052,7 @@ export function Form26asTab({ fyStartYear }: { fyStartYear: number }): React.JSX
                 <Money paise={result.unrecordedCreditPaise} />
               </p>
               <p className="mt-1 text-hint text-muted">
-                Tax the department can already see, against receipts the books have never recorded.
+                Tax-credit rows not linked to book TDS. Investigate timing, corrections and reversals first.
               </p>
             </Panel>
             <Panel className="p-3">
@@ -1051,7 +1117,7 @@ export function Form26asTab({ fyStartYear }: { fyStartYear: number }): React.JSX
                       <th scope="col" className="w-24">Date</th>
                       <th scope="col" className="r w-28">Tax</th>
                       <th scope="col" className="w-24">Date</th>
-                      <th scope="col" className="r w-28">Gross</th>
+                      <th scope="col" className="r w-28">Party gross</th>
                       <th scope="col" className="r w-28">TDS claimed</th>
                       <th scope="col" className="r">TDS diff</th>
                     </tr>
@@ -1082,7 +1148,8 @@ export function Form26asTab({ fyStartYear }: { fyStartYear: number }): React.JSX
           <p className="text-hint text-muted">
             {source.label} · Credit is granted under section 199 read with Rule 37BA from the
             department&rsquo;s record, so a deduction missing from 26AS is chased with the deductor
-            rather than corrected here.
+            rather than corrected here. Party gross is context only: Form 26AS may exclude
+            separately stated GST from the TDS base under CBDT Circular 23/2017.
           </p>
         </>
       ) : null}

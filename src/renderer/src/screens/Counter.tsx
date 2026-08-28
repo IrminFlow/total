@@ -16,6 +16,7 @@ import {
 import { formatPaise, parseMilli } from '@shared/money'
 import { todayISO } from '@shared/dates'
 import { changeBreakdown, settleTender, type Tender, type TenderMode } from '@shared/counter'
+import { GstinPicker, usePrimaryRegistrationId } from '../components/GstinPicker'
 
 /**
  * Counter mode (roadmap #376).
@@ -52,12 +53,17 @@ export function CounterScreen(): React.JSX.Element {
   const [returning, setReturning] = useState(false)
   const [showCustomer, setShowCustomer] = useState(false)
   const [lastSale, setLastSale] = useState<{ number: string; changePaise: number; voucherId: number } | null>(null)
+  const primaryRegistrationId = usePrimaryRegistrationId()
+  const [selectedRegistrationId, setSelectedRegistrationId] = useState<number | null>(null)
+  const registrationId = selectedRegistrationId ?? primaryRegistrationId
   const scanRef = useRef<HTMLInputElement>(null)
 
   const { data: session } = useQuery({ queryKey: ['counterSession'], queryFn: api.counter.session })
   const { data: cart } = useQuery({
-    queryKey: ['counterCart', rows, pricingMode],
-    queryFn: () => api.counter.price({ lines: rows.map(({ key: _key, ...l }) => l), pricingMode }),
+    queryKey: ['counterCart', rows, pricingMode, registrationId],
+    queryFn: () => api.counter.price({
+      lines: rows.map(({ key: _key, ...l }) => l), pricingMode, gstRegistrationId: registrationId
+    }),
     enabled: rows.length > 0
   })
 
@@ -143,6 +149,7 @@ export function CounterScreen(): React.JSX.Element {
         pricingMode,
         customerName: customerName.trim() || null,
         customerPhone: customerPhone.trim() || null,
+        gstRegistrationId: registrationId,
         kind: mode
       })
       setLastSale({ number: result.number, changePaise: result.tender.changePaise, voucherId: result.voucherId })
@@ -176,6 +183,11 @@ export function CounterScreen(): React.JSX.Element {
           </span>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
+          <GstinPicker
+            value={registrationId}
+            onChange={setSelectedRegistrationId}
+            testId="select-counter-gstin"
+          />
           <Select
             aria-label="Pricing"
             className="w-52"
@@ -420,6 +432,7 @@ export function CounterScreen(): React.JSX.Element {
           onLoad={(sale) => {
             setRows(sale.lines.map((l) => ({ key: nextKey++, stockItemId: l.stockItemId, qtyMilli: l.qtyMilli, ratePaise: l.ratePaise })))
             setPricingMode('inclusive')
+            setSelectedRegistrationId(sale.gstRegistrationId)
             setMode('return')
             setReturning(false)
           }}

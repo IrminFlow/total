@@ -11,7 +11,7 @@
  */
 
 import type { DB } from '../db/connection'
-import { buildWorklist, IMS_ACTIONS, imsKey, type ImsAction, type ImsWorklist } from '@shared/gst/ims'
+import { allowedActionsFor, buildWorklist, IMS_ACTIONS, imsKey, type ImsAction, type ImsDocumentKind, type ImsWorklist } from '@shared/gst/ims'
 import type { Recon2bResult } from '@shared/gst/recon2b'
 import { recon2b } from './gst'
 import { writeAudit } from './audit'
@@ -48,6 +48,7 @@ export function imsWorklist(
 export interface ImsDecisionInput {
   docKey: string
   period: string
+  documentKind: ImsDocumentKind
   action: ImsAction
   note: string | null
 }
@@ -61,6 +62,13 @@ export interface ImsDecisionInput {
  */
 export function recordImsDecision(db: DB, input: ImsDecisionInput, by: string | null): ImsAction {
   if (!IMS_ACTIONS.includes(input.action)) throw new Error(`Unknown IMS action ${input.action}`)
+  if (!allowedActionsFor(input.documentKind, input.period).includes(input.action)) {
+    throw new Error(
+      input.documentKind === 'book_only'
+        ? 'This book document has no IMS record on the portal; chase the supplier instead.'
+        : `${input.action} is not available for this ${input.documentKind.replace('_', ' ')} in tax period ${input.period}`
+    )
+  }
   const before = db.prepare('SELECT * FROM ims_actions WHERE doc_key = ?').get(input.docKey) ?? null
   db.prepare(
     `INSERT INTO ims_actions (doc_key, period, action, note, decided_by)
@@ -97,7 +105,7 @@ export function acceptMatched(db: DB, worklist: ImsWorklist, by: string | null):
       if (row.bucket !== 'matched' || row.action) continue
       recordImsDecision(
         db,
-        { docKey: row.key, period: worklist.period, action: 'accept', note: 'Accepted in bulk: portal and books agree.' },
+        { docKey: row.key, period: worklist.period, documentKind: row.documentKind, action: 'accept', note: 'Accepted in bulk: portal and books agree.' },
         by
       )
       n += 1

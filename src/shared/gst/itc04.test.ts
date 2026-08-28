@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import {
   addYears,
   buildItc04,
+  buildItc04PortalPreview,
   CLOCK_YEARS,
   deemedSupplies,
   itc04Periodicity,
@@ -20,7 +22,10 @@ const H1: Itc04Period = {
   dueDate: '2025-10-25'
 }
 
-const OPTS: Itc04Options = { principalStateCode: '27' } // Maharashtra
+const OPTS: Itc04Options = { principalStateCode: '27', principalGstin: '27AAAPA1234A1ZT' } // Maharashtra
+const v215Golden = JSON.parse(
+  readFileSync(new URL('./__fixtures__/itc04-v2.15-golden.json', import.meta.url), 'utf8')
+)
 
 /** 100 pieces worth ₹1,00,000 at 18%, sent 10 April 2025 to a registered job worker in-state. */
 function challan(over: Partial<JobWorkChallan> = {}): JobWorkChallan {
@@ -80,6 +85,13 @@ describe('a period with no challans is a nil ITC-04, not a crash', () => {
     expect(form.deemed.rows).toEqual([])
     expect(form.deemed.totalDeemedTaxPaise).toBe(0)
     expect(form.period.dueDate).toBe('2025-10-25')
+    expect(form.portalFile).toMatchObject({
+      ready: false,
+      auditedOn: '2026-08-28',
+      offlineToolManualCreatedOn: '2024-07-03',
+      offlineToolVersionShown: 'v2.15'
+    })
+    expect(form.portalFile.blockers).toHaveLength(4)
   })
 })
 
@@ -291,12 +303,75 @@ describe('goods moved on to another job worker', () => {
     disposition: 'sent_to_other_job_worker'
   })
 
-  it('goes to the other-job-worker table (5B) and clears the balance', () => {
+  it('does not masquerade as a Table 5B receipt or reset the original statutory clock', () => {
     const form = buildItc04(H1, [c], [r], OPTS)
-    expect(form.table5B).toHaveLength(1)
+    expect(form.table5B).toHaveLength(0)
     expect(form.table5A).toHaveLength(0)
     expect(form.totals.sentOnwardQtyMilli).toBe(100_000)
-    expect(form.deemed.rows[0]!.balanceMilli).toBe(0)
+    expect(form.deemed.rows[0]!.balanceMilli).toBe(100_000)
+    expect(form.issues.map((i) => i.code)).toContain('onward-movement-not-file-ready')
+  })
+})
+
+describe('the complete worker chain and GSTN v2.15 preview', () => {
+  const c = challan({ jobWorkerIsSez: true, cessPaise: 12_345 })
+  const rows: JobWorkReturn[] = [
+    ret({
+      receiptChallanNumber: 'BACK/1',
+      qtyMilli: 30_000,
+      lossWasteUqc: 'PCS',
+      lossWasteQtyMilli: 2_000,
+      natureOfJobWork: 'Polishing'
+    }),
+    ret({
+      receiptChallanNumber: 'BACK/2',
+      receiptChallanDate: '2025-07-20',
+      qtyMilli: 10_000,
+      sourceJobWorkerGstin: '24AAACG1234A1ZK',
+      sourceJobWorkerStateCode: '24',
+      natureOfJobWork: 'Heat treatment'
+    }),
+    ret({
+      receiptChallanNumber: 'SUPPLY/1',
+      receiptChallanDate: '2025-08-20',
+      qtyMilli: 5_000,
+      disposition: 'supplied_from_job_worker_premises',
+      principalInvoiceNumber: 'INV/77',
+      principalInvoiceDate: '2025-08-20',
+      natureOfJobWork: 'Finishing'
+    })
+  ]
+
+  it('classifies an actual different-worker return in 5B and keeps loss on its form row', () => {
+    const form = buildItc04(H1, [c], rows, OPTS)
+    expect(form.table5A).toHaveLength(1)
+    expect(form.table5A[0]).toMatchObject({ lossWasteUqc: 'PCS', lossWasteQtyMilli: 2_000 })
+    expect(form.table5B).toHaveLength(1)
+    expect(form.table5B[0]).toMatchObject({ jobWorkerGstin: '24AAACG1234A1ZK', qtyMilli: 10_000 })
+    expect(form.table5C[0]).toMatchObject({
+      principalInvoiceNumber: 'INV/77',
+      principalInvoiceDate: '2025-08-20'
+    })
+  })
+
+  it('matches the checked-in golden reconstructed from the official v2.15 workbook VBA', () => {
+    const form = buildItc04(H1, [c], rows, OPTS)
+    expect(buildItc04PortalPreview(H1, OPTS.principalGstin, form.table4, form.table5A, form.table5B, form.table5C))
+      .toEqual(v215Golden)
+    expect(form.portalFile.validation).toEqual({ valid: true, errors: [] })
+  })
+
+  it('takes a 5C row by the principal invoice date, not an unrelated movement-entry date', () => {
+    const outsideMovement = ret({
+      receiptChallanNumber: 'SUPPLY/2',
+      receiptChallanDate: '2025-10-02',
+      qtyMilli: 5_000,
+      disposition: 'supplied_from_job_worker_premises',
+      principalInvoiceNumber: 'INV/78',
+      principalInvoiceDate: '2025-09-30',
+      natureOfJobWork: 'Finishing'
+    })
+    expect(buildItc04(H1, [c], [outsideMovement], OPTS).table5C).toHaveLength(1)
   })
 })
 
@@ -426,6 +501,16 @@ describe('itc04Periodicity — the ₹5 crore threshold (rule 45(3))', () => {
 })
 
 describe('itc04PeriodsForFy — due dates', () => {
+  it('keeps the 2021-22 transition periods instead of retroactively combining filed quarters', () => {
+    for (const frequency of ['annual', 'half-yearly'] as const) {
+      const periods = itc04PeriodsForFy(2021, frequency)
+      expect(periods.map((p) => [p.from, p.to, p.dueDate])).toEqual([
+        ['2021-04-01', '2021-06-30', '2021-07-25'],
+        ['2021-07-01', '2021-09-30', '2021-10-25'],
+        ['2021-10-01', '2022-03-31', '2022-04-25']
+      ])
+    }
+  })
   it('gives Apr–Sep due 25 October and Oct–Mar due 25 April', () => {
     const periods = itc04PeriodsForFy(2025, 'half-yearly')
     expect(periods).toHaveLength(2)

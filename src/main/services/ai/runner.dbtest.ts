@@ -152,6 +152,47 @@ describe('assistant run', () => {
     expect(activeRuns()).toBe(0)
   })
 
+  it('refuses a fourth live run instead of silently exceeding the concurrency cap', async () => {
+    await configure()
+    const { startRun, abortAll, activeRuns } = await import('./runner')
+    const db = seededDb()
+    const { wc } = collector()
+    const hangingClient = {
+      async *stream({ signal }: { signal?: AbortSignal }) {
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted) return resolve()
+          signal?.addEventListener('abort', () => resolve(), { once: true })
+        })
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
+      },
+      async listModels() { return [] as string[] }
+    }
+    const options = {
+      db,
+      slug: 'test-co',
+      info: TEST_INFO,
+      today: '2025-06-15',
+      question: 'keep this open',
+      wc: wc as never,
+      client: hangingClient as never
+    }
+
+    startRun(options)
+    startRun(options)
+    startRun(options)
+    expect(activeRuns()).toBe(3)
+    expect(() => startRun(options)).toThrow(/already has 3 questions running/)
+    expect(activeRuns()).toBe(3)
+
+    abortAll()
+    const deadline = Date.now() + 2000
+    while (activeRuns() > 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(activeRuns()).toBe(0)
+    db.close()
+  })
+
   it('never sends a GSTIN, whatever the tools return', async () => {
     await configure()
     const db = seededDb()

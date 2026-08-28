@@ -124,6 +124,36 @@ await scenario('06-gst', async (h) => {
   assert(paired.portal.gstin === wrongGstin, 'the pair keeps the portal GSTIN')
   assert(paired.book.partyGstin === target.book.partyGstin, 'and the books GSTIN, so both can be shown')
 
+  // The IMS worksheet is deliberately narrower than reconciliation: only a document that is
+  // actually present on the portal can have an IMS action. A books-only purchase must say to
+  // chase the supplier and expose no Accept/Reject/Pending controls. Prove this in the built UI,
+  // not only in the worklist service, because rendering actions for every reconciliation row was
+  // the dangerous failure mode.
+  await h.goto('gstr2b')
+  await h.click('btn-2b-paste')
+  await h.fill('input-2b-paste', JSON.stringify(twoB))
+  await h.click('btn-2b-paste-apply')
+  await h.page.waitForFunction(
+    () => !document.querySelector('[data-testid="btn-2b-ims"]')?.hasAttribute('disabled'),
+    null,
+    { timeout: 15000 }
+  )
+  await h.click('btn-2b-ims')
+  await h.page.waitForSelector('[data-testid="rows-ims"]', { timeout: 15000 })
+  const noPortalRows = await h.page.locator('[data-testid="rows-ims"] tr', {
+    hasText: 'No portal record — chase supplier'
+  }).count()
+  assert(noPortalRows > 0, 'book-only IMS rows visibly say there is no portal action')
+  const noPortalActionButtons = await h.page.locator('[data-testid="rows-ims"] tr', {
+    hasText: 'No portal record — chase supplier'
+  }).locator('button[data-testid^="btn-ims-"]').count()
+  assert(noPortalActionButtons === 0, 'book-only IMS rows expose no action buttons')
+  const portalActionButtons = await h.page.locator('[data-testid="rows-ims"] tr', {
+    hasText: 'PORTAL-1'
+  }).locator('button[data-testid^="btn-ims-"]').count()
+  assert(portalActionButtons === 3, 'an original portal invoice exposes Accept, Reject and Pending')
+  await h.shot('02-ims-actions')
+
   // ---- "show me exactly what would be sent" ----
   // The trust argument for an offline filing tool is that you can see what it is about to do, so
   // the preview has to be the file rather than a rendering of it.

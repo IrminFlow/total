@@ -117,7 +117,8 @@ await scenario('41-tds-certificates', async (h) => {
   // ---- 5. the 26AS credit check, both directions ----
   await h.invoke('master:ledgers:create', {
     name: 'Bright Media Pvt Ltd', groupId: debtors.id, openingBalance: 0,
-    gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null
+    gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
+    tan: 'MUMB12345A'
   })
   await h.invoke('master:ledgers:create', {
     name: 'TDS Receivable 194J', groupId: duties.id, openingBalance: 0,
@@ -170,7 +171,7 @@ await scenario('41-tds-certificates', async (h) => {
   ].join('\n')
   const bad = await h.invoke('tds:recon26as', { text: trouble, from, to })
   assertEq(bad.result.creditAtRiskPaise, 1000000, 'tax deducted and not deposited is credit at risk')
-  assertEq(bad.result.unrecordedCreditPaise, 100000, 'a 26AS row with no book entry is unrecorded income')
+  assertEq(bad.result.unrecordedCreditPaise, 100000, 'an unlinked 26AS credit row is an investigation item')
 
   // (c) an empty statement is a nil reconciliation, not a crash — and it is the WORST case, not
   // the best one: nobody has reported the credit the books are claiming.
@@ -189,7 +190,7 @@ await scenario('41-tds-certificates', async (h) => {
   await h.click('btn-26as-bucket-missingInBooks')
   await h.page.waitForSelector('[data-testid="rows-26as-pairs"] tr', { timeout: 10000 })
   const unrecorded = await h.page.$$eval('[data-testid="rows-26as-pairs"] tr', (els) => els.length)
-  assertEq(unrecorded, 1, 'the unrecorded-income row is on screen, not just in the payload')
+  assertEq(unrecorded, 1, 'the unlinked tax-credit row is on screen, not just in the payload')
   await h.shot('03-26as-buckets')
 
   // ---- 7. deleting the certificate puts the ordinary rate back ----

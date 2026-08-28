@@ -18,12 +18,12 @@
  *   - Rule 46, CGST Rules 2017 — particulars of a tax invoice. Rule 46(b) requires a consecutive
  *     serial number in one or more series for a financial year; that is why the number here is
  *     issued from its own dated series rather than borrowed from the purchase voucher.
- *   - The fourth proviso to section 31(3)(f), inserted by Notification No. 45/2017-Central Tax
- *     (13 October 2017), permits a CONSOLIDATED invoice at the end of a month for section 9(4)
- *     supplies from unregistered suppliers where the aggregate value exceeds ₹5,000 in a day.
- *     **NOT INDEPENDENTLY VERIFIED against the current rule text.** `consolidateMonthly` builds
- *     the consolidated form and the caller must decide whether to use it; the per-supply form is
- *     always safe and is the default.
+ *   - Rule 46's second proviso permits a consolidated month-end invoice for supplies actually
+ *     covered by section 9(4), where their aggregate exceeds ₹5,000 in a day from any or all
+ *     suppliers. This is not authority to treat every unregistered purchase as 9(4): the amended
+ *     section 9(4), effective 1 February 2019, applies only to notified classes and categories;
+ *     Notification 07/2019-CTR currently targets promoters/real-estate inputs. The app does not
+ *     model that regime or a multi-supplier schedule, so consolidation is deliberately unavailable.
  *
  * Nothing here posts and nothing here talks to a portal. It arranges facts already in the books
  * into the shape Rule 46 asks for, and says out loud which particulars are missing.
@@ -34,13 +34,13 @@ import type { SupplyType } from './calc'
 /**
  * Why the recipient is paying the tax.
  *
- * The distinction is not cosmetic: it decides which proviso the document sits under, whether a
- * supplier GSTIN can exist at all, and whether the monthly consolidation is available.
+ * The distinction is retained for historical documents. New general-business self-invoices are
+ * per-supply notified 9(3) documents; the app does not infer 9(4) from a blank GSTIN.
  */
 export type RcmBasis =
-  /** Section 9(4) — the supplier is not registered. */
+  /** Section 9(4) — a notified class/category, retained for historical documents only. */
   | 'unregistered'
-  /** Section 9(3) — a notified supply, whatever the supplier's registration. */
+  /** Section 9(3) — a notified supply. A self-invoice is raised only if its supplier is unregistered. */
   | 'notified'
 
 export interface SelfInvoiceLine {
@@ -94,12 +94,15 @@ export interface SelfInvoiceDoc {
   supplierName: string
   supplierGstin: string | null
   supplierAddress: string | null
+  /** GSTIN of the registration that raised this document. Optional only for documents stored by
+   *  builds before multi-registration attribution was added. */
+  recipientGstin?: string | null
   /** Recipient's own state — the place of supply for an inward reverse-charge supply. */
   placeOfSupply: string
   supplyType: SupplyType
   lines: SelfInvoiceLine[]
   totals: SelfInvoiceTotals
-  /** Voucher ids folded into this document. One for a per-supply invoice, many when consolidated. */
+  /** Voucher ids folded into this document. New documents carry one; old consolidated records may carry many. */
   voucherIds: number[]
   /**
    * Particulars Rule 46 asks for that the books do not hold. Stated rather than invented: a
@@ -146,12 +149,6 @@ export function selfInvoiceWarnings(supply: SelfInvoiceSupply, recipientGstin: s
   const out: string[] = []
   if (!recipientGstin) {
     out.push('The company has no GSTIN on record — Rule 46(b) requires the recipient’s GSTIN on a self-invoice.')
-  }
-  if (supply.basis === 'notified' && !supply.supplierGstin) {
-    out.push(
-      'Recorded as a notified (section 9(3)) supply but the supplier has no GSTIN on record. ' +
-        'If the supplier really is unregistered this is a section 9(4) supply instead.'
-    )
   }
   if (!supply.supplierAddress) {
     out.push('No supplier address on the party ledger — Rule 46(c) asks for it.')
@@ -201,6 +198,7 @@ export function buildSelfInvoice(input: BuildSelfInvoiceInput): SelfInvoiceDoc {
     supplierName: supply.supplierName,
     supplierGstin: supply.supplierGstin,
     supplierAddress: supply.supplierAddress,
+    recipientGstin: input.recipientGstin,
     placeOfSupply: input.recipientStateCode,
     supplyType,
     lines: supply.lines,
@@ -208,44 +206,4 @@ export function buildSelfInvoice(input: BuildSelfInvoiceInput): SelfInvoiceDoc {
     voucherIds: [supply.voucherId],
     warnings: selfInvoiceWarnings(supply, input.recipientGstin)
   }
-}
-
-/**
- * The consolidated month-end self-invoice for section 9(4) supplies.
- *
- * Only 9(4) supplies are folded: the proviso that permits consolidation is written for purchases
- * from unregistered suppliers, and a notified 9(3) supply from a registered vendor stays on its
- * own document. Supplies are grouped by supplier, because a consolidated invoice still names one
- * supplier — it consolidates that supplier's month, not the whole ledger.
- *
- * See the header: the proviso itself is UNVERIFIED against the current rule text. The per-supply
- * form is always available and is what `rcmSelfInvoices` issues by default.
- */
-export function consolidateMonthly(
-  supplies: SelfInvoiceSupply[],
-  opts: { date: string; numberFor: (index: number) => string; recipientStateCode: string; recipientGstin: string | null }
-): SelfInvoiceDoc[] {
-  const eligible = supplies.filter((s) => s.basis === 'unregistered')
-  const bySupplier = new Map<string, SelfInvoiceSupply[]>()
-  for (const s of eligible) {
-    const key = s.supplierGstin ?? s.supplierName
-    const list = bySupplier.get(key)
-    if (list) list.push(s)
-    else bySupplier.set(key, [s])
-  }
-
-  return [...bySupplier.values()].map((group, i) => {
-    const first = group[0] as SelfInvoiceSupply
-    const lines = group.flatMap((s) => s.lines)
-    const doc = buildSelfInvoice({
-      // The consolidated document carries the month-end date the proviso gives it, not the date
-      // of any one receipt inside it.
-      supply: { ...first, date: opts.date, lines },
-      number: opts.numberFor(i),
-      recipientStateCode: opts.recipientStateCode,
-      recipientGstin: opts.recipientGstin
-    })
-    doc.voucherIds = group.map((s) => s.voucherId)
-    return doc
-  })
 }

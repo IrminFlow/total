@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type AuditRow } from '../../lib/client'
 import { useSession } from '../../state/stores'
-import { Button, DateInput, EmptyState, Panel, Select, SectionTitle } from '../../components/ui'
+import { Button, DateInput, EmptyState, Panel, RowLink, Select, SectionTitle } from '../../components/ui'
 import { diffJson } from '@shared/diff'
 import { toDisplayDateTime } from '@shared/dates'
 import { AUDIT_ENTITIES } from '@shared/auditEntities'
@@ -105,8 +105,15 @@ export function AuditSection(): React.JSX.Element {
             <tbody data-testid="rows-settings-audit">
               {rows.map((r) => (
                 <Fragment key={r.id}>
-                  <tr className="cursor-pointer" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
-                    <td className="num text-muted">{toDisplayDateTime(new Date(r.at))}</td>
+                  <tr>
+                    <td className="num text-muted">
+                      <RowLink
+                        aria-expanded={expanded === r.id}
+                        onClick={() => setExpanded(expanded === r.id ? null : r.id)}
+                      >
+                        {toDisplayDateTime(new Date(r.at))}
+                      </RowLink>
+                    </td>
                     <td>{r.userName ?? '—'}</td>
                     <td className="num">
                       {r.entity} #{r.entityId}

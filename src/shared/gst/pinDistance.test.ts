@@ -42,13 +42,13 @@ describe('pinCoordinates', () => {
     expect(mumbai!.lon).toBeCloseTo(72.88, 1)
   })
 
-  it('degrades to circle precision when the three-digit district is not in the table', () => {
+  it('degrades to sub-region precision when the three-digit district is not in the table', () => {
     // 304 (Kishangarh/Nasirabad side of Rajasthan) is not a district we claim to know; 30 is an
-    // allotted circle, so we answer with the circle rather than inventing a district coordinate.
+    // allotted sub-region, so we answer with it rather than inventing a district coordinate.
     const some = pinCoordinates('304001')
-    expect(some?.precision).toBe('circle')
-    // ...and it must be the circle's coordinate, not any district's.
-    expect(some).toEqual({ ...pinCoordinates('307001')!, precision: 'circle' })
+    expect(some?.precision).toBe('subregion')
+    // ...and it must be the sub-region's coordinate, not any district's.
+    expect(some).toEqual({ ...pinCoordinates('307001')!, precision: 'subregion' })
   })
 })
 
@@ -77,7 +77,8 @@ describe('estimateEwayDistanceKm', () => {
     expect(est?.km).toBe(MIN_ESTIMATED_KM)
     expect(est?.km).toBeGreaterThan(0)
     expect(est?.approximate).toBe(true)
-    expect(est?.basis).toContain('minimum')
+    expect(est?.basis).toContain('non-zero hint')
+    expect(est?.basis).toContain("not NIC's live distance")
   })
 
   it('returns the documented minimum for two PINs in the same sorting district', () => {
@@ -85,8 +86,8 @@ describe('estimateEwayDistanceKm', () => {
     expect(est?.km).toBe(MIN_ESTIMATED_KM)
   })
 
-  it('estimates a short hop within one postal circle', () => {
-    // Chennai 600 to Puducherry 605, both in circle 60. Straight line ~135 km, road ~160.
+  it('estimates a short hop within one postal sub-region', () => {
+    // Chennai 600 to Puducherry 605, both in sub-region 60. Straight line ~135 km, road ~160.
     const est = estimateEwayDistanceKm('600001', '605001')
     expect(est!.km).toBeGreaterThan(100)
     expect(est!.km).toBeLessThan(250)
@@ -125,9 +126,9 @@ describe('estimateEwayDistanceKm', () => {
     expect(district!.approximate).toBe(true)
     expect(district!.basis).toContain('postal district')
 
-    const circle = estimateEwayDistanceKm('304001', '110001')
-    expect(circle!.approximate).toBe(true)
-    expect(circle!.basis).toContain('postal circle')
+    const subregion = estimateEwayDistanceKm('304001', '110001')
+    expect(subregion!.approximate).toBe(true)
+    expect(subregion!.basis).toContain('postal sub-region')
   })
 })
 

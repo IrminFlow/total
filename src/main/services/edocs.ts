@@ -306,7 +306,7 @@ export function estimateTransportDistance(
 
   const estimate = estimateEwayDistanceKm(fromPin, toPin)
   if (!estimate) {
-    // pinCoordinates() answers null for a malformed PIN, an unallotted postal circle, and the
+    // pinCoordinates() answers null for a malformed PIN, an unallotted postal sub-region, and the
     // 9x Army Postal Service range. All three mean the same thing to a user: type the distance.
     const bad = [
       ...(pinCoordinates(fromPin) ? [] : [`despatch PIN ${fromPin}`]),

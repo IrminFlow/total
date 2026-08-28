@@ -270,21 +270,24 @@ export function stockByGodown(db: DB, asOn: string): GodownStockRow[] {
     const moves = byItem.get(item.id) ?? []
     const summary = valueStock(item.valuationMethod, item.openingQtyMilli, item.openingValue, moves.map(toMovement))
 
-    // Quantity per godown: absolute (physical-count) lines pin the quantity of the godown they
-    // sit on (null = the company-wide bucket).
-    // KNOWN LIMITATION (deferred, v0.3 review): PhysicalStockEntry saves counts with
-    // godownId = null, so a company-wide count pins only the no-godown bucket while
-    // godown-attributed rows keep their pre-count quantities — per-godown rows can then sum to
-    // more than the item's engine-valued closing, and the value pro-ration (below, which divides
-    // by the engine closing) skews per-row values. Fixing this properly needs per-godown counts
-    // (or distributing a null-godown count across godown buckets), tracked for a later wave.
+    // A physical-stock line is an item-wide closing count, just as it is in valueStock. It
+    // therefore replaces the previous location split instead of creating a second independent
+    // balance beside it. The count is kept in the line's bucket (currently PhysicalStockEntry
+    // deliberately uses null because a company-wide count cannot truthfully infer locations).
+    // Later godown movements accumulate from that unallocated counted balance. This keeps every
+    // by-godown quantity and paisa exactly reconcilable to the item-wide valuation without
+    // inventing a proportional location split.
     const qtyByGodown = new Map<number | null, number>()
     qtyByGodown.set(null, item.openingQtyMilli)
     for (const m of moves) {
       const key = m.godownId
       const cur = qtyByGodown.get(key) ?? 0
-      if (m.isAbsolute) qtyByGodown.set(key, m.qtyMilli)
-      else qtyByGodown.set(key, cur + (m.direction === 'in' ? m.qtyMilli : -m.qtyMilli))
+      if (m.isAbsolute) {
+        qtyByGodown.clear()
+        qtyByGodown.set(key, m.qtyMilli)
+      } else {
+        qtyByGodown.set(key, cur + (m.direction === 'in' ? m.qtyMilli : -m.qtyMilli))
+      }
     }
 
     // Pro-rate the item's closing value over godown quantities (the last row soaks up the

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildSelfInvoice,
-  consolidateMonthly,
   selfInvoiceNumber,
   sumSelfInvoiceLines,
   type SelfInvoiceLine,
@@ -31,7 +30,7 @@ const supply = (over: Partial<SelfInvoiceSupply> = {}): SelfInvoiceSupply => ({
   supplierGstin: null,
   supplierStateCode: '27',
   supplierAddress: 'Pune',
-  basis: 'unregistered',
+  basis: 'notified',
   lines: [line()],
   ...over
 })
@@ -81,15 +80,14 @@ describe('buildSelfInvoice', () => {
     expect(doc.supplyType).toBe('intra')
   })
 
-  it('warns when a notified supply has no supplier GSTIN', () => {
-    // 9(3) with no GSTIN is almost always a 9(4) supply that was flagged on the party instead.
+  it('accepts a notified 9(3) supply from an unregistered supplier', () => {
     const doc = buildSelfInvoice({
       supply: supply({ basis: 'notified', supplierGstin: null }),
       number: 'x',
       recipientStateCode: '27',
       recipientGstin: 'g'
     })
-    expect(doc.warnings.join(' ')).toContain('section 9(4)')
+    expect(doc.warnings.join(' ')).not.toContain('section 9(4)')
   })
 
   it('warns about a missing recipient GSTIN and missing HSN, but still produces the document', () => {
@@ -125,37 +123,5 @@ describe('sumSelfInvoiceLines', () => {
 
   it('is zero for no lines', () => {
     expect(sumSelfInvoiceLines([]).total).toBe(0)
-  })
-})
-
-describe('consolidateMonthly', () => {
-  const opts = { date: '2026-06-30', numberFor: (i: number) => `RCM/2026-27/${i + 1}`, recipientStateCode: '27', recipientGstin: 'g' }
-
-  it('folds a supplier’s month into one document', () => {
-    const docs = consolidateMonthly(
-      [supply({ voucherId: 1 }), supply({ voucherId: 2, date: '2026-06-20' })],
-      opts
-    )
-    expect(docs).toHaveLength(1)
-    expect(docs[0]!.voucherIds).toEqual([1, 2])
-    expect(docs[0]!.totals.taxable).toBe(20_000_00)
-    expect(docs[0]!.date).toBe('2026-06-30')
-  })
-
-  it('keeps suppliers apart — a consolidated invoice still names one supplier', () => {
-    const docs = consolidateMonthly(
-      [supply({ voucherId: 1 }), supply({ voucherId: 2, supplierName: 'Shyam Transport' })],
-      opts
-    )
-    expect(docs).toHaveLength(2)
-  })
-
-  it('leaves notified 9(3) supplies alone — the proviso is written for 9(4)', () => {
-    const docs = consolidateMonthly([supply({ basis: 'notified', supplierGstin: '27AAPFU0939F1ZV' })], opts)
-    expect(docs).toHaveLength(0)
-  })
-
-  it('produces nothing for a month with no reverse-charge purchases', () => {
-    expect(consolidateMonthly([], opts)).toEqual([])
   })
 })

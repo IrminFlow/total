@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { seededDb } from '../db/testdb'
 import { createLedger } from './masters'
 import { setAuditContext, listAudit } from './audit'
+import { deleteVoucher } from './vouchers'
 import {
   listRules, saveRule, deleteRule, recordRuleHit, suggestVouchers, importStatement,
   matchSuggestions, brs, bankRecon, reconciliationStatus, setBankDate
@@ -211,6 +212,20 @@ function bookBankEntry(
     .run(vid, bankId, bankSide, amount)
   return Number(res.lastInsertRowid)
 }
+
+describe('direct reconciliation edits', () => {
+  it('refuses a stale line id after its voucher has moved to the bin', () => {
+    const db = seededDb()
+    const bank = bankLedger(db)
+    const office = expenseLedger(db, 'Office Supplies')
+    const line = bookBankEntry(db, bank.id, office.id, '2026-08-01', 100000, 'cr')
+    const voucher = db.prepare('SELECT voucher_id AS id FROM voucher_lines WHERE id = ?').get(line) as { id: number }
+    deleteVoucher(db, voucher.id)
+
+    expect(() => setBankDate(db, line, '2026-08-02')).toThrow(/not found in the books/)
+    expect(db.prepare('SELECT bank_date AS date FROM voucher_lines WHERE id = ?').get(line)).toEqual({ date: null })
+  })
+})
 
 describe('bank rules v2 fields', () => {
   it('persists matchField/minAmount/maxAmount/autoApply and defaults them for legacy payloads', () => {

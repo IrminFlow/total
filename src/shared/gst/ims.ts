@@ -12,7 +12,7 @@
  * action list is the part that has to happen every single month.
  *
  * ---------------------------------------------------------------------------------------------
- * CHECKED AGAINST (August 2026):
+ * CHECKED 2026-08-28 AGAINST GSTN PRIMARY MATERIAL:
  *   - IMS was introduced on the GST portal from 1 October 2024 and given statutory backing by the
  *     amendments to section 38 and rule 60 (Finance (No. 2) Act 2024 / Notification No.
  *     12/2024-Central Tax). The three actions and the deemed-acceptance default are as described
@@ -21,10 +21,11 @@
  *     offline route, and there is no API this app has credentials for. What is built here is the
  *     decision list and the record of what was decided, so the person doing it on the portal has
  *     a worked sheet instead of a screen of six hundred invoices. The screen says so.
- *   - The "pending" action is NOT available on every document type — credit notes in particular
- *     have had restrictions, and those restrictions have changed more than once.
- *     ** NOT VERIFIED against the current portal behaviour. `allowedActions` states what this
- *        author understands and marks it; the UI offers all three and records the choice. **
+ *   - GSTN's FAQ on changes from the October 2025 tax period makes Pending available
+ *     prospectively for original credit notes and specified amendment cases. Before that period,
+ *     an original credit note has Accept/Reject only. This parser currently brings original
+ *     invoices, debit notes and credit notes from GSTR-2B; it does not pretend to cover the
+ *     amendment/ECO cases its input does not parse.
  *
  * Nothing here posts and nothing here claims a credit. It turns a reconciliation into a worklist.
  */
@@ -114,13 +115,23 @@ export function suggestAction(bucket: Recon2bBucket): ImsSuggestion {
 }
 
 /**
- * Actions the portal offers for a document.
- *
- * See the header: the restrictions on 'pending' have moved. This returns all three and the caller
- * shows the caveat, which is honest about what is known rather than silently removing an option
- * the portal may well offer.
+ * Actions the portal offers for a document and tax period.
  */
-export function allowedActions(_pair: ImsRow): ImsAction[] {
+export type ImsDocumentKind = 'invoice' | 'credit_note' | 'debit_note' | 'book_only'
+
+function periodOrdinal(period: string): number | null {
+  const m = period.match(/^(0[1-9]|1[0-2])(\d{4})$/)
+  return m ? Number(m[2]) * 12 + Number(m[1]) : null
+}
+
+/** Portal actions verified for the document shapes this GSTR-2B parser can actually produce. */
+export function allowedActionsFor(kind: ImsDocumentKind, period: string): ImsAction[] {
+  if (kind === 'book_only') return []
+  if (kind === 'credit_note') {
+    const ordinal = periodOrdinal(period)
+    const october2025 = 2025 * 12 + 10
+    return ordinal !== null && ordinal >= october2025 ? IMS_ACTIONS : ['accept', 'reject']
+  }
   return IMS_ACTIONS
 }
 
@@ -147,6 +158,9 @@ export interface ImsRow {
   cess: number
   /** Book voucher, when the document is in the books. */
   voucherId: number | null
+  documentKind: ImsDocumentKind
+  /** Empty for a book-only row because there is no IMS record on which the portal can act. */
+  allowedActions: ImsAction[]
   suggestion: ImsSuggestion
   /** What the user recorded, or null while undecided. */
   action: ImsAction | null
@@ -191,6 +205,11 @@ export function buildWorklist(
     const number = p.portal?.number ?? p.book?.supplierRef ?? p.book?.number ?? ''
     const key = imsKey(gstin, number)
     const prior = decided.get(key)
+    const documentKind: ImsDocumentKind = !p.portal
+      ? 'book_only'
+      : p.portal.kind === 'b2b'
+        ? 'invoice'
+        : p.portal.noteType === 'D' ? 'debit_note' : 'credit_note'
     rows.push({
       key,
       bucket: p.bucket,
@@ -205,6 +224,8 @@ export function buildWorklist(
       sgst: p.portal?.sgst ?? p.book?.sgst ?? 0,
       cess: p.portal?.cess ?? p.book?.cess ?? 0,
       voucherId: p.book?.voucherId ?? null,
+      documentKind,
+      allowedActions: allowedActionsFor(documentKind, period),
       suggestion: suggestAction(p.bucket),
       action: prior?.action ?? null,
       actionNote: prior?.note ?? null,
@@ -217,7 +238,7 @@ export function buildWorklist(
   let undecided = 0
   for (const r of rows) {
     if (r.action) counts[r.action] += 1
-    else undecided += 1
+    else if (r.allowedActions.length > 0) undecided += 1
     if (r.suggestion.action !== 'accept') {
       atRisk.igst += r.igst
       atRisk.cgst += r.cgst

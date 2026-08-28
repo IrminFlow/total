@@ -5,7 +5,7 @@ import type { CompanyInfo, TdsSection } from '@shared/domain'
 import type { TdsSectionInput } from '@shared/schemas'
 import { computeTds, thresholdCrossed, tdsQuarterOf } from '@shared/tds'
 import {
-  challanTotal, FILE_FORMAT, form16aDueDate, statementDueDate, toFlatFile, validateReturn,
+  challanTotal, filingFormFor, form16aDueDate, statementDueDate, toFlatFile, validateReturn,
   type ReturnHeader, type TdsChallan, type TdsDeduction, type TdsFormCode, type TdsReturnWorking
 } from '@shared/tdsReturn'
 import { buildForm16a, type Form16a } from '@shared/form16a'
@@ -393,6 +393,8 @@ export function tdsReturnWorking(
       // safe default and the export's caveats say so.
       deducteeCode: '02',
       sectionCode: section.code,
+      legacySectionCode: r.code,
+      statutoryRate: r.sectionRate,
       sectionUnverified: section.unverified,
       paidOn: r.paidOn,
       // These books post the deduction on the voucher that creates the liability, so the two
@@ -417,6 +419,7 @@ export function tdsReturnWorking(
 
   const working: TdsReturnWorking = {
     form,
+    filingForm: filingFormFor(form, fyStartYear),
     fyStartYear,
     quarter,
     label: `Q${quarter} FY${fyStartYear}-${String(fyStartYear + 1).slice(2)}`,
@@ -445,7 +448,22 @@ function returnHeader(db: DB, company: CompanyInfo): ReturnHeader {
     responsibleDesignation: filing.responsibleDesignation,
     address: company.address,
     email: company.email,
-    phone: company.phone
+    phone: company.phone,
+    gstin: company.gstin,
+    deductorStateCode: filing.deductorStateCode,
+    deductorPincode: filing.deductorPincode,
+    responsibleAddress: filing.responsibleAddress,
+    responsibleStateCode: filing.responsibleStateCode,
+    responsiblePincode: filing.responsiblePincode,
+    responsibleEmail: filing.responsibleEmail,
+    responsiblePhone: filing.responsiblePhone,
+    responsiblePan: filing.responsiblePan,
+    earlierStatementFiled: filing.earlierStatementFiled,
+    previousTokenNumber: filing.previousTokenNumber,
+    governmentStateCode: filing.governmentStateCode,
+    ministryCode: filing.ministryCode,
+    ministryOther: filing.ministryOther,
+    ain: filing.ain
   }
 }
 
@@ -466,7 +484,7 @@ export function exportTdsReturnCsv(
 ): { challansPath: string; deducteesPath: string; issues: TdsReturnWorking['issues'] } {
   const w = tdsReturnWorking(db, company, form, fyStartYear, quarter)
   const fy = fyFromStartYear(fyStartYear)
-  const stem = `tds-${form.toLowerCase()}-${fy.label}-Q${quarter}`
+  const stem = `tds-${w.filingForm.toLowerCase()}-${fy.label}-Q${quarter}`
 
   const challansCsv = rowsToCsv(
     ['BSR Code', 'Challan Date', 'Serial', 'Tax (Rs)', 'Surcharge (Rs)', 'Cess (Rs)', 'Interest (Rs)', 'Fee (Rs)', 'Total (Rs)', 'Book entry'],
@@ -499,16 +517,10 @@ export function exportTdsReturnCsv(
 /**
  * The '^'-separated e-TDS file.
  *
- * THE RECORD LAYOUT IS NOW VERIFIED against the published Protean File Format workbooks — see
- * `FILE_FORMAT` in src/shared/tdsReturn.ts, which names them. THE FILE IS STILL NOT FILEABLE, and
- * that is a different statement: it carries empty slots in Batch Header fields the format marks
- * mandatory and these books have never held (the deductor's State code and PIN, the responsible
- * person's PAN, address, State, PIN and mobile). `blankMandatoryFields` names every one of them.
- *
- * So the acknowledgement stays, the `.unverified.txt` name stays, and the message the caller has to
- * agree to says what is actually true rather than what used to be true. The file must go through
- * the FVU, and the FVU will reject it until somebody fills those fields in — which is the correct
- * outcome, because the alternative is a file that passes because the app invented a PIN code.
+ * The date-selected record layouts are checked against Protean's workbooks and official samples.
+ * The filing profile supplies mandatory identity fields and missing values block rather than being
+ * guessed. The acknowledgement and `.unverified.txt` suffix stay until an app-generated fixture
+ * passes the current FVU with its TAN-specific, mandatory CSI file.
  *
  * Refuses outright when the return has a blocking issue. A file built from a return that cannot
  * be filed is not a draft, it is a way to waste an afternoon at a facilitation centre.
@@ -525,7 +537,7 @@ export function exportTdsReturnFile(
   if (!acknowledgedUnverifiedFormat) {
     throw new Error(
       'This file cannot be filed as it stands: it leaves mandatory deductor and responsible-person fields empty ' +
-        'because these books do not hold them, and it has never been through the FVU. Acknowledge that before exporting.'
+        'when the filing profile is incomplete, and an app-generated fixture has not passed the current FVU with a valid CSI. Acknowledge that before exporting.'
     )
   }
   const w = tdsReturnWorking(db, company, form, fyStartYear, quarter)
@@ -535,14 +547,14 @@ export function exportTdsReturnFile(
   }
   const out = toFlatFile(w, returnHeader(db, company), todayISO())
   const fy = fyFromStartYear(fyStartYear)
-  const path = join(companyExportsDir(slug), `tds-${form.toLowerCase()}-${fy.label}-Q${quarter}.unverified.txt`)
+  const path = join(companyExportsDir(slug), `tds-${out.filingForm.toLowerCase()}-${fy.label}-Q${quarter}.unverified.txt`)
   writeFileSync(path, out.text)
   return {
     path,
     lineCount: out.lineCount,
     unverifiedFormat: out.unverifiedFormat,
     blankMandatoryFields: out.blankMandatoryFields,
-    formatVersion: FILE_FORMAT.version
+    formatVersion: out.formatVersion
   }
 }
 

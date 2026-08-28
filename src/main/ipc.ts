@@ -1601,7 +1601,7 @@ export function registerIpc(): void {
       })
       .parse(p)
     const c = requireCompany()
-    // Marking a GSTR-1 filed is also when its documents are frozen for later amendment
+    // Marking a GSTR-1 or IFF filed is also when its documents are frozen for later amendment
     // (services/amendments.ts) — hence the scope, which the snapshot extraction needs and which
     // also decides WHICH registration's filing this is.
     return filings.recordFiling(c.db, scopeOf(c, input.registrationId), input)
@@ -1622,7 +1622,7 @@ export function registerIpc(): void {
   // ---------- GSTR-1 amendments (Tables 9A / 9C) ----------
   // A correction to an already-filed invoice is a new row in a LATER period's amendment table,
   // keyed on the ORIGINAL document. Both handlers work off the snapshots taken when each GSTR-1
-  // was marked filed (filings:record) — never off today's books alone.
+  // or IFF was marked filed (filings:record) — never off today's books alone.
   const portalPeriod = z.string().trim().regex(/^(0[1-9]|1[0-2])\d{4}$/, 'Not a portal tax period (MMYYYY)')
 
   handle('amendments:report', (p) => {
@@ -1887,11 +1887,12 @@ export function registerIpc(): void {
         lines: z.array(cartLineSchema).max(200),
         date: isoDate.optional(),
         partyLedgerId: z.number().int().positive().nullable().optional(),
-        pricingMode: pricingModeSchema.optional()
+        pricingMode: pricingModeSchema.optional(),
+        gstRegistrationId: z.number().int().positive().nullable().optional()
       })
       .parse(p)
     const c = requireCompany()
-    return counter.priceCounterCart(c.db, c.info, input)
+    return counter.priceCounterCart(c.db, registrations.gstScope(c.db, c.info, input.gstRegistrationId), input)
   }, 'viewer')
 
   handle('counter:sale', (p) => {
@@ -1906,11 +1907,12 @@ export function registerIpc(): void {
         customerPhone: z.string().trim().max(20).nullable().optional(),
         narration: z.string().trim().max(500).nullable().optional(),
         returnsVoucherId: z.number().int().positive().nullable().optional(),
-        kind: z.enum(['sale', 'return']).optional()
+        kind: z.enum(['sale', 'return']).optional(),
+        gstRegistrationId: z.number().int().positive().nullable().optional()
       })
       .parse(p)
     const c = requireCompany()
-    return counter.saveCounterSale(c.db, c.info, input)
+    return counter.saveCounterSale(c.db, registrations.gstScope(c.db, c.info, input.gstRegistrationId), input)
   })
 
   handle('counter:session', () => counter.openSession(requireCompany().db), 'viewer')
@@ -2175,6 +2177,7 @@ export function registerIpc(): void {
     jobWorkerLedgerId: z.number().int().positive().nullable().optional(),
     jobWorkerGstin: z.string().trim().max(15).nullable().optional(),
     jobWorkerStateCode: z.string().trim().max(2).nullable().optional(),
+    jobWorkerIsSez: z.boolean().optional(),
     goodsType: z.enum(['input', 'capital_goods']),
     stockItemId: z.number().int().positive().nullable().optional(),
     description: z.string().trim().min(1).max(200),
@@ -2183,6 +2186,7 @@ export function registerIpc(): void {
     uqc: z.string().trim().max(10).optional(),
     taxablePaise: z.number().int().min(0).optional(),
     gstRate: z.number().min(0).max(100).optional(),
+    cessPaise: z.number().int().min(0).optional(),
     mouldsDiesJigsTools: z.boolean().optional(),
     receivedByJobWorkerOn: isoDate.nullable().optional(),
     extendedDueBackBy: isoDate.nullable().optional(),
@@ -2195,12 +2199,27 @@ export function registerIpc(): void {
     challanId: z.number().int().positive(),
     date: isoDate,
     number: z.string().trim().max(40).nullable().optional(),
-    qtyMilli: z.number().int().positive(),
+    qtyMilli: z.number().int().min(0),
     disposition: dispositionSchema,
     invoiceVoucherId: z.number().int().positive().nullable().optional(),
     notes: z.string().trim().max(1000).nullable().optional(),
     /** Where the goods come back TO. Null is unallocated stock. Waste never comes back at all. */
-    toGodownId: z.number().int().positive().nullable().optional()
+    toGodownId: z.number().int().positive().nullable().optional(),
+    sourceJobWorkerLedgerId: z.number().int().positive().nullable().optional(),
+    sourceJobWorkerGstin: z.string().trim().max(15).nullable().optional(),
+    sourceJobWorkerStateCode: z.string().trim().max(2).nullable().optional(),
+    sourceJobWorkerIsSez: z.boolean().optional(),
+    destinationJobWorkerLedgerId: z.number().int().positive().nullable().optional(),
+    destinationJobWorkerGstin: z.string().trim().max(15).nullable().optional(),
+    destinationJobWorkerStateCode: z.string().trim().max(2).nullable().optional(),
+    destinationJobWorkerIsSez: z.boolean().optional(),
+    onwardChallanProvenance: z.enum(['endorsed_original', 'fresh']).nullable().optional(),
+    lossWasteUqc: z.string().trim().max(10).nullable().optional(),
+    lossWasteQtyMilli: z.number().int().min(0).optional()
+  }).superRefine((row, ctx) => {
+    if (row.qtyMilli + (row.lossWasteQtyMilli ?? 0) <= 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Record a positive goods or loss/waste quantity' })
+    }
   })
 
   handle('jobWork:list', (p) => {
@@ -2870,14 +2889,15 @@ export function registerIpc(): void {
 
   // ---------- reverse-charge self-invoices (roadmap #356) ----------
   handle('rcm:register', (p) => {
-    const { from, to } = periodSchema.parse(p)
+    const { from, to, registrationId } = periodSchema.extend({ registrationId: z.number().int().positive().nullable().optional() }).parse(p)
     const c = requireCompany()
-    return rcm.rcmRegister(c.db, c.info, from, to)
+    return rcm.rcmRegister(c.db, registrations.gstScope(c.db, c.info, registrationId), from, to)
   }, 'viewer')
   handle('rcm:issue', (p) => {
-    const { from, to, consolidate, voucherIds } = rcmIssueSchema.parse(p)
+    const { from, to, consolidate, voucherIds, registrationId } = rcmIssueSchema.parse(p)
     const c = requireCompany()
-    return rcm.issueSelfInvoices(c.db, c.info, from, to, { consolidate, voucherIds, by: sessionUser?.name ?? null })
+    const scope = registrations.gstScope(c.db, c.info, registrationId)
+    return rcm.issueSelfInvoices(c.db, scope, from, to, { consolidate, voucherIds, by: sessionUser?.name ?? null })
   })
   handle('rcm:delete', (p) => rcm.deleteSelfInvoice(requireCompany().db, idSchema.parse(p).id))
   handle('rcm:pdf', async (p) => {
@@ -3044,7 +3064,7 @@ export function registerIpc(): void {
   handle('tds:pick26as', async () => {
     const picked = await dialog.showOpenDialog({
       title: 'Choose a Form 26AS export (downloaded from TRACES)',
-      filters: [{ name: 'Form 26AS (CSV / text)', extensions: ['csv', 'txt'] }],
+      filters: [{ name: 'Form 26AS text / CSV', extensions: ['txt', 'csv'] }],
       properties: ['openFile']
     })
     if (picked.canceled || !picked.filePaths[0]) return null

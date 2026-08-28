@@ -91,6 +91,9 @@ const auditFee = (b: Book): ReturnType<typeof saveIsdCredit> =>
     invoiceNumber: 'A/26/9',
     description: 'Statutory audit fee',
     taxable: 100_000_00,
+    invoiceValue: 118_000_00,
+    placeOfSupply: '07',
+    items: [{ lineNumber: 1, rateBps: 1800, taxable: 100_000_00, heads: { igst: 0, cgst: 9_000_00, sgst: 9_000_00, cess: 0 } }],
     igst: 0,
     cgst: 9_000_00,
     sgst: 9_000_00,
@@ -181,6 +184,8 @@ describe('distributing a month', () => {
     saveIsdCredit(b.db, {
       date: '2026-06-12', supplierName: 'Audit LLP', supplierGstin: null, invoiceNumber: 'A/1',
       description: null, taxable: 100_000_00, igst: 0, cgst: 9_000_00, sgst: 9_000_00, cess: 0,
+      invoiceValue: 118_000_00, placeOfSupply: '27',
+      items: [{ lineNumber: 1, rateBps: 1800, taxable: 100_000_00, heads: { igst: 0, cgst: 9_000_00, sgst: 9_000_00, cess: 0 } }],
       eligibility: 'eligible', attribution: 'one', recipientRegistrationIds: [b.gj], reverseCharge: false
     })
     // Gujarat is outside Maharashtra: it arrives as IGST.
@@ -193,6 +198,8 @@ describe('distributing a month', () => {
     saveIsdCredit(b.db, {
       date: '2026-06-12', supplierName: 'Rent', supplierGstin: null, invoiceNumber: 'R/1',
       description: 'Surat office rent', taxable: 50_000_00, igst: 9_000_00, cgst: 0, sgst: 0, cess: 0,
+      invoiceValue: 59_000_00, placeOfSupply: '24',
+      items: [{ lineNumber: 1, rateBps: 1800, taxable: 50_000_00, heads: { igst: 9_000_00, cgst: 0, sgst: 0, cess: 0 } }],
       eligibility: 'eligible', attribution: 'one', recipientRegistrationIds: [b.gj], reverseCharge: false
     })
     const r = distributeMonth(b.db, MONTH)
@@ -244,6 +251,8 @@ describe('the recipient’s return carries the credit', () => {
     saveIsdCredit(b.db, {
       date: '2026-06-13', supplierName: 'Club', supplierGstin: null, invoiceNumber: 'C/1',
       description: 'Membership — blocked', taxable: 10_000_00, igst: 1_800_00, cgst: 0, sgst: 0, cess: 0,
+      invoiceValue: 11_800_00, placeOfSupply: '27',
+      items: [{ lineNumber: 1, rateBps: 1800, taxable: 10_000_00, heads: { igst: 1_800_00, cgst: 0, sgst: 0, cess: 0 } }],
       eligibility: 'ineligible', attribution: 'one', recipientRegistrationIds: [b.mh], reverseCharge: false
     })
     distributeMonth(b.db, MONTH)
@@ -265,6 +274,8 @@ describe('the recipient’s return carries the credit', () => {
     saveIsdCredit(b.db, {
       date: '2026-06-12', supplierName: 'Rent', supplierGstin: null, invoiceNumber: 'R/1',
       description: null, taxable: 50_000_00, igst: 9_000_00, cgst: 0, sgst: 0, cess: 0,
+      invoiceValue: 59_000_00, placeOfSupply: '24',
+      items: [{ lineNumber: 1, rateBps: 1800, taxable: 50_000_00, heads: { igst: 9_000_00, cgst: 0, sgst: 0, cess: 0 } }],
       eligibility: 'eligible', attribution: 'one', recipientRegistrationIds: [b.gj], reverseCharge: false
     })
     distributeMonth(b.db, MONTH)
@@ -302,11 +313,21 @@ describe('GSTR-6', () => {
     expect(g6.inward).toHaveLength(1)
     expect(g6.distribution).toHaveLength(2)
     expect(g6.undistributedPaise).toBe(0)
-    // The table NUMBERING is now checked against FORM GSTR-6 [See rule 65] and the flag says so,
-    // which is what the verification pass changed. What is still not claimed is a portal FILE:
-    // the offline utility's JSON schema is GSTN's rather than the Rules', and is unread — so the
-    // export stays data, and the working names the form it read its numbering in.
+    // The table numbering is checked against the form. The model now builds and validates the
+    // Draft-v1.0-shaped preview, but portal upload remains disabled until current signed-in acceptance.
     expect(g6.layoutUnverified).toBe(false)
     expect(g6.formCitation).toContain('GSTR-6')
+    expect(g6.portalFile.ready).toBe(false)
+    expect(g6.portalFile.auditedOn).toBe('2026-08-28')
+    expect(g6.portalFile.schemaVersion).toBe('v1.0')
+    expect(g6.portalFile.schemaStatus).toBe('Draft')
+    expect(g6.portalFile.validation).toEqual({ valid: true, errors: [] })
+    expect(g6.portalFile.preview?.b2b[0]?.inv[0]?.pos).toBe('07')
+    expect(g6.portalFile.preview?.isd.elglst).toHaveLength(2)
+    expect(g6.portalFile.blockers).toHaveLength(2)
+    expect(g6.portalFile.blockers.join(' ')).toContain('signed-in GST portal')
+    const lineage = b.db.prepare('SELECT * FROM isd_invoice_lineage ORDER BY isd_invoice_id').all() as { camti: number; samti: number }[]
+    expect(lineage).toHaveLength(2)
+    expect(lineage.reduce((sum, row) => sum + row.camti + row.samti, 0)).toBe(18_000_00)
   })
 })

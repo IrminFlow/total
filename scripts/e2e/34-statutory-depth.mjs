@@ -40,7 +40,8 @@ await scenario('34-statutory-depth', async (h) => {
 
   // ---- #356 the reverse-charge self-invoice ----
 
-  // An unregistered goods-transport vendor, flagged for reverse charge: the section 9(4) case.
+  // An unregistered goods-transport vendor in a notified section 9(3) category. A blank GSTIN is
+  // not section 9(4): since 2019 that subsection is confined to notified classes/categories.
   const transporter = await ledger({
     name: 'Ram Transport (RCM)',
     groupId: groupId('Sundry Creditors'),
@@ -62,8 +63,16 @@ await scenario('34-statutory-depth', async (h) => {
 
   let register = await h.invoke('rcm:register', { from, to })
   assert(register.pending.length === 1, `the reverse-charge purchase needs a document (got ${register.pending.length})`)
-  assert(register.pending[0].basis === 'unregistered', 'an unregistered supplier is a section 9(4) supply')
+  assert(register.pending[0].basis === 'notified', 'the transporter is a notified section 9(3) supply')
   assert(register.issued.length === 0, 'nothing has been issued yet')
+
+  let consolidationRefused = false
+  try {
+    await h.invoke('rcm:issue', { from, to, consolidate: true })
+  } catch (err) {
+    consolidationRefused = /promoter regime|daily threshold/i.test(String(err))
+  }
+  assert(consolidationRefused, 'unsupported section 9(4) month-end consolidation is refused')
 
   const issued = await h.invoke('rcm:issue', { from, to, consolidate: false })
   assert(issued.issued.length === 1, 'one supply, one self-invoice')
@@ -72,8 +81,7 @@ await scenario('34-statutory-depth', async (h) => {
   assert(doc.taxable === 10_000_00, 'the taxable value is the purchase value')
   assert(doc.cgst + doc.sgst === 500_00, 'tax computed at the master rate — 5% on a local supply')
 
-  // The set of documents must be the set GSTR-3B taxes. If these ever diverge the paper stops
-  // adding up to the return and reconciling them becomes the user's problem forever.
+  // For this unregistered supplier, the document tax ties to the corresponding 3B liability.
   const gstr3b = await h.invoke('gst:gstr3b', {
     from: `${fyStartYear}-06-01`,
     to: `${fyStartYear}-06-30`,
@@ -126,11 +134,23 @@ await scenario('34-statutory-depth', async (h) => {
 
   // A statement is filed against a TAN by a named person. The demo company has neither, and the
   // return says so — recording them is the first step of the chain.
-  await h.invoke('company:updateInfo', { ...info, tan: 'PNET12345B' })
+  await h.invoke('company:updateInfo', {
+    ...info, tan: 'PNET12345B', pan: info.pan ?? 'AAAPA1111A',
+    email: info.email ?? 'books@example.com', phone: info.phone ?? '9876543210'
+  })
   await h.invoke('tds:filingConfigSave', {
     responsiblePerson: 'A. Kumar',
     responsibleDesignation: 'Partner',
-    deductorType: 'S'
+    deductorType: 'F',
+    deductorStateCode: '19',
+    deductorPincode: '700001',
+    responsibleAddress: '10 Market Road, Kolkata',
+    responsibleStateCode: '19',
+    responsiblePincode: '700001',
+    responsibleEmail: 'a.kumar@example.com',
+    responsiblePhone: '9876543210',
+    responsiblePan: 'AAAPA2222A',
+    earlierStatementFiled: false
   })
 
   const sections = await h.invoke('tds:sections')
@@ -203,40 +223,18 @@ await scenario('34-statutory-depth', async (h) => {
     `the challan issue is gone (${working.issues.map((i) => i.message).join(' | ')})`
   )
 
-  // The demo books start in the CURRENT financial year, and from tax year 2026-27 the quarterly
-  // statements are Form Number 138 and Form Number 140 — 24Q and 26Q, and the file format this
-  // build writes, stop at FY 2025-26. So the export refuses, and says which form it should be.
-  // That refusal is the feature: writing a 26Q for a year 26Q does not cover is the kind of
-  // confident wrongness a user only finds out about from a rejection notice.
-  const supersededFy = fyStartYear >= 2026
-  if (supersededFy) {
-    const superseded = working.issues.find((i) => i.message.includes('Form Number 140'))
-    assert(superseded && superseded.severity === 'blocking', 'a 26Q for FY 2026-27 onwards is blocked')
-    let refusedForm = false
-    try {
-      await h.invoke('tds:returnFile', { form: '26Q', fyStartYear, quarter: 1, acknowledgedUnverifiedFormat: true })
-    } catch {
-      refusedForm = true
-    }
-    assert(refusedForm, 'and the file export refuses rather than writing a superseded form')
-  } else {
-    assert(
-      working.issues.every((i) => i.severity !== 'blocking'),
-      `nothing blocking remains (${working.issues.map((i) => i.message).join(' | ')})`
-    )
-    const file = await h.invoke('tds:returnFile', {
-      form: '26Q',
-      fyStartYear,
-      quarter: 1,
-      acknowledgedUnverifiedFormat: true
-    })
-    assert(file.lineCount === 4, `header, batch, challan and deductee (got ${file.lineCount})`)
-    assert(file.formatVersion.includes('Protean'), 'the layout names the file format it was read from')
-    assert(
-      file.unverifiedFormat === true && file.blankMandatoryFields.length > 0,
-      'and it still names the mandatory fields these books cannot fill'
-    )
-  }
+  assert(
+    working.issues.every((i) => i.severity !== 'blocking'),
+    `nothing blocking remains (${working.issues.map((i) => i.message).join(' | ')})`
+  )
+  const file = await h.invoke('tds:returnFile', {
+    form: '26Q', fyStartYear, quarter: 1, acknowledgedUnverifiedFormat: true
+  })
+  assert(file.lineCount === 4, `header, batch, challan and deductee (got ${file.lineCount})`)
+  assert(file.formatVersion.includes('Protean'), 'the layout names the published Protean release')
+  assert(file.path.includes(fyStartYear >= 2026 ? 'tds-140-' : 'tds-26q-'), 'the filename uses the date-selected legal form')
+  assert(file.unverifiedFormat === true, 'the suffix stays unverified until a valid-CSI FVU pass')
+  assert(file.blankMandatoryFields.length === 0, 'the complete filing profile fills every common mandatory header field')
 
   // Form 16A — a working copy, and it says so first.
   const deductees = await h.invoke('tds:form16aDeductees', { fyStartYear, quarter: 1 })
@@ -330,6 +328,17 @@ await scenario('34-statutory-depth', async (h) => {
   await h.waitIdle()
   await h.click('tab-tds-return')
   await h.waitIdle()
+  await h.page.waitForSelector('[data-testid="input-tds-responsible-name"]', { timeout: 10000 })
+  assert((await h.page.inputValue('[data-testid="input-tds-responsible-name"]')) === 'A. Kumar', 'the filing profile renders from storage')
+  await h.fill('input-tds-responsible-designation', 'Managing Partner')
+  await h.click('btn-tds-filing-save')
+  await h.page.waitForFunction(async () => {
+    const value = await window.total.invoke('tds:filingConfig')
+    return value.responsibleDesignation === 'Managing Partner'
+  })
+  const selectedForm = await h.page.locator('[data-testid="select-tds-return-form"] option:checked').textContent()
+  assert(selectedForm.includes(fyStartYear >= 2026 ? '140' : '26Q'), 'the UI labels the date-selected form')
+  await h.shot('05-tds-filing-profile')
   await h.click('tab-tds-certificates')
   await h.waitIdle()
 

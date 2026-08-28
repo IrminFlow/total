@@ -232,6 +232,74 @@ await scenario('42-multi-gstin', async (h) => {
     }
   })
 
+  // ---- 9. the counter uses and stamps the supplying registration ----
+  const mhCart = await h.invoke('counter:price', {
+    lines: [{ stockItemId: widget.id, qtyMilli: 1000, ratePaise: 10000 }],
+    date: `${fyStart}-08-05`, partyLedgerId: L('Buyer Mumbai'), pricingMode: 'exclusive',
+    gstRegistrationId: mhReg.id
+  })
+  const gjCart = await h.invoke('counter:price', {
+    lines: [{ stockItemId: widget.id, qtyMilli: 1000, ratePaise: 10000 }],
+    date: `${fyStart}-08-05`, partyLedgerId: L('Buyer Mumbai'), pricingMode: 'exclusive',
+    gstRegistrationId: gjReg.id
+  })
+  assert(mhCart.supply === 'intra' && mhCart.gst.cgst > 0, 'the Maharashtra till charges local tax to Mumbai')
+  assert(gjCart.supply === 'inter' && gjCart.gst.igst > 0, 'the Gujarat till charges IGST to the same Mumbai buyer')
+  const counterSale = await h.invoke('counter:sale', {
+    lines: [{ stockItemId: widget.id, qtyMilli: 1000, ratePaise: 10000 }],
+    tenders: [{ mode: 'cash', amountPaise: gjCart.payablePaise }],
+    date: `${fyStart}-08-05`, partyLedgerId: L('Buyer Mumbai'), pricingMode: 'exclusive',
+    gstRegistrationId: gjReg.id
+  })
+  assertEq(
+    (await h.invoke('voucher:get', { id: counterSale.voucherId })).gstRegistrationId,
+    gjReg.id,
+    'the counter voucher is durably stamped with the selected GSTIN'
+  )
+
+  // ---- 10. reverse-charge documents are scoped and use the recipient registration ----
+  const rcmVendor = await mk({
+    name: 'RCM Freight Vendor', groupId: gid('Sundry Creditors'), stateCode: '27', rcm: true
+  })
+  const rcmExpense = await mk({
+    name: 'RCM Freight Expense', groupId: gid('Direct Expenses'), gstRate: 5, hsn: '996511'
+  })
+  const postRcm = (registrationId, rcmDate, amount) => h.invoke('voucher:save', {
+    data: {
+      voucherTypeId: purchaseType, date: rcmDate, partyLedgerId: rcmVendor.id,
+      gstRegistrationId: registrationId,
+      lines: [
+        { ledgerId: rcmExpense.id, drCr: 'dr', amount, costAllocations: [] },
+        { ledgerId: rcmVendor.id, drCr: 'cr', amount, costAllocations: [] }
+      ],
+      inventory: [], billRefs: [], tds: null
+    }
+  })
+  const rcmFrom = `${fyStart}-09-01`
+  const rcmTo = `${fyStart}-09-30`
+  const mhRcm = await postRcm(mhReg.id, `${fyStart}-09-10`, 100000)
+  const gjRcm = await postRcm(gjReg.id, `${fyStart}-09-12`, 200000)
+  assertEq(
+    (await h.invoke('rcm:register', { from: rcmFrom, to: rcmTo, registrationId: mhReg.id })).pending[0].voucherId,
+    mhRcm.id,
+    'the Maharashtra RCM desk shows only its purchase'
+  )
+  assertEq(
+    (await h.invoke('rcm:register', { from: rcmFrom, to: rcmTo, registrationId: gjReg.id })).pending[0].voucherId,
+    gjRcm.id,
+    'the Gujarat RCM desk shows only its purchase'
+  )
+  const gjSelfInvoice = await h.invoke('rcm:issue', {
+    from: rcmFrom, to: rcmTo, consolidate: false, registrationId: gjReg.id
+  })
+  assertEq(gjSelfInvoice.issued.length, 1, 'only Gujarat issued its self-invoice')
+  assert(gjSelfInvoice.issued[0].igst > 0, "Gujarat's document uses Gujarat as the recipient state")
+  assertEq(
+    (await h.invoke('rcm:register', { from: rcmFrom, to: rcmTo, registrationId: mhReg.id })).issued.length,
+    0,
+    "Gujarat's issued document never appears on Maharashtra's desk"
+  )
+
   await h.invoke('stock:saveTransfer', {
     date: `${fyStart}-07-12`,
     fromGodownId: mumbai.id,
@@ -251,4 +319,12 @@ await scenario('42-multi-gstin', async (h) => {
     1,
     'the return-preparation check reports the branch transfer that has no invoice yet'
   )
+
+  await h.goto('counter')
+  await h.page.waitForSelector('[data-testid="select-counter-gstin"]', { timeout: 10000 })
+  assertEq(await h.page.locator('[data-testid="select-counter-gstin"] option').count(), 2, 'the till offers both GSTINs')
+  await h.goto('disclosure')
+  await h.click('tab-disclosure-rcm')
+  await h.page.waitForSelector('[data-testid="select-rcm-gstin"]', { timeout: 10000 })
+  assertEq(await h.page.locator('[data-testid="select-rcm-gstin"] option').count(), 2, 'the RCM desk offers both GSTINs')
 })

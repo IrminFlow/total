@@ -145,6 +145,11 @@ await scenario('52-branch-transfer', async (h) => {
   assertEq(b2b.docs, 1, "the branch transfer is a B2B document in the sender's GSTR-1")
   assertEq(b2b.taxable, 40000, 'at the value rule 28 fixed')
   assertEq(b2b.igst, 7200, 'carrying IGST, because the movement terminated in another state')
+  const table13 = senderGstr1.json.doc_issue.doc_det.find((d) => d.doc_num === 1)
+  assert(
+    table13.docs.some((d) => d.from === issued.issued[0].number && d.to === issued.issued[0].number),
+    "the sender's separately numbered branch-transfer series is in Table 13"
+  )
 
   const senderGstr3b = await h.invoke('gst:gstr3b', { from, to, period, registrationId: mhReg.id })
   assertEq(senderGstr3b.outward.igst, 7200, "and it is 3.1(a) output tax in the sender's 3B")
@@ -170,7 +175,10 @@ await scenario('52-branch-transfer', async (h) => {
   // ---- 6. and it is on the screen ----
   await h.goto('disclosure')
   await h.click('tab-disclosure-branch')
-  await h.waitIdle()
+  // The branch tab owns its own React Query. The parent screen's data-loading flag is already
+  // false before this lazy tab mounts, so waitIdle() can return while the register is still in its
+  // loading/empty render. Wait for the durable business result instead of racing the query.
+  await h.page.waitForSelector('[data-testid="rows-bt-issued"] tr', { timeout: 15000 })
   const issuedRows = await h.page.locator('[data-testid="rows-bt-issued"] tr').count()
   assertEq(issuedRows, 1, 'the Branch transfers tab lists the invoice it raised')
   await h.shot('52-branch-transfers')

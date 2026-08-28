@@ -46,7 +46,7 @@ import type { OpenedCompany } from './companyDb'
 
 const WRITE_TOOL = 'post_voucher'
 
-export function buildServer(company: OpenedCompany): Server {
+export function buildServer(company: OpenedCompany, opts: { now?: () => number } = {}): Server {
   const server = new Server(
     { name: 'total-books', version: '1' },
     { capabilities: { tools: {}, resources: {} } }
@@ -68,7 +68,7 @@ export function buildServer(company: OpenedCompany): Server {
 
   // Per server process, which is per connected agent: one agent's backfill must not spend
   // another's budget.
-  const writeBudget = new TokenBucket(MCP_WRITE_LIMIT)
+  const writeBudget = new TokenBucket(MCP_WRITE_LIMIT, opts.now)
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: [

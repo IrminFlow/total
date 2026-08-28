@@ -2367,5 +2367,148 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_isd_invoices_month ON isd_invoices(month);
   CREATE INDEX idx_isd_invoices_recipient ON isd_invoices(recipient_registration_id);
+  `,
+
+  // 56 — employee last working day.
+  //
+  // The pay-cycle engine has always understood both ends of an employment period, but the
+  // employee master stored only the joining date. A weekly/fortnightly employee leaving during a
+  // cycle was consequently paid to the end of that cycle, and a monthly run had no durable fact
+  // with which to cap the final month's attendance. Nullable keeps every existing employee active
+  // indefinitely and preserves all historical reads.
+  `
+  ALTER TABLE employees ADD COLUMN left_on TEXT;
+  `,
+
+  // 57 — durable outward-return snapshot headers and IFF provenance.
+  //
+  // A document row alone cannot prove that an empty return/IFF was filed: COUNT(*) = 0 looks the
+  // same as "never snapshotted", so re-recording an ARN after entering a late invoice could
+  // silently rewrite history. The header makes filing itself durable, including nil filings.
+  //
+  // IFF is also a filing surface in its own right. Records furnished in M1/M2 are not furnished
+  // again in the quarter's GSTR-1, and a missed M1 invoice may legitimately be furnished in M2.
+  // Provenance on each document lets the quarter exclude IFF records without losing the period
+  // in which the portal first saw them.
+  `
+  CREATE TABLE gst_outward_snapshot_headers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    form TEXT NOT NULL CHECK (form IN ('GSTR-1','IFF')),
+    filing_period TEXT NOT NULL,
+    portal_period TEXT NOT NULL,
+    from_date TEXT NOT NULL,
+    to_date TEXT NOT NULL,
+    registration_id INTEGER REFERENCES gst_registrations(id),
+    filed_at TEXT NOT NULL,
+    UNIQUE (form, filing_period, registration_id)
+  );
+  CREATE INDEX idx_gst_outward_snapshot_headers_portal
+    ON gst_outward_snapshot_headers(portal_period, registration_id);
+
+  ALTER TABLE gstr1_filed_documents ADD COLUMN source_form TEXT NOT NULL DEFAULT 'GSTR-1';
+  ALTER TABLE gstr1_filed_documents ADD COLUMN filing_period TEXT;
+  `,
+
+  // 58 — deductor TAN on a party ledger.
+  //
+  // GSTIN and PAN do not identify the TAN under which a customer files TDS. Form 26AS names TAN
+  // as its stable deductor key, so borrowing it back from a statement by fuzzy party name made a
+  // short-deduction match depend on spelling. Nullable preserves every existing party; once the
+  // TAN is entered from Form 16A/26AS, later reconciliations use the durable identifier.
+  `
+  ALTER TABLE ledgers ADD COLUMN tan TEXT;
+  `,
+
+  // 59 — GSTR-6 source invoice detail and tax-head lineage.
+  //
+  // GSTN's Table 3 requires invoice value, place of supply and one row per GST rate. The portal's
+  // distribution object also names the incoming and outgoing head separately (iamti/iamtc/iamts,
+  // camtc/camti, samts/samti), which cannot be reconstructed from a recipient's final aggregate
+  // after CGST+SGST has converted to IGST. Preserve those facts at issue time.
+  `
+  ALTER TABLE isd_credits ADD COLUMN invoice_value INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE isd_credits ADD COLUMN place_of_supply TEXT NOT NULL DEFAULT '';
+
+  UPDATE isd_credits
+  SET invoice_value = taxable + igst + cgst + sgst + cess,
+      place_of_supply = COALESCE(NULLIF(substr(supplier_gstin, 1, 2), ''),
+        (SELECT state_code FROM gst_registrations r WHERE r.id = isd_credits.registration_id));
+
+  CREATE TABLE isd_credit_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    isd_credit_id INTEGER NOT NULL REFERENCES isd_credits(id) ON DELETE CASCADE,
+    line_number INTEGER NOT NULL,
+    rate_bps INTEGER NOT NULL CHECK (rate_bps >= 0),
+    taxable INTEGER NOT NULL CHECK (taxable >= 0),
+    igst INTEGER NOT NULL DEFAULT 0 CHECK (igst >= 0),
+    cgst INTEGER NOT NULL DEFAULT 0 CHECK (cgst >= 0),
+    sgst INTEGER NOT NULL DEFAULT 0 CHECK (sgst >= 0),
+    cess INTEGER NOT NULL DEFAULT 0 CHECK (cess >= 0),
+    UNIQUE (isd_credit_id, line_number)
+  );
+  CREATE INDEX idx_isd_credit_items_credit ON isd_credit_items(isd_credit_id);
+
+  INSERT INTO isd_credit_items
+    (isd_credit_id, line_number, rate_bps, taxable, igst, cgst, sgst, cess)
+  SELECT id, 1, 0, taxable, igst, cgst, sgst, cess FROM isd_credits;
+
+  CREATE TABLE isd_invoice_lineage (
+    isd_invoice_id INTEGER NOT NULL REFERENCES isd_invoices(id) ON DELETE CASCADE,
+    isd_credit_id INTEGER NOT NULL REFERENCES isd_credits(id),
+    eligibility TEXT NOT NULL CHECK (eligibility IN ('eligible','ineligible')),
+    iamti INTEGER NOT NULL DEFAULT 0,
+    iamtc INTEGER NOT NULL DEFAULT 0,
+    iamts INTEGER NOT NULL DEFAULT 0,
+    camtc INTEGER NOT NULL DEFAULT 0,
+    camti INTEGER NOT NULL DEFAULT 0,
+    samts INTEGER NOT NULL DEFAULT 0,
+    samti INTEGER NOT NULL DEFAULT 0,
+    csamt INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (isd_invoice_id, isd_credit_id)
+  );
+  CREATE INDEX idx_isd_invoice_lineage_invoice ON isd_invoice_lineage(isd_invoice_id);
+  `,
+
+  // 60 — current ITC-04 utility facts and the complete job-worker chain.
+  //
+  // GSTN's v2.15 workbook requires SEZ/non-SEZ and cess on Table 4, identifies the worker who
+  // actually returns/supplies the goods in Tables 5A/5B/5C, and carries loss/waste UQC+quantity
+  // on the same form row. An onward move must also retain its destination and whether it travelled
+  // on the endorsed original challan or a fresh challan, without resetting section 143's clock.
+  `
+  ALTER TABLE job_work_challans ADD COLUMN job_worker_is_sez INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE job_work_challans ADD COLUMN cess_paise INTEGER NOT NULL DEFAULT 0;
+
+  ALTER TABLE job_work_returns ADD COLUMN source_job_worker_ledger_id INTEGER REFERENCES ledgers(id);
+  ALTER TABLE job_work_returns ADD COLUMN source_job_worker_gstin TEXT;
+  ALTER TABLE job_work_returns ADD COLUMN source_job_worker_state_code TEXT;
+  ALTER TABLE job_work_returns ADD COLUMN source_job_worker_is_sez INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE job_work_returns ADD COLUMN destination_job_worker_ledger_id INTEGER REFERENCES ledgers(id);
+  ALTER TABLE job_work_returns ADD COLUMN destination_job_worker_gstin TEXT;
+  ALTER TABLE job_work_returns ADD COLUMN destination_job_worker_state_code TEXT;
+  ALTER TABLE job_work_returns ADD COLUMN destination_job_worker_is_sez INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE job_work_returns ADD COLUMN onward_challan_provenance TEXT
+    CHECK (onward_challan_provenance IN ('endorsed_original','fresh'));
+  ALTER TABLE job_work_returns ADD COLUMN loss_waste_uqc TEXT;
+  ALTER TABLE job_work_returns ADD COLUMN loss_waste_qty_milli INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE job_work_returns ADD COLUMN from_godown_id INTEGER REFERENCES godowns(id);
+
+  -- Every legacy receipt was recorded only against the first worker, so that worker is the only
+  -- honest source identity to preserve. Legacy waste was its own disposition; translate its
+  -- quantity into the current same-row loss/waste fields without changing the old discriminator.
+  UPDATE job_work_returns
+  SET source_job_worker_ledger_id = (
+        SELECT c.job_worker_ledger_id FROM job_work_challans c WHERE c.id = job_work_returns.challan_id
+      ),
+      source_job_worker_gstin = (
+        SELECT c.job_worker_gstin FROM job_work_challans c WHERE c.id = job_work_returns.challan_id
+      ),
+      source_job_worker_state_code = (
+        SELECT c.job_worker_state_code FROM job_work_challans c WHERE c.id = job_work_returns.challan_id
+      ),
+      loss_waste_uqc = CASE WHEN disposition = 'waste_and_scrap' THEN (
+        SELECT c.uqc FROM job_work_challans c WHERE c.id = job_work_returns.challan_id
+      ) ELSE NULL END,
+      loss_waste_qty_milli = CASE WHEN disposition = 'waste_and_scrap' THEN qty_milli ELSE 0 END;
   `
 ]

@@ -33,10 +33,10 @@ import type {
 } from '@shared/gst/registrations'
 import type { Rule28Basis } from '@shared/gst/branchTransfer'
 import type {
-  CreditHeads, DistributionResult, Gstr6Working, IsdCredit, IsdRecipient, RelevantPeriod
+  CreditHeads, DistributionResult, Gstr6Working, IsdCredit, IsdCreditItem, IsdRecipient, RelevantPeriod
 } from '@shared/gst/isd'
 import type { Recon2bResult } from '@shared/gst/recon2b'
-import type { ImsAction, ImsWorklist } from '@shared/gst/ims'
+import type { ImsAction, ImsDocumentKind, ImsWorklist } from '@shared/gst/ims'
 import type { AmendmentWindow, Gstr1aResult } from '@shared/gst/gstr1a'
 import type { GstSlabSet } from '@shared/gst/slabs'
 import type { TdsFormCode, TdsReturnIssue, TdsReturnWorking } from '@shared/tdsReturn'
@@ -739,6 +739,7 @@ export interface PriceCartInput {
   date?: string
   partyLedgerId?: number | null
   pricingMode?: PricingMode
+  gstRegistrationId?: number | null
 }
 
 export interface CounterCart extends Omit<CartTotals, 'lines'> {
@@ -816,6 +817,7 @@ export interface ReturnableSale {
   date: string
   totalPaise: number
   customerName: string | null
+  gstRegistrationId: number | null
   lines: { stockItemId: number; name: string; qtyMilli: number; ratePaise: number }[]
 }
 
@@ -952,10 +954,25 @@ export interface JobWorkReturnRow {
   disposition: JobWorkDisposition
   invoiceVoucherId: number | null
   invoiceNumber: string | null
+  invoiceDate: string | null
   notes: string | null
   /** The stock journal that took the goods back out of the job worker's godown (#127). */
   voucherId: number | null
   toGodownId: number | null
+  fromGodownId: number | null
+  sourceJobWorkerLedgerId: number | null
+  sourceJobWorkerName: string | null
+  sourceJobWorkerGstin: string | null
+  sourceJobWorkerStateCode: string
+  sourceJobWorkerIsSez: boolean
+  destinationJobWorkerLedgerId: number | null
+  destinationJobWorkerName: string | null
+  destinationJobWorkerGstin: string | null
+  destinationJobWorkerStateCode: string | null
+  destinationJobWorkerIsSez: boolean
+  onwardChallanProvenance: 'endorsed_original' | 'fresh' | null
+  lossWasteUqc: string | null
+  lossWasteQtyMilli: number
 }
 
 export interface JobWorkChallan {
@@ -966,6 +983,7 @@ export interface JobWorkChallan {
   jobWorkerName: string | null
   jobWorkerGstin: string | null
   jobWorkerStateCode: string
+  jobWorkerIsSez: boolean
   goodsType: JobWorkGoodsType
   stockItemId: number | null
   description: string
@@ -974,6 +992,7 @@ export interface JobWorkChallan {
   uqc: string
   taxablePaise: number
   gstRate: number
+  cessPaise: number
   mouldsDiesJigsTools: boolean
   receivedByJobWorkerOn: string | null
   extendedDueBackBy: string | null
@@ -997,6 +1016,7 @@ export interface JobWorkChallanInput {
   jobWorkerLedgerId?: number | null
   jobWorkerGstin?: string | null
   jobWorkerStateCode?: string | null
+  jobWorkerIsSez?: boolean
   goodsType: JobWorkGoodsType
   stockItemId?: number | null
   description: string
@@ -1005,6 +1025,7 @@ export interface JobWorkChallanInput {
   uqc?: string
   taxablePaise?: number
   gstRate?: number
+  cessPaise?: number
   mouldsDiesJigsTools?: boolean
   receivedByJobWorkerOn?: string | null
   extendedDueBackBy?: string | null
@@ -1024,6 +1045,17 @@ export interface JobWorkReturnInput {
   notes?: string | null
   /** Where the goods come back TO. Null is unallocated stock. Waste never comes back at all. */
   toGodownId?: number | null
+  sourceJobWorkerLedgerId?: number | null
+  sourceJobWorkerGstin?: string | null
+  sourceJobWorkerStateCode?: string | null
+  sourceJobWorkerIsSez?: boolean
+  destinationJobWorkerLedgerId?: number | null
+  destinationJobWorkerGstin?: string | null
+  destinationJobWorkerStateCode?: string | null
+  destinationJobWorkerIsSez?: boolean
+  onwardChallanProvenance?: 'endorsed_original' | 'fresh' | null
+  lossWasteUqc?: string | null
+  lossWasteQtyMilli?: number
 }
 
 export interface JobWorkClockRow extends DeemedSupplyRow {
@@ -1938,6 +1970,9 @@ export interface IsdCreditInput {
   invoiceNumber: string
   description: string | null
   taxable: number
+  invoiceValue: number
+  placeOfSupply: string
+  items: IsdCreditItem[]
   igst: number
   cgst: number
   sgst: number
@@ -2054,7 +2089,7 @@ export interface Book26asEntryRow {
   ledgerName: string
   deductorName: string | null
   deductorTan: string | null
-  tanSource: 'statement' | null
+  tanSource: 'master' | 'statement' | null
   section: string
   date: string
   amountPaise: number
@@ -3032,9 +3067,12 @@ export const api = {
 
   /** Reverse-charge self-invoices (roadmap #356). */
   rcm: {
-    register: (from: string, to: string) => call<RcmRegister>('rcm:register', { from, to }),
-    issue: (from: string, to: string, consolidate: boolean, voucherIds?: number[]) =>
-      call<{ issued: SelfInvoiceRecord[]; skipped: number[] }>('rcm:issue', { from, to, consolidate, voucherIds }),
+    register: (from: string, to: string, registrationId?: number | null) =>
+      call<RcmRegister>('rcm:register', { from, to, registrationId }),
+    issue: (from: string, to: string, consolidate: boolean, voucherIds?: number[], registrationId?: number | null) =>
+      call<{ issued: SelfInvoiceRecord[]; skipped: number[] }>(
+        'rcm:issue', { from, to, consolidate, voucherIds, registrationId }
+      ),
     remove: (id: number) => call<null>('rcm:delete', { id }),
     pdf: (id: number) => call<{ path: string }>('rcm:pdf', { id })
   },
@@ -3081,8 +3119,8 @@ export const api = {
   ims: {
     worklist: (jsonText: string, from: string, to: string) =>
       call<{ worklist: ImsWorklist; errors: string[]; recon: Recon2bResult }>('ims:worklist', { jsonText, from, to }),
-    decide: (docKey: string, period: string, action: ImsAction, note: string | null) =>
-      call<ImsAction>('ims:decide', { docKey, period, action, note }),
+    decide: (docKey: string, period: string, documentKind: ImsDocumentKind, action: ImsAction, note: string | null) =>
+      call<ImsAction>('ims:decide', { docKey, period, documentKind, action, note }),
     clear: (docKey: string) => call<null>('ims:clear', { docKey }),
     acceptMatched: (jsonText: string, from: string, to: string) =>
       call<{ accepted: number }>('ims:acceptMatched', { jsonText, from, to })

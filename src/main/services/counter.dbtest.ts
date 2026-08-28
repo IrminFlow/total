@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { seededDb, TEST_INFO } from '../db/testdb'
 import { createLedger, createStockItem, createUnit } from './masters'
-import { saveVoucher, getVoucher } from './vouchers'
+import { saveVoucher, getVoucher, deleteVoucher } from './vouchers'
 import {
   closeDrawer,
   findSaleForReturn,
@@ -16,6 +16,11 @@ import {
   saveScheme,
   sessionSummary
 } from './counter'
+import { writeCompanyInfo } from '../db/seed'
+import { gstScope, listRegistrations, saveRegistration } from './registrations'
+
+const MH = '27AAAPA1234A1ZT'
+const GJ = '24AAAPA1234A1ZZ'
 
 type Db = ReturnType<typeof seededDb>
 
@@ -189,6 +194,43 @@ describe('ringing up a sale', () => {
     expect(after).toBeGreaterThan(before)
   })
 
+  it('prices and stamps the sale for the selected GST registration', () => {
+    const { db, widget, buyer } = books()
+    writeCompanyInfo(db, { ...TEST_INFO, gstin: MH, stateCode: '27' })
+    const gj = saveRegistration(db, {
+      gstin: GJ, stateCode: '24', tradeName: 'Gujarat counter', address: 'Surat',
+      registeredOn: null, surrenderedOn: null
+    }).id
+    const mh = listRegistrations(db).find((r) => r.id !== gj)!.id
+    const info = { ...TEST_INFO, gstin: MH, stateCode: '27' }
+    const gjScope = gstScope(db, info, gj)
+    const mhScope = gstScope(db, info, mh)
+    const lines = [{ stockItemId: widget, qtyMilli: 1000, ratePaise: 11800 }]
+
+    expect(priceCounterCart(db, mhScope, { lines, partyLedgerId: buyer }).supply).toBe('intra')
+    const gujaratCart = priceCounterCart(db, gjScope, { lines, partyLedgerId: buyer, gstRegistrationId: gj })
+    expect(gujaratCart.supply).toBe('inter')
+    expect(gujaratCart.gst.igst).toBeGreaterThan(0)
+    expect(gujaratCart.gst.cgst + gujaratCart.gst.sgst).toBe(0)
+
+    const sale = saveCounterSale(db, gjScope, {
+      lines,
+      tenders: [{ mode: 'cash', amountPaise: gujaratCart.payablePaise }],
+      date: '2025-04-02',
+      partyLedgerId: buyer,
+      gstRegistrationId: gj
+    })
+    const voucher = getVoucher(db, sale.voucherId)!
+    expect(voucher.gstRegistrationId).toBe(gj)
+    const taxLines = db.prepare(
+      `SELECT l.tax_type AS taxType, vl.amount FROM voucher_lines vl
+       JOIN ledgers l ON l.id = vl.ledger_id WHERE vl.voucher_id = ? AND l.tax_type IS NOT NULL`
+    ).all(sale.voucherId) as { taxType: string; amount: number }[]
+    expect(taxLines.find((l) => l.taxType === 'igst')?.amount).toBeGreaterThan(0)
+    expect(taxLines.some((l) => l.taxType === 'cgst' || l.taxType === 'sgst')).toBe(false)
+    expect(findSaleForReturn(db, sale.number)!.gstRegistrationId).toBe(gj)
+  })
+
   it('moves the stock out', () => {
     const { db, widget } = books()
     saveCounterSale(db, TEST_INFO, {
@@ -314,6 +356,27 @@ describe('the drawer', () => {
     const summary = sessionSummary(db, session.id)
     expect(summary.drawer.expectedPaise).toBe(0)
     expect(summary.byMode.find((m) => m.mode === 'card')!.amountPaise).toBe(11800)
+  })
+
+  it('removes a binned counter voucher from every till-session total', () => {
+    const { db, widget } = books()
+    const session = openDrawer(db, { openedOn: '2025-04-02', openingFloatPaise: 2_00_000 })
+    const sale = saveCounterSale(db, TEST_INFO, {
+      lines: [{ stockItemId: widget, qtyMilli: 1000, ratePaise: 11800 }],
+      tenders: [{ mode: 'cash', amountPaise: 20000 }],
+      date: '2025-04-02'
+    })
+    expect(sessionSummary(db, session.id)).toMatchObject({ sales: 1, turnoverPaise: 11800 })
+
+    deleteVoucher(db, sale.voucherId)
+
+    const summary = sessionSummary(db, session.id)
+    expect(summary.sales).toBe(0)
+    expect(summary.returns).toBe(0)
+    expect(summary.turnoverPaise).toBe(0)
+    expect(summary.byMode).toEqual([])
+    expect(summary.drawer.cashSalesPaise).toBe(0)
+    expect(summary.drawer.expectedPaise).toBe(2_00_000)
   })
 
   it('counts a payout out of the expected balance', () => {

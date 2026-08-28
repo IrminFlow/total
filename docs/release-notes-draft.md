@@ -1,0 +1,53 @@
+# Release notes draft — next Total release
+
+This is a draft for the immutable release commit. Replace the version/date and remove no caveat
+without recorded external validation.
+
+## What is new
+
+- Physical-stock counts now reconcile company and godown quantities and values across transfers,
+  later movements, negative stock and every supported valuation method.
+- Multi-GSTIN books now scope reverse charge, counter sales, branch transfers, filing activity and
+  ISD work to the selected registration.
+- Payroll handles leaving dates and mid-cycle leavers; QRMP/IFF retains furnishing provenance and
+  correctly excludes invoices already furnished through IFF.
+- GSTR-1 amendment validation, GSTR-6/ISD working, ITC-04 job-work chains, Form 26AS reconciliation,
+  Forms 138/140 and IMS availability rules have dated statutory validation and expanded tests.
+- Renderer accessibility, query invalidation, deleted-voucher filtering, AI/MCP read boundaries,
+  migrations and large-book memory behavior received dedicated regression coverage.
+
+## Verification
+
+On macOS, the release candidate passes 2,323 pure tests, 1,348 Electron/SQLite tests, 196 renderer
+tests, type checking, build, bundle budgets, smoke, a 33-route site build, 54/54 real-Electron E2E
+scenarios without retry, and a 72-screen light/dark visual comparison. Computer Use independently
+walked onboarding, demo creation, voucher/dirty-state recovery, reports, GST and Settings. Replace
+this paragraph with immutable-commit macOS and Windows CI links before publishing.
+
+## Important statutory and platform limits
+
+- Direct NIC e-invoice/e-way filing remains experimental until recorded sandbox validation with
+  authorized NIC/GSP credentials. JSON generation and offline checks are not portal acceptance.
+- GSTR-6 portal-file export remains disabled. The latest official schema located in the audit is a
+  2020 Draft; the app provides a complete working/preview but does not claim current portal validity.
+- ITC-04 direct portal export remains disabled. The v2.15 preview matches the pinned official
+  workbook fields, but requires Windows Excel utility and signed-in GST portal acceptance.
+- Form 138/140 files retain the `.unverified.txt` suffix until an app-generated statement passes
+  Protean FVU 1.2 with the TAN holder's authenticated CSI. Form 138 Q4 is not emitted because
+  Protean still marks that format “Expected soon.”
+- IMS is an offline reconciliation worksheet. It does not submit Accept/Reject/Pending actions to
+  GSTN.
+- PIN-to-PIN e-way distance is an approximate suggestion and is never written without a separate
+  user acceptance. NIC/portal distance remains authoritative.
+- Electron stays pinned to 37.10.3. A reproducible Playwright/CDP regression begins in Electron 38
+  and remains present through the latest 42 patch tested; accepting a later runtime requires the
+  native-input reproducer plus full macOS/Windows E2E.
+- Physical 58/80 mm thermal, ESC/P dot-matrix and Windows 1366×768 checks remain release gates until
+  the target hardware is supplied. Signing, notarization and updater verification require the
+  owner-managed Apple and Windows certificates.
+
+## Data safety
+
+Total remains offline-first, keeps one SQLite database per company under the configured data
+folder, preserves backups and exports in read-only licence states, and never stores derived report
+balances. Back up the data folder before installing any release candidate.

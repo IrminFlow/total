@@ -742,7 +742,7 @@ export function Modal({
         aria-labelledby={titleId}
         data-modal={title}
         tabIndex={-1}
-        className={`max-h-[75vh] w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-lg border border-line bg-panel shadow-2xl outline-none`}
+        className={`max-h-[80vh] w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} overflow-auto rounded-lg border border-line bg-panel shadow-2xl outline-none`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <h3 id={titleId} className="font-serif text-section font-semibold">

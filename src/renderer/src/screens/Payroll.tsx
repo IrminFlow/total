@@ -149,6 +149,9 @@ function EmployeesTab(): React.JSX.Element {
                   <td>
                     {e.name}
                     {!e.active && <span className="ml-2 text-caption text-muted">inactive</span>}
+                    {e.leftOn && (
+                      <span className="ml-2 text-caption text-muted">last day {toDisplayDate(e.leftOn)}</span>
+                    )}
                   </td>
                   <td className="text-muted">{e.designation}</td>
                   <td className="r"><Money paise={e.basic} /></td>
@@ -203,7 +206,12 @@ function EmployeesTab(): React.JSX.Element {
       {headsOpen && <PayHeadsModal onClose={() => setHeadsOpen(false)} />}
       {overridesFor && <EmployeeHeadsModal employee={overridesFor} onClose={() => setOverridesFor(null)} />}
       {settling && (
-        <SettlementModal employeeId={settling.id} employeeName={settling.name} onClose={() => setSettling(null)} />
+        <SettlementModal
+          employeeId={settling.id}
+          employeeName={settling.name}
+          defaultLastDay={settling.leftOn}
+          onClose={() => setSettling(null)}
+        />
       )}
       {form16For && (
         <Form16Modal employeeId={form16For.id} employeeName={form16For.name} onClose={() => setForm16For(null)} />
@@ -230,6 +238,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
   const [ptEnabled, setPt] = useState(employee?.ptEnabled ?? true)
   const [active, setActive] = useState(employee?.active ?? true)
   const [joined, setJoined] = useState(employee?.joined ?? '')
+  const [leftOn, setLeftOn] = useState(employee?.leftOn ?? '')
   const [email, setEmail] = useState(employee?.email ?? '')
   const [phone, setPhone] = useState(employee?.phone ?? '')
   const [taxRegime, setTaxRegime] = useState<'new' | 'old'>(employee?.taxRegime ?? 'new')
@@ -244,6 +253,7 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
           code: code.trim() || null,
           designation: designation.trim() || null,
           joined: joined.trim() || null,
+          leftOn: leftOn.trim() || null,
           pan: pan.trim() || null,
           uan: uan.trim() || null,
           esicNo: employee?.esicNo ?? null,
@@ -329,13 +339,25 @@ function EmployeeModal({ employee, onClose }: { employee: Employee | null; onClo
             />
           </Field>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <Field label="Joined" hint="Gratuity cannot be computed without it">
             <TextInput
               type="date"
               data-testid="input-employee-joined"
               value={joined}
               onChange={(e) => setJoined(e.target.value)}
+            />
+          </Field>
+          <Field
+            label="Last working day"
+            hint="Inclusive — leave blank while employed"
+            error={joined && leftOn && leftOn < joined ? 'Cannot be before the joining date' : null}
+          >
+            <TextInput
+              type="date"
+              data-testid="input-employee-left-on"
+              value={leftOn}
+              onChange={(e) => setLeftOn(e.target.value)}
             />
           </Field>
           <Field label="Email" hint="Where the payslip goes">

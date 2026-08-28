@@ -46,9 +46,8 @@ import type { JobWorkDisposition, JobWorkGoodsType } from '@shared/gst/itc04'
  *
  * Nothing on this screen posts. Sending goods for job work is not a supply.
  *
- * Three statutory readings are marked `// VERIFY:` in `src/shared/gst/itc04.ts` and are repeated
- * IN THE INTERFACE below, not just in comments, because a user files from what this screen says:
- * Table 5B's limb, the periodicity notification's citation, and the anniversary-day boundary.
+ * The official-source audit is dated in `src/shared/gst/itc04.ts` and repeated in the interface.
+ * This is a working paper; it does not generate or claim a portal-ready file.
  */
 
 type Tab = 'challans' | 'itc04'
@@ -187,8 +186,8 @@ function Register(): React.JSX.Element {
           <p className="mt-2 text-micro text-muted">
             The day the goods are due back is read as the anniversary itself being still in time — goods
             sent on 10 April are within the year up to and including 10 April next year, and late on the
-            11th. That is a reading of &ldquo;within one year&rdquo;, not a departmental clarification;
-            challans sitting exactly on their anniversary are the ones to check by hand.
+            11th. Section 9 of the General Clauses Act excludes the first day and includes the last when
+            computing a period from an event.
           </p>
         </div>
       )}
@@ -318,11 +317,15 @@ function ChallanModal({
   onSaved: () => Promise<void>
 }): React.JSX.Element {
   const toast = useToasts()
+  const { info } = useSession()
   const { data: ledgers } = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers.list })
   const { data: items } = useQuery({ queryKey: ['stockItems'], queryFn: api.stockItems.list })
   const { data: godowns } = useQuery({ queryKey: ['godowns'], queryFn: api.godowns.list })
   const [date, setDate] = useState(challan?.date ?? todayISO())
   const [jobWorkerLedgerId, setJobWorkerLedgerId] = useState<number | ''>(challan?.jobWorkerLedgerId ?? '')
+  const [jobWorkerGstin, setJobWorkerGstin] = useState(challan?.jobWorkerGstin ?? '')
+  const [jobWorkerStateCode, setJobWorkerStateCode] = useState(challan?.jobWorkerStateCode ?? info?.stateCode ?? '')
+  const [jobWorkerIsSez, setJobWorkerIsSez] = useState(challan?.jobWorkerIsSez ?? false)
   const [goodsType, setGoodsType] = useState<JobWorkGoodsType>(challan?.goodsType ?? 'input')
   const [stockItemId, setStockItemId] = useState<number | ''>(challan?.stockItemId ?? '')
   const [description, setDescription] = useState(challan?.description ?? '')
@@ -331,6 +334,7 @@ function ChallanModal({
   const [uqc, setUqc] = useState(challan?.uqc ?? 'NOS')
   const [taxablePaise, setTaxablePaise] = useState(challan?.taxablePaise ?? 0)
   const [gstRate, setGstRate] = useState(challan?.gstRate ?? 18)
+  const [cessPaise, setCessPaise] = useState(challan?.cessPaise ?? 0)
   const [mould, setMould] = useState(challan?.mouldsDiesJigsTools ?? false)
   const [receivedOn, setReceivedOn] = useState(challan?.receivedByJobWorkerOn ?? '')
   const [extended, setExtended] = useState(challan?.extendedDueBackBy ?? '')
@@ -341,6 +345,9 @@ function ChallanModal({
     const payload: JobWorkChallanInput = {
       date,
       jobWorkerLedgerId: jobWorkerLedgerId === '' ? null : jobWorkerLedgerId,
+      jobWorkerGstin: jobWorkerGstin.trim() || null,
+      jobWorkerStateCode: jobWorkerStateCode.trim() || null,
+      jobWorkerIsSez,
       goodsType,
       stockItemId: stockItemId === '' ? null : stockItemId,
       description: description.trim(),
@@ -349,6 +356,7 @@ function ChallanModal({
       uqc: uqc.trim() || 'NOS',
       taxablePaise,
       gstRate,
+      cessPaise,
       mouldsDiesJigsTools: mould,
       receivedByJobWorkerOn: receivedOn || null,
       extendedDueBackBy: extended || null,
@@ -380,7 +388,15 @@ function ChallanModal({
           <Select
             data-testid="select-jobwork-worker"
             value={jobWorkerLedgerId}
-            onChange={(e) => setJobWorkerLedgerId(e.target.value ? Number(e.target.value) : '')}
+            onChange={(e) => {
+              const id = e.target.value ? Number(e.target.value) : ''
+              setJobWorkerLedgerId(id)
+              const ledger = (ledgers ?? []).find((l) => l.id === id)
+              if (ledger) {
+                setJobWorkerGstin(ledger.gstin ?? '')
+                setJobWorkerStateCode(ledger.stateCode ?? ledger.gstin?.slice(0, 2) ?? info?.stateCode ?? '')
+              }
+            }}
           >
             <option value="">Unregistered / not a ledger</option>
             {(ledgers ?? []).map((l) => (
@@ -423,6 +439,37 @@ function ChallanModal({
             ))}
           </Select>
         </Field>
+      </div>
+
+      <div className="mt-3 grid grid-cols-4 gap-3">
+        <Field label="Job worker GSTIN" hint="Blank for an unregistered job worker">
+          <TextInput
+            data-testid="input-jobwork-worker-gstin"
+            value={jobWorkerGstin}
+            onChange={(e) => {
+              const value = e.target.value.toUpperCase()
+              setJobWorkerGstin(value)
+              if (value.length >= 2) setJobWorkerStateCode(value.slice(0, 2))
+            }}
+          />
+        </Field>
+        <Field label="Job worker state" hint="Required when GSTIN is blank">
+          <TextInput
+            data-testid="input-jobwork-worker-state"
+            value={jobWorkerStateCode}
+            maxLength={2}
+            onChange={(e) => setJobWorkerStateCode(e.target.value.replace(/\D/g, '').slice(0, 2))}
+          />
+        </Field>
+        <label className="flex items-end gap-2 pb-2 text-body">
+          <input
+            type="checkbox"
+            data-testid="check-jobwork-worker-sez"
+            checked={jobWorkerIsSez}
+            onChange={(e) => setJobWorkerIsSez(e.target.checked)}
+          />
+          SEZ job worker
+        </label>
       </div>
 
       <div className="mt-3 grid grid-cols-5 gap-3">
@@ -498,7 +545,7 @@ function ChallanModal({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-4 gap-3">
+      <div className="mt-3 grid grid-cols-5 gap-3">
         <Field label="Value of the goods" hint="What is at stake if they do not come back">
           <AmountInput testId="input-jobwork-value" paise={taxablePaise} onPaise={(p) => setTaxablePaise(p ?? 0)} />
         </Field>
@@ -509,6 +556,9 @@ function ChallanModal({
             value={String(gstRate)}
             onChange={(e) => setGstRate(Number(e.target.value) || 0)}
           />
+        </Field>
+        <Field label="Cess" hint="Compensation cess shown on Table 4">
+          <AmountInput testId="input-jobwork-cess" paise={cessPaise} onPaise={(p) => setCessPaise(p ?? 0)} />
         </Field>
         <Field
           label="Received by him on"
@@ -582,10 +632,43 @@ function ReceiptModal({
   const [disposition, setDisposition] = useState<JobWorkDisposition>('returned')
   const [notes, setNotes] = useState('')
   const [toGodownId, setToGodownId] = useState<number | ''>('')
+  const [sourceLedgerId, setSourceLedgerId] = useState<number | ''>(challan.jobWorkerLedgerId ?? '')
+  const [sourceGstin, setSourceGstin] = useState(challan.jobWorkerGstin ?? '')
+  const [sourceState, setSourceState] = useState(challan.jobWorkerStateCode)
+  const [sourceIsSez, setSourceIsSez] = useState(challan.jobWorkerIsSez)
+  const [destinationLedgerId, setDestinationLedgerId] = useState<number | ''>('')
+  const [destinationGstin, setDestinationGstin] = useState('')
+  const [destinationState, setDestinationState] = useState('')
+  const [destinationIsSez, setDestinationIsSez] = useState(false)
+  const [provenance, setProvenance] = useState<'endorsed_original' | 'fresh'>('endorsed_original')
+  const [lossWasteQtyMilli, setLossWasteQtyMilli] = useState(0)
+  const [lossWasteUqc, setLossWasteUqc] = useState(challan.uqc)
+  const [invoiceVoucherId, setInvoiceVoucherId] = useState<number | ''>('')
   const { data: godowns } = useQuery({ queryKey: ['godowns'], queryFn: api.godowns.list })
+  const { data: ledgers } = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers.list })
+  const { data: vouchers } = useQuery({
+    queryKey: ['jobWorkSalesInvoices', challan.date],
+    queryFn: () => api.vouchers.list(challan.date, todayISO())
+  })
+  const salesInvoices = (vouchers ?? []).filter((v) => v.kind === 'sales')
   const chosen = DISPOSITIONS.find((d) => d.value === disposition) as (typeof DISPOSITIONS)[number]
-  /** Waste does not come back at all — section 143(5). So there is nowhere to put it. */
-  const comesBack = disposition !== 'waste_and_scrap'
+  const returnsToPrincipal = disposition === 'returned' || disposition === 'supplied_from_job_worker_premises'
+
+  const applyWorker = (
+    id: number | '',
+    setters: {
+      ledger: (value: number | '') => void
+      gstin: (value: string) => void
+      state: (value: string) => void
+    }
+  ): void => {
+    setters.ledger(id)
+    const ledger = (ledgers ?? []).find((l) => l.id === id)
+    if (ledger) {
+      setters.gstin(ledger.gstin ?? '')
+      setters.state(ledger.stateCode ?? ledger.gstin?.slice(0, 2) ?? '')
+    }
+  }
 
   const submit = async (): Promise<void> => {
     const payload: JobWorkReturnInput = {
@@ -594,13 +677,30 @@ function ReceiptModal({
       number: number.trim() || null,
       qtyMilli,
       disposition,
+      invoiceVoucherId: invoiceVoucherId === '' ? null : invoiceVoucherId,
       notes: notes.trim() || null,
-      toGodownId: comesBack && toGodownId !== '' ? toGodownId : null
+      toGodownId: returnsToPrincipal && toGodownId !== '' ? toGodownId : null,
+      sourceJobWorkerLedgerId: sourceLedgerId === '' ? null : sourceLedgerId,
+      sourceJobWorkerGstin: sourceGstin.trim() || null,
+      sourceJobWorkerStateCode: sourceState.trim() || null,
+      sourceJobWorkerIsSez: sourceIsSez,
+      destinationJobWorkerLedgerId: destinationLedgerId === '' ? null : destinationLedgerId,
+      destinationJobWorkerGstin: destinationGstin.trim() || null,
+      destinationJobWorkerStateCode: destinationState.trim() || null,
+      destinationJobWorkerIsSez: destinationIsSez,
+      onwardChallanProvenance: disposition === 'sent_to_other_job_worker' ? provenance : null,
+      lossWasteUqc: lossWasteQtyMilli > 0 ? lossWasteUqc.trim().toUpperCase() : null,
+      lossWasteQtyMilli
     }
     try {
       await api.jobWork.saveReturn(payload)
       await onSaved()
-      toast.push('success', `${qty(qtyMilli)} ${challan.uqc} accounted for against ${challan.number}`)
+      toast.push(
+        'success',
+        disposition === 'sent_to_other_job_worker'
+          ? `${qty(qtyMilli)} ${challan.uqc} moved onward; ${challan.number}'s statutory clock is still running`
+          : `${qty(qtyMilli)} ${challan.uqc} accounted for against ${challan.number}`
+      )
       onClose()
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -635,7 +735,7 @@ function ReceiptModal({
             onChange={(e) => setDate(e.target.value)}
           />
         </Field>
-        <Field label="His challan number">
+        <Field label={disposition === 'sent_to_other_job_worker' ? 'Onward challan number' : 'Worker challan number'}>
           <TextInput data-testid="input-jwreturn-number" value={number} onChange={(e) => setNumber(e.target.value)} />
         </Field>
         <Field label="Quantity" hint={`At most ${qty(challan.balanceMilli)}`}>
@@ -652,13 +752,134 @@ function ReceiptModal({
             value={disposition}
             onChange={(e) => setDisposition(e.target.value as JobWorkDisposition)}
           >
-            {DISPOSITIONS.map((d) => (
+            {DISPOSITIONS.filter((d) => d.value !== 'waste_and_scrap').map((d) => (
               <option key={d.value} value={d.value}>
                 {d.label}
               </option>
             ))}
           </Select>
         </Field>
+      </div>
+
+      <div className="mt-3 grid grid-cols-4 gap-3">
+        <Field label="Returning / source worker">
+          <Select
+            data-testid="select-jwreturn-source-worker"
+            value={sourceLedgerId}
+            onChange={(e) => applyWorker(e.target.value ? Number(e.target.value) : '', {
+              ledger: setSourceLedgerId, gstin: setSourceGstin, state: setSourceState
+            })}
+          >
+            <option value="">Unregistered / not a ledger</option>
+            {(ledgers ?? []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </Select>
+        </Field>
+        <Field label="Source GSTIN" hint="Blank when unregistered">
+          <TextInput
+            data-testid="input-jwreturn-source-gstin"
+            value={sourceGstin}
+            onChange={(e) => {
+              const value = e.target.value.toUpperCase()
+              setSourceGstin(value)
+              if (value.length >= 2) setSourceState(value.slice(0, 2))
+            }}
+          />
+        </Field>
+        <Field label="Source state">
+          <TextInput
+            data-testid="input-jwreturn-source-state"
+            value={sourceState}
+            maxLength={2}
+            onChange={(e) => setSourceState(e.target.value.replace(/\D/g, '').slice(0, 2))}
+          />
+        </Field>
+        <label className="flex items-end gap-2 pb-2 text-body">
+          <input type="checkbox" data-testid="check-jwreturn-source-sez" checked={sourceIsSez} onChange={(e) => setSourceIsSez(e.target.checked)} />
+          Source is SEZ
+        </label>
+      </div>
+
+      {disposition === 'sent_to_other_job_worker' && (
+        <div className="mt-3 grid grid-cols-5 gap-3 rounded-md border border-line p-3">
+          <Field label="Destination worker">
+            <Select
+              data-testid="select-jwreturn-destination-worker"
+              value={destinationLedgerId}
+              onChange={(e) => applyWorker(e.target.value ? Number(e.target.value) : '', {
+                ledger: setDestinationLedgerId, gstin: setDestinationGstin, state: setDestinationState
+              })}
+            >
+              <option value="">Unregistered / not a ledger</option>
+              {(ledgers ?? []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Destination GSTIN">
+            <TextInput
+              data-testid="input-jwreturn-destination-gstin"
+              value={destinationGstin}
+              onChange={(e) => {
+                const value = e.target.value.toUpperCase()
+                setDestinationGstin(value)
+                if (value.length >= 2) setDestinationState(value.slice(0, 2))
+              }}
+            />
+          </Field>
+          <Field label="Destination state">
+            <TextInput
+              data-testid="input-jwreturn-destination-state"
+              value={destinationState}
+              maxLength={2}
+              onChange={(e) => setDestinationState(e.target.value.replace(/\D/g, '').slice(0, 2))}
+            />
+          </Field>
+          <Field label="Challan used">
+            <Select data-testid="select-jwreturn-provenance" value={provenance} onChange={(e) => setProvenance(e.target.value as typeof provenance)}>
+              <option value="endorsed_original">Endorsed original</option>
+              <option value="fresh">Fresh challan</option>
+            </Select>
+          </Field>
+          <label className="flex items-end gap-2 pb-2 text-body">
+            <input type="checkbox" data-testid="check-jwreturn-destination-sez" checked={destinationIsSez} onChange={(e) => setDestinationIsSez(e.target.checked)} />
+            Destination is SEZ
+          </label>
+        </div>
+      )}
+
+      <div className="mt-3 grid grid-cols-4 gap-3">
+        {disposition !== 'sent_to_other_job_worker' && (
+          <>
+            <Field label="Loss / waste quantity" hint="Reported on the same 5A/5B/5C row">
+              <TextInput
+                data-testid="input-jwreturn-loss-qty"
+                className="num text-right"
+                value={qty(lossWasteQtyMilli)}
+                onChange={(e) => setLossWasteQtyMilli(parseMilli(e.target.value) ?? 0)}
+              />
+            </Field>
+            <Field label="Loss / waste UQC">
+              <TextInput data-testid="input-jwreturn-loss-uqc" value={lossWasteUqc} onChange={(e) => setLossWasteUqc(e.target.value.toUpperCase())} />
+            </Field>
+          </>
+        )}
+        {disposition === 'supplied_from_job_worker_premises' && (
+          <div className="col-span-2">
+            <Field label="Principal sales invoice" hint="Required for exact Table 5C invoice number and date">
+              <Select
+                data-testid="select-jwreturn-invoice"
+                value={invoiceVoucherId}
+                onChange={(e) => {
+                  const id = e.target.value ? Number(e.target.value) : ''
+                  setInvoiceVoucherId(id)
+                  const invoice = salesInvoices.find((v) => v.id === id)
+                  if (invoice) setDate(invoice.date)
+                }}
+              >
+                <option value="">Choose a sales invoice</option>
+                {salesInvoices.map((v) => <option key={v.id} value={v.id}>{v.number} · {toDisplayDate(v.date)} · {v.account}</option>)}
+              </Select>
+            </Field>
+          </div>
+        )}
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-3">
@@ -669,12 +890,12 @@ function ReceiptModal({
         </div>
         <Field
           label="Received into"
-          hint={comesBack ? 'Where the goods go on your side' : 'Waste does not come back — section 143(5)'}
+          hint={returnsToPrincipal ? 'Where the goods go on your side' : 'An onward movement goes straight to the destination worker'}
         >
           <Select
             data-testid="select-jwreturn-to-godown"
-            value={comesBack ? toGodownId : ''}
-            disabled={!comesBack}
+            value={returnsToPrincipal ? toGodownId : ''}
+            disabled={!returnsToPrincipal}
             onChange={(e) => setToGodownId(e.target.value ? Number(e.target.value) : '')}
           >
             <option value="">Unallocated stock</option>
@@ -687,20 +908,10 @@ function ReceiptModal({
         </Field>
       </div>
 
-      {!comesBack && challan.stockItemId !== null && (
-        <p className="callout-warn mt-3 rounded-md p-2 text-micro">
-          Waste and scrap leaves the job worker&rsquo;s godown and does NOT come back into stock. Under
-          section 143(5) it may be supplied by the job worker directly on payment of tax, and it is not
-          on your shelf to count.
-        </p>
-      )}
-
       {disposition === 'sent_to_other_job_worker' && (
         <p className="callout-warn mt-3 rounded-md p-2 text-micro">
-          Goods moving from one job worker to the next are reported here in ITC-04 Table 5B. The notified
-          heading for 5B may in fact be a RECEIPT limb — goods received back from a job worker other than
-          the one they were sent to — in which case this movement belongs in Table 4 on the job worker&rsquo;s
-          own challan instead. Check the current form before filing this row.
+          This does not clear or restart the original section 143 clock. The goods move directly into
+          the destination worker&rsquo;s holding; a later return by that worker is reported in Table 5B.
         </p>
       )}
 
@@ -711,7 +922,7 @@ function ReceiptModal({
               <th scope="col" className="w-28">Date</th>
               <th scope="col" className="w-32">Number</th>
               <th scope="col" className="r w-24">Quantity</th>
-              <th scope="col">What happened</th>
+              <th scope="col">Worker / outcome</th>
               <th scope="col" className="r w-20" />
             </tr>
           </thead>
@@ -720,8 +931,19 @@ function ReceiptModal({
               <tr key={r.id}>
                 <td className="num text-muted">{toDisplayDate(r.date)}</td>
                 <td className="num">{r.number ?? '—'}</td>
-                <td className="r num">{qty(r.qtyMilli)}</td>
-                <td>{DISPOSITIONS.find((d) => d.value === r.disposition)?.label ?? r.disposition}</td>
+                <td className="r num">
+                  {qty(r.qtyMilli)}
+                  {r.lossWasteQtyMilli > 0 && <span className="block text-micro text-muted">loss {qty(r.lossWasteQtyMilli)} {r.lossWasteUqc}</span>}
+                </td>
+                <td>
+                  <span className="block">{r.sourceJobWorkerName ?? r.sourceJobWorkerGstin ?? `State ${r.sourceJobWorkerStateCode}`}</span>
+                  <span className="text-micro text-muted">
+                    {DISPOSITIONS.find((d) => d.value === r.disposition)?.label ?? r.disposition}
+                    {r.destinationJobWorkerName || r.destinationJobWorkerGstin
+                      ? ` → ${r.destinationJobWorkerName ?? r.destinationJobWorkerGstin}` : ''}
+                    {r.onwardChallanProvenance ? ` · ${r.onwardChallanProvenance === 'fresh' ? 'fresh challan' : 'endorsed original'}` : ''}
+                  </span>
+                </td>
                 <td className="r">
                   <RowAction tone="danger" onClick={() => void remove(r)}>
                     Delete
@@ -811,21 +1033,27 @@ function Itc04Tab(): React.JSX.Element {
         </Panel>
       </div>
 
-      <p className="text-micro text-muted">
-        {obligation.rule.note}{' '}
-        <span className="text-cr">
-          The notification number and effective date above were written from memory, not read from the
-          gazette — the ₹5 crore threshold and the 25 October / 25 April due dates are the confident part.
-          Confirm the citation before quoting it to anyone.
-        </span>
-      </p>
+      <p className="text-micro text-muted">{obligation.rule.note}</p>
+
+      <div className="callout-warn mt-3 rounded-md p-3" data-testid="panel-itc04-portal-audit">
+        <div className="text-lead font-semibold">Portal JSON is disabled.</div>
+        <p className="mt-1 text-body" data-testid="text-itc04-portal-audit">
+          Official-source audit {form.portalFile.auditedOn}: GSTN&rsquo;s manual was created{' '}
+          {form.portalFile.offlineToolManualCreatedOn}; the current official workbook downloaded{' '}
+          {form.portalFile.utilityDownloadedOn} is {form.portalFile.offlineToolVersionShown} (SHA-256{' '}
+          <span className="num">{form.portalFile.utilitySha256.slice(0, 12)}…</span>).
+        </p>
+        <ul className="mt-1 space-y-0.5 text-body" data-testid="list-itc04-portal-blockers">
+          {form.portalFile.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+        </ul>
+      </div>
 
       {form.nil && (
         <div className="callout-warn mt-3 rounded-md p-3" data-testid="panel-itc04-nil">
-          <div className="text-lead font-semibold">Nothing went out and nothing came back in {form.period.label}.</div>
+          <div className="text-lead font-semibold">No GSTN-ready table rows for {form.period.label}.</div>
           <p className="mt-1 text-body">
-            That is a <strong>nil ITC-04</strong>, not an absence of one. The return still has to be filed
-            by {toDisplayDate(form.period.dueDate)}.
+            GSTN&rsquo;s current offline utility says it cannot generate a nil JSON. Check the signed-in
+            portal and your actual filing obligation; Total does not create or upload a nil file.
           </p>
         </div>
       )}
@@ -854,10 +1082,9 @@ function Itc04Tab(): React.JSX.Element {
         rows={form.table5A}
       />
       <Itc04ReceivedTable
-        title="Table 5B — moved on to another job worker"
+        title="Table 5B — received back from a different job worker"
         testId="itc04-5b"
         rows={form.table5B}
-        caveat="The notified 5B heading may be a RECEIPT limb — goods received back from a job worker other than the one they were sent to — rather than the despatch shown here. The same movement, seen from the other end; there is a real chance the current form wants it in Table 4 on the job worker’s challan. Confirm before filing or exporting this table."
       />
       <Itc04ReceivedTable
         title="Table 5C — supplied straight from the job worker’s premises"
@@ -881,7 +1108,7 @@ function Itc04Tab(): React.JSX.Element {
 
       {form.issues.length > 0 && (
         <div className="callout-warn mt-4 rounded-md p-3" data-testid="panel-itc04-issues">
-          <div className="text-lead font-semibold">The portal will reject these rows as they stand.</div>
+          <div className="text-lead font-semibold">Resolve these statutory-data issues before preparing the form.</div>
           <ul className="mt-1 space-y-0.5 text-body">
             {form.issues.map((i, n) => (
               <li key={`${i.code}-${i.challanNumber}-${n}`}>{i.message}</li>
@@ -913,6 +1140,7 @@ function Itc04SentTable({ rows }: { rows: Itc04Working['form']['table4'] }): Rea
                 <th scope="col" className="w-16">UQC</th>
                 <th scope="col" className="r w-28">Value</th>
                 <th scope="col" className="r w-16">Rate</th>
+                <th scope="col" className="r w-24">Cess</th>
               </tr>
             </thead>
             <tbody data-testid="rows-itc04-4">
@@ -929,6 +1157,9 @@ function Itc04SentTable({ rows }: { rows: Itc04Working['form']['table4'] }): Rea
                     ) : (
                       <span className="num">{r.jobWorkerGstin}</span>
                     )}
+                    {r.jobWorkerIsSez && (
+                      <span className="ml-2 rounded-full bg-panel2 px-2 py-0.5 text-micro text-muted">SEZ</span>
+                    )}
                   </td>
                   <td className="num">{r.challanNumber}</td>
                   <td className="num text-muted">{toDisplayDate(r.challanDate)}</td>
@@ -941,6 +1172,7 @@ function Itc04SentTable({ rows }: { rows: Itc04Working['form']['table4'] }): Rea
                   <td>{r.uqc}</td>
                   <td className="r"><Money paise={r.taxableValuePaise} /></td>
                   <td className="r num">{r.gstRate}%</td>
+                  <td className="r"><Money paise={r.cessPaise} /></td>
                 </tr>
               ))}
             </tbody>
@@ -958,13 +1190,11 @@ function Itc04SentTable({ rows }: { rows: Itc04Working['form']['table4'] }): Rea
 function Itc04ReceivedTable({
   title,
   testId,
-  rows,
-  caveat
+  rows
 }: {
   title: string
   testId: string
   rows: Itc04Working['form']['table5A']
-  caveat?: string
 }): React.JSX.Element {
   return (
     <div className="mt-4">
@@ -982,11 +1212,14 @@ function Itc04ReceivedTable({
               <tr>
                 <th scope="col" className="w-24">Original</th>
                 <th scope="col" className="w-24">Dated</th>
-                <th scope="col" className="w-28">His challan</th>
+                <th scope="col" className="w-28">Return / invoice</th>
                 <th scope="col" className="w-24">Dated</th>
+                <th scope="col" className="w-40">Actual worker</th>
                 <th scope="col">Goods</th>
+                <th scope="col">Nature of work</th>
                 <th scope="col" className="r w-20">Qty</th>
                 <th scope="col" className="w-16">UQC</th>
+                <th scope="col" className="r w-28">Loss / waste</th>
                 <th scope="col" className="r w-28">Value</th>
               </tr>
             </thead>
@@ -995,8 +1228,12 @@ function Itc04ReceivedTable({
                 <tr key={`${r.originalChallanNumber}-${r.receiptChallanNumber}-${i}`}>
                   <td className="num">{r.originalChallanNumber}</td>
                   <td className="num text-muted">{toDisplayDate(r.originalChallanDate)}</td>
-                  <td className="num">{r.receiptChallanNumber}</td>
+                  <td className="num">{r.principalInvoiceNumber ?? r.receiptChallanNumber}</td>
                   <td className="num text-muted">{toDisplayDate(r.receiptChallanDate)}</td>
+                  <td>
+                    {r.unregisteredJobWorker ? `Unregistered · state ${r.jobWorkerStateCode}` : r.jobWorkerGstin}
+                    {r.sourceJobWorkerIsSez && <span className="ml-2 text-micro text-muted">SEZ</span>}
+                  </td>
                   <td>
                     {r.description}
                     {r.disposition === 'waste_and_scrap' && (
@@ -1005,8 +1242,12 @@ function Itc04ReceivedTable({
                       </span>
                     )}
                   </td>
+                  <td>{r.natureOfJobWork || '—'}</td>
                   <td className="r num">{qty(r.qtyMilli)}</td>
                   <td>{r.uqc}</td>
+                  <td className="r num">
+                    {r.lossWasteQtyMilli > 0 ? `${qty(r.lossWasteQtyMilli)} ${r.lossWasteUqc}` : '—'}
+                  </td>
                   <td className="r"><Money paise={r.taxableValuePaise} /></td>
                 </tr>
               ))}
@@ -1014,12 +1255,10 @@ function Itc04ReceivedTable({
           </table>
         )}
       </Panel>
-      {caveat && <p className="mt-1 text-micro text-cr">{caveat}</p>}
-      {!caveat && rows.length > 0 && (
+      {rows.length > 0 && (
         <p className="mt-1 text-micro text-muted">
-          The value column is computed pro rata for information. 5A and 5B in the notified form are
-          understood to carry quantity only — do not export it into a 5A/5B payload without checking the
-          current schema.
+          The value column is computed pro rata for this working. GSTN&rsquo;s current 5A/5B/5C sheets do
+          not carry it; Total does not export it.
         </p>
       )}
     </div>

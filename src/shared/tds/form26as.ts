@@ -1,9 +1,10 @@
 /**
- * Form 26AS / AIS reconciliation — the credit side of TDS (roadmap D-91).
+ * Form 26AS reconciliation — the credit side of TDS (roadmap D-91).
  *
  * Everywhere else in the TDS engine we are the deductor. Here we are the deductee: Form 26AS
- * (Rule 31AB, now served as the Annual Information Statement on the e-filing portal) is the
- * department's own record of tax deducted *against* this taxpayer by their customers, built from
+ * (Rule 31AB) is the department's own tax-credit statement. It is separate from AIS, although
+ * both are reached from the e-filing portal. Part I records tax deducted *against* this taxpayer
+ * by their customers, built from
  * the customers' quarterly statements. Credit is granted under section 199 read with Rule 37BA
  * from that record — not from our books.
  *
@@ -11,13 +12,13 @@
  *   • in the books but not in 26AS — the customer has not filed, or filed against the wrong PAN.
  *     The taxpayer will not get this credit. That is cash, and the only remedy is chasing the
  *     deductor before their correction window closes.
- *   • in 26AS but not in the books — someone paid us and we have not recorded the income. That
- *     is a bigger problem than the credit: it is an under-reported receipt the department can
- *     already see.
+ *   • in 26AS but not in the books — a tax-credit row has not been linked to book TDS. Timing,
+ *     corrections and reversals must be investigated before anybody calls it unrecorded income.
  * A tool that reports only one side lets the other rot silently, so `reconcile26as` reports both.
  *
- * Checked against the TRACES Form 26AS (Part A) layout and Rule 37BA as at 2026-08-25. Nothing
- * statutory is hard-coded here — the file is a parser and a matcher.
+ * Checked 2026-08-28 against the current TRACES download tutorial (AY 2023-24 onward calls this
+ * Part I), its sanctioned caret-delimited text conversion guide, and the Income Tax Department's
+ * tax-credit-mismatch FAQ. Nothing statutory is hard-coded here — this is a parser and matcher.
  *
  * Shape, vocabulary and matching strategy follow ../gst/recon2b.ts (the GSTR-2B reconciliation):
  * greedy one-to-one passes from strict to loose, pairs carrying both sides plus a bucket, and
@@ -50,6 +51,8 @@ export interface Statement26asRow {
   taxDeductedPaise: number
   /** Tax deposited — what section 199 credit is actually granted on, paise. */
   taxDepositedPaise: number
+  /** False only for a non-standard flat file which omitted the deposited column/value. */
+  taxDepositedKnown: boolean
 }
 
 export interface Parse26asResult {
@@ -60,7 +63,7 @@ export interface Parse26asResult {
 
 /**
  * Column matchers, in priority order. TRACES has changed its wording more than once and users
- * also paste the AIS/TIS variants, so each column is found by pattern rather than by position.
+ * spreadsheets can rename columns, so each column is found by pattern rather than by position.
  * Ordered because the patterns overlap: 'Amount of tax deposited' must be claimed by `deposited`
  * before the looser 'tax'-ish rules get to it.
  */
@@ -98,7 +101,7 @@ function normHeader(s: string): string {
  * That minimum is also what lets us skip the TRACES preamble (the "File Format", PAN, name and
  * assessment-year banner rows that sit above the table) without hard-coding its shape.
  */
-function readHeader(cells: string[]): ColumnMap | null {
+function readHeader(cells: string[], required: (keyof ColumnMap)[] = ['tan', 'deducted']): ColumnMap | null {
   const map = emptyMap()
   const taken = new Set<number>()
   for (const rule of COLUMN_RULES) {
@@ -111,10 +114,10 @@ function readHeader(cells: string[]): ColumnMap | null {
       }
     }
   }
-  return map.tan !== null && map.deducted !== null ? map : null
+  return required.every((key) => map[key] !== null) ? map : null
 }
 
-/** 26AS prints dates as DD-MMM-YYYY or DD/MM/YYYY; AIS exports sometimes give ISO. */
+/** Form 26AS prints dates as DD-MMM-YYYY or DD/MM/YYYY; saved sheets may give ISO. */
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 
 export function parse26asDate(raw: string): string | null {
@@ -141,7 +144,9 @@ export function parse26asDate(raw: string): string | null {
 function parseAmountPaise(raw: string | undefined): number | null {
   const s = (raw ?? '').trim()
   if (s === '') return 0
-  return parseRupees(s.replace(/^\(|\)$/g, '').replace(/[^0-9.,-]/g, ''))
+  const parenthesised = /^\(.*\)$/.test(s)
+  const parsed = parseRupees(s.replace(/^\(|\)$/g, '').replace(/[^0-9.,-]/g, ''))
+  return parsed === null ? null : parenthesised ? -Math.abs(parsed) : parsed
 }
 
 /** Summary/footer lines TRACES appends under the table; not data rows. */
@@ -156,27 +161,58 @@ const TOTAL_ROW = /^(grand )?total\b|^total of/i
 export function parse26asCsv(text: string): Parse26asResult {
   const problems: string[] = []
   const rows: Statement26asRow[] = []
-  const records = parseCsv(text)
+  // TRACES' sanctioned large-file export is `^` delimited. CSV remains useful for a saved Excel
+  // sheet, so choose the native format from the source rather than asking the user to convert it.
+  const caretLines = text.split(/\r\n|\n|\r/)
+  const caretCount = caretLines.reduce((n, line) => n + (line.match(/\^/g)?.length ?? 0), 0)
+  const commaCount = (text.match(/,/g) ?? []).length
+  const records = caretCount > commaCount
+    ? caretLines
+        .map((line, i) => ({ line: i + 1, cells: line.replace(/^\uFEFF/, '').split('^') }))
+        .filter((r) => r.cells.some((c) => c.trim() !== ''))
+    : parseCsv(text)
 
   let map: ColumnMap | null = null
+  let summaryMap: ColumnMap | null = null
+  let context: { name: string; tan: string } | null = null
+  let mode: 'flat' | 'summary' | 'transactions' | null = null
   let headerLine = 0
   for (const rec of records) {
-    if (!map) {
-      const candidate = readHeader(rec.cells)
-      if (candidate) {
-        map = candidate
-        headerLine = rec.line
-      }
-      continue // preamble, or the header itself
+    const summaryHeader = readHeader(rec.cells)
+    if (summaryHeader) {
+      map = summaryHeader
+      summaryMap = summaryHeader
+      mode = summaryHeader.section !== null && summaryHeader.date !== null ? 'flat' : 'summary'
+      if (headerLine === 0) headerLine = rec.line
+      continue
     }
+    const transactionHeader = readHeader(rec.cells, ['section', 'date', 'deducted'])
+    if (transactionHeader && transactionHeader.tan === null) {
+      map = transactionHeader
+      mode = 'transactions'
+      if (headerLine === 0) headerLine = rec.line
+      continue
+    }
+    if (!map) continue // preamble
 
     const cells = rec.cells
     const first = (cells[0] ?? '').trim()
     if (cells.every((c) => c.trim() === '')) continue
     if (TOTAL_ROW.test(first)) continue
 
-    const at = (i: number | null): string => (i === null ? '' : (cells[i] ?? '').trim())
-    const tan = at(map.tan).toUpperCase().replace(/\s+/g, '')
+    const atFrom = (m: ColumnMap, i: number | null): string => (i === null ? '' : (cells[i] ?? '').trim())
+    const summaryTan = summaryMap
+      ? atFrom(summaryMap, summaryMap.tan).toUpperCase().replace(/\s+/g, '')
+      : ''
+    if (/^[A-Z]{4}\d{5}[A-Z]$/.test(summaryTan)) {
+      context = { name: atFrom(summaryMap!, summaryMap!.name), tan: summaryTan }
+      if (mode !== 'flat') continue // deductor total row; its nested transactions follow
+    }
+
+    if (mode === 'summary') continue
+    const tan = mode === 'transactions'
+      ? (context?.tan ?? '')
+      : atFrom(map, map.tan).toUpperCase().replace(/\s+/g, '')
     if (tan === '') {
       // A second header repeated per deductor block is common; don't report it as a bad row.
       if (readHeader(cells)) continue
@@ -184,16 +220,16 @@ export function parse26asCsv(text: string): Parse26asResult {
       continue
     }
 
-    const amountPaise = parseAmountPaise(at(map.amount))
-    const deductedPaise = parseAmountPaise(at(map.deducted))
-    const depositedRaw = at(map.deposited)
+    const amountPaise = parseAmountPaise(atFrom(map, map.amount))
+    const deductedPaise = parseAmountPaise(atFrom(map, map.deducted))
+    const depositedRaw = atFrom(map, map.deposited)
     const depositedPaise = parseAmountPaise(depositedRaw)
     if (amountPaise === null || deductedPaise === null || depositedPaise === null) {
       problems.push(`Line ${rec.line}: skipped — could not read an amount (${cells.join(' | ')})`)
       continue
     }
 
-    const dateRaw = at(map.date)
+    const dateRaw = atFrom(map, map.date)
     const date = dateRaw === '' ? null : parse26asDate(dateRaw)
     if (dateRaw !== '' && date === null) {
       problems.push(`Line ${rec.line}: unreadable date ${JSON.stringify(dateRaw)} — row kept without a date`)
@@ -201,20 +237,24 @@ export function parse26asCsv(text: string): Parse26asResult {
 
     rows.push({
       line: rec.line,
-      deductorName: at(map.name),
+      deductorName: mode === 'transactions' ? (context?.name ?? '') : atFrom(map, map.name),
       deductorTan: tan,
-      section: at(map.section).toUpperCase().replace(/\s+/g, ''),
+      section: atFrom(map, map.section).toUpperCase().replace(/\s+/g, ''),
       date,
       amountPaidPaise: amountPaise,
       taxDeductedPaise: deductedPaise,
       // A blank deposited column means the export didn't carry one, not that nothing was
       // deposited — treating it as zero would report the taxpayer's whole credit as at risk.
-      taxDepositedPaise: depositedRaw === '' ? deductedPaise : depositedPaise
+      taxDepositedPaise: depositedRaw === '' ? deductedPaise : depositedPaise,
+      taxDepositedKnown: depositedRaw !== ''
     })
   }
 
-  if (!map) problems.push('No 26AS table found: no header row naming a deductor TAN and a tax-deducted column')
+  if (!map) problems.push('No Form 26AS Part I table found: no deductor summary or transaction header was recognised')
   else if (rows.length === 0) problems.push(`Header found on line ${headerLine}, but no data rows below it`)
+  if (rows.some((r) => !r.taxDepositedKnown)) {
+    problems.push('One or more rows omitted TDS deposited; deducted tax is shown provisionally, but deposit availability was not independently checked')
+  }
 
   return { rows, problems }
 }
@@ -235,6 +275,8 @@ export interface Book26asEntry {
   date: string
   /** Amount paid/credited to us on which tax was deducted, paise. */
   amountPaise: number
+  /** False when this is party gross and may include separately stated GST, not the section base. */
+  amountComparable?: boolean
   /** TDS credit claimed in the books, paise. */
   tdsPaise: number
 }
@@ -246,7 +288,7 @@ export type Recon26asBucket =
    *  because Rule 37BA grants the credit in the year the income is assessable, so a drift across
    *  31 March moves the credit to another return entirely. */
   | 'dateDrift'
-  /** In 26AS, absent from the books — income possibly never recorded. */
+  /** In 26AS, absent from the book TDS register — investigate timing/correction/reversal. */
   | 'missingInBooks'
   /** In the books, absent from 26AS — credit the taxpayer will not get. */
   | 'missingInStatement'
@@ -281,7 +323,7 @@ export interface Recon26asResult {
    * deposit — a deductor who deducted and never paid leaves the credit just as unavailable.
    */
   creditAtRiskPaise: number
-  /** TDS shown in 26AS with no book entry behind it — the possibly-unrecorded-income figure. */
+  /** TDS shown in 26AS with no linked book TDS entry — an investigation figure, not income. */
   unrecordedCreditPaise: number
 }
 
@@ -313,15 +355,19 @@ function makePair(
     if (normSection(s.section) !== normSection(b.section) && s.section !== '') {
       extra.push(`section differs: 26AS ${s.section}, books ${b.section}`)
     }
+    if (b.amountComparable === false && s.amountPaidPaise !== b.amountPaise) {
+      extra.push('book amount is party gross; the 26AS base can exclude separately stated GST')
+    }
     const q1 = tdsQuarterOf(b.date)
     if (s.date) {
       const q2 = tdsQuarterOf(s.date)
       if (q1.label !== q2.label) extra.push(`different TDS quarter: books ${q1.label}, 26AS ${q2.label}`)
     }
   }
-  if (s && s.taxDepositedPaise < s.taxDeductedPaise) {
+  if (s && s.taxDepositedKnown && s.taxDepositedPaise < s.taxDeductedPaise) {
     extra.push('26AS shows less tax deposited than deducted')
   }
+  if (s && !s.taxDepositedKnown) extra.push('TDS deposited was absent from the loaded row')
   return {
     bucket,
     statement: s,
@@ -335,7 +381,7 @@ function makePair(
 
 function classify(s: Statement26asRow, b: Book26asEntry, opts: Recon26asOptions): Recon26asBucket {
   const tdsDiff = Math.abs(s.taxDeductedPaise - b.tdsPaise)
-  const amountDiff = Math.abs(s.amountPaidPaise - b.amountPaise)
+  const amountDiff = b.amountComparable === false ? 0 : Math.abs(s.amountPaidPaise - b.amountPaise)
   const drift = daysApart(s.date, b.date)
   if (tdsDiff > opts.amountTolerancePaise || amountDiff > opts.amountTolerancePaise) return 'amountMismatch'
   if (drift !== null && drift > opts.dateWindowDays) return 'dateDrift'
@@ -428,12 +474,14 @@ export function reconcile26as(
     take(c.s, c.b)
   }
 
-  // Pass 4: same TAN, section and payment, but the tax figures disagree beyond tolerance.
+  // Pass 4: same TAN and section, close date, but the tax figures disagree beyond tolerance.
   //
   // Without this pass the single most important finding — the deductor deducted ₹900 where the
   // books claim ₹1,000 — would split into a book-only row and a statement-only row, and the
-  // ₹100 shortfall would never be named as a shortfall. The gross amount paid is required to
-  // agree within tolerance, which is what keeps this from pairing two unrelated deductions.
+  // ₹100 shortfall would never be named as a shortfall.
+  // The book's party line is GST-inclusive gross, while Form 26AS can carry the GST-exclusive
+  // section base. TAN + section + date therefore identify the deduction; comparing those two
+  // unlike amounts would manufacture a mismatch under CBDT Circular 23/2017.
   const taxDisagrees: Cand[] = []
   for (const s of statementRows) {
     if (usedStatement.has(s)) continue
@@ -443,7 +491,6 @@ export function reconcile26as(
       if (normSection(b.section) !== normSection(s.section)) continue
       const dateDiff = daysApart(s.date, b.date) ?? 0
       if (dateDiff > opts.dateWindowDays) continue
-      if (Math.abs(s.amountPaidPaise - b.amountPaise) > opts.amountTolerancePaise) continue
       taxDisagrees.push({ s, b, tdsDiff: Math.abs(s.taxDeductedPaise - b.tdsPaise), dateDiff })
     }
   }
@@ -490,10 +537,12 @@ export function reconcile26as(
     t.count += 1
     t.amountPaise += p.statement?.amountPaidPaise ?? p.book?.amountPaise ?? 0
     t.tdsPaise += p.statement?.taxDeductedPaise ?? p.book?.tdsPaise ?? 0
-    if (p.bucket === 'missingInStatement' && p.book) creditAtRiskPaise += p.book.tdsPaise
+    if (p.bucket === 'missingInStatement' && p.book) creditAtRiskPaise += Math.max(0, p.book.tdsPaise)
     if (p.bucket === 'missingInBooks' && p.statement) unrecordedCreditPaise += p.statement.taxDeductedPaise
     if (p.statement && p.book) {
-      creditAtRiskPaise += Math.max(0, p.book.tdsPaise - p.statement.taxDepositedPaise)
+      if (p.statement.taxDepositedKnown) {
+        creditAtRiskPaise += Math.max(0, p.book.tdsPaise - p.statement.taxDepositedPaise)
+      }
     }
   }
 

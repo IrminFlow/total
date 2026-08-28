@@ -523,10 +523,9 @@ export function deleteBranchTransferInvoice(db: DB, id: number): void {
  * Returns nothing at all when the scope has no registration — a caller passing a bare `CompanyInfo`
  * gets exactly what it always got.
  *
- * NOT covered: GSTR-1 Table 13, "documents issued". That is computed by `extractDocSeries` from
- * voucher numbering, and these documents are not vouchers. The series is consecutive and readable
- * off the register, but Table 13 has to be completed by hand for it. Said here and on the roadmap
- * rather than quietly left out.
+ * GSTR-1 Table 13 reads this separately numbered series directly from the durable invoice
+ * register. It must not be inferred from vouchers because issuing this tax document deliberately
+ * does not post an accounting voucher or move the one-PAN trial balance.
  */
 export function branchTransferOutwardDocs(db: DB, scope: GstScope, from: string, to: string): GstDoc[] {
   const regId = scope.registrationId

@@ -76,6 +76,30 @@ const SENT: Omit<ChallanInput, 'date'> = {
 const send = (db: DB, over: Partial<ChallanInput> & { date: string }): ReturnType<typeof saveChallan> =>
   saveChallan(db, TEST_INFO, { ...SENT, ...over })
 
+function salesInvoice(db: DB, date: string): number {
+  const voucherTypeId = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'sales'").get() as { id: number }).id
+  const groupId = (name: string): number =>
+    (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+  const salesLedgerId = createLedger(db, {
+    ...LEDGER_DEFAULTS, name: 'Job-work Sales', groupId: groupId('Sales Accounts')
+  }).id
+  const cashLedgerId = createLedger(db, {
+    ...LEDGER_DEFAULTS, name: 'Job-work Cash', groupId: groupId('Cash-in-Hand')
+  }).id
+  return saveVoucher(db, {
+    voucherTypeId,
+    date,
+    number: 'INV-JW-1',
+    lines: [
+      { ledgerId: cashLedgerId, drCr: 'dr', amount: 10_00_000, costAllocations: [] },
+      { ledgerId: salesLedgerId, drCr: 'cr', amount: 10_00_000, costAllocations: [] }
+    ],
+    inventory: [],
+    billRefs: [],
+    tds: null
+  }).id
+}
+
 const withBand = (band: CompanyInfo['turnoverBand']): CompanyInfo => ({ ...TEST_INFO, turnoverBand: band })
 
 // ---------------------------------------------------------------------------------------------
@@ -257,12 +281,14 @@ describe('what came back, and where else it went', () => {
   it('goods supplied straight from the job worker’s premises discharge the clock, in table 5C', () => {
     const { db, local } = books()
     const c = send(db, { date: '2025-04-10', jobWorkerLedgerId: local })
+    const invoiceVoucherId = salesInvoice(db, '2025-08-20')
     saveReturn(db, TEST_INFO, {
       challanId: c.id,
       date: '2025-08-20',
       number: 'JWR-9',
       qtyMilli: 100_000,
-      disposition: 'supplied_from_job_worker_premises'
+      disposition: 'supplied_from_job_worker_premises',
+      invoiceVoucherId
     })
     expect(jobWorkClock(db, TEST_INFO, '2030-01-01').overdue).toHaveLength(0)
 
@@ -287,19 +313,50 @@ describe('what came back, and where else it went', () => {
     expect(jobWorkClock(db, TEST_INFO, '2030-01-01').overdue).toHaveLength(0)
   })
 
-  it('goods moved on to another job worker land in 5B, and stop the clock', () => {
-    const { db, local } = books()
+  it('an onward move preserves the clock and a later different-worker return goes to Table 5B', () => {
+    const { db, local, outstation } = books()
     const c = send(db, { date: '2025-04-10', jobWorkerLedgerId: local })
     saveReturn(db, TEST_INFO, {
-      challanId: c.id, date: '2025-07-01', qtyMilli: 100_000, disposition: 'sent_to_other_job_worker'
+      challanId: c.id,
+      date: '2025-07-01',
+      number: 'ONWARD-1',
+      qtyMilli: 100_000,
+      disposition: 'sent_to_other_job_worker',
+      destinationJobWorkerLedgerId: outstation,
+      onwardChallanProvenance: 'fresh'
     })
     const form = itc04(db, TEST_INFO, { fyStartYear: 2025 }).form
-    // // VERIFY (2026-08-25): 5B may be a RECEIPT limb ("received back from a job worker other
-    // // than the one the goods were sent to") rather than the despatch modelled here — see the
-    // // marker on `Itc04.table5B`. If the notified form disagrees, this row moves table.
-    expect(form.table5B).toHaveLength(1)
+    expect(form.table5B).toHaveLength(0)
     expect(form.totals.sentOnwardQtyMilli).toBe(100_000)
+    expect(form.issues).toEqual([])
+    expect(jobWorkClock(db, TEST_INFO, '2030-01-01').overdue).toHaveLength(1)
+
+    saveReturn(db, TEST_INFO, {
+      challanId: c.id,
+      date: '2025-08-01',
+      number: 'BACK-2',
+      qtyMilli: 100_000,
+      disposition: 'returned',
+      sourceJobWorkerLedgerId: outstation,
+      notes: 'Heat treatment'
+    })
+    const returned = itc04(db, TEST_INFO, { fyStartYear: 2025 }).form
+    expect(returned.table5A).toHaveLength(0)
+    expect(returned.table5B).toHaveLength(1)
+    expect(returned.table5B[0]!.jobWorkerGstin).toBe('24AAACG1234A1ZK')
     expect(jobWorkClock(db, TEST_INFO, '2030-01-01').overdue).toHaveLength(0)
+  })
+
+  it('refuses a return by a worker who never received the goods', () => {
+    const { db, local, outstation } = books()
+    const c = send(db, { date: '2025-04-10', jobWorkerLedgerId: local })
+    expect(() => saveReturn(db, TEST_INFO, {
+      challanId: c.id,
+      date: '2025-05-01',
+      qtyMilli: 10_000,
+      disposition: 'returned',
+      sourceJobWorkerLedgerId: outstation
+    })).toThrow('source job worker holds 0')
   })
 
   it('refuses more coming back than went out, and never shows a negative balance', () => {
@@ -339,7 +396,7 @@ describe('what came back, and where else it went', () => {
 })
 
 describe('ITC-04', () => {
-  it('a period with no challans at all is a nil return, not the absence of one', () => {
+  it('a period with no challans is an empty working, not a nil-filing claim', () => {
     const { db } = books()
     const working = itc04(db, TEST_INFO, { fyStartYear: 2025 })
     expect(working.form.nil).toBe(true)
@@ -351,7 +408,8 @@ describe('ITC-04', () => {
     expect(working.form.totals.sentValuePaise).toBe(0)
     expect(working.form.deemed.overdue).toEqual([])
     expect(working.form.issues).toEqual([])
-    // The obligation to file is unchanged by there being nothing to say.
+    expect(working.form.portalFile.ready).toBe(false)
+    expect(working.form.portalFile.blockers.join(' ')).toContain('cannot generate a nil JSON')
     expect(working.obligation.frequency).toBe('annual')
     expect(working.form.period.dueDate).toBe('2026-04-25')
   })
@@ -439,8 +497,6 @@ describe('how often it has to be filed', () => {
   it('answers an old year under the law that was in force then, not today’s', () => {
     const { db } = books()
     // Before Notification 35/2021 everyone filed quarterly, whatever their turnover.
-    // // VERIFY (2026-08-25): that notification's number and date were recalled rather than read
-    // // from the gazette — see ITC04_PERIODICITY_HISTORY. The ₹5 crore split itself is confident.
     const old = itc04(db, withBand('upto-50L'), { fyStartYear: 2019 })
     expect(old.obligation.frequency).toBe('quarterly')
     expect(old.periods).toHaveLength(4)

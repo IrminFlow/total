@@ -1,0 +1,77 @@
+{
+  "gstin": "27AAPFU0939F1ZV",
+  "fp": "082026",
+  "b2ba": [
+    {
+      "ctin": "27AAPFU0939F1ZV",
+      "inv": [
+        {
+          "oinum": "INV-1",
+          "oidt": "05-07-2026",
+          "inum": "INV-1",
+          "idt": "05-07-2026",
+          "val": 12980,
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "itms": [
+            { "num": 1, "itm_det": { "rt": 18, "txval": 11000, "camt": 990, "samt": 990, "csamt": 0 } }
+          ]
+        }
+      ]
+    }
+  ],
+  "b2cla": [
+    {
+      "pos": "24",
+      "inv": [
+        {
+          "oinum": "B2CL-1",
+          "oidt": "06-07-2026",
+          "inum": "B2CL-1",
+          "idt": "06-07-2026",
+          "val": 118000,
+          "itms": [
+            { "num": 1, "itm_det": { "rt": 18, "txval": 100000, "iamt": 18000, "csamt": 0 } }
+          ]
+        }
+      ]
+    }
+  ],
+  "cdnra": [
+    {
+      "ctin": "27AAPFU0939F1ZV",
+      "nt": [
+        {
+          "ont_num": "CRN-1",
+          "ont_dt": "09-07-2026",
+          "ntty": "C",
+          "nt_num": "CRN-1",
+          "nt_dt": "09-07-2026",
+          "pos": "27",
+          "rchrg": "N",
+          "inv_typ": "R",
+          "val": 1180,
+          "itms": [
+            { "num": 1, "itm_det": { "rt": 18, "txval": 1000, "camt": 90, "samt": 90, "csamt": 0 } }
+          ]
+        }
+      ]
+    }
+  ],
+  "cdnura": [
+    {
+      "ont_num": "CRN-2",
+      "ont_dt": "10-07-2026",
+      "ntty": "C",
+      "nt_num": "CRN-2",
+      "nt_dt": "10-07-2026",
+      "typ": "B2CL",
+      "pos": "24",
+      "val": 118000,
+      "itms": [
+        { "num": 1, "itm_det": { "rt": 18, "txval": 100000, "iamt": 18000, "csamt": 0 } }
+      ]
+    }
+  ]
+}

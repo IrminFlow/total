@@ -350,11 +350,14 @@ function ItemDetail({
     queryKey: ['stockBatches', asOn, stockItemId],
     queryFn: () => api.stock.batches(asOn, stockItemId)
   })
-  // Untracked stock lands in a null-godown bucket — showing it as a nameless row reads like a
-  // rendering bug, and a breakdown with ONLY that bucket adds nothing over the summary row.
-  const godownRows = (godowns ?? []).filter(
-    (g) => g.stockItemId === stockItemId && g.closingQtyMilli !== 0 && g.godownId !== null
+  // A company-wide physical count is deliberately unallocated: the app cannot invent which
+  // godown held a shortage or surplus. A lone unallocated row adds nothing over the item total,
+  // but once later godown movements exist it must be visible so the displayed rows still
+  // reconcile and the negative/positive location adjustment is not hidden.
+  const allGodownRows = (godowns ?? []).filter(
+    (g) => g.stockItemId === stockItemId && g.closingQtyMilli !== 0
   )
+  const godownRows = allGodownRows.length === 1 && allGodownRows[0]!.godownId === null ? [] : allGodownRows
   const batchRows = (batches ?? []).filter((b) => b.closingQtyMilli !== 0)
   if (loadingGodowns || loadingBatches) return <p className="px-6 py-2 text-small text-muted">Loading breakdown…</p>
   if (godownRows.length === 0 && batchRows.length === 0) {
@@ -367,7 +370,7 @@ function ItemDetail({
           <p className="mb-1 text-label font-semibold tracking-[0.08em] text-muted uppercase">By godown</p>
           {godownRows.map((g) => (
             <p key={`${g.godownId}`} className="num text-body-sm">
-              {g.godownName}: {fmtQty(g.closingQtyMilli, decimals)} {unitSymbol} · <Money paise={g.closingValue} />
+              {g.godownId === null ? 'No godown / unallocated' : g.godownName}: {fmtQty(g.closingQtyMilli, decimals)} {unitSymbol} · <Money paise={g.closingValue} />
             </p>
           ))}
         </div>

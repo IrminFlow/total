@@ -39,6 +39,8 @@ export interface Ledger {
   tdsSectionId: number | null
   /** Deductee's Income Tax PAN (drives the no-PAN 20% TDS rate). */
   pan: string | null
+  /** Deductor TAN used when this customer withholds tax from us (Form 26AS/Form 16A). */
+  tan: string | null
   /** Default bill-to-bill credit period in days, used when a bill has no explicit due date. */
   creditDays: number | null
   /** SEZ/export classification for GST e-invoicing (task 2.8); null for a normal domestic party. */
@@ -526,6 +528,8 @@ export interface Employee {
   code: string | null
   designation: string | null
   joined: string | null
+  /** Inclusive last working day. Null while employment has no recorded end. */
+  leftOn: string | null
   pan: string | null
   uan: string | null
   esicNo: string | null

@@ -28,15 +28,23 @@ import { formatPaise } from '@shared/money'
 import { capRows, type ToolEnvelope } from '@shared/ai/truncate'
 import { redact, type Pseudonymiser } from '@shared/ai/redact'
 import { PERIODS } from '@shared/period'
-import * as reports from '../../reports'
-import * as analysis from '../../analysis'
-import * as masters from '../../masters'
-import * as vouchers from '../../vouchers'
-import * as search from '../../search'
-import * as intel from '../../intel'
-import * as gst from '../../gst'
-import * as closeCheck from '../../closeCheck'
-import * as anomalies from '../../anomalies'
+import {
+  balanceSheet,
+  exceptions,
+  ledgerStatement,
+  profitAndLoss,
+  stockSummary,
+  stockValue,
+  trialBalance
+} from '../../reports'
+import { outstandings, registerByPeriod } from '../../analysis'
+import { listLedgers } from '../../masters'
+import { getLockDate, listVouchers } from '../../vouchers'
+import { globalSearch } from '../../search'
+import { suggestLedgers } from '../../intel'
+import { gstValidate } from '../../gst'
+import { monthEndChecklist } from '../../closeCheck'
+import { anomalyWatch } from '../../anomalies'
 import { VOUCHER_KINDS } from '@shared/domain'
 import { describeDraft, reviewDraft, type VoucherDraftProposal } from '@shared/ai/draft'
 import { explainIssues, summariseIssues } from '@shared/ai/gstExplain'
@@ -94,7 +102,7 @@ export const TOOLS: AiTool[] = [
       limit: z.number().int().min(1).max(20).default(8)
     }),
     run: (ctx, { query, limit }) => {
-      const hits = intel.suggestLedgers(ctx.db, 'any', query, limit)
+      const hits = suggestLedgers(ctx.db, 'any', query, limit)
       return capRows(
         hits.map((h) => ({ ref: `l:${h.ledgerId}`, ledgerId: h.ledgerId, name: h.name, group: h.groupName, uses: h.uses })),
         { rowCap: limit, hint: 'try a shorter or more distinctive part of the name' }
@@ -109,7 +117,7 @@ export const TOOLS: AiTool[] = [
     params: z.object({ asOn: dateSchema.optional() }),
     run: (ctx, { asOn }) => {
       const on = asOn ?? ctx.today
-      const tb = reports.trialBalance(ctx.db, on)
+      const tb = trialBalance(ctx.db, on)
       return capRows(
         tb.rows.map((r) => ({
           ref: `tb:${r.ledgerId}`,
@@ -140,7 +148,7 @@ export const TOOLS: AiTool[] = [
       groupBy: z.enum(PERIODS).optional()
     }),
     run: (ctx, { ledgerId, from, to, groupBy }) => {
-      const st = reports.ledgerStatement(ctx.db, ledgerId, from, to, groupBy)
+      const st = ledgerStatement(ctx.db, ledgerId, from, to, groupBy)
       const totals = {
         opening: formatPaise(st.opening),
         closing: formatPaise(st.closing),
@@ -180,7 +188,7 @@ export const TOOLS: AiTool[] = [
     description: 'Trading and profit & loss account for a period, with gross and net profit.',
     params: z.object({ from: dateSchema, to: dateSchema }),
     run: (ctx, { from, to }) => {
-      const pl = reports.profitAndLoss(ctx.db, from, to)
+      const pl = profitAndLoss(ctx.db, from, to)
       // Flattened to the top two levels: the full tree is far more rows than a question needs,
       // and the model quotes the figure rather than navigating the hierarchy.
       const flatten = (nodes: StatementNode[]): { name: string; amount: { text: string; paise: number } }[] =>
@@ -206,7 +214,7 @@ export const TOOLS: AiTool[] = [
     params: z.object({ asOn: dateSchema.optional() }),
     run: (ctx, { asOn }) => {
       const on = asOn ?? ctx.today
-      const bs = reports.balanceSheet(ctx.db, ctx.fyFrom, on)
+      const bs = balanceSheet(ctx.db, ctx.fyFrom, on)
       const flatten = (nodes: StatementNode[]): { name: string; amount: { text: string; paise: number } }[] =>
         nodes.map((n) => ({ name: n.name, amount: money(n.amount) }))
       return {
@@ -230,7 +238,7 @@ export const TOOLS: AiTool[] = [
     }),
     run: (ctx, { side, asOn }) => {
       const on = asOn ?? ctx.today
-      const parties = analysis.outstandings(ctx.db, side, on)
+      const parties = outstandings(ctx.db, side, on)
       const total = parties.reduce((sum, p) => sum + p.pending, 0)
       return capRows(
         parties.map((p) => ({
@@ -256,7 +264,7 @@ export const TOOLS: AiTool[] = [
       limit: z.number().int().min(1).max(50).default(50)
     }),
     run: (ctx, { from, to, voucherTypeId, limit }) => {
-      const rows = vouchers.listVouchers(ctx.db, from, to, voucherTypeId)
+      const rows = listVouchers(ctx.db, from, to, voucherTypeId)
       const total = rows.reduce((sum, r) => sum + r.amount, 0)
       return capRows(
         rows.map((r) => ({
@@ -291,7 +299,7 @@ export const TOOLS: AiTool[] = [
       period: z.enum(PERIODS).default('month')
     }),
     run: (ctx, { kind, from, to, period }) => {
-      const rows = analysis.registerByPeriod(ctx.db, kind, from, to, period)
+      const rows = registerByPeriod(ctx.db, kind, from, to, period)
       return capRows(
         rows.map((r) => ({
           ref: `reg:${kind}:${r.period}`,
@@ -321,7 +329,7 @@ export const TOOLS: AiTool[] = [
     params: z.object({ asOn: dateSchema.optional() }),
     run: (ctx, { asOn }) => {
       const on = asOn ?? ctx.today
-      const rows = reports.stockSummary(ctx.db, on)
+      const rows = stockSummary(ctx.db, on)
       return capRows(
         rows.map((r) => ({
           ref: `i:${r.stockItemId}`,
@@ -330,7 +338,7 @@ export const TOOLS: AiTool[] = [
           unit: r.unitSymbol,
           value: money(r.closingValue)
         })),
-        { asOn: on, totals: { value: formatPaise(reports.stockValue(ctx.db, on)) } }
+        { asOn: on, totals: { value: formatPaise(stockValue(ctx.db, on)) } }
       )
     }
   }),
@@ -341,7 +349,7 @@ export const TOOLS: AiTool[] = [
       'Entries that look wrong: unbalanced vouchers, negative stock, missing GSTIN, duplicate numbers. Use this when asked what needs fixing.',
     params: z.object({ from: dateSchema, to: dateSchema }),
     run: (ctx, { from, to }) => {
-      const report = reports.exceptions(ctx.db, from, to)
+      const report = exceptions(ctx.db, from, to)
       const sections = report.sections
         .filter((s) => s.count > 0)
         .map((s) => ({ ref: `ex:${s.key}`, section: s.label, count: s.count, examples: s.rows.slice(0, 5) }))
@@ -357,7 +365,7 @@ export const TOOLS: AiTool[] = [
     name: 'search',
     description: 'Free-text search across ledgers, stock items and vouchers.',
     params: z.object({ query: z.string().min(2).max(80) }),
-    run: (ctx, { query }) => capRows(search.globalSearch(ctx.db, query), { rowCap: 20 })
+    run: (ctx, { query }) => capRows(globalSearch(ctx.db, query), { rowCap: 20 })
   }),
 
   tool({
@@ -366,7 +374,7 @@ export const TOOLS: AiTool[] = [
       'Validation issues blocking a GST return for a period — the same checks the GST screens run before export.',
     params: z.object({ from: dateSchema, to: dateSchema }),
     run: (ctx, { from, to }) => {
-      const issues = gst.gstValidate(ctx.db, ctx.info, from, to)
+      const issues = gstValidate(ctx.db, ctx.info, from, to)
       return capRows(issues as unknown[], { from, to })
     }
   }),
@@ -377,7 +385,7 @@ export const TOOLS: AiTool[] = [
       'The same GST validation issues, each with a written explanation of what it means, why the portal or the law cares, and how to fix it. Quote these explanations verbatim — do not compose your own account of a GST rule.',
     params: z.object({ from: dateSchema, to: dateSchema }),
     run: (ctx, { from, to }) => {
-      const issues = gst.gstValidate(ctx.db, ctx.info, from, to)
+      const issues = gstValidate(ctx.db, ctx.info, from, to)
       return capRows(
         explainIssues(issues).map((i) => ({
           ref: `ex:${i.code}`,
@@ -409,7 +417,7 @@ export const TOOLS: AiTool[] = [
       "Month-end close status: every check Total can compute, with its figure and whether it blocks. Use this for 'can I close March?' — quote the items rather than deciding readiness yourself.",
     params: z.object({ from: dateSchema, to: dateSchema }),
     run: (ctx, { from, to }) => {
-      const list = closeCheck.monthEndChecklist(ctx.db, ctx.slug, ctx.info, from, to, ctx.today)
+      const list = monthEndChecklist(ctx.db, ctx.slug, ctx.info, from, to, ctx.today)
       return capRows(
         list.items.map((i) => ({ ref: `chk:${i.id}`, check: i.label, status: i.status, detail: i.detail, why: i.why })),
         {
@@ -428,7 +436,7 @@ export const TOOLS: AiTool[] = [
       "Entries in a period unlike anything in this company's history, each with the comparison that flagged it. These are flags for a human to look at, never findings of error — say so.",
     params: z.object({ from: dateSchema, to: dateSchema, limit: z.number().int().min(1).max(30).default(15) }),
     run: (ctx, { from, to, limit }) => {
-      const rows = anomalies.anomalyWatch(ctx.db, from, to)
+      const rows = anomalyWatch(ctx.db, from, to)
       return capRows(
         rows.map((r) => ({
           ref: `v:${r.voucherId}`,
@@ -472,11 +480,11 @@ export const TOOLS: AiTool[] = [
       const proposal = args as VoucherDraftProposal
       // The ledger set is read from the books, not taken from the model: an id it invented has
       // to fail here, and it can only fail here if the truth comes from this side.
-      const known = new Map(masters.listLedgers(ctx.db).map((l) => [l.id, l.name]))
+      const known = new Map(listLedgers(ctx.db).map((l) => [l.id, l.name]))
       const review = reviewDraft(proposal, {
         today: ctx.today,
         knownLedgers: known,
-        lockedUpTo: vouchers.getLockDate(ctx.db)
+        lockedUpTo: getLockDate(ctx.db)
       })
       return {
         // Named so that neither the model nor a later reader can mistake it for a saved voucher.

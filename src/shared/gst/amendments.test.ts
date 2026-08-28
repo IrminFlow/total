@@ -3,6 +3,7 @@
  * rules — not the shapes — are what make an amendment row findable by the portal.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import {
   buildAmendmentTables,
   diffForAmendment,
@@ -11,6 +12,10 @@ import {
   type AmendmentPair
 } from './amendments'
 import type { GstDoc } from './returns'
+
+const v5Golden = JSON.parse(
+  readFileSync(new URL('./__fixtures__/gstr1-amendments-v5-golden.json', import.meta.url), 'utf8')
+) as Record<string, unknown>
 
 const COMPANY_STATE = '27'
 const CTIN_1 = '27AAPFU0939F1ZV' // registered buyer, Maharashtra
@@ -108,7 +113,7 @@ describe('diffForAmendment — which particulars changed', () => {
 })
 
 describe('buildAmendmentTables — routing', () => {
-  it('a value-only amendment of a B2B invoice becomes one B2BA row keyed on octin/oinum/oidt', () => {
+  it('a value-only amendment becomes B2BA with v5.0 ctin + oinum/oidt and no invalid octin', () => {
     const original = doc()
     const revised = doc({
       voucherId: 2,
@@ -126,7 +131,6 @@ describe('buildAmendmentTables — routing', () => {
         ctin: CTIN_1,
         inv: [
           {
-            octin: CTIN_1,
             oinum: 'INV-1',
             oidt: '05-07-2026',
             inum: 'INV-1',
@@ -161,10 +165,7 @@ describe('buildAmendmentTables — routing', () => {
     expect(diffForAmendment(original, revised).changed).toEqual(['pos'])
   })
 
-  it('a party-GSTIN change from registered to unregistered amends into B2CLA when it stays B2C-large', () => {
-    // The amendment tables are chosen by what the document now IS. A supply that turns out to
-    // have gone to an unregistered inter-state buyer above the ₹1,00,000 threshold is a B2CL
-    // supply, so its amendment belongs in B2CLA — grouped by POS, with no ctin/octin.
+  it('refuses registered-to-unregistered: GSTN says B2BA recipient GSTIN is non-amendable', () => {
     const original = doc({
       pos: '29',
       invoiceValue: 11_800_000,
@@ -181,23 +182,17 @@ describe('buildAmendmentTables — routing', () => {
     const out = build([pair(original, revised)])
 
     expect(out.b2ba).toEqual([])
-    expect(out.rejected).toEqual([])
+    expect(out.b2cla).toEqual([])
     expect(diffForAmendment(original, revised).registrationChanged).toBe(true)
-    expect(out.b2cla).toEqual([
-      {
-        pos: '29',
-        inv: [
-          {
-            oinum: 'INV-1',
-            oidt: '05-07-2026',
-            inum: 'INV-1',
-            idt: '05-07-2026',
-            val: 118000,
-            itms: [{ num: 1, itm_det: { rt: 18, txval: 100000, iamt: 18000, csamt: 0 } }]
-          }
-        ]
-      }
-    ])
+    expect(out.rejected).toHaveLength(1)
+    expect(out.rejected[0]!.code).toBe('recipient_gstin_not_amendable')
+    expect(out.rejected[0]!.message).toMatch(/GSTN.*non-amendable/)
+  })
+
+  it('also refuses one registered GSTIN changed to another', () => {
+    const out = build([pair(doc(), doc({ voucherId: 2, partyGstin: CTIN_29, pos: '29' }))])
+    expect(out.b2ba).toEqual([])
+    expect(out.rejected[0]!.code).toBe('recipient_gstin_not_amendable')
   })
 
   it('a credit note to a registered buyer amends into CDNRA, keyed on ont_num/ont_dt', () => {
@@ -329,7 +324,7 @@ describe('buildAmendmentTables — the rules', () => {
     expect((out.b2ba as any[])[0].inv[0].val).toBe(12000)
     expect(out.rejected).toHaveLength(1)
     expect(out.rejected[0]!.code).toBe('duplicate_amendment')
-    expect(out.rejected[0]!.key).toEqual({ octin: CTIN_1, oinum: 'INV-1', oidt: '2026-07-05' })
+    expect(out.rejected[0]!.key).toEqual({ ctin: CTIN_1, oinum: 'INV-1', oidt: '2026-07-05' })
   })
 
   it('a B2C invoice below the B2CL threshold has no amendment table and is reported, not dropped', () => {
@@ -402,5 +397,66 @@ describe('buildAmendmentTables — the rules', () => {
     const inv = (out.b2ba as any[])[0].inv[0]
     expect(inv.val).toBe(11800.01)
     expect(inv.itms[0].itm_det.txval).toBe(10000.01)
+  })
+})
+
+describe('GSTN GSTR-1 Save API v5.0 golden contract', () => {
+  it('emits the four amendment tables with only the current official field names', () => {
+    const b2b = pair(
+      doc(),
+      doc({
+        voucherId: 2,
+        invoiceValue: 1_298_000,
+        items: [{ rate: 18, taxable: 1_100_000, cgst: 99_000, sgst: 99_000, igst: 0, cess: 0 }]
+      })
+    )
+    const b2clBase = {
+      number: 'B2CL-1', date: '2026-07-06', partyGstin: null, partyName: 'Cash buyer',
+      invoiceValue: 11_800_000,
+      items: [{ rate: 18, taxable: 10_000_000, cgst: 0, sgst: 0, igst: 1_800_000, cess: 0 }]
+    }
+    const b2cl = pair(
+      doc({ ...b2clBase, pos: '29' }),
+      doc({ ...b2clBase, voucherId: 3, pos: '24' })
+    )
+    const registeredNote = {
+      kind: 'credit_note' as const, number: 'CRN-1', date: '2026-07-09',
+      invoiceValue: 236_000,
+      items: [{ rate: 18, taxable: 200_000, cgst: 18_000, sgst: 18_000, igst: 0, cess: 0 }]
+    }
+    const cdnr = pair(
+      doc(registeredNote),
+      doc({
+        ...registeredNote, voucherId: 4, invoiceValue: 118_000,
+        items: [{ rate: 18, taxable: 100_000, cgst: 9_000, sgst: 9_000, igst: 0, cess: 0 }]
+      })
+    )
+    const unregisteredNote = {
+      kind: 'credit_note' as const, number: 'CRN-2', date: '2026-07-10',
+      partyGstin: null, partyName: 'Cash buyer', invoiceValue: 11_800_000,
+      items: [{ rate: 18, taxable: 10_000_000, cgst: 0, sgst: 0, igst: 1_800_000, cess: 0 }]
+    }
+    const cdnur = pair(
+      doc({ ...unregisteredNote, pos: '29' }),
+      doc({ ...unregisteredNote, voucherId: 5, pos: '24' })
+    )
+
+    const tables = build([b2b, b2cl, cdnr, cdnur])
+    expect(tables.rejected).toEqual([])
+    expect({
+      gstin: CTIN_1,
+      fp: AMEND_PERIOD,
+      b2ba: tables.b2ba,
+      b2cla: tables.b2cla,
+      cdnra: tables.cdnra,
+      cdnura: tables.cdnura
+    }).toEqual(v5Golden)
+
+    // The v5.0 schema is additionalProperties:false. This exact regression caught the former
+    // `octin` property, which is not in GSTN's B2BA contract.
+    const invoice = (tables.b2ba as { inv: Record<string, unknown>[] }[])[0]!.inv[0]!
+    expect(Object.keys(invoice).sort()).toEqual([
+      'idt', 'inum', 'inv_typ', 'itms', 'oidt', 'oinum', 'pos', 'rchrg', 'val'
+    ])
   })
 })

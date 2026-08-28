@@ -9,7 +9,7 @@ type Db = ReturnType<typeof seededDb>
 
 const OPTS = { amountTolerancePaise: 100, dateWindowDays: 7 }
 
-function debtor(db: Db, name: string): number {
+function debtor(db: Db, name: string, tan: string | null = null): number {
   const group = db.prepare("SELECT id FROM groups WHERE name = 'Sundry Debtors'").get() as { id: number }
   return createLedger(db, {
     name,
@@ -23,6 +23,7 @@ function debtor(db: Db, name: string): number {
     hsn: null,
     tdsSectionId: null,
     pan: null,
+    tan,
     creditDays: null,
     exportType: null
   }).id
@@ -84,9 +85,9 @@ function statement(rows: string[]): string {
 }
 
 describe('form26as service (s.199 / Rule 37BA credit reconciliation)', () => {
-  it('a book TDS-receivable entry matches its 26AS row', () => {
+  it('a book TDS-receivable entry matches its 26AS row by the party master TAN', () => {
     const db = seededDb()
-    const party = debtor(db, 'Bright Media Pvt Ltd')
+    const party = debtor(db, 'Bright Media Pvt Ltd', 'MUMB12345A')
     receiptWithTds(db, { date: '2025-05-10', partyLedgerId: party, base: 10000000, tds: 1000000, section: '194J' })
 
     const books = bookEntries(db, '2025-04-01', '2026-03-31')
@@ -94,7 +95,7 @@ describe('form26as service (s.199 / Rule 37BA credit reconciliation)', () => {
     // Gross is reconstructed from the party's own credit line, not from the cash that arrived.
     expect(books[0]).toMatchObject({
       deductorName: 'Bright Media Pvt Ltd',
-      deductorTan: null,
+      deductorTan: 'MUMB12345A',
       section: '194J',
       amountPaise: 10000000,
       tdsPaise: 1000000
@@ -110,15 +111,13 @@ describe('form26as service (s.199 / Rule 37BA credit reconciliation)', () => {
     expect(r.result.buckets.matched.count).toBe(1)
     expect(r.result.creditAtRiskPaise).toBe(0)
     expect(r.result.unrecordedCreditPaise).toBe(0)
-    // The pair carries the deductor's TAN, which the books never had — that is the point of it.
+    // The pair carries the deductor's durable TAN from the party master.
     expect(r.result.pairs[0]!.statement!.deductorTan).toBe('MUMB12345A')
-    // ...and the book side borrowed it, which is what let pass 1 pair them exactly. Marked as
-    // borrowed so the screen can say the pairing rests on a name.
     expect(r.bookEntries[0]!.deductorTan).toBe('MUMB12345A')
-    expect(r.bookEntries[0]!.tanSource).toBe('statement')
+    expect(r.bookEntries[0]!.tanSource).toBe('master')
   })
 
-  it('a book entry with no 26AS row is credit at risk; a 26AS row with no book entry is unrecorded income', () => {
+  it('a book entry with no 26AS row is credit at risk; an unlinked 26AS row is an investigation item', () => {
     const db = seededDb()
     const a = debtor(db, 'Bright Media Pvt Ltd')
     receiptWithTds(db, { date: '2025-05-10', partyLedgerId: a, base: 10000000, tds: 1000000, section: '194J' })
@@ -146,7 +145,7 @@ describe('form26as service (s.199 / Rule 37BA credit reconciliation)', () => {
     // No table at all — the user pasted the wrong thing, or a blank download.
     const blank = recon26as(db, { text: '   ', from: '2025-04-01', to: '2026-03-31', ...OPTS })
     expect(blank.statementRows).toEqual([])
-    expect(blank.problems.join(' ')).toMatch(/No 26AS table found/)
+    expect(blank.problems.join(' ')).toMatch(/No Form 26AS Part I table found/)
     expect(blank.result.buckets.missingInStatement.count).toBe(1)
     expect(blank.result.creditAtRiskPaise).toBe(1000000)
 
@@ -231,6 +230,35 @@ describe('form26as service (s.199 / Rule 37BA credit reconciliation)', () => {
       ledgerName: 'TDS Payable 194C'
     })
     expect(bookEntries(db, '2025-04-01', '2026-03-31')).toEqual([])
+  })
+
+  it('a credit to TDS receivable is a negative refund/correction, not another claim', () => {
+    const db = seededDb()
+    const party = debtor(db, 'Bright Media Pvt Ltd', 'MUMB12345A')
+    const vt = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }
+    const cash = db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }
+    const receivable = findOrCreateLedger(db, 'TDS Receivable 194J', 'Duties & Taxes')
+    saveVoucher(db, {
+      voucherTypeId: vt.id, date: '2025-06-20', partyLedgerId: party,
+      narration: 'TDS refund / correction', reference: null, instrumentNo: null, instrumentDate: null,
+      transporterId: null, vehicleNo: null, transportDistanceKm: null, posOverride: null,
+      gstRegistrationId: null, currencyCode: null, exchangeRate: null,
+      lines: [
+        { ledgerId: party, drCr: 'dr', amount: 2000000, costAllocations: [] },
+        { ledgerId: receivable, drCr: 'cr', amount: 200000, costAllocations: [] },
+        { ledgerId: cash.id, drCr: 'cr', amount: 1800000, costAllocations: [] }
+      ], inventory: [], billRefs: [], tds: null
+    })
+    const books = bookEntries(db, '2025-04-01', '2026-03-31')
+    expect(books).toHaveLength(1)
+    expect(books[0]).toMatchObject({ amountPaise: -2200000, tdsPaise: -200000, tanSource: 'master' })
+
+    const r = recon26as(db, {
+      text: statement(['Bright Media Pvt Ltd,MUMB12345A,194J,20-Jun-2025,(20000.00),(2000.00),(2000.00)']),
+      from: '2025-04-01', to: '2026-03-31', ...OPTS
+    })
+    expect(r.result.buckets.matched.count).toBe(1)
+    expect(r.result.creditAtRiskPaise).toBe(0)
   })
 
   it('a date drift across the window is its own finding — Rule 37BA puts the credit in a year', () => {

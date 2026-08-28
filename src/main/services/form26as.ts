@@ -61,8 +61,10 @@ interface LineRow {
   number: string
   ledgerName: string
   tdsAmount: number
+  tdsDrCr: 'dr' | 'cr'
   partyLedgerId: number | null
   partyName: string | null
+  partyTan: string | null
 }
 
 interface PartyLineRow {
@@ -82,39 +84,38 @@ export interface Book26asEntryRef extends Book26asEntry {
    * deductor name (see `stampTansFromStatement`) rather than read off a master, and the screen
    * says so — a pairing is only as trustworthy as the key it was made on.
    */
-  tanSource: 'statement' | null
+  tanSource: 'master' | 'statement' | null
 }
 
 /**
- * Every TDS-receivable debit in the books between `from` and `to`, as reconcilable entries.
+ * Every TDS-receivable movement in the books between `from` and `to`, as reconcilable entries.
+ * A debit claims credit; a credit is a refund/correction reversal and is retained as a negative
+ * row so it nets rather than inflating the year's claim.
  *
- * `amountPaise` — the gross "paid or credited" the tax was computed on — is reconstructed from
+ * `amountPaise` — the party-ledger gross shown only as book context — is reconstructed from
  * the party ledger's own line on the same voucher:
  *   • party CREDITED (a receipt: Dr Bank, Dr TDS receivable, Cr Customer) → the credit is already
  *     the gross, because the customer's account is relieved of the full billed amount.
  *   • party DEBITED (an invoice that books the withholding up front) → the debit is net of the
  *     tax, so the TDS is added back.
- * With no party on the voucher there is nothing to reconstruct from and the gross is reported as
- * the tax itself, which will show as an amount mismatch rather than quietly reading as zero.
+ * With no party on the voucher there is nothing to reconstruct from, so the movement itself is
+ * shown. In every case `amountComparable: false` keeps this context out of statutory matching.
  *
- * VERIFY: where GST was billed separately, the customer deducts on the value EXCLUDING GST
- * (CBDT Circular 23/2017), but the party line carries the GST-inclusive figure and the books do
- * not record the section 194x base anywhere. Such a pair still matches on the TAX — which is
- * what the section 199 credit and `creditAtRiskPaise` depend on — but lands in the
- * `amountMismatch` bucket on the gross. Recording the base on the receipt (the deductee mirror
- * of `tds_entries`) is the exact fix and needs a migration.
+ * The party line is deliberately marked non-comparable: where GST on services is separately
+ * indicated, CBDT Circular 23/2017 excludes it from the TDS base, while this line is invoice
+ * gross. It remains useful context, but cannot lawfully manufacture an amount mismatch.
  */
 export function bookEntries(db: DB, from: string, to: string): Book26asEntryRef[] {
   const lines = db
     .prepare(
       `SELECT vl.id AS lineId, v.id AS voucherId, v.date AS date, v.number AS number,
-              l.name AS ledgerName, vl.amount AS tdsAmount,
-              v.party_ledger_id AS partyLedgerId, p.name AS partyName
+              l.name AS ledgerName, vl.amount AS tdsAmount, vl.dr_cr AS tdsDrCr,
+              v.party_ledger_id AS partyLedgerId, p.name AS partyName, p.tan AS partyTan
        FROM voucher_lines vl
        JOIN vouchers v ON v.id = vl.voucher_id
        JOIN ledgers l ON l.id = vl.ledger_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vl.dr_cr = 'dr' AND ${RECEIVABLE_NAME_FILTER}
+       WHERE ${RECEIVABLE_NAME_FILTER}
          AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id, vl.id`
     )
@@ -142,26 +143,23 @@ export function bookEntries(db: DB, from: string, to: string): Book26asEntryRef[
 
   return lines.map((l) => {
     const party = partyByVoucher.get(l.voucherId)
-    const gross = !party
+    const sign = l.tdsDrCr === 'dr' ? 1 : -1
+    const grossMagnitude = !party
       ? l.tdsAmount
-      : party.drCr === 'cr'
-        ? party.amount
-        : party.amount + l.tdsAmount
+      : party.drCr === 'cr' ? party.amount : party.amount + l.tdsAmount
     return {
       id: l.lineId,
       voucherId: l.voucherId,
       voucherNumber: l.number,
       ledgerName: l.ledgerName,
       deductorName: l.partyName,
-      // VERIFY: the ledger master has no TAN column, so nothing in the books can supply one.
-      // `stampTansFromStatement` borrows it from the statement by deductor name; a `tan` field on
-      // `ledgers` would make this exact instead of name-based, and needs a migration.
-      deductorTan: null,
+      deductorTan: l.partyTan,
       section: sectionFromLedgerName(l.ledgerName),
       date: l.date,
-      amountPaise: gross,
-      tdsPaise: l.tdsAmount,
-      tanSource: null
+      amountPaise: sign * grossMagnitude,
+      amountComparable: false,
+      tdsPaise: sign * l.tdsAmount,
+      tanSource: l.partyTan ? 'master' : null
     }
   })
 }
@@ -177,8 +175,9 @@ const nameKey = (s: string | null): string =>
 /**
  * Give each book entry the TAN its deductor is filing under, taken from the statement by name.
  *
- * The ledger master has no TAN field, so without this every pairing falls to the engine's last
- * pass, which requires the two tax figures to agree within tolerance. That pass cannot see a
+ * A ledger created before migration 58 may still have no TAN recorded. Without a master TAN,
+ * every pairing falls to the engine's last pass, which requires the two tax figures to agree
+ * within tolerance. That pass cannot see a
  * SHORT DEDUCTION — the deductor filed ₹9,000 against a ₹10,000 claim — which is the single
  * finding this whole screen exists to produce: it would split into a book-only row and a
  * statement-only row and never be named as a shortfall.
@@ -250,12 +249,11 @@ export interface Recon26asReport {
  * in `missingInStatement` and the whole of their claimed credit in `creditAtRiskPaise`, which is
  * precisely the true position when no customer has filed.
  *
- * VERIFY: the parser was written to the published TRACES Form 26AS (Part A) column wording and
- * to the AIS/TIS CSV variants, but has never been run against a file exported from the live
- * TRACES portal — no credentials. The header matching is by pattern rather than by position, and
- * unreadable lines land in `problems` rather than being dropped silently, so a layout surprise
- * shows up as a visible complaint instead of a wrong total. Confirm against a real export before
- * trusting the buckets.
+ * VERIFY (2026-08-28): parser coverage is pinned to the Income Tax Department's current TRACES
+ * download tutorial and sanctioned text-to-Excel guide. The native large-file format uses `^`;
+ * its deductor summary supplies TAN/name to nested transaction rows. A sanitized fixture of that
+ * hierarchy is exercised in the pure tests. A live taxpayer file is still private human data and
+ * is neither required nor retained.
  */
 export function recon26as(
   db: DB,

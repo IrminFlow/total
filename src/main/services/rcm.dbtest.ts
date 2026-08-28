@@ -5,6 +5,11 @@ import { seededDb, TEST_INFO } from '../db/testdb'
 import { createLedger } from './masters'
 import { saveVoucher, deleteVoucher } from './vouchers'
 import type { DrCr } from '@shared/domain'
+import { writeCompanyInfo } from '../db/seed'
+import { gstScope, listRegistrations, saveRegistration } from './registrations'
+
+const MH = '27AAAPA1234A1ZT'
+const GJ = '24AAAPA1234A1ZZ'
 
 /**
  * The self-invoice against a real book.
@@ -20,7 +25,7 @@ function setup() {
   const vtId = (kind: string): number => (db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(kind) as { id: number }).id
   const L = (input: Parameters<typeof createLedger>[1]): number => createLedger(db, input).id
 
-  // Unregistered local vendor, flagged for reverse charge: the section 9(4) case.
+  // Unregistered local transporter in a notified 9(3) category.
   const unregistered = L({ name: 'Ram Transport', groupId: groupId('Sundry Creditors'), stateCode: '27', rcm: true, address: 'Pune' })
   // Registered advocate, flagged: the section 9(3) case.
   const advocate = L({
@@ -31,9 +36,16 @@ function setup() {
   const freight = L({ name: 'Freight Inward', groupId: groupId('Direct Expenses'), gstRate: 5, hsn: '996511' })
   const legal = L({ name: 'Legal Fees', groupId: groupId('Indirect Expenses'), gstRate: 18, hsn: '998211' })
 
-  const post = (kind: string, date: string, partyId: number, lines: { ledgerId: number; drCr: DrCr; amount: number }[]) =>
+  const post = (
+    kind: string,
+    date: string,
+    partyId: number,
+    lines: { ledgerId: number; drCr: DrCr; amount: number }[],
+    gstRegistrationId?: number | null
+  ) =>
     saveVoucher(db, {
       voucherTypeId: vtId(kind), date, partyLedgerId: partyId, posOverride: null,
+      gstRegistrationId: gstRegistrationId ?? null,
       lines: lines.map((l) => ({ ...l, costAllocations: [] })),
       inventory: [], billRefs: [], tds: null
     })
@@ -69,24 +81,24 @@ describe('rcmSupplies', () => {
     expect(supply!.lines[0]!.igst).toBe(0)
   })
 
-  it('classifies an unregistered supplier as 9(4) and a registered one as 9(3)', () => {
+  it('self-invoices only the notified supply from an unregistered supplier', () => {
     const s = setup()
     s.buyFreight('2026-04-10', 10_000_00)
     s.buyLegal('2026-04-12', 20_000_00)
     const supplies = rcmSupplies(s.db, TEST_INFO, '2026-04-01', '2026-04-30')
-    expect(supplies.map((x) => x.basis).sort()).toEqual(['notified', 'unregistered'])
+    expect(supplies).toHaveLength(1)
+    expect(supplies[0]).toMatchObject({ supplierName: 'Ram Transport', supplierGstin: null, basis: 'notified' })
   })
 
-  it('documents exactly the supplies GSTR-3B charges tax on', () => {
-    // If these two ever diverge the documents stop adding up to the return, and reconciling them
-    // becomes the user's problem forever.
+  it('leaves a registered 9(3) supplier to its own RCM invoice while GSTR-3B still charges both', () => {
     const s = setup()
     s.buyFreight('2026-04-10', 10_000_00)
     s.buyLegal('2026-04-12', 20_000_00)
     const supplies = rcmSupplies(s.db, TEST_INFO, '2026-04-01', '2026-04-30')
     const fromDocs = supplies.flatMap((x) => x.lines).reduce((t, l) => t + l.cgst + l.sgst + l.igst, 0)
     const b3 = rcmInwardSummary(s.db, TEST_INFO, '2026-04-01', '2026-04-30')
-    expect(fromDocs).toBe(b3.cgst + b3.sgst + b3.igst)
+    expect(fromDocs).toBe(500_00)
+    expect(b3.cgst + b3.sgst + b3.igst).toBe(4_100_00)
   })
 
   it('ignores a purchase from a party nobody flagged', () => {
@@ -135,17 +147,12 @@ describe('issueSelfInvoices', () => {
     expect(second.skipped).toHaveLength(1)
   })
 
-  it('consolidates a supplier’s 9(4) month into one document and leaves 9(3) alone', () => {
+  it('refuses consolidation because the notified 9(4) promoter regime is not modeled', () => {
     const s = setup()
     s.buyFreight('2026-04-10', 10_000_00)
     s.buyFreight('2026-04-20', 5_000_00)
-    s.buyLegal('2026-04-12', 20_000_00)
-    const out = issueSelfInvoices(s.db, TEST_INFO, '2026-04-01', '2026-04-30', { consolidate: true })
-    expect(out.issued).toHaveLength(2)
-    const consolidated = out.issued.find((d) => d.voucherIds.length === 2)!
-    expect(consolidated.taxable).toBe(15_000_00)
-    expect(consolidated.date).toBe('2026-04-30')
-    expect(out.issued.every((d, i, all) => all.findIndex((x) => x.number === d.number) === i)).toBe(true)
+    expect(() => issueSelfInvoices(s.db, TEST_INFO, '2026-04-01', '2026-04-30', { consolidate: true }))
+      .toThrow(/notified promoter regime.*daily threshold/i)
   })
 
   it('can be limited to a chosen voucher', () => {
@@ -202,6 +209,40 @@ describe('rcmRegister', () => {
     expect(reg.pending).toHaveLength(0)
     expect(reg.unflagged).toHaveLength(1)
     expect(reg.unflagged[0]!.category).toBe('Legal services')
+  })
+
+  it('scopes purchases, tax type, issued documents and recipient GSTIN to one registration', () => {
+    const s = setup()
+    writeCompanyInfo(s.db, { ...TEST_INFO, gstin: MH, stateCode: '27' })
+    const gj = saveRegistration(s.db, {
+      gstin: GJ, stateCode: '24', tradeName: 'Gujarat branch', address: 'Surat',
+      registeredOn: null, surrenderedOn: null
+    }).id
+    const mh = listRegistrations(s.db).find((r) => r.id !== gj)!.id
+    const mhPurchase = s.post('purchase', '2026-04-10', s.unregistered, [
+      { ledgerId: s.freight, drCr: 'dr', amount: 10_000_00 },
+      { ledgerId: s.unregistered, drCr: 'cr', amount: 10_000_00 }
+    ], mh)
+    const gjPurchase = s.post('purchase', '2026-04-12', s.unregistered, [
+      { ledgerId: s.freight, drCr: 'dr', amount: 20_000_00 },
+      { ledgerId: s.unregistered, drCr: 'cr', amount: 20_000_00 }
+    ], gj)
+    const info = { ...TEST_INFO, gstin: MH, stateCode: '27' }
+    const mhScope = gstScope(s.db, info, mh)
+    const gjScope = gstScope(s.db, info, gj)
+
+    expect(rcmRegister(s.db, mhScope, '2026-04-01', '2026-04-30').pending.map((p) => p.voucherId)).toEqual([mhPurchase.id])
+    expect(rcmRegister(s.db, gjScope, '2026-04-01', '2026-04-30').pending.map((p) => p.voucherId)).toEqual([gjPurchase.id])
+
+    const issued = issueSelfInvoices(s.db, gjScope, '2026-04-01', '2026-04-30', { consolidate: false }).issued[0]!
+    const doc = getSelfInvoice(s.db, issued.id)
+    expect(doc.recipientGstin).toBe(GJ)
+    expect(doc.placeOfSupply).toBe('24')
+    expect(doc.supplyType).toBe('inter')
+    expect(doc.totals.igst).toBe(1_000_00)
+    expect(doc.totals.cgst + doc.totals.sgst).toBe(0)
+    expect(rcmRegister(s.db, gjScope, '2026-04-01', '2026-04-30').issued.map((d) => d.id)).toEqual([issued.id])
+    expect(rcmRegister(s.db, mhScope, '2026-04-01', '2026-04-30').issued).toEqual([])
   })
 })
 

@@ -30,6 +30,7 @@ import {
   type Gstr6Working,
   type IsdAttribution,
   type IsdCredit,
+  type IsdCreditItem,
   type IsdEligibility,
   type IsdInvoice,
   type IsdRecipient,
@@ -159,6 +160,8 @@ interface CreditRow {
   invoice_number: string
   description: string | null
   taxable: number
+  invoice_value: number
+  place_of_supply: string
   igst: number
   cgst: number
   sgst: number
@@ -169,12 +172,25 @@ interface CreditRow {
   distributed_month: string | null
 }
 
+interface CreditItemRow {
+  line_number: number; rate_bps: number; taxable: number
+  igst: number; cgst: number; sgst: number; cess: number
+}
+
 function mapCredit(db: DB, r: CreditRow): IsdCredit & { distributedMonth: string | null } {
   const recipients = (
     db
       .prepare('SELECT registration_id AS id FROM isd_credit_recipients WHERE isd_credit_id = ? ORDER BY registration_id')
       .all(r.id) as { id: number }[]
   ).map((x) => x.id)
+  const items = (db.prepare(
+    'SELECT line_number, rate_bps, taxable, igst, cgst, sgst, cess FROM isd_credit_items WHERE isd_credit_id = ? ORDER BY line_number'
+  ).all(r.id) as CreditItemRow[]).map((item): IsdCreditItem => ({
+    lineNumber: item.line_number,
+    rateBps: item.rate_bps,
+    taxable: item.taxable,
+    heads: { igst: item.igst, cgst: item.cgst, sgst: item.sgst, cess: item.cess }
+  }))
   return {
     id: r.id,
     date: r.doc_date,
@@ -183,6 +199,9 @@ function mapCredit(db: DB, r: CreditRow): IsdCredit & { distributedMonth: string
     invoiceNumber: r.invoice_number,
     description: r.description,
     taxable: r.taxable,
+    invoiceValue: r.invoice_value,
+    placeOfSupply: r.place_of_supply,
+    items,
     heads: { igst: r.igst, cgst: r.cgst, sgst: r.sgst, cess: r.cess },
     eligibility: r.eligibility,
     attribution: r.attribution,
@@ -200,6 +219,9 @@ export interface IsdCreditInput {
   invoiceNumber: string
   description: string | null
   taxable: number
+  invoiceValue: number
+  placeOfSupply: string
+  items: IsdCreditItem[]
   igst: number
   cgst: number
   sgst: number
@@ -237,7 +259,6 @@ export function saveIsdCredit(db: DB, input: IsdCreditInput): IsdCredit & { dist
   if (input.attribution === 'one' && input.recipientRegistrationIds.length !== 1) {
     throw new Error('Credit attributable to one registration must name exactly one')
   }
-
   const before = input.id
     ? ((db.prepare('SELECT * FROM isd_credits WHERE id = ?').get(input.id) as CreditRow | undefined) ?? null)
     : null
@@ -247,17 +268,30 @@ export function saveIsdCredit(db: DB, input: IsdCreditInput): IsdCredit & { dist
       `This credit was distributed in ${before.distributed_month}. Withdraw that distribution before editing it.`
     )
   }
+  if (input.items.length === 0) throw new Error('Add at least one GST-rate row')
+  const itemTaxable = input.items.reduce((sum, item) => sum + item.taxable, 0)
+  const itemHeads = input.items.reduce((sum, item) => ({
+    igst: sum.igst + item.heads.igst, cgst: sum.cgst + item.heads.cgst,
+    sgst: sum.sgst + item.heads.sgst, cess: sum.cess + item.heads.cess
+  }), { igst: 0, cgst: 0, sgst: 0, cess: 0 })
+  if (itemTaxable !== input.taxable || itemHeads.igst !== input.igst || itemHeads.cgst !== input.cgst ||
+      itemHeads.sgst !== input.sgst || itemHeads.cess !== input.cess) {
+    throw new Error('Rate-wise items must tie exactly to the invoice taxable value and tax heads')
+  }
+  if (input.invoiceValue < input.taxable + input.igst + input.cgst + input.sgst + input.cess) {
+    throw new Error('Invoice value cannot be below taxable value plus tax')
+  }
 
   const run = db.transaction((): number => {
     let id: number
     if (before) {
       db.prepare(
         `UPDATE isd_credits SET doc_date = ?, supplier_name = ?, supplier_gstin = ?, invoice_number = ?,
-           description = ?, taxable = ?, igst = ?, cgst = ?, sgst = ?, cess = ?, eligibility = ?,
+           description = ?, taxable = ?, invoice_value = ?, place_of_supply = ?, igst = ?, cgst = ?, sgst = ?, cess = ?, eligibility = ?,
            attribution = ?, reverse_charge = ? WHERE id = ?`
       ).run(
         input.date, input.supplierName.trim(), input.supplierGstin?.trim().toUpperCase() || null,
-        input.invoiceNumber.trim(), input.description?.trim() || null, input.taxable,
+        input.invoiceNumber.trim(), input.description?.trim() || null, input.taxable, input.invoiceValue, input.placeOfSupply,
         input.igst, input.cgst, input.sgst, input.cess, input.eligibility, input.attribution,
         input.reverseCharge ? 1 : 0, before.id
       )
@@ -267,12 +301,12 @@ export function saveIsdCredit(db: DB, input: IsdCreditInput): IsdCredit & { dist
         .prepare(
           `INSERT INTO isd_credits
             (registration_id, doc_date, supplier_name, supplier_gstin, invoice_number, description,
-             taxable, igst, cgst, sgst, cess, eligibility, attribution, reverse_charge)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             taxable, invoice_value, place_of_supply, igst, cgst, sgst, cess, eligibility, attribution, reverse_charge)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           isd.id, input.date, input.supplierName.trim(), input.supplierGstin?.trim().toUpperCase() || null,
-          input.invoiceNumber.trim(), input.description?.trim() || null, input.taxable,
+          input.invoiceNumber.trim(), input.description?.trim() || null, input.taxable, input.invoiceValue, input.placeOfSupply,
           input.igst, input.cgst, input.sgst, input.cess, input.eligibility, input.attribution,
           input.reverseCharge ? 1 : 0
         )
@@ -281,6 +315,14 @@ export function saveIsdCredit(db: DB, input: IsdCreditInput): IsdCredit & { dist
     db.prepare('DELETE FROM isd_credit_recipients WHERE isd_credit_id = ?').run(id)
     const link = db.prepare('INSERT INTO isd_credit_recipients (isd_credit_id, registration_id) VALUES (?, ?)')
     if (input.attribution !== 'all') for (const rid of input.recipientRegistrationIds) link.run(id, rid)
+    db.prepare('DELETE FROM isd_credit_items WHERE isd_credit_id = ?').run(id)
+    const insertItem = db.prepare(
+      'INSERT INTO isd_credit_items (isd_credit_id, line_number, rate_bps, taxable, igst, cgst, sgst, cess) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    )
+    input.items.forEach((item, index) => insertItem.run(
+      id, index + 1, item.rateBps, item.taxable,
+      item.heads.igst, item.heads.cgst, item.heads.sgst, item.heads.cess
+    ))
     return id
   })
 
@@ -549,6 +591,11 @@ export function distributeMonth(
          turnover_paise, total_turnover_paise, doc_json, issued_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
+    const insertLineage = db.prepare(
+      `INSERT INTO isd_invoice_lineage
+        (isd_invoice_id, isd_credit_id, eligibility, iamti, iamtc, iamts, camtc, camti, samts, samti, csamt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
     for (const inv of result.invoices) {
       const res = insert.run(
         inv.number, inv.date, inv.month, isd.id, inv.recipient.registrationId,
@@ -557,6 +604,13 @@ export function distributeMonth(
         inv.ratio.turnoverPaise, inv.ratio.totalTurnoverPaise, JSON.stringify(inv), opts.by ?? null
       )
       const id = Number(res.lastInsertRowid)
+      for (const line of inv.lines) {
+        const x = line.lineage
+        insertLineage.run(
+          id, line.creditId, line.eligibility, x.iamti, x.iamtc, x.iamts,
+          x.camtc, x.camti, x.samts, x.samti, x.csamt
+        )
+      }
       const record = mapInvoice(db.prepare('SELECT * FROM isd_invoices WHERE id = ?').get(id) as InvoiceRow)
       writeAudit(db, 'isdInvoice', id, 'create', null, record)
       out.push(record)

@@ -72,7 +72,9 @@
  *
  * **WHAT IS STILL NOT ESTABLISHED:**
  *   1. The gazette text of Notification 16/2024-Central Tax (see the inconsistency noted above).
- *   2. Nothing here writes a portal file. See `Gstr6Working` for exactly why.
+ *   2. Nothing here writes a portal file. GSTN's latest exposed GSTR-6 Save schema is v1.0 Draft
+ *      (published 2 June 2020) and its offline-tool manual was last updated 3 February 2021.
+ *      `Gstr6Working.portalFile` records the missing mandatory source data precisely.
  *
  * Nothing in this file posts to the books. Distribution moves a credit between two of one
  * business's own electronic credit ledgers on the portal; it creates no revenue and no expense,
@@ -214,6 +216,14 @@ export type IsdAttribution = 'all' | 'some' | 'one'
  *  credit" — both go out, as two amounts. */
 export type IsdEligibility = 'eligible' | 'ineligible'
 
+/** One GST-rate row from the supplier invoice. Rate is basis points (1800 = 18%), never a float. */
+export interface IsdCreditItem {
+  lineNumber: number
+  rateBps: number
+  taxable: number
+  heads: CreditHeads
+}
+
 /** An invoice received by the ISD registration. */
 export interface IsdCredit {
   id: number
@@ -224,6 +234,12 @@ export interface IsdCredit {
   invoiceNumber: string
   description: string | null
   taxable: number
+  /** Total invoice value including tax, as Table 3 asks for it. */
+  invoiceValue: number
+  /** Two-digit GST place-of-supply code. */
+  placeOfSupply: string
+  /** Rate-wise Table 3 rows; their amounts must tie exactly to the aggregate fields above. */
+  items: IsdCreditItem[]
   heads: CreditHeads
   eligibility: IsdEligibility
   attribution: IsdAttribution
@@ -334,6 +350,33 @@ export interface IsdShare {
   turnoverPaise: number
   /** What arrives in this recipient's credit ledger, after the head conversion. */
   heads: CreditHeads
+  /** Share before same-State/inter-State head conversion; required to preserve lineage. */
+  receivedShare: CreditHeads
+}
+
+/** GSTN's source-to-destination head names for one source credit on one ISD document. */
+export interface IsdTaxHeadLineage {
+  iamti: number
+  iamtc: number
+  iamts: number
+  camtc: number
+  camti: number
+  samts: number
+  samti: number
+  csamt: number
+}
+
+export function taxHeadLineage(received: CreditHeads, sameStateAsIsd: boolean): IsdTaxHeadLineage {
+  return {
+    iamti: received.igst,
+    iamtc: 0,
+    iamts: 0,
+    camtc: sameStateAsIsd ? received.cgst : 0,
+    camti: sameStateAsIsd ? 0 : received.cgst,
+    samts: sameStateAsIsd ? received.sgst : 0,
+    samti: sameStateAsIsd ? 0 : received.sgst,
+    csamt: received.cess
+  }
 }
 
 /**
@@ -426,14 +469,17 @@ export function distributeCredit(input: DistributeInput): IsdShare[] {
   const sgst = apportion(input.credit.heads.sgst, weights)
   const cess = apportion(input.credit.heads.cess, weights)
 
-  return targets.map((r, i) => ({
-    registrationId: r.registrationId,
-    turnoverPaise: r.turnoverPaise,
-    heads: convertHeads(
-      { igst: igst[i] as number, cgst: cgst[i] as number, sgst: sgst[i] as number, cess: cess[i] as number },
-      r.stateCode === input.isdStateCode
-    )
-  }))
+  return targets.map((r, i) => {
+    const receivedShare = {
+      igst: igst[i] as number, cgst: cgst[i] as number, sgst: sgst[i] as number, cess: cess[i] as number
+    }
+    return {
+      registrationId: r.registrationId,
+      turnoverPaise: r.turnoverPaise,
+      heads: convertHeads(receivedShare, r.stateCode === input.isdStateCode),
+      receivedShare
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -453,6 +499,7 @@ export interface IsdInvoiceLine {
   received: CreditHeads
   /** This recipient's share, in the heads it arrives in. */
   distributed: CreditHeads
+  lineage: IsdTaxHeadLineage
 }
 
 /**
@@ -610,7 +657,11 @@ export function buildDistribution(input: BuildDistributionInput): DistributionRe
         description: credit.description,
         eligibility: credit.eligibility,
         received: { ...credit.heads },
-        distributed: share.heads
+        distributed: share.heads,
+        lineage: taxHeadLineage(
+          share.receivedShare,
+          input.recipients.find((r) => r.registrationId === share.registrationId)?.stateCode === input.isd.stateCode
+        )
       }
       const list = byRecipient.get(share.registrationId)
       if (list) list.push(line)
@@ -699,13 +750,126 @@ export function buildDistribution(input: BuildDistributionInput): DistributionRe
  * Notification 12/2024-Central Tax, which substituted rule 39, left FORM GSTR-6 itself untouched
  * (it amended only FORM GSTR-6A's heading), so the 2024 ISD changes did not move these numbers.
  *
- * STILL NOT A PORTAL JSON, and now for a precise reason rather than a vague one: the form layout in
- * the Rules is not the offline utility's JSON SCHEMA. That schema is published by GSTN with its
- * offline tool, not in the Rules, it has its own key names and section codes, and it has not been
- * read. GSTR-6 is in any case an online-only return — GSTN's own position is that it is filed on
- * the portal — so a user takes these figures to the portal and types them, which is what they do
- * for GSTR-6 anyway.
+ * STILL NOT AN ENABLED PORTAL EXPORT, for dated and tested reasons. GSTN's current developer listing exposes
+ * only GSTR-6 Save v1.0 Draft (published 2 June 2020); the current official offline-tool manual is
+ * dated 3 February 2021. That schema has been read. Its Table 3 `b2b` rows require invoice value,
+ * POS and rate-wise items and its `isd` rows require source-to-destination head lineage (`iamti`,
+ * `camti`, `samti`, etc.). Those facts are now captured and a Draft-v1.0-shaped preview is built and
+ * structurally validated. Export remains off until GSTN publishes a current Final schema or its
+ * current utility and signed-in portal accept the generated file; filing, late fee and signature
+ * remain online portal acts.
  */
+export interface Gstr6PortalPreview {
+  gstin: string
+  fp: string
+  b2b: {
+    ctin: string
+    inv: {
+      inum: string; idt: string; val: number; pos: string
+      itms: { num: number; itm_det: { rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: number } }[]
+    }[]
+  }[]
+  isd: {
+    elglst: Gstr6PortalDistributionGroup[]
+    inelglst: Gstr6PortalDistributionGroup[]
+  }
+}
+
+export interface Gstr6PortalDistributionGroup {
+  typ: 'R' | 'UR'
+  cpty?: string
+  statecd: string
+  doclst: ({ isd_docty: 'ISD' | 'ISDUR'; docnum: string; docdt: string } & IsdTaxHeadLineage)[]
+}
+
+const portalRupees = (paise: number): number => Number(`${Math.trunc(paise / 100)}.${String(Math.abs(paise % 100)).padStart(2, '0')}`)
+const portalDate = (iso: string): string => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`
+
+function addLineage(parts: IsdTaxHeadLineage[]): IsdTaxHeadLineage {
+  return parts.reduce((t, p) => ({
+    iamti: t.iamti + p.iamti, iamtc: t.iamtc + p.iamtc, iamts: t.iamts + p.iamts,
+    camtc: t.camtc + p.camtc, camti: t.camti + p.camti,
+    samts: t.samts + p.samts, samti: t.samti + p.samti, csamt: t.csamt + p.csamt
+  }), { iamti: 0, iamtc: 0, iamts: 0, camtc: 0, camti: 0, samts: 0, samti: 0, csamt: 0 })
+}
+
+/** Draft v1.0 preview only. Amount computation stays in integer paise until the final JSON edge. */
+export function buildGstr6PortalPreview(result: DistributionResult, isdGstin: string, credits: IsdCredit[]): Gstr6PortalPreview {
+  const suppliers = new Map<string, Gstr6PortalPreview['b2b'][number]['inv']>()
+  for (const credit of credits) {
+    if (!credit.supplierGstin) continue
+    const inv = suppliers.get(credit.supplierGstin) ?? []
+    inv.push({
+      inum: credit.invoiceNumber, idt: portalDate(credit.date), val: portalRupees(credit.invoiceValue),
+      pos: credit.placeOfSupply,
+      itms: credit.items.map((item) => ({
+        num: item.lineNumber,
+        itm_det: {
+          rt: item.rateBps / 100, txval: portalRupees(item.taxable), iamt: portalRupees(item.heads.igst),
+          camt: portalRupees(item.heads.cgst), samt: portalRupees(item.heads.sgst), csamt: portalRupees(item.heads.cess)
+        }
+      }))
+    })
+    suppliers.set(credit.supplierGstin, inv)
+  }
+  const groups = (eligibility: IsdEligibility): Gstr6PortalDistributionGroup[] => result.invoices.flatMap((inv) => {
+    const lines = inv.lines.filter((line) => line.eligibility === eligibility)
+    if (lines.length === 0) return []
+    const lineage = addLineage(lines.map((line) => line.lineage))
+    return [{
+      typ: inv.recipient.gstin ? 'R' as const : 'UR' as const,
+      ...(inv.recipient.gstin ? { cpty: inv.recipient.gstin } : {}),
+      statecd: inv.recipient.stateCode,
+      doclst: [{
+        isd_docty: inv.recipient.gstin ? 'ISD' as const : 'ISDUR' as const,
+        docnum: inv.number, docdt: portalDate(inv.date),
+        iamti: portalRupees(lineage.iamti), iamtc: portalRupees(lineage.iamtc), iamts: portalRupees(lineage.iamts),
+        camtc: portalRupees(lineage.camtc), camti: portalRupees(lineage.camti),
+        samts: portalRupees(lineage.samts), samti: portalRupees(lineage.samti), csamt: portalRupees(lineage.csamt)
+      }]
+    }]
+  })
+  return {
+    gstin: isdGstin,
+    fp: `${result.month.slice(5, 7)}${result.month.slice(0, 4)}`,
+    b2b: [...suppliers].map(([ctin, inv]) => ({ ctin, inv })),
+    isd: { elglst: groups('eligible'), inelglst: groups('ineligible') }
+  }
+}
+
+/** Structural and accounting validation for the checked Draft v1.0 preview shape. */
+export function validateGstr6PortalPreview(
+  preview: Gstr6PortalPreview,
+  credits: IsdCredit[]
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = []
+  const gstin = /^\d{2}[A-Z0-9]{13}$/
+  if (!gstin.test(preview.gstin)) errors.push('ISD GSTIN is missing or invalid.')
+  if (!/^(0[1-9]|1[0-2])\d{4}$/.test(preview.fp)) errors.push('Filing period is not MMYYYY.')
+  for (const credit of credits) {
+    if (!credit.supplierGstin || !gstin.test(credit.supplierGstin)) errors.push(`Credit ${credit.id} has no valid supplier GSTIN.`)
+    if (!/^\d{2}$/.test(credit.placeOfSupply)) errors.push(`Credit ${credit.id} has no valid place of supply.`)
+    if (credit.items.length === 0) errors.push(`Credit ${credit.id} has no rate-wise item.`)
+    if (credit.items.some((item) => item.rateBps === 0 && (item.taxable > 0 || headsTotal(item.heads) > 0))) {
+      errors.push(`Credit ${credit.id} has a legacy unclassified GST-rate row; classify its invoice items before portal use.`)
+    }
+    const itemTaxable = credit.items.reduce((s, i) => s + i.taxable, 0)
+    const itemHeads = addHeads(...credit.items.map((i) => i.heads))
+    if (itemTaxable !== credit.taxable || JSON.stringify(itemHeads) !== JSON.stringify(credit.heads)) {
+      errors.push(`Credit ${credit.id} rate-wise items do not tie to its aggregate taxable value and tax heads.`)
+    }
+    if (credit.invoiceValue < credit.taxable + headsTotal(credit.heads)) {
+      errors.push(`Credit ${credit.id} invoice value is below taxable value plus tax.`)
+    }
+  }
+  for (const group of [...preview.isd.elglst, ...preview.isd.inelglst]) {
+    if (group.typ === 'R' && (!group.cpty || !gstin.test(group.cpty))) errors.push('Registered recipient has no valid GSTIN.')
+    if (!/^\d{2}$/.test(group.statecd)) errors.push('Distribution recipient has no valid state code.')
+    if (group.doclst.length === 0) errors.push('Distribution group has no document.')
+  }
+  return { valid: errors.length === 0, errors }
+}
+
 export interface Gstr6Working {
   month: string
   dueDate: string
@@ -717,6 +881,9 @@ export interface Gstr6Working {
     invoiceNumber: string
     invoiceDate: string
     taxable: number
+    invoiceValue: number
+    placeOfSupply: string
+    items: IsdCreditItem[]
     heads: CreditHeads
     eligibility: IsdEligibility
   }[]
@@ -747,10 +914,21 @@ export interface Gstr6Working {
    * user typing figures into a portal needs to know which form's numbering they are reading.
    */
   formCitation: string
+  /** Dated result of checking the latest official GSTN schema/tool, including why export is off. */
+  portalFile: {
+    ready: false
+    auditedOn: string
+    schemaVersion: string
+    schemaStatus: string
+    schemaPublishedOn: string
+    offlineToolUpdatedOn: string
+    blockers: string[]
+    preview: Gstr6PortalPreview | null
+    validation: { valid: boolean; errors: string[] }
+  }
   /**
-   * Nothing here is a portal file. False now means only what it says — the TABLE NUMBERING is
-   * checked (see the doc comment) — and the export stays data rather than JSON for the separate
-   * reason given there: the offline utility's JSON schema is GSTN's, not the Rules', and is unread.
+   * False means the FORM table numbering is checked. Portal readiness is the separate, explicit
+   * `portalFile` result above; this legacy flag remains for renderer/API compatibility.
    */
   layoutUnverified: false
 }
@@ -762,6 +940,16 @@ export function buildGstr6(
   const available = { eligible: result.received.eligible, ineligible: result.received.ineligible }
   const distributedTotal = addHeads(result.distributed.eligible, result.distributed.ineligible)
   const availableTotal = addHeads(available.eligible, available.ineligible)
+  const lineageComplete = result.invoices.every((invoice) => invoice.lines.every((line) => !!line.lineage))
+  const preview = opts.isdGstin && lineageComplete
+    ? buildGstr6PortalPreview(result, opts.isdGstin, opts.credits)
+    : null
+  const validation = preview
+    ? validateGstr6PortalPreview(preview, opts.credits)
+    : { valid: false, errors: [
+        ...(!opts.isdGstin ? ['ISD GSTIN is missing.'] : []),
+        ...(!lineageComplete ? ['One or more legacy distributions predate persisted tax-head lineage; withdraw and reissue the month.'] : [])
+      ] }
 
   return {
     month: result.month,
@@ -773,6 +961,9 @@ export function buildGstr6(
       invoiceNumber: c.invoiceNumber,
       invoiceDate: c.date,
       taxable: c.taxable,
+      invoiceValue: c.invoiceValue,
+      placeOfSupply: c.placeOfSupply,
+      items: c.items,
       heads: c.heads,
       eligibility: c.eligibility
     })),
@@ -788,6 +979,21 @@ export function buildGstr6(
     undistributedPaise: headsTotal(availableTotal) - headsTotal(distributedTotal),
     warnings: result.warnings,
     formCitation: 'FORM GSTR-6 [See rule 65], CGST Rules 2017 Part B — Tables 3, 4 and 5.',
+    portalFile: {
+      ready: false,
+      auditedOn: '2026-08-28',
+      schemaVersion: 'v1.0',
+      schemaStatus: 'Draft',
+      schemaPublishedOn: '2020-06-02',
+      offlineToolUpdatedOn: '2021-02-03',
+      blockers: [
+        'GSTN exposes GSTR-6 Save v1.0 only as Draft; no newer final schema is published in the developer portal.',
+        ...(validation.valid ? [] : [`Draft-schema preview validation: ${validation.errors.join(' ')}`]),
+        'A generated file has not been processed by the signed-in GST portal; portal business validation remains authoritative.'
+      ],
+      preview,
+      validation
+    },
     layoutUnverified: false
   }
 }

@@ -107,22 +107,29 @@ await scenario('53-isd', async (h) => {
   assertEq(gjRec.turnoverPaise, 40000000, "and Gujarat's own")
 
   // ---- the common bill: ₹1,00,000 audit fee, CGST ₹9,000 + SGST ₹9,000 ----
-  await h.invoke('isd:saveCredit', {
-    date: `${MONTH}-12`,
-    supplierName: 'Audit LLP',
-    supplierGstin: null,
-    invoiceNumber: 'A/26/9',
-    description: 'Statutory audit fee',
-    taxable: 10000000,
-    igst: 0,
-    cgst: 900000,
-    sgst: 900000,
-    cess: 0,
-    eligibility: 'eligible',
-    attribution: 'all',
-    recipientRegistrationIds: [],
-    reverseCharge: false
-  })
+  // Enter it through the UI so invoice value, POS and the rate-wise Table 3 row are exercised.
+  await h.goto('disclosure')
+  await h.click('tab-disclosure-isd')
+  await h.fill('input-isd-month', MONTH)
+  await h.waitIdle()
+  await h.click('btn-isd-add-credit')
+  await h.fill('input-isd-date', `12-08-${fyStart}`)
+  await h.page.getByTestId('input-isd-date').press('Enter')
+  await h.page.waitForTimeout(50)
+  await h.fill('input-isd-invoice-number', 'A/26/9')
+  await h.fill('input-isd-supplier', 'Audit LLP')
+  await h.fill('input-isd-supplier-gstin', '07AAPFU0939F1ZX')
+  await h.fill('input-isd-description', 'Statutory audit fee')
+  await h.fill('input-isd-invoice-value', '118000')
+  await h.fill('input-isd-pos', '07')
+  await h.fill('input-isd-rate-0', '18')
+  await h.fill('input-isd-item-taxable-0', '100000')
+  await h.fill('input-isd-item-cgst-0', '9000')
+  await h.fill('input-isd-item-sgst-0', '9000')
+  await h.shot('53-isd-credit-modal')
+  await h.click('btn-isd-save-credit')
+  await h.page.waitForSelector('[data-testid="rows-isd-credits"] tr', { timeout: 10000 })
+  assert((await h.page.getByTestId('rows-isd-credits').textContent())?.includes('12-Aug-26'), 'the visible invoice date survives DateInput commit')
 
   // ---- the books, before ----
   const tbBefore = await h.invoke('report:trialBalance', { asOn })
@@ -130,16 +137,20 @@ await scenario('53-isd', async (h) => {
   const vouchersBefore = (await h.invoke('voucher:list', { from: `${fyStart}-04-01`, to: asOn })).length
 
   // ---- 3 & 4. distribute ----
-  const run = await h.invoke('isd:distribute', { month: MONTH })
+  const run = (await h.invoke('isd:desk', { month: MONTH })).preview
   assertEq(run.invoices.length, 2, 'one ISD invoice per recipient')
-  const mhInv = run.invoices.find((i) => i.recipientRegistrationId === mhReg.id)
-  const gjInv = run.invoices.find((i) => i.recipientRegistrationId === gjReg.id)
+  const mhInv = run.invoices.find((i) => i.recipient.registrationId === mhReg.id)
+  const gjInv = run.invoices.find((i) => i.recipient.registrationId === gjReg.id)
   assertEq(mhInv.eligible.igst, 1080000, '60% of ₹18,000 to Maharashtra')
   assertEq(gjInv.eligible.igst, 720000, 'and 40% to Gujarat')
   assertEq(mhInv.eligible.igst + gjInv.eligible.igst, 1800000, 'the whole credit, to the paise')
   assertEq(mhInv.eligible.cgst, 0, 'CGST+SGST left the Delhi ISD as IGST — both recipients are outside Delhi')
   assertEq(gjInv.eligible.sgst, 0, 'on both documents')
   assert(/^ISD\/\d{4}-\d{2}\/\d{4}$/.test(mhInv.number), 'numbered in the ISD series under rule 54(1)')
+  // Commit through the visible control as well as checking the pure preview above. This also
+  // proves the mutation refreshes the table the operator is looking at.
+  await h.click('btn-isd-distribute')
+  await h.page.waitForSelector('[data-testid="rows-isd-issued"] tr', { timeout: 10000 })
 
   // ---- 5. the recipient's return ----
   const mh3b = await h.invoke('gst:gstr3b', {
@@ -167,9 +178,21 @@ await scenario('53-isd', async (h) => {
   assertEq(g6.undistributedPaise, 0, 'everything received was distributed')
   // The table numbering was checked against FORM GSTR-6 [See rule 65] — Table 3 inward, Table 4
   // available, Table 5 distribution with 5A eligible and 5B ineligible — so it no longer calls
-  // itself a guess. It is still not a portal file, and the citation says which form it follows.
+  // itself a guess. Portal-file readiness is a separate, dated and machine-readable audit.
   assertEq(g6.layoutUnverified, false, 'the table numbering is read in FORM GSTR-6, not guessed')
   assert(g6.formCitation.includes('rule 65'), 'and the working names the form it follows')
+  assertEq(g6.portalFile.ready, false, 'portal JSON stays disabled')
+  assertEq(g6.portalFile.auditedOn, '2026-08-28', 'the official-source audit is dated')
+  assertEq(g6.portalFile.schemaStatus, 'Draft', 'GSTN exposes only a Draft save schema')
+  assertEq(g6.portalFile.validation.valid, true, 'the Draft-v1.0-shaped preview validates structurally and ties')
+  assertEq(g6.portalFile.preview.b2b[0].inv[0].pos, '07', 'Table 3 preview carries place of supply')
+  assertEq(g6.portalFile.preview.b2b[0].inv[0].itms[0].itm_det.rt, 18, 'and the rate-wise item')
+  assertEq(
+    g6.portalFile.preview.isd.elglst.reduce((sum, group) => sum + group.doclst[0].camti + group.doclst[0].samti, 0),
+    18000,
+    'source CGST/SGST to destination IGST lineage is preserved in portal field names'
+  )
+  assert(g6.portalFile.blockers.some((b) => b.includes('signed-in GST portal')), 'signed-in business validation remains explicit')
   assert(
     !g6.warnings.some((w) => w.includes('not been checked against the notification')),
     'the rules applied are no longer flagged as unchecked'
@@ -183,9 +206,14 @@ await scenario('53-isd', async (h) => {
   await h.goto('disclosure')
   await h.click('tab-disclosure-isd')
   await h.waitIdle()
-  // The tab defaults to the month the session's period ends in; point it at the one distributed.
+  // The tab defaults to the session period's month; point it back at the distributed month.
   await h.fill('input-isd-month', MONTH)
   await h.waitIdle()
+  assert(
+    (await h.page.getByTestId('text-isd-portal-status').textContent())?.includes('Disabled after an official-source check'),
+    'the screen shows the dated portal-file audit'
+  )
+  assert((await h.page.getByTestId('list-isd-portal-blockers').textContent())?.includes('signed-in GST portal'), 'the screen shows the remaining portal-authority blocker')
   const rows = await h.page.locator('[data-testid="rows-isd-issued"] tr').count()
   assertEq(rows, 2, 'the ISD tab lists both invoices it issued')
   await h.shot('53-isd')

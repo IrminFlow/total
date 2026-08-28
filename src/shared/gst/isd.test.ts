@@ -35,6 +35,9 @@ const credit = (over: Partial<IsdCredit> = {}): IsdCredit => ({
   invoiceNumber: 'A/26/9',
   description: 'Statutory audit fee',
   taxable: 100_000_00,
+  invoiceValue: 118_000_00,
+  placeOfSupply: '27',
+  items: [{ lineNumber: 1, rateBps: 1800, taxable: 100_000_00, heads: { igst: 0, cgst: 9_000_00, sgst: 9_000_00, cess: 0 } }],
   heads: { igst: 0, cgst: 9_000_00, sgst: 9_000_00, cess: 0 },
   eligibility: 'eligible',
   attribution: 'all',
@@ -291,8 +294,45 @@ describe('GSTR-6', () => {
     // CGST+SGST leaves as IGST for the Gujarat recipient and a per-head comparison would report a
     // shortfall on a distribution that is complete.
     expect(g6.undistributedPaise).toBe(0)
-    // The table numbering is now read in FORM GSTR-6 itself, so it no longer claims to be a guess.
+    // The form mapping is checked, but a portal file remains disabled for explicit, dated reasons.
     expect(g6.layoutUnverified).toBe(false)
     expect(g6.formCitation).toContain('rule 65')
+    expect(g6.portalFile).toMatchObject({
+      ready: false,
+      auditedOn: '2026-08-28',
+      schemaVersion: 'v1.0',
+      schemaStatus: 'Draft',
+      schemaPublishedOn: '2020-06-02',
+      offlineToolUpdatedOn: '2021-02-03'
+    })
+    expect(g6.portalFile.validation).toEqual({ valid: true, errors: [] })
+    expect(g6.portalFile.preview?.fp).toBe('062026')
+    expect(g6.portalFile.preview?.b2b[0]?.inv[0]).toMatchObject({
+      inum: 'A/26/9', val: 118000, pos: '27',
+      itms: [{ num: 1, itm_det: { rt: 18, txval: 100000, camt: 9000, samt: 9000 } }]
+    })
+    const sameState = g6.portalFile.preview?.isd.elglst.find((group) => group.statecd === '27')?.doclst[0]
+    const otherState = g6.portalFile.preview?.isd.elglst.find((group) => group.statecd === '24')?.doclst[0]
+    expect(sameState).toMatchObject({ camtc: 5400, samts: 5400, camti: 0, samti: 0 })
+    expect(otherState).toMatchObject({ camtc: 0, samts: 0, camti: 3600, samti: 3600 })
+    expect(g6.portalFile.blockers).toHaveLength(2)
+    expect(g6.portalFile.blockers.join(' ')).toContain('Draft')
+    expect(g6.portalFile.blockers.join(' ')).toContain('signed-in GST portal')
+  })
+
+  it('does not call migrated aggregate rows a portal-valid GST-rate classification', () => {
+    const credits = [credit({
+      items: [{ lineNumber: 1, rateBps: 0, taxable: 100_000_00, heads: { igst: 0, cgst: 9_000_00, sgst: 9_000_00, cess: 0 } }]
+    })]
+    const result = buildDistribution({
+      month: '2026-06', date: '2026-06-30', fyLabel: '2026-27',
+      isd: { registrationId: 1, gstin: '27AAAAA0000A1Z9', stateCode: '27', tradeName: 'ISD', address: null },
+      recipients: [recipient(2, '27', 100)], credits,
+      period: relevantPeriodFor('2026-06', true),
+      numberFor: (i) => isdInvoiceNumber('2026-27', i + 1)
+    })
+    const g6 = buildGstr6(result, { isdGstin: '27AAAAA0000A1Z9', credits })
+    expect(g6.portalFile.validation.valid).toBe(false)
+    expect(g6.portalFile.validation.errors.join(' ')).toContain('legacy unclassified GST-rate row')
   })
 })

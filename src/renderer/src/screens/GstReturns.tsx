@@ -439,18 +439,16 @@ function AmendmentsPanel({ month }: { month: MonthChoice }): React.JSX.Element {
         </Panel>
       )}
 
-      {/* Not a disclaimer for its own sake: these are the exact field names the app could not
-          confirm against a current GSTR-1 JSON schema, and this panel is the one place a user
-          would rely on them. */}
       <p className="text-small text-muted" data-testid="amendments-verify-note">
         Check before you upload. Section 37(3) allows a filed particular to be rectified in a later return, up to 30 November following the
         financial year or the annual return, whichever is earlier — this app reports amendments but does not enforce that window, because the
-        portal is the authority on whether it is still open. The amendment-only keys the rows carry (<span className="num">octin</span>,{' '}
-        <span className="num">oinum</span>, <span className="num">oidt</span> on 9A; <span className="num">ont_num</span>,{' '}
-        <span className="num">ont_dt</span> on 9C) have no precedent in the ordinary GSTR-1 tables this app builds and are unverified against
-        the current schema version, as is whether the portal accepts an amendment-only file alongside a separately uploaded GSTR-1 for the same
-        period. A registered → unregistered correction is amended into B2CLA here; some practitioners nil the B2BA row instead, and the portal
-        has accepted both at different schema versions. Quarterly (QRMP) periods are not scanned for documents missed from a filed return.
+        portal is the authority on whether it is still open. The JSON fields are validated against GSTN&apos;s GSTR-1 Save API v5.0: B2BA uses
+        group-level <span className="num">ctin</span> plus <span className="num">oinum</span>/<span className="num">oidt</span>, and CDNRA uses{' '}
+        <span className="num">ont_num</span>/<span className="num">ont_dt</span>. The v5.0 root permits table-only partial uploads and GSTN&apos;s
+        current offline-tool manual permits multiple JSON chunks. Recipient GSTIN is explicitly non-amendable; any registered/unregistered or
+        GSTIN-to-GSTIN correction is refused here for deliberate portal handling rather than converted into a different table. For QRMP,
+        IFF-filed records keep their M1/M2 original period; records missed from IFF
+        remain ordinary records when they are first furnished in the next IFF or the quarter&apos;s GSTR-1.
       </p>
     </div>
   )

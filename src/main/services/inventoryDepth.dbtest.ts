@@ -135,6 +135,71 @@ describe('physical stock (absolute) lines', () => {
     expect(row.closingQtyMilli).toBe(0)
     expect(row.closingValue).toBe(0)
   })
+
+  it.each(['weighted_avg', 'fifo'] as const)(
+    'keeps the godown breakdown reconciled after a company-wide count (%s)',
+    (valuationMethod) => {
+      const db = seededDb()
+      const a = createGodown(db, { name: 'Count A', address: null })
+      const b = createGodown(db, { name: 'Count B', address: null })
+      const id = makeItem(db, `Count split ${valuationMethod}`, valuationMethod)
+
+      // Deliberately use quantities and values that do not divide evenly so this also exercises
+      // paisa rounding in the by-godown value allocation.
+      postStock(db, '2025-05-01', [
+        { stockItemId: id, qtyMilli: 10001, amount: 100003, direction: 'in', godownId: a.id }
+      ])
+      postStock(db, '2025-05-05', [
+        { stockItemId: id, qtyMilli: 3334, direction: 'out', godownId: a.id },
+        { stockItemId: id, qtyMilli: 3334, amount: 33341, direction: 'in', godownId: b.id }
+      ])
+
+      // PhysicalStockEntry records an item-wide count without a godown. Its adjustment must
+      // reconcile the location rows, not pin a second independent "no godown" balance.
+      postStock(db, '2025-05-10', [
+        { stockItemId: id, qtyMilli: 7777, direction: 'in', isAbsolute: true }
+      ], 'physical_stock')
+
+      const afterCount = rowFor(db, id, '2025-05-10')
+      const splitAfterCount = stockAnalysis.stockByGodown(db, '2025-05-10').filter((r) => r.stockItemId === id)
+      expect(splitAfterCount.reduce((sum, r) => sum + r.closingQtyMilli, 0)).toBe(afterCount.closingQtyMilli)
+      expect(splitAfterCount.reduce((sum, r) => sum + r.closingValue, 0)).toBe(afterCount.closingValue)
+
+      // Later movements retain the same invariant, including a negative unallocated count
+      // adjustment and another non-even value allocation.
+      postStock(db, '2025-05-11', [
+        { stockItemId: id, qtyMilli: 1000, direction: 'out', godownId: a.id },
+        { stockItemId: id, qtyMilli: 500, amount: 15001, direction: 'in', godownId: b.id }
+      ])
+      const final = rowFor(db, id, '2025-05-31')
+      const finalSplit = stockAnalysis.stockByGodown(db, '2025-05-31').filter((r) => r.stockItemId === id)
+      expect(final.closingQtyMilli).toBe(7277)
+      expect(finalSplit.reduce((sum, r) => sum + r.closingQtyMilli, 0)).toBe(final.closingQtyMilli)
+      expect(finalSplit.reduce((sum, r) => sum + r.closingValue, 0)).toBe(final.closingValue)
+    }
+  )
+
+  it('keeps a negative post-count position reconciled by godown and removes zero-count rows', () => {
+    const db = seededDb()
+    const godown = createGodown(db, { name: 'Counted store', address: null })
+    const id = makeItem(db, 'Counted below zero', 'weighted_avg')
+    postStock(db, '2025-05-01', [
+      { stockItemId: id, qtyMilli: 3000, amount: 30001, direction: 'in', godownId: godown.id }
+    ])
+    postStock(db, '2025-05-02', [
+      { stockItemId: id, qtyMilli: 0, direction: 'in', isAbsolute: true }
+    ], 'physical_stock')
+    expect(stockAnalysis.stockByGodown(db, '2025-05-02').filter((r) => r.stockItemId === id)).toEqual([])
+
+    postStock(db, '2025-05-03', [
+      { stockItemId: id, qtyMilli: 1000, direction: 'out', godownId: godown.id }
+    ])
+    const summary = rowFor(db, id, '2025-05-31')
+    const split = stockAnalysis.stockByGodown(db, '2025-05-31').filter((r) => r.stockItemId === id)
+    expect(summary.closingQtyMilli).toBe(-1000)
+    expect(split.reduce((sum, r) => sum + r.closingQtyMilli, 0)).toBe(summary.closingQtyMilli)
+    expect(split.reduce((sum, r) => sum + r.closingValue, 0)).toBe(summary.closingValue)
+  })
 })
 
 describe('negative-stock detection', () => {

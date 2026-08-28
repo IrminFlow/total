@@ -12,7 +12,7 @@ import {
   saveSection,
   tdsReturnWorking
 } from './tds'
-import { setTdsFiling } from './config'
+import { getTdsFiling, setTdsFiling } from './config'
 import type { CompanyInfo } from '@shared/domain'
 import type { VoucherInputParsed } from '@shared/schemas'
 
@@ -27,12 +27,18 @@ import type { VoucherInputParsed } from '@shared/schemas'
 const INFO: CompanyInfo = {
   name: 'Demo Traders', stateCode: '27', gstin: null, gstRegistrationType: 'regular',
   gstFilingFrequency: 'monthly', turnoverBand: null, address: 'Pune, Maharashtra',
-  booksFrom: 2026, email: null, phone: null, pan: 'AAAPA1111A', tan: 'PNET12345B'
+  booksFrom: 2026, email: 'books@example.com', phone: '9876543210', pan: 'AAAPA1111A', tan: 'PNET12345B'
 }
 
 function setup() {
   const db = seededDb()
-  setTdsFiling(db, { responsiblePerson: 'A. Kumar', responsibleDesignation: 'Partner', deductorType: 'S' })
+  setTdsFiling(db, {
+    responsiblePerson: 'A. Kumar', responsibleDesignation: 'Partner', deductorType: 'F',
+    deductorStateCode: '19', deductorPincode: '700001', responsibleAddress: 'Pune',
+    responsibleStateCode: '19', responsiblePincode: '700001', responsibleEmail: 'a@example.com',
+    responsiblePhone: '9876543210', responsiblePan: 'AAAPA2222A', earlierStatementFiled: false,
+    previousTokenNumber: null, governmentStateCode: null, ministryCode: null, ministryOther: null, ain: null
+  })
   const groupId = (name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
   const sectionId = (code: string): number =>
     (db.prepare('SELECT id FROM tds_sections WHERE code = ?').get(code) as { id: number }).id
@@ -76,6 +82,27 @@ const CHALLAN = {
   form: '26Q' as const, bsrCode: '0004329', paidOn: '2026-07-07', serial: '00021',
   tax: 10_000_00, surcharge: 0, cess: 0, interest: 0, fee: 0, bookEntry: false, note: null
 }
+
+describe('TDS filing legal category', () => {
+  it('preserves official A and S government codes in the new complete profile', () => {
+    const s = setup()
+    const complete = getTdsFiling(s.db)
+    expect(setTdsFiling(s.db, { ...complete, deductorType: 'A' }).deductorType).toBe('A')
+    expect(setTdsFiling(s.db, { ...complete, deductorType: 'S' }).deductorType).toBe('S')
+  })
+
+  it('translates the old unpublished A/S meanings only for a legacy-shaped record', () => {
+    const s = setup()
+    s.db.prepare("UPDATE meta SET value = ? WHERE key = 'tds.filing'").run(JSON.stringify({
+      responsiblePerson: 'A. Kumar', responsibleDesignation: 'Partner', deductorType: 'A'
+    }))
+    expect(getTdsFiling(s.db).deductorType).toBe('K')
+    s.db.prepare("UPDATE meta SET value = ? WHERE key = 'tds.filing'").run(JSON.stringify({
+      responsiblePerson: 'A. Kumar', responsibleDesignation: 'Partner', deductorType: 'S'
+    }))
+    expect(getTdsFiling(s.db).deductorType).toBe('F')
+  })
+})
 
 describe('TDS challans', () => {
   it('records a challan and reports nothing linked to it yet', () => {

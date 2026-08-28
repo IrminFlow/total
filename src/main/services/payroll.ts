@@ -18,7 +18,7 @@ import { whatsappNumber } from '@shared/outstanding'
 import { serviceLength } from '@shared/gratuity'
 import { fyOf, isValidISODate } from '@shared/dates'
 import {
-  computeAnnualTax, fyStartYearOf, monthlyTds, monthsLeftInFy, type Regime, type TaxComputation
+  computeAnnualTax, fyStartYearOf, monthlyTds, type Regime, type TaxComputation
 } from '@shared/incomeTax'
 import { amountInWords, formatPaise } from '@shared/money'
 import { deleteVoucher, getLockDate, saveVoucher } from './vouchers'
@@ -30,6 +30,7 @@ import { writeExportPdf } from './pdf'
 
 interface EmployeeRow {
   id: number; name: string; code: string | null; designation: string | null; joined: string | null
+  left_on: string | null
   pan: string | null; uan: string | null; esic_no: string | null
   basic: number; hra: number; special: number
   pf_enabled: number; esi_enabled: number; pt_enabled: number; pt_state: string; active: number
@@ -41,6 +42,7 @@ interface EmployeeRow {
 
 const mapEmployee = (r: EmployeeRow): Employee => ({
   id: r.id, name: r.name, code: r.code, designation: r.designation, joined: r.joined,
+  leftOn: r.left_on,
   pan: r.pan, uan: r.uan, esicNo: r.esic_no,
   basic: r.basic, hra: r.hra, special: r.special,
   pfEnabled: !!r.pf_enabled, esiEnabled: !!r.esi_enabled, ptEnabled: !!r.pt_enabled,
@@ -72,25 +74,28 @@ function syncSeededHeads(db: DB, employeeId: number, input: EmployeeInput): void
 }
 
 export function saveEmployee(db: DB, input: EmployeeInput, id?: number): Employee {
+  if (input.joined && input.leftOn && input.leftOn < input.joined) {
+    throw new Error('Last working day cannot be before the joining date')
+  }
   const before = id ? db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as EmployeeRow | undefined : undefined
   if (id) {
     db.prepare(
-      `UPDATE employees SET name = ?, code = ?, designation = ?, joined = ?, pan = ?, uan = ?, esic_no = ?,
+      `UPDATE employees SET name = ?, code = ?, designation = ?, joined = ?, left_on = ?, pan = ?, uan = ?, esic_no = ?,
        basic = ?, hra = ?, special = ?, pf_enabled = ?, esi_enabled = ?, pt_enabled = ?, pt_state = ?,
        bank_account = ?, ifsc = ?, email = ?, phone = ?, tax_regime = ?, declared_deductions = ?,
        opening_tds = ?, pay_cycle = ?, active = ? WHERE id = ?`
-    ).run(input.name, input.code, input.designation, input.joined, input.pan, input.uan, input.esicNo,
+    ).run(input.name, input.code, input.designation, input.joined, input.leftOn ?? null, input.pan, input.uan, input.esicNo,
       input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, input.ptState,
       input.bankAccount ?? null, input.ifsc ?? null, input.email ?? null, input.phone ?? null,
       input.taxRegime ?? null, input.declaredDeductions ?? null, input.openingTds ?? null,
       input.payCycle ?? 'monthly', +input.active, id)
   } else {
     const res = db.prepare(
-      `INSERT INTO employees (name, code, designation, joined, pan, uan, esic_no, basic, hra, special,
+      `INSERT INTO employees (name, code, designation, joined, left_on, pan, uan, esic_no, basic, hra, special,
         pf_enabled, esi_enabled, pt_enabled, pt_state, bank_account, ifsc, email, phone,
         tax_regime, declared_deductions, opening_tds, pay_cycle, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(input.name, input.code, input.designation, input.joined, input.pan, input.uan, input.esicNo,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(input.name, input.code, input.designation, input.joined, input.leftOn ?? null, input.pan, input.uan, input.esicNo,
       input.basic, input.hra, input.special, +input.pfEnabled, +input.esiEnabled, +input.ptEnabled, input.ptState,
       input.bankAccount ?? null, input.ifsc ?? null, input.email ?? null, input.phone ?? null,
       input.taxRegime ?? null, input.declaredDeductions ?? null, input.openingTds ?? null,
@@ -315,7 +320,12 @@ function deductedEarlierInMonth(db: DB, month: string, before: string): Map<numb
  * The result is then clipped to the days the employee was actually on the payroll, so a
  * mid-cycle joiner is paid from the day they joined rather than from the Monday the week opened.
  */
-function cycleDayShares(periods: CyclePeriod[], monthPayableDays: number, joined: string | null): number[] {
+function cycleDayShares(
+  periods: CyclePeriod[],
+  monthPayableDays: number,
+  joined: string | null,
+  leftOn: string | null
+): number[] {
   let previous = 0
   return periods.map((p) => {
     const share = cycleShare(periods, p.key)!
@@ -325,9 +335,7 @@ function cycleDayShares(periods: CyclePeriod[], monthPayableDays: number, joined
     // Scaled by the fraction of the period the employee was on the payroll for, not capped at it:
     // a week is worth 7.5 days of a 30-day month once the month's own 28 covered days are shared
     // out, and capping at the week's seven calendar days would quietly pay everybody 28/30ths.
-    // There is no leaving date on the employee record — someone who leaves is settled through
-    // full-and-final and marked inactive — so only the joining side can clip a period today.
-    const present = payableDaysInCycle(p, joined, null)
+    const present = payableDaysInCycle(p, joined, leftOn)
     if (present >= p.days) return raw
     // Half-day granularity, the same as the attendance register's.
     return Math.max(0, Math.round(((raw * present) / p.days) * 2) / 2)
@@ -394,16 +402,25 @@ export function previewPeriod(
   const already = deductedEarlierInMonth(db, month, period.from)
 
   return listEmployees(db)
-    .filter((e) => e.active && e.payCycle === period.cycle)
+    .filter((e) => {
+      if (e.payCycle !== period.cycle) return false
+      // An inactive employee with a recorded final day still belongs in their final historical
+      // period; after it they disappear. Inactive without an end date keeps its old meaning.
+      if (!e.active && !e.leftOn) return false
+      return !e.leftOn || e.leftOn >= period.from
+    })
     .map((e) => {
       const monthPayableDays = byId.get(e.id) ?? fromRegister.get(e.id) ?? monthDays
       const heads = headsByEmployee.get(e.id)
       const advanceRecovery = recoveries.get(e.id) ?? 0
       const tds = tdsByEmployee.get(e.id)?.thisMonth ?? 0
 
-      // A monthly run IS the month, so nothing is split and nothing is clipped: the register is
-      // the record for a monthly employee, joining date included, exactly as it has always been.
-      const shares = period.cycle === 'monthly' ? [monthPayableDays] : cycleDayShares(periods, monthPayableDays, e.joined)
+      // A monthly register is already a day count, so employment dates cap it instead of scaling
+      // it (which would prorate a part-month attendance correction twice). Shorter cycles first
+      // split the month's register and then clip each cycle to the employment interval.
+      const shares = period.cycle === 'monthly'
+        ? [Math.min(monthPayableDays, payableDaysInCycle(period, e.joined, e.leftOn))]
+        : cycleDayShares(periods, monthPayableDays, e.joined, e.leftOn)
       const payableDays = shares[share.index] ?? 0
       const monthEffectiveDays = shares.reduce((s, d) => s + d, 0)
 
@@ -1213,7 +1230,6 @@ export function tdsForMonth(db: DB, month: string): Map<number, EmployeeTax> {
   const fyStartYear = fyStartYearOf(month)
   const fyFrom = `${fyStartYear}-04-01`
   const fyTo = `${fyStartYear + 1}-03-31`
-  const monthsRemaining = monthsLeftInFy(month)
 
   // What has already come off this financial year, from runs that are posted.
   const deducted = new Map(
@@ -1229,18 +1245,45 @@ export function tdsForMonth(db: DB, month: string): Map<number, EmployeeTax> {
     ).map((r) => [r.employeeId, r])
   )
 
-  const rates = ratesForMonth(month)
   const headsByEmployee = loadEmployeeHeadSpecs(db)
   const out = new Map<number, EmployeeTax>()
 
+  const fyMonths = Array.from({ length: 12 }, (_, i) => {
+    const monthIndex = i + 4
+    const year = monthIndex <= 12 ? fyStartYear : fyStartYear + 1
+    const monthNumber = monthIndex <= 12 ? monthIndex : monthIndex - 12
+    return `${year}-${String(monthNumber).padStart(2, '0')}`
+  })
+
   for (const e of listEmployees(db)) {
-    if (!e.active) continue
-    const monthDays = daysInMonth(month)
-    const full = computeMonthlyPay({ ...e, heads: headsByEmployee.get(e.id) }, monthDays, monthDays, { rates })
-    // Months this employee will be paid for in this financial year, joining date respected.
-    const monthsPaid = e.joined && e.joined > fyFrom ? Math.max(1, monthsLeftInFy(e.joined.slice(0, 7))) : 12
-    const annualGross = full.gross * monthsPaid
-    const annualPt = full.pt * monthsPaid
+    if (!e.active && !e.leftOn) continue
+    const heads = headsByEmployee.get(e.id)
+    const employedDays = (projectionMonth: string): number =>
+      payableDaysInCycle(periodFor(db, 'monthly', projectionMonth), e.joined, e.leftOn)
+    if (employedDays(month) === 0) continue
+
+    // Project only the part of this financial year the employee is actually contracted to
+    // work, including partial joining/leaving months. This prevents a known June leaver being
+    // taxed as though twelve future salaries were still coming, while retaining section 192's
+    // estimate-and-true-up model for salary/rate revisions.
+    let annualGross = 0
+    let annualPt = 0
+    for (const projectionMonth of fyMonths) {
+      const payableDays = employedDays(projectionMonth)
+      if (payableDays === 0) continue
+      const projectionMonthDays = daysInMonth(projectionMonth)
+      const projected = computeMonthlyPay(
+        { ...e, heads },
+        payableDays,
+        projectionMonthDays,
+        { rates: ratesForMonth(projectionMonth) }
+      )
+      annualGross += projected.gross
+      annualPt += projected.pt
+    }
+    const employeeMonthsRemaining = fyMonths.filter(
+      (projectionMonth) => projectionMonth >= month && employedDays(projectionMonth) > 0
+    ).length
 
     const computation = computeAnnualTax({
       grossSalary: annualGross,
@@ -1258,8 +1301,8 @@ export function tdsForMonth(db: DB, month: string): Map<number, EmployeeTax> {
       annualGross,
       computation,
       deductedSoFar: soFar,
-      monthsRemaining,
-      thisMonth: monthlyTds(computation.totalTax, soFar, monthsRemaining)
+      monthsRemaining: employeeMonthsRemaining,
+      thisMonth: monthlyTds(computation.totalTax, soFar, employeeMonthsRemaining)
     })
   }
   return out

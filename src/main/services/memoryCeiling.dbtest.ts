@@ -35,14 +35,11 @@ import { streamReportCsv } from './exportStream'
  *     machine-independent, and it is what a cache with no bound — a memoised report, a
  *     statement map keyed on SQL built per call — would break while every ceiling still passed.
  *
- * There is no forced GC here (the DB suite runs under Electron-as-Node without `--expose-gc`), so
- * every heap number below is an UPPER bound: garbage not yet collected counts against us. That is
- * the safe direction for a ceiling — which is why every heap assertion here is a ceiling — and it
- * is the wrong direction for anything that needs a FLOOR. A ratio needs a floor, and the first
- * version of the Day Book test asserted one; a collection landed inside the measurement and it
- * failed with `expected 831368 to be less than -7689820`. That is not a flake to retry past, it
- * is an assertion the measurement cannot carry, so the ratio is asserted on payload bytes instead
- * and the heap numbers next to it are printed rather than checked.
+ * Ordinary report measurements deliberately do not force GC, so those heap numbers are upper
+ * bounds. The streaming-retention test is different: `scripts/test-db.mjs` exposes GC to the
+ * Electron-as-Node Vitest worker, lets one equivalent export warm the SQLite/V8 machinery, then
+ * collects before measuring a second export. That tests live retained state rather than whichever
+ * suite-order garbage happened to be awaiting collection on Windows.
  */
 
 /** Slow, contended runners: `TOTAL_MEMORY_CEILING_SCALE=2 npm run test:db -- memoryCeiling`. */
@@ -111,27 +108,45 @@ describe('memory ceiling on a large book', () => {
       .toBeLessThan(wholeKb / 3)
   })
 
-  it('exports the whole book without holding it', () => {
+  it('exports in pages without retaining another export in memory', () => {
     const dir = mkdtempSync(join(tmpdir(), 'total-memceiling-'))
     try {
-      const before = heap()
-      const res = streamReportCsv(
+      const gc = global.gc
+      expect(gc, 'scripts/test-db.mjs must expose GC for a deterministic retention measurement')
+        .toBeTypeOf('function')
+      const request = {
+        kind: 'dayBook' as const,
+        from,
+        to,
+        includeOutOfBooks: false,
+        columns: { type: true, number: true, account: true, debit: true, credit: true }
+      }
+
+      const first = streamReportCsv(
         db,
-        {
-          kind: 'dayBook',
-          from,
-          to,
-          includeOutOfBooks: false,
-          columns: { type: true, number: true, account: true, debit: true, credit: true }
-        },
-        join(dir, 'daybook.csv')
+        request,
+        join(dir, 'daybook-first.csv')
       )
-      const grew = heap() - before
-      console.log(`[memory] streamed ${res.rows} rows / ${(res.bytes / MB).toFixed(1)} MB to disk, heap +${mb(grew)} MB`)
-      expect(res.rows).toBeGreaterThan(5000)
-      // The whole point of the streaming export: the file is megabytes, the heap is not.
-      expect(grew, 'the streaming CSV export is holding the export in memory again')
-        .toBeLessThan(12 * SCALE * MB)
+      gc!()
+      const settled = heap()
+
+      const second = streamReportCsv(db, request, join(dir, 'daybook-second.csv'))
+      gc!()
+      const retained = heap() - settled
+      console.log(
+        `[memory] streamed ${second.rows} rows / ${(second.bytes / MB).toFixed(1)} MB in ` +
+          `${second.pages} pages; second export retained ${mb(retained)} MB`
+      )
+
+      expect(first.rows).toBeGreaterThan(5000)
+      expect(second).toEqual({ ...first, path: join(dir, 'daybook-second.csv') })
+      // PAGE is 1,000. More than five pages proves the source rows were not fetched as one period;
+      // exact page count proves the cursor neither repeated nor skipped a boundary row.
+      expect(second.pages).toBe(Math.ceil(second.rows / 1000))
+      // The first run has warmed lazy SQLite/V8 state. After collection, repeating the same export
+      // must not leave another period-sized graph alive.
+      expect(retained, 'a repeated streaming CSV export retains memory after its result is discarded')
+        .toBeLessThan(4 * SCALE * MB)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

@@ -2,7 +2,7 @@
 
 Use this file to continue the project in another chat without relying on the old transcript.
 
-**Last updated:** 26 August 2026  
+**Last updated:** 28 August 2026
 **Repository:** private GitHub repo `IrminFlow/total`  
 **Working directory:** `/Users/irmin/.t3/worktrees/total-t/t3code-fae681b6`  
 **Branch:** `t3code/revamp-ledgers-shortcuts`  
@@ -183,20 +183,43 @@ The branch began as a roadmap build-out and became a full release branch. It cha
 - QRMP due dates, PMT-06/IFF support and filing-season flow.
 - Composition dealer support: CMP-08 and GSTR-4. The old validator incorrectly rejected composition businesses.
 - GSTR-1, GSTR-1A, GSTR-3B, GSTR-9 and 2B reconciliation improvements.
-- IMS actions.
+- IMS actions. Dated portal availability was audited 2026-08-28: original credit notes gain
+  Pending prospectively from the October 2025 period; older ones allow Accept/Reject. Book-only
+  rows have no portal action. The app remains a local worksheet and never claims to update IMS.
 - Return snapshots and amendment tables.
 - Multi-GSTIN registrations in one book.
 - GST registration stored on the voucher so tax does not change when the primary registration changes.
 - GST returns, filings, 2B reconciliation, e-invoice/e-way and print documents scoped per GSTIN.
 - Branch transfers between registrations of one PAN, with Rule 28 valuation and corresponding output/input tax treatment.
-- ISD allocation and GSTR-6 working.
-- Reverse-charge self-invoice.
+- ISD allocation and GSTR-6 working. Migration 59 now captures invoice value/POS/rate-wise items
+  and persists exact source-to-destination head lineage; a Draft-v1.0-shaped preview validates
+  structure and accounting ties. Portal JSON is still deliberately disabled because the
+  2026-08-28 audit found only GSTN Save v1.0 Draft and the file has not passed a current signed-in
+  portal validation. Migrated aggregate rows stay explicitly unclassified until edited.
+- Reverse-charge self-invoice. A 2026-08-28 CBIC audit removed the unsafe inference that every
+  blank-GSTIN party is section 9(4): only notified 9(3) supplies from unregistered suppliers get a
+  per-supply self-invoice. Registered suppliers use their own RCM invoice. Unsupported promoter
+  9(4) month-end consolidation is disabled at both UI and service boundaries.
 - LUT tracking and expiry.
 - E-invoice reporting deadline countdown.
 - Effective-dated item GST rates and cess with notification citations.
-- ITC-04 and the section 143 job-work clock.
-- PIN-distance suggestions that are offered, never silently written.
-- Section 197 certificates and 26AS reconciliation.
+- ITC-04 working and the section 143 job-work clock. The 2026-08-28 official-source audit fixed
+  the Table 5B/onward semantics, FY 2021-22 transition periods, anniversary boundary source and
+  nil wording. Migration 60 completes the worker chain: source/destination identity, endorsed or
+  fresh onward provenance, SEZ, cess, row-level loss/waste and linked Table 5C sales invoices.
+  Onward stock moves between worker godowns while one first-despatch clock continues, and a holder
+  ledger prevents duplicate returns. The current v2.15 utility zip is hash-pinned and its hidden
+  fields/VBA produce the checked-in golden preview. Portal JSON remains disabled: the workbook
+  raises `Compile error in hidden module: MainModule` in Excel for Mac, its own Table 5B sheet and
+  instruction page contradict one another, and Windows-utility/signed-in-portal acceptance remains
+  an external validation gate.
+- PIN-distance suggestions that are offered, never silently written. A 2026-08-28 audit checked
+  civil prefixes against the Department of Posts OGD directory and corrected “postal circle” to
+  “postal sub-region” and the zero-distance wording. NIC's official calculation remains proprietary
+  and authoritative; Total's approximate table is always disclosed and needs an explicit accept.
+- Section 197 certificates and 26AS reconciliation. The 2026-08-28 official audit pins TRACES'
+  grouped Part I/caret-text layout, distinguishes it from AIS, adds party-master TAN, preserves
+  negative corrections, and avoids comparing GST-inclusive party gross to the TDS base.
 - TDS challans, 24Q/26Q working, Form 16A, Form 3CD pack and dated Income-tax Act 2025 mappings.
 - Related-party report and Rule 3(1) audit-trail statement.
 
@@ -208,7 +231,10 @@ A primary-source verification pass found four serious errors and corrected them:
 - Income-tax Act 2025 mappings were overly broad (`393`) rather than the actual section/table entries.
 - The GSTR-1A authority was mis-cited: the window is the proviso to rule 59(1), while 59(4A) governs contents.
 
-The app now blocks current-year 24Q/26Q export because those forms stop at FY 2025-26 and the replacement Form 138/140 file formats are not yet supported. A portal-rejected file is worse than no file.
+The app date-selects historical 24Q/26Q through FY 2025-26 and Forms 138/140 from FY 2026-27. The
+22 July 2026 Protean release is implemented and position-tested; Form 138 Q4 remains blocked because
+Protean still marks it “Expected soon.” Generated files remain `.unverified.txt` until a fixture
+passes FVU 1.2 with the TAN-specific CSI that Protean mandates.
 
 ### Invoicing and documents
 
@@ -418,8 +444,12 @@ Electron 37 → 44 was attempted and **reverted cleanly**. Do not casually retry
 
 - Both API ports were understood: PDF margin options changed; clipboard became async and W3C-style.
 - Unit, DB and renderer tests passed on Electron 44.
-- The E2E/CDP path wedges deterministically on `goto('edocs') → goto('daybook') → goto('edocs')`; the second synthesised click never returns and both page/app evaluation hang afterwards.
-- Passes on Electron 37; fails on 43 and 44, so the regression lies somewhere in 38–43.
+- The E2E/CDP path wedges deterministically on `goto('edocs') → goto('daybook') → goto('edocs')`; the third synthesised click never returns and both page/app evaluation hang afterwards.
+- The 2026-08-28 bisect uses `scripts/electron-cdp-repro.mjs`: 37.10.3 passes, while latest patches
+  38.8.6, 39.8.10, 40.10.6, 41.10.7 and 42.10.1 all fail. The first bad major is 38. A DOM click
+  on 42 also wedges evaluation, so replacing pointer input is not a credible workaround.
+- Playwright 1.62.1 is still the current registry release as of that audit; no newer version exists
+  to test. The harness retains real native-input coverage.
 - The diagnosis is recorded in `HUMAN.md` and the dependency merge commit.
 - Keep Electron 37 / better-sqlite3 12 until the harness issue is solved. Never ship an Electron bump without the full E2E net.
 
@@ -897,6 +927,12 @@ The keyboard system models palette, modal, list, screen and navigation scopes ex
 
 - B2B/B2C/note/export tables are generated from vouchers.
 - Filing snapshots preserve what was filed.
+- Amendment JSON is pinned by a golden file to GSTN GSTR-1 Save API v5.0: B2BA uses group-level
+  `ctin` plus `oinum`/`oidt`; CDNRA uses `ont_num`/`ont_dt`. The former invalid `octin` field is
+  gone. Recipient GSTIN is non-amendable in GSTN's current offline tool, so GSTIN transitions are
+  refused for deliberate portal handling instead of being guessed into a different table.
+- Amendment-only JSON is a supported partial GSTR-1 payload: v5.0 requires only `gstin`/`fp` at
+  the root, and the current GSTN manual permits multiple JSON uploads/chunks.
 - GSTR-1A computes amendments relative to the filed snapshot rather than comparing the current
   books with themselves.
 - The authority is corrected to the proviso to rule 59(1); rule 59(4A) governs contents.
@@ -914,22 +950,40 @@ The keyboard system models palette, modal, list, screen and navigation scopes ex
 
 - Compliance deadlines distinguish monthly and quarterly filers.
 - IFF/PMT-06 quarterly workflow is represented.
+- Filing an M1/M2 IFF freezes its registered-recipient invoices and registered credit/debit notes
+  with the month in which the portal first saw them. A missed M1 record can be picked up by M2;
+  the quarterly GSTR-1 snapshot excludes records already furnished through IFF, while missed
+  M1/M2 and B2C records first furnished in the quarter remain ordinary quarter records. Empty IFF
+  filings have durable headers, so re-entering an ARN cannot silently rewrite a nil filing.
 - CMP-08/GSTR-4 are available for composition dealers.
 - Composition invoices render as Bills of Supply rather than tax invoices.
 
 ### GSTR-2B and IMS
 
 - 2B import/reconciliation identifies matched, missing, mismatch and action states.
-- IMS action handling is represented and caveated where current portal behaviour still needs
-  external confirmation.
+- IMS action handling is dated to GSTN's October 2025 changes. Original invoices/debit notes expose
+  all three actions; original credit notes expose Pending only from that period; book-only rows
+  expose none. This is a local work record, not a portal integration.
 
 ### Annual/other GST
 
 - GSTR-9 working.
-- ISD allocation and GSTR-6 data working.
-- RCM liability advice and the section 31(3)(f) self-invoice.
+- ISD allocation and GSTR-6 data working. Migration 59 adds supplier invoice value, place of
+  supply, rate-wise items and persisted source-to-destination head lineage. A Draft-v1.0-shaped
+  preview is structurally/accounting validated, while migrated aggregate rows are explicitly
+  unclassified until edited. `portalFile.ready` remains deliberately false because GSTN exposes
+  only an old Draft schema and a generated file still needs current official-utility and signed-in
+  portal validation; it is not an upload file.
+- RCM liability advice and the section 31(3)(f) per-supply self-invoice for an unregistered
+  supplier. Registered 9(3) suppliers remain in liability but rely on their own invoice; the
+  unmodeled section 9(4) promoter consolidation path is refused.
 - LUT register and expiry.
-- ITC-04 working over job-work challans and returns.
+- ITC-04 working over job-work challans and returns. Onward moves retain the first-despatch clock
+  and are not mislabeled as 5B. Migration 60 now persists the actual source and destination,
+  endorsed/fresh provenance, SEZ/cess and form-row loss/waste; exact different-worker receipts land
+  in 5B and linked principal invoices land in 5C. A v2.15-shaped golden is validated against the
+  extracted official workbook rules, but portal readiness remains false pending a Windows Excel
+  utility pass and authenticated GST portal acceptance.
 - E-invoice window countdown.
 - E-way distance suggestions.
 
@@ -951,23 +1005,30 @@ The keyboard system models palette, modal, list, screen and navigation scopes ex
 - Section 197 lower-deduction certificates include limits/usage.
 - TDS challans and deduction links.
 
-### 24Q/26Q and replacement forms
+### Historical 24Q/26Q and replacement Forms 138/140
 
 - Protean-format record working was corrected against published workbooks.
 - Field counts are 18/72/41/54 for the covered formats.
 - Records use required ordering and CRLF.
 - Annexure section codes are mapped explicitly; ambiguous 194I/194J limbs block rather than guess.
-- Mandatory deductor/responsible-person fields not stored in the books remain named as missing.
-- Export remains visibly unverified/non-fileable until mandatory data and FVU validation exist.
-- FY 2026-27 export is blocked because 24Q/26Q are replaced by Forms 138/140 and the new format is
-  not implemented.
+- A dedicated filing profile stores and validates the official Annexure 4 legal category, Income
+  Tax state/PIN fields, responsible-person identity/contact/PAN, prior-statement token and
+  conditional government fields. The former unpublished A/S meanings were wrong and are translated
+  only for legacy-shaped metadata; new A/S correctly mean Central/State Government.
+- FY 2026-27 selects Form 138/140. Protean's 22 July 2026 workbooks and 138RQ1/140RQ1 samples pin
+  FH/BH/CD/DD at 18/72/30/45 and four-digit Annexure 2 codes. Form 138 Q4 is still unpublished and
+  blocked explicitly.
+- Export remains `.unverified.txt` until an app-generated fixture passes FVU 1.2 with its mandatory
+  TAN-specific CSI. Incomplete profile facts block export and are never invented.
 
 ### Certificates and audit packs
 
 - Form 16A working for vendors.
 - Form 3CD clause-wise extracts.
 - Form 16/payroll tax support.
-- 26AS reconciliation.
+- 26AS reconciliation. Current TRACES caret-text and saved CSV are supported; summary TAN/name are
+  inherited into nested Part I transactions. Party TAN is durable, reversals stay signed, and an
+  unlinked credit row is an investigation item rather than an automatic omitted-income claim.
 
 ## A.6 Invoicing, sales and purchases
 
@@ -1128,9 +1189,10 @@ The keyboard system models palette, modal, list, screen and navigation scopes ex
 - Full-and-final settlement lines carry their own working/explanation.
 - Payslips and statutory summaries.
 
-Known payroll caveat preserved in the roadmap: employee leaving date was not originally available
-for every historical path; verify current schema/implementation before claiming mid-cycle leaver
-proration in a new flow.
+Employee masters now store an inclusive last working day. Monthly runs cap the attendance count
+without prorating it twice; weekly and fortnightly runs clip the final cycle, true up statutory
+deductions there, and exclude the employee from later periods. Existing employees migrate with no
+end date.
 
 ### Fixed assets
 
@@ -1419,29 +1481,24 @@ screen with the longer timeout.
 
 ## B.3 Electron upgrade debt
 
-Electron 37 is retained intentionally. The next attempt should:
-
-1. Start with the three-step CDP wedge reproducer.
-2. Bisect Electron 38–42.
-3. Test whether using DOM `el.click()` only in the harness avoids the wedge without weakening
-   production coverage.
-4. Try current Playwright when a version newer than 1.62 exists.
-5. Preserve native input coverage somewhere; replacing every synthesised action with JS click
-   would hide real focus/input bugs.
-6. Reapply the known API ports only after the harness path is credible.
-7. Run full Windows and macOS E2E before accepting the bump.
+Electron 37 is retained intentionally. The 2026-08-28 matrix completed the requested 38–42 bisect
+and found 38 to be the first bad major; see the dependency section above and run the checked-in
+`scripts/electron-cdp-repro.mjs` before any future attempt. DOM click does not avoid the Electron 42
+wedge, and Playwright 1.62.1 remains current. Do not reapply the known API ports or accept an
+Electron bump until a newer Electron/Playwright combination passes this native-input reproducer and
+the full Windows and macOS E2E suites.
 
 ## B.4 Forms 138/140
 
-Current-year 24Q/26Q export is blocked correctly. When Protean publishes the replacement formats:
+The replacement formats are now implemented from Protean's 22 July 2026 primary workbooks and
+official samples. Historical selection is retained, the filing profile supplies mandatory identity,
+and Form 138/140 uses 18/72/30/45 records with explicit four-digit section mapping.
 
-- Obtain primary workbooks/specification.
-- Add dated form selection.
-- Build mandatory header/annexure fields explicitly.
-- Keep old formats available for historical periods.
-- Run through FVU; do not change `.unverified.txt` naming or remove the acknowledgement before
-  actual FVU evidence.
-- Cover Q4 salary Annexure II separately.
+Remaining external/statutory gates:
+
+- Run an app-generated fixture through FVU 1.2 with a valid TAN-specific CSI obtained by the TAN
+  holder; never remove `.unverified.txt` on structural tests alone.
+- Implement Form 138 Q4 only after Protean publishes its format and annual salary annexure.
 
 ## B.5 Physical hardware validation
 
@@ -1654,7 +1711,10 @@ Review independently:
 - GST rate history and cited notifications.
 - QRMP/composition deadlines/forms.
 - RCM self-invoice.
-- ISD/GSTR-6.
+- ISD/GSTR-6 (FORM mapping and current GSTN Draft schema audited 2026-08-28; invoice/POS/rate rows
+  and exact source-head lineage are now durable and produce a validated Draft-shaped preview;
+  portal export remains off until a current Final schema or official utility plus signed-in portal
+  accepts it).
 - TDS record layouts and section mappings.
 - Forms 3CD/16A/Schedule III.
 - Every remaining “unverified” comment.
