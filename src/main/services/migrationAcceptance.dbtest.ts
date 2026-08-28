@@ -5,7 +5,7 @@ import { seededDb } from "../db/testdb";
 import { applyImport } from "./importers";
 import { buildAutomatedMigrationAcceptance } from "./migrationAcceptance";
 import { buildMigrationCertificate } from "./migrationCertificate";
-import { applyMappingProfile, listMappingProfiles } from "./migrationTools";
+import { applyImportWithProfile, applyMappingProfile, listMappingProfiles } from "./migrationTools";
 
 interface FixtureManifest {
   fixtures: Array<{
@@ -51,13 +51,15 @@ describe("synthetic source migration acceptance", () => {
         salesGroup.id,
       );
       const sourceText = readFileSync(join(fixtureRoot, fixture.file), "utf8");
-      const normalized = fixture.profile
-        ? applyMappingProfile(
-            sourceText,
-            listMappingProfiles(db).find((profile) => profile.name === fixture.profile)!,
-          )
+      const profile = fixture.profile
+        ? listMappingProfiles(db).find((candidate) => candidate.name === fixture.profile)!
+        : null;
+      const normalized = profile
+        ? applyMappingProfile(sourceText, profile)
         : sourceText;
-      const imported = applyImport(db, "generic_journal", normalized);
+      const imported = profile
+        ? applyImportWithProfile(db, sourceText, profile)
+        : applyImport(db, "generic_journal", normalized);
       const totals = db
         .prepare(
           `SELECT COUNT(DISTINCT v.id) AS voucherCount,

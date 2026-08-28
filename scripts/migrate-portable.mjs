@@ -39,26 +39,51 @@ if (pkg.schema === "total.portable" && pkg.schemaVersion === 1) {
 }
 if (
   pkg.schema !== "total.portable" ||
+  pkg.schemaVersion !== 1 ||
+  !pkg.company ||
+  typeof pkg.company !== "object" ||
+  !pkg.exportedAt ||
   !pkg.entities ||
-  typeof pkg.entities !== "object"
+  typeof pkg.entities !== "object" ||
+  Array.isArray(pkg.entities)
 )
-  throw new Error("Unsupported portable package: expected an entities object");
+  throw new Error("Unsupported portable package: company, exportedAt, and entities are required");
+for (const [name, rows] of Object.entries(pkg.entities)) {
+  if (!Array.isArray(rows)) throw new Error(`Portable table "${name}" must be an array`);
+}
+const appDataNotice = pkg.appDataNotice ??
+  "Amounts are integer paise; quantities are integer thousandths. Derived balances are not stored.";
 const counts = Object.fromEntries(
   Object.entries(pkg.entities).map(([name, rows]) => [
     name,
     Array.isArray(rows) ? rows.length : 0,
   ]),
 );
-const base = { ...pkg, manifest: undefined };
+const base = {
+  schema: "total.portable",
+  schemaVersion: 1,
+  exportedAt: pkg.exportedAt,
+  appDataNotice,
+  company: pkg.company,
+  entities: pkg.entities,
+};
 const sha256 = createHash("sha256").update(JSON.stringify(base)).digest("hex");
-pkg.manifest = {
+const upgraded = {
+  ...base,
+  manifest: {
   ...(pkg.manifest ?? {}),
   counts,
   sha256,
+  omittedSecrets: pkg.manifest?.omittedSecrets ?? [
+    "user PIN hashes",
+    "encrypted provider credentials",
+    "live session tokens",
+  ],
   migratedBy: "scripts/migrate-portable.mjs",
   transformations,
+  },
 };
-writeFileSync(output, JSON.stringify(pkg, null, 2), "utf8");
+writeFileSync(output, JSON.stringify(upgraded, null, 2), "utf8");
 console.log(
   JSON.stringify(
     { input, output, schemaVersion: 1, transformations, counts },

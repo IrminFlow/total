@@ -765,7 +765,9 @@ export type AgentBridgeConfigInput = z.infer<typeof agentBridgeConfigSchema>;
 
 export const tallyImportSchema = z
   .object({
-    xmlText: z.string().optional(),
+    // Exact UTF-8 byte enforcement happens in the main-process input boundary.
+    // This prevents pathological inline strings from reaching it in the first place.
+    xmlText: z.string().max(64 * 1024 * 1024).optional(),
     filePath: z.string().optional(),
     dryRun: z.boolean().default(false),
   })

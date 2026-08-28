@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, truncateSync, writeFileSync } from "fs";
 import { execFileSync } from "child_process";
+import { createHash } from "crypto";
 import { tmpdir } from "os";
 import { join } from "path";
 import ExcelJS from "exceljs";
 import { freshDb, seededDb } from "../db/testdb";
 import { ensureCompanyTree } from "../paths";
 import { applyImport, previewImport } from "./importers";
+import { importSourceHash } from "./importBatches";
 import {
   applyMappingProfile,
+  applyImportWithProfile,
   createPortablePackage,
   listMappingProfiles,
+  linkImportAttachments,
   migrationDryRun,
   previewWithProfile,
   restorePortablePackage,
@@ -47,6 +51,19 @@ function journalCsv() {
     "a,JV-1,24/08/2026,Journal,Cash,1000,,Migration test,MIG-1",
     "b,JV-1,24/08/2026,Journal,Sales Account,,1000,Migration test,MIG-1",
   ].join("\n");
+}
+
+function refreshPortableHash(pkg: ReturnType<typeof createPortablePackage>) {
+  const content = JSON.stringify({
+    schema: pkg.schema,
+    schemaVersion: pkg.schemaVersion,
+    exportedAt: pkg.exportedAt,
+    appDataNotice: pkg.appDataNotice,
+    company: pkg.company,
+    entities: pkg.entities,
+  });
+  pkg.manifest.sha256 = createHash("sha256").update(content).digest("hex");
+  return pkg;
 }
 
 describe("migration workbench", () => {
@@ -94,14 +111,43 @@ describe("migration workbench", () => {
     expect(profiles).toHaveLength(10);
     const busy = profiles.find((row) => row.name === "Busy voucher export")!;
     const csv = [
-      "Vch No,Date,Vch Type,Account,Dr,Cr,Narration,Legacy Code",
-      "B-1,24/08/2026,Journal,Cash,1000,,Test,X1",
-      "B-1,24/08/2026,Journal,Sales Account,,1000,Test,X2",
+      "Vch No,Date,Vch Type,Account,Dr,Cr,Narration,Ref No,Legacy Code",
+      "B-1,24/08/2026,Journal,Cash,1000,,Test,EXT-44,X1",
+      "B-1,24/08/2026,Journal,Sales Account,,1000,Test,EXT-44,X2",
     ].join("\n");
     const result = previewWithProfile(db, csv, busy);
     expect(result.preview).toMatchObject({ willCreate: 1, errors: [] });
     expect(result.dryRun.unsupportedColumns).toEqual(["Legacy Code"]);
-    expect(applyMappingProfile(csv, busy)).toContain("Voucher Group");
+    const normalized = applyMappingProfile(csv, busy);
+    expect(normalized).toContain("Voucher Group");
+    expect(normalized).toContain("Number");
+    expect(normalized).toContain("Reference");
+    const imported = applyImportWithProfile(db, csv, busy);
+    expect(imported.sourceHash).toBe(importSourceHash(csv));
+    expect(imported.normalizedSourceHash).toBe(importSourceHash(normalized));
+    expect(db.prepare("SELECT kind,source_hash AS sourceHash FROM import_batches WHERE id=?").get(imported.batchId)).toEqual({
+      kind: "busy",
+      sourceHash: importSourceHash(csv),
+    });
+    expect(db.prepare("SELECT number,reference FROM vouchers WHERE number='B-1'").get()).toEqual({ number: "B-1", reference: "EXT-44" });
+  });
+  it("keeps repeated source numbers on different dates as separate balanced vouchers", () => {
+    const db = booksDb();
+    const csv = [
+      "Voucher Group,Date,Voucher Type,Number,Ledger,Debit,Credit,Reference",
+      "DAY-1,2026-08-01,Journal,1,Cash,1000,,AUG-1",
+      "DAY-1,2026-08-01,Journal,1,Sales Account,,1000,AUG-1",
+      "DAY-1,2026-08-02,Journal,1,Cash,2500,,AUG-2",
+      "DAY-1,2026-08-02,Journal,1,Sales Account,,2500,AUG-2",
+    ].join("\n");
+    const preview = previewImport(db, "generic_journal", csv);
+    expect(preview).toMatchObject({ willCreate: 2, errors: [], reconciliation: { sourceRows: 4, acceptedRows: 4, rejectedRows: 0 } });
+    const result = applyImport(db, "generic_journal", csv);
+    expect(result.created).toBe(2);
+    expect(db.prepare("SELECT date,number,reference FROM vouchers WHERE number='1' ORDER BY date").all()).toEqual([
+      { date: "2026-08-01", number: "1", reference: "AUG-1" },
+      { date: "2026-08-02", number: "1", reference: "AUG-2" },
+    ]);
   });
   it("writes an actionable XLSX error workbook with stable row identity", async () => {
     tree();
@@ -116,6 +162,33 @@ describe("migration workbench", () => {
     );
     expect(path).toMatch(/busy-ledgers-errors\.xlsx$/);
     expect(readFileSync(path).subarray(0, 2).toString()).toBe("PK");
+  });
+  it("links attachments only after one unique active voucher match and counts durable links", async () => {
+    tree();
+    const db = booksDb();
+    const imported = applyImport(db, "generic_journal", journalCsv());
+    const original = db.prepare("SELECT * FROM vouchers WHERE reference='MIG-1'").get() as Record<string, unknown>;
+    db.prepare(
+      `INSERT INTO vouchers(voucher_type_id,date,number,party_ledger_id,narration,reference,created_at,updated_at)
+       VALUES(?,?,?,?,?,?,?,?)`,
+    ).run(original.voucher_type_id, original.date, "DUPLICATE", original.party_ledger_id, original.narration, original.reference, original.created_at, original.updated_at);
+    const folder = join(root!, "source-documents");
+    mkdirSync(folder);
+    writeFileSync(join(folder, "invoice.pdf"), "review evidence");
+    const attachmentCsv = "Attachment Filename,Reference\ninvoice.pdf,MIG-1";
+
+    const ambiguous = await linkImportAttachments(db, "migration-books", imported.batchId, folder, attachmentCsv, "Owner");
+    expect(ambiguous).toMatchObject({ linked: 0, missing: [], warnings: [expect.stringMatching(/multiple active vouchers/i)] });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM import_voucher_attachments").get()).toEqual({ n: 0 });
+
+    db.prepare("UPDATE vouchers SET deleted_at=datetime('now') WHERE number='DUPLICATE'").run();
+    const linked = await linkImportAttachments(db, "migration-books", imported.batchId, folder, attachmentCsv, "Owner");
+    expect(linked).toEqual({ linked: 1, missing: [], warnings: [] });
+    const repeated = await linkImportAttachments(db, "migration-books", imported.batchId, folder, attachmentCsv, "Owner");
+    expect(repeated).toMatchObject({ linked: 0, missing: [], warnings: [expect.stringMatching(/already linked/i)] });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM import_voucher_attachments").get()).toEqual({ n: 1 });
+    expect(readdirSync(join(root!, "companies", "migration-books", "attachments", `import-${imported.batchId}`))).toHaveLength(1);
+    db.close();
   });
   it("normalizes XLSX and tab-separated workbooks at the reviewed CSV boundary", async () => {
     tree();
@@ -255,14 +328,51 @@ describe("migration workbench", () => {
     source.close();
     destination.close();
   });
+  it("rejects fractional money and quantity units even with a valid content hash", () => {
+    const source = booksDb();
+    applyImport(source, "generic_journal", journalCsv());
+    const base = createPortablePackage(source, {
+      name: "Integer Books", gstin: null, stateCode: "27", address: "", email: null, phone: null,
+      pan: null, tan: null, booksFrom: 2026, gstRegistrationType: "unregistered",
+    });
+    const fractionalMoney = structuredClone(base);
+    (fractionalMoney.entities.voucher_lines![0] as { amount: number }).amount += 0.5;
+    refreshPortableHash(fractionalMoney);
+    expect(() => validatePortablePackage(fractionalMoney)).toThrow(/integer accounting units/i);
+
+    const fractionalQuantity = structuredClone(base);
+    fractionalQuantity.entities.inventory_lines = [{ qty_milli: 1.5 }];
+    fractionalQuantity.manifest.counts.inventory_lines = 1;
+    refreshPortableHash(fractionalQuantity);
+    expect(() => validatePortablePackage(fractionalQuantity)).toThrow(/integer accounting units/i);
+    source.close();
+  });
   it("upgrades legacy portable JSON through the standalone CLI with a transformation report", () => {
     tree();
+    const source = booksDb();
+    applyImport(source, "generic_journal", journalCsv());
+    const current = createPortablePackage(source, {
+      name: "Legacy Books", gstin: null, stateCode: "27", address: "", email: null, phone: null,
+      pan: null, tan: null, booksFrom: 2026, gstRegistrationType: "unregistered",
+    });
     const input = join(root!, "legacy.json");
     const output = join(root!, "upgraded.json");
-    writeFileSync(input, JSON.stringify({ exported_on: "2025-01-01T00:00:00.000Z", tables: { vouchers: [{ id: 1 }] } }));
+    writeFileSync(input, JSON.stringify({
+      exported_on: current.exportedAt,
+      appDataNotice: current.appDataNotice,
+      company: current.company,
+      tables: current.entities,
+    }));
     const report = JSON.parse(execFileSync(process.execPath, [join(process.cwd(), "scripts/migrate-portable.mjs"), input, output], { encoding: "utf8" }));
     const upgraded = JSON.parse(readFileSync(output, "utf8"));
     expect(report.transformations).toContain("Renamed tables collection to entities");
-    expect(upgraded).toMatchObject({ schema: "total.portable", schemaVersion: 1, entities: { vouchers: [{ id: 1 }] }, manifest: { counts: { vouchers: 1 } } });
+    expect(validatePortablePackage(upgraded)).toMatchObject({ schema: "total.portable", schemaVersion: 1 });
+    const destination = freshDb();
+    const restored = restorePortablePackage(destination, upgraded, "Migration operator");
+    expect(restored.counts).toEqual(current.manifest.counts);
+    expect(destination.prepare("SELECT COUNT(*) AS n FROM vouchers").get()).toEqual({ n: 1 });
+    expect(destination.prepare("SELECT SUM(CASE WHEN dr_cr='dr' THEN amount ELSE -amount END) AS n FROM voucher_lines").get()).toEqual({ n: 0 });
+    source.close();
+    destination.close();
   });
 });

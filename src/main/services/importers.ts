@@ -47,6 +47,7 @@ export interface ImportPreview {
   errors: CsvError[];
   reconciliation: ImportReconciliation;
   sourceHash: string;
+  normalizedSourceHash?: string;
   alreadyImported: { id: number; appliedAt: string } | null;
 }
 
@@ -56,6 +57,7 @@ export interface ImportResult {
   errors: CsvError[];
   reconciliation: ImportReconciliation;
   sourceHash: string;
+  normalizedSourceHash?: string;
   batchId: number;
 }
 
@@ -72,6 +74,11 @@ export interface ImportReconciliation {
 }
 
 const PREVIEW_CAP = 200;
+
+export interface ImportSourceIdentity {
+  kind: string;
+  rawSource: string;
+}
 
 function physicalDataRows(csvText: string): number {
   // Count logical records, not physical lines: quoted notes may legitimately span lines.
@@ -110,11 +117,15 @@ function decoratePreview(
   kind: ImportKind,
   csvText: string,
   preview: Omit<ImportPreview, "sourceHash" | "alreadyImported">,
+  identity?: ImportSourceIdentity,
 ): ImportPreview {
-  const existing = findImportBatch(db, kind, csvText);
+  const sourceKind = identity?.kind ?? kind;
+  const rawSource = identity?.rawSource ?? csvText;
+  const existing = findImportBatch(db, sourceKind, rawSource);
   return {
     ...preview,
-    sourceHash: importSourceHash(csvText),
+    sourceHash: importSourceHash(rawSource),
+    ...(identity ? { normalizedSourceHash: importSourceHash(csvText) } : {}),
     alreadyImported: existing
       ? { id: existing.id, appliedAt: existing.appliedAt }
       : null,
@@ -480,8 +491,10 @@ function resolveJournalGroups(
 ): { ok: ResolvedJournalGroup[]; errors: CsvError[] } {
   const errors: CsvError[] = [];
   const byGroup = new Map<string, GenericJournalCsvRow[]>();
-  for (const row of rows)
-    byGroup.set(row.group, [...(byGroup.get(row.group) ?? []), row]);
+  for (const row of rows) {
+    const key = JSON.stringify([row.group, row.number, row.date, row.voucherType]);
+    byGroup.set(key, [...(byGroup.get(key) ?? []), row]);
+  }
   const ledgers = db.prepare("SELECT id,name FROM ledgers").all() as {
     id: number;
     name: string;
@@ -495,15 +508,9 @@ function resolveJournalGroups(
     kind: string;
   }[];
   const ok: ResolvedJournalGroup[] = [];
-  for (const [key, groupRows] of byGroup) {
+  for (const [compositeKey, groupRows] of byGroup) {
     const first = groupRows[0]!;
-    if (groupRows.some((row) => row.date !== first.date)) {
-      errors.push({
-        line: first.line,
-        message: `Voucher group "${key}" contains multiple dates`,
-      });
-      continue;
-    }
+    const key = first.group;
     const debit = groupRows.reduce((sum, row) => sum + row.debit, 0),
       credit = groupRows.reduce((sum, row) => sum + row.credit, 0);
     if (debit !== credit) {
@@ -539,7 +546,7 @@ function resolveJournalGroups(
       } else ledgerIds.set(row.line, ledgerId);
     }
     if (!bad)
-      ok.push({ key, rows: groupRows, voucherTypeId: type.id, ledgerIds });
+      ok.push({ key: compositeKey, rows: groupRows, voucherTypeId: type.id, ledgerIds });
   }
   return { ok, errors };
 }
@@ -620,6 +627,7 @@ export function previewImport(
   db: DB,
   kind: ImportKind,
   csvText: string,
+  identity?: ImportSourceIdentity,
 ): ImportPreview {
   const preview =
     kind === "ledgers"
@@ -629,16 +637,20 @@ export function previewImport(
         : kind === "openings"
           ? previewOpenings(db, csvText)
           : previewJournals(db, csvText);
-  return decoratePreview(db, kind, csvText, preview);
+  return decoratePreview(db, kind, csvText, preview, identity);
 }
 
 export function applyImport(
   db: DB,
   kind: ImportKind,
   csvText: string,
+  identity?: ImportSourceIdentity,
 ): ImportResult {
   const run = db.transaction((): ImportResult => {
-    assertImportNotApplied(db, kind, csvText);
+    const sourceKind = identity?.kind ?? kind;
+    const rawSource = identity?.rawSource ?? csvText;
+    const normalizedSourceHash = importSourceHash(csvText);
+    assertImportNotApplied(db, sourceKind, rawSource);
     const result =
       kind === "ledgers"
         ? importLedgers(db, csvText)
@@ -647,20 +659,26 @@ export function applyImport(
           : kind === "openings"
             ? importOpenings(db, csvText)
             : importJournals(db, csvText);
-    const batch = recordImportBatch(db, kind, csvText, {
+    const batch = recordImportBatch(db, sourceKind, rawSource, {
       sourceRows: result.reconciliation.sourceRows,
       acceptedRows: result.reconciliation.acceptedRows,
       rejectedRows: result.reconciliation.rejectedRows,
-      summary: result,
+      summary: { ...result, normalizedSourceHash },
     });
     writeAudit(db, "import_batch", batch.id, "import", null, {
-      kind,
+      kind: sourceKind,
       sourceHash: batch.sourceHash,
+      normalizedSourceHash,
       created: result.created,
       updated: result.updated,
       reconciliation: result.reconciliation,
     });
-    return { ...result, sourceHash: batch.sourceHash, batchId: batch.id };
+    return {
+      ...result,
+      sourceHash: batch.sourceHash,
+      ...(identity ? { normalizedSourceHash } : {}),
+      batchId: batch.id,
+    };
   });
   return run();
 }

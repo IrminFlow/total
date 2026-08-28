@@ -87,15 +87,15 @@ export function buildAutomatedMigrationAcceptance(input: {
   );
   comparisons.push({
     metric: "sourceSha256",
-    expected: normalizedSourceSha256,
+    expected: selectedSourceSha256,
     actual: input.observed.sourceSha256,
     difference: null,
     status:
-      normalizedSourceSha256 === input.observed.sourceSha256 ? "passed" : "failed",
+      selectedSourceSha256 === input.observed.sourceSha256 ? "passed" : "failed",
     explanation:
-      normalizedSourceSha256 === input.observed.sourceSha256
-        ? "The retained import bytes match the mapped fixture payload."
-        : "The retained import bytes do not match the mapped fixture payload; rerun from the retained source file.",
+      selectedSourceSha256 === input.observed.sourceSha256
+        ? "The retained import bytes match the original source-system payload."
+        : "The retained import bytes do not match the original source-system payload; rerun from the retained source file.",
   });
   comparisons.push({
     metric: "internalCertificate",

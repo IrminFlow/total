@@ -2729,4 +2729,27 @@ export const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
+  // 064 - preserve source voucher identity in the seeded accounting migration profiles.
+  `
+  UPDATE import_mapping_profiles
+  SET field_mappings_json = '{"Voucher Group":"Vch No","Date":"Date","Voucher Type":"Vch Type","Number":"Vch No","Ledger":"Account","Debit":"Dr","Credit":"Cr","Narration":"Narration","Reference":"Ref No"}',
+      updated_at = datetime('now')
+  WHERE name = 'Busy voucher export' AND created_by = 'system';
+
+  UPDATE import_mapping_profiles
+  SET field_mappings_json = '{"Voucher Group":"Journal Number","Date":"Journal Date","Voucher Type":"Transaction Type","Number":"Journal Number","Ledger":"Account","Debit":"Debit","Credit":"Credit","Narration":"Description","Reference":"Reference Number"}',
+      updated_at = datetime('now')
+  WHERE name = 'Zoho Books journals' AND created_by = 'system';
+
+  UPDATE import_mapping_profiles
+  SET field_mappings_json = '{"Voucher Group":"Bill No","Date":"Date","Voucher Type":"Voucher Type","Number":"Bill No","Ledger":"Ledger","Debit":"Debit","Credit":"Credit","Narration":"Narration","Reference":"Reference"}',
+      updated_at = datetime('now')
+  WHERE name = 'Marg transaction export' AND created_by = 'system';
+  `,
+  // 065 - semantic replay identity for structured imports such as Tally XML.
+  `
+  ALTER TABLE import_batches ADD COLUMN semantic_hash TEXT CHECK (semantic_hash IS NULL OR length(semantic_hash)=64);
+  CREATE UNIQUE INDEX idx_import_batches_kind_semantic
+    ON import_batches(kind,semantic_hash) WHERE semantic_hash IS NOT NULL;
+  `,
 ];

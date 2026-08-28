@@ -472,10 +472,12 @@ const JOURNAL_ALIASES: Record<string, string[]> = {
 
 function parseImportDate(raw: string): string | null {
   const value = raw.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const match = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-  if (!match) return null;
-  const date = `${match[3]}-${match[2]!.padStart(2, "0")}-${match[1]!.padStart(2, "0")}`;
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const local = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (!iso && !local) return null;
+  const date = iso
+    ? `${iso[1]}-${iso[2]}-${iso[3]}`
+    : `${local![3]}-${local![2]!.padStart(2, "0")}-${local![1]!.padStart(2, "0")}`;
   const parsed = new Date(`${date}T00:00:00Z`);
   return Number.isNaN(parsed.getTime()) ||
     parsed.toISOString().slice(0, 10) !== date

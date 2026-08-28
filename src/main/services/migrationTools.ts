@@ -6,11 +6,11 @@ import type { DB } from "../db/connection";
 import type { CompanyInfo } from "@shared/domain";
 import { parseCsv, rowsToCsv } from "@shared/csv";
 import type { ImportKind, ImportPreview } from "./importers";
-import { previewImport } from "./importers";
+import { applyImport, previewImport, type ImportResult } from "./importers";
 import { companyDir, companyExportsDir } from "../paths";
 import { writeAudit } from "./audit";
 import { signExportIfEnabled } from "./exportSigning";
-import { storeManagedAttachment } from "./attachmentVault";
+import { removeManagedAttachment, storeManagedAttachment } from "./attachmentVault";
 import { assertSafeXlsxContainer } from "./xlsxSafety";
 
 export type MigrationSource = "generic" | "busy" | "zoho_books" | "marg";
@@ -238,12 +238,27 @@ export function previewWithProfile(
 ): { normalizedCsv: string; preview: ImportPreview; dryRun: MigrationDryRun } {
   const normalizedCsv = applyMappingProfile(csvText, profile);
   const kind = profile.targetKind as ImportKind;
-  const preview = previewImport(db, kind, normalizedCsv);
+  const preview = previewImport(db, kind, normalizedCsv, {
+    kind: profile.sourceKind,
+    rawSource: csvText,
+  });
   return {
     normalizedCsv,
     preview,
     dryRun: migrationDryRun(csvText, profile, preview),
   };
+}
+
+export function applyImportWithProfile(
+  db: DB,
+  csvText: string,
+  profile: MappingProfile,
+): ImportResult {
+  const normalizedCsv = applyMappingProfile(csvText, profile);
+  return applyImport(db, profile.targetKind, normalizedCsv, {
+    kind: profile.sourceKind,
+    rawSource: csvText,
+  });
 }
 
 export interface MigrationDryRun {
@@ -411,6 +426,30 @@ function portableContent(pkg: Omit<PortablePackage, "manifest">): string {
   });
 }
 
+const PORTABLE_INTEGER_UNIT_FIELDS = new Set([
+  "opening_balance",
+  "opening_value",
+  "amount",
+  "base_amount",
+  "tds_amount",
+  "basic",
+  "hra",
+  "special",
+  "gross",
+  "pf_emp",
+  "pf_er",
+  "esi_emp",
+  "esi_er",
+  "pt",
+  "net",
+  "rate",
+  "rate_paise",
+]);
+
+function isPortableIntegerUnitField(field: string): boolean {
+  return field.endsWith("_milli") || PORTABLE_INTEGER_UNIT_FIELDS.has(field);
+}
+
 export function validatePortablePackage(input: unknown): PortablePackage {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("Portable package must be a JSON object");
@@ -427,6 +466,18 @@ export function validatePortablePackage(input: unknown): PortablePackage {
   for (const [table, rows] of Object.entries(pkg.entities)) {
     if (!allowed.has(table)) throw new Error(`Portable package contains unsupported table "${table}"`);
     if (!Array.isArray(rows)) throw new Error(`Portable table "${table}" must be an array`);
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || Array.isArray(row))
+        throw new Error(`Portable table "${table}" contains a non-object row`);
+      for (const [field, value] of Object.entries(row)) {
+        if (
+          isPortableIntegerUnitField(field) &&
+          value !== null &&
+          (typeof value !== "number" || !Number.isSafeInteger(value))
+        )
+          throw new Error(`Portable table "${table}" field "${field}" must use integer accounting units`);
+      }
+    }
     if (pkg.manifest.counts[table] !== rows.length)
       throw new Error(`Portable table "${table}" count does not match its manifest`);
   }
@@ -660,7 +711,9 @@ export async function linkImportAttachments(
   folder: string,
   csvText: string,
   actor: string,
-): Promise<{ linked: number; missing: string[] }> {
+): Promise<{ linked: number; missing: string[]; warnings: string[] }> {
+  const batch = db.prepare("SELECT id FROM import_batches WHERE id=?").get(batchId);
+  if (!batch) throw new Error("Import batch not found");
   const records = parseCsv(csvText);
   const headers = (records[0]?.cells ?? []).map((v) => v.trim().toLowerCase());
   const attachmentIndex = headers.findIndex((v) =>
@@ -693,6 +746,7 @@ export async function linkImportAttachments(
   mkdirSync(destination, { recursive: true });
   let linked = 0;
   const missing: string[] = [];
+  const warnings: string[] = [];
   for (const record of records.slice(1)) {
     const name = basename(record.cells[attachmentIndex] ?? "");
     if (!name) continue;
@@ -700,35 +754,56 @@ export async function linkImportAttachments(
       referenceIndex >= 0 ? (record.cells[referenceIndex] ?? "").trim() : "";
     const number =
       numberIndex >= 0 ? (record.cells[numberIndex] ?? "").trim() : "";
-    const voucher = db
+    const vouchers = db
       .prepare(
-        `SELECT id FROM vouchers WHERE (?<>'' AND reference=?) OR (?<>'' AND number=?) ORDER BY id DESC LIMIT 1`,
+        `SELECT DISTINCT id FROM vouchers
+         WHERE deleted_at IS NULL AND ((?<>'' AND reference=?) OR (?<>'' AND number=?))
+         ORDER BY id LIMIT 2`,
       )
-      .get(reference, reference, number, number) as { id: number } | undefined;
-    if (!voucher) {
+      .all(reference, reference, number, number) as Array<{ id: number }>;
+    if (vouchers.length === 0) {
       missing.push(`${name}: voucher not found`);
+      continue;
+    }
+    if (vouchers.length > 1) {
+      warnings.push(`${name}: multiple active vouchers match; attachment requires manual review`);
+      continue;
+    }
+    const voucher = vouchers[0]!;
+    const duplicate = db.prepare(
+      "SELECT id FROM import_voucher_attachments WHERE import_batch_id=? AND source_filename=?",
+    ).get(batchId, name);
+    if (duplicate) {
+      warnings.push(`${name}: already linked for this import batch`);
       continue;
     }
     const source = join(folder, name);
     const extension = extname(name).toLowerCase();
     const portableExtension = /^\.[a-z0-9]{1,12}$/.test(extension) ? extension : "";
     const stored = join(destination, `${randomUUID()}${portableExtension}`);
-    let managedPath: string;
+    let sha256: string;
     try {
-      managedPath = storeManagedAttachment(db, slug, source, stored);
+      sha256 = await fileSha256(source);
     } catch {
       missing.push(`${name}: file not found`);
       continue;
     }
-    const sha256 = await fileSha256(source);
-    db.prepare(
-      `INSERT OR IGNORE INTO import_voucher_attachments(import_batch_id,voucher_id,source_filename,stored_path,sha256,linked_by) VALUES(?,?,?,?,?,?)`,
-    ).run(batchId, voucher.id, name, managedPath, sha256, actor);
-    linked++;
+    let managedPath: string | null = null;
+    try {
+      managedPath = storeManagedAttachment(db, slug, source, stored);
+      db.prepare(
+        `INSERT INTO import_voucher_attachments(import_batch_id,voucher_id,source_filename,stored_path,sha256,linked_by) VALUES(?,?,?,?,?,?)`,
+      ).run(batchId, voucher.id, name, managedPath, sha256, actor);
+      linked++;
+    } catch (error) {
+      if (managedPath) removeManagedAttachment(slug, managedPath);
+      warnings.push(`${name}: ${error instanceof Error ? error.message : "could not be linked"}`);
+    }
   }
   writeAudit(db, "import_attachment", batchId, "import", null, {
     linked,
     missing,
+    warnings,
   });
-  return { linked, missing };
+  return { linked, missing, warnings };
 }

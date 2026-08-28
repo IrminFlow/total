@@ -1,12 +1,12 @@
 import { dialog, shell } from "electron";
-import { readFileSync } from "fs";
 import { z } from "zod";
 import type { CompanyContext, IpcHandle } from "./types";
 import { tallyImportSchema } from "@shared/schemas";
 import { backupCompany } from "../db/connection";
-import { importTallyXml, dryRunTallyXml } from "../services/tallyImport";
+import { importTallyXml, previewTallyXml, tallySemanticHash } from "../services/tallyImport";
+import { readTallyXmlFile, validateTallyXml } from "../services/tallyInput";
 import * as importer from "../services/importers";
-import { findImportBatch, importSourceHash } from "../services/importBatches";
+import { findImportBatch, findSemanticImportBatch, importSourceHash } from "../services/importBatches";
 import * as migrationTools from "../services/migrationTools";
 import * as systemHealthService from "../services/systemHealth";
 import { exportMigrationCertificate } from "../services/migrationCertificate";
@@ -135,7 +135,7 @@ export function registerMigrationHandlers({
       company.slug,
       `pre-import-${profile.sourceKind}`,
     );
-    return importer.applyImport(company.db, profile.targetKind, normalized);
+    return migrationTools.applyImportWithProfile(company.db, csvText, profile);
   });
   handle("import:errorWorkbook", async (payload) => {
     const { fileName, csvText, kind } = z
@@ -225,7 +225,7 @@ export function registerMigrationHandlers({
     if (xml === undefined && filePath !== undefined) {
       if (!dialogIssuedTallyPaths.has(filePath))
         throw new Error("File path must come from the file picker");
-      xml = readFileSync(filePath, "utf8");
+      xml = readTallyXmlFile(filePath);
     }
     if (xml === undefined) {
       const picked = await dialog.showOpenDialog({
@@ -236,17 +236,22 @@ export function registerMigrationHandlers({
       if (picked.canceled || !picked.filePaths[0]) return null;
       resolvedPath = picked.filePaths[0];
       dialogIssuedTallyPaths.add(resolvedPath);
-      xml = readFileSync(resolvedPath, "utf8");
+      xml = readTallyXmlFile(resolvedPath);
     }
+    validateTallyXml(xml);
     if (dryRun) {
+      const parsedSummary = previewTallyXml(company.db, xml);
       const existing = findImportBatch(company.db, "tally", xml);
+      const semanticHash = tallySemanticHash(xml);
+      const semanticExisting = findSemanticImportBatch(company.db, "tally", semanticHash);
       return {
         filePath: resolvedPath ?? null,
         summary: {
-          ...dryRunTallyXml(xml),
+          ...parsedSummary,
           sourceHash: importSourceHash(xml),
-          alreadyImported: existing
-            ? { id: existing.id, appliedAt: existing.appliedAt }
+          semanticHash,
+          alreadyImported: existing ?? semanticExisting
+            ? { id: (existing ?? semanticExisting)!.id, appliedAt: (existing ?? semanticExisting)!.appliedAt }
             : null,
         },
       };
